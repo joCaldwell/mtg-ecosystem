@@ -96,7 +96,10 @@ fn grant(keywords: &[KeywordAbility]) -> (Game, ResolvedEffect, BatchCause) {
     request(&mut g, 1);
     announce(&mut g, 1, 0, vec![]);
     let frame = resolving(&mut g);
-    let targets = g.objects_in_set(&ObjectSet::ControllerPermanents, frame.spell.controller);
+    let targets = g.objects_in_set(
+        &ObjectSet::ControllerPermanents,
+        g.entry(frame.stack_id).unwrap().controller,
+    );
     assert_eq!(targets, [1, 2, 3, 4, 7].map(|id| object(&g, id)));
     let mut target_handles = vec![];
     for target in &targets {
@@ -107,10 +110,14 @@ fn grant(keywords: &[KeywordAbility]) -> (Game, ResolvedEffect, BatchCause) {
         origin: EffectOrigin {
             activated_ability: None,
             mode: None,
-            stack_id: frame.spell.id,
-            source: frame.spell.source,
-            controller: frame.spell.controller,
-            source_handles: frame.spell.effect_source_handles.clone(),
+            stack_id: frame.stack_id,
+            source: g.entry(frame.stack_id).unwrap().source,
+            controller: g.entry(frame.stack_id).unwrap().controller,
+            source_handles: g
+                .entry(frame.stack_id)
+                .unwrap()
+                .effect_source_handles
+                .clone(),
             cursor: frame.cursor,
             source_block: 0,
         },
@@ -122,7 +129,8 @@ fn grant(keywords: &[KeywordAbility]) -> (Game, ResolvedEffect, BatchCause) {
             keywords: keywords.to_vec(),
         },
     };
-    (g, effect, Game::wipe_cause(&frame, 0))
+    let cause = g.instruction_cause(&frame, 0).unwrap();
+    (g, effect, cause)
 }
 
 fn event(effect: ResolvedEffect) -> ProposedEvent {
@@ -333,7 +341,7 @@ fn permanent_set_kernel_single_instruction_projects_pure_grant_and_retains_scala
         unreachable!()
     };
     let frame = frame.clone();
-    let program = g.program_for(&frame.spell).unwrap();
+    let program = g.program_for(g.entry(frame.stack_id).unwrap()).unwrap();
     assert_eq!(program.instructions.len(), 1);
     let instruction = program.instructions[0].clone();
     let before: Vec<_> = [1, 2, 3, 4, 7]
@@ -393,7 +401,11 @@ fn damage_transaction(keywords: &[KeywordAbility], departed: bool) -> Game {
         unreachable!()
     };
     let frame = frame.clone();
-    let instruction = g.program_for(&frame.spell).unwrap().instructions[0].clone();
+    let instruction = g
+        .program_for(g.entry(frame.stack_id).unwrap())
+        .unwrap()
+        .instructions[0]
+        .clone();
     g.execute_wipes_instruction(frame, instruction).unwrap();
     request(&mut g, 1);
     let source = object(&g, 4);
@@ -431,7 +443,7 @@ fn damage_transaction(keywords: &[KeywordAbility], departed: bool) -> Game {
         unreachable!()
     };
     let frame = frame.clone();
-    let facts = g.source_facts(&frame.spell).unwrap();
+    let facts = g.source_facts(g.entry(frame.stack_id).unwrap()).unwrap();
     assert_eq!(facts.object, source);
     assert_eq!(facts.zone, Zone::Battlefield);
     assert_eq!(facts.characteristics.kind, CardKind::Enchantment);

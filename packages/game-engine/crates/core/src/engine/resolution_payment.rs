@@ -33,7 +33,7 @@ impl Game {
         frame: &'a Resolving,
     ) -> Result<(PaymentPurpose, &'a Quantity, u32), String> {
         match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -66,8 +66,8 @@ impl Game {
         match purpose {
             PaymentPurpose::Counter { target_slot } => {
                 let slot = target_slot as usize;
-                let target = frame
-                    .spell
+                let target = self
+                    .entry(frame.stack_id)?
                     .stack_targets
                     .get(slot)
                     .ok_or("missing conditional counter target")?;
@@ -82,7 +82,7 @@ impl Game {
                     .find(|s| s.id == *target)
                     .map(|s| s.controller))
             }
-            PaymentPurpose::CastPayerDraw => match &frame.spell.kind {
+            PaymentPurpose::CastPayerDraw => match &self.entry(frame.stack_id)?.kind {
                 StackKind::Triggered {
                     witness: TriggerEventWitness::SpellCast { cast },
                     ..
@@ -220,7 +220,7 @@ impl Game {
                         spending,
                         restricted: vec![],
                     },
-                    Self::staple_cause(&frame, source_block),
+                    self.instruction_cause(&frame, source_block)?,
                 )?;
                 return self.finish_instruction(
                     frame,

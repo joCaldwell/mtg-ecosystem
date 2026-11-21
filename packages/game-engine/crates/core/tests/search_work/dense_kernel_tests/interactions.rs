@@ -1813,7 +1813,7 @@ fn combat_row(timed: bool, quantum: u64) -> serde_json::Value {
             .rules
             .objects
             .keys()
-            .all(|id| balanced.state.rules.cards[id].owner != PlayerId(1))
+            .all(|id| balanced.state.rules.cards[&id].owner != PlayerId(1))
     );
     drop(balanced);
     let mut g = game_layout(t, false, true, true);

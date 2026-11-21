@@ -429,9 +429,9 @@ fn ramos_split_zero_singleton_remainder_shuffle_controls() {
                 unreachable!()
             };
             let cause = BatchCause::Instruction {
-                stack_id: frame.spell.id,
-                player: frame.spell.controller,
-                source: frame.spell.source,
+                stack_id: frame.stack_id,
+                player: g.entry(frame.stack_id).unwrap().controller,
+                source: g.entry(frame.stack_id).unwrap().source,
                 cursor: frame.cursor,
                 source_block: 0,
             };

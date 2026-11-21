@@ -606,23 +606,32 @@ fn nested_hand_resolution_cost_source_and_cursor_forgery_fail_independent_restor
     for mutation in 0..5 {
         let mut snapshot: serde_json::Value =
             serde_json::from_str(&game.snapshot().unwrap()).unwrap();
-        let frame = &mut snapshot["state"]["frame"]["continuation"]["frame"];
+        // The frame names its invocation; the resolving stack entry is the
+        // single owner of the invocation's cost and source.
+        let stack_id = snapshot["state"]["frame"]["continuation"]["frame"]["stack_id"].clone();
+        let owner = snapshot["state"]["stack"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|entry| entry["id"] == stack_id)
+            .expect("resolving owner on the stack");
         match mutation {
             0 => {
-                frame["spell"]["total_cost"]["generic"] = "5".into();
-                frame["spell"]["paid"]["generic"] = "5".into();
+                owner["total_cost"]["generic"] = "5".into();
+                owner["paid"]["generic"] = "5".into();
             }
             1 => {
-                frame["spell"]["cast_from"] = serde_json::json!({"zone":"command","owner":1});
+                owner["cast_from"] = serde_json::json!({"zone":"command","owner":1});
             }
             2 => {
-                frame["spell"]["source"]["incarnation"] = 999.into();
+                owner["source"]["incarnation"] = 999.into();
             }
             3 => {
-                frame["legal_targets"][0] = false.into();
+                snapshot["state"]["frame"]["continuation"]["frame"]["legal_targets"][0] =
+                    false.into();
             }
             _ => {
-                frame["cursor"] = 1.into();
+                snapshot["state"]["frame"]["continuation"]["frame"]["cursor"] = 1.into();
             }
         }
         snapshot["state_sha256"] = mtg_contracts::digest(&snapshot["state"]).unwrap().into();

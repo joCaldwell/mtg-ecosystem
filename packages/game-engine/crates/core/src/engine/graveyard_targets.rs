@@ -88,8 +88,8 @@ impl Game {
         &self,
         frame: &'a Resolving,
     ) -> Result<(&'a [bool], u8), String> {
-        let program = self.program_for(&frame.spell)?;
-        if let Some(children) = self.mixed_mode_children(&frame.spell)? {
+        let program = self.program_for(self.entry(frame.stack_id)?)?;
+        if let Some(children) = self.mixed_mode_children(self.entry(frame.stack_id)?)? {
             let index = frame.cursor as usize;
             let child = children.get(index).ok_or("missing selected shuffle mode")?;
             let max = mtg_contracts::graveyard_shuffle::offered_by(child)
@@ -115,21 +115,21 @@ impl Game {
         frame: &Resolving,
         block: u32,
     ) -> Result<(PlayerId, Vec<ObjectId>), String> {
-        let p = self.program_for(&frame.spell)?;
+        let p = self.program_for(self.entry(frame.stack_id)?)?;
         let (legal, maximum) = self.graveyard_legality(frame)?;
         if !matches!(p.instructions.get(frame.cursor as usize),Some(Instruction::ShufflePlayerGraveyard{source_block}) if *source_block==block)
-            || !self.graveyard_group_structure(&frame.spell.entity_targets, maximum)
-            || frame.spell.kind.is_spell() == false
-            || frame.spell.paid.is_none()
-            || legal.len() != frame.spell.entity_targets.len()
+            || !self.graveyard_group_structure(&self.entry(frame.stack_id)?.entity_targets, maximum)
+            || self.entry(frame.stack_id)?.kind.is_spell() == false
+            || self.entry(frame.stack_id)?.paid.is_none()
+            || legal.len() != self.entry(frame.stack_id)?.entity_targets.len()
         {
             return Err("invalid resolving graveyard shuffle".into());
         }
-        let TargetEntity::Player { player } = frame.spell.entity_targets[0] else {
+        let TargetEntity::Player { player } = self.entry(frame.stack_id)?.entity_targets[0] else {
             return Err("missing shuffle recipient".into());
         };
-        let ids = frame
-            .spell
+        let ids = self
+            .entry(frame.stack_id)?
             .entity_targets
             .iter()
             .zip(legal)
@@ -229,7 +229,7 @@ impl Game {
                 })
                 .collect();
             self.commit_graveyard_shuffle_moves(GraveyardShuffleMoves {
-                cause: Self::staple_cause(&frame, block),
+                cause: self.instruction_cause(&frame, block)?,
                 group: EventGroup::Simultaneous { occurrences },
             })?;
         }

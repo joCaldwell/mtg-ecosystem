@@ -119,7 +119,7 @@ impl Game {
     }
 
     fn counter_instruction<'a>(&'a self, frame: &'a Resolving) -> Result<&'a Instruction, String> {
-        self.program_for(&frame.spell)?
+        self.program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
             .ok_or_else(|| "missing counter placement instruction".into())
@@ -155,11 +155,11 @@ impl Game {
                 source_block,
             } => {
                 let object = match on {
-                    CounterRecipient::Source => Some(&frame.spell.source),
+                    CounterRecipient::Source => Some(&self.entry(frame.stack_id)?.source),
                     CounterRecipient::Target { target_slot }
                         if frame.legal_targets.get(*target_slot as usize) == Some(&true) =>
                     {
-                        self.bound_object_target(&frame.spell, *target_slot as usize)
+                        self.bound_object_target(self.entry(frame.stack_id)?, *target_slot as usize)
                     }
                     _ => None,
                 };
@@ -170,14 +170,15 @@ impl Game {
                 source_block
             }
             Instruction::PutSourcePlusOneCountersForCastColors { source_block } => {
-                if !matches!(allocations, [(object, _)] if *object == frame.spell.source) {
+                if !matches!(allocations, [(object, _)] if *object == self.entry(frame.stack_id)?.source)
+                {
                     return Err("cast color counter allocation mismatch".into());
                 }
                 source_block
             }
             _ => return Err("counter placement instruction origin".into()),
         };
-        if frame.stack_id != frame.spell.id || *cause != Self::staple_cause(frame, *block) {
+        if frame.stack_id != frame.stack_id || *cause != self.instruction_cause(frame, *block)? {
             return Err("counter placement cause".into());
         }
         Ok(())
@@ -562,7 +563,7 @@ impl Game {
             return Err("counter placement transaction size/cursor".into());
         }
         if let Instruction::Proliferate { source_block } = self.counter_instruction(&tx.frame)? {
-            if tx.cause != Self::staple_cause(&tx.frame, *source_block)
+            if tx.cause != self.instruction_cause(&tx.frame, *source_block)?
                 || tx.members.len() > self.state.rules.cards.len()
                 || !tx
                     .members
@@ -639,12 +640,11 @@ impl Game {
     }
     pub(super) fn counter_placement_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
-        let Frame::CounterPlacement { transaction } = frame else {
+        if !matches!(frame, Frame::CounterPlacement { .. }) {
             return 0;
-        };
-        let spell = &transaction.frame.spell;
+        }
+        // The frame names its invocation; the invocation's owner is charged
+        // for its cost lock and grant payload.
         stored_history::payload_charge(frame)
-            .saturating_sub(costs::entry_cost_lock_charge(spell))
-            .saturating_sub(spell_cascade_grants::entry_grant_charge(spell))
     }
 }

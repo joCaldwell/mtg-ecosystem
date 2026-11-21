@@ -21,7 +21,7 @@ pub struct ColoredCardAssignment {
 impl Game {
     fn colored_slots<'a>(&'a self, frame: &'a Resolving) -> Result<&'a [Color], String> {
         match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -194,7 +194,7 @@ impl Game {
                     });
                 }
                 self.commit_batch(
-                    Self::staple_cause(&frame, source_block),
+                    self.instruction_cause(&frame, source_block)?,
                     EventGroup::Simultaneous {
                         occurrences: revealed
                             .iter()

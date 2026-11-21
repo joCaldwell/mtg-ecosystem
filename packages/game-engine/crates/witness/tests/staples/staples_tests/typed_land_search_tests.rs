@@ -371,7 +371,10 @@ fn typed_land_search_paid_sources_zero_one_two_private_query_restore_replay() {
                             1 => *split = !*split,
                             2 => *source_block += 1,
                             3 => frame.cursor += 1,
-                            _ => frame.spell.controller = PlayerId(1),
+                            _ => {
+                                forged.state.rules.stack.last_mut().unwrap().controller =
+                                    PlayerId(1)
+                            }
                         };
                         assert!(
                             Game::restore(g.prepared.as_ref().clone(), &forged.snapshot().unwrap())
@@ -541,9 +544,9 @@ fn typed_land_search_synthetic_generic_maximum_and_small_shuffle_controls() {
                 unreachable!()
             };
             let cause = BatchCause::Instruction {
-                stack_id: frame.spell.id,
+                stack_id: frame.stack_id,
                 player: PlayerId(0),
-                source: frame.spell.source,
+                source: g.entry(frame.stack_id).unwrap().source,
                 cursor: frame.cursor,
                 source_block: 0,
             };

@@ -9,7 +9,7 @@ impl Game {
         frame: &Resolving,
     ) -> Result<Option<NonZeroU32>, String> {
         let instruction = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
             .ok_or("missing shuffle instruction")?;
@@ -88,7 +88,7 @@ impl Game {
         {
             return Ok(None);
         }
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         let mut count = 0;
         for land in self.state.rules.objects.values() {
             if land.present_on_battlefield()
@@ -97,7 +97,7 @@ impl Game {
             {
                 count += 1;
                 if count == minimum.get() {
-                    let cause = Self::staple_cause(frame, source_block);
+                    let cause = self.instruction_cause(frame, source_block)?;
                     return self
                         .commit(ProposedEvent::Untap { object }, cause)
                         .map(Some);

@@ -7,7 +7,7 @@ impl Game {
         frame: &Resolving,
     ) -> Result<LibraryRemainder, String> {
         match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -27,13 +27,13 @@ impl Game {
             source_block: expected,
             ..
         }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
             return Err("selection source binding invariant".into());
         };
-        if player != frame.spell.controller
+        if player != self.entry(frame.stack_id)?.controller
             || source_block != *expected
             || amount <= &Quantity::zero()
             || looked.is_empty()
@@ -67,7 +67,7 @@ impl Game {
         amount: Quantity,
         source_block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -157,7 +157,7 @@ impl Game {
         source_block: u32,
         to_command: bool,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -167,7 +167,7 @@ impl Game {
             remainder: destination,
             source_block: expected,
         }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
             .cloned()

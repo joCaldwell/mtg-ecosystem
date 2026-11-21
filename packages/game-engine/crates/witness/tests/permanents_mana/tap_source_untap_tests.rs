@@ -493,7 +493,7 @@ fn tap_source_untap_departed_target_and_actual_flash_reentry_cannot_rebind() {
         recover(&g);
         resolve_start(&mut g);
         assert!(
-            matches!(&g.state.rules.frame, Frame::Resolve { frame } if frame.spell.id == ability && frame.legal_targets == [false])
+            matches!(&g.state.rules.frame, Frame::Resolve { frame } if frame.stack_id == ability && frame.legal_targets == [false])
         );
         recover(&g);
         finish_to(&mut g, q, 0);

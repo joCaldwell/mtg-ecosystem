@@ -184,7 +184,7 @@ impl Game {
                     progress: CastOwner::LinkedPlay { progress, .. },
                     ..
                 } = &cast.completion
-                && self.is_live(progress.frame.spell.controller)
+                && self.is_live(self.entry(progress.frame.stack_id)?.controller)
             {
                 self.state.rules.frame = Frame::PlayHideawayLinked {
                     progress: progress.clone(),

@@ -479,7 +479,7 @@ fn library_selection_late_group_failure_rolls_back_every_movement_and_memory() {
         let cause = BatchCause::Instruction {
             stack_id: frame.stack_id,
             player: PlayerId(0),
-            source: frame.spell.source,
+            source: g.entry(frame.stack_id).unwrap().source,
             cursor: frame.cursor,
             source_block: 0,
         };

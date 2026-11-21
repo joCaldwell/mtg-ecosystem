@@ -179,7 +179,7 @@ impl SampleBuildWork {
             setup: None,
         });
         for knowledge in &mut game.state.knowledge.visibility {
-            *knowledge = visibility::Knowledge::default();
+            *knowledge = visibility::Knowledge::default().into();
             // A permission namespace is public metadata, never a hash of the
             // hidden proposal/capture. Otherwise every policy view would carry
             // a hidden-world fingerprint. Executor/state brands isolate worlds.

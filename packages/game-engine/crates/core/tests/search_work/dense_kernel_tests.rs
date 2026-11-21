@@ -299,9 +299,9 @@ fn first_write(game: &Game, quantum: u64) -> Game {
         Some(&expected_mana)
     );
     for (id, original) in &game.state.rules.objects {
-        if *id != CardId(0) {
+        if id != CardId(0) {
             assert_eq!(
-                branch.state.rules.objects.get(id),
+                branch.state.rules.objects.get(&id),
                 Some(original),
                 "first-write object footprint"
             );

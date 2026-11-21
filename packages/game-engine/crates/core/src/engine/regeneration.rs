@@ -64,7 +64,7 @@ impl Game {
             let forbidden = match finish {
                 GroupFinish::Instruction { frame, .. } => {
                     let instruction = self
-                        .program_for(&frame.spell)?
+                        .program_for(self.entry(frame.stack_id)?)?
                         .instructions
                         .get(frame.cursor as usize)
                         .ok_or("missing destroy instruction")?;

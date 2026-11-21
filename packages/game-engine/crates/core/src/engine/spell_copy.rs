@@ -29,8 +29,8 @@ impl Game {
         source_block: u32,
     ) -> Result<(), String> {
         let slot = target_slot as usize;
-        let target = *frame
-            .spell
+        let target = *self
+            .entry(frame.stack_id)?
             .stack_targets
             .get(slot)
             .ok_or("missing copy target")?;
@@ -53,7 +53,7 @@ impl Game {
                 InstructionOutcome::StackObjectNoLongerPresent { target },
             );
         };
-        let controller = frame.spell.controller;
+        let controller = self.entry(frame.stack_id)?.controller;
         if !self.is_live(controller) {
             return self.finish_instruction(
                 frame,
@@ -85,7 +85,7 @@ impl Game {
         let stack_id = StackId(self.state.rules.next_stack_id);
         let target = copy.id;
         let identity = TokenIdentity {
-            source: frame.spell.source,
+            source: self.entry(frame.stack_id)?.source,
             spec: TokenTemplate::SpellCopy {
                 original: copy.source,
                 stack_id,
@@ -108,31 +108,28 @@ impl Game {
         copy.cast_from = Zone::Stack;
         self.state.rules.stack.push(copy);
         self.record_event(Event::SpellCopied {
-            cause: Self::wipe_cause(frame, source_block),
+            cause: self.instruction_cause(frame, source_block)?,
             target,
             copy: stack_id,
             object,
         })?;
         Ok(CopyIdentity { card, stack_id })
     }
-    pub(super) fn demonstrate_cast<'a>(
-        &self,
-        frame: &'a Resolving,
-    ) -> Result<&'a CastOccurrence, String> {
+    pub(super) fn demonstrate_cast(&self, frame: &Resolving) -> Result<&CastOccurrence, String> {
         let StackKind::Triggered {
             ability,
             witness: TriggerEventWitness::SpellCast { cast },
             ..
-        } = &frame.spell.kind
+        } = &self.entry(frame.stack_id)?.kind
         else {
             return Err("demonstrate requires a cast trigger".into());
         };
         if self
-            .effective_trigger(frame.spell.source, *ability)?
+            .effective_trigger(self.entry(frame.stack_id)?.source, *ability)?
             .condition
             != TriggerCondition::SelfSpellCast
-            || cast.spell.object != frame.spell.source
-            || cast.caster != frame.spell.controller
+            || cast.spell.object != self.entry(frame.stack_id)?.source
+            || cast.caster != self.entry(frame.stack_id)?.controller
             || cast.stack_id >= frame.stack_id
         {
             return Err("demonstrate cast/source binding".into());
@@ -176,7 +173,7 @@ impl Game {
             {
                 return Err("unsupported demonstrate last-known announcement choices".into());
             }
-            let mut original = frame.spell.clone();
+            let mut original = self.entry(frame.stack_id)?.clone();
             original.kind = StackKind::Spell;
             original.id = cast.stack_id;
             original.alternative_cost = (cast.cast_from == Zone::Exile
@@ -193,7 +190,7 @@ impl Game {
         first: Option<CopyIdentity>,
         source_block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) || (first.is_some() && self.opponents(player).is_empty()) {
             self.state.rules.pending = None;
             return self.finish_instruction(
@@ -251,14 +248,17 @@ impl Game {
         frame: &Resolving,
     ) -> Result<Vec<StackId>, String> {
         if let Some(copy) = frame.copied_child() {
+            let source = self.entry(frame.stack_id)?.source;
             if !matches!(
-                self.program_for(&frame.spell)?.instructions.as_slice(),
+                self.program_for(self.entry(frame.stack_id)?)?
+                    .instructions
+                    .as_slice(),
                 [Instruction::CopyControlledCreatureSpell { .. }]
-            ) || self.invocation_lives(&frame.spell)
+            ) || self.invocation_lives(self.entry(frame.stack_id)?)
                 && !self.state.rules.stack.last().is_some_and(|top| {
                     top.id == copy
                         && self.is_spell_copy(top)
-                        && self.state.rules.tokens[&top.source.card].source == frame.spell.source
+                        && self.state.rules.tokens[&top.source.card].source == source
                 })
             {
                 return Err("snapshot resolving spell copy authority".into());
@@ -282,7 +282,9 @@ impl Game {
             _ => return Ok(vec![]),
         };
         if !matches!(
-            self.program_for(&frame.spell)?.instructions.as_slice(),
+            self.program_for(self.entry(frame.stack_id)?)?
+                .instructions
+                .as_slice(),
             [Instruction::Demonstrate { .. }]
         ) {
             return Err("demonstrate resolving instruction binding".into());

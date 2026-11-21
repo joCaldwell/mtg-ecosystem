@@ -5,12 +5,12 @@ use super::*;
 use mtg_contracts::EffectRecipient;
 
 impl Resolving {
-    pub(super) fn entry_search_player(&self) -> PlayerId {
+    pub(super) fn entry_search_player(&self, game: &Game) -> Result<PlayerId, String> {
         match self.outcomes.last() {
             Some(InstructionOutcome::OptionalBlock {
                 accepted_by: Some(player),
-            }) => *player,
-            _ => self.spell.controller,
+            }) => Ok(*player),
+            _ => Ok(game.entry(self.stack_id)?.controller),
         }
     }
 }
@@ -22,7 +22,7 @@ impl Game {
         recipient: &EffectRecipient,
     ) -> Result<Option<PlayerId>, String> {
         match recipient {
-            EffectRecipient::Controller => Ok(Some(frame.spell.controller)),
+            EffectRecipient::Controller => Ok(Some(self.entry(frame.stack_id)?.controller)),
             EffectRecipient::TargetController { target_slot }
                 if frame.legal_targets.get(*target_slot as usize) == Some(&true) =>
             {
@@ -66,7 +66,7 @@ impl Game {
             following,
             source_block: expected,
         }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
@@ -110,7 +110,13 @@ impl Game {
         let end = next
             .checked_add(following)
             .ok_or("optional block size overflow")?;
-        if following == 0 || end as usize > self.program_for(&frame.spell)?.instructions.len() {
+        if following == 0
+            || end as usize
+                > self
+                    .program_for(self.entry(frame.stack_id)?)?
+                    .instructions
+                    .len()
+        {
             return Err("invalid optional block extent".into());
         }
         if accepted_by.is_some() {

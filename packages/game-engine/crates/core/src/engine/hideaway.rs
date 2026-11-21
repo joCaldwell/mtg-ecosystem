@@ -161,11 +161,11 @@ impl Game {
             witness,
             grant: None,
             ..
-        } = &frame.spell.kind
+        } = &self.entry(frame.stack_id)?.kind
         else {
             return Err("hideaway requires its intrinsic entry trigger".into());
         };
-        let source = frame.spell.source;
+        let source = self.entry(frame.stack_id)?.source;
         let ability = self
             .copiable_definition(source)?
             .triggered
@@ -198,7 +198,7 @@ impl Game {
     }
 
     pub(super) fn begin_hideaway(&mut self, frame: Resolving) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -227,7 +227,7 @@ impl Game {
         bottom: Option<&RandomBottom>,
     ) -> Result<(), String> {
         let (count, _) = self.hideaway_spec(frame)?;
-        if player != frame.spell.controller
+        if player != self.entry(frame.stack_id)?.controller
             || looked.is_empty()
             || looked.len() > count as usize
             || looked.len() > self.state.rules.cards.len()
@@ -319,7 +319,7 @@ impl Game {
                         selected: bottom.selected,
                         bottom: bottom.order,
                     },
-                    Self::wipe_cause(&frame, block),
+                    self.instruction_cause(&frame, block)?,
                 )?;
                 return self.finish_instruction(
                     frame,
@@ -362,7 +362,7 @@ impl Game {
         let (_, block) = self.hideaway_spec(frame)?;
         if !self.is_live(*player)
             || bottom.remaining > 1
-            || *cause != Self::wipe_cause(frame, block)
+            || *cause != self.instruction_cause(frame, block)?
             || !matches!(proposed, ProposedEvent::Hideaway { player:p,looked:l,selected,bottom:b } if p == player && l == looked && *selected == bottom.selected && *b == bottom.order)
         {
             return Err("unbound hideaway exile or random bottom".into());
@@ -381,8 +381,8 @@ impl Game {
             return Err("missing hideaway frame".into());
         };
         let (_, source_block) = self.hideaway_spec(frame)?;
-        let source = frame.spell.source;
-        let StackKind::Triggered { source_handles, .. } = &frame.spell.kind else {
+        let source = self.entry(frame.stack_id)?.source;
+        let StackKind::Triggered { source_handles, .. } = &self.entry(frame.stack_id)?.kind else {
             return Err("missing hideaway trigger handles".into());
         };
         let source_handles = source_handles

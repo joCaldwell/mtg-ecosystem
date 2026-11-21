@@ -50,21 +50,16 @@ pub fn entry_cost_lock_charge(entry: &StackInstance) -> usize {
 }
 impl Game {
     pub(crate) fn cost_lock_charge(&self) -> usize {
-        let mut charge = self
-            .state
-            .rules
+        // Every invocation has one owner: its stack entry, or the detached
+        // table while a frame still resolves it.
+        let rules = &self.state.rules;
+        rules
             .stack
             .iter()
-            .filter_map(|s| s.cost_lock.as_ref())
-            .fold(0usize, |n, lock| {
-                n.saturating_add(stored_history::payload_charge(lock))
-            });
-        // Cascade owners are already charged in full by cascade_charge.
-        if let Some(entry) = spell_cascade_grants::retained_resolving_entry(&self.state.rules.frame)
-        {
-            charge = charge.saturating_add(entry_cost_lock_charge(entry));
-        }
-        charge
+            .chain(rules.detached.values())
+            .fold(0usize, |n, entry| {
+                n.saturating_add(entry_cost_lock_charge(entry))
+            })
     }
 
     pub(super) fn cost_lock_inputs(

@@ -668,13 +668,7 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
             let keys = BTreeSet::from([FactKey::Mana(*player)]);
             let mut reads = keys.clone();
             if game.has_unspent_mana_converter() {
-                reads.extend(
-                    game.state
-                        .rules
-                        .objects
-                        .keys()
-                        .map(|card| FactKey::Object(*card)),
-                );
+                reads.extend(game.state.rules.objects.keys().map(FactKey::Object));
             }
             (reads, keys)
         }
@@ -977,7 +971,7 @@ impl Game {
             )
         });
         let effects = if effects_event {
-            self.state.rules.effects.clone()
+            self.state.rules.effects.to_vec()
         } else {
             let reversed_shields = events
                 .iter()
@@ -1751,7 +1745,7 @@ impl Game {
             };
             self.validate_resolving(frame)?;
             let instruction = self
-                .program_for(&frame.spell)?
+                .program_for(self.entry(frame.stack_id)?)?
                 .instructions
                 .get(frame.cursor as usize);
             let authorized_block = match (&group, instruction) {
@@ -1760,7 +1754,7 @@ impl Game {
                         proposed: ProposedEvent::PhaseOutControlled { controller },
                     },
                     Some(Instruction::PhaseOutControllerPermanents { source_block }),
-                ) if *controller == frame.spell.controller => Some(*source_block),
+                ) if *controller == self.entry(frame.stack_id)?.controller => Some(*source_block),
                 (
                     EventGroup::Occurrence {
                         proposed: ProposedEvent::PhaseOutTarget { object },
@@ -1769,7 +1763,8 @@ impl Game {
                         target_slot,
                         source_block,
                     }),
-                ) if self.bound_object_target(&frame.spell, *target_slot as usize)
+                ) if self
+                    .bound_object_target(self.entry(frame.stack_id)?, *target_slot as usize)
                     == Some(object)
                     && frame.legal_targets.get(*target_slot as usize) == Some(&true)
                     && self
@@ -1783,13 +1778,16 @@ impl Game {
                         proposed: ProposedEvent::FreezeLifeUntilNextTurn { player },
                     },
                     Some(Instruction::FreezeControllerLifeUntilNextTurn { source_block }),
-                ) if *player == frame.spell.controller => Some(*source_block),
+                ) if *player == self.entry(frame.stack_id)?.controller => Some(*source_block),
                 _ => None,
             };
-            if !frame.spell.kind.is_spell()
-                || frame.spell.paid.is_none()
-                || self.top()? != &frame.spell
-                || !authorized_block.is_some_and(|block| cause == Self::wipe_cause(frame, block))
+            if !self.entry(frame.stack_id)?.kind.is_spell()
+                || self.entry(frame.stack_id)?.paid.is_none()
+                || self.top()? != self.entry(frame.stack_id)?
+                || !authorized_block.is_some_and(|block| {
+                    self.instruction_cause(frame, block)
+                        .is_ok_and(|expected| cause == expected)
+                })
             {
                 return Err("status change requires the matching paid spell instruction".into());
             }
@@ -1838,7 +1836,7 @@ impl Game {
                 );
             };
             self.validate_resolving(frame)?;
-            if cause != Self::staple_cause(frame, *source_block) {
+            if cause != self.instruction_cause(frame, *source_block)? {
                 return Err("color effect creation cause mismatch".into());
             }
         }
@@ -1878,7 +1876,7 @@ impl Game {
                 return Err("regeneration shield requires a single occurrence".into());
             };
             self.validate_resolving(frame)?;
-            if cause != Self::staple_cause(frame, effect.origin.source_block) {
+            if cause != self.instruction_cause(frame, effect.origin.source_block)? {
                 return Err("regeneration shield creation cause mismatch".into());
             }
             BatchAuthority::CreateRegenerationShield
@@ -3483,10 +3481,13 @@ impl Game {
                 let Frame::Resolve { frame } = &self.state.rules.frame else {
                     return Err("transform requires its resolving activation".into());
                 };
-                if frame.spell.source != *object
-                    || !matches!(frame.spell.kind, StackKind::Activated { .. })
+                if self.entry(frame.stack_id)?.source != *object
                     || !matches!(
-                        self.program_for(&frame.spell)?
+                        self.entry(frame.stack_id)?.kind,
+                        StackKind::Activated { .. }
+                    )
+                    || !matches!(
+                        self.program_for(self.entry(frame.stack_id)?)?
                             .instructions
                             .get(frame.cursor as usize),
                         Some(Instruction::TransformSource { .. })

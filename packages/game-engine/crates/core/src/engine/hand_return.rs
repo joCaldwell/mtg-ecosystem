@@ -20,7 +20,7 @@ impl Game {
     }
     fn hand_return_instruction(&self, frame: &Resolving) -> Result<(Quantity, u32), String> {
         match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -55,7 +55,7 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         let (_, b) = self.hand_return_instruction(frame)?;
-        if player != frame.spell.controller || b != block {
+        if player != self.entry(frame.stack_id)?.controller || b != block {
             return Err("hand return source binding".into());
         }
         Ok(())
@@ -88,7 +88,7 @@ impl Game {
         count: Quantity,
         block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -154,7 +154,7 @@ impl Game {
         choices: Vec<(ObjectId, bool)>,
         block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -187,9 +187,9 @@ impl Game {
                 command,
             },
             BatchCause::Instruction {
-                stack_id: frame.spell.id,
+                stack_id: frame.stack_id,
                 player,
-                source: frame.spell.source,
+                source: self.entry(frame.stack_id)?.source,
                 cursor: frame.cursor,
                 source_block: block,
             },
@@ -210,7 +210,12 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        self.validate_hand_return(frame, frame.spell.controller, block, objects)?;
+        self.validate_hand_return(
+            frame,
+            self.entry(frame.stack_id)?.controller,
+            block,
+            objects,
+        )?;
         let expected = objects
             .iter()
             .filter(|o| self.state.rules.commanders.history(o.card).is_some())

@@ -21,7 +21,7 @@ pub(super) fn self_graveyard_successor(
 impl Game {
     pub(super) fn is_successor_tuck(&self, frame: &Resolving) -> Result<bool, String> {
         Ok(matches!(
-            self.program_for(&frame.spell)?
+            self.program_for(self.entry(frame.stack_id)?)?
                 .instructions
                 .get(frame.cursor as usize),
             Some(Instruction::MoveTriggeredSuccessor { .. })
@@ -32,7 +32,7 @@ impl Game {
         &self,
         frame: &Resolving,
     ) -> Result<(ObjectId, LibraryPosition, u32), String> {
-        let stack = &frame.spell;
+        let stack = self.entry(frame.stack_id)?;
         let Some(Instruction::MoveTriggeredSuccessor {
             expected_zone: TriggerSuccessorZone::TriggerControllerGraveyard,
             destination: TriggerSuccessorZone::TriggerControllerLibrary,
@@ -55,7 +55,7 @@ impl Game {
 
     pub(super) fn resolve_successor_tuck(&mut self, frame: Resolving) -> Result<(), String> {
         let (object, _, source_block) = self.successor_tuck_instruction(&frame)?;
-        let owner = frame.spell.controller;
+        let owner = self.entry(frame.stack_id)?.controller;
         if self.is_live(owner)
             && self
                 .current(object)
@@ -81,7 +81,7 @@ impl Game {
         to_command: bool,
     ) -> Result<(), String> {
         let (object, position, source_block) = self.successor_tuck_instruction(&frame)?;
-        let stack = &frame.spell;
+        let stack = self.entry(frame.stack_id)?;
         let owner = stack.controller;
         // CR 608.2k/609.3: this move is untargeted and only the original
         // successor in the expected zone is eligible.

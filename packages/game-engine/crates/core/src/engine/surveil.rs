@@ -10,7 +10,7 @@ impl Game {
         looked: &[ObjectId],
         source_block: u32,
     ) -> Result<(), String> {
-        let program = self.program_for(&frame.spell)?;
+        let program = self.program_for(self.entry(frame.stack_id)?)?;
         let Some(Instruction::Surveil {
             amount,
             source_block: expected,
@@ -18,7 +18,7 @@ impl Game {
         else {
             return Err("snapshot surveil instruction binding".into());
         };
-        if player != frame.spell.controller
+        if player != self.entry(frame.stack_id)?.controller
             || source_block != *expected
             || amount <= &Quantity::zero()
             || looked.is_empty()
@@ -42,7 +42,7 @@ impl Game {
         amount: Quantity,
         source_block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -99,7 +99,8 @@ impl Game {
         }
         self.validate_library_partition(player, &looked, &top, &graveyard)?;
         let Instruction::Surveil { amount, .. } =
-            self.program_for(&frame.spell)?.instructions[frame.cursor as usize].clone()
+            self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize]
+                .clone()
         else {
             return Err("surveil instruction invariant".into());
         };
@@ -115,7 +116,7 @@ impl Game {
         graveyard: Vec<ObjectId>,
         source_block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         self.complete_library_effect(
             frame,
             ProposedEvent::Surveil {

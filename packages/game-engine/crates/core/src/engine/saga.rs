@@ -113,31 +113,34 @@ impl Game {
 
 // CR 603.7e: the resolving chapter fixes the controller and the source of the
 // delayed ability. Subsequent entries use their actual battlefield appearance.
+// The registration is the frozen record of what its issuing chapter ability
+// fixed; it names that invocation and holds no copy of its stack entry.
 testkit_fields! {
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct DelayedChapterRegistration {
-        pub(super) issuer: Box<StackInstance>,
+        /// The chapter ability whose resolution issued this registration.
+        pub(super) issuer: StackId,
+        /// That ability's lore trigger and the batch that added the counter.
+        pub(super) trigger_id: TriggerId,
+        pub(super) origin: OccurrenceId,
+        /// Index of the printed chapter ability on the source.
+        pub(super) chapter: u32,
+        pub(super) source: ObjectId,
+        pub(super) controller: PlayerId,
+        /// The source's facts when the chapter ability issued the registration.
+        pub(super) source_facts: ObjectBefore,
+        pub(super) source_handles: Vec<ObjectHandle>,
         pub(super) turn: u64,
     }
 }
 
 impl DelayedChapterRegistration {
     pub(crate) fn chapter(&self) -> Result<u32, String> {
-        match &self.issuer.kind {
-            StackKind::Triggered {
-                ability: EffectiveTriggerAbility::Intrinsic { index },
-                witness: TriggerEventWitness::LoreAdded { .. },
-                ..
-            } => Ok(*index),
-            _ => Err("delayed entry requires its original lore trigger".into()),
-        }
+        Ok(self.chapter)
     }
     pub(super) fn source_handles(&self) -> Result<&[ObjectHandle], String> {
-        match &self.issuer.kind {
-            StackKind::Triggered { source_handles, .. } => Ok(source_handles),
-            _ => Err("missing delayed chapter source handles".into()),
-        }
+        Ok(&self.source_handles)
     }
 }
 
@@ -174,20 +177,69 @@ impl Game {
             _ => Err("missing printed delayed chapter instruction".into()),
         }
     }
+    /// Freezes what the resolving chapter ability `issuer` fixes (CR 603.7e).
+    fn delayed_registration(
+        &self,
+        issuer: &StackInstance,
+    ) -> Result<DelayedChapterRegistration, String> {
+        let StackKind::Triggered {
+            ability: EffectiveTriggerAbility::Intrinsic { index },
+            witness: TriggerEventWitness::LoreAdded { .. },
+            source_handles,
+            trigger_id,
+            event: TriggerOccurrenceId::Batch(origin),
+            ..
+        } = &issuer.kind
+        else {
+            return Err("delayed entry requires its original lore trigger".into());
+        };
+        self.validate_trigger_entry(issuer)?;
+        if issuer.paid.as_ref() != Some(&issuer.total_cost) {
+            return Err("invalid retained delayed chapter issuer".into());
+        }
+        Ok(DelayedChapterRegistration {
+            issuer: issuer.id,
+            trigger_id: *trigger_id,
+            origin: origin.clone(),
+            chapter: *index,
+            source: issuer.source,
+            controller: issuer.controller,
+            source_facts: issuer
+                .source_facts
+                .clone()
+                .ok_or("missing delayed source facts")?,
+            source_handles: source_handles.clone(),
+            turn: self.state.rules.turn.number,
+        })
+    }
     pub(super) fn validate_delayed_registration(
         &self,
         registration: &DelayedChapterRegistration,
     ) -> Result<(), String> {
-        let issuer = &registration.issuer;
-        let chapter = registration.chapter()?;
-        self.delayed_chapter_program(issuer.source, chapter)?;
-        self.validate_trigger_entry(issuer)?;
-        if issuer.id.0 >= self.state.rules.next_stack_id
-            || issuer.paid.as_ref() != Some(&issuer.total_cost)
+        self.delayed_chapter_program(registration.source, registration.chapter)?;
+        let facts = &registration.source_facts;
+        if registration.issuer.0 >= self.state.rules.next_stack_id
+            || registration.trigger_id.0 >= self.state.rules.next_trigger_id
+            || registration.origin.batch >= self.state.rules.next_batch_id
+            || registration.controller.0 >= 4
+            || registration.source_handles.len() != 4
+            || facts.object != registration.source
             || registration.turn == 0
             || registration.turn > self.state.rules.turn.number
         {
             return Err("invalid retained delayed chapter issuer".into());
+        }
+        // While the issuing ability still has an owner, the record must be
+        // exactly what that invocation fixes.
+        if let Ok(issuer) = self.entry(registration.issuer) {
+            let mut fixed = self.delayed_registration(issuer)?;
+            fixed.turn = registration.turn;
+            // The invocation's same-incarnation facts can refresh on a
+            // departure; the registration keeps its original (CR 113.7a).
+            fixed.source_facts.clone_from(&registration.source_facts);
+            if fixed != *registration {
+                return Err("invalid retained delayed chapter issuer".into());
+            }
         }
         Ok(())
     }
@@ -200,13 +252,10 @@ impl Game {
         let mut trigger_ids = BTreeSet::new();
         for row in rows {
             self.validate_delayed_registration(row)?;
-            let StackKind::Triggered { trigger_id, .. } = row.issuer.kind else {
-                return Err("delayed chapter has no original trigger".into());
-            };
             if row.turn != self.state.rules.turn.number
-                || !self.is_live(row.issuer.controller)
-                || !stack_ids.insert(row.issuer.id)
-                || !trigger_ids.insert(trigger_id)
+                || !self.is_live(row.controller)
+                || !stack_ids.insert(row.issuer)
+                || !trigger_ids.insert(row.trigger_id)
             {
                 return Err("duplicate or expired delayed chapter registration".into());
             }
@@ -231,12 +280,9 @@ impl Game {
             return Err("wrong delayed chapter cursor".into());
         }
         let issuer = frame.stack_id;
-        let row = DelayedChapterRegistration {
-            issuer: Box::new(frame.spell.clone()),
-            turn: self.state.rules.turn.number,
-        };
+        let row = self.delayed_registration(self.entry(issuer)?)?;
         self.validate_delayed_registration(&row)?;
-        if self.is_live(row.issuer.controller) {
+        if self.is_live(row.controller) {
             self.reserve_effect_slot()?;
             self.state.rules.delayed_chapters.push(row);
         }

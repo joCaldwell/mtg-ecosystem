@@ -50,11 +50,12 @@ impl Game {
         if count.is_negative() {
             return Err("negative group discard count".into());
         }
+        let controller = self.entry(frame.stack_id)?.controller;
         let mut group = frame
             .group_discard
             .take()
             .unwrap_or_else(|| GroupDiscardProgress {
-                remaining: self.group_discard_recipients(frame.spell.controller, &scope),
+                remaining: self.group_discard_recipients(controller, &scope),
                 selected: vec![],
             });
         while let Some(&player) = group.remaining.first() {
@@ -86,7 +87,7 @@ impl Game {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
         self.complete_graveyard_group(
-            Self::wipe_cause(&frame, source_block),
+            self.instruction_cause(&frame, source_block)?,
             EventGroup::Simultaneous { occurrences },
             GroupFinish::Instruction {
                 frame,
@@ -121,13 +122,14 @@ impl Game {
             return Ok(());
         };
         let Some(Instruction::DiscardPlayerSet { scope, count, .. }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
             return Err("group discard instruction invariant".into());
         };
-        let recipients = self.group_discard_recipients(frame.spell.controller, scope);
+        let recipients =
+            self.group_discard_recipients(self.entry(frame.stack_id)?.controller, scope);
         if !matches!(
             self.state.rules.frame,
             Frame::Resolve { .. }

@@ -9,7 +9,7 @@ impl Game {
         quantity: ManaResolutionQuantity,
         source_block: u32,
     ) -> Result<(), String> {
-        let controller = frame.spell.controller;
+        let controller = self.entry(frame.stack_id)?.controller;
         let amount = match quantity {
             ManaResolutionQuantity::Fixed { amount } => amount,
             ManaResolutionQuantity::PerMatchingPermanent { mut amount, filter } => {
@@ -37,12 +37,12 @@ impl Game {
                     color,
                     amount,
                     restriction: None,
-                    source: frame.spell.source,
+                    source: self.entry(frame.stack_id)?.source,
                 },
                 BatchCause::Instruction {
-                    stack_id: frame.spell.id,
+                    stack_id: frame.stack_id,
                     player: controller,
-                    source: frame.spell.source,
+                    source: self.entry(frame.stack_id)?.source,
                     cursor: frame.cursor,
                     source_block,
                 },

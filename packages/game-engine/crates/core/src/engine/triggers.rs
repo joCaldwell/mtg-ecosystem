@@ -1126,29 +1126,24 @@ impl Game {
         }
         if let TriggerEventWitness::SpellCast { cast } = &witness {
             for registration in &self.state.rules.delayed_chapters {
-                let issuer = &registration.issuer;
-                if issuer.controller != cast.caster
+                if registration.controller != cast.caster
                     || registration.turn != cast.history.turn_number
-                    || !self.is_live(issuer.controller)
+                    || !self.is_live(registration.controller)
                 {
                     continue;
                 }
-                let chapter = registration.chapter()?;
-                if self.delayed_chapter(issuer.source, chapter)?.0
+                let chapter = registration.chapter;
+                if self.delayed_chapter(registration.source, chapter)?.0
                     != TriggerCondition::DelayedControllerSpellCast
                 {
                     continue;
                 }
-                let facts = issuer
-                    .source_facts
-                    .clone()
-                    .ok_or("missing delayed source facts")?;
                 matched.push((
                     None,
-                    facts,
+                    registration.source_facts.clone(),
                     EffectiveTriggerAbility::DelayedChapter {
                         chapter,
-                        issuer: issuer.id,
+                        issuer: registration.issuer,
                     },
                     None,
                     TriggerEventWitness::DelayedSpellCast {
@@ -1165,27 +1160,20 @@ impl Game {
         {
             let entrant = self.object_before(entrant)?;
             for registration in &self.state.rules.delayed_chapters {
-                let issuer = &registration.issuer;
-                if issuer.controller != entrant.controller
-                    || !self.is_live(issuer.controller)
-                    || self
-                        .delayed_chapter(issuer.source, registration.chapter()?)?
-                        .0
+                let chapter = registration.chapter;
+                if registration.controller != entrant.controller
+                    || !self.is_live(registration.controller)
+                    || self.delayed_chapter(registration.source, chapter)?.0
                         != TriggerCondition::DelayedControllerCreatureEntry
                 {
                     continue;
                 }
-                let facts = issuer
-                    .source_facts
-                    .clone()
-                    .ok_or("missing delayed source facts")?;
-                let chapter = registration.chapter()?;
                 matched.push((
                     None,
-                    facts,
+                    registration.source_facts.clone(),
                     EffectiveTriggerAbility::DelayedChapter {
                         chapter,
-                        issuer: issuer.id,
+                        issuer: registration.issuer,
                     },
                     None,
                     TriggerEventWitness::DelayedCreatureEntered {
@@ -1237,7 +1225,7 @@ impl Game {
             let controller = match &witness {
                 TriggerEventWitness::DelayedCreatureEntered { registration, .. }
                 | TriggerEventWitness::DelayedSpellCast { registration, .. } => {
-                    registration.issuer.controller
+                    registration.controller
                 }
                 _ => source_facts.controller,
             };
@@ -1885,19 +1873,18 @@ impl Game {
 
             TriggerEventWitness::DelayedSpellCast { registration, cast } => {
                 self.validate_delayed_registration(registration)?;
-                let issuer = &registration.issuer;
                 *condition == TriggerCondition::DelayedControllerSpellCast
                     && matches!(ability, EffectiveTriggerAbility::DelayedChapter {chapter, issuer:id}
-                        if id == issuer.id && chapter == registration.chapter()?)
+                        if id == registration.issuer && chapter == registration.chapter)
                     // The registration retains its original facts. The invocation's
                     // same-incarnation LKI can refresh on departure (CR 113.7a).
-                    && facts.object == issuer.source
-                    && registration.source_handles()? == handles
-                    && source == issuer.source
-                    && controller == issuer.controller
+                    && facts.object == registration.source
+                    && registration.source_handles == handles
+                    && source == registration.source
+                    && controller == registration.controller
                     && cast.caster == controller
                     && cast.history.turn_number == registration.turn
-                    && issuer.id < cast.stack_id
+                    && registration.issuer < cast.stack_id
                     && self.valid_cast_facts(cast)?
                     && death_controller.is_none()
             }
@@ -1907,18 +1894,17 @@ impl Game {
                 entrant,
             } => {
                 self.validate_delayed_registration(registration)?;
-                let issuer = &registration.issuer;
                 self.validate_characteristic_identity(
                     entrant.object,
                     entrant.zone,
                     &entrant.characteristics,
                 )?;
                 *condition == TriggerCondition::DelayedControllerCreatureEntry
-                    && matches!(ability,EffectiveTriggerAbility::DelayedChapter {chapter,issuer:id} if id==issuer.id && chapter==registration.chapter()?)
-                    && issuer.source_facts.as_ref() == Some(facts)
-                    && registration.source_handles()? == handles
-                    && source == issuer.source
-                    && controller == issuer.controller
+                    && matches!(ability,EffectiveTriggerAbility::DelayedChapter {chapter,issuer:id} if id==registration.issuer && chapter==registration.chapter)
+                    && registration.source_facts == *facts
+                    && registration.source_handles == handles
+                    && source == registration.source
+                    && controller == registration.controller
                     && self.valid_entry_subject(entrant, movement.as_ref())?
                     && entrant.controller == controller
                     && entrant.zone == Zone::Battlefield
@@ -2251,9 +2237,7 @@ impl Game {
             (
                 TriggerOccurrenceId::Batch(id),
                 TriggerEventWitness::DelayedCreatureEntered { registration, .. },
-            ) => {
-                matches!(&registration.issuer.kind, StackKind::Triggered {event:TriggerOccurrenceId::Batch(origin),..} if origin.batch < id.batch && id.batch < self.state.rules.next_batch_id)
-            }
+            ) => registration.origin.batch < id.batch && id.batch < self.state.rules.next_batch_id,
             (TriggerOccurrenceId::Batch(id), w) => {
                 !matches!(
                     w,

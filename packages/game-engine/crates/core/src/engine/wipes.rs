@@ -20,15 +20,6 @@ impl Game {
             .map(|o| o.id)
             .collect()
     }
-    pub(crate) fn wipe_cause(frame: &Resolving, source_block: u32) -> BatchCause {
-        BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
-            cursor: frame.cursor,
-            source_block,
-        }
-    }
     pub(crate) fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String> {
         let mut q = self
             .copiable_definition(entry.source)?
@@ -91,7 +82,7 @@ impl Game {
         action: SetMove,
         block: u32,
     ) -> Result<(), String> {
-        let objects = self.objects_in_set(&set, frame.spell.controller);
+        let objects = self.objects_in_set(&set, self.entry(frame.stack_id)?.controller);
         if action == SetMove::Hand {
             let mut remaining = vec![];
             for n in 0..4 {
@@ -162,7 +153,7 @@ impl Game {
     ) -> Result<(), String> {
         if !occurrences.is_empty() && action == SetMove::Destroy {
             return self.complete_graveyard_group(
-                Self::wipe_cause(&frame, block),
+                self.instruction_cause(&frame, block)?,
                 EventGroup::Simultaneous { occurrences },
                 GroupFinish::Instruction {
                     frame,
@@ -173,7 +164,7 @@ impl Game {
         let mut movements = vec![];
         if !occurrences.is_empty() {
             let batch = self.commit_batch(
-                Self::wipe_cause(&frame, block),
+                self.instruction_cause(&frame, block)?,
                 EventGroup::Simultaneous { occurrences },
             )?;
             for r in batch.occurrences {
@@ -230,7 +221,7 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        if !matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize),Some(Instruction::MoveSet {action:SetMove::Hand,source_block,..}) if *source_block==block)
+        if !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.get(frame.cursor as usize),Some(Instruction::MoveSet {action:SetMove::Hand,source_block,..}) if *source_block==block)
             || objects.len() > self.event_group_limit()
             || objects.iter().collect::<BTreeSet<_>>().len() != objects.len()
             || remaining.iter().any(|o| !objects.contains(o))
@@ -251,22 +242,31 @@ impl Game {
             each_player,
             amount,
             source_block,
-        } = &self.program_for(&frame.spell)?.instructions[frame.cursor as usize]
+        } = &self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize]
         else {
             return Err("not set damage".into());
         };
         let amount = match amount {
             WipeAmount::Fixed { value } => value.clone(),
-            WipeAmount::AnnouncedX => frame.spell.x.clone().ok_or("missing announced X")?,
-            WipeAmount::OtherCastsManaValue => self.other_casts_mana_value(&frame.spell)?,
+            WipeAmount::AnnouncedX => self
+                .entry(frame.stack_id)?
+                .x
+                .clone()
+                .ok_or("missing announced X")?,
+            WipeAmount::OtherCastsManaValue => {
+                self.other_casts_mana_value(self.entry(frame.stack_id)?)?
+            }
             WipeAmount::CreatureCount => Quantity::from(
-                self.objects_in_set(&ObjectSet::Creatures, frame.spell.controller)
-                    .len() as i64,
+                self.objects_in_set(
+                    &ObjectSet::Creatures,
+                    self.entry(frame.stack_id)?.controller,
+                )
+                .len() as i64,
             ),
         };
         let mut objects = BTreeSet::new();
         for set in sets {
-            objects.extend(self.objects_in_set(set, frame.spell.controller));
+            objects.extend(self.objects_in_set(set, self.entry(frame.stack_id)?.controller));
         }
         let mut targets = objects
             .into_iter()
@@ -307,8 +307,8 @@ impl Game {
         kind: ResolvedEffectKind,
         block: u32,
     ) -> Result<(), String> {
-        let handles = match &frame.spell.kind {
-            StackKind::Spell => frame.spell.effect_source_handles.clone(),
+        let handles = match &self.entry(frame.stack_id)?.kind {
+            StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
             StackKind::Activated { source_handles, .. }
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
         };
@@ -327,11 +327,11 @@ impl Game {
             target_handles,
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
-                activated_ability: frame.spell.kind.activated_index(),
-                mode: frame.spell.mode,
-                stack_id: frame.spell.id,
-                source: frame.spell.source,
-                controller: frame.spell.controller,
+                activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
+                mode: self.entry(frame.stack_id)?.mode,
+                stack_id: frame.stack_id,
+                source: self.entry(frame.stack_id)?.source,
+                controller: self.entry(frame.stack_id)?.controller,
                 source_handles: handles,
                 cursor: frame.cursor,
                 source_block: block,
@@ -343,7 +343,7 @@ impl Game {
             ProposedEvent::CreateEffect {
                 effect: Box::new(effect),
             },
-            Self::wipe_cause(&frame, block),
+            self.instruction_cause(&frame, block)?,
         )?;
         self.finish_instruction(
             frame,
@@ -366,7 +366,7 @@ impl Game {
                 // Determine the cards from that player's graveyard at resolution.
                 let slot = target_slot as usize;
                 let player = *self
-                    .bound_player_target(&frame.spell, slot)
+                    .bound_player_target(self.entry(frame.stack_id)?, slot)
                     .ok_or("missing graveyard player target")?;
                 if frame.legal_targets.get(slot) != Some(&true) || !self.is_live(player) {
                     return self.finish_instruction(
@@ -395,7 +395,7 @@ impl Game {
                 for object in self.state.rules.objects.values() {
                     if object.present_on_battlefield()
                         && object.tapped
-                        && object.controller == frame.spell.controller
+                        && object.controller == self.entry(frame.stack_id)?.controller
                         && self
                             .copiable_definition(object.id)?
                             .characteristics
@@ -406,7 +406,7 @@ impl Game {
                 }
                 if !occurrences.is_empty() {
                     self.commit_batch(
-                        Self::wipe_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                         EventGroup::Simultaneous { occurrences },
                     )?;
                 }
@@ -432,7 +432,7 @@ impl Game {
             Instruction::RemoveOpponentNonlandIndestructible { source_block } => {
                 let targets = self.objects_in_set(
                     &ObjectSet::OpponentNonlandPermanents,
-                    frame.spell.controller,
+                    self.entry(frame.stack_id)?.controller,
                 );
                 let timestamp = self
                     .state
@@ -452,7 +452,7 @@ impl Game {
                 toughness,
                 source_block,
             } => {
-                let targets = self.objects_in_set(&set, frame.spell.controller);
+                let targets = self.objects_in_set(&set, self.entry(frame.stack_id)?.controller);
                 self.create_set_effect(
                     frame,
                     ResolvedEffectKind::PumpSet {
@@ -471,7 +471,7 @@ impl Game {
                 source_block,
             } => {
                 // CR 611.2c/613.5-6: capture once and create all layers atomically.
-                let targets = self.objects_in_set(&set, frame.spell.controller);
+                let targets = self.objects_in_set(&set, self.entry(frame.stack_id)?.controller);
                 self.create_set_effect(
                     frame,
                     ResolvedEffectKind::GrantKeywordsSet {
@@ -519,13 +519,13 @@ impl Game {
                         }
                     })
                     .sum::<usize>();
-                let actual = if count > 0 && self.is_live(frame.spell.controller) {
+                let actual = if count > 0 && self.is_live(self.entry(frame.stack_id)?.controller) {
                     Some(self.commit(
                         ProposedEvent::GainLife {
-                            player: frame.spell.controller,
+                            player: self.entry(frame.stack_id)?.controller,
                             amount: Quantity::from(count as i64),
                         },
-                        Self::wipe_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                     )?)
                 } else {
                     None
@@ -536,14 +536,14 @@ impl Game {
                 amount,
                 source_block,
             } => {
-                let player = frame
-                    .spell
+                let player = self
+                    .entry(frame.stack_id)?
                     .death_controller
                     .ok_or("missing death controller LKI")?;
                 let actual = if self.is_live(player) {
                     Some(self.commit(
                         ProposedEvent::LoseLife { player, amount },
-                        Self::wipe_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                     )?)
                 } else {
                     None
@@ -606,18 +606,19 @@ impl Game {
             .as_ref()
             .ok_or("missing frozen set damage")?;
         let Instruction::DamageSet { source_block, .. } =
-            &self.program_for(&frame.spell)?.instructions[frame.cursor as usize]
+            &self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize]
         else {
             return Err("not set damage".into());
         };
-        let source = self.source_facts(&frame.spell)?;
+        let source = self.source_facts(self.entry(frame.stack_id)?)?;
+        let controller = self.entry(frame.stack_id)?.controller;
         if facts.cursor != frame.cursor
-            || tx.cause != Self::wipe_cause(frame, *source_block)
+            || tx.cause != self.instruction_cause(frame, *source_block)?
             || tx.entries.len() != facts.targets.len()
             || tx.entries.iter().zip(&facts.targets).any(|(d, t)| {
                 d.recipient.entity() != *t
                     || d.original_amount != facts.amount
-                    || d.controller != frame.spell.controller
+                    || d.controller != controller
                     || !self.prepared_damage_source_matches(d, source.clone())
             })
         {
@@ -630,7 +631,7 @@ impl Game {
             return Ok(());
         };
         let Some(Instruction::DamageSet { amount, .. }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(f.cursor as usize)
         else {
@@ -651,9 +652,9 @@ impl Game {
             })
             || match amount {
                 WipeAmount::Fixed { value } => *value != f.amount,
-                WipeAmount::AnnouncedX => frame.spell.x.as_ref() != Some(&f.amount),
+                WipeAmount::AnnouncedX => self.entry(frame.stack_id)?.x.as_ref() != Some(&f.amount),
                 WipeAmount::OtherCastsManaValue => {
-                    self.other_casts_mana_value(&frame.spell)? != f.amount
+                    self.other_casts_mana_value(self.entry(frame.stack_id)?)? != f.amount
                 }
                 WipeAmount::CreatureCount => {
                     f.amount

@@ -21,7 +21,7 @@ impl Game {
         choices: &ProliferateChoices,
     ) -> Option<Request> {
         // CR 701.34a/800.4h: this choice is prescribed by the keyword rule.
-        let controller = frame.spell.controller;
+        let controller = self.entry(frame.stack_id).ok()?.controller;
         let player = if self.is_live(controller) {
             controller
         } else {
@@ -91,7 +91,7 @@ impl Game {
             return Ok(());
         }
 
-        let cause = Self::staple_cause(&frame, source_block);
+        let cause = self.instruction_cause(&frame, source_block)?;
         let members = choices
             .into_iter()
             .filter(|(object, include)| *include && self.proliferate_eligible(*object))

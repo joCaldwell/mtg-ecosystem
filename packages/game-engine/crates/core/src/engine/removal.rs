@@ -70,12 +70,13 @@ impl Game {
     /// atomic step, including concessions between instructions. This never
     /// repeats the resolution-start target legality check (CR608.2b).
     pub(super) fn refresh_removal_target_facts(&mut self) -> Result<(), String> {
-        let (entry, legal) = match Self::target_information_frame(&mut self.state.rules.frame) {
+        let (id, legal) = match Self::target_information_frame(&mut self.state.rules.frame) {
             Some(frame) if !frame.target_facts.is_empty() => {
-                (frame.spell.clone(), frame.legal_targets.clone())
+                (frame.stack_id, frame.legal_targets.clone())
             }
             _ => return Ok(()),
         };
+        let entry = self.entry(id)?;
         let current = self
             .program_for(&entry)?
             .targets
@@ -95,7 +96,7 @@ impl Game {
                     }
             })
             .collect::<Vec<_>>();
-        let fresh = self.capture_target_facts(&entry, &current)?;
+        let fresh = self.capture_target_facts(entry, &current)?;
         let frame = Self::target_information_frame(&mut self.state.rules.frame)
             .ok_or("missing target information frame")?;
         for (slot, fact) in fresh.into_iter().enumerate() {
@@ -237,7 +238,8 @@ impl Game {
             .collect()
     }
     pub(super) fn validate_target_facts(&self, frame: &Resolving) -> Result<(), String> {
-        let program = self.program_for(&frame.spell)?;
+        let entry = self.entry(frame.stack_id)?;
+        let program = self.program_for(entry)?;
         let expected = program.targets.iter().any(|t| t.filter.is_some());
         if (!expected && !frame.target_facts.is_empty())
             || (expected
@@ -249,7 +251,7 @@ impl Game {
                         .enumerate()
                         .any(|(slot, (target, fact))| {
                             let legal = frame.legal_targets.get(slot) == Some(&true);
-                            fact.is_some() != Self::needs_target_facts(&frame.spell, target, legal)
+                            fact.is_some() != Self::needs_target_facts(entry, target, legal)
                                 || fact.as_ref().is_some_and(|f| {
                                     f.controller.0 >= 4 || f.mana_value.is_negative()
                                 })
@@ -268,7 +270,7 @@ impl Game {
     }
     fn effect_recipient(&self, frame: &Resolving, r: &EffectRecipient) -> Result<PlayerId, String> {
         match r {
-            EffectRecipient::Controller => Ok(frame.spell.controller),
+            EffectRecipient::Controller => Ok(self.entry(frame.stack_id)?.controller),
             EffectRecipient::TargetController { target_slot } => {
                 Ok(self.target_facts(frame, *target_slot)?.controller)
             }
@@ -280,15 +282,6 @@ impl Game {
             .get(slot as usize)
             .and_then(Option::as_ref)
             .ok_or_else(|| "missing legal target LKI".into())
-    }
-    fn removal_cause(frame: &Resolving, block: u32) -> BatchCause {
-        BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
-            cursor: frame.cursor,
-            source_block: block,
-        }
     }
     pub(super) fn execute_removal_instruction(
         &mut self,
@@ -305,7 +298,7 @@ impl Game {
                 source_block,
             } => {
                 let tap = matches!(instruction, Instruction::TapPermanent { .. });
-                let target = frame.spell.targets[target_slot as usize];
+                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 // CR608.2b checks targeting once as resolution starts. The
                 // instruction still needs that same battlefield incarnation;
                 // no later incarnation or new targetability check replaces it.
@@ -346,7 +339,7 @@ impl Game {
                 optional,
                 source_block,
             } => {
-                let target = frame.spell.targets[target_slot as usize];
+                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) != Some(&true) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
@@ -374,13 +367,13 @@ impl Game {
                 source_block,
             } => {
                 let target = *self
-                    .bound_object_target(&frame.spell, target_slot as usize)
+                    .bound_object_target(self.entry(frame.stack_id)?, target_slot as usize)
                     .ok_or("missing removal target")?;
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
                     || !self.object_target_legal_for(
-                        &frame.spell,
+                        self.entry(frame.stack_id)?,
                         target,
-                        self.program_for(&frame.spell)?
+                        self.program_for(self.entry(frame.stack_id)?)?
                             .targets
                             .get(target_slot as usize),
                     )
@@ -454,7 +447,7 @@ impl Game {
                 (
                     ProposedEvent::CreateCreatureTokens {
                         controller,
-                        source: frame.spell.source,
+                        source: self.entry(frame.stack_id)?.source,
                         count,
                         token: Box::new(token),
                     },
@@ -472,8 +465,8 @@ impl Game {
                         .finish_instruction(frame, InstructionOutcome::Damage { actual: None });
                 }
                 let damage = NoncombatDamageOccurrence {
-                    source: self.source_facts(&frame.spell)?,
-                    controller: frame.spell.controller,
+                    source: self.source_facts(self.entry(frame.stack_id)?)?,
+                    controller: self.entry(frame.stack_id)?.controller,
                     recipient: DamageRecipient::Player { player },
                     amount,
                 };
@@ -483,7 +476,7 @@ impl Game {
         };
         if matches!(&event, ProposedEvent::DestroyPermanent { .. }) {
             return self.complete_graveyard_group(
-                Self::removal_cause(&frame, block),
+                self.instruction_cause(&frame, block)?,
                 EventGroup::Occurrence { proposed: event },
                 GroupFinish::Instruction {
                     frame,
@@ -491,7 +484,7 @@ impl Game {
                 },
             );
         }
-        let actual = self.commit(event, Self::removal_cause(&frame, block))?;
+        let actual = self.commit(event, self.instruction_cause(&frame, block)?)?;
         self.finish_instruction(
             frame,
             InstructionOutcome::Effect {
@@ -506,7 +499,7 @@ impl Game {
         source_block: u32,
     ) -> Result<(), String> {
         // CR603.5/800.4a: the invocation's controller decides during resolution.
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -549,7 +542,7 @@ impl Game {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
         let actual = match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -557,9 +550,9 @@ impl Game {
                 return self.return_target_to_owner_hand(frame, target, block);
             }
             Some(Instruction::DestroyPermanent { optional: true, .. }) => {
-                if self.object_target_legal(&frame.spell, target) {
+                if self.object_target_legal(self.entry(frame.stack_id)?, target) {
                     return self.complete_graveyard_group(
-                        Self::removal_cause(&frame, block),
+                        self.instruction_cause(&frame, block)?,
                         EventGroup::Occurrence {
                             proposed: ProposedEvent::DestroyPermanent { object: target },
                         },

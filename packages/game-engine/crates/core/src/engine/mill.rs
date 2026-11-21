@@ -47,14 +47,14 @@ impl Game {
         source_block: u32,
     ) -> Result<(), String> {
         let player = match recipient {
-            None => frame.spell.controller,
+            None => self.entry(frame.stack_id)?.controller,
             Some(LifeRecipient::Target { target_slot }) => {
                 if frame.legal_targets.get(target_slot as usize) != Some(&true) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
-                *frame
-                    .spell
+                *self
+                    .entry(frame.stack_id)?
                     .player_targets
                     .get(target_slot as usize)
                     .ok_or("missing mill player target")?
@@ -73,7 +73,8 @@ impl Game {
                 source_block,
             );
         }
-        let outcome = self.commit_mill(player, count, Self::staple_cause(&frame, source_block))?;
+        let outcome =
+            self.commit_mill(player, count, self.instruction_cause(&frame, source_block)?)?;
         self.finish_instruction(frame, outcome)
     }
     pub(super) fn commit_mill(

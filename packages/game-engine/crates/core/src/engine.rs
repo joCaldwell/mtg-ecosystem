@@ -984,7 +984,6 @@ pub struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition_check: Option<InterveningCheck>,
     pub stack_id: StackId,
-    pub spell: StackInstance,
     pub cursor: u32,
     pub legal_targets: Vec<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2693,13 +2692,13 @@ impl Game {
                         opening_library_sizes[config.starting_player.0 as usize],
                     )
                 }),
-                effects: vec![],
+                effects: vec![].into(),
                 delayed_chapters: vec![],
                 next_effect_id: 0,
                 next_damage_transaction_id: 0,
                 pending_triggers: vec![],
                 next_trigger_id: 0,
-                libraries: prepared.config.initial_libraries(),
+                libraries: prepared.config.initial_libraries().into(),
                 combat: vec![],
                 combat_declared: false,
                 damage_choices: BTreeMap::new(),
@@ -2741,14 +2740,17 @@ impl Game {
                 passes: vec![],
                 next_attachment_timestamp: 1,
                 next_stack_id: 0,
-                stack: vec![],
+                stack: vec![].into(),
+                detached: BTreeMap::new(),
                 frame: Frame::Priority,
                 pending: None,
                 next_batch_id: 0,
                 next_event_sequence: 0,
             },
             knowledge: KnowledgeState {
-                visibility: (0..4).map(|_| visibility::Knowledge::default()).collect(),
+                visibility: (0..4)
+                    .map(|_| visibility::Knowledge::default().into())
+                    .collect(),
             },
             audit: AuditState {
                 external_inputs: History::default(),
@@ -3609,18 +3611,19 @@ impl Game {
     pub(crate) fn step(&mut self) -> Result<(), String> {
         self.check_history_capacity()?;
         self.refresh_removal_target_facts()?;
-        // Every exit that keeps its staged state reconciles the frame it
-        // installed with the live stack (CR 608.2h/113.7a).
         if let Some(player) = self.state.rules.pending_concessions.first().copied() {
             self.state.rules.pending_concessions.remove(0);
             self.apply_departure(player)?;
-            self.reconcile_frame();
-            return Ok(());
+        } else {
+            // The step advances a working copy of the suspended frame's
+            // progress. The suspended frame stays installed, for authority
+            // checks, until the step installs its successor.
+            let frame = Frame::clone(&self.state.rules.frame);
+            self.step_frame(frame)?;
         }
-        // The step works on a private copy of the suspended frame.
-        let (frame, lease) = self.lease_frame();
-        self.step_frame(frame)?;
-        self.commit_frame(lease);
+        // An invocation that left the stack stays owned only while the
+        // installed frame still resumes it (CR 608.2m).
+        self.release_detached();
         Ok(())
     }
     fn step_frame(&mut self, frame: Frame) -> Result<(), String> {
@@ -3789,7 +3792,7 @@ impl Game {
             | Frame::StackTargets { .. }
             | Frame::ResolutionChoice { .. } => self.actions_step()?,
             Frame::Resolve { mut frame } => {
-                let stack = frame.spell.clone();
+                let stack = self.entry(frame.stack_id)?.clone();
                 let program = self.program_for(&stack)?.clone();
                 // One spell-wide legality check before any block resolves.
                 // CR 608.2b: if all targets are illegal, the entire spell does
@@ -3804,9 +3807,9 @@ impl Game {
                         && frame.condition_check.is_none()
                         && frame.legal_targets == [false]
                     {
-                        self.complete_spell(&stack, true, true)?;
+                        self.complete_spell(stack.id, true, true)?;
                     } else {
-                        self.finish_spell(&stack, false)?;
+                        self.finish_spell(stack.id, false)?;
                     }
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
@@ -3827,7 +3830,7 @@ impl Game {
                                         .into(),
                                 );
                             }
-                            return self.finish_spell(&stack, true);
+                            return self.finish_spell(stack.id, true);
                         }
                         Instruction::Cascade { source_block, .. } => {
                             return self.begin_cascade(frame, *source_block);
@@ -3902,7 +3905,7 @@ impl Game {
                     {
                         return Ok(());
                     }
-                    self.finish_spell(&stack, true)?;
+                    self.finish_spell(stack.id, true)?;
                 }
             }
             Frame::CommanderReturn {
@@ -3925,84 +3928,73 @@ impl Game {
         }
         Ok(())
     }
-    fn finish_spell(&mut self, stack: &StackInstance, resolved: bool) -> Result<(), String> {
-        self.complete_spell(stack, resolved, false)
+    fn finish_spell(&mut self, id: StackId, resolved: bool) -> Result<(), String> {
+        self.complete_spell(id, resolved, false)
     }
     fn complete_spell(
         &mut self,
-        stack: &StackInstance,
+        id: StackId,
         resolved: bool,
         bestow_fallback: bool,
     ) -> Result<(), String> {
+        let stack = self.entry(id)?;
         if !stack.kind.is_spell() {
-            return self.finish_ability(stack, resolved);
+            return self.finish_ability(id, resolved);
         }
-        let owner = self.state.rules.cards[&stack.source.card].owner;
-        if self.current(stack.source).is_ok() {
+        let (source, controller) = (stack.source, stack.controller);
+        let owner = self.state.rules.cards[&source.card].owner;
+        if self.current(source).is_ok() {
             let index = self
-                .resolving_entry_index(stack)?
+                .resolving_entry_index(id)?
                 .ok_or("missing resolving spell")?;
             // CR 608.3a: a resolving permanent spell becomes a permanent;
             // targetless spells do not fail the targeted-spell legality test.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-            let destination =
-                if resolved && self.program_for(stack)?.resolution == SpellResolution::Permanent {
-                    Zone::Battlefield
-                } else if resolved
-                    && matches!(
-                        self.program_for(stack)?.instructions.last(),
-                        Some(Instruction::ExileResolvingSpell { .. })
-                    )
-                {
-                    Zone::Exile
-                } else {
-                    Zone::Graveyard { owner }
-                };
+            let program = self.program_for(stack)?;
+            let destination = if resolved && program.resolution == SpellResolution::Permanent {
+                Zone::Battlefield
+            } else if resolved
+                && matches!(
+                    program.instructions.last(),
+                    Some(Instruction::ExileResolvingSpell { .. })
+                )
+            {
+                Zone::Exile
+            } else {
+                Zone::Graveyard { owner }
+            };
             if destination == Zone::Battlefield
                 && !bestow_fallback
                 && (stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
-                    || self
-                        .copiable_definition(stack.source)?
-                        .characteristics
-                        .subtypes
-                        == ["Aura"])
+                    || self.copiable_definition(source)?.characteristics.subtypes == ["Aura"])
             {
-                self.finish_spell_aura_entry(
-                    stack.source,
-                    stack.controller,
-                    stack
-                        .targets
-                        .first()
-                        .copied()
-                        .ok_or("missing Aura target")?,
-                    stack.id,
-                )?;
+                let target = stack
+                    .targets
+                    .first()
+                    .copied()
+                    .ok_or("missing Aura target")?;
+                self.finish_spell_aura_entry(source, controller, target, id)?;
             } else {
                 self.move_object_for(
-                    stack.source,
+                    source,
                     destination,
                     BatchCause::SpellCompletion {
-                        stack_id: stack.id,
-                        player: stack.controller,
-                        source: stack.source,
+                        stack_id: id,
+                        player: controller,
+                        source,
                     },
                 )?;
             }
-            self.state.rules.stack.remove(index);
-        } else if self.invocation_lives(stack)
-            || self.state.rules.stack.iter().any(|s| s.id == stack.id)
+            self.unstack(index)?;
+        } else if self.invocation_lives(stack) || self.state.rules.stack.iter().any(|s| s.id == id)
         {
             return Err("unsupported resolving-source movement".into());
         }
-        self.complete_spell_resolution(stack, resolved)
+        self.complete_spell_resolution(id, resolved)
     }
-    fn complete_spell_resolution(
-        &mut self,
-        stack: &StackInstance,
-        resolved: bool,
-    ) -> Result<(), String> {
+    fn complete_spell_resolution(&mut self, id: StackId, resolved: bool) -> Result<(), String> {
         self.record_event(Event::SpellCompleted {
-            stack_id: stack.id,
+            stack_id: id,
             resolved,
         })?;
         self.state.rules.frame = Frame::Priority;

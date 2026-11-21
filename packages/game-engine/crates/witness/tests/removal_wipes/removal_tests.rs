@@ -1135,7 +1135,7 @@ fn removal_effect_capacity_is_typed_and_atomic_in_private_state_domain() {
             ));
         }
         let effect = g.state.rules.effects[0].clone();
-        g.state.rules.effects = vec![effect; capacities::EFFECT_LIMIT];
+        g.state.rules.effects = vec![effect; capacities::EFFECT_LIMIT].into();
         let mut expected = g.state.clone();
         let trace = g.trace.clone();
         assert_eq!(
@@ -1211,7 +1211,7 @@ fn sage_may_is_not_performed_for_a_departed_controller() {
         announce(g, 0, vec![]);
         for _ in 0..4000 {
             if matches!(&g.state.rules.frame, Frame::Resolve { frame }
-                if matches!(frame.spell.kind, StackKind::Triggered { .. }))
+                if matches!(g.entry(frame.stack_id).unwrap().kind, StackKind::Triggered { .. }))
             {
                 break;
             }

@@ -643,7 +643,7 @@ fn library_order_late_group_failure_preserves_library_memory_and_trace() {
         };
         let cause = BatchCause::Instruction {
             stack_id: frame.stack_id,
-            source: frame.spell.source,
+            source: g.entry(frame.stack_id).unwrap().source,
             player: PlayerId(0),
             cursor: frame.cursor,
             source_block: 0,
@@ -701,7 +701,7 @@ fn library_order_kernel_zero_singleton_shuffle_counts_without_random_words() {
         };
         let cause = BatchCause::Instruction {
             stack_id: frame.stack_id,
-            source: frame.spell.source,
+            source: g.entry(frame.stack_id).unwrap().source,
             player: PlayerId(0),
             cursor: frame.cursor,
             source_block: 0,

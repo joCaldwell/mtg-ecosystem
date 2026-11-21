@@ -52,7 +52,7 @@ impl Game {
             .frame
             .for_each_held_mut(&mut |held| match held {
                 frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
-                frame::HeldMut::Invocation { hold: _, entry: _ } => {}
+                frame::HeldMut::Invocation { hold: _, id: _ } => {}
             });
     }
     pub(crate) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
@@ -91,32 +91,29 @@ impl Game {
         self.retain_source_facts(&fact);
         Ok(())
     }
-    // CR 608.2h/113.7a: the live stack entry, every pending trigger and every
-    // copy the suspended frame holds receive a departure's last-known facts.
-    // A rule step works on its own copy of that frame; `Game::commit_frame`
-    // reconciles whatever the step installs, so no stale copy is written back.
+    // CR 608.2h/113.7a: every pending trigger and every invocation's single
+    // owner (its stack entry, or the detached entry a frame still resolves)
+    // receives a departure's last-known facts. A frame holds no invocation.
     pub(crate) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
-        for trigger in &mut self.state.rules.pending_triggers {
+        let rules = &mut self.state.rules;
+        for trigger in &mut rules.pending_triggers {
             update_entrant(&mut trigger.witness, fact);
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
             }
         }
-        for entry in &mut self.state.rules.stack {
+        for entry in rules.stack.iter_mut().chain(rules.detached.values_mut()) {
             update_entry(entry, fact);
         }
-        // CR 608.2h/702.2e/702.15c: every invocation copy and every prepared
-        // damage source the frame holds retains this departure's actual last
-        // appearance. The simultaneous event path then replaces appearances
-        // with its common prior view. Assigned damage keeps its frozen facts.
-        self.state
-            .rules
-            .frame
-            .for_each_held_mut(&mut |held| match held {
-                frame::HeldMut::Invocation { hold: _, entry } => update_entry(entry, fact),
-                frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
-            });
+        // CR 608.2h/702.2e/702.15c: every prepared damage source the frame
+        // holds retains this departure's actual last appearance. The
+        // simultaneous event path then replaces appearances with its common
+        // prior view. Assigned damage keeps its frozen facts.
+        rules.frame.for_each_held_mut(&mut |held| match held {
+            frame::HeldMut::Invocation { hold: _, id: _ } => {}
+            frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
+        });
     }
     pub(crate) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         if self
@@ -522,7 +519,7 @@ impl Game {
         gain: bool,
     ) -> Result<Option<CommittedBatch>, String> {
         let occurrences = self
-            .opponents(frame.spell.controller)
+            .opponents(self.entry(frame.stack_id)?.controller)
             .into_iter()
             .map(|player| {
                 if gain {
@@ -542,7 +539,7 @@ impl Game {
             return Ok(None);
         }
         self.commit_batch(
-            Self::staple_cause(frame, source_block),
+            self.instruction_cause(frame, source_block)?,
             EventGroup::Simultaneous { occurrences },
         )
         .map(Some)
@@ -559,9 +556,11 @@ impl Game {
     ) -> Result<(), String> {
         let amount = match amount {
             OpponentDrainAmount::Fixed { value } => value,
-            OpponentDrainAmount::AnnouncedX => {
-                frame.spell.x.clone().ok_or("missing announced X")?
-            }
+            OpponentDrainAmount::AnnouncedX => self
+                .entry(frame.stack_id)?
+                .x
+                .clone()
+                .ok_or("missing announced X")?,
         };
         if amount == Quantity::zero() {
             return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
@@ -579,7 +578,7 @@ impl Game {
             };
             total.add(amount);
         }
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         let actual = if total > Quantity::zero() && self.is_live(player) {
             Some(self.commit(
                 ProposedEvent::GainLife {
@@ -612,11 +611,13 @@ impl Game {
         } = &instruction
             && *amount == Quantity::zero()
             && frame.cursor == 1
-            && frame.spell.kind.is_spell()
-            && self.program_for(&frame.spell).is_ok_and(|program| {
-                temporary_permanent_keyword_program(program)
-                    .is_some_and(|descriptor| descriptor.controller_life == Some(amount))
-            })
+            && self.entry(frame.stack_id)?.kind.is_spell()
+            && self
+                .program_for(self.entry(frame.stack_id)?)
+                .is_ok_and(|program| {
+                    temporary_permanent_keyword_program(program)
+                        .is_some_and(|descriptor| descriptor.controller_life == Some(amount))
+                })
         {
             return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
         }
@@ -624,7 +625,7 @@ impl Game {
         let (block, proposed, damage) = match instruction {
             Instruction::DealDamage { .. } | Instruction::DealDamageAnnouncedX { .. } => {
                 let (target_slot, amount, source_block, target) =
-                    self.directed_damage_operands(&frame.spell, &instruction)?;
+                    self.directed_damage_operands(self.entry(frame.stack_id)?, &instruction)?;
                 if *amount == Quantity::zero()
                     || frame.legal_targets.get(target_slot as usize) != Some(&true)
                     || !self.entity_legal(target)
@@ -640,8 +641,8 @@ impl Game {
                     source_block,
                     ProposedEvent::NoncombatDamage {
                         damage: Box::new(NoncombatDamageOccurrence {
-                            source: self.source_facts(&frame.spell)?,
-                            controller: frame.spell.controller,
+                            source: self.source_facts(self.entry(frame.stack_id)?)?,
+                            controller: self.entry(frame.stack_id)?.controller,
                             recipient,
                             amount: amount.clone(),
                         }),
@@ -653,14 +654,14 @@ impl Game {
                 amount,
                 source_block,
             } => {
-                let player = Self::mana_tap_activator(&frame.spell)?;
+                let player = Self::mana_tap_activator(self.entry(frame.stack_id)?)?;
                 if !self.is_live(player) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Damage { actual: None });
                 }
                 let damage = NoncombatDamageOccurrence {
-                    source: self.source_facts(&frame.spell)?,
-                    controller: frame.spell.controller,
+                    source: self.source_facts(self.entry(frame.stack_id)?)?,
+                    controller: self.entry(frame.stack_id)?.controller,
                     recipient: DamageRecipient::Player { player },
                     amount,
                 };
@@ -672,9 +673,9 @@ impl Game {
             } => {
                 // CR 109.5/113.7a: use the trigger's frozen controller and
                 // the land's current or last-known source facts.
-                let controller = frame.spell.controller;
+                let controller = self.entry(frame.stack_id)?.controller;
                 let damage = NoncombatDamageOccurrence {
-                    source: self.source_facts(&frame.spell)?,
+                    source: self.source_facts(self.entry(frame.stack_id)?)?,
                     controller,
                     recipient: DamageRecipient::Player { player: controller },
                     amount,
@@ -698,7 +699,7 @@ impl Game {
                             .finish_instruction(frame, InstructionOutcome::Life { actual: None });
                     }
                     LifeRecipient::EventPlayer => {
-                        let Some(actor) = frame.spell.kind.event_player()? else {
+                        let Some(actor) = self.entry(frame.stack_id)?.kind.event_player()? else {
                             return self.finish_instruction(
                                 frame,
                                 InstructionOutcome::Life { actual: None },
@@ -706,7 +707,7 @@ impl Game {
                         };
                         actor
                     }
-                    LifeRecipient::Controller => frame.spell.controller,
+                    LifeRecipient::Controller => self.entry(frame.stack_id)?.controller,
                     LifeRecipient::Target { target_slot } => {
                         if !frame
                             .legal_targets
@@ -719,8 +720,8 @@ impl Game {
                                 InstructionOutcome::Life { actual: None },
                             );
                         }
-                        *frame
-                            .spell
+                        *self
+                            .entry(frame.stack_id)?
                             .player_targets
                             .get(target_slot as usize)
                             .ok_or("missing life player target")?
@@ -745,9 +746,9 @@ impl Game {
         let actual = self.commit(
             proposed,
             BatchCause::Instruction {
-                stack_id: frame.spell.id,
-                player: frame.spell.controller,
-                source: frame.spell.source,
+                stack_id: frame.stack_id,
+                player: self.entry(frame.stack_id)?.controller,
+                source: self.entry(frame.stack_id)?.source,
                 cursor: frame.cursor,
                 source_block: block,
             },
@@ -793,7 +794,13 @@ impl Game {
             .rules
             .stack
             .iter()
-            .chain(self.state.rules.frame.resolving_invocation())
+            .chain(
+                self.state
+                    .rules
+                    .frame
+                    .resolving_invocation()
+                    .and_then(|id| self.state.rules.detached.get(&id)),
+            )
             .any(|entry| {
                 entry.source == damage.source.object
                     && entry.controller == damage.controller

@@ -290,15 +290,15 @@ impl Game {
                 kind,
                 source_block,
             } => {
-                if !self.is_live(frame.spell.controller) {
+                if !self.is_live(self.entry(frame.stack_id)?.controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 self.check_token_capacity(count)?;
                 (
                     ProposedEvent::CreatePredefinedTokens {
-                        controller: frame.spell.controller,
-                        source: frame.spell.source,
+                        controller: self.entry(frame.stack_id)?.controller,
+                        source: self.entry(frame.stack_id)?.source,
                         count,
                         kind,
                     },
@@ -310,15 +310,15 @@ impl Game {
                 token,
                 source_block,
             } => {
-                if !self.is_live(frame.spell.controller) {
+                if !self.is_live(self.entry(frame.stack_id)?.controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 self.check_token_capacity(count)?;
                 (
                     ProposedEvent::CreateCreatureTokens {
-                        controller: frame.spell.controller,
-                        source: frame.spell.source,
+                        controller: self.entry(frame.stack_id)?.controller,
+                        source: self.entry(frame.stack_id)?.source,
                         count,
                         token: Box::new(token),
                     },
@@ -329,7 +329,7 @@ impl Game {
                 let StackKind::Triggered {
                     witness: TriggerEventWitness::SpellCast { cast },
                     ..
-                } = &frame.spell.kind
+                } = &self.entry(frame.stack_id)?.kind
                 else {
                     return Err("unbound cast color instruction".into());
                 };
@@ -352,13 +352,13 @@ impl Game {
                     .filter(|c| *c != Color::C)
                     .collect::<BTreeSet<_>>()
                     .len();
-                if n == 0 || !self.is_battlefield_creature(frame.spell.source) {
+                if n == 0 || !self.is_battlefield_creature(self.entry(frame.stack_id)?.source) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 (
                     ProposedEvent::PutPlusOneCounters {
-                        object: frame.spell.source,
+                        object: self.entry(frame.stack_id)?.source,
                         amount: Quantity::from(n as i64),
                     },
                     source_block,
@@ -370,7 +370,7 @@ impl Game {
                 source_block,
             } => {
                 let target = match on {
-                    CounterRecipient::Source => frame.spell.source,
+                    CounterRecipient::Source => self.entry(frame.stack_id)?.source,
                     CounterRecipient::Target { target_slot } => {
                         if frame.legal_targets.get(target_slot as usize) != Some(&true) {
                             return self.finish_instruction(
@@ -379,7 +379,7 @@ impl Game {
                             );
                         }
                         *self
-                            .bound_object_target(&frame.spell, target_slot as usize)
+                            .bound_object_target(self.entry(frame.stack_id)?, target_slot as usize)
                             .ok_or("missing counter target")?
                     }
                 };
@@ -398,9 +398,9 @@ impl Game {
             _ => return Err("unexpected token instruction".into()),
         };
         let cause = BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
+            stack_id: frame.stack_id,
+            player: self.entry(frame.stack_id)?.controller,
+            source: self.entry(frame.stack_id)?.source,
             cursor: frame.cursor,
             source_block: block,
         };
@@ -607,13 +607,13 @@ impl Game {
             {
                 return Err("snapshot counter invariant".into());
             }
-            if self.state.rules.tokens.contains_key(id)
-                && (o.id.card != *id
+            if self.state.rules.tokens.contains_key(&id)
+                && (o.id.card != id
                     || o.controller.0 >= 4
                     || o.default_controller.0 >= 4
                     || !self.is_live(o.controller)
-                    || !self.is_live(self.state.rules.cards[id].owner)
-                    || !self.state.rules.tokens[id].valid_incarnation(o)
+                    || !self.is_live(self.state.rules.cards[&id].owner)
+                    || !self.state.rules.tokens[&id].valid_incarnation(o)
                     || (o.zone != Zone::Battlefield
                         && (o.tapped || o.attack_ready || o.deathtouch_damage)))
             {

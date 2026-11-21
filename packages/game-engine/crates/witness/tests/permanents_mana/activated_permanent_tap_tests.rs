@@ -517,7 +517,7 @@ fn bounce_case(source_bounce: bool, quantum: u64, mode: TraceMode) -> Game {
     recover(&g);
     resolve_start(&mut g);
     assert!(
-        matches!(&g.state.rules.frame,Frame::Resolve { frame } if frame.spell.id == ability && frame.legal_targets == [source_bounce])
+        matches!(&g.state.rules.frame,Frame::Resolve { frame } if frame.stack_id == ability && frame.legal_targets == [source_bounce])
     );
     recover(&g);
     finish_to(&mut g, quantum, 0);

@@ -1754,9 +1754,17 @@ fn cascade_complete_opt_child_scry_draw_preserves_original_and_private_recovery(
         let Frame::ResolutionChoice { frame, .. } = &g.state.rules.frame else {
             unreachable!()
         };
-        assert_eq!(g.definition(frame.spell.source.card).unwrap().name, "Opt");
-        assert_eq!(frame.spell.paid.as_ref(), Some(&zero_mana_cost()));
-        let child = frame.spell.id;
+        assert_eq!(
+            g.definition(g.entry(frame.stack_id).unwrap().source.card)
+                .unwrap()
+                .name,
+            "Opt"
+        );
+        assert_eq!(
+            g.entry(frame.stack_id).unwrap().paid.as_ref(),
+            Some(&zero_mana_cost())
+        );
+        let child = frame.stack_id;
         prove(&g);
         answer(
             &mut g,

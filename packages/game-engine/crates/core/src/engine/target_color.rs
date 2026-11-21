@@ -4,10 +4,11 @@ use super::*;
 
 impl Game {
     pub(super) fn target_color_target(&self, frame: &Resolving) -> Option<ObjectId> {
-        let [target] = frame.spell.targets.as_slice() else {
+        let entry = self.entry(frame.stack_id).ok()?;
+        let [target] = entry.targets.as_slice() else {
             return None;
         };
-        (self.is_live(frame.spell.controller)
+        (self.is_live(entry.controller)
             && frame.legal_targets.as_slice() == [true]
             && self
                 .current(*target)
@@ -18,7 +19,7 @@ impl Game {
     pub(super) fn target_color_request(&self, frame: &Resolving) -> Option<Request> {
         Some(Request::ChooseColor {
             decision_id: self.state.rules.revision,
-            player: frame.spell.controller,
+            player: self.entry(frame.stack_id).ok()?.controller,
             target: self.target_color_target(frame)?,
         })
     }
@@ -30,7 +31,7 @@ impl Game {
         response: &Response,
     ) -> Result<(), String> {
         if self.target_color_target(frame).is_none()
-            || player != frame.spell.controller
+            || player != self.entry(frame.stack_id)?.controller
             || !matches!(response, Response::ChooseColor { color } if *color != Color::C)
         {
             return Err("invalid color choice".into());

@@ -76,14 +76,14 @@ impl<'a> LandSearch<'a> {
 impl Game {
     fn land_search_for<'a>(&'a self, frame: &'a Resolving) -> Option<LandSearch<'a>> {
         LandSearch::instruction(
-            self.program_for(&frame.spell)
+            self.program_for(self.entry(frame.stack_id).ok()?)
                 .ok()?
                 .instructions
                 .get(frame.cursor as usize)?,
         )
     }
     fn search_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
-        let program = self.program_for(&frame.spell)?;
+        let program = self.program_for(self.entry(frame.stack_id)?)?;
         if let Some(Instruction::SearchRecipientBasicLand { recipient, .. }) =
             program.instructions.get(frame.cursor as usize)
         {
@@ -101,7 +101,7 @@ impl Game {
             }
             return Ok(player);
         }
-        Ok(frame.spell.controller)
+        Ok(self.entry(frame.stack_id)?.controller)
     }
 
     fn active_land_search(&self) -> Option<LandSearch<'_>> {
@@ -176,7 +176,7 @@ impl Game {
         self.entry_search_block(frame)?;
         let search = self.land_search_for(frame).ok_or("missing entry search")?;
         let player = self.search_player(frame)?;
-        if frame.entry_search_player() != player
+        if frame.entry_search_player(self)? != player
             || !self.is_live(player)
             || objects.len() > search.maximum as usize
             || objects.iter().any(|o| {
@@ -209,19 +209,20 @@ impl Game {
         frame: Resolving,
         source_block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         self.begin_player_library_shuffle(frame, player, source_block)
     }
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         let instruction = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
             .ok_or("missing draw instruction")?;
-        Self::draw_player_for_instruction(frame, instruction)
+        self.draw_player_for_instruction(frame, instruction)
     }
 
     pub(super) fn draw_player_for_instruction(
+        &self,
         frame: &Resolving,
         instruction: &Instruction,
     ) -> Result<PlayerId, String> {
@@ -238,8 +239,8 @@ impl Game {
             | Instruction::DrawAnnouncedX {
                 recipient: LifeRecipient::Target { target_slot },
                 ..
-            } => frame
-                .spell
+            } => self
+                .entry(frame.stack_id)?
                 .player_targets
                 .get(*target_slot as usize)
                 .copied()
@@ -247,8 +248,8 @@ impl Game {
             Instruction::DrawCards {
                 recipient: Some(LifeRecipient::EventPlayer),
                 ..
-            } => frame
-                .spell
+            } => self
+                .entry(frame.stack_id)?
                 .kind
                 .event_player()?
                 .ok_or_else(|| "absent draw event player".into()),
@@ -268,7 +269,7 @@ impl Game {
             | Instruction::OptionalDrawCards { .. }
             | Instruction::DrawControllerCards { .. }
             | Instruction::DrawCardsIfAdditionalCost { .. }
-            | Instruction::DrawDamageAmount { .. } => Ok(frame.spell.controller),
+            | Instruction::DrawDamageAmount { .. } => Ok(self.entry(frame.stack_id)?.controller),
             Instruction::OptionalDrawForSoleGreatestEntrant { .. } => frame
                 .entrant_draw
                 .as_ref()
@@ -429,15 +430,6 @@ impl Game {
         Ok(object)
     }
 
-    pub(super) fn staple_cause(frame: &Resolving, source_block: u32) -> BatchCause {
-        BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
-            cursor: frame.cursor,
-            source_block,
-        }
-    }
     pub(super) fn execute_staples_instruction(
         &mut self,
         frame: Resolving,
@@ -448,12 +440,12 @@ impl Game {
                 target_slot,
                 source_block,
             } => {
-                let target = frame.spell.targets[target_slot as usize];
+                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) == Some(&true)
                     && self.is_battlefield_creature(target)
                 {
                     return self.complete_graveyard_group(
-                        Self::staple_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                         EventGroup::Occurrence {
                             proposed: ProposedEvent::DestroyCreature { object: target },
                         },
@@ -472,9 +464,9 @@ impl Game {
                 target_slot,
                 source_block,
             } => {
-                let target = frame.spell.targets[target_slot as usize];
+                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.object_target_legal(&frame.spell, target)
+                    || !self.object_target_legal(self.entry(frame.stack_id)?, target)
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
@@ -485,7 +477,7 @@ impl Game {
                 let movement = self.move_object_for(
                     target,
                     Zone::Battlefield,
-                    Self::staple_cause(&frame, source_block),
+                    self.instruction_cause(&frame, source_block)?,
                 )?;
                 self.finish_instruction(frame, InstructionOutcome::Moved { movement })
             }
@@ -499,17 +491,17 @@ impl Game {
                 optional,
                 source_block,
             } => {
-                let target = frame.spell.targets[target_slot as usize];
+                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.object_target_legal(&frame.spell, target)
+                    || !self.object_target_legal(self.entry(frame.stack_id)?, target)
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
                 }
-                if optional && self.is_live(frame.spell.controller) {
+                if optional && self.is_live(self.entry(frame.stack_id)?.controller) {
                     self.state.rules.frame = Frame::ResolutionChoice {
                         choice: ResolutionChoice::OptionalRecursion {
-                            player: frame.spell.controller,
+                            player: self.entry(frame.stack_id)?.controller,
                             target,
                             source_block,
                         },
@@ -521,7 +513,7 @@ impl Game {
                 }
             }
             Instruction::SearchColoredLibrary { source_block, .. } => {
-                let player = frame.spell.controller;
+                let player = self.entry(frame.stack_id)?.controller;
                 self.state.rules.frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::ColoredSearch {
@@ -573,7 +565,7 @@ impl Game {
         target: ObjectId,
         block: u32,
     ) -> Result<(), String> {
-        if !self.object_target_legal(&frame.spell, target) {
+        if !self.object_target_legal(self.entry(frame.stack_id)?, target) {
             return self
                 .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
         }
@@ -606,7 +598,7 @@ impl Game {
         let movement = self.move_object_for(
             target,
             Zone::Hand { owner },
-            Self::staple_cause(&frame, block),
+            self.instruction_cause(&frame, block)?,
         )?;
         self.finish_instruction(frame, InstructionOutcome::Moved { movement })
     }
@@ -699,10 +691,10 @@ impl Game {
                 if index == 0 {
                     self.commit(
                         ProposedEvent::FinishLibraryShuffle { player },
-                        Self::staple_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                     )?;
                     if matches!(
-                        self.program_for(&frame.spell)?
+                        self.program_for(self.entry(frame.stack_id)?)?
                             .instructions
                             .get(frame.cursor as usize),
                         Some(Instruction::RevealAndCast { .. })
@@ -721,7 +713,7 @@ impl Game {
                 }
                 let actual = self.commit(
                     ProposedEvent::ShuffleLibraryWord { player, index },
-                    Self::staple_cause(&frame, source_block),
+                    self.instruction_cause(&frame, source_block)?,
                 )?;
                 let EventOutcome::LibraryShuffledWord { selected, .. } = actual else {
                     return Err("missing shuffle result".into());
@@ -760,7 +752,7 @@ impl Game {
                             player,
                             objects: objects.clone(),
                         },
-                        Self::staple_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                     )?;
                     self.state.rules.frame = Frame::ResolutionChoice {
                         frame,
@@ -786,7 +778,7 @@ impl Game {
                 }
                 if !objects.is_empty() {
                     let batch = self.commit_batch(
-                        Self::staple_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                         EventGroup::Simultaneous {
                             occurrences: objects
                                 .into_iter()
@@ -823,7 +815,7 @@ impl Game {
                     // CR 608.2c, 121.5: partition by identity; the hand move is
                     // not a draw. Both moves share the common-prior event group.
                     self.commit_batch(
-                        Self::staple_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                         EventGroup::Simultaneous {
                             occurrences: objects
                                 .into_iter()
@@ -946,6 +938,9 @@ impl Game {
         choice: &ResolutionChoice,
         instruction: &Instruction,
     ) -> bool {
+        let Ok(entry) = self.entry(frame.stack_id) else {
+            return false;
+        };
         match (choice, instruction) {
             (
                 ResolutionChoice::ColoredSearch {
@@ -958,7 +953,7 @@ impl Game {
                     colors,
                 },
             ) => {
-                *player == frame.spell.controller
+                *player == entry.controller
                     && b == source_block
                     && self.valid_colored_reveal(*player, colors, revealed.as_deref())
             }
@@ -990,7 +985,7 @@ impl Game {
                     source_block: expected,
                     ..
                 },
-            ) => *player == frame.spell.controller && source_block == expected,
+            ) => *player == entry.controller && source_block == expected,
             (
                 ResolutionChoice::OptionalEffect {
                     player,
@@ -1009,9 +1004,9 @@ impl Game {
                     ..
                 },
             ) => {
-                *player == frame.spell.controller
+                *player == entry.controller
                     && source_block == b
-                    && frame.spell.targets.get(*target_slot as usize) == Some(target)
+                    && entry.targets.get(*target_slot as usize) == Some(target)
             }
             (
                 ResolutionChoice::Search {
@@ -1038,7 +1033,7 @@ impl Game {
                 },
                 Instruction::SearchBasicLandsSplit { source_block: b },
             ) => {
-                *player == frame.spell.controller
+                *player == entry.controller
                     && source_block == b
                     && objects.len() <= 2
                     && objects.windows(2).all(|w| w[0] < w[1])
@@ -1057,7 +1052,7 @@ impl Game {
             ) => {
                 fetched_land.is_none()
                     && source_block == b
-                    && frame.spell.entity_targets.first()
+                    && entry.entity_targets.first()
                         == Some(&TargetEntity::Player { player: *player })
                     && self
                         .graveyard_legality(frame)
@@ -1132,9 +1127,9 @@ impl Game {
                     source_block: b,
                 },
             ) => {
-                *player == frame.spell.controller
+                *player == entry.controller
                     && source_block == b
-                    && frame.spell.targets.get(*target_slot as usize) == Some(target)
+                    && entry.targets.get(*target_slot as usize) == Some(target)
             }
             _ => false,
         }

@@ -5,12 +5,12 @@
 //! `use super::*`, so scenario and witness binaries build outside `--lib`.
 pub use crate::engine::*;
 // Engine modules shadow same-named contracts modules, as inside the engine.
-use crate::engine::{
-    frame::FrameLease, keywords::KeywordSource, object_facts::DerivedObject,
-    payments::AnnouncementPayment, phasing::PhaseSelection, stored_history::StoredPermittedView,
-};
 pub use crate::engine::{
     impulse_play, mana_tap_observer, optional_block, proliferate, resolution_mana, target_color,
+};
+use crate::engine::{
+    keywords::KeywordSource, object_facts::DerivedObject, payments::AnnouncementPayment,
+    phasing::PhaseSelection, stored_history::StoredPermittedView,
 };
 pub use crate::{build_id, formats, query};
 pub use mtg_contracts::*;
@@ -188,7 +188,6 @@ pub trait GameTestkit {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String>;
-    fn commit_frame(&mut self, lease: FrameLease);
     fn complete_test_mana(&mut self);
     fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String>;
     fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId>;
@@ -295,7 +294,6 @@ pub trait GameTestkit {
     ) -> Result<Vec<KnownLibraryPosition>, String>;
     fn land_entry_charge(&self) -> usize;
     fn land_entry_step(&mut self) -> Result<(), String>;
-    fn lease_frame(&self) -> (Frame, FrameLease);
     fn lethal_requirement(&self, source: ObjectId, blocker: ObjectId) -> Result<Quantity, String>;
     fn library_prefix(&self, player: PlayerId, amount: &Quantity) -> Result<Vec<ObjectId>, String>;
     fn linked_hideaway_cards(&self, source: ObjectId, source_block: u32) -> Vec<ObjectId>;
@@ -575,7 +573,11 @@ pub trait GameTestkit {
     ) -> Result<VisiblePendingTrigger, String>;
     fn visible_player(&self, player: PlayerId) -> Result<VisiblePlayer, String>;
     fn visible_stack(&self, viewer: PlayerId, index: usize) -> Result<VisibleStackEntry, String>;
-    fn wipe_cause(frame: &Resolving, source_block: u32) -> BatchCause;
+    fn instruction_cause(&self, frame: &Resolving, source_block: u32)
+    -> Result<BatchCause, String>;
+    fn entry(&self, id: StackId) -> Result<&StackInstance, String>;
+    fn unstack(&mut self, index: usize) -> Result<StackId, String>;
+    fn release_detached(&mut self);
 }
 impl GameTestkit for Game {
     fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
@@ -727,9 +729,6 @@ impl GameTestkit for Game {
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
         Game::commit_batch(self, cause, group)
-    }
-    fn commit_frame(&mut self, lease: FrameLease) {
-        Game::commit_frame(self, lease)
     }
     fn complete_test_mana(&mut self) {
         Game::complete_test_mana(self)
@@ -955,9 +954,6 @@ impl GameTestkit for Game {
     }
     fn land_entry_step(&mut self) -> Result<(), String> {
         Game::land_entry_step(self)
-    }
-    fn lease_frame(&self) -> (Frame, FrameLease) {
-        Game::lease_frame(self)
     }
     fn lethal_requirement(&self, source: ObjectId, blocker: ObjectId) -> Result<Quantity, String> {
         Game::lethal_requirement(self, source, blocker)
@@ -1487,8 +1483,21 @@ impl GameTestkit for Game {
     fn visible_stack(&self, viewer: PlayerId, index: usize) -> Result<VisibleStackEntry, String> {
         Game::visible_stack(self, viewer, index)
     }
-    fn wipe_cause(frame: &Resolving, source_block: u32) -> BatchCause {
-        Game::wipe_cause(frame, source_block)
+    fn instruction_cause(
+        &self,
+        frame: &Resolving,
+        source_block: u32,
+    ) -> Result<BatchCause, String> {
+        Game::instruction_cause(self, frame, source_block)
+    }
+    fn entry(&self, id: StackId) -> Result<&StackInstance, String> {
+        Game::entry(self, id)
+    }
+    fn unstack(&mut self, index: usize) -> Result<StackId, String> {
+        Game::unstack(self, index)
+    }
+    fn release_detached(&mut self) {
+        Game::release_detached(self)
     }
 }
 

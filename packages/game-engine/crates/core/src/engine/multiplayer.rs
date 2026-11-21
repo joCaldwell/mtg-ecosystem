@@ -254,7 +254,6 @@ impl Game {
                 target_facts: self.capture_target_facts(&stack, &legal_targets)?,
                 condition_check,
                 stack_id: stack.id,
-                spell: stack,
                 cursor: 0,
                 legal_targets,
                 outcomes: vec![],
@@ -438,10 +437,14 @@ impl Game {
             })
             .map(|s| s.id)
             .collect::<Vec<_>>();
-        self.state
-            .rules
-            .stack
-            .retain(|s| !lost_stack.contains(&s.id));
+        // CR 608.2m: a started invocation keeps resolving after its entry
+        // leaves the stack. Each lost entry stays owned by the detached table
+        // until the step commits, and after that only while a frame resumes it.
+        for id in &lost_stack {
+            if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == *id) {
+                self.unstack(index)?;
+            }
+        }
         self.revalidate_trigger_departure()?;
         self.revalidate_damage_departure()?;
         self.revalidate_counter_placement_departure()?;
@@ -481,7 +484,7 @@ impl Game {
         self.state
             .rules
             .delayed_chapters
-            .retain(|registration| registration.issuer.controller != player);
+            .retain(|registration| registration.controller != player);
         self.revalidate_graveyard_departure()?;
         self.revalidate_mana_departure()?;
         // CR 608.2m: a started invocation owns its frozen instance and keeps
@@ -506,7 +509,7 @@ impl Game {
                 CastCompletion::Resolution {
                     progress: CastOwner::LinkedPlay { progress, .. },
                     ..
-                } if self.is_live(progress.frame.spell.controller) => {
+                } if self.is_live(self.entry(progress.frame.stack_id)?.controller) => {
                     Frame::PlayHideawayLinked { progress }
                 }
                 _ => Frame::Priority,
@@ -631,8 +634,9 @@ impl Game {
         {
             self.begin_resolution()?;
         }
-        if let Frame::Resolve { frame } = &mut self.state.rules.frame
-            && frame.spell.player_targets.contains(&player)
+        if let Frame::Resolve { frame } = &self.state.rules.frame
+            && self.entry(frame.stack_id)?.player_targets.contains(&player)
+            && let Frame::Resolve { frame } = &mut self.state.rules.frame
         {
             frame.random_discard = None;
         }

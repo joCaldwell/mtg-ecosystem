@@ -883,7 +883,10 @@ fn m4a_paid_counter_original_before_between_siblings_and_stifle_one_leave_others
             };
             let value = serde_json::to_value(progress).unwrap();
             assert_eq!(value["threshold"], "10");
-            assert_eq!(progress.frame.spell.source, original_source);
+            assert_eq!(
+                g.entry(progress.frame.stack_id).unwrap().source,
+                original_source
+            );
             assert!(owners.insert(g.top().unwrap().id));
             prove(&g);
             answer(&mut g, Response::OptionalEffect { perform: false });

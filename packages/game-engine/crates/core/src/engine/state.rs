@@ -3,6 +3,11 @@
 //! recovery hashes. No history is discarded or treated as nonsemantic here.
 use super::*;
 
+mod objects;
+mod shared;
+pub use objects::{OBJECT_CHUNK, ObjectTable};
+pub use shared::Shared;
+
 // Declare each field once. The flat decoder keeps deny_unknown_fields without
 // serde's flatten/unknown-field ambiguity, while the encoder borrows groups.
 macro_rules! state_layout {
@@ -89,7 +94,7 @@ state_layout! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_state: Option<MatchState>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        effects: Vec<ResolvedEffect>,
+        effects: Shared<Vec<ResolvedEffect>>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         delayed_chapters: Vec<DelayedChapterRegistration>,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]
@@ -100,7 +105,7 @@ state_layout! {
         pending_triggers: Vec<PendingTrigger>,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]
         next_trigger_id: u64,
-        libraries: BTreeMap<PlayerId, Vec<CardId>>,
+        libraries: Shared<BTreeMap<PlayerId, Vec<CardId>>>,
         combat: Vec<Attacker>,
         combat_declared: bool,
         damage_choices: BTreeMap<ObjectId, Vec<(ObjectId, Quantity)>>,
@@ -122,7 +127,7 @@ state_layout! {
         players: Vec<Player>,
         #[serde(with = "shared_map")]
         cards: Arc<BTreeMap<CardId, Card>>,
-        objects: BTreeMap<CardId, Object>,
+        objects: ObjectTable,
         active: Option<PlayerId>,
         turn_owner: PlayerId,
         turn: TurnState,
@@ -141,14 +146,18 @@ state_layout! {
         priority: PlayerId,
         passes: Vec<PlayerId>,
         next_stack_id: u32,
-        stack: Vec<StackInstance>,
+        stack: Shared<Vec<StackInstance>>,
+        /// Invocations a frame is still resolving after their entry left the
+        /// stack (CR 608.2m). Keyed by identity; empty between resolutions.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        detached: BTreeMap<StackId, StackInstance>,
         frame: Frame,
         pending: Option<AcceptedInput>,
         next_batch_id: u64,
         next_event_sequence: u64,
     }
     knowledge {
-        visibility: Vec<visibility::Knowledge>,
+        visibility: Vec<Shared<visibility::Knowledge>>,
     }
     audit {
         external_inputs: History<ExternalInput>,

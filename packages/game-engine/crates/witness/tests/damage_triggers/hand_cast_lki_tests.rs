@@ -127,19 +127,24 @@ fn announced(g: &mut Game) {
     assert!(matches!(settle(g), Request::SacrificeCost { .. }));
 }
 
-/// Every frame copy of the trigger equals its live stack entry.
-fn assert_copies_current(g: &Game) {
-    g.state.rules.frame.for_each_held(&mut |held| {
-        if let frame::Held::Invocation { entry, .. } = held
-            && let Some(owner) = g.state.rules.stack.iter().find(|s| s.id == entry.id)
-        {
-            assert!(
-                entry == owner,
-                "stale frame copy at {:?}",
-                g.state.rules.frame
+/// Every invocation the frame holds has exactly one owner: its stack entry,
+/// or the detached entry once it has left the stack.
+fn assert_single_owner(g: &Game) {
+    let rules = &g.state.rules;
+    rules.frame.for_each_held(&mut |held| {
+        if let frame::Held::Invocation { id, .. } = held {
+            let stacked = rules.stack.iter().filter(|s| s.id == id).count();
+            let detached = usize::from(rules.detached.contains_key(&id));
+            assert_eq!(
+                stacked + detached,
+                1,
+                "owners of {id:?} at {:?}",
+                rules.frame
             );
+            assert_eq!(g.entry(id).unwrap().id, id);
         }
     });
+    assert!(rules.detached.keys().all(|id| rules.frame.holds(*id)));
 }
 
 #[test]
@@ -165,7 +170,7 @@ fn hand_cast_child_sacrificing_the_trigger_source_completes_restores_and_replays
         match g.advance(Budget::new(1)) {
             Advance::AwaitingDecision(r) => break r,
             Advance::Suspended { .. } => {
-                assert_copies_current(&g);
+                assert_single_owner(&g);
                 recover(&g);
                 if let Frame::HandCast {
                     frame,
@@ -174,14 +179,14 @@ fn hand_cast_child_sacrificing_the_trigger_source_completes_restores_and_replays
                 {
                     owned_child = true;
                     // CR 608.2h/113.7a: the owner now resolves with its source's
-                    // last-known information, in the frame and on the stack.
-                    assert_eq!(frame.spell.source_facts.as_ref(), Some(&departing));
+                    // last-known information. The frame only names it.
+                    assert_eq!(frame.stack_id, parent(&g).id);
                     assert_eq!(parent(&g).source_facts.as_ref(), Some(&departing));
                     let paid = g.top().unwrap();
                     assert_eq!(paid.id, *child);
                     // CR 400.7: a later object of the same card is not this
                     // source. Facts are keyed by the exact incarnation, so the
-                    // successor's reach neither the owner nor the frame.
+                    // successor's do not reach the owner.
                     let successor = g.object_id(ANGEL).unwrap();
                     assert_eq!(successor.incarnation, source.incarnation + 1);
                     let mut probe = g.fork();
@@ -244,7 +249,7 @@ fn hand_cast_offer_declined_or_cancelled_keeps_one_current_owner() {
         panic!("the failed proposal must return to its owning hand offer")
     };
     assert_eq!(candidates, [cancelled.object_id(CHILD).unwrap()]);
-    assert_copies_current(&cancelled);
+    assert_single_owner(&cancelled);
     assert_eq!(parent(&cancelled).source_facts.as_ref(), Some(&at_trigger));
     recover(&cancelled);
     answer(&mut cancelled, Response::Pass);
@@ -268,13 +273,18 @@ fn hand_cast_source_leaving_during_the_child_announcement_cancels_with_last_know
         match g.advance(Budget::new(1)) {
             Advance::AwaitingDecision(r) => break r,
             Advance::Suspended { .. } => {
-                assert_copies_current(&g);
+                assert_single_owner(&g);
                 recover(&g);
                 if let Frame::HandCast { frame, child: None } = &g.state.rules.frame {
                     returned = true;
                     // The owner resolves on with the source's last-known facts.
                     assert!(g.current(source).is_err());
-                    let facts = frame.spell.source_facts.as_ref().unwrap();
+                    let facts = g
+                        .entry(frame.stack_id)
+                        .unwrap()
+                        .source_facts
+                        .as_ref()
+                        .unwrap();
                     assert_eq!(facts.object, source);
                     assert_eq!(facts.characteristics, departing.characteristics);
                     assert_ne!(*facts, at_trigger);
@@ -299,7 +309,7 @@ fn hand_cast_source_leaving_during_the_child_announcement_cancels_with_last_know
 }
 
 #[test]
-fn every_cast_frame_suspending_a_hand_cast_owner_carries_its_last_known_facts() {
+fn every_cast_frame_suspending_a_hand_cast_owner_names_its_single_owner() {
     let (mut g, source, at_trigger) = offered(0);
     answer(&mut g, Response::Cast { card: CHILD });
     assert!(matches!(settle(&mut g), Request::Targets { .. }));
@@ -356,37 +366,53 @@ fn every_cast_frame_suspending_a_hand_cast_owner_carries_its_last_known_facts() 
         ]
     };
     let held = |frame: &Frame| {
-        let mut entries = vec![];
+        let mut ids = vec![];
         frame.for_each_held(&mut |held| {
-            if let frame::Held::Invocation { hold, entry } = held {
-                entries.push((hold, entry.clone()));
+            if let frame::Held::Invocation { hold, id } = held {
+                ids.push((hold, id));
             }
         });
-        entries
+        ids
     };
+    let owner = parent(&g).id;
     let mut frames = 0;
     for cast_frame in wrap(&cast) {
         for frame in nest(cast_frame) {
             frames += 1;
             // The owner waits beneath its child: suspended, never resolving.
-            let [(hold, before)] = held(&frame).try_into().unwrap();
+            let [(hold, id)] = held(&frame).try_into().unwrap();
             assert_eq!(hold, frame::Hold::Suspended);
-            assert_eq!(before.source_facts.as_ref(), Some(&at_trigger));
+            assert_eq!(id, owner);
+            assert!(frame.holds(owner));
             assert!(frame.resolving_invocation().is_none());
-            // A departure reaches the copy wherever the frame holds it.
+            // A departure reaches the one owner. The frame holds no facts
+            // that a rule step could write back stale.
             let mut pushed = g.fork();
             pushed.state.rules.frame = frame.clone();
+            assert_eq!(parent(&pushed).source_facts.as_ref(), Some(&at_trigger));
             pushed.retain_source_facts(&departing);
-            let [(_, after)] = held(&pushed.state.rules.frame).try_into().unwrap();
-            assert_eq!(after.source_facts.as_ref(), Some(&departing));
-            assert!(after == *parent(&pushed));
-            // A stale copy written back by a step is reconciled at commit.
-            let (stale, lease) = pushed.lease_frame();
-            assert!(stale == pushed.state.rules.frame);
-            pushed.state.rules.frame = frame;
-            pushed.commit_frame(lease);
-            let [(_, committed)] = held(&pushed.state.rules.frame).try_into().unwrap();
-            assert!(committed == *parent(&pushed));
+            assert!(pushed.state.rules.frame == frame);
+            assert_eq!(parent(&pushed).source_facts.as_ref(), Some(&departing));
+            // CR 608.2m: once its entry leaves the stack, the owner is the
+            // detached entry, for exactly as long as the frame resumes it.
+            let index = pushed
+                .state
+                .rules
+                .stack
+                .iter()
+                .position(|entry| entry.id == owner)
+                .unwrap();
+            pushed.unstack(index).unwrap();
+            pushed.release_detached();
+            assert_single_owner(&pushed);
+            assert_eq!(
+                pushed.entry(owner).unwrap().source_facts.as_ref(),
+                Some(&departing)
+            );
+            pushed.state.rules.frame = Frame::Priority;
+            pushed.release_detached();
+            assert!(pushed.entry(owner).is_err());
+            assert!(pushed.state.rules.detached.is_empty());
         }
     }
     assert_eq!(frames, 60);
@@ -401,5 +427,5 @@ fn every_cast_frame_suspending_a_hand_cast_owner_carries_its_last_known_facts() 
         frame: frame.clone(),
         child: None,
     };
-    assert!(resolving.resolving_invocation() == Some(parent(&g)));
+    assert!(resolving.resolving_invocation() == Some(owner));
 }

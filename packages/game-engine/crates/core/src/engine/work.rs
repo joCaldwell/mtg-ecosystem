@@ -94,7 +94,7 @@ impl WorkCache {
                 .next(),
         };
         if let Some((key, _)) = next {
-            self.last_object = Some(*key);
+            self.last_object = Some(key);
         }
         next.map(|(_, object)| object)
     }
@@ -1061,7 +1061,7 @@ impl Game {
                         (
                             Frame::RevealAndCast { progress },
                             PlayerResponse::OptionalEffect { .. },
-                        ) => progress.permission().is_ok(),
+                        ) => progress.permission(self).is_ok(),
                         (Frame::Cascade { progress }, PlayerResponse::OptionalEffect { .. }) => {
                             progress.stage == cascade::CascadeStage::Offer
                         }

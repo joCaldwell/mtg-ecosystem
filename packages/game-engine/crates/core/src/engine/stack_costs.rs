@@ -144,7 +144,7 @@ impl Game {
             .program
             .targets
             .is_empty();
-        self.state.rules.stack.push(StackInstance {
+        let entry = StackInstance {
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
@@ -175,7 +175,8 @@ impl Game {
             paid: (!mana && !targeted && !chosen).then_some(total_cost.clone()),
             total_cost,
             cast_from,
-        });
+        };
+        self.state.rules.stack.push(entry);
         if modal || targeted {
             if cost != ActivationCost::TapSource
                 && !matches!(
@@ -624,7 +625,7 @@ impl Game {
     ) -> Result<(), String> {
         let slot = target_slot as usize;
         let target = *self
-            .bound_stack_target(&frame.spell, slot)
+            .bound_stack_target(self.entry(frame.stack_id)?, slot)
             .ok_or("missing counter target binding")?;
         if frame.legal_targets.get(slot) != Some(&true) {
             return self
@@ -645,7 +646,7 @@ impl Game {
         // CR 608.2h: the target may leave the stack during the counter event.
         let controller = entry.controller;
         let domain = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .targets
             .get(slot)
             .ok_or("missing counter target domain")?
@@ -678,7 +679,7 @@ impl Game {
                 },
             );
         }
-        let actual = self.commit(proposed, Self::staple_cause(&frame, source_block))?;
+        let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
         self.complete_counter_outcome(
             frame,
             source_block,
@@ -724,7 +725,11 @@ impl Game {
                     },
                 );
             }
-            self.commit_mill(controller, count, Self::staple_cause(&frame, source_block))?;
+            self.commit_mill(
+                controller,
+                count,
+                self.instruction_cause(&frame, source_block)?,
+            )?;
         }
         self.finish_instruction(frame, outcome)
     }

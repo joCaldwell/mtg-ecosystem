@@ -1032,12 +1032,12 @@ impl Game {
             .objects
             .iter()
             .filter(|(_, object)| self.indexed_static_source(object))
-            .map(|(card, _)| *card)
+            .map(|(card, _)| card)
             .collect()
     }
     pub(super) fn projection_index(&self) -> ProjectionIndex {
         let mut index = ProjectionIndex::default();
-        for (&card, object) in &self.state.rules.objects {
+        for (card, object) in &self.state.rules.objects {
             match object.zone {
                 Zone::Hand { owner } => {
                     if let Some(count) = index.hand_counts.get_mut(owner.0 as usize) {
@@ -2076,11 +2076,13 @@ impl Game {
         }
         if let Frame::HandCast { frame, child: None } = &self.state.rules.frame {
             return Ok(
-                (frame.spell.controller == viewer).then_some(PlayerRequest::HandCast {
-                    token,
-                    player: viewer,
-                    candidates: vec![],
-                }),
+                (self.entry(frame.stack_id)?.controller == viewer).then_some(
+                    PlayerRequest::HandCast {
+                        token,
+                        player: viewer,
+                        candidates: vec![],
+                    },
+                ),
             );
         }
         if let Some(request) = self.resolution_cast_request()? {
@@ -2714,7 +2716,7 @@ impl Game {
                 .clone()
                 .chain(looked.iter().copied())
                 .collect::<BTreeSet<_>>();
-            let mut k = self.state.knowledge.visibility[v as usize].clone();
+            let mut k = Knowledge::clone(&self.state.knowledge.visibility[v as usize]);
             k.handles.retain_objects(&current_set);
             k.trigger_handles.retain(|id, _| trigger_set.contains(id));
             for &id in &triggers {
@@ -2916,7 +2918,7 @@ impl Game {
                 };
                 k.decision_key = key;
             }
-            self.state.knowledge.visibility[v as usize] = k;
+            self.state.knowledge.visibility[v as usize] = k.into();
             let view = self.permitted_view(viewer, (&projection, &cores), &effects, &current)?;
             let history = &mut self.state.knowledge.visibility[v as usize].history;
             if !history

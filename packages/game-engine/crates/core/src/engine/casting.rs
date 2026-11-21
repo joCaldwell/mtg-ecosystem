@@ -125,8 +125,9 @@ impl Game {
         // CR 702.103e: the Aura effect ends as resolution starts if its target
         // is illegal. The stack entry keeps the alternative payment as history.
         if let Frame::Resolve { frame } = &self.state.rules.frame
-            && frame.spell.source == object
-            && frame.spell.kind.is_spell()
+            && self
+                .entry(frame.stack_id)
+                .is_ok_and(|entry| entry.source == object && entry.kind.is_spell())
             && frame.legal_targets == [false]
         {
             return false;
@@ -154,7 +155,7 @@ impl Game {
         )
     }
     pub(super) fn announce_resolution_spell(&mut self, progress: CastOwner) -> Result<(), String> {
-        let permission = progress.permission()?;
+        let permission = progress.permission(self)?;
         let legal = match &progress {
             CastOwner::LinkedPlay {
                 progress,
@@ -163,7 +164,7 @@ impl Game {
             } => {
                 self.validate_linked_play(progress, None)?;
                 matches!(&self.state.rules.frame, Frame::PlayHideawayLinked { progress: current } if current == progress)
-                    && progress.receipt_matches(receipt, *object)
+                    && progress.receipt_matches(self, receipt, *object)?
                     && self.current(*object)?.zone == Zone::Exile
                     && self.resolution_spell_proposable(permission.caster, *object)?
             }
@@ -189,7 +190,7 @@ impl Game {
         frame: Box<Resolving>,
         object: ObjectId,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.hand_cast_candidates(&frame)?.contains(&object) {
             return Err("unavailable hand spell".into());
         }
@@ -256,7 +257,7 @@ impl Game {
         if bestow {
             source_facts.characteristics = self.proposed_cast_characteristics(card, true)?;
         }
-        self.state.rules.stack.push(StackInstance {
+        let entry = StackInstance {
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
@@ -285,7 +286,8 @@ impl Game {
             paid: None,
             total_cost,
             cast_from,
-        });
+        };
+        self.state.rules.stack.push(entry);
         let cast = Casting {
             completion,
             sacrifices: vec![],

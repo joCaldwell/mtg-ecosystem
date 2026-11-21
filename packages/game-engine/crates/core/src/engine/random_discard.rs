@@ -17,7 +17,7 @@ impl Game {
         if self.state.rules.match_state.is_none() {
             return Err("random discard requires a seeded match".into());
         }
-        let program = self.program_for(&frame.spell)?;
+        let program = self.program_for(self.entry(frame.stack_id)?)?;
         let Some(Instruction::DiscardTargetPlayerAtRandom {
             target_slot,
             count,
@@ -27,8 +27,9 @@ impl Game {
             return Err("missing random discard instruction".into());
         };
         let slot = *target_slot as usize;
-        if !frame.spell.kind.is_spell()
-            || frame.spell.paid.as_ref() != Some(&frame.spell.total_cost)
+        if !self.entry(frame.stack_id)?.kind.is_spell()
+            || self.entry(frame.stack_id)?.paid.as_ref()
+                != Some(&self.entry(frame.stack_id)?.total_cost)
             || frame.legal_targets.get(slot) != Some(&true)
             || !program.targets.get(slot).is_some_and(|spec| {
                 matches!(
@@ -39,16 +40,18 @@ impl Game {
         {
             return Err("random discard requires a paid spell with a legal player target".into());
         }
-        let player = *frame
-            .spell
+        let player = *self
+            .entry(frame.stack_id)?
             .player_targets
             .get(slot)
             .ok_or("missing random discard target")?;
         let count = match count {
             RandomDiscardCount::Fixed { value } => value,
-            RandomDiscardCount::AnnouncedX => {
-                frame.spell.x.as_ref().ok_or("missing announced X")?
-            }
+            RandomDiscardCount::AnnouncedX => self
+                .entry(frame.stack_id)?
+                .x
+                .as_ref()
+                .ok_or("missing announced X")?,
         };
         if count.is_negative() {
             return Err("negative random discard count".into());
@@ -118,7 +121,7 @@ impl Game {
             return Ok(());
         };
 
-        let cause = Self::wipe_cause(&frame, source_block);
+        let cause = self.instruction_cause(&frame, source_block)?;
         self.complete_resolving_discards(frame, cause, player, objects)
     }
 }

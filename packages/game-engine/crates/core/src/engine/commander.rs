@@ -349,9 +349,9 @@ impl Game {
                             object,
                             actual_destination,
                             BatchCause::Instruction {
-                                stack_id: frame.spell.id,
-                                player: frame.spell.controller,
-                                source: frame.spell.source,
+                                stack_id: frame.stack_id,
+                                player: self.entry(frame.stack_id)?.controller,
+                                source: self.entry(frame.stack_id)?.source,
                                 cursor: frame.cursor,
                                 source_block,
                             },
@@ -375,9 +375,9 @@ impl Game {
                         object,
                         actual_destination,
                         BatchCause::Instruction {
-                            stack_id: frame.spell.id,
+                            stack_id: frame.stack_id,
                             player,
-                            source: frame.spell.source,
+                            source: self.entry(frame.stack_id)?.source,
                             cursor: frame.cursor,
                             source_block,
                         },
@@ -580,7 +580,7 @@ impl Game {
                 CommanderContinuation::LookTopMana { frame, revealed } => {
                     self.validate_resolving(frame)?;
                     self.validate_look_top_mana_move(frame, *object, *revealed)?;
-                    if owner != frame.spell.controller
+                    if owner != self.entry(frame.stack_id)?.controller
                         || *destination != (Zone::Hand { owner })
                         || current.zone != (Zone::Library { owner })
                     {
@@ -627,13 +627,13 @@ impl Game {
                             || *source_block != expected_block
                             || *destination != (Zone::Library { owner })
                             || current.zone != (Zone::Graveyard { owner })
-                            || frame.spell.controller != owner
+                            || self.entry(frame.stack_id)?.controller != owner
                         {
                             return Err("snapshot commander successor tuck invariant".into());
                         }
                         return self.validate_resolving(frame);
                     }
-                    let program = self.program_for(&frame.spell)?;
+                    let program = self.program_for(self.entry(frame.stack_id)?)?;
                     let instruction = program.instructions.get(frame.cursor as usize);
                     let (slot, expected_destination, expected_block) = match instruction {
                         Some(
@@ -673,18 +673,19 @@ impl Game {
                     ) {
                         current.zone == Zone::Battlefield
                     } else {
-                        self.object_target_legal(&frame.spell, *object)
+                        self.object_target_legal(self.entry(frame.stack_id)?, *object)
                     };
                     if !valid_target
                         || *destination != expected_destination
                         || *source_block != expected_block
-                        || frame.stack_id != frame.spell.id
-                        || frame.spell.id.0 >= self.state.rules.next_stack_id
-                        || frame.spell.paid.as_ref() != Some(&frame.spell.total_cost)
-                        || frame.spell.targets.len() != program.targets.len()
+                        || frame.stack_id != frame.stack_id
+                        || frame.stack_id.0 >= self.state.rules.next_stack_id
+                        || self.entry(frame.stack_id)?.paid.as_ref()
+                            != Some(&self.entry(frame.stack_id)?.total_cost)
+                        || self.entry(frame.stack_id)?.targets.len() != program.targets.len()
                         || frame.legal_targets.len() != program.targets.len()
                         || frame.outcomes.len() != frame.cursor as usize
-                        || frame.spell.targets.get(slot as usize) != Some(object)
+                        || self.entry(frame.stack_id)?.targets.get(slot as usize) != Some(object)
                         || frame.legal_targets.get(slot as usize) != Some(&true)
                     {
                         return Err("snapshot commander spell continuation invariant".into());
@@ -711,7 +712,7 @@ impl Game {
                             .and_then(|cards| cards.first())
                             != Some(&object.card)
                         || !match self
-                            .program_for(&frame.spell)?
+                            .program_for(self.entry(frame.stack_id)?)?
                             .instructions
                             .get(frame.cursor as usize)
                         {

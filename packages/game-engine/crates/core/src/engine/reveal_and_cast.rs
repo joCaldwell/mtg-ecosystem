@@ -41,16 +41,11 @@ impl RevealAndCastProgress {
             stage: RevealStage::Scan,
         }
     }
-    pub(super) fn permission(&self) -> Result<CastPermission, String> {
+    pub(super) fn permission(&self, game: &Game) -> Result<CastPermission, String> {
         let RevealStage::Offer { hit } = self.stage else {
             return Err("no revealed card cast offer".into());
         };
-        Ok(CastPermission::from_instruction(
-            &self.frame,
-            self.source_block,
-            hit,
-            None,
-        ))
+        CastPermission::from_instruction(game, &self.frame, self.source_block, hit, None)
     }
     pub(super) fn child(&self) -> Option<StackId> {
         match self.stage {
@@ -59,7 +54,7 @@ impl RevealAndCastProgress {
         }
     }
     pub(super) fn complete_cast(&mut self, hit: ObjectId, child: StackId) -> Result<(), String> {
-        if self.permission()?.object != hit {
+        if !matches!(self.stage, RevealStage::Offer { hit: offered } if offered == hit) {
             return Err("revealed cast completion identity".into());
         }
         self.stage = RevealStage::Cast { hit, child };
@@ -85,12 +80,12 @@ impl Game {
         let Frame::RevealAndCast { progress } = &self.state.rules.frame else {
             return self.cascade_request();
         };
-        let player = progress.frame.spell.controller;
+        let player = self.entry(progress.frame.stack_id)?.controller;
         if !self.is_live(player) || !matches!(progress.stage, RevealStage::Offer { .. }) {
             return Ok(None);
         }
         Ok(self
-            .resolution_offer_legal(&progress.permission()?)?
+            .resolution_offer_legal(&progress.permission(self)?)?
             .then_some(Request::OptionalEffect {
                 decision_id: self.state.rules.revision,
                 player,
@@ -103,10 +98,10 @@ impl Game {
         player: PlayerId,
         response: &Response,
     ) -> Result<(), String> {
-        if player != progress.frame.spell.controller
+        if player != self.entry(progress.frame.stack_id)?.controller
             || !matches!(response, Response::OptionalEffect { .. })
             || !self.is_live(player)
-            || !self.resolution_offer_legal(&progress.permission()?)?
+            || !self.resolution_offer_legal(&progress.permission(self)?)?
         {
             return Err("invalid revealed card cast choice".into());
         }
@@ -116,13 +111,13 @@ impl Game {
         if let Frame::RevealAndCast { progress } = &self.state.rules.frame
             && let Some(input) = &self.state.rules.pending
         {
-            if input.player != progress.frame.spell.controller
+            if input.player != self.entry(progress.frame.stack_id)?.controller
                 || !matches!(input.response, Response::OptionalEffect { .. })
             {
                 return Err("unexpected pending revealed cast input".into());
             }
             if !self.is_live(input.player)
-                || !self.resolution_offer_legal(&progress.permission()?)?
+                || !self.resolution_offer_legal(&progress.permission(self)?)?
             {
                 self.state.rules.pending = None;
             }
@@ -147,10 +142,10 @@ impl Game {
         &mut self,
         mut progress: Box<RevealAndCastProgress>,
     ) -> Result<(), String> {
-        let player = progress.frame.spell.controller;
-        let cause = Self::wipe_cause(&progress.frame, progress.source_block);
+        let player = self.entry(progress.frame.stack_id)?.controller;
+        let cause = self.instruction_cause(&progress.frame, progress.source_block)?;
         if !self.is_live(player) {
-            return self.finish_spell(&progress.frame.spell, false);
+            return self.finish_spell(progress.frame.stack_id, false);
         }
         match &mut progress.stage {
             RevealStage::Scan => {
@@ -200,13 +195,13 @@ impl Game {
                     }
                     progress.lands.clear();
                     let Some(hit) = *hit else {
-                        return self.finish_spell(&progress.frame.spell, true);
+                        return self.finish_spell(progress.frame.stack_id, true);
                     };
                     progress.stage = RevealStage::Offer { hit };
                 }
             }
             RevealStage::Offer { .. } => {
-                let legal = self.resolution_offer_legal(&progress.permission()?)?;
+                let legal = self.resolution_offer_legal(&progress.permission(self)?)?;
                 if let Some(input) = self.state.rules.pending.take() {
                     let Response::OptionalEffect { perform } = input.response else {
                         return Err("revealed cast response shape".into());
@@ -220,9 +215,9 @@ impl Game {
                 } else if legal {
                     return Err("missing revealed cast decision".into());
                 }
-                return self.finish_spell(&progress.frame.spell, true);
+                return self.finish_spell(progress.frame.stack_id, true);
             }
-            RevealStage::Cast { .. } => return self.finish_spell(&progress.frame.spell, true),
+            RevealStage::Cast { .. } => return self.finish_spell(progress.frame.stack_id, true),
         }
         self.state.rules.frame = Frame::RevealAndCast { progress };
         Ok(())
@@ -241,7 +236,7 @@ impl Game {
             return Err("missing reveal owner".into());
         };
         if !matches!(progress.stage, RevealStage::Scan)
-            || progress.frame.spell.controller != player
+            || self.entry(progress.frame.stack_id)?.controller != player
             || self.next_unrevealed(player, progress.lands.len())? != Some(object)
             || self.current(object)?.zone != (Zone::Library { owner: player })
         {
@@ -258,7 +253,7 @@ impl Game {
         let Frame::RevealAndCast { progress } = &self.state.rules.frame else {
             return Err("missing random bottom owner".into());
         };
-        if progress.frame.spell.controller != player
+        if self.entry(progress.frame.stack_id)?.controller != player
             || !matches!(&progress.stage, RevealStage::RandomBottom { index: 0, order: sampled, .. } if sampled == order)
             || self.library_prefix(player, &Quantity::from(order.len() as i64))? != progress.lands
         {
@@ -278,17 +273,17 @@ impl Game {
         announcing: Option<&CastPermission>,
     ) -> Result<(), String> {
         let frame = &progress.frame;
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         let child = if announcing.is_some() {
             Some(self.top()?.id)
         } else {
             progress.child()
         };
         self.validate_resolving_owned(frame, child)?;
-        if !frame.spell.kind.is_spell()
+        if !self.entry(frame.stack_id)?.kind.is_spell()
             || frame.cursor != 0
-            || !matches!(self.program_for(&frame.spell)?.instructions.as_slice(), [Instruction::RevealAndCast { source_block }] if *source_block == progress.source_block)
-            || announcing.is_some_and(|p| progress.permission().as_ref() != Ok(p))
+            || !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.as_slice(), [Instruction::RevealAndCast { source_block }] if *source_block == progress.source_block)
+            || announcing.is_some_and(|p| progress.permission(self).as_ref() != Ok(p))
             || progress.lands.len() > capacities::OWNED_LIMIT
         {
             return Err("snapshot reveal instruction ownership".into());
@@ -353,8 +348,13 @@ impl Game {
             }
             if child.is_some() {
                 let top = self.top()?;
-                let permission =
-                    CastPermission::from_instruction(frame, progress.source_block, hit, None);
+                let permission = CastPermission::from_instruction(
+                    self,
+                    frame,
+                    progress.source_block,
+                    hit,
+                    None,
+                )?;
                 if !self.resulting_permission_matches(&permission, top)?
                     || (announcing.is_none() && top.paid.is_none())
                 {

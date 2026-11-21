@@ -246,7 +246,9 @@ impl Game {
                         source: mana_ability_source
                             .or_else(|| {
                                 match &self.state.rules.frame {
-                                    Frame::ResolutionPayment { frame, .. } => Some(&frame.spell),
+                                    Frame::ResolutionPayment { frame, .. } => {
+                                        self.entry(frame.stack_id).ok()
+                                    }
                                     _ => self.top().ok(),
                                 }
                                 .and_then(|entry| self.handle_for(viewer, entry.source).ok())

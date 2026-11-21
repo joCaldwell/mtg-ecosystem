@@ -607,9 +607,9 @@ fn hand_return_atomic_rollback_and_short_library_failed_attempts() {
             panic!("frame")
         };
         let cause = BatchCause::Instruction {
-            stack_id: frame.spell.id,
+            stack_id: frame.stack_id,
             player: PlayerId(0),
-            source: frame.spell.source,
+            source: g.entry(frame.stack_id).unwrap().source,
             cursor: frame.cursor,
             source_block: 0,
         };

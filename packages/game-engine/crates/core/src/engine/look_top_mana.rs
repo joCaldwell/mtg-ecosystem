@@ -6,7 +6,7 @@ use mtg_contracts::{MANA_COMBINATION_COLORS, validate_mana_combination};
 impl Game {
     fn look_top_mana_spec(&self, frame: &Resolving) -> Result<(Quantity, Quantity, u32), String> {
         match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -40,15 +40,15 @@ impl Game {
         let (_, _, source_block) = self.look_top_mana_spec(frame)?;
         Ok(BatchCause::Instruction {
             stack_id: frame.stack_id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
+            player: self.entry(frame.stack_id)?.controller,
+            source: self.entry(frame.stack_id)?.source,
             cursor: frame.cursor,
             source_block,
         })
     }
 
     pub(super) fn begin_look_top_mana(&mut self, frame: Resolving) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -81,7 +81,7 @@ impl Game {
         let [object] = looked else {
             return Err("look requires exactly one card".into());
         };
-        if player != frame.spell.controller
+        if player != self.entry(frame.stack_id)?.controller
             || !self.look_top_mana_eligible(frame, *object)?
             || self.is_live(player)
                 && (self.library_prefix(player, &1.into())? != looked
@@ -195,6 +195,7 @@ impl Game {
                 Ok(())
             }
             Response::ManaCombination { amounts } => {
+                let source = self.entry(frame.stack_id)?.source;
                 let events = MANA_COMBINATION_COLORS
                     .into_iter()
                     .zip(amounts)
@@ -205,7 +206,7 @@ impl Game {
                             player,
                             color,
                             amount,
-                            source: frame.spell.source,
+                            source,
                         },
                     })
                     .collect();
@@ -233,7 +234,7 @@ impl Game {
     pub(super) fn retained_look_top_mana_source(&self, player: PlayerId, source: ObjectId) -> bool {
         matches!(&self.state.rules.frame, Frame::ResolutionChoice {
             frame, choice: ResolutionChoice::LookTopMana { player: chooser, revealed: true, .. },
-        } if *chooser == player && frame.spell.source == source)
+        } if *chooser == player && self.entry(frame.stack_id).is_ok_and(|entry| entry.source == source))
     }
 
     fn move_look_top_mana(
@@ -242,7 +243,7 @@ impl Game {
         object: ObjectId,
         revealed: bool,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if self.state.rules.commanders.history(object.card).is_some() {
             self.state.rules.frame = Frame::CommanderReturn {
                 object,
@@ -261,7 +262,7 @@ impl Game {
         revealed: bool,
     ) -> Result<(), String> {
         self.look_top_mana_spec(frame)?;
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if self.is_live(player)
             && (self.library_prefix(player, &1.into())? != [object]
                 || revealed
@@ -282,7 +283,7 @@ impl Game {
         revealed: bool,
         to_command: bool,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
