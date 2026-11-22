@@ -197,12 +197,13 @@ Filters show matched/full counts and keep global totals and review scope
 unchanged. Clearing restores scroll, selection and open details.
 
 Add columns at wide sizes rather than stretching them. Card groups open the list.
-Primary activation opens card details and marks that row with a neutral fill.
+Clicking opens card details and marks that row with a neutral fill.
 Right-click, modifier-click, Shift+Space and the card details action toggle bulk
-selection on editable deck rows. The first selection reveals checkboxes in a
-reserved gutter and actions below the list without moving the rows. On tablets
-the actions stick to the bottom of the viewport. Maybe rows are whole buttons
-and stay outside bulk selection. `?` inspects.
+selection on editable deck rows. Once a selection is active, touch taps can add
+or remove cards. Selected rows use a blue outline and fill. The details and
+review fills take priority when both states apply. Bulk actions appear below the
+list without moving the rows and stick to the bottom of the viewport on tablets.
+Maybe rows are whole buttons and stay outside bulk selection. `?` inspects.
 
 Panel navigation is one line: Review, Brief, Power, Stats, Checks, Memories,
 History, with `aria-current` on the current view. The strip scrolls when text

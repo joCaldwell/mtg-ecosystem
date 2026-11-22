@@ -32,12 +32,13 @@ try {
     await page.goto(`${origin}/deck/2`);
     const list = page.getByRole("region", { name: "Deck list", exact: true });
     const row = list.locator(`button[data-oracle-id="${commander.oracle_id}"]`).first();
+    const another = list.locator(`button[data-oracle-id]:not([data-oracle-id="${commander.oracle_id}"])`).first();
     await row.waitFor();
     await settle(page, watch);
 
     const actions = page.getByRole("group", { name: "Selected cards", exact: true });
-    const checkboxes = list.getByRole("checkbox");
-    const selected = list.getByRole("checkbox", { name: `Select ${commander.name}`, exact: true }).first();
+    const checkboxes = list.locator('input[type="checkbox"]');
+    const isSelected = async (cardRow) => (await cardRow.getAttribute("data-selected")) === "true";
     assert.equal(await list.getByRole("heading", { name: "Main deck", exact: true }).count(), 0);
     assert.equal(await checkboxes.count(), 0);
     assert.equal(await actions.count(), 0);
@@ -51,15 +52,18 @@ try {
       await details.getByRole("button", { name: "Close", exact: true }).tap();
       await details.waitFor({ state: "hidden" });
       assert.deepEqual(await row.boundingBox(), before);
-      assert.equal(await selected.isChecked(), true);
+      assert.equal(await isSelected(row), true);
       assert(await actions.evaluate((element) => Math.abs(element.getBoundingClientRect().bottom - innerHeight) < 1));
       await shoot(page, join(output, "tablet-selected.png"), { full: false });
+      await another.tap({ position: { x: 32, y: 10 } });
+      assert.equal(await details.count(), 0, "touch can add to an active selection directly");
     } else {
       await row.click({ position: { x: 32, y: 10 } });
       const panel = page.getByRole("complementary", { name: "Deck panel" });
       await panel.getByRole("heading", { name: commander.name, exact: true }).waitFor();
       assert.equal(await row.getAttribute("aria-current"), "true");
-      assert.equal(await checkboxes.count(), 0);
+      assert.equal(await isSelected(row), false);
+      const openFill = await row.evaluate((element) => getComputedStyle(element).backgroundColor);
       await shoot(page, join(output, "desktop-inspection.png"), { full: false });
       await panel.getByRole("button", { name: /^Back/ }).click();
       const before = await row.boundingBox();
@@ -70,24 +74,37 @@ try {
       assert.equal(await row.getAttribute("aria-current"), null);
       assert.deepEqual(await row.boundingBox(), before);
       assert.equal(await row.evaluate((element, p) => element.contains(document.elementFromPoint(p.x, p.y)), point), true);
-      assert.equal(await selected.isChecked(), true);
+      assert.equal(await isSelected(row), true);
+      assert.equal(await row.getAttribute("aria-description"), "Selected for bulk actions");
+      const selectionStyle = await row.evaluate((element) => {
+        const { backgroundColor, outlineStyle } = getComputedStyle(element);
+        return { backgroundColor, outlineStyle };
+      });
+      assert.notEqual(selectionStyle.backgroundColor, openFill);
+      assert.equal(selectionStyle.outlineStyle, "solid");
       const listBounds = await list.boundingBox();
       const actionBounds = await actions.boundingBox();
       assert(actionBounds && listBounds && actionBounds.y >= listBounds.y + listBounds.height);
       await shoot(page, join(output, "desktop-selected.png"), { full: false });
+      await row.click({ position: { x: 32, y: 10 } });
+      assert.equal(await row.getAttribute("aria-current"), "true");
+      assert.equal(await isSelected(row), true);
+      assert.equal(await row.evaluate((element) => getComputedStyle(element).backgroundColor), openFill);
+      await panel.getByRole("button", { name: /^Back/ }).click();
+      await another.click({ modifiers: ["Control"], position: { x: 32, y: 10 } });
     }
 
-    const another = list.getByRole("checkbox", { checked: false }).first();
-    await another.check();
+    assert.equal(await checkboxes.count(), 0);
+    assert.equal(await isSelected(another), true);
     assert.equal(await actions.getByRole("status").textContent(), "2 selected");
     await actions.getByRole("button", { name: /^Clear/ }).click();
-    assert.equal(await checkboxes.count(), 0);
+    assert.equal(await list.locator("[data-selected]").count(), 0);
 
     if (!vp.touch) {
       await row.press("Shift+Space");
-      assert.equal(await selected.isChecked(), true);
-      await selected.press("Space");
-      assert.equal(await checkboxes.count(), 0);
+      assert.equal(await isSelected(row), true);
+      await row.press("Shift+Space");
+      assert.equal(await isSelected(row), false);
       assert.equal(await row.evaluate((element) => element === document.activeElement), true);
 
       const collapse = page.getByRole("button", { name: "Collapse sidebar", exact: true });
