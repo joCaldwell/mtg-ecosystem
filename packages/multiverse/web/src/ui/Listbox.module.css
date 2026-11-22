@@ -62,4 +62,5 @@
 
 .option:has(input:checked) { background: var(--sel-bg); color: var(--sel); }
 .option:has(input:focus-visible) { outline: 2px solid var(--sel); outline-offset: -2px; }
+.option:has(input:focus-visible) input:focus-visible { outline: none; }
 .option input[type="checkbox"] { accent-color: var(--sel); }
