@@ -443,18 +443,18 @@ fn reflexive_stored_objects_compare_all_independent_fields_and_detach_before_mut
             .characteristics
             .clone(),
     );
-    let left = StoredObject::new(original.clone());
+    let left = StoredObject::from(original.clone());
     left.bytes().unwrap();
     let shared = left.clone();
-    let independent = StoredObject::new(original.clone());
+    let independent = StoredObject::from(original.clone());
     assert!(Arc::ptr_eq(&left.0, &shared.0));
     assert!(!Arc::ptr_eq(&left.0, &independent.0));
     assert!(left == shared && left == independent);
-    let edits: [fn(&mut VisibleObject); 9] = [
+    let edits: [fn(&mut StoredObject); 9] = [
         |v| v.characteristics = None,
         |v| v.marked_damage = 991.into(),
         |v| v.attack_ready = !v.attack_ready,
-        |v| v.handle.0.push_str("-new-identity"),
+        |v| v.handle = "new-identity".into(),
         |v| v.oracle_id.push_str("-late-field"),
         |v| v.owner = PlayerId((v.owner.0 + 1) % 4),
         |v| v.controller = PlayerId((v.controller.0 + 1) % 4),
@@ -693,7 +693,7 @@ fn stored_capacity_conversion_measures_legacy_layout_and_fresh_destination_slots
             // Exact old conversion, retained solely as a mechanism oracle.
             let legacy = legacy_source
                 .into_iter()
-                .map(StoredObject::new)
+                .map(StoredObject::from)
                 .collect::<Vec<_>>();
             let expected_legacy_capacity =
                 legacy_source_capacity.checked_mul(source_size).unwrap() / destination_size;

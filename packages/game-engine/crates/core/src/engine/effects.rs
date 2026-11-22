@@ -2717,7 +2717,11 @@ impl Game {
             k.damage_handles.retain(|(key, _)| damages.contains(key));
             for key in keys.iter().chain(intrinsic) {
                 if !k.effect_handles.iter().any(|(id, _)| id == key) {
-                    let handle = EffectHandle(k.scoped(format!("v{v}-e{}", k.next_effect_handle)));
+                    let handle = publish::HandleId::new(
+                        v as u8,
+                        k.next_effect_handle,
+                        k.namespace.as_deref(),
+                    );
                     k.next_effect_handle = k
                         .next_effect_handle
                         .checked_add(1)
@@ -2751,7 +2755,7 @@ impl Game {
                 k.effect_handles
                     .iter()
                     .find(|(id, _)| id == key)
-                    .map(|(_, h)| h.clone())
+                    .map(|(_, h)| EffectHandle(h.to_string()))
             })
             .ok_or_else(|| "unknown visible effect".into())
     }
@@ -3174,10 +3178,11 @@ impl Game {
             .visibility
             .get(viewer.0 as usize)
             .ok_or("invalid viewer")?;
+        let handle = publish::HandleId::parse(&effect.0);
         let effect = k
             .effect_handles
             .iter()
-            .find(|(_, h)| h == effect)
+            .find(|(_, h)| *h == handle)
             .map(|(k, _)| k.clone())
             .ok_or("invalid effect handle")?;
         let tx = self.damage_transaction()?;

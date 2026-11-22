@@ -27,7 +27,12 @@ impl<T: Clone> Clone for Row<T> {
 }
 #[derive(Clone)]
 pub struct StoredRow<T>(pub Arc<Row<T>>);
-pub type StoredObject = StoredRow<VisibleObject>;
+pub type StoredObject = StoredRow<VisibleObject<super::HandleId<b'o'>>>;
+impl From<VisibleObject> for StoredObject {
+    fn from(object: VisibleObject) -> Self {
+        Self::new(object.map_handles(|h| super::HandleId::from(&h)))
+    }
+}
 pub(in crate::engine) type StoredPlayer = StoredRow<VisiblePlayer>;
 impl<T: Serialize> StoredRow<T> {
     pub fn new(value: T) -> Self {
@@ -348,7 +353,7 @@ impl From<PermittedView> for StoredPermittedView {
         // release that per-view excess capacity. Preserve every value/order.
         let mut stored_objects = Vec::with_capacity(objects.len());
         for object in objects {
-            stored_objects.push(StoredObject::new(object));
+            stored_objects.push(StoredObject::from(object));
         }
         let mut stored_players = Vec::with_capacity(players.len());
         for player in players {
@@ -529,7 +534,10 @@ impl StoredPermittedView {
             commanders: commanders.as_ref().clone(),
             priority: *priority,
             players: players.iter().map(|r| r.0.value.clone()).collect(),
-            objects: objects.iter().map(|r| r.0.value.clone()).collect(),
+            objects: objects
+                .iter()
+                .map(|r| r.0.value.clone().map_handles(|h| ObjectHandle::from(&h)))
+                .collect(),
             stack: stack.to_public(),
         }
     }
@@ -589,7 +597,9 @@ impl StoredPermittedView {
             && u.iter().zip(players).all(|(r, p)| r.0.value == *p)
             && k.matches_public(stack)
             && r.len() == objects.len()
-            && r.iter().zip(objects).all(|(r, o)| r.0.value == *o)
+            && r.iter()
+                .zip(objects)
+                .all(|(r, o)| r.0.value == o.clone().map_handles(|h| super::HandleId::from(&h)))
     }
     pub fn reuse_previous(&mut self, previous: Option<&Self>) {
         let Some(previous) = previous.filter(|p| p.viewer == self.viewer) else {
@@ -637,10 +647,10 @@ impl StoredPermittedView {
             let mut rows = previous
                 .objects
                 .iter()
-                .map(|r| (r.handle.0.as_str(), r))
+                .map(|r| (&r.handle, r))
                 .collect::<BTreeMap<_, _>>();
             for row in Arc::make_mut(&mut self.data.objects) {
-                if let Some(old) = rows.remove(row.handle.0.as_str())
+                if let Some(old) = rows.remove(&row.handle)
                     && *old == *row
                 {
                     *row = old.clone();
@@ -759,7 +769,10 @@ impl StoredPermittedView {
     pub fn mutate_object(&mut self, index: usize, edit: impl FnOnce(&mut VisibleObject)) {
         // No &mut StoredObject/StoredViewData escapes; the caller cannot warm a
         // row cache while retaining its mutable underlying VisibleObject.
-        edit(&mut Arc::make_mut(&mut self.data.objects)[index]);
+        let row = &mut Arc::make_mut(&mut self.data.objects)[index];
+        let mut public = row.0.value.clone().map_handles(|h| ObjectHandle::from(&h));
+        edit(&mut public);
+        *row = StoredObject::new(public.map_handles(|h| super::HandleId::from(&h)));
     }
 }
 
@@ -825,13 +838,13 @@ impl StoredPermittedView {
                 .map(|p| {
                     p.objects
                         .iter()
-                        .map(|r| (r.handle.0.as_str(), r))
+                        .map(|r| (&r.handle, r))
                         .collect::<BTreeMap<_, _>>()
                 })
                 .unwrap_or_default();
             for row in self.objects.iter() {
                 if !old
-                    .get(row.handle.0.as_str())
+                    .get(&row.handle)
                     .is_some_and(|r| Arc::ptr_eq(&r.0, &row.0))
                 {
                     charge = charge.saturating_add(payload_charge(&row.0.value));

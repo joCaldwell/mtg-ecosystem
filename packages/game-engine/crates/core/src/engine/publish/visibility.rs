@@ -5,8 +5,8 @@ pub struct VisibleCommanderReturnChoice {
     pub owner: PlayerId,
     pub to_command: bool,
 }
-use super::stored_history::StoredPermittedView;
 use super::*;
+use super::{HandleId, stored_history::StoredPermittedView};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
@@ -100,7 +100,9 @@ pub struct VisiblePlayer {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct VisibleObject {
+#[schemars(rename = "VisibleObject")]
+#[serde(bound(deserialize = "H: Deserialize<'de>"))]
+pub struct VisibleObject<H = ObjectHandle> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copied_values: Option<VisiblePermanentCopy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -108,7 +110,7 @@ pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exiled_by: Option<ObjectHandle>,
+    pub exiled_by: Option<H>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub phased_out: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -116,9 +118,9 @@ pub struct VisibleObject {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_ability_used: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attached_to: Option<ObjectHandle>,
+    pub attached_to: Option<H>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub attachments: Vec<ObjectHandle>,
+    pub attachments: Vec<H>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -133,12 +135,42 @@ pub struct VisibleObject {
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
     pub attack_ready: bool,
-    pub handle: ObjectHandle,
+    pub handle: H,
     pub oracle_id: String,
     pub owner: PlayerId,
     pub controller: PlayerId,
     pub zone: Zone,
     pub tapped: bool,
+}
+
+impl<H> VisibleObject<H> {
+    pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleObject<T> {
+        VisibleObject {
+            copied_values: self.copied_values,
+            display_face: self.display_face,
+            face_down: self.face_down,
+            exiled_by: self.exiled_by.map(&mut convert),
+            phased_out: self.phased_out,
+            entered_this_turn: self.entered_this_turn,
+            mana_ability_used: self.mana_ability_used,
+            attached_to: self.attached_to.map(&mut convert),
+            attachments: self.attachments.into_iter().map(&mut convert).collect(),
+            keywords: self.keywords,
+            restrictions: self.restrictions,
+            token: self.token,
+            plus_one_counters: self.plus_one_counters,
+            lore_counters: self.lore_counters,
+            characteristics: self.characteristics,
+            marked_damage: self.marked_damage,
+            attack_ready: self.attack_ready,
+            handle: convert(self.handle),
+            oracle_id: self.oracle_id,
+            owner: self.owner,
+            controller: self.controller,
+            zone: self.zone,
+            tapped: self.tapped,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -883,21 +915,21 @@ pub struct SearchContext {
 #[serde(transparent)]
 pub struct ObjectHandles {
     #[serde(with = "shared_entries")]
-    pub entries: Arc<BTreeMap<String, ObjectId>>,
+    pub entries: Arc<BTreeMap<HandleId<b'o'>, ObjectId>>,
     #[serde(skip)]
-    pub reverse: Arc<std::sync::OnceLock<BTreeMap<ObjectId, ObjectHandle>>>,
+    pub reverse: Arc<std::sync::OnceLock<BTreeMap<ObjectId, HandleId<b'o'>>>>,
 }
 mod shared_entries {
     use super::*;
     pub(in crate::engine) fn serialize<S: serde::Serializer>(
-        value: &Arc<BTreeMap<String, ObjectId>>,
+        value: &Arc<BTreeMap<HandleId<b'o'>, ObjectId>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         value.as_ref().serialize(serializer)
     }
     pub(in crate::engine) fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
-    ) -> Result<Arc<BTreeMap<String, ObjectId>>, D::Error> {
+    ) -> Result<Arc<BTreeMap<HandleId<b'o'>, ObjectId>>, D::Error> {
         BTreeMap::deserialize(deserializer).map(Arc::new)
     }
 }
@@ -908,23 +940,21 @@ impl PartialEq for ObjectHandles {
 }
 impl Eq for ObjectHandles {}
 impl ObjectHandles {
-    pub fn handle_for(&self, object: ObjectId) -> Option<&ObjectHandle> {
+    pub fn handle_for(&self, object: ObjectId) -> Option<&HandleId<b'o'>> {
         self.reverse
             .get_or_init(|| {
                 let mut reverse = BTreeMap::new();
                 for (handle, object) in self.entries.iter() {
-                    reverse
-                        .entry(*object)
-                        .or_insert_with(|| ObjectHandle(handle.clone()));
+                    reverse.entry(*object).or_insert_with(|| handle.clone());
                 }
                 reverse
             })
             .get(&object)
     }
     fn get(&self, handle: &str) -> Option<&ObjectId> {
-        self.entries.get(handle)
+        self.entries.get(&HandleId::parse(handle))
     }
-    pub fn insert(&mut self, handle: String, object: ObjectId) {
+    pub fn insert(&mut self, handle: HandleId<b'o'>, object: ObjectId) {
         // An unchanged row leaves the shared map and its index alone.
         if self.entries.get(&handle) == Some(&object) {
             return;
@@ -957,7 +987,7 @@ pub struct Knowledge {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(in crate::engine) effect_handles: Vec<(EffectKey, EffectHandle)>,
+    pub(in crate::engine) effect_handles: Vec<(EffectKey, HandleId<b'e'>)>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub(in crate::engine) next_effect_handle: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -969,7 +999,7 @@ pub struct Knowledge {
     #[serde(default, skip_serializing_if = "is_zero")]
     next_trigger_handle: u64,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    ability_handles: BTreeMap<StackId, StackHandle>,
+    ability_handles: BTreeMap<StackId, HandleId<b's'>>,
     #[serde(default, skip_serializing_if = "is_zero")]
     next_ability_handle: u64,
     pub handles: ObjectHandles,
@@ -1123,15 +1153,15 @@ impl Game {
             let handle = if let Some(handle) = k.handles.handle_for(object) {
                 handle.clone()
             } else {
-                let handle = ObjectHandle(k.scoped(format!("v{viewer}-o{}", k.next_handle)));
+                let handle = HandleId::new(viewer as u8, k.next_handle, k.namespace.as_deref());
                 k.next_handle = k
                     .next_handle
                     .checked_add(1)
                     .ok_or("trigger source handle limit")?;
-                k.handles.insert(handle.0.clone(), object);
+                k.handles.insert(handle.clone(), object);
                 handle
             };
-            handles.push(handle);
+            handles.push(ObjectHandle(handle.to_string()));
         }
         Ok(handles)
     }
@@ -1332,7 +1362,7 @@ impl Game {
             .visibility
             .get(viewer.0 as usize)
             .and_then(|knowledge| knowledge.ability_handles.get(&id))
-            .cloned()
+            .map(|id| StackHandle(id.to_string()))
             .ok_or_else(|| "stack object is not visible".into())
     }
     fn resolve_stack_handle(
@@ -1340,6 +1370,7 @@ impl Game {
         viewer: PlayerId,
         handle: &StackHandle,
     ) -> Result<StackId, String> {
+        let handle = HandleId::parse(&handle.0);
         self.state
             .knowledge
             .visibility
@@ -1348,7 +1379,7 @@ impl Game {
                 knowledge
                     .ability_handles
                     .iter()
-                    .find(|(_, value)| *value == handle)
+                    .find(|(_, value)| **value == handle)
             })
             .map(|(id, _)| *id)
             .filter(|id| self.state.rules.stack.iter().any(|entry| entry.id == *id))
@@ -1419,18 +1450,21 @@ impl Game {
             library_count: checked_count(library_count)?,
         })
     }
-    pub(crate) fn handle_for(
-        &self,
-        viewer: PlayerId,
-        id: ObjectId,
-    ) -> Result<ObjectHandle, String> {
+    fn object_handle_id(&self, viewer: PlayerId, id: ObjectId) -> Result<&HandleId<b'o'>, String> {
         self.state
             .knowledge
             .visibility
             .get(viewer.0 as usize)
             .and_then(|k| k.handles.handle_for(id))
-            .cloned()
             .ok_or_else(|| "object is not visible to this viewer".into())
+    }
+
+    pub(crate) fn handle_for(
+        &self,
+        viewer: PlayerId,
+        id: ObjectId,
+    ) -> Result<ObjectHandle, String> {
+        self.object_handle_id(viewer, id).map(ObjectHandle::from)
     }
     pub(in crate::engine) fn visible_ability_oracle_id(
         &self,
@@ -1474,13 +1508,17 @@ impl Game {
             .map(Some)
     }
 
-    fn project_visible_object(
+    fn project_visible_object<H>(
         &self,
         viewer: PlayerId,
         object: &Object,
         index: Option<&ProjectionIndex>,
         cores: Option<&ObjectCores>,
-    ) -> Result<VisibleObject, String> {
+    ) -> Result<VisibleObject<H>, String>
+    where
+        H: for<'a> From<&'a HandleId<b'o'>> + for<'a> From<&'a ObjectHandle>,
+    {
+        let handle = |id| self.object_handle_id(viewer, id).map(H::from);
         let physical = self
             .state
             .rules
@@ -1494,13 +1532,13 @@ impl Game {
                 entered_this_turn: false,
                 face_down: true,
                 lore_counters: Quantity::zero(),
-                exiled_by: Some(link.source_handle(viewer).clone()),
+                exiled_by: Some(H::from(link.source_handle(viewer))),
                 oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
                     physical.oracle_id.clone()
                 } else {
                     String::new()
                 },
-                handle: self.handle_for(viewer, object.id)?,
+                handle: handle(object.id)?,
                 owner: physical.owner,
                 controller: object.controller,
                 zone: object.zone,
@@ -1531,7 +1569,7 @@ impl Game {
         let attached_to = object
             .attached_to
             .filter(|t| self.current(*t).is_ok())
-            .map(|t| self.handle_for(viewer, t))
+            .map(|t| handle(t))
             .transpose()?;
         let attachments = match index {
             Some(index) => index
@@ -1539,7 +1577,7 @@ impl Game {
                 .get(&object.id)
                 .into_iter()
                 .flatten()
-                .map(|id| self.handle_for(viewer, *id))
+                .map(|id| handle(*id))
                 .collect::<Result<_, _>>()?,
             None => self
                 .state
@@ -1547,7 +1585,7 @@ impl Game {
                 .objects
                 .values()
                 .filter(|o| o.zone == Zone::Battlefield && o.attached_to == Some(object.id))
-                .map(|o| self.handle_for(viewer, o.id))
+                .map(|o| handle(o.id))
                 .collect::<Result<_, _>>()?,
         };
         // Same position as the unshared projection: after this viewer's
@@ -1601,7 +1639,7 @@ impl Game {
             characteristics: Some(characteristics),
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
-            handle: self.handle_for(viewer, object.id)?,
+            handle: handle(object.id)?,
             // A copy can show the original printed Oracle ID. An instruction-defined
             // token has only its public handle and visible token template.
             oracle_id: if self
@@ -1733,11 +1771,13 @@ impl Game {
             } => (
                 None,
                 Some(VisibleAbility {
-                    handle: self.state.knowledge.visibility[viewer.0 as usize]
-                        .ability_handles
-                        .get(&instance.id)
-                        .ok_or("missing ability stack handle")?
-                        .clone(),
+                    handle: StackHandle(
+                        self.state.knowledge.visibility[viewer.0 as usize]
+                            .ability_handles
+                            .get(&instance.id)
+                            .ok_or("missing ability stack handle")?
+                            .to_string(),
+                    ),
                     source: VisibleTarget {
                         announced: source_handles
                             .get(viewer.0 as usize)
@@ -2712,7 +2752,8 @@ impl Game {
                 .push(self.project_player(PlayerId(player), Some(index))?);
         }
         for object in visible {
-            let object = self.project_visible_object(viewer, object, Some(index), None)?;
+            let object: VisibleObject =
+                self.project_visible_object(viewer, object, Some(index), None)?;
             if object.zone == Zone::Exile {
                 view.players[object.owner.0 as usize]
                     .exile
@@ -2769,10 +2810,10 @@ impl Game {
             if object.id != *id {
                 continue;
             }
-            while previous.peek().is_some_and(|row| row.handle.0 < *handle) {
+            while previous.peek().is_some_and(|row| row.handle < *handle) {
                 previous.next();
             }
-            let old = previous.next_if(|row| row.handle.0 == *handle);
+            let old = previous.next_if(|row| row.handle == *handle);
             let row = match old {
                 Some(row)
                     if clean_except.is_some_and(|dirty| !dirty.contains(&id.card))
@@ -2784,7 +2825,7 @@ impl Game {
                     row.clone()
                 }
                 _ => {
-                    let projected =
+                    let projected: VisibleObject<HandleId<b'o'>> =
                         self.project_visible_object(viewer, object, Some(index), Some(cores))?;
                     match old {
                         Some(row) if **row == projected => row.clone(),
@@ -2978,10 +3019,8 @@ impl Game {
                 k.ability_handles.retain(|id, _| ability_set.contains(id));
                 for &id in &abilities {
                     if !k.ability_handles.contains_key(&id) {
-                        let handle = StackHandle(scoped(
-                            &k.namespace,
-                            format!("v{v}-{}{}", "s", k.next_ability_handle),
-                        ));
+                        let handle =
+                            HandleId::new(v, k.next_ability_handle, k.namespace.as_deref());
                         k.next_ability_handle = k
                             .next_ability_handle
                             .checked_add(1)
@@ -2998,7 +3037,7 @@ impl Game {
                 // order before any other row, irrespective of physical CardId.
                 for id in looked.iter().copied().chain(ids) {
                     if known.insert(id) {
-                        let handle = k.scoped(format!("v{v}-o{}", k.next_handle));
+                        let handle = HandleId::new(v, k.next_handle, k.namespace.as_deref());
                         k.next_handle = k
                             .next_handle
                             .checked_add(1)
@@ -3060,10 +3099,10 @@ impl Game {
         let row = match after {
             None => entries.first_key_value(),
             Some(handle) => entries
-                .range((Excluded(handle.0.clone()), Unbounded))
+                .range((Excluded(HandleId::parse(&handle.0)), Unbounded))
                 .next(),
         };
-        row.map(|(handle, _)| ObjectHandle(handle.clone()))
+        row.map(|(handle, _)| ObjectHandle(handle.to_string()))
     }
 
     pub(crate) fn resolve_handle(

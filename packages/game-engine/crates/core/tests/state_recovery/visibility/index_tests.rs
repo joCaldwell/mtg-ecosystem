@@ -21,7 +21,10 @@ fn reverse_index_preserves_wire_equality_and_lexical_first_lookup() {
             .iter()
             .find(|(_, value)| **value == id)
             .map(|(handle, _)| ObjectHandle(handle.clone()));
-        assert_eq!(handles.handle_for(id).cloned(), expected);
+        assert_eq!(
+            handles.handle_for(id).map(|h| ObjectHandle(h.to_string())),
+            expected
+        );
     }
     assert!(handles.reverse.get().is_some());
     assert_eq!(handles, cold);
@@ -33,10 +36,7 @@ fn reverse_index_preserves_wire_equality_and_lexical_first_lookup() {
 fn shared_reverse_index_invalidates_only_the_mutated_branch() {
     let mut original = ObjectHandles::default();
     original.insert("v0-o0".into(), object(1, 0));
-    assert_eq!(
-        original.handle_for(object(1, 0)),
-        Some(&ObjectHandle("v0-o0".into()))
-    );
+    assert_eq!(original.handle_for(object(1, 0)), Some(&"v0-o0".into()));
     let mut branch = original.clone();
     assert!(Arc::ptr_eq(&original.reverse, &branch.reverse));
     branch.insert("v0-o0".into(), object(1, 0));
@@ -76,7 +76,10 @@ fn indexed_visibility_refresh_keeps_handles_until_visibility_or_incarnation_chan
     for viewer in (0..4).map(PlayerId) {
         let knowledge = &game.state.knowledge.visibility[viewer.0 as usize];
         for (handle, object) in knowledge.handles.entries.iter() {
-            assert_eq!(game.handle_for(viewer, *object).unwrap().0, *handle);
+            assert_eq!(
+                game.handle_for(viewer, *object).unwrap().0,
+                handle.to_string()
+            );
         }
     }
     game.refresh_visibility().unwrap();

@@ -13,6 +13,8 @@
 //! equal, so every test proves the incremental path against its definition.
 use super::*;
 
+mod handles;
+pub(in crate::engine) use handles::HandleId;
 pub mod permitted_history;
 mod reuse;
 pub mod stored_history;
