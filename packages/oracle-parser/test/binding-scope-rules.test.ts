@@ -525,10 +525,24 @@ describe("announced target counts (CR 115.3, 601.2c, 602.2b, 603.3d)", () => {
     assert.equal(new Set(counts.map(count => count.id)).size, 2);
   });
 
-  it("leaves a divided, bounded announcement unresolved", () => {
+  it("announces a bounded division's target count and division together (CR 601.2c-d)", () => {
     const graph = analyze("Distribute two +1/+1 counters among one or two target creatures.", "Instant");
-    assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"));
-    assert.ok(!graph.nodes.some(node => node.node === "target-count"));
+    fully(graph);
+    const count = graph.nodes.find(node => node.node === "target-count");
+    assert.ok(count?.node === "target-count");
+    assert.deepEqual([count.minimum, count.maximum], [1, 2]);
+    const division = graph.nodes.find(node => node.node === "target-division");
+    assert.ok(division?.node === "target-division" && division.total === 2 && division.chooser === count.chooser);
+  });
+
+  it("leaves a division with an unbounded or untargeted announcement unresolved", () => {
+    for (const text of ["Distribute four +1/+1 counters among any number of target creatures.",
+      "Distribute three +1/+1 counters among any number of creatures you control."]) {
+      const graph = analyze(text, "Instant");
+      assert.ok(graph.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"
+        || diagnostic.code === "unsupported-scope"), text);
+      assert.ok(!graph.nodes.some(node => node.node === "target-division"), text);
+    }
   });
 
   it("does not use a target-count binding for a resolution choice", () => {

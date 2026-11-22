@@ -91,7 +91,10 @@ parsed face and block, with block-relative paths:
   kernel IR (source, controller by role, target slot, attached-to, event object or
   player by trigger, entering object, step result, bound variable, linked pool,
   announced X), a player derived from one, an operand evaluated in place, or
-  `unresolved` with the exact reason.
+  `unresolved` with the exact reason. An event player is named by the kernel's
+  `EventPlayerRole` where the kernel names that trigger's player
+  (`active-player` for a beginning-of-step trigger, `caster`, `activating-player`)
+  and otherwise by its trigger's AST discriminant.
 - `steps`: each printed step's event under its AST discriminant, or the scope of
   a [structural step](../packages/oracle-parser/src/semantic/step-vocabulary.ts);
   a step the binder did not account for is `unaccounted`.
@@ -147,7 +150,9 @@ is the one list of structural AST steps (groups, nested abilities, iteration,
 replacements, continuous effects); every other printed step is evented at its own
 path under its AST `effect` discriminant. Frozen archives keep the event names
 they were bound with (`library-scan:*`, `choose-one`). Nested, optional, modal, chosen and repeated
-instructions bind under explicit CR-cited scope rules in that source; capture
+instructions bind under explicit CR-cited scope rules in that source; a bounded
+counter division ("among one or two target creatures", never more targets than
+counters) binds its target count and `target-division` at announcement (CR 601.2c-d); capture
 scopes, ambiguous antecedents and unsupported repetition remain diagnostics.
 
 Results have three levels:

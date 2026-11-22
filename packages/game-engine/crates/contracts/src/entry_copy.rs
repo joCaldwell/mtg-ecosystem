@@ -21,8 +21,8 @@ const ORIGINS: [(u32, &str, &str); 2] = [
     (0, MANIFEST_SHA, PARSER_SHA),
     (
         31211,
-        "deddab796868f3fb492dc4bdac00eed8844227a632de17b86f06bd28fe307b06",
-        "74eae67f96b7437840bbed4095856f8cab8c5b82a594404fa4763b9bd48983e0",
+        "17c8292cba27fdcfd2f539f08f0390aaaad16e2334d949a836731caec3edcc64",
+        "624de4330eec7f217655d7ca1c401fcbf7c00c02063d647c9c733b2cb306696b",
     ),
 ];
 const EFFECT: StaticEffect = StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn;

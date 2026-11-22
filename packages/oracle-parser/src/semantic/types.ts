@@ -128,6 +128,9 @@ export type BindingNode = NodeBase & (
   | { node: "equip-target-color-discount"; scope: string; chooser: string; source: string; timing: "after-target-announcement" }
   | { node: "repeat-hand-placement"; scope: string; place: string; draw: string; continueWhen: "placement-performed" }
   | { node: "target-count"; scope: string; chooser: string; minimum: number; maximum?: number; maximumNumber?: string }
+  /** CR 601.2d: as its targets are announced, the chooser divides the fixed
+   * total among them, each receiving at least `minimumEach`. */
+  | { node: "target-division"; scope: string; chooser: string; event: string; targets: string; total: number; minimumEach: 1 }
   | { node: "casting-exile-commitment"; scope: string; caster: string; filter: ObjectFilter;
       minimum: 0; discountPerCard: number }
   | { node: "resolution-count"; scope: string; chooser: string; minimum: number; maximum?: number;

@@ -12,20 +12,6 @@
 use crate::engine::*;
 use std::ops::{Deref, DerefMut};
 
-/// Reachable boundary states that `validate_state` rejects, on the base this
-/// transaction boundary was introduced on as well: a snapshot taken there
-/// does not restore. They are gaps in the validator, recorded as remaining
-/// work in the current map, not damage done by the transaction that reached
-/// them: a modal spell choosing an any-target mode's targets, a library
-/// shuffle or ordering choice left for a player who has just departed, and
-/// an accepted colored-search answer awaiting its rule step.
-#[cfg(debug_assertions)]
-const VALIDATOR_GAPS: [&str; 3] = [
-    "snapshot selected-mode announcement target invariant",
-    "snapshot resolution choice continuation invariant",
-    "invalid colored library handle",
-];
-
 /// The staged copy one change runs on. Rule routines are methods of the game;
 /// through this handle they act on the staged copy only.
 pub struct RulesTxn<'a> {
@@ -89,10 +75,7 @@ impl Game {
         match outcome {
             Ok(value) => {
                 #[cfg(debug_assertions)]
-                if valid_before
-                    && let Err(violation) = staged.validate_state()
-                    && !VALIDATOR_GAPS.contains(&violation.reason())
-                {
+                if valid_before && let Err(violation) = staged.validate_state() {
                     panic!("a transaction broke the state invariant: {violation}");
                 }
                 self.state = staged.state;

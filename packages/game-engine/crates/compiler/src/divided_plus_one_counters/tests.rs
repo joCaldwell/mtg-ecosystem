@@ -2,29 +2,21 @@ use super::*;
 use crate::tests::changed_source;
 use std::io::{BufRead, BufReader};
 
-const HEADER: &str = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
-const ABZAN_CHARM: &str =
+const R4: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+const ABZAN_CHARM: &str = include_str!("../../../../tests/fixtures/phase1-r4/abzan-charm.json");
+const DIGEST: &str = "c4928e278408c6fbd431722629153931a67de14a7cbd2889512235a1a8572c67";
+const CURRENT: &str = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+/// The revision-17 Ramos row, archived before the binder could announce the
+/// division: its graph and missing resolution leave the operand unresolved.
+const LEGACY_ROW: &str =
     include_str!("../../../../tests/fixtures/ramos/4137a22c-f793-4e27-a9b2-72740a6e2121.json");
-const DIGEST: &str = "8ab640fe165d73efaae0ad2bacb625a5bbadae97df2e4e2d4544fe0332590f8e";
 
-fn synthetic() -> String {
-    changed_source(
-        include_str!("../../../../tests/fixtures/murder.json"),
-        |r| {
-            // A different identity, name and mana cost exercise the same source semantics.
-            let ast = abilities();
-            r["source"]["oracle_text"] = json!(TEXT);
-            let result = &mut r["faces"][0]["result"];
-            result["abilities"] = ast.clone();
-            result["lines"] = json!([{"text":TEXT,"ok":true,"ability":ast[0]}]);
-            r["binding"] =
-                expected_binding(r["oracleIdentity"].as_str().unwrap(), &r["source"], &ast);
-        },
-    )
+fn compile_r4(raw: &str) -> CompileResult {
+    compile(R4, raw)
 }
 
 fn check(raw: &str) -> Box<Definition> {
-    let definition = match compile(HEADER, raw) {
+    let definition = match compile_r4(raw) {
         CompileResult::Lowered { definition } => definition,
         other => panic!("expected complete divided-counter modal instant: {other:?}"),
     };
@@ -109,9 +101,31 @@ fn check(raw: &str) -> Box<Definition> {
 }
 
 #[test]
-fn divided_plus_one_counters_complete_source_and_diagnostics() {
-    let raw = synthetic();
-    check(&raw);
+fn divided_plus_one_counters_complete_r4_abzan_charm() {
+    let raw = ABZAN_CHARM.trim_end_matches('\n');
+    assert_eq!(sha256(raw.as_bytes()), DIGEST);
+    let d = check(raw);
+    assert_eq!(d.name, "Abzan Charm");
+    assert_eq!(d.oracle_id, "4137a22c-f793-4e27-a9b2-72740a6e2121");
+    assert_eq!(d.provenance.source_index, 9808);
+    assert_eq!(
+        d.provenance.archive_manifest_sha256,
+        accepted_manifest(R4).unwrap().manifest_sha256
+    );
+}
+
+#[test]
+fn divided_plus_one_counters_rejects_an_unresolved_division() {
+    // No diagnostic graph substitutes for the resolution (CR 601.2d).
+    assert!(matches!(
+        compile(CURRENT, LEGACY_ROW),
+        CompileResult::Unsupported { path, .. } if path == "resolution"
+    ));
+}
+
+#[test]
+fn divided_plus_one_counters_complete_source_only() {
+    let raw = ABZAN_CHARM.trim_end_matches('\n');
     let step = "/faces/0/result/abilities/0/effects/0/steps/0";
     for (field, value) in [
         ("/count/exactly", json!(2)),
@@ -135,18 +149,18 @@ fn divided_plus_one_counters_complete_source_and_diagnostics() {
             json!(EXILE),
         ),
     ] {
-        let bad = changed_source(&raw, |r| {
+        let bad = changed_source(raw, |r| {
             *r.pointer_mut(&format!("{step}{field}")).unwrap() = value;
             let result = &mut r["faces"][0]["result"];
             result["lines"][0]["ability"] = result["abilities"][0].clone();
         });
         assert!(
-            !matches!(compile(HEADER, &bad), CompileResult::Lowered { .. }),
+            !matches!(compile_r4(&bad), CompileResult::Lowered { .. }),
             "{field}"
         );
     }
     for change in 0..8 {
-        let bad = changed_source(&raw, |r| {
+        let bad = changed_source(raw, |r| {
             let result = &mut r["faces"][0]["result"];
             let modal = &mut result["abilities"][0]["effects"][0]["steps"][0];
             match change {
@@ -169,48 +183,68 @@ fn divided_plus_one_counters_complete_source_and_diagnostics() {
             result["lines"][0]["ability"] = result["abilities"][0].clone();
         });
         assert!(
-            !matches!(compile(HEADER, &bad), CompileResult::Lowered { .. }),
+            !matches!(compile_r4(&bad), CompileResult::Lowered { .. }),
             "source mutation {change}"
         );
     }
-    for (path, value) in [
-        ("/binding/executable", json!(true)),
-        ("/binding/referencesBound", json!(true)),
-        ("/binding/fullyBound", json!(true)),
-        ("/binding/counts/bound", json!(4)),
-        ("/binding/engineFeatures", json!(["distribute-counters"])),
-        ("/binding/nodes/4/cardinality", json!("many")),
-        ("/binding/nodes/6/identity", json!("old-objects")),
-        ("/binding/nodes/7/inputs", json!([])),
-        ("/binding/nodes/8/description", json!({})),
-        ("/binding/nodes/11/result", json!("objects")),
-        ("/binding/nodes/12/cardinality", json!("two")),
-        ("/binding/references/3/binding", json!("bound")),
-        ("/binding/references/3/candidates", json!([])),
-        ("/binding/diagnostics/0/path", json!("/faces/0")),
-        ("/binding/diagnostics/1/rules", json!(["601.2d"])),
-        ("/binding/diagnostics/2/code", json!("unsupported-scope")),
-        ("/binding/diagnostics", json!([])),
-    ] {
-        let bad = changed_source(&raw, |r| *r.pointer_mut(path).unwrap() = value);
-        assert!(
-            matches!(compile(HEADER,&bad),CompileResult::Unsupported{path: p,..} if p == "binding"),
-            "{path}"
-        );
-    }
-}
-
-fn check_frozen(raw: &str) {
-    assert_eq!(sha256(raw.as_bytes()), DIGEST);
-    let d = check(raw);
-    assert_eq!(d.name, "Abzan Charm");
-    assert_eq!(d.oracle_id, "4137a22c-f793-4e27-a9b2-72740a6e2121");
-    assert_eq!(d.provenance.source_index, 9808);
 }
 
 #[test]
-fn divided_plus_one_counters_complete_frozen_abzan_charm() {
-    check_frozen(ABZAN_CHARM.trim_end_matches('\n'));
+fn divided_plus_one_counters_requires_the_exact_resolution() {
+    let raw = ABZAN_CHARM.trim_end_matches('\n');
+    let block = "/resolution/faces/0/blocks/0";
+    let among = "/effects/0/steps/0/options/2/effects/0/steps/0/among";
+    let changes: [fn(&mut Value); 7] = [
+        // The division's recipients are the third mode's own target.
+        |r| r["resolution"]["faces"][0]["blocks"][0]["refs"][3]["ref"]["slot"] = json!(0),
+        |r| {
+            r["resolution"]["faces"][0]["blocks"][0]["refs"][1]["ref"]["role"] =
+                json!("ability-controller")
+        },
+        |r| {
+            r["resolution"]["faces"][0]["blocks"][0]["refs"]
+                .as_array_mut()
+                .unwrap()
+                .pop();
+        },
+        |r| {
+            r["resolution"]["faces"][0]["blocks"][0]["residuals"] =
+                json!(["diagnostic:unsupported-number-binding"]);
+            r["resolution"]["complete"] = json!(false);
+        },
+        |r| {
+            r["resolution"]["faces"][0]["blocks"][0]["steps"][4] = json!({"path":
+                "/effects/0/steps/0/options/2/effects/0/steps/0","astEffect":"distribute-counters","unaccounted":true});
+        },
+        |r| r["resolution"]["faces"][0]["blocks"][0]["spans"]["certificate"]["bytes"] = json!(1),
+        |r| {
+            r.as_object_mut().unwrap().remove("resolution");
+            r.as_object_mut().unwrap().remove("resolutionSha256");
+        },
+    ];
+    assert_eq!(
+        raw.parse::<Value>()
+            .unwrap()
+            .pointer(&format!("{block}/refs/3/path")),
+        Some(&json!(among))
+    );
+    for (index, change) in changes.into_iter().enumerate() {
+        let bad = changed_source(raw, change);
+        assert!(
+            matches!(compile_r4(&bad), CompileResult::Unsupported { path, .. }
+                | CompileResult::Invalid { path, .. } if path.starts_with("resolution")),
+            "resolution change {index}: {:?}",
+            compile_r4(&bad)
+        );
+    }
+    // A forged hash is an integrity failure, not a fallback.
+    let pinned: Value = serde_json::from_str(raw).unwrap();
+    let pinned = pinned["resolutionSha256"].as_str().unwrap();
+    let forged = raw.replacen(pinned, DIGEST, 1);
+    assert!(matches!(
+        compile_r4(&forged),
+        CompileResult::Invalid { path, .. } if path == "resolution"
+    ));
 }
 
 #[test]
@@ -221,14 +255,9 @@ fn divided_plus_one_counters_frozen_archive_probe() {
     let mut rows = BufReader::new(std::fs::File::open(path).unwrap())
         .lines()
         .map(Result::unwrap);
-    let first = rows.next().unwrap();
-    let header: Value = serde_json::from_str(&first).unwrap();
-    let raw = if header["recordType"] == "manifest" {
-        assert_eq!(header, serde_json::from_str::<Value>(HEADER).unwrap());
-        rows.nth(9810 - 2).unwrap()
-    } else {
-        assert!(rows.next().is_none());
-        first
-    };
-    check_frozen(&raw);
+    let header: Value = serde_json::from_str(&rows.next().unwrap()).unwrap();
+    assert_eq!(header, serde_json::from_str::<Value>(R4).unwrap());
+    let raw = rows.nth(9810 - 2).unwrap();
+    assert_eq!(raw, ABZAN_CHARM.trim_end_matches('\n'));
+    check(&raw);
 }

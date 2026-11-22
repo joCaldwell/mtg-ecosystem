@@ -120,20 +120,6 @@ impl<'a> Bindings<'a> {
         id
     }
 
-    pub(super) fn target_with_unresolved_count(
-        &mut self,
-        scope: &str,
-        path: &str,
-        expression: &Value,
-        selection: &str,
-    ) {
-        let id = self.target_selection(scope, path, expression, selection, "unknown", None);
-        self.references.push(
-            json!({"path":path,"expression":expression,"binding":"unresolved",
-            "rules":["601.2c"],"code":"unresolved-dependency","candidates":[id]}),
-        );
-    }
-
     fn target_selection(
         &mut self,
         scope: &str,

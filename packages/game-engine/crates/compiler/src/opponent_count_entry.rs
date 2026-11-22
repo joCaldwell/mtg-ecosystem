@@ -121,32 +121,15 @@ pub(super) fn bind(
         &controller,
         "109.5",
     );
-    let typed = binding["referencesBound"] == true;
-    if typed {
-        graph.node(
-            &format!("{root}/condition"),
-            "player-state",
-            "player-state-condition",
-            json!({"scope":graph.id(ENTRY,"ability"),"who":controller,
-                "query":"opponent-count","rules":["102.2","102.3","800.4"]}),
-        );
-    }
+    graph.node(
+        &format!("{root}/condition"),
+        "player-state",
+        "player-state-condition",
+        json!({"scope":graph.id(ENTRY,"ability"),"who":controller,
+            "query":"opponent-count","rules":["102.2","102.3","800.4"]}),
+    );
     listed_mana::bind_tap_mana(&mut graph, "/faces/0/abilities/1");
-    if typed {
-        graph.validate_ordered(binding, BAD).map_err(|_| bad())?;
-    } else {
-        // Archive v1 binds each explicit actor and reports one unresolved
-        // quantifier scope. The exact predicate above supplies all its semantics
-        // for the finite free-for-all engine. Reject any other diagnostic or gap.
-        let expected = graph.with_scope_diagnostic(json!({
-        "code":"unsupported-scope","path":format!("{root}/condition"),
-        "message":"Game and player designations, turn ownership and per-player comparisons need the participating player set and its quantifier bound.",
-        "rules":["102.1","102.2","102.3","608.2h"]
-    }));
-        if *binding != expected {
-            return Err(bad());
-        }
-    }
+    graph.validate_ordered(binding, BAD).map_err(|_| bad())?;
     Ok(Some(ManaAbility {
         costs: PermanentActivationCosts {
             tap: true,
@@ -165,9 +148,8 @@ pub(super) fn bind(
 mod tests {
     use super::*;
 
-    const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest-current.json");
-    const SOURCE: &str =
-        include_str!("../../../tests/fixtures/e3570ac7-c593-40e3-bbd6-ec3da6d8158d.json");
+    const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    const SOURCE: &str = include_str!("../../../tests/fixtures/phase1-r4/bond-land.json");
 
     #[test]
     fn opponent_count_entry_binds_exact_scope_and_controller() {
@@ -185,8 +167,19 @@ mod tests {
             StaticEffect::EntersTappedUnlessOpponentCount { minimum: 2.into() }
         );
 
+        // The pre-Pass-2 graph (an unsupported-scope hole instead of the
+        // player-state condition) is not an alternative.
         let changed = crate::tests::changed_source(SOURCE, |r| {
-            r["binding"]["diagnostics"][0]["path"] = json!("/faces/0/abilities/0");
+            let b = &mut r["binding"];
+            b["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|n| n["node"] != "player-state-condition");
+            b["diagnostics"] = json!([{"code":"unsupported-scope",
+                "path":"/faces/0/abilities/0/effect/condition","message":"unbound",
+                "rules":["102.1","102.2","102.3","608.2h"]}]);
+            b["referencesBound"] = json!(false);
+            b["fullyBound"] = json!(false);
         });
         assert!(
             matches!(compile(MANIFEST, &changed), CompileResult::Unsupported { path, .. }

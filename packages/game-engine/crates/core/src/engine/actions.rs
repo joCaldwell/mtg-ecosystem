@@ -713,8 +713,7 @@ impl Game {
                 Response::ColoredSearch { assignments }
                     if player == *actor && self.is_live(player) =>
                 {
-                    self.colored_found(frame, player, assignments, self.state.rules.revision)
-                        .map(|_| ())
+                    self.validate_colored_answer(frame, player, assignments)
                 }
                 _ => Err("invalid colored library decision".into()),
             });

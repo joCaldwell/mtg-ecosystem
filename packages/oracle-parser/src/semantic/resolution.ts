@@ -6,7 +6,7 @@
 // derived from; anything it binds outside this vocabulary, or leaves
 // unresolved, is a named residual and the block is incomplete. Wrong binding
 // is worse than an unresolved reference: nothing is guessed here.
-// CR 109.5, 113.7a, 201.5, 301.5f, 303.4m, 400.7, 601.2c, 603.2, 607.2a,
+// CR 102.1, 109.5, 113.7a, 201.5, 301.5f, 303.4m, 400.7, 601.2c, 602.2, 603.2, 607.2a,
 // 608.2c, 608.2h, 614.12, 107.3a/c/m:
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 import type { ParsedLine } from "../ast.ts";
@@ -47,8 +47,9 @@ export type ResolvedRef =
   | { ref: "attached-to" }
   /** CR 603.2: an object of the triggering event; `role` is the trigger's AST discriminant. */
   | { ref: "event-object"; role: string }
-  /** CR 603.2: a player of the triggering event; `role` is the trigger's AST discriminant. */
-  | { ref: "event-player"; role: string }
+  /** CR 603.2: a player of the triggering event: the kernel role when the
+   * kernel names that trigger's player, otherwise the trigger's AST discriminant. */
+  | { ref: "event-player"; role: EventPlayerRole | string }
   /** CR 614.12: the permanent entering the battlefield, distinct from the source. */
   | { ref: "entering-object" }
   /** CR 608.2c, 608.2h: a result of the block's earlier step at `step`. */
@@ -59,6 +60,22 @@ export type ResolvedRef =
   | { ref: "linked-pool"; id: string }
   /** CR 107.3a, 107.3m: the value announced for X. */
   | { ref: "announced-x" };
+
+/** The event players the kernel IR names (`kir::EventPlayerRole`, one to one). */
+export type EventPlayerRole =
+  /** CR 102.1, 500.1, 603.2c: the player whose step began is the active player. */
+  | "active-player"
+  /** CR 601.2, 603.2: the player who cast the triggering spell. */
+  | "caster"
+  /** CR 602.2, 603.2: the player who activated the triggering ability. */
+  | "activating-player";
+
+/** The trigger discriminants whose event player is a kernel role. A step
+ * belongs to its active player's turn, so "that player" of a beginning-of-step
+ * trigger is the active player, whichever player's step the trigger names. */
+export const KERNEL_EVENT_PLAYERS: ReadonlyMap<string, EventPlayerRole> = new Map([
+  ["phase", "active-player"], ["cast", "caster"], ["activate", "activating-player"],
+]);
 
 /** A player derived from a resolved reference ("its owner", "each opponent"). */
 export type PlayerRelation = "owner" | "controller" | "opponents" | "other-players" | "defending";
@@ -229,7 +246,8 @@ function resolveBlock(root: string, ability: unknown, line: ParsedLine | undefin
       case "event-result": {
         const trigger = eventRole(node.event);
         if (trigger && node.result === "objects") return { ref: { ref: "event-object", role: trigger.role } };
-        if (trigger && node.result === "player") return { ref: { ref: "event-player", role: trigger.role } };
+        if (trigger && node.result === "player")
+          return { ref: { ref: "event-player", role: KERNEL_EVENT_PLAYERS.get(trigger.role) ?? trigger.role } };
         const step = trigger ? rel(trigger.path) : owningStep(rel(node.path));
         const role = node.result as StepResultRole;
         return step && ["objects", "player", "quantity"].includes(role) ? { ref: { ref: "step-result", step, role } } : { unresolved: `${name}:${node.result}` };

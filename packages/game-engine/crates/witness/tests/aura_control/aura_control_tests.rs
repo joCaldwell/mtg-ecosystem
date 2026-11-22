@@ -3,7 +3,7 @@
 //! 400.7, 506.4, 608.2b, 608.3c, 613.7e, 702.10/11, 800.4a-c:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_witness::aura::{Row, prepared_with_sources};
+use mtg_witness::aura::{Row, prepared_with_archived_sources, prepared_with_sources};
 use mtg_witness::equipped::{answer, both, equip, object, recover, request};
 use mtg_witness::temporary::{announce, pass, target, until_player};
 

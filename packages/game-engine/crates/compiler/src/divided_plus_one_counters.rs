@@ -1,13 +1,13 @@
 //! CR 601.2b–d: select the mode, then announce the target count, distinct objects
-//! and positive division before costs. The frozen binder cannot express the
-//! number choice. Only this complete printed clause and exact raw AST supply it.
+//! and positive division before costs. The archive R4 resolution certifies every
+//! reference, step and printed token; this complete printed clause and exact AST
+//! supply the lowering.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use crate::bindings::Bindings;
+use crate::resolution::Resolution;
 use serde_json::{Value, json};
 
 const TEXT: &str = "Choose one —\n• Exile target creature with power 3 or greater.\n• You draw two cards and you lose 2 life.\n• Distribute two +1/+1 counters among one or two target creatures.";
-const BASE: &str = "/faces/0/abilities/0";
 const EXILE: &str = "line:1:2";
 const AMONG: &str = "line:3:13";
 
@@ -25,66 +25,25 @@ fn abilities() -> Value {
     ]}]}]}])
 }
 
-// Build every node, reference and diagnostic from the independently verified
-// operands. In particular, the 'unknown' selection and candidate reference
-// are diagnostic evidence only. Neither is executable selection authority.
-fn expected_binding(identity: &str, source: &Value, ast: &Value) -> Value {
-    let options = &ast[0]["effects"][0]["steps"][0]["options"];
-    let step = |option, index| {
-        format!("{BASE}/effects/0/steps/0/options/{option}/effects/0/steps/{index}")
+/// Every reference of the block: each mode's own announced target (CR 601.2c,
+/// slots in printed order) and the spell's controller for "you" (CR 109.5).
+fn refs() -> Value {
+    let step = |option: u8, index: u8, operand: &str| {
+        format!("/effects/0/steps/0/options/{option}/effects/0/steps/{index}/{operand}")
     };
-    let mut graph = Bindings::new(identity, source);
-    graph.ability(BASE, "spell", "spell-controller");
-    let scope = graph.id(BASE, "ability");
-    let you = graph.id(BASE, "you");
-
-    let exile = step(0, 0);
-    let what = &options[0]["effects"][0]["steps"][0]["what"];
-    let target = graph.target(&scope, &format!("{exile}/what"), what, EXILE);
-    graph.event(BASE, &exile, "exile", &target, false);
-    let mut description = what["filter"].clone();
-    description["cls"] = json!("card");
-    graph.node(&exile, "objects", "event-result", json!({"event":graph.id(&exile,"event"),"result":"objects",
-        "cardinality":"one","availability":"if-produced","identity":"zone-successors","description":description,"rules":["400.7j"]}));
-
-    for (index, op) in ["draw", "lose-life"].into_iter().enumerate() {
-        let path = step(1, index);
-        graph.reference(
-            &format!("{path}/who"),
-            &json!({"player":"you"}),
-            &you,
-            "109.5",
-        );
-        graph.event(BASE, &path, op, &you, false);
-        if op == "draw" {
-            graph.node(&path,"objects","event-result",json!({"event":graph.id(&path,"event"),"result":"objects","cardinality":"many",
-                "availability":"if-produced","identity":"new-objects","description":{"cls":"card"},"rules":["608.2h"]}));
-        }
-        graph.result(&path, "quantity", "measured-quantity", None);
-    }
-
-    let path = step(2, 0);
-    let among = format!("{path}/among");
-    graph.target_with_unresolved_count(
-        &scope,
-        &among,
-        &options[2]["effects"][0]["steps"][0]["among"],
-        AMONG,
-    );
-    graph.with_diagnostics(vec![
-        json!({"code":"unsupported-number-binding","path":format!("{among}/count"),
-            "message":"This number needs a phase-specific choice identity and constraint scope.","rules":["107.3","601.2b"]}),
-        json!({"code":"unsupported-scope","path":path,
-            "message":"This instruction's event/result associations are not yet established.","rules":["608.2c"]}),
-        json!({"code":"unresolved-dependency","path":among,
-            "message":"This reference depends on an unresolved identity or number definition.","rules":["608.2h"]}),
+    let you = json!({"ref":"controller","role":"spell-controller"});
+    json!([
+        {"path":step(0, 0, "what"),"ref":{"ref":"target","slot":0}},
+        {"path":step(1, 0, "who"),"ref":you},
+        {"path":step(1, 1, "who"),"ref":you},
+        {"path":step(2, 0, "among"),"ref":{"ref":"target","slot":1}},
     ])
 }
 
 pub(super) fn validate(
     source: &Value,
     result: &ParseResult,
-    binding: &Value,
+    record: &Record,
 ) -> Result<bool, Failure> {
     if source["oracle_text"] != TEXT {
         return Ok(false);
@@ -103,13 +62,24 @@ pub(super) fn validate(
             "requires the complete choose-one instant and its exact three options",
         ));
     }
-    let identity = source["oracle_id"]
-        .as_str()
-        .ok_or_else(|| invalid("source.oracle_id", "missing identity"))?;
-    if *binding != expected_binding(identity, source, &raw) {
+    // The resolution, not the diagnostic graph: complete, covering the AST,
+    // tiling the printed block, and binding exactly these references.
+    let resolution = Resolution::read(
+        record.resolution.as_deref(),
+        record.resolution_sha256.as_deref(),
+    )?;
+    resolution.complete()?;
+    resolution.covers(&raw)?;
+    resolution.ordinary_antecedents(&raw)?;
+    resolution.spans(0, TEXT, &raw[0])?;
+    let card: Value = decode(
+        record.resolution.as_deref().map_or("null", RawValue::get),
+        "resolution",
+    )?;
+    if card["faces"][0]["blocks"][0]["refs"] != refs() {
         return Err(unsupported(
-            "binding",
-            "requires the complete modal graph with only the divided-counter operand unresolved",
+            "resolution",
+            "requires each mode's own announced target and the spell controller",
         ));
     }
     Ok(true)
