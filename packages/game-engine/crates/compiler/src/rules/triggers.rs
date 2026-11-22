@@ -92,11 +92,6 @@ pub(crate) fn lower_trigger(
     intervening: Option<&SourceCondition>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
-    if let Some(ability) =
-        entry_graveyard_exile::lower_trigger(trigger, effects, intervening, block)
-    {
-        return Ok(ability);
-    }
     if let Some(ability) = controlled_land_entry::lower(trigger, effects, intervening, block)? {
         return Ok(ability);
     }

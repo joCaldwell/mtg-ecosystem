@@ -180,9 +180,37 @@ pub fn validate_embedded_record_groups() -> Result<(), CatalogError> {
     }
     Ok(())
 }
+/// How a catalog row becomes a definition: by lowering its exact source, or
+/// by taking the committed reviewed definition for the same pinned row.
+type Lower<'a> = dyn Fn(&String, &str, &str) -> Result<Definition, CatalogError> + 'a;
+
+fn compiled(file: &String, header: &str, raw: &str) -> Result<Definition, CatalogError> {
+    match compile(header, raw) {
+        CompileResult::Lowered { definition } => Ok(*definition),
+        CompileResult::Unsupported { path, reason } => Err(CatalogError::UnsupportedSource {
+            file: file.clone(),
+            path,
+            reason,
+        }),
+        CompileResult::Invalid { path, reason } => Err(CatalogError::InvalidSource {
+            file: file.clone(),
+            path,
+            reason,
+        }),
+    }
+}
+
 fn build_with(
     path: &Path,
     read: impl Fn(&Path) -> Result<String, String>,
+) -> Result<(CatalogManifest, Catalog), CatalogError> {
+    build_lowering(path, read, &compiled)
+}
+
+fn build_lowering(
+    path: &Path,
+    read: impl Fn(&Path) -> Result<String, String>,
+    lower: &Lower<'_>,
 ) -> Result<(CatalogManifest, Catalog), CatalogError> {
     let manifest: CatalogManifest =
         strict_read(&read(path)?).map_err(|reason| CatalogError::InvalidManifest {
@@ -237,35 +265,19 @@ fn build_with(
             )
             .into());
         }
-        match compile(&header, &raw) {
-            CompileResult::Lowered { definition } => {
-                if definition.oracle_id != row.oracle_id
-                    || definition.provenance.source_sha256 != row.source_sha256
-                    || Some(definition.provenance.ast_sha256.as_str()) != row.ast_sha256.as_deref()
-                    || row
-                        .binding_sha256
-                        .as_deref()
-                        .is_some_and(|expected| definition.provenance.binding_sha256 != expected)
-                {
-                    return Err(format!("{file}: provenance identity mismatch").into());
-                }
-                definitions.push(*definition);
-            }
-            CompileResult::Unsupported { path, reason } => {
-                return Err(CatalogError::UnsupportedSource {
-                    file: file.clone(),
-                    path,
-                    reason,
-                });
-            }
-            CompileResult::Invalid { path, reason } => {
-                return Err(CatalogError::InvalidSource {
-                    file: file.clone(),
-                    path,
-                    reason,
-                });
-            }
+        let definition = lower(file, &header, &raw)?;
+        if definition.oracle_id != row.oracle_id
+            || definition.provenance.source_sha256 != row.source_sha256
+            || Some(definition.provenance.ast_sha256.as_str()) != row.ast_sha256.as_deref()
+            || definition.provenance.archive_manifest_sha256 != archive.manifest_sha256
+            || row
+                .binding_sha256
+                .as_deref()
+                .is_some_and(|expected| definition.provenance.binding_sha256 != expected)
+        {
+            return Err(format!("{file}: provenance identity mismatch").into());
         }
+        definitions.push(definition);
     }
     definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     let catalog = Catalog {
@@ -280,13 +292,40 @@ fn build_with(
 pub fn build_catalog(path: &Path) -> Result<Catalog, CatalogError> {
     build_with(path, read_file).map(|(_, c)| c)
 }
+/// A committed catalog's reviewed IR. Its records predate Archive R4, which
+/// the compiler now requires, so the definitions are not lowered again: each
+/// must carry exactly the provenance its manifest pins for the same accepted
+/// archive row, and the whole catalog must validate and hash to the committed
+/// digest. Only `build_catalog`/`generate_catalog` lower source.
 pub fn embedded_catalog(name: &str) -> Result<Catalog, CatalogError> {
     validate_embedded_record_groups()?;
-    build_with(
-        &Path::new("catalogs").join(format!("{name}.json")),
-        embedded_file,
-    )
-    .map(|(_, c)| c)
+    let manifest = Path::new("catalogs").join(format!("{name}.json"));
+    let key = manifest.to_str().ok_or("invalid catalog name")?;
+    let (_, ir, pinned) = fixtures::REVIEWED_IR
+        .iter()
+        .find(|(m, ..)| *m == key)
+        .ok_or_else(|| format!("missing reviewed IR for {key}"))?;
+    let reviewed: Catalog = strict_read(ir)?;
+    let (_, catalog) = build_lowering(&manifest, embedded_file, &|file, _, raw| {
+        let record: serde_json::Value = strict_read(raw)?;
+        let id = record["oracleIdentity"]
+            .as_str()
+            .ok_or_else(|| format!("{file}: record has no Oracle identity"))?;
+        reviewed
+            .definitions
+            .iter()
+            .find(|d| d.oracle_id == id)
+            .cloned()
+            .ok_or_else(|| format!("{file}: no reviewed definition").into())
+    })?;
+    if catalog.definitions.len() != reviewed.definitions.len()
+        || catalog.schema_version != reviewed.schema_version
+        || digest(&catalog)? != *pinned
+        || digest(&reviewed)? != *pinned
+    {
+        return Err(format!("{key}: reviewed IR does not match its manifest and digest").into());
+    }
+    Ok(catalog)
 }
 /// Without --write this is a check, including exact expected JSON bytes.
 /// The digest hashes canonical IR; the manifest selects the fixture encoding.
@@ -431,42 +470,6 @@ fn verify_archive_with(
     Ok(
         serde_json::json!({"archive_sha256":expected_hash,"manifest":accepted.manifest_file,"verified_records":count,"other_origin_records":provenance.records.len()-count}),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn all_committed_catalogs_are_fresh() {
-        for (name, _) in fixtures::FILES
-            .iter()
-            .filter(|(name, _)| name.starts_with("catalogs/") && name.ends_with(".json"))
-        {
-            let path = Path::new(name);
-            let (manifest, catalog) = build_with(path, embedded_file).unwrap();
-            let base = path.parent().unwrap();
-            assert!(
-                read_file(
-                    &Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../tests/fixtures")
-                        .join(relative(base, &manifest.expected_ir))
-                )
-                .unwrap()
-                    == expected_json(&manifest, &catalog).unwrap(),
-                "{name}: expected IR bytes differ"
-            );
-            assert_eq!(
-                read_file(
-                    &Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../tests/fixtures")
-                        .join(relative(base, &manifest.expected_digest))
-                )
-                .unwrap(),
-                digest(&catalog).unwrap(),
-                "{name}"
-            );
-        }
-    }
 }
 
 /// Select exact names or Oracle IDs, verify the entire accepted JSONL, then
@@ -728,6 +731,50 @@ mod guard_tests {
             let _ = fs::remove_dir_all(&self.0);
         }
     }
+    /// Every committed catalog's reviewed IR is bound to its manifest: each
+    /// row's pinned identity, the definition count and the committed digest.
+    #[test]
+    fn committed_catalogs_admit_their_reviewed_ir() {
+        let names: Vec<_> = fixtures::FILES
+            .iter()
+            .filter_map(|(name, _)| {
+                name.strip_prefix("catalogs/")
+                    .and_then(|n| n.strip_suffix(".json"))
+            })
+            .collect();
+        assert_eq!(names.len(), fixtures::REVIEWED_IR.len());
+        for name in names {
+            let catalog = embedded_catalog(name).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(!catalog.definitions.is_empty(), "{name}");
+        }
+    }
+    /// A reviewed definition whose provenance differs from the row its
+    /// manifest pins is never admitted in that row's place.
+    #[test]
+    fn reviewed_ir_rejects_a_definition_from_another_source() {
+        let (_, ir, _) = fixtures::REVIEWED_IR
+            .iter()
+            .find(|(m, ..)| *m == "catalogs/base.json")
+            .unwrap();
+        let reviewed: Catalog = strict_read(ir).unwrap();
+        let result = build_lowering(
+            Path::new("catalogs/base.json"),
+            embedded_file,
+            &|_, _, raw| {
+                let id = strict_read::<serde_json::Value>(raw)?["oracleIdentity"].clone();
+                let mut definition = reviewed
+                    .definitions
+                    .iter()
+                    .find(|d| d.oracle_id == id)
+                    .cloned()
+                    .ok_or("missing")?;
+                definition.provenance.source_sha256 = "0".repeat(64);
+                Ok(definition)
+            },
+        );
+        assert!(matches!(result, Err(CatalogError::InvalidData { reason })
+            if reason.contains("provenance identity mismatch")));
+    }
     #[test]
     fn malformed_catalog_is_a_serializable_runtime_error() {
         let error = build_with(Path::new("catalogs/broken.json"), |_| Ok("{".into())).unwrap_err();
@@ -804,42 +851,9 @@ mod guard_tests {
         );
     }
     #[test]
-    fn one_catalog_can_validate_records_from_multiple_accepted_archives() {
-        let p: FixtureProvenance =
-            strict_read(&embedded_file(Path::new("provenance.json")).unwrap()).unwrap();
-        let records = accepted_archives()
-            .unwrap()
-            .iter()
-            .filter_map(|a| {
-                p.records
-                    .iter()
-                    .find(|r| r.archive == a.manifest_file)
-                    .map(|row| format!("../{}", row.file))
-            })
-            .collect::<Vec<_>>();
-        assert!(records.len() >= 2);
-        let raw = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":records,"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
-        let (_, c) = build_with(Path::new("catalogs/mixed.json"), |path| {
-            if path == Path::new("catalogs/mixed.json") {
-                Ok(raw.clone())
-            } else {
-                embedded_file(path)
-            }
-        })
-        .unwrap();
-        assert_eq!(c.definitions.len(), records.len());
-        assert_eq!(
-            c.definitions
-                .iter()
-                .map(|d| &d.provenance.archive_manifest_sha256)
-                .collect::<BTreeSet<_>>()
-                .len(),
-            records.len()
-        );
-    }
-    #[test]
     fn manifest_rejects_duplicates_missing_witnesses_tampering_and_wrong_archive() {
         for change in [
+            "none",
             "duplicate",
             "missing",
             "record",
@@ -849,10 +863,16 @@ mod guard_tests {
             "header",
             "version",
         ] {
-            let result = build_with(Path::new("catalogs/base.json"), |p| {
-                let raw = embedded_file(p)?;
+            // Two pinned Archive R4 rows that composition lowers.
+            let manifest = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":["../phase1-r4/compose-strip-mine.json","../phase1-r4/compose-hire-a-crew.json"],"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
+            let result = build_with(Path::new("catalogs/r4.json"), |p| {
+                let raw = if p == Path::new("catalogs/r4.json") {
+                    manifest.clone()
+                } else {
+                    embedded_file(p)?
+                };
                 let mut v: serde_json::Value = strict_read(&raw)?;
-                if p == Path::new("catalogs/base.json") {
+                if p == Path::new("catalogs/r4.json") {
                     if change == "duplicate" {
                         let first = v["records"][0].clone();
                         v["records"].as_array_mut().unwrap().push(first);
@@ -864,9 +884,12 @@ mod guard_tests {
                 if p == Path::new("provenance.json") {
                     let rows = v["records"].as_array_mut().unwrap();
                     if change == "missing" {
-                        rows.retain(|r| r["file"] != "grizzly-bears.json");
+                        rows.retain(|r| r["file"] != "phase1-r4/compose-strip-mine.json");
                     }
-                    if let Some(row) = rows.iter_mut().find(|r| r["file"] == "grizzly-bears.json") {
+                    if let Some(row) = rows
+                        .iter_mut()
+                        .find(|r| r["file"] == "phase1-r4/compose-strip-mine.json")
+                    {
                         if change == "record" {
                             row["record_sha256"] = "0".repeat(64).into();
                         }
@@ -881,19 +904,24 @@ mod guard_tests {
                         }
                     }
                 }
-                if p == Path::new("archive-manifest.json") && change == "header" {
-                    v["schemaVersion"] = 4.into();
+                if p == Path::new("archive-manifest-phase1-r4.json") && change == "header" {
+                    v["schemaVersion"] = 3.into();
                 }
                 // Preserve source/header bytes except where deliberately changed.
-                if p == Path::new("catalogs/base.json")
+                if p == Path::new("catalogs/r4.json")
                     || p == Path::new("provenance.json")
-                    || (p == Path::new("archive-manifest.json") && change == "header")
+                    || (p == Path::new("archive-manifest-phase1-r4.json") && change == "header")
                 {
                     Ok(v.to_string())
                 } else {
                     Ok(raw)
                 }
             });
+            if change == "none" {
+                let (_, catalog) = result.expect("pinned R4 rows build unchanged");
+                assert_eq!(catalog.definitions.len(), 2);
+                continue;
+            }
             if change == "binding" {
                 assert!(matches!(&result, Err(CatalogError::InvalidData { reason })
                     if reason.contains("provenance identity mismatch")));

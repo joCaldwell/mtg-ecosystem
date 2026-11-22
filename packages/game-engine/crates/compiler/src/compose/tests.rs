@@ -320,32 +320,6 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
 }
 
 #[test]
-fn families_keep_precedence_and_composition_never_relabels_them() {
-    let raw = include_str!("../../../../tests/fixtures/phase1-r4/bond-land.json");
-    let CompileResult::Lowered { definition } = compile(R4, raw) else {
-        panic!("family source must lower")
-    };
-    assert!(!definition.composed);
-    assert!(
-        !definition
-            .capabilities
-            .contains(&Capability::ComposedAbilityV1)
-    );
-}
-
-#[test]
-fn a_family_binding_verdict_is_final() {
-    // The block pipeline alone accepts this row, but a family recognised the
-    // source and refused its reference graph. That is an integrity verdict,
-    // not a shape rejection, so the compiler reports it instead of falling back.
-    assert!(lower(accepted_manifest(R4).unwrap(), CREW).is_ok());
-    assert!(matches!(
-        compile(R4, CREW),
-        CompileResult::Unsupported { ref path, .. } if path == "binding"
-    ));
-}
-
-#[test]
 fn printed_text_and_ast_must_agree_on_choices_words_and_numbers() {
     let rejected = |raw: &str| !matches!(compile(R4, raw), CompileResult::Lowered { .. });
     let reworded = |raw: &str, from: &str, to: &str| {
@@ -652,4 +626,75 @@ fn r4_resolution_mutations_reject() {
         json!(dash + 1);
     let shifted = read(shifted.to_string());
     assert!(shifted.spans(1, text, ability).is_err());
+}
+
+const BONES: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-read-the-bones.json");
+const BAUBLE: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-wayfarers-bauble.json");
+const GALVANIC: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-galvanic-blast.json");
+
+/// Composition is the only pipeline: a record without an Archive R4
+/// resolution is rejected before any block is read, never lowered by a
+/// diagnostic-graph fallback.
+#[test]
+fn records_without_an_r4_resolution_reject() {
+    let pre_r4 = include_str!("../../../../tests/fixtures/grizzly-bears.json");
+    assert!(matches!(
+        compile(crate::fixtures::MANIFEST, pre_r4),
+        CompileResult::Unsupported { ref path, .. } if path == "resolution"
+    ));
+}
+
+/// CR 121.2: "draw two cards" is two single draws, the same canonical form
+/// for every block kind; Read the Bones keeps its printed order around them.
+#[test]
+fn fixed_draws_lower_to_ordered_single_draws() {
+    let definition = composed(BONES);
+    let spell = definition.spell.as_ref().unwrap();
+    let draw = Instruction::draw(kir::PlayerExpr::you(kir::Context::Spell), 1.into(), 0);
+    assert_eq!(spell.instructions.len(), 4);
+    assert!(matches!(spell.instructions[0], Instruction::Scry { .. }));
+    assert_eq!(spell.instructions[1..3], [draw.clone(), draw]);
+    assert!(
+        definition
+            .capabilities
+            .contains(&Capability::ControllerDrawV1)
+    );
+}
+
+/// "Search ... for a basic land card, put that card onto the battlefield
+/// tapped, then shuffle" is the one-card tapped basic land search, whatever
+/// cost pays for it.
+#[test]
+fn paid_basic_land_search_is_the_tapped_search() {
+    let definition = composed(BAUBLE);
+    assert_eq!(
+        definition.activated[0].program.instructions,
+        [Instruction::SearchBasicLands {
+            maximum: 1,
+            source_block: 0,
+        }]
+    );
+}
+
+/// The parser keeps an ability-word rider ("Metalcraft — ... instead") in
+/// the block it modifies. Every printed line is accounted for, but the block
+/// mirror cannot represent that grouping: reject as unsupported, and keep
+/// `invalid` for text the parse does not account for.
+#[test]
+fn rider_blocks_reject_without_claiming_unaccounted_text() {
+    assert!(matches!(
+        compile(R4, GALVANIC),
+        CompileResult::Unsupported { ref path, .. } if path == "lines"
+    ));
+    let truncated = changed(GALVANIC, |row| {
+        let text = row["source"]["oracle_text"].as_str().unwrap().to_owned();
+        row["source"]["oracle_text"] = format!("{text}\nDraw a card.").into();
+    });
+    assert!(matches!(
+        compile(R4, &truncated),
+        CompileResult::Invalid { ref path, .. } if path == "lines"
+    ));
 }

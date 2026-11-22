@@ -186,20 +186,6 @@ impl Resolution {
         }
     }
 
-    /// Every residual, card-level first (block `None`), then each block's in
-    /// printed order. `complete` reports only the first.
-    pub(super) fn residuals(&self) -> Vec<(Option<usize>, &str)> {
-        let card = self.card.residuals.iter().map(|r| (None, r.as_str()));
-        let blocks = self.card.faces.iter().flat_map(|f| {
-            f.blocks
-                .iter()
-                .flatten()
-                .enumerate()
-                .flat_map(|(index, b)| b.residuals.iter().map(move |r| (Some(index), r.as_str())))
-        });
-        card.chain(blocks).collect()
-    }
-
     /// The structural checks of `covers`, returning every unaccounted step as
     /// (block, path, effect) instead of rejecting at the first one.
     pub(super) fn unaccounted_steps(

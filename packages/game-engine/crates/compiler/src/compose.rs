@@ -544,17 +544,24 @@ fn compose(
     };
     // The normalized source must be exactly the parsed blocks, and each line
     // must carry the same AST as the aggregate; nothing may be unaccounted.
-    if source_lines(&source.oracle_text, &source.name, &source.type_line)?
-        != result
-            .lines
-            .iter()
-            .map(|l| normalization::literal_spelling(&l.text))
-            .collect::<Vec<_>>()
-    {
-        return Err(invalid(
-            "lines",
-            "source contains unaccounted or mismatched normalized blocks",
-        ));
+    let normalized = source_lines(&source.oracle_text, &source.name, &source.type_line)?;
+    let parsed: Vec<String> = result
+        .lines
+        .iter()
+        .map(|l| normalization::literal_spelling(&l.text))
+        .collect();
+    if normalized != parsed {
+        // The same printed lines grouped into different blocks (the parser
+        // keeps a rider line such as an ability-word "instead" with the block
+        // it modifies) are accounted for, but outside the block mirror.
+        return Err(if normalized.join("\n") == parsed.join("\n") {
+            unsupported("lines", "parsed block grouping outside the block mirror")
+        } else {
+            invalid(
+                "lines",
+                "source contains unaccounted or mismatched normalized blocks",
+            )
+        });
     }
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
     let blocks: Vec<Box<RawValue>> = decode(&canonical, "abilities")?;

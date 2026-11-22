@@ -106,20 +106,6 @@ pub(crate) fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     Ok(cost)
 }
 
-pub(crate) fn read_abilities(raw: &str) -> Result<Vec<Ability>, Failure> {
-    // Keep the duplicate-key pass before serde's internally tagged mirrors.
-    // serde_path_to_error reports context without accepting unknown fields.
-    let nodes: Vec<Box<RawValue>> = decode(raw, "abilities")?;
-    nodes
-        .iter()
-        .enumerate()
-        .map(|(i, node)| {
-            serde_json::from_str::<Ability>(node.get())
-                .map_err(|_| diagnostics::ability(node.get(), &format!("abilities[{i}]")))
-        })
-        .collect()
-}
-
 /// A single-face normal card record whose source and diagnostic-binding bytes
 /// match their archived hashes, with a complete, name-matched parse whose AST
 /// bytes match the archived AST hash (CR 201.5, 712). Composition reads only

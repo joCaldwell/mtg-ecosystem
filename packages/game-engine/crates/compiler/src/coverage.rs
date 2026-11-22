@@ -271,7 +271,7 @@ pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageE
             line: i + 2,
             reason,
         })?;
-        if archive_exclusion(&row).is_some() || crate::lower_families(accepted, raw).is_ok() {
+        if archive_exclusion(&row).is_some() || crate::compose::lower(accepted, raw).is_ok() {
             continue;
         }
         let found = crate::compose::blockers(accepted, raw);

@@ -1,107 +1,6 @@
 //! Resolving effect steps (CR 608.2): sentences of spell and ability programs.
 use super::*;
 
-// Only the new scalar permanent family requires this bounded, complete binding
-// closure. Existing creature/removal/Aura provenance policies remain unchanged.
-pub(crate) fn validate_temporary_permanent_bindings(
-    binding: &serde_json::Value,
-    identity: &str,
-    abilities: &[Ability],
-    raw_abilities: &str,
-) -> Result<(), Failure> {
-    let fail = || {
-        unsupported(
-            "binding",
-            "unsupported complete permanent keyword binding closure",
-        )
-    };
-    let [Ability::Spell { effects, .. }] = abilities else {
-        return Err(fail());
-    };
-    let Some(Sentence { steps, .. }) = effects.first() else {
-        return Err(fail());
-    };
-    let [Step::GainAbilities { what, .. }] = steps.as_slice() else {
-        return Err(fail());
-    };
-    let scope = format!("card:{identity}/faces/0/abilities/0#ability");
-    let you = format!("card:{identity}/faces/0/abilities/0#you");
-    let selection = format!(
-        "{scope}/targets/{}",
-        what["selectionId"]
-            .as_str()
-            .ok_or_else(fail)?
-            .bytes()
-            .map(|b| {
-                if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
-                    (b as char).to_string()
-                } else {
-                    format!("%{b:02X}")
-                }
-            })
-            .collect::<String>()
-    );
-    let base = "/faces/0/abilities/0/effects";
-    let mut expected = vec![(
-        format!("{base}/0/steps/0/what"),
-        what.clone(),
-        selection.clone(),
-    )];
-    if what["filter"]["control"] == "you" {
-        expected.push((
-            format!("{base}/0/steps/0/what/filter/control"),
-            serde_json::json!({"player":"you"}),
-            you.clone(),
-        ));
-    }
-    if effects.len() == 2 && matches!(effects[1].steps.as_slice(), [Step::GainLife { .. }]) {
-        // PlayerSelector's optional fields erase explicit nulls. This complete
-        // source family requires the exact unqualified raw recipient as well
-        // as its matching binding expression; typed equality alone is weaker.
-        let raw: serde_json::Value = decode(raw_abilities, "abilities")?;
-        let who = &raw[0]["effects"][1]["steps"][0]["who"];
-        if *who != serde_json::json!({"player":"you"}) {
-            return Err(fail());
-        }
-        expected.push((format!("{base}/1/steps/0/who"), who.clone(), you.clone()));
-    }
-    let references = binding["references"].as_array().ok_or_else(fail)?;
-    let nodes = binding["nodes"].as_array().ok_or_else(fail)?;
-    if binding["identity"] != identity
-        || binding["fullyBound"] != true
-        || binding["referencesBound"] != true
-        || binding["diagnostics"] != serde_json::json!([])
-        || binding["counts"]
-            != serde_json::json!({"obligations":expected.len(),"bound":expected.len(),"unresolved":0})
-        || references.len() != expected.len()
-        || !nodes.iter().any(|n| {
-            n["id"] == you
-                && n["node"] == "runtime-player"
-                && n["scope"] == scope
-                && n["role"] == "spell-controller"
-        })
-        || !nodes.iter().any(|n| {
-            n["id"] == selection
-                && n["node"] == "selection"
-                && n["scope"] == scope
-                && n["expression"] == *what
-                && n["cardinality"] == "one"
-                && n["timing"] == "stack-announcement"
-                && n["selection"] == "target"
-        })
-        || expected.iter().any(|(path, expression, target)| {
-            let matches: Vec<_> = references.iter().filter(|r| r["path"] == *path).collect();
-            matches.len() != 1
-                || matches[0]["expression"] != *expression
-                || matches[0]["binding"] != "bound"
-                || matches[0]["target"] != *target
-        })
-    {
-        return Err(fail());
-    }
-    Ok(())
-}
-
 pub(crate) fn append_spell_effects(
     program: &mut SpellProgram,
     effects: &[Sentence],
@@ -648,13 +547,6 @@ pub(crate) fn append_spell_effects(
             return Err(invalid("effects.steps", "empty instruction group"));
         }
         for step in &sentence.steps {
-            if player_binding == PlayerBinding::AnnouncedX
-                && let Some(instruction) =
-                    announced_x_effects::instruction(step, program, slots, source_block)?
-            {
-                program.instructions.push(instruction);
-                continue;
-            }
             if player_binding == PlayerBinding::Unbound
                 && matches!(step, Step::LoseLife { who, .. } if who.player == "that-player")
             {
@@ -1046,51 +938,6 @@ pub(crate) fn append_spell_effects(
                     },
                     source_block,
                 ),
-                Step::Discard(DiscardStep::Random {
-                    who,
-                    what,
-                    random: true,
-                }) if let PlayerBinding::DiscardTarget(domain) = player_binding => {
-                    // The whole printed program and reference graph were validated together.
-                    let id = who
-                        .selection_id
-                        .as_deref()
-                        .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
-                    let count = match &what.count {
-                        DrawAmount::Fixed { value } if *value > 0 => {
-                            Amount::fixed(i64::from(*value))
-                        }
-                        DrawAmount::X {} => Amount::announced_x(),
-                        _ => {
-                            return Err(unsupported(
-                                "discard.count",
-                                "invalid random discard count",
-                            ));
-                        }
-                    };
-                    Instruction::discard(
-                        PlayerExpr::target(bind_target(program, slots, id, domain)?),
-                        count,
-                        true,
-                        source_block,
-                    )
-                }
-                Step::Discard(DiscardStep::Chosen { who, what })
-                    if let PlayerBinding::DiscardTarget(domain) = player_binding =>
-                {
-                    let id = who
-                        .selection_id
-                        .as_deref()
-                        .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
-                    Instruction::discard(
-                        PlayerExpr::target(bind_target(program, slots, id, domain)?),
-                        Amount::Fixed {
-                            value: fixed_positive(&what.count)?,
-                        },
-                        false,
-                        source_block,
-                    )
-                }
                 Step::Discard(DiscardStep::Chosen { who, what })
                     if player_binding == PlayerBinding::DamageRecipient
                         && matches!(who.player.as_str(), "that-player" | "you")
