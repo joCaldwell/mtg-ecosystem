@@ -1,7 +1,7 @@
 //! Compositional lowering: one ability block at a time.
 //!
-//! The family matchers in `lib.rs` recognise whole cards. This pipeline is the
-//! fallback when no family claims a record: every printed block is lowered
+//! The residual matchers in `families` recognise whole cards. This pipeline is
+//! the fallback when no family claims a record: every printed block is lowered
 //! independently from its complete typed AST by small tables (`costs`,
 //! `events`, `keywords`) plus the shared step lowerer, and the resulting
 //! definition is admitted only by `mtg_contracts::composition`.
@@ -503,53 +503,13 @@ fn compose(
     mut deferred: Option<&mut Blockers>,
 ) -> Result<Definition, Failure> {
     // Integrity: the same checks, in the same order, as the family path.
-    let r: Record = decode(record, "record")?;
-    if r.record_type != "card" {
-        return Err(invalid("recordType", "expected card record"));
-    }
-    if r.status != "parsed" {
-        return Err(unsupported("status", "complete-card parsing is required"));
-    }
-    if sha256(r.source.get().as_bytes()) != r.source_sha256
-        || sha256(r.binding.get().as_bytes()) != r.binding_sha256
-    {
-        return Err(invalid(
-            "record",
-            "source or diagnostic binding hash mismatch",
-        ));
-    }
-    let shape: serde_json::Value = decode(r.source.get(), "source")?;
-    if shape.get("card_faces").is_some_and(|v| !v.is_null()) {
-        return Err(unsupported("source.layout", "multi-face layout"));
-    }
-    let source: Source = decode(r.source.get(), "source")?;
-    if source.oracle_id != r.oracle_identity || source.id.is_empty() || source.name.is_empty() {
-        return Err(invalid("source", "missing or mismatched card identity"));
-    }
-    if source.layout != "normal"
-        || source.card_faces.is_some()
-        || source.loyalty.is_some()
-        || source.defense.is_some()
-    {
-        return Err(unsupported(
-            "source.layout",
-            "composition requires a single-face normal card",
-        ));
-    }
-    if r.faces.len() != 1 || r.faces[0].source_face_index != 0 || r.faces[0].status != "attempted" {
-        return Err(invalid("faces", "missing or duplicated source face"));
-    }
-    let result: ParseResult = decode(r.faces[0].result.get(), "faces[0].result")?;
-    if !result.ok || result.name != source.name || result.lines.iter().any(|l| !l.ok) {
-        return Err(invalid("faces[0].result", "incomplete or mismatched parse"));
-    }
-    let ast_sha256 = r
-        .ast_sha256
-        .clone()
-        .ok_or_else(|| invalid("astSha256", "missing successful AST hash"))?;
-    if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
-        return Err(invalid("astSha256", "successful AST hash mismatch"));
-    }
+    let SingleFace {
+        record: r,
+        shape,
+        source,
+        result,
+        ast_sha256,
+    } = ingest::read_single_face(record)?;
     // Archive R4: the parser's resolution, not the diagnostic graph, says how
     // every reference, step and printed token of each block is accounted for.
     let resolution = if synthetic_rows() {
@@ -608,85 +568,9 @@ fn compose(
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
-    // CR 118.6: an absent mana cost is not {0}. Hybrid and X costs keep their
-    // reviewed families.
-    if kind != CardKind::Land && source.mana_cost.is_empty() {
-        return Err(unsupported(
-            "source.mana_cost",
-            "nonland without a mana cost requires an explicit absent-cost representation",
-        ));
-    }
-    if source.mana_cost.contains("{X}") || color_hybrid_cost(&source.mana_cost).is_some() {
-        return Err(unsupported(
-            "source.mana_cost",
-            "variable or hybrid costs require a reviewed family",
-        ));
-    }
-    let power = source
-        .power
-        .map(|s| s.parse::<Quantity>())
-        .transpose()
-        .map_err(|e| unsupported("source.power", e))?;
-    let toughness = source
-        .toughness
-        .map(|s| s.parse::<Quantity>())
-        .transpose()
-        .map_err(|e| unsupported("source.toughness", e))?;
-    let mut labels = SourceLabels {
-        text: source.oracle_text.clone(),
-        blocks: result.lines.iter().map(|l| l.text.clone()).collect(),
-        ..SourceLabels::default()
-    };
     let spell_kind = matches!(kind, CardKind::Instant | CardKind::Sorcery);
-    let mut definition = Definition {
-        modal_land: None,
-        transform_faces: None,
-        source_labels: None,
-        composed: true,
-        x_mana_cost: false,
-        oracle_id: r.oracle_identity,
-        name: source.name,
-        characteristics: Characteristics {
-            kind,
-            additional_types: types.additional_types,
-            basic: types.basic,
-            legendary: types.legendary,
-            snow: types.snow,
-            subtypes: types.subtypes,
-            hybrid_mana: vec![],
-            mana_cost: mana_cost(&source.mana_cost)?,
-            colors: source.colors,
-            color_identity: source.color_identity,
-            power,
-            toughness,
-        },
-        intrinsic_zone: (kind == CardKind::Land).then_some(FunctioningZone::Battlefield),
-        spell: match kind {
-            CardKind::Land => None,
-            // CR 304.1, 307.1: ordinary timing follows the card type.
-            CardKind::Instant => Some(SpellProgram::instructions(SpellTiming::Instant)),
-            CardKind::Sorcery => Some(SpellProgram::instructions(SpellTiming::MainPhase)),
-            // CR 302.1, 608.3: a permanent spell resolves onto the battlefield.
-            _ => Some(SpellProgram::permanent(SpellTiming::MainPhase)),
-        },
-        activated: vec![],
-        mana_abilities: vec![],
-        triggered: vec![],
-        static_abilities: vec![],
-        keywords: vec![],
-        capabilities: BTreeSet::new(),
-        provenance: SourceProvenance {
-            printing_id: source.id,
-            source_index: r.source_index,
-            source_sha256: r.source_sha256,
-            ast_sha256,
-            binding_sha256: r.binding_sha256,
-            archive_manifest_sha256: archive.manifest_sha256.clone(),
-            parser_sha256: archive.parser_source_sha256.clone(),
-            source_json: r.source.get().into(),
-            abilities_json: result.abilities.get().into(),
-        },
-    };
+    let (mut definition, mut labels) =
+        assemble::shell(archive, r, source, &result, types, ast_sha256)?;
     let additional_types = definition.characteristics.additional_types.clone();
     let card = Card {
         kind,
@@ -821,15 +705,5 @@ fn compose(
         found.block = None;
     }
     keywords::printed(&shape, &definition.keywords)?;
-    if definition.keywords.contains(&KeywordAbility::Flash)
-        && let Some(spell) = definition.spell.as_mut()
-    {
-        spell.timing = SpellTiming::Instant;
-    }
-    definition.source_labels = Some(labels);
-    definition.capabilities = definition.requirements();
-    definition
-        .validate()
-        .map_err(|e| unsupported("composition", e))?;
-    Ok(definition)
+    assemble::admit(definition, labels)
 }

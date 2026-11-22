@@ -1,7 +1,7 @@
 //! CR 205.1, 205.2, 205.3, 205.4: type-line components are independent.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-pub(super) struct ParsedTypes {
+pub(crate) struct ParsedTypes {
     pub kind: CardKind,
     pub additional_types: Vec<CardKind>,
     pub basic: bool,

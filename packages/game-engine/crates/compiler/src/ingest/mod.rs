@@ -119,3 +119,72 @@ pub(crate) fn read_abilities(raw: &str) -> Result<Vec<Ability>, Failure> {
         })
         .collect()
 }
+
+/// A single-face normal card record whose source and diagnostic-binding bytes
+/// match their archived hashes, with a complete, name-matched parse whose AST
+/// bytes match the archived AST hash (CR 201.5, 712). Composition reads only
+/// these; resolution and block checks follow.
+pub(crate) struct SingleFace {
+    pub(crate) record: Record,
+    pub(crate) shape: serde_json::Value,
+    pub(crate) source: Source,
+    pub(crate) result: ParseResult,
+    pub(crate) ast_sha256: String,
+}
+
+pub(crate) fn read_single_face(record: &str) -> Result<SingleFace, Failure> {
+    let r: Record = decode(record, "record")?;
+    if r.record_type != "card" {
+        return Err(invalid("recordType", "expected card record"));
+    }
+    if r.status != "parsed" {
+        return Err(unsupported("status", "complete-card parsing is required"));
+    }
+    if sha256(r.source.get().as_bytes()) != r.source_sha256
+        || sha256(r.binding.get().as_bytes()) != r.binding_sha256
+    {
+        return Err(invalid(
+            "record",
+            "source or diagnostic binding hash mismatch",
+        ));
+    }
+    let shape: serde_json::Value = decode(r.source.get(), "source")?;
+    if shape.get("card_faces").is_some_and(|v| !v.is_null()) {
+        return Err(unsupported("source.layout", "multi-face layout"));
+    }
+    let source: Source = decode(r.source.get(), "source")?;
+    if source.oracle_id != r.oracle_identity || source.id.is_empty() || source.name.is_empty() {
+        return Err(invalid("source", "missing or mismatched card identity"));
+    }
+    if source.layout != "normal"
+        || source.card_faces.is_some()
+        || source.loyalty.is_some()
+        || source.defense.is_some()
+    {
+        return Err(unsupported(
+            "source.layout",
+            "composition requires a single-face normal card",
+        ));
+    }
+    if r.faces.len() != 1 || r.faces[0].source_face_index != 0 || r.faces[0].status != "attempted" {
+        return Err(invalid("faces", "missing or duplicated source face"));
+    }
+    let result: ParseResult = decode(r.faces[0].result.get(), "faces[0].result")?;
+    if !result.ok || result.name != source.name || result.lines.iter().any(|l| !l.ok) {
+        return Err(invalid("faces[0].result", "incomplete or mismatched parse"));
+    }
+    let ast_sha256 = r
+        .ast_sha256
+        .clone()
+        .ok_or_else(|| invalid("astSha256", "missing successful AST hash"))?;
+    if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
+        return Err(invalid("astSha256", "successful AST hash mismatch"));
+    }
+    Ok(SingleFace {
+        record: r,
+        shape,
+        source,
+        result,
+        ast_sha256,
+    })
+}

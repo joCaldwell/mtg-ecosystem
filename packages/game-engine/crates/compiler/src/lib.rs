@@ -1,4 +1,13 @@
-//! Offline archive-3 adapter and the first complete-card lowering subset.
+//! Offline compiler from exact archived card records to executable IR.
+//!
+//! The unified pipeline lowers a record block by block:
+//! `ingest` (exact record, source, parse and typed AST mirror) -> `operands`
+//! (total operand lowerers) -> `rules` (verb and block lowerers) -> `shells`
+//! (Sagas, modal/transforming faces, Bestow, optional costs, linked pairs) ->
+//! `assemble` (definition shell and admission), driven by `compose` over the
+//! Archive R4 resolution. `families` holds the residual whole-card families
+//! that are tried first and still own rows composition cannot lower with
+//! equivalent IR, including every pre-R4 frozen fixture row.
 pub use catalog::*;
 use mtg_contracts::kir::{
     Amount, Atom, Cmp, Context, Destination, PlayerExpr, Pred, SetExpr, Verb,
@@ -18,6 +27,7 @@ pub mod bulk;
 pub mod catalog;
 pub mod coverage;
 
+mod assemble;
 mod compose;
 mod diagnostics;
 mod families;
