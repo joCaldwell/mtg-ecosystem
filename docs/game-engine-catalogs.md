@@ -28,9 +28,11 @@ reviewed data that the compiler no longer reproduces. `build` without `--write`
 and `mtg_compiler::catalog::embedded_catalog` admit that IR instead, but only
 for the 30 manifests listed with their frozen digests in `catalog.rs`
 (`FROZEN_CATALOGS`), byte for byte the committed manifest and with no R4 row.
-Each definition must carry exactly the oracle, source, AST, binding and archive
+Each record must be pinned by a committed accepted-archive registry, each
+definition must carry exactly the oracle, source, AST, binding and archive
 identity of its pinned record, and the catalog must validate and hash to the
-frozen digest. Any other manifest lowers its source. Core embeds the same IR for
+frozen digest. Any other manifest, embedded or on disk, lowers its source;
+`catalogs/phase1-r4.json` is the committed Archive R4 catalog that proves it. Core embeds the same IR for
 profiles. Converting or retiring these catalogs belongs with the legacy
 `Instruction` variants they use. `--json-errors` emits a structured diagnostic
 on stderr. Coverage publishes both receipts together and preserves occupied
@@ -250,10 +252,14 @@ with the block it modifies) the row is unsupported at path `lines`; text the
 parse does not account for is invalid.
 
 Lowerers read pronouns and targets by AST shape, so composition also proves
-the edges they assume. Every reference operand must have its resolution entry.
-A step result must name the nearest earlier producer of its role (a search's
-selection, a look's objects, or a simultaneous member's remainder after an
-earlier sibling), and any other role rejects. A printed target's resolved
+the edges they assume. Every reference operand must have its resolution entry,
+including the scalar player relations the archive always resolves (`control`
+you/opponent, `owner`/`whose` your, `to` owner). A pronoun (`it`, `that`,
+`them`, `rest`) must resolve to a target or a step result, never an evaluated
+or derived entry. A step result must name the nearest earlier producer of its
+role (a search's selection, a look's objects), or, for `rest` only, the
+remainder of its own member of a simultaneous step after an earlier sibling
+took from the pool; any other role rejects. A printed target's resolved
 block-relative slot must be the slot announced for its selection, and a
 pronoun resolved to a target must name the block's sole announced target.
 

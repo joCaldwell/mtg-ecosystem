@@ -420,8 +420,9 @@ const FROZEN_CATALOGS: [(&str, &str); 30] = [
     ),
 ];
 
-/// A committed catalog's reviewed IR. Its records predate Archive R4, which
-/// the compiler requires, so the definitions are not lowered again: each must
+/// An embedded catalog. A frozen catalog (`FROZEN_CATALOGS`) is its reviewed
+/// IR: its records predate Archive R4, which the compiler requires, so the
+/// definitions are not lowered again: each must
 /// be exactly the definition of its manifest's pinned record (oracle, source,
 /// AST, binding and archive identity), and the whole catalog must validate and
 /// hash to the frozen digest. Only `build_catalog`/`generate_catalog` lower.
@@ -429,6 +430,10 @@ pub fn embedded_catalog(name: &str) -> Result<Catalog, CatalogError> {
     validate_embedded_record_groups()?;
     let manifest = Path::new("catalogs").join(format!("{name}.json"));
     let key = manifest.to_str().ok_or("invalid catalog name")?;
+    // Any other embedded manifest is lowered from its pinned source.
+    if !FROZEN_CATALOGS.iter().any(|(m, _)| *m == key) {
+        return build_with(&manifest, embedded_file).map(|(_, c)| c);
+    }
     let (_, ir, pinned) = fixtures::REVIEWED_IR
         .iter()
         .find(|(m, ..)| *m == key)
@@ -458,10 +463,16 @@ fn admit_reviewed(
         return Err(format!("{key}: manifest differs from the committed frozen manifest").into());
     }
     let reviewed: Catalog = strict_read(ir)?;
-    let (manifest_data, catalog) = build_lowering(manifest, read, &|file, _, raw| {
+    let (manifest_data, catalog) = build_lowering(manifest, read, &|file, header, raw| {
         let record: serde_json::Value = strict_read(raw)?;
         if record.get("resolution").is_some_and(|r| !r.is_null()) {
             return Err(format!("{file}: an Archive R4 row lowers its source").into());
+        }
+        // The record bytes must be pinned by a committed (compile-time
+        // embedded) registry for its accepted archive, not only by a
+        // caller-supplied origin registry.
+        if !trusted_pin(header, &sha256(raw.trim_end().as_bytes()))? {
+            return Err(format!("{file}: record is not pinned to its trusted archive").into());
         }
         let id = record["oracleIdentity"]
             .as_str()
@@ -492,6 +503,25 @@ fn admit_reviewed(
         return Err(format!("{key}: reviewed IR does not match its manifest and digest").into());
     }
     Ok((manifest_data, catalog))
+}
+
+/// Whether a committed accepted-archive registry (embedded at build time)
+/// pins `record` for the accepted archive `header` identifies.
+fn trusted_pin(header: &str, record: &str) -> Result<bool, CatalogError> {
+    let archive = accepted_manifest(header)?;
+    for (name, raw) in fixtures::FILES {
+        if !name.ends_with("accepted-archives.json") {
+            continue;
+        }
+        let registry: Vec<AcceptedArchive> = strict_read(raw)?;
+        if registry.iter().any(|a| {
+            a.manifest_sha256 == archive.manifest_sha256
+                && a.record_sha256.iter().any(|h| h == record)
+        }) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Whether every row of a manifest predates Archive R4 (has no resolution).
@@ -1017,6 +1047,53 @@ mod guard_tests {
         };
         assert!(!predates_r4(r4, read).unwrap());
         assert!(admit_reviewed(r4, read, ir, pinned).is_err());
+    }
+    /// A non-frozen embedded manifest lowers its Archive R4 source through
+    /// the public entry point and reproduces its committed IR and digest.
+    #[test]
+    fn embedded_r4_catalog_lowers_its_source() {
+        let catalog = embedded_catalog("phase1-r4").unwrap();
+        assert!(catalog.definitions.iter().all(|d| d.composed));
+        let (_, ir, pinned) = fixtures::REVIEWED_IR
+            .iter()
+            .find(|(m, ..)| *m == "catalogs/phase1-r4.json")
+            .unwrap();
+        assert_eq!(digest(&catalog).unwrap(), *pinned);
+        assert_eq!(strict_read::<Catalog>(ir).unwrap(), catalog);
+    }
+    /// A frozen row must be pinned by the compiled-in accepted archive; a
+    /// caller-supplied registry and provenance that pin changed bytes do not
+    /// admit it.
+    #[test]
+    fn frozen_rows_require_the_trusted_archive_pin() {
+        let base = Path::new("catalogs/base.json");
+        let (_, ir, pinned) = fixtures::REVIEWED_IR
+            .iter()
+            .find(|(m, ..)| *m == "catalogs/base.json")
+            .unwrap();
+        let raw = embedded_file(Path::new("grizzly-bears.json")).unwrap();
+        let old = sha256(raw.trim_end().as_bytes());
+        // Change a byte inside the record and re-pin it everywhere the
+        // caller controls.
+        let changed = raw.replacen("\"lang\":\"en\"", "\"lang\":\"EN\"", 1);
+        assert_ne!(changed, raw);
+        let new = sha256(changed.trim_end().as_bytes());
+        let read = |p: &Path| -> Result<String, String> {
+            let text = embedded_file(p)?;
+            Ok(if p == Path::new("grizzly-bears.json") {
+                changed.clone()
+            } else if p == Path::new("provenance.json") || p == Path::new("accepted-archives.json")
+            {
+                text.replace(&old, &new)
+            } else {
+                text
+            })
+        };
+        let result = admit_reviewed(base, read, ir, pinned);
+        assert!(
+            matches!(&result, Err(e) if e.to_string().contains("trusted archive")),
+            "{result:?}"
+        );
     }
     #[test]
     fn malformed_catalog_is_a_serializable_runtime_error() {

@@ -736,6 +736,25 @@ fn contradictory_or_missing_r4_edges_reject() {
         row["resolution"]["faces"][0]["blocks"][0]["refs"] = entries;
     });
     assert!(rejected(&deleted));
+    // A deleted scalar owner edge ("your library") is as unresolved.
+    let owner = changed(BAUBLE, |row| {
+        let mut entries = refs(row);
+        entries
+            .as_array_mut()
+            .unwrap()
+            .retain(|e| e["path"] != "/effects/0/steps/0/zones/of/0/owner");
+        row["resolution"]["faces"][0]["blocks"][0]["refs"] = entries;
+    });
+    assert!(rejected(&owner));
+    // "That card" as the remainder of its own move, and as an evaluated
+    // selection with no producer.
+    assert!(rejected(&edge(&|e| {
+        e["ref"] = json!({"ref":"step-result","step":"/effects/0/steps/1","role":"remainder"})
+    })));
+    assert!(rejected(&edge(&|e| {
+        e.as_object_mut().unwrap().remove("ref");
+        e["evaluated"] = json!("selection");
+    })));
     // A printed target the resolution assigns another slot.
     assert!(matches!(compile(R4, SEAL), CompileResult::Lowered { .. }));
     let slot = changed(SEAL, |row| {

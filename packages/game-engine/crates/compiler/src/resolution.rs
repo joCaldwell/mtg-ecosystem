@@ -144,6 +144,21 @@ impl Resolution {
                 let Some(kind) = expression.and_then(|e| e["ref"].as_str()) else {
                     continue;
                 };
+                // CR 608.2c: a pronoun names a target or an earlier step's
+                // result; an evaluated or derived entry has no antecedent.
+                if PRONOUNS.contains(&kind)
+                    && !matches!(
+                        resolved,
+                        Some(ResolvedRef::Target(_) | ResolvedRef::StepResult(_))
+                    )
+                {
+                    return Err(leaves());
+                }
+                if let Some(ResolvedRef::StepResult(s)) = resolved
+                    && (kind == "rest") != (s.role.as_str() == "remainder")
+                {
+                    return Err(leaves());
+                }
                 let ordinary = match (kind, resolved) {
                     ("this", Some(ResolvedRef::Source(_))) => scope.is_none(),
                     ("this", _) => false,
@@ -592,6 +607,10 @@ pub(super) fn synthetic_canonical(raw: &str, noun: &str) -> String {
     value.to_string()
 }
 
+/// AST reference words that name an antecedent rather than a set, the
+/// source or a printed target.
+const PRONOUNS: [&str; 4] = ["it", "that", "them", "rest"];
+
 /// Every operand object that names a reference (`ref`) or a player.
 fn collect_operands(value: &Value, path: String, out: &mut Vec<String>) {
     match value {
@@ -602,6 +621,16 @@ fn collect_operands(value: &Value, path: String, out: &mut Vec<String>) {
                 out.push(path.clone());
             }
             for (key, child) in object {
+                // Scalar player relations the archive always resolves: a
+                // controlled or owned zone/object and an owner's destination.
+                if matches!(
+                    (key.as_str(), child.as_str()),
+                    ("control", Some("you" | "opponent"))
+                        | ("owner" | "whose", Some("your"))
+                        | ("to", Some("owner"))
+                ) {
+                    out.push(format!("{path}/{key}"));
+                }
                 collect_operands(child, format!("{path}/{key}"), out);
             }
         }
@@ -652,15 +681,20 @@ fn step_producer(
         },
         "objects" => (result.step.as_str(), "look-at"),
         "remainder" => {
-            let pos = order[own].rfind("/steps/").map(|i| &order[own][..i]);
-            let earlier_sibling = pos.is_some_and(|parent| {
-                order[..own].iter().any(|p| {
-                    p.strip_prefix(parent)
-                        .and_then(|rest| rest.strip_prefix("/steps/"))
-                        .is_some_and(|rest| !rest.contains('/'))
-                })
+            // The rest of a pool another member of the same simultaneous step
+            // took from first ("one of them ... and the rest").
+            let Some(parent) = order[own].rfind("/steps/").map(|i| &order[own][..i]) else {
+                return false;
+            };
+            let simultaneous =
+                ability.pointer(parent).and_then(|s| s["effect"].as_str()) == Some("simultaneous");
+            let earlier_pool = order[..own].iter().any(|p| {
+                p.strip_prefix(parent)
+                    .and_then(|rest| rest.strip_prefix("/steps/"))
+                    .is_some_and(|rest| !rest.contains('/'))
+                    && ability.pointer(&format!("{p}/what/ref")) == Some(&Value::from("from-pool"))
             });
-            return result.step == order[own] && earlier_sibling;
+            return result.step == order[own] && simultaneous && earlier_pool;
         }
         _ => return false,
     };
