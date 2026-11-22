@@ -55,7 +55,9 @@ async function checkCharts(page, state) {
   const comparison = page.getByRole("region", { name: "Mana demand and sources", exact: true }); await comparison.waitFor();
   const face = state.computed.mana.first_face;
   const legend = comparison.getByRole("table").first();
-  assert.deepEqual(await legend.locator("thead th").allTextContents(), ["Colour", "Cost demand", "Direct sources"]);
+  const legendHead = legend.locator("thead tr");
+  assert.deepEqual(await legendHead.nth(0).locator("th").allTextContents(), ["Colour", "Cost demand", "Direct sources"]);
+  assert.deepEqual(await legendHead.nth(1).locator("th").allTextContents(), ["Count", "Share", "Count", "Share"]);
   assert.deepEqual(await legend.locator("tbody th").allTextContents(), ["White", "Blue", "Black", "Red", "Green"]);
   for (const [title, values, column, unit] of [["Cost demand", colours.map(c => face.costs.fixed_symbols[c]), 2, "fixed coloured symbols"], ["Direct sources", colours.map(c => face.sources.land.by_type[c] + face.sources.nonland.by_type[c]), 4, "source-colour counts"]]) {
     const figure = comparison.getByRole("figure").filter({ has: page.getByRole("heading", { name: title, exact: true }) }), total = values.reduce((a, b) => a + b, 0);
@@ -77,6 +79,10 @@ try {
     const page = await context.newPage(), watch = watchPage(page); await page.goto(`${origin}/deck/2`);
     const panel = page.getByRole("complementary", { name: "Deck panel" }), nav = panel.getByRole("navigation", { name: "Deck panel views" });
     await nav.getByRole("button", { name: "Stats", exact: true }).click(); await settle(page, watch);
+    const sectionHeadings = panel.getByRole("heading", { level: 2, name: /^(Deck totals|Mana curve|Card types|Mana costs and sources)$/ });
+    await panel.getByRole("heading", { name: "Mana costs and sources", exact: true }).waitFor();
+    assert.deepEqual(await sectionHeadings.allTextContents(), ["Deck totals", "Mana curve", "Card types", "Mana costs and sources"]);
+    assert(await sectionHeadings.evaluateAll(headings => headings.every(heading => getComputedStyle(heading).clipPath === "inset(50%)")));
     const resize = page.getByRole("separator", { name: "Resize the deck panel" });
     for (const [size, key] of [["default", null], ["minimum", "Home"], ["wider", "End"]]) {
       if (key) { await resize.focus(); await resize.press(key); await settle(page, watch); }
@@ -94,8 +100,8 @@ try {
       assert.deepEqual(watch.errors, []);
       const fontSizes = await comparison.locator("th, td, figcaption").evaluateAll(nodes => nodes.map(node => parseFloat(getComputedStyle(node).fontSize))); assert(fontSizes.length > 0 && fontSizes.every(size => size >= 12));
       await shoot(page, join(output, `main-${width}-${size}-colours.png`), { full: false });
-      const types = panel.getByText("Card types", { exact: true }); await wheelTo(page, panel, types); await settle(page, watch);
-      const typeValues = await panel.getByRole("list", { name: "Card-type groups and copy counts" }).locator("li b").allTextContents();
+      const types = panel.getByRole("list", { name: "Card-type groups and copy counts" }); await wheelTo(page, panel, types); await settle(page, watch);
+      const typeValues = await types.locator("li b").allTextContents();
       assert.equal(typeValues.map(Number).reduce((a, b) => a + b, 0), main.computed.card_count);
       await shoot(page, join(output, `main-${width}-${size}-types.png`), { full: false });
       results.push({ width, requested: size, actual_width: actualWidth, legend_matches_capability: true, exact_units: true, adaptive_layout: true, axe: 0, overflow: 0, readable_labels: true });

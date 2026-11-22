@@ -236,6 +236,7 @@ instructions start open until agent contact.
 ## Statistics and tokens
 
 Statistics figures come from the server. Deck Stats leads with totals/curve, paired WUBRG donuts and neutral type bars.
+Use visually hidden section headings and visible metric and chart labels.
 Fixed cost symbols and mana-source colour counts keep separate units, totals and
 denominators; they are not available mana, adequacy or casting odds. Keep
 any-colour, flexible, colourless and incomplete coverage separate. Labels need no hover.

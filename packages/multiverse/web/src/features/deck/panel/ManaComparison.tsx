@@ -1,6 +1,6 @@
 import type { DeckState } from "../../../api/client.ts";
 import { CardRef, ManaCost } from "../../../mtg/index.ts";
-import { Eyebrow, Icon, KeyValue, Stack, Text } from "../../../ui/index.ts";
+import { Icon, KeyValue, Stack, Text } from "../../../ui/index.ts";
 import { manaDistributions } from "../../../domain/deckStats.ts";
 import { ManaFaceTable } from "./ManaFaceTable.tsx";
 import { ManaDistribution } from "./ManaDistribution.tsx";
@@ -20,6 +20,7 @@ const REASONS: Record<string, string> = {
   malformed_cost: "Malformed cost",
 };
 export function ManaComparison({ mana, headingLevel = 2 }: { mana: Mana; headingLevel?: 2 | 3 }) {
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   const face = mana.first_face, coverage = mana.coverage;
   const distributions = manaDistributions(mana);
   // Unresolved or partial sources mean the source chart undercounts; the
@@ -61,7 +62,7 @@ export function ManaComparison({ mana, headingLevel = 2 }: { mana: Mana; heading
     </details>
   );
   return <section className={styles.section} aria-label="Mana demand and sources">
-    <Eyebrow as={headingLevel === 2 ? "h2" : "h3"} className={styles.label}>Mana costs and sources</Eyebrow>
+    <Heading className="visually-hidden">Mana costs and sources</Heading>
     <ManaDistribution series={[
       { title: "Cost demand", unit: "fixed coloured symbols", centerUnit: "symbols", distribution: distributions.costs, empty: "No fixed coloured cost symbols." },
       { title: "Direct sources", unit: "source-colour counts", centerUnit: "counts", distribution: distributions.sources, empty: "No named source colours recognized." },
