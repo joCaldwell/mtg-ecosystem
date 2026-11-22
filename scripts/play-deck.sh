@@ -11,9 +11,11 @@
 # deck inputs. Each build holds the checkout's target lock across the cache
 # budget check, Cargo, executable selection and copy. Staging installs only new
 # fixture files (the Commander policy is compared byte for byte); the rebuilt
-# mtg-sim embeds the profile and runs match-game and match-replay. The
-# checkout, stage, game and replay stay under the evidence directory, including
-# on failure; retire it as docs/game-engine-storage.md describes.
+# mtg-sim embeds the profile and runs match-game and match-replay with
+# MTG_ENGINE_ARTIFACT_ROOT at the evidence directory, so live journals stay
+# outside the checkout. The checkout, stage, journals, game and replay stay
+# under the evidence directory, including on failure; retire the checkout as
+# docs/game-engine-storage.md describes.
 set -euo pipefail
 if [[ $# -lt 1 ]]; then
     echo "Usage: $0 DECK|--decklist FILE [SEED] [--decks FILE] [--archive R4.jsonl]" >&2
@@ -83,6 +85,9 @@ for policy in "$run/stage"/commander-banned-*.json; do cmp "$policy" "$fixtures/
     cp "$run/stage/$file" "$fixtures/$file"
 done
 build_sim sim-build "$run/mtg-sim"
+# Live journals (accepted inputs, the only record of an interrupted match) land
+# in $run/p5-live-journals, outside the disposable detached checkout.
+export MTG_ENGINE_ARTIFACT_ROOT=$run
 "$run/mtg-sim" match-game "$profile" "$seed" > "$run/game.json"
 jq -e '.outcome=="finished" or .outcome=="draw"' "$run/game.json" >/dev/null
 "$run/mtg-sim" match-replay "$profile" "$run/game.json" > "$run/replay.json"

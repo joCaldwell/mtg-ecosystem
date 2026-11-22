@@ -143,12 +143,15 @@ Uninspectable `/proc` references require independent checks before the explicit
 `--allow-uninspectable`; detected actual references always block.
 
 `scripts/play-deck.sh` evidence directories (`generated/deck-play.*`) hold one
-detached HEAD checkout, which the helper refuses by design. Its only unique
-inputs are the staged fixture files, which `stage/` duplicates; `compiler`,
-`mtg-sim`, `stage/`, `game.json`, `replay.json` and the build/cache receipts sit
-beside it. After recording those receipts (or retaining the directory in the
-evidence store) and confirming no process or document references the checkout,
-its owner retires only the checkout with
+detached HEAD checkout, which the helper refuses by design. Its staged fixture
+files duplicate `stage/`; `compiler`, `mtg-sim`, `stage/`, the build/cache
+receipts, `game.json`, `replay.json` and the match's live journal
+(`p5-live-journals/`, the only record of an interrupted match's accepted inputs)
+sit beside it. A checkout from an older run may still hold its journal under
+`source/generated/p5-live-journals/`: move that directory beside the checkout
+first. After recording those receipts (or retaining the directory in the evidence
+store) and confirming no process or document references the checkout, its owner
+retires only the checkout with
 `git worktree remove --force generated/deck-play.ID/source`, which also deletes its
 target. Removing the remaining directory is evidence retirement and needs the
 same reference review.
