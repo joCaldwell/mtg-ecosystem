@@ -187,5 +187,17 @@ fn locate(raw: &str, path: &str, decoder: Decoder, context: &str) -> Failure {
             return locate(child.get(), &child_path, decode, ctx);
         }
     }
+    // An untagged mirror enum names no variant: report the node's own
+    // discriminator and the mirror type it falls outside of instead.
+    if let Some(mirror) = error.strip_prefix("data did not match any variant of untagged enum ") {
+        let shape = ["effect", "static", "event", "trigger", "kind"]
+            .iter()
+            .find_map(|key| node[*key].as_str().map(|value| format!("{key}:{value}")))
+            .unwrap_or_else(|| coverage::stable_path(path));
+        return unsupported(
+            path,
+            format!("{shape} shape outside the lowering mirror ({mirror})"),
+        );
+    }
     unsupported(path, coverage::reason_code(path, &error, &node))
 }

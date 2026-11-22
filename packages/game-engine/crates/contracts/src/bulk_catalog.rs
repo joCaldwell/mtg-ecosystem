@@ -1,7 +1,7 @@
 //! Pinned offline bulk catalog format. Validation uses typed values and byte proofs.
 use crate::{
     CURRENT_IR_VERSION, Catalog, Color, Definition, JsonByteProof, RULES_EDITION, RULES_SHA256,
-    Sha256Sink, SourceProvenance, accepted_archives, strict_read,
+    Sha256Sink, accepted_archives, strict_read,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -328,22 +328,6 @@ impl BulkArtifact {
     }
 }
 
-/// Original binding on a failed source row with an authenticated replacement AST.
-pub fn archived_predecessor_binding(
-    record_hash: &str,
-    p: &SourceProvenance,
-) -> Option<&'static str> {
-    const ROW: &str = "6f10d88ec4ec087b6bc9b4db76c64349bf82e99e1bae4953f46ccb72d86dccf8";
-    const BINDING: &str = "3ad6bd5c6338f8c57845036aac5dfae7837a7c007f0c1617bc0506236175b137";
-    const AST: &str = "ca7acbda3c3d8ea7414ed87c89839fd839bb014537b44d8143b2f3b2bc2831dc";
-    const PARSER: &str = "316c9deaba977533329b903e9d9ba48b6d02057651702c05efa460fb651fbd3a";
-    (record_hash == ROW
-        && p.binding_sha256 == BINDING
-        && p.ast_sha256 == AST
-        && p.parser_sha256 == PARSER)
-        .then_some(BINDING)
-}
-
 fn validate_definition(
     manifest: &BulkManifest,
     row: &BulkIndexRow,
@@ -351,11 +335,6 @@ fn validate_definition(
 ) -> Result<(), String> {
     let p = &d.provenance;
     let source: Value = strict_read(&p.source_json)?;
-    let exception = archived_predecessor_binding(&row.record_sha256, p);
-    let (ast, binding) = match exception {
-        Some(original_binding) => (None, original_binding),
-        None => (Some(p.ast_sha256.as_str()), p.binding_sha256.as_str()),
-    };
     if row.oracle_id != d.oracle_id
         || source["oracle_id"] != d.oracle_id
         || row.facts.name != d.name
@@ -368,10 +347,10 @@ fn validate_definition(
             .all(|c| d.characteristics.color_identity.contains(c))
         || row.source_index != p.source_index
         || row.source_sha256 != p.source_sha256
-        || row.ast_sha256.as_deref() != ast
-        || row.binding_sha256.as_deref() != Some(binding)
+        || row.ast_sha256.as_deref() != Some(p.ast_sha256.as_str())
+        || row.binding_sha256.as_deref() != Some(p.binding_sha256.as_str())
         || p.archive_manifest_sha256 != manifest.archive_manifest_sha256
-        || (exception.is_none() && p.parser_sha256 != manifest.parser_source_sha256)
+        || p.parser_sha256 != manifest.parser_source_sha256
     {
         return Err(format!(
             "bulk definition provenance mismatch for {}",

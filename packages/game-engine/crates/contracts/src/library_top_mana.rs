@@ -3,6 +3,12 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
+/// The reviewed structural AST of the two-block library-top card: the exact
+/// archived bytes of its accepted row, with the threshold and mana quantities
+/// checked separately against the printed text. Kept in Rust source so the
+/// engine build identity covers it.
+pub(crate) const ABILITIES_TEMPLATE: &str = r#"[{"kind":"static","effect":{"static":"replacement","replacement":{"event":{"event":"lose-unspent-mana","who":{"player":"you"}},"occurrence":"each","replace":{"replacement":"keep-mana","as":{"symbol":"B"}}}}},{"kind":"triggered","trigger":{"trigger":"phase","phase":"precombat-main","whose":"your"},"effects":[{"steps":[{"effect":"look-top-may-reveal-for-mana","who":{"player":"you"},"library":{"zone":"library","owner":"your"},"revealIf":{"op":"ge","value":{"amount":"fixed","value":3}},"mana":{"amount":"fixed","value":3},"to":{"zone":"hand","owner":"your"}}]}]}]"#;
+
 fn definition(provenance: SourceProvenance) -> Result<Definition, String> {
     let source: serde_json::Value = strict_read(&provenance.source_json)?;
     let field = |key: &str| source[key].as_str().ok_or("missing printed field");
@@ -34,9 +40,7 @@ fn definition(provenance: SourceProvenance) -> Result<Definition, String> {
     };
     let minimum_symbols = amount(&look["revealIf"]["value"])?;
     let mana = amount(&look["mana"])?;
-    let mut expected: serde_json::Value = strict_read(include_str!(
-        "../../../tests/fixtures/ramos/library-top-mana-abilities.json"
-    ))?;
+    let mut expected: serde_json::Value = strict_read(ABILITIES_TEMPLATE)?;
     let expected_step = &mut expected[1]["effects"][0]["steps"][0];
     expected_step["revealIf"]["value"]["value"] = look["revealIf"]["value"]["value"].clone();
     expected_step["mana"]["value"] = look["mana"]["value"].clone();
@@ -232,8 +236,7 @@ pub(crate) fn witness() -> Definition {
         "../../../tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json"
     ))
     .unwrap();
-    let abilities =
-        include_str!("../../../tests/fixtures/ramos/library-top-mana-abilities.json").trim_end();
+    let abilities = ABILITIES_TEMPLATE;
     let graph =
         include_str!("../../../tests/fixtures/ramos/library-top-mana-binding.json").trim_end();
     let archive = accepted_archives()

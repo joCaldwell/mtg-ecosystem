@@ -33,11 +33,14 @@ capture; later control or incarnation changes do not select new recipients.
 Permanent-wide grants reject stat modifiers. Profiles and consumers remain
 separately admitted.
 
-The exact 100-card Ramos profile (`scripts/play-ramos.sh`, staged by
-`tests/fixtures/ramos/prepare.py` from revision 17 plus registered Archive R4
-rows for the cards revision 17 no longer compiles) completed a seeded
-four-seat headless game and replay; seat rotation, varied pods and hosted client
-qualification remain open; see [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration).
+`scripts/play-deck.sh DECK [SEED]` stages any 100-card, one-commander deck that
+compiles completely from the accepted Archive R4 file (`scripts/stage-deck.py`,
+by name in `generated/phase1-target-decks.json` or a decklist JSON) as a
+headless four-seat mirror profile, then runs `mtg-sim match-game` and
+`match-replay` from a detached HEAD. `Jo's Cascade` (the Ramos deck) completed
+seed zero and its replay this way; it replaces the revision 17 Ramos stager,
+whose frozen rows remain test sources. Seat rotation, varied pods and hosted
+client qualification remain open; see [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration).
 
 Continuous Aura control shares one operation for creatures, artifacts, lands and
 general permanents. Control-source dependencies use scratch, apply-once ordering;

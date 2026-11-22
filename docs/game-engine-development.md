@@ -240,6 +240,21 @@ and reduced coverage. CPU includes children; RSS is largest process, not group
 peak. Shared-host feedback is not quiet P7 acceptance.
 [Evidence](game-engine-evidence.md) owns proof locations.
 
+## Stage and play a deck
+
+```sh
+python3 scripts/stage-deck.py MTG_SIM OUT --deck "Jo's Cascade"  # or --decklist FILE
+scripts/play-deck.sh "Jo's Cascade" 0
+```
+
+`stage-deck.py` accepts only the registered Archive R4 file and header, takes
+every card from its line-bound row, requires positive integer quantities and an
+eligible Commander deck, fails if any card does not compile and publishes a new
+output without replacement. `play-deck.sh` runs the detached HEAD's own stager
+and locked, budget-checked builds, keeping checkout, stage, game and replay
+under the printed `generated/deck-play.*`; retire that checkout as the
+[storage policy](game-engine-storage.md#worktree-lifecycle) describes.
+
 ## Smoke probe
 
 ```sh

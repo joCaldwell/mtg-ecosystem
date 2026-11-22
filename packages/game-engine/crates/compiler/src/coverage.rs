@@ -154,7 +154,7 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
     let path = stable_path(path);
     format!("{path}:{slug}")
 }
-fn stable_path(path: &str) -> String {
+pub(crate) fn stable_path(path: &str) -> String {
     let mut out = String::new();
     let mut inside = false;
     for c in path.chars() {

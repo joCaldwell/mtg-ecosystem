@@ -4,8 +4,10 @@ use super::*;
 
 const MANIFEST: &str =
     include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json");
-const ELDER: &str =
-    include_str!("../../../../tests/fixtures/ramos/70a6f08e-854d-4e2f-9d8c-c45ec3231157.json");
+const R4_MANIFEST: &str =
+    include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+// The pre-Pass-2 revision 17 graph is retired; the exact R4 row binds every scope.
+const ELDER: &str = include_str!("../../../../tests/fixtures/phase1-r4/distinct-color-mana.json");
 const AGENT: &str =
     include_str!("../../../../tests/fixtures/ramos/2afbaa9a-c171-4a8b-90f3-5250d8498356.json");
 const ELF: &str =
@@ -29,6 +31,7 @@ fn prepared() -> Prepared {
         .iter()
         .find(|archive| archive.manifest_sha256 == manifest.manifest_sha256)
         .unwrap();
+    let r4 = accepted_manifest(R4_MANIFEST).unwrap();
     let mut catalog = Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-mana-ir.json"
     ))
@@ -52,12 +55,17 @@ fn prepared() -> Prepared {
         (Some(VEGA), ACTIVE, ACTIVE, Zone::Hand { owner: ACTIVE }),
     ] {
         let oracle_id = if let Some(raw) = raw {
+            let (manifest, registered) = if raw == ELDER {
+                (R4_MANIFEST, r4)
+            } else {
+                (MANIFEST, archive)
+            };
             assert!(
-                archive
+                registered
                     .record_sha256
                     .contains(&sha256(raw.trim_end().as_bytes()))
             );
-            let result = mtg_witness::compile(MANIFEST, raw);
+            let result = mtg_witness::compile(manifest, raw);
             let mtg_compiler::CompileResult::Lowered { definition } = result else {
                 panic!("{result:?}");
             };
