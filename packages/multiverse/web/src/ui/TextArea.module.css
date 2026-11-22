@@ -25,6 +25,16 @@
   box-shadow: 0 0 0 3px var(--sel-bg);
 }
 
+@media (forced-colors: none) {
+  .area:focus-visible { outline: none; }
+
+  .area:user-invalid:focus-visible {
+    outline: 2px solid var(--cut);
+    outline-offset: -1px;
+    box-shadow: none;
+  }
+}
+
 .area:disabled {
   opacity: 0.5;
 }
