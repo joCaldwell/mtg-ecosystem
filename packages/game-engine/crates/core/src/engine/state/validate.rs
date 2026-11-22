@@ -289,20 +289,33 @@ impl Game {
                         | Frame::StackTargets { .. }
                 );
                 if target_stage && self.mixed_mode_children(top)?.is_some() {
-                    let next = self.next_mode_target(top)?.and_then(|p| p.targets.first());
-                    if !self.valid_mixed_target_receipt(top, false)?
-                        || !matches!(
-                            (stage, next.map(|t| t.domain)),
-                            (
-                                Frame::Targets { .. },
-                                Some(
-                                    TargetDomain::BattlefieldCreature
-                                        | TargetDomain::CreatureOrPlaneswalker
-                                )
-                            ) | (Frame::StackTargets { .. }, Some(TargetDomain::StackSpell))
-                                | (Frame::EntityTargets { .. }, Some(TargetDomain::AnyPlayer))
+                    // CR 601.2c: the selected modes announce their targets in
+                    // printed order, each in the stage casting opens for its
+                    // first target's domain (`Game::spell_announcement_frame`).
+                    let next = self.next_mode_target(top)?;
+                    let group = next
+                        .is_some_and(|p| mtg_contracts::graveyard_shuffle::offered_by(p).is_some());
+                    let opened = match (
+                        stage,
+                        next.and_then(|p| p.targets.first()).map(|t| t.domain),
+                    ) {
+                        (
+                            Frame::Targets { .. },
+                            Some(
+                                TargetDomain::BattlefieldCreature
+                                | TargetDomain::BattlefieldPermanent
+                                | TargetDomain::CreatureOrPlaneswalker,
+                            ),
                         )
-                    {
+                        | (Frame::StackTargets { .. }, Some(TargetDomain::StackSpell))
+                        | (Frame::EntityTargets { .. }, Some(TargetDomain::AnyDamageTarget)) => {
+                            true
+                        }
+                        (Frame::EntityTargets { .. }, Some(TargetDomain::AnyPlayer)) => group,
+                        (Frame::PlayerTargets { .. }, Some(TargetDomain::AnyPlayer)) => !group,
+                        _ => false,
+                    };
+                    if !self.valid_mixed_target_receipt(top, false)? || !opened {
                         return Err("snapshot selected-mode announcement target invariant".into());
                     }
                 } else if (target_stage

@@ -42,13 +42,6 @@ general permanents. Control-source dependencies use scratch, apply-once ordering
 attachment legality and timestamps remain shared. Multitype targets retain all
 types. Structural attachment cycles and type-changing sources remain unsupported.
 
-`validate_state` rejects four reachable boundary states, so a snapshot taken
-there does not restore: a modal spell choosing the targets of an any-target
-mode, a library shuffle and a library ordering choice left for a player who has
-just departed, and an accepted colored-search answer before its rule step. The
-commit-time check in `engine/state/txn.rs` names them; closing each validator
-gap removes its entry.
-
 Product setup embeds a qualified sample; standalone client acceptance covers
 joining and opening choices. Full decisions, automated launch, account-to-seat
 provisioning and arbitrary library-deck admission remain unfinished. Product
