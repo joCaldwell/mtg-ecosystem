@@ -7,9 +7,20 @@ use mtg_contracts::{
     SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, announced_x,
     compound_indestructible_parameters, fixed, kernel,
     kir::{self, Context, SetExpr},
-    target_object, target_player,
+    source_object, target_object, target_player,
 };
 use mtg_core::query::{self, Tri};
+
+/// CR 613.4c: the closed set and negative toughness of an end-of-turn set
+/// shrink.
+fn set_shrink(i: &I) -> Option<(ObjectSet, &Quantity)> {
+    let what = ObjectSet::pumped(i)?;
+    let (_, _, toughness, _) = i.pumped()?;
+    toughness
+        .is_negative()
+        .then(|| ObjectSet::from_kernel(what).map(|set| (set, toughness)))
+        .flatten()
+}
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
 
 fn zero_cost() -> ManaCost {
@@ -81,7 +92,7 @@ fn blocking_pump_program(p: &SpellProgram) -> bool {
             .all(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
         && !p.instructions.is_empty()
         && p.instructions.iter().all(|i| {
-            matches!(i, I::ModifyPowerToughness {power, toughness, ..}
+            matches!(i, kernel!(ModifyUntil { what: target_object!(_), change: kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: kir::Until::EndOfTurn, .. })
                 if !power.is_negative() && !toughness.is_negative()
                     && (*power > Quantity::zero() || *toughness > Quantity::zero()))
         })
@@ -415,16 +426,19 @@ impl Strategy<'_> {
             | I::ReturnOwnGraveyardCardToHand { target_slot, .. }
             | I::PreventNextDamage { target_slot, .. } => *target_slot == slot,
             I::DistributePlusOneCounters { .. } => slot == 0,
-            I::PutPlusOneCounters {
-                on: mtg_contracts::CounterRecipient::Target { target_slot },
+            kernel!(PutCounters {
+                on: target_object!(target_slot),
                 ..
-            } => *target_slot == slot,
-            I::ModifyPowerToughness {
-                target_slot,
-                power,
-                toughness,
+            }) => *target_slot == slot,
+            kernel!(ModifyUntil {
+                what: target_object!(target_slot),
+                change: kir::Change::PowerToughness {
+                    power: fixed!(power),
+                    toughness: fixed!(toughness)
+                },
+                until: kir::Until::EndOfTurn,
                 ..
-            } => *target_slot == slot && !power.is_negative() && !toughness.is_negative(),
+            }) => *target_slot == slot && !power.is_negative() && !toughness.is_negative(),
             kernel!(GainLife {
                 player: target_player!(target_slot),
                 ..
@@ -1069,8 +1083,9 @@ impl Strategy<'_> {
                     i if scored_wipe(p, i).is_some() => {
                         scored_wipe(p, i).is_some_and(|what| self.in_kernel_set(v, o, what))
                     }
-                    I::PumpSet { set, toughness, .. } if toughness.is_negative() => {
-                        self.in_set(v, o, set)
+                    i if set_shrink(i).is_some() => {
+                        let (set, toughness) = set_shrink(i).unwrap();
+                        self.in_set(v, o, &set)
                             && o.characteristics
                                 .as_ref()
                                 .and_then(|c| c.toughness.as_ref())
@@ -1356,10 +1371,11 @@ impl Strategy<'_> {
                 i if scored_wipe(p, i).is_some() => {
                     (scored_wipe(p, i).into_iter().cloned().collect(), None)
                 }
-                I::PumpSet { set, toughness, .. } if toughness.is_negative() => {
+                i if set_shrink(i).is_some() => {
+                    let (set, toughness) = set_shrink(i).unwrap();
                     let mut q = Quantity::zero();
                     q.subtract(toughness);
-                    (vec![kernel(set)], Some(q))
+                    (vec![kernel(&set)], Some(q))
                 }
                 i if let Some(set_damage) = i.set_damage() => {
                     let damage = self.scaled_damage(v, &self.wipe_amount(v, set_damage.amount, x)?);
@@ -1975,12 +1991,13 @@ impl Strategy<'_> {
                             develops_mana(i)
                                 || matches!(
                                     i,
-                                    I::CreateCreatureTokens { .. }
-                                        | kernel!(Draw {
-                                            player: kir::PlayerExpr::Is { .. },
-                                            amount: fixed!(_)
-                                        })
-                                        | I::DistributePlusOneCounters { .. }
+                                    kernel!(CreateTokens {
+                                        token: kir::TokenSpec::Creature { .. },
+                                        ..
+                                    }) | kernel!(Draw {
+                                        player: kir::PlayerExpr::Is { .. },
+                                        amount: fixed!(_)
+                                    }) | I::DistributePlusOneCounters { .. }
                                 )
                         });
                         (!impact, *index)
@@ -2099,13 +2116,22 @@ impl Strategy<'_> {
         {
             return None;
         }
-        if a.program
-            .instructions
-            .iter()
-            .any(|i| matches!(i, I::ModifySourcePowerToughness { .. }))
-            && !(v.active == Some(v.viewer)
-                && v.turn.step == TurnStep::PrecombatMain
-                && o.attack_ready)
+        if a.program.instructions.iter().any(|i| {
+            matches!(
+                i,
+                kernel!(ModifyUntil {
+                    what: source_object!(),
+                    change: kir::Change::PowerToughness {
+                        power: _,
+                        toughness: _
+                    },
+                    until: kir::Until::EndOfTurn,
+                    ..
+                })
+            )
+        }) && !(v.active == Some(v.viewer)
+            && v.turn.step == TurnStep::PrecombatMain
+            && o.attack_ready)
             && !v
                 .combat
                 .iter()

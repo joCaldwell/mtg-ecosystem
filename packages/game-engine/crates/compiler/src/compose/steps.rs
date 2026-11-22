@@ -98,6 +98,7 @@ pub(super) fn lower(
     step: &Value,
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
+    context: Context,
     source_block: u32,
 ) -> Result<Instruction, Failure> {
     if let Some((restriction, selection)) = restriction(step) {
@@ -108,11 +109,12 @@ pub(super) fn lower(
         });
     }
     if let Some((count, kind)) = predefined_tokens(step) {
-        return Ok(Instruction::CreatePredefinedTokens {
+        return Ok(Instruction::create_tokens(
+            context,
             count,
-            kind,
+            kir::TokenSpec::Predefined { kind },
             source_block,
-        });
+        ));
     }
     if let Some((kind, selection)) = typed_counter(step) {
         let slot = bind_target(program, slots, selection, TargetDomain::StackSpell)?;

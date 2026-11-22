@@ -667,11 +667,12 @@ fn enters_counter_targets_and_source_bound_counter() {
         .find(|d| d.name == "Satyr Grovedancer")
         .unwrap();
     d.triggered[0].program.targets.clear();
-    let Instruction::PutPlusOneCounters { on, .. } = &mut d.triggered[0].program.instructions[0]
+    let mtg_contracts::kernel!(PutCounters { on, .. }) =
+        &mut d.triggered[0].program.instructions[0]
     else {
         panic!()
     };
-    *on = mtg_contracts::CounterRecipient::Source;
+    *on = mtg_contracts::kir::SetExpr::source();
     d.capabilities = d.requirements();
     c.validate().unwrap();
     p.catalog_digest = digest(c).unwrap();
@@ -696,12 +697,12 @@ fn token_capacity_is_a_typed_atomic_replayable_fault() {
         .iter_mut()
         .find(|d| d.name == "Raise the Alarm")
         .unwrap();
-    let Instruction::CreateCreatureTokens { count, .. } =
+    let mtg_contracts::kernel!(CreateTokens { count, .. }) =
         &mut d.spell.as_mut().unwrap().instructions[0]
     else {
         panic!()
     };
-    *count = TOKEN_CAPACITY + 1;
+    *count = mtg_contracts::kir::Amount::fixed(i64::from(TOKEN_CAPACITY + 1));
     c.validate().unwrap();
     p.catalog_digest = digest(c).unwrap();
     traces(p, |g| {
@@ -934,8 +935,10 @@ fn maximal_pool_capacity_derivation_and_earlier_limits() {
             .flat_map(|d| d.spell.iter().chain(d.triggered.iter().map(|t| &t.program)))
             .flat_map(|p| p.instructions.iter())
             .map(|i| match i {
-                Instruction::CreateCreatureTokens { count, .. } => *count as usize,
-                _ => 0,
+                i => i
+                    .creature_token()
+                    .and(i.created_tokens())
+                    .map_or(0, |(_, count)| count as usize),
             })
             .sum::<usize>();
         most_tokens = most_tokens.max(tokens);
@@ -1138,7 +1141,10 @@ fn capacity_release_probe() {
         .program
         .instructions[0]
     {
-        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        kernel!(CreateTokens {
+            token: mtg_contracts::kir::TokenSpec::Creature { spec: token },
+            ..
+        }) => token.clone(),
         _ => panic!("token producer"),
     };
     let create = ProposedEvent::CreateCreatureTokens {
@@ -1287,7 +1293,10 @@ fn retained_token_history_capacity_faults_before_allocating_more_identities() {
         .unwrap()
         .instructions[0]
     {
-        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        kernel!(CreateTokens {
+            token: mtg_contracts::kir::TokenSpec::Creature { spec: token },
+            ..
+        }) => token.clone(),
         _ => panic!("token producer"),
     };
     g.commit(
@@ -1430,7 +1439,10 @@ fn death_payoff_board(tokens: u32) -> Game {
         .program
         .instructions[0]
     {
-        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        kernel!(CreateTokens {
+            token: mtg_contracts::kir::TokenSpec::Creature { spec: token },
+            ..
+        }) => token.clone(),
         _ => panic!("token source"),
     };
     for seat in 0..4 {
@@ -1611,7 +1623,10 @@ fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
         .program
         .instructions[0]
     {
-        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        kernel!(CreateTokens {
+            token: mtg_contracts::kir::TokenSpec::Creature { spec: token },
+            ..
+        }) => token.clone(),
         _ => panic!("source-backed token instruction"),
     };
     g.commit(

@@ -149,7 +149,10 @@ pub(super) fn lower(
         let path = format!("{ROOT}/effects/{index}/steps/0");
         let step = &effect["steps"][0];
         match instruction {
-            Instruction::PutPlusOneCounters { .. } => {
+            kernel!(PutCounters {
+                counter: kir::CounterKind::PlusOnePlusOne,
+                ..
+            }) => {
                 env.bind_counter(&path, &step["on"], &program.targets[0]);
             }
             Instruction::GrantKeywords { keywords, .. } => {
@@ -263,11 +266,11 @@ mod tests {
             let p = d.spell.unwrap();
             assert_eq!(p.targets.len(), 1);
             assert_eq!(p.targets[0].domain, domain);
-            let mut expected = vec![Instruction::PutPlusOneCounters {
-                on: CounterRecipient::Target { target_slot: 0 },
-                amount: 1.into(),
-                source_block: 0,
-            }];
+            let mut expected = vec![Instruction::plus_one_counters(
+                kir::SetExpr::target(0),
+                1.into(),
+                0,
+            )];
             if phase {
                 expected.push(Instruction::PhaseOutTargetPermanent {
                     target_slot: 0,

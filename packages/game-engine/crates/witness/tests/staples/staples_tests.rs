@@ -955,8 +955,10 @@ fn reviewed_staples_resource_bounds_live_capacity_and_deck_counts() {
             .flat_map(|d| d.spell.iter().chain(d.triggered.iter().map(|a| &a.program)))
             .flat_map(|p| &p.instructions)
             .map(|i| match i {
-                Instruction::CreateCreatureTokens { count, .. } => *count as usize,
-                _ => 0,
+                i => i
+                    .creature_token()
+                    .and(i.created_tokens())
+                    .map_or(0, |(_, count)| count as usize),
             })
             .sum::<usize>();
         most_new_tokens = most_new_tokens.max(created);
@@ -1015,7 +1017,10 @@ fn reviewed_staples_resource_bounds_live_capacity_and_deck_counts() {
         .program
         .instructions[0]
     {
-        Instruction::CreateCreatureTokens { token, .. } => token.clone(),
+        kernel!(CreateTokens {
+            token: kir::TokenSpec::Creature { spec: token },
+            ..
+        }) => token.clone(),
         _ => panic!("token producer"),
     };
     let create = |count| ProposedEvent::CreateCreatureTokens {
@@ -1084,12 +1089,12 @@ fn staples_token_capacity_is_a_typed_atomic_replayable_truncation() {
         .iter_mut()
         .find(|d| d.name == "Raise the Alarm")
         .unwrap();
-    let Instruction::CreateCreatureTokens { count, .. } =
+    let mtg_contracts::kernel!(CreateTokens { count, .. }) =
         &mut d.spell.as_mut().unwrap().instructions[0]
     else {
         panic!()
     };
-    *count = capacities::TOKEN_CAPACITY + 1;
+    *count = mtg_contracts::kir::Amount::fixed(i64::from(capacities::TOKEN_CAPACITY + 1));
     c.validate().unwrap();
     p.catalog_digest = digest(c).unwrap();
     traces(p, |g| {
@@ -1132,8 +1137,10 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         instructions(p)
             .iter()
             .map(|i| match i {
-                Instruction::CreateCreatureTokens { count, .. } => *count as usize,
-                _ => 0,
+                i => i
+                    .creature_token()
+                    .and(i.created_tokens())
+                    .map_or(0, |(_, count)| count as usize),
             })
             .sum()
     }
@@ -1155,10 +1162,24 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
         {
             for i in instructions(p) {
                 match i {
-                    Instruction::CreateCreatureTokens { .. }
+                    kernel!(CreateTokens {
+                        token: kir::TokenSpec::Creature { .. },
+                        ..
+                    })
                     | Instruction::PutSourcePlusOneCountersForCastColors { .. }
-                    | Instruction::PutPlusOneCounters { .. }
-                    | Instruction::ModifyPowerToughness { .. }
+                    | kernel!(PutCounters {
+                        counter: kir::CounterKind::PlusOnePlusOne,
+                        ..
+                    })
+                    | kernel!(ModifyUntil {
+                        what: target_object!(_),
+                        change: kir::Change::PowerToughness {
+                            power: _,
+                            toughness: _
+                        },
+                        until: kir::Until::EndOfTurn,
+                        ..
+                    })
                     | Instruction::PreventCombatDamage { .. }
                     | Instruction::PreventNextDamage { .. }
                     | kernel!(Move {

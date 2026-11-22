@@ -2,7 +2,8 @@
 //! This is an explicitly pruned adapter, never an exhaustive legality oracle.
 use mtg_contracts::{
     ActivationCost, CardKind, Catalog, Color, Definition, FunctioningZone, Instruction, ManaCost,
-    Quantity, SpellProgram, TargetDomain, canonical, kernel, sha256, target_player,
+    Quantity, SpellProgram, TargetDomain, canonical, fixed, kernel, sha256, target_object,
+    target_player,
 };
 use mtg_core::{
     ObjectHandle, Observation, PlayerId, PlayerRequest, PlayerTargetEntity, RootHandleMap,
@@ -228,9 +229,15 @@ pub(super) fn beneficial(program: &SpellProgram) -> bool {
                 ..
             })
             | Instruction::PreventNextDamage { .. } => true,
-            Instruction::ModifyPowerToughness {
-                power, toughness, ..
-            } => power > &Quantity::zero() || toughness > &Quantity::zero(),
+            kernel!(ModifyUntil {
+                what: target_object!(_),
+                change: mtg_contracts::kir::Change::PowerToughness {
+                    power: fixed!(power),
+                    toughness: fixed!(toughness)
+                },
+                until: mtg_contracts::kir::Until::EndOfTurn,
+                ..
+            }) => power > &Quantity::zero() || toughness > &Quantity::zero(),
             _ => false,
         })
 }

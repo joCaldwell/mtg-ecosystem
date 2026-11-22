@@ -145,13 +145,7 @@ pub fn pump(text: &str, timing: SpellTiming) -> Option<(SpellProgram, Value)> {
             filter: None,
         }],
         instructions: vec![
-            Instruction::ModifyPowerToughness {
-                target_slot: 0,
-                power,
-                toughness,
-                duration: Duration::UntilEndOfTurn,
-                source_block: 0,
-            },
+            Instruction::pump(kir::SetExpr::target(0), power, toughness, 0),
             Instruction::Proliferate { source_block: 0 },
         ],
         optional_additional_costs: vec![],
@@ -242,9 +236,10 @@ pub(super) fn extend_schema(schema: &mut Value) {
     .unwrap();
     let fixed_negative = json!({"pattern":"^-[1-9][0-9]*$"});
     let instructions = json!({"minItems":2,"maxItems":2,"prefixItems":[
-        {"properties":{"op":{"const":"modify_power_toughness"},"target_slot":{"const":0},
-            "source_block":{"const":0},"duration":{"const":"until_end_of_turn"},
-            "power":fixed_negative.clone(),"toughness":fixed_negative}},
+        instruction_schema::at(
+            instruction_schema::pump(instruction_schema::target_object(Some(0)), fixed_negative.clone(), fixed_negative),
+            0,
+        ),
         {"const":Instruction::Proliferate {source_block:0}}
     ]});
     let required = [

@@ -201,12 +201,12 @@ fn permanent_set_keyword_every_other_opcode_and_context_rejects() {
             kir::Amount::fixed(1),
             0,
         ),
-        Instruction::PumpSet {
-            set: ObjectSet::ControllerPermanents,
-            power: 0.into(),
-            toughness: 0.into(),
-            source_block: 0,
-        },
+        Instruction::pump(
+            ObjectSet::ControllerPermanents.kernel(kir::Context::Spell),
+            0.into(),
+            0.into(),
+            0,
+        ),
         d.spell.as_ref().unwrap().instructions[0].clone(),
     ] {
         // The grant is the sole positive top-level shape, but all other opcodes

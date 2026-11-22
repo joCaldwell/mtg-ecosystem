@@ -75,10 +75,10 @@ impl PrintedGrant {
                 resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
                 targets: vec![],
-                instructions: vec![Instruction::GrantSourceKeywords {
-                    keywords: self.keywords,
+                instructions: vec![Instruction::grant_source_keywords(
+                    self.keywords,
                     source_block,
-                }],
+                )],
                 modes: vec![],
                 optional_additional_costs: vec![],
                 additional_sacrifice: None,
@@ -88,10 +88,16 @@ impl PrintedGrant {
 }
 
 pub(super) fn has_grant(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::GrantSourceKeywords { .. }))
-        || p.modes.iter().any(|m| has_grant(&m.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(ModifyUntil {
+                what: source_object!(),
+                change: kir::Change::AddKeywords { .. },
+                ..
+            })
+        )
+    }) || p.modes.iter().any(|m| has_grant(&m.program))
 }
 
 pub fn keywords(a: &ActivatedAbility) -> Option<&[KeywordAbility]> {
@@ -109,11 +115,13 @@ pub fn keywords(a: &ActivatedAbility) -> Option<&[KeywordAbility]> {
         return None;
     }
     match p.instructions.as_slice() {
-        [Instruction::GrantSourceKeywords { keywords, .. }]
-            if supported_temporary_keywords(keywords) =>
-        {
-            Some(keywords)
-        }
+        [
+            kernel!(ModifyUntil {
+                what: source_object!(),
+                change: kir::Change::AddKeywords { keywords },
+                ..
+            }),
+        ] if supported_temporary_keywords(keywords) => Some(keywords),
         _ => None,
     }
 }
@@ -173,11 +181,9 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn schema_presence(keyword: Option<KeywordAbility>) -> Value {
-    let mut fields = json!({"op":{"const":"grant_source_keywords"}});
-    if let Some(keyword) = keyword {
-        fields["keywords"] = json!({"contains":{"const":keyword}});
-    }
-    json!({"required":["activated"],"properties":{"activated":{"contains":{"properties":{"program":{"properties":{"instructions":{"contains":{"properties":fields}}}}}}}}})
+    let keywords = keyword.map_or(json!({}), |keyword| json!({"contains":{"const":keyword}}));
+    let grant = instruction_schema::source_keywords(keywords);
+    json!({"required":["activated"],"properties":{"activated":{"contains":{"properties":{"program":{"properties":{"instructions":{"contains":grant}}}}}}}})
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
@@ -190,15 +196,15 @@ pub(super) fn extend_schema(schema: &mut Value) {
         .filter(|&keyword| supported_temporary_keywords(&[keyword]))
         .collect();
     let free = json!({"$ref":"#/$defs/SourceKeywordGrantFreeProgram"});
-    let opcode = json!({"required":["op"],"properties":{"op":{"const":"grant_source_keywords"}}});
+    let opcode = instruction_schema::source_keywords(json!({}));
     let no_grant = json!({"items":{"not":opcode}});
     schema["$defs"]["SourceKeywordGrantFreeProgram"] = json!({"properties":{
         "instructions":no_grant,
         "modes":{"items":{"properties":{"program":free}}}
     }});
-    let instruction = json!({"allOf":[opcode,{"properties":{
-        "keywords":{"type":"array","minItems":1,"uniqueItems":true,"items":{"enum":vocabulary}}
-    }}]});
+    let instruction = instruction_schema::source_keywords(
+        json!({"type":"array","minItems":1,"uniqueItems":true,"items":{"enum":vocabulary}}),
+    );
     let shape = json!({"properties":{
         "functioning_zone":{"const":"battlefield"},
         "cost":{"type":"object","required":["mana"],"properties":{"mana":{"properties":{"cost":{"properties":{"generic":{"pattern":"^(0|[1-9][0-9]*)$"}}}}}}},

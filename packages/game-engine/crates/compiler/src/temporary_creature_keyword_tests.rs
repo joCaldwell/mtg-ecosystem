@@ -625,7 +625,8 @@ fn temporary_creature_keyword_legacy_ir_caps_and_pure_source_block_provenance() 
         for instruction in &mut shifted.spell.as_mut().unwrap().instructions {
             match instruction {
                 Instruction::GrantKeywords { source_block, .. }
-                | Instruction::ModifyPowerToughness { source_block, .. } => {
+                | kernel!(ModifyUntil { what: target_object!(_), change: kir::Change::PowerToughness { power: _, toughness: _ }, until: kir::Until::EndOfTurn, .. } @ source_block) =>
+                {
                     *source_block = 1;
                 }
                 _ => unreachable!(),

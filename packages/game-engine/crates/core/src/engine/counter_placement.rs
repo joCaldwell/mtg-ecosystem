@@ -3,7 +3,7 @@
 //! Freeze instruction allocations, stage replacements separately for each incarnation,
 //! then place all surviving amounts in one batch. Costs and their reversal are separate.
 use super::*;
-use mtg_contracts::{CounterPlacementModification, CounterRecipient};
+use mtg_contracts::CounterPlacementModification;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -149,14 +149,14 @@ impl Game {
                 }
                 source_block
             }
-            Instruction::PutPlusOneCounters {
+            kernel!(PutCounters {
                 on,
-                amount,
-                source_block,
-            } => {
+                counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
+                amount: fixed!(amount),
+            } @ source_block) => {
                 let object = match on {
-                    CounterRecipient::Source => Some(&self.entry(frame.stack_id)?.source),
-                    CounterRecipient::Target { target_slot }
+                    source_object!() => Some(&self.entry(frame.stack_id)?.source),
+                    target_object!(target_slot)
                         if frame.legal_targets.get(*target_slot as usize) == Some(&true) =>
                     {
                         self.bound_object_target(self.entry(frame.stack_id)?, *target_slot as usize)

@@ -693,9 +693,42 @@ pub enum ObjectSet {
     NonflyingCreatures,
 }
 impl ObjectSet {
+    pub const ALL: [Self; 12] = [
+        Self::ControllerCreatures,
+        Self::ControllerPermanents,
+        Self::Creatures,
+        Self::NonlandPermanents,
+        Self::OpponentNonlandPermanents,
+        Self::Enchantments,
+        Self::Artifacts,
+        Self::GraveyardCards,
+        Self::AttackingCreatures,
+        Self::OpponentCreatures,
+        Self::FlyingCreatures,
+        Self::NonflyingCreatures,
+    ];
+    /// The closed set a kernel set denotes, if it is one ([`Self::kernel`]
+    /// is injective in every context).
+    pub fn from_kernel(what: &SetExpr) -> Option<Self> {
+        Self::ALL.into_iter().find(|set| set.denotes(what))
+    }
     /// The kernel set this closed set denotes for "you" in `context`. Kernel
     /// verbs take a general filter; the instructions that still carry an
     /// `ObjectSet` name one of these.
+    /// True when `what` is this set's kernel set in some context: "you" is
+    /// the spell's or the ability's controller (CR 109.5).
+    pub fn denotes(&self, what: &SetExpr) -> bool {
+        [Context::Spell, Context::Activated]
+            .into_iter()
+            .any(|context| *what == self.kernel(context))
+    }
+    /// The kernel set of an end-of-turn set pump (CR 613.4c).
+    pub fn pumped(instruction: &Instruction) -> Option<&SetExpr> {
+        instruction
+            .pumped()
+            .map(|(what, ..)| what)
+            .filter(|what| matches!(what, SetExpr::Matching { .. }))
+    }
     pub fn kernel(&self, context: Context) -> SetExpr {
         use kir::Atom;
         let kind = |kind| Atom::Type { kind };
@@ -1027,12 +1060,6 @@ pub enum Instruction {
     RemoveOpponentNonlandIndestructible {
         source_block: u32,
     },
-    PumpSet {
-        set: ObjectSet,
-        power: Quantity,
-        toughness: Quantity,
-        source_block: u32,
-    },
     GainLifeDestroyed {
         source_block: u32,
     },
@@ -1052,12 +1079,6 @@ pub enum Instruction {
     },
     /// Create an until-cleanup destroy replacement for the exact invocation source (CR 701.19a).
     RegenerateSource {
-        source_block: u32,
-    },
-    ModifySourcePowerToughness {
-        power: Quantity,
-        toughness: Quantity,
-        duration: Duration,
         source_block: u32,
     },
     ChangeLifeFromTarget {
@@ -1143,17 +1164,6 @@ pub enum Instruction {
         quantity: ManaResolutionQuantity,
         source_block: u32,
     },
-    CreatePredefinedTokens {
-        #[schemars(range(min = 1))]
-        count: u32,
-        kind: PredefinedToken,
-        source_block: u32,
-    },
-    CreateCreatureTokens {
-        count: u32,
-        token: CreatureToken,
-        source_block: u32,
-    },
     PutSourcePlusOneCountersForCastColors {
         source_block: u32,
     },
@@ -1172,11 +1182,6 @@ pub enum Instruction {
     Proliferate {
         source_block: u32,
     },
-    PutPlusOneCounters {
-        on: CounterRecipient,
-        amount: Quantity,
-        source_block: u32,
-    },
     /// CR 611.2c, 613.5–6: one captured set receives all parts of this
     /// continuous effect, including an optional fixed signed P/T modifier.
     GrantKeywordsSet {
@@ -1185,11 +1190,6 @@ pub enum Instruction {
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         duration: Duration,
-        source_block: u32,
-    },
-    /// CR 400.7, 611.2c: capture the activating incarnation until cleanup.
-    GrantSourceKeywords {
-        keywords: Vec<KeywordAbility>,
         source_block: u32,
     },
     /// CR 611.2c, 613.5–6: all properties belong to one captured effect.
@@ -1204,13 +1204,6 @@ pub enum Instruction {
     GrantCreatureRestriction {
         target_slot: u32,
         restriction: CreatureRestriction,
-        source_block: u32,
-    },
-    ModifyPowerToughness {
-        target_slot: u32,
-        power: Quantity,
-        toughness: Quantity,
-        duration: Duration,
         source_block: u32,
     },
     PreventCombatDamage {
@@ -1384,6 +1377,108 @@ impl Instruction {
         self.fixed_draw()
             .filter(|(player, count, _)| player.is_you() && **count != Quantity::from(1))
             .map(|(_, count, block)| (count, block))
+    }
+    /// CR 111.1: "you" in `context` create `count` tokens of `token`.
+    pub fn create_tokens(
+        context: kir::Context,
+        count: u32,
+        token: kir::TokenSpec,
+        source_block: u32,
+    ) -> Self {
+        Self::act(
+            kir::Verb::CreateTokens {
+                controller: kir::PlayerExpr::you(context),
+                count: kir::Amount::fixed(i64::from(count)),
+                token,
+            },
+            source_block,
+        )
+    }
+    /// The recipe and count of a kernel token creation.
+    pub fn created_tokens(&self) -> Option<(&kir::TokenSpec, u32)> {
+        match self {
+            kernel!(CreateTokens {
+                count: fixed!(count),
+                token,
+                ..
+            }) => Some((token, count.to_u32()?)),
+            _ => None,
+        }
+    }
+    /// The creature recipe of a kernel creature-token creation.
+    pub fn creature_token(&self) -> Option<&CreatureToken> {
+        match self.created_tokens()? {
+            (kir::TokenSpec::Creature { spec }, _) => Some(spec),
+            _ => None,
+        }
+    }
+    /// CR 122.1: put `amount` +1/+1 counters on `on`.
+    pub fn plus_one_counters(on: kir::SetExpr, amount: Quantity, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::PutCounters {
+                on,
+                counter: kir::CounterKind::PlusOnePlusOne,
+                amount: kir::Amount::Fixed { value: amount },
+            },
+            source_block,
+        )
+    }
+    /// CR 611.2c, 613.4c, 514.2: `what` gets +`power`/+`toughness` until end
+    /// of turn.
+    pub fn pump(
+        what: kir::SetExpr,
+        power: Quantity,
+        toughness: Quantity,
+        source_block: u32,
+    ) -> Self {
+        Self::act(
+            kir::Verb::ModifyUntil {
+                what,
+                layer: kir::Layer::PowerToughnessModify,
+                change: kir::Change::PowerToughness {
+                    power: kir::Amount::Fixed { value: power },
+                    toughness: kir::Amount::Fixed { value: toughness },
+                },
+                until: kir::Until::EndOfTurn,
+            },
+            source_block,
+        )
+    }
+    /// The set, power and toughness of a kernel end-of-turn pump.
+    pub fn pumped(&self) -> Option<(&kir::SetExpr, &Quantity, &Quantity, u32)> {
+        match self {
+            kernel!(ModifyUntil {
+                what,
+                change: kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) },
+                until: kir::Until::EndOfTurn,
+                ..
+            } @ block) => Some((what, power, toughness, *block)),
+            _ => None,
+        }
+    }
+    /// CR 611.2c, 613.1f, 514.2: the source gains `keywords` until end of
+    /// turn.
+    pub fn grant_source_keywords(keywords: Vec<KeywordAbility>, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::ModifyUntil {
+                what: kir::SetExpr::source(),
+                layer: kir::Layer::Ability,
+                change: kir::Change::AddKeywords { keywords },
+                until: kir::Until::EndOfTurn,
+            },
+            source_block,
+        )
+    }
+    /// The keywords the source grants itself until end of turn.
+    pub fn source_keywords(&self) -> Option<&[KeywordAbility]> {
+        match self {
+            kernel!(ModifyUntil {
+                what: source_object!(),
+                change: kir::Change::AddKeywords { keywords },
+                ..
+            }) => Some(keywords),
+            _ => None,
+        }
     }
     /// CR 701.17a: `player` mills `amount` cards.
     pub fn mill(player: kir::PlayerExpr, amount: kir::Amount, source_block: u32) -> Self {
@@ -1664,13 +1759,11 @@ impl Instruction {
             | Self::PhaseOutControllerPermanents { source_block }
             | Self::PhaseOutTargetPermanent { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
-            Self::PumpSet { source_block, .. } => *source_block,
             Self::GainLifeDestroyed { source_block, .. } => *source_block,
             Self::ExileDamagedThisTurn { source_block, .. } => *source_block,
             Self::LoseLifeDeathController { source_block, .. } => *source_block,
             Self::SacrificeDamage { source_block, .. } => *source_block,
-            Self::ModifySourcePowerToughness { source_block, .. }
-            | Self::RegenerateSource { source_block } => *source_block,
+            Self::RegenerateSource { source_block } => *source_block,
             Self::ChangeLifeFromTarget { source_block, .. } => *source_block,
             Self::CreateTokensFor { source_block, .. } => *source_block,
             Self::DamageTargetController { source_block, .. } => *source_block,
@@ -1683,18 +1776,13 @@ impl Instruction {
             | Self::SearchRecipientBasicLand { source_block, .. }
             | Self::SearchBasicLands { source_block, .. }
             | Self::FetchBasicLand { source_block, .. } => *source_block,
-            Self::CreateCreatureTokens { source_block, .. }
-            | Self::CreatePredefinedTokens { source_block, .. }
-            | Self::AddResolutionMana { source_block, .. } => *source_block,
+            Self::AddResolutionMana { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::SetTargetColor { source_block, .. }
-            | Self::Proliferate { source_block }
-            | Self::PutPlusOneCounters { source_block, .. } => *source_block,
-            Self::GrantKeywords { source_block, .. }
-            | Self::GrantSourceKeywords { source_block, .. } => *source_block,
+            | Self::Proliferate { source_block } => *source_block,
+            Self::GrantKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
-            Self::GrantCreatureRestriction { source_block, .. }
-            | Self::ModifyPowerToughness { source_block, .. } => *source_block,
+            Self::GrantCreatureRestriction { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
             Self::ReturnEntryTargetCreature { source_block, .. } => *source_block,
@@ -2119,11 +2207,15 @@ fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
         (
             [t],
             [
-                Instruction::ModifyPowerToughness {
-                    target_slot: 0,
-                    duration: Duration::UntilEndOfTurn,
+                kernel!(ModifyUntil {
+                    what: target_object!(0),
+                    change: kir::Change::PowerToughness {
+                        power: _,
+                        toughness: _
+                    },
+                    until: kir::Until::EndOfTurn,
                     ..
-                },
+                }),
             ],
         ) => {
             t.slot == 0
@@ -3173,11 +3265,15 @@ impl Definition {
         for ability in &self.triggered {
             if ability.death_filter.is_some()
                 || (ability.condition == TriggerCondition::SelfDies
-                    && ability
-                        .program
-                        .instructions
-                        .iter()
-                        .any(|i| matches!(i, Instruction::CreateCreatureTokens { .. })))
+                    && ability.program.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            kernel!(CreateTokens {
+                                token: kir::TokenSpec::Creature { .. },
+                                ..
+                            })
+                        )
+                    }))
             {
                 set.insert(Capability::SacrificeV1);
             }
@@ -3758,8 +3854,13 @@ impl Definition {
             p.instructions.iter().any(|i| {
                 matches!(
                     i,
-                    Instruction::CreateCreatureTokens { .. }
-                        | Instruction::PutPlusOneCounters { .. }
+                    kernel!(CreateTokens {
+                        token: kir::TokenSpec::Creature { .. },
+                        ..
+                    }) | kernel!(PutCounters {
+                        counter: kir::CounterKind::PlusOnePlusOne,
+                        ..
+                    })
                 )
             }) || p.modes.iter().any(|m| new_ops(&m.program))
         }
@@ -3791,10 +3892,11 @@ impl Definition {
             p.instructions.iter().any(|i| {
                 matches!(
                     i,
-                    Instruction::PutPlusOneCounters {
-                        on: CounterRecipient::Source,
+                    kernel!(PutCounters {
+                        on: source_object!(),
+                        counter: kir::CounterKind::PlusOnePlusOne,
                         ..
-                    }
+                    })
                 )
             }) || p.modes.iter().any(|m| source_counters(&m.program))
         }
@@ -4309,11 +4411,19 @@ impl Definition {
                         Instruction::SacrificeDamage {
                             optional: false,
                             ..
-                        } | Instruction::PutPlusOneCounters {
-                            on: CounterRecipient::Source,
+                        } | kernel!(PutCounters {
+                            on: source_object!(),
+                            counter: kir::CounterKind::PlusOnePlusOne,
                             ..
-                        } | Instruction::ModifySourcePowerToughness { .. }
-                            | Instruction::SearchBasicLands { maximum: 1, .. }
+                        }) | kernel!(ModifyUntil {
+                            what: source_object!(),
+                            change: kir::Change::PowerToughness {
+                                power: _,
+                                toughness: _
+                            },
+                            until: kir::Until::EndOfTurn,
+                            ..
+                        }) | Instruction::SearchBasicLands { maximum: 1, .. }
                     )
                 }) {
                     false
@@ -4622,7 +4732,15 @@ impl Definition {
                     !matches!(
                         instruction,
                         Instruction::LookTopMayRevealForMana { .. }
-                            | Instruction::PumpSet { .. }
+                            | kernel!(ModifyUntil {
+                                what: kir::SetExpr::Matching { .. },
+                                change: kir::Change::PowerToughness {
+                                    power: _,
+                                    toughness: _
+                                },
+                                until: kir::Until::EndOfTurn,
+                                ..
+                            })
                             | kernel!(Damage {
                                 to: kir::DamageTo::Ref {
                                     who: kir::Ref::Target { slot: _ }
@@ -4664,11 +4782,20 @@ impl Definition {
                                 regeneration_forbidden: true,
                                 ..
                             })
-                            | Instruction::CreateCreatureTokens { .. }
-                            | Instruction::CreatePredefinedTokens { .. }
+                            | kernel!(CreateTokens {
+                                token: kir::TokenSpec::Creature { .. },
+                                ..
+                            })
+                            | kernel!(CreateTokens {
+                                token: kir::TokenSpec::Predefined { .. },
+                                ..
+                            })
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                             | Instruction::Proliferate { .. }
-                            | Instruction::PutPlusOneCounters { .. }
+                            | kernel!(PutCounters {
+                                counter: kir::CounterKind::PlusOnePlusOne,
+                                ..
+                            })
                             | kernel!(Draw {
                                 player: kir::PlayerExpr::Is { .. },
                                 amount: fixed!(_)
@@ -4699,7 +4826,15 @@ impl Definition {
                                 player: event_player!(),
                                 ..
                             })
-                            | Instruction::ModifyPowerToughness { .. }
+                            | kernel!(ModifyUntil {
+                                what: target_object!(_),
+                                change: kir::Change::PowerToughness {
+                                    power: _,
+                                    toughness: _
+                                },
+                                until: kir::Until::EndOfTurn,
+                                ..
+                            })
                             | kernel!(GainLife { .. })
                             | kernel!(LoseLife { .. })
                     )
@@ -5505,12 +5640,15 @@ fn validate_instruction_program_with_chapter(
             kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => {
                 what.filter().is_some_and(kir::Pred::names_you)
             }
-            Instruction::PumpSet { set, .. } | Instruction::GrantKeywordsSet { set, .. } => {
+            Instruction::GrantKeywordsSet { set, .. } => {
                 matches!(
                     set,
                     ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
                 )
             }
+            i if ObjectSet::pumped(i).is_some() => ObjectSet::pumped(i)
+                .and_then(SetExpr::filter)
+                .is_some_and(kir::Pred::names_you),
             i => i.set_damage().is_some_and(|damage| {
                 damage
                     .sets
@@ -5595,10 +5733,15 @@ fn validate_instruction_program_with_chapter(
             || p.instructions.iter().any(|i| {
                 !matches!(
                     i,
-                    Instruction::ModifyPowerToughness {
-                        duration: Duration::UntilEndOfTurn,
+                    kernel!(ModifyUntil {
+                        what: target_object!(_),
+                        change: kir::Change::PowerToughness {
+                            power: _,
+                            toughness: _
+                        },
+                        until: kir::Until::EndOfTurn,
                         ..
-                    }
+                    })
                 )
             }))
     {
@@ -5739,7 +5882,6 @@ fn validate_program_bindings(
             | Instruction::FreezeControllerLifeUntilNextTurn { .. }
             | Instruction::PhaseOutControllerPermanents { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
-            | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | kernel!(Untap {
                 what: kir::SetExpr::Matching { .. }
@@ -5809,8 +5951,7 @@ fn validate_program_bindings(
                 }
                 target_slot.map(|slot| (slot, TargetDomain::AnyDamageTarget))
             }
-            Instruction::ModifySourcePowerToughness { .. }
-            | Instruction::RegenerateSource { .. } => None,
+            Instruction::RegenerateSource { .. } => None,
             kernel!(Move {
                 what: kir::SetExpr::Matching {
                     zone: kir::ZoneExpr::Graveyard {
@@ -5953,19 +6094,6 @@ fn validate_program_bindings(
             }
             Instruction::FetchBasicLand { .. } => None,
             Instruction::AddResolutionMana { .. } | Instruction::ExileLibraryForPlay { .. } => None,
-            Instruction::CreatePredefinedTokens { count, .. } => {
-                if *count == 0 {
-                    return Err("token count must be positive".into());
-                }
-                None
-            }
-            Instruction::CreateCreatureTokens { count, token, .. } => {
-                if *count == 0 {
-                    return Err("token count must be positive".into());
-                }
-                token.validate()?;
-                None
-            }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. }
             | Instruction::RegisterControllerSpellCastThisTurn { .. }
             | Instruction::Hideaway { .. }
@@ -5995,25 +6123,6 @@ fn validate_program_bindings(
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
             }
-            Instruction::PutPlusOneCounters { on, amount, .. } => {
-                if *amount <= Quantity::zero() {
-                    return Err("counter amount must be positive".into());
-                }
-                match on {
-                    CounterRecipient::Source => None,
-                    CounterRecipient::Target { target_slot } => Some((
-                        *target_slot,
-                        if chapter {
-                            TargetDomain::ControlledBattlefieldCreature
-                        } else if composed_spell::program(p) {
-                            p.targets[0].domain
-                        } else {
-                            TargetDomain::BattlefieldCreature
-                        },
-                    )),
-                }
-            }
-            Instruction::GrantSourceKeywords { .. } => None,
             Instruction::GrantKeywords { target_slot, .. } => {
                 // The complete family guard above restricts this to its two domains.
                 Some((*target_slot, p.targets[0].domain))
@@ -6030,22 +6139,6 @@ fn validate_program_bindings(
                     return Err("unsupported temporary combat restriction".into());
                 }
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
-            }
-            Instruction::ModifyPowerToughness { target_slot, .. } => {
-                let domain = p
-                    .targets
-                    .get(*target_slot as usize)
-                    .map(|target| target.domain)
-                    .ok_or("unbound creature pump target")?;
-                if !matches!(
-                    domain,
-                    TargetDomain::BattlefieldCreature | TargetDomain::BlockingBattlefieldCreature
-                ) && !(domain == TargetDomain::ControlledBattlefieldCreature
-                    && temporary_creature_keyword_program(p).is_some())
-                {
-                    return Err("unsupported creature pump target domain".into());
-                }
-                Some((*target_slot, domain))
             }
             Instruction::PreventNextDamage {
                 target_slot,
@@ -6129,6 +6222,34 @@ fn validate_program_bindings(
                     && !controller_draw_discard_program(p)
                 {
                     return Err("unsupported draw/discard cardinality".into());
+                }
+                // CR 122.1: a chapter's counters go on a creature its
+                // controller controls; an ordinary composed spell names its
+                // own domain; otherwise the target is any creature.
+                if let kernel!(PutCounters {
+                    on: target_object!(slot),
+                    ..
+                }) = instruction
+                {
+                    let expected = if chapter {
+                        TargetDomain::ControlledBattlefieldCreature
+                    } else if composed_spell::program(p) {
+                        p.targets[0].domain
+                    } else {
+                        TargetDomain::BattlefieldCreature
+                    };
+                    if p.targets.get(*slot as usize).map(|t| t.domain) != Some(expected) {
+                        return Err("unbound target slot/domain".into());
+                    }
+                }
+                // CR 613.4c: a controlled creature is pumped only by the
+                // reviewed temporary keyword program.
+                if let Some((target_object!(slot), ..)) = instruction.pumped()
+                    && p.targets.get(*slot as usize).map(|t| t.domain)
+                        == Some(TargetDomain::ControlledBattlefieldCreature)
+                    && temporary_creature_keyword_program(p).is_none()
+                {
+                    return Err("unsupported creature pump target domain".into());
                 }
                 used.extend(kir::target_slots(node));
                 None
@@ -6463,12 +6584,15 @@ fn add_program_requirements_for_source_pump(
         ) {
             set.insert(Capability::OptionalControllerDrawV1);
         }
-        if matches!(instruction, Instruction::CreateCreatureTokens { token, .. }
+        if matches!(instruction, kernel!(CreateTokens { token: kir::TokenSpec::Creature { spec: token }, .. })
             | Instruction::CreateTokensFor { token, .. } if !token.additional_types.is_empty())
         {
             set.insert(Capability::MultiTypeCreatureTokensV1);
         }
-        if let Instruction::CreateCreatureTokens { token, .. } = instruction
+        if let kernel!(CreateTokens {
+            token: kir::TokenSpec::Creature { spec: token },
+            ..
+        }) = instruction
             && token
                 .keywords
                 .iter()
@@ -6495,7 +6619,11 @@ fn add_program_requirements_for_source_pump(
         }
         if let Instruction::GrantKeywords { keywords, .. }
         | Instruction::GrantKeywordsSet { keywords, .. }
-        | Instruction::GrantSourceKeywords { keywords, .. } = instruction
+        | kernel!(ModifyUntil {
+            what: source_object!(),
+            change: kir::Change::AddKeywords { keywords },
+            ..
+        }) = instruction
         {
             for keyword in keywords {
                 if let Some(capability) = temporary_keyword_primitive_capability(*keyword) {
@@ -6589,16 +6717,11 @@ fn add_program_requirements_for_source_pump(
                 ..
             } => Capability::TemporaryCreatureSetKeywordProgramV1,
             Instruction::GrantKeywordsSet { .. } => Capability::BoardWipesV1,
-            Instruction::PumpSet { .. }
-            | Instruction::GainLifeDestroyed { .. }
+            Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }
             | Instruction::LoseLifeDeathController { .. } => Capability::BoardWipesV1,
             Instruction::RegenerateSource { .. } => Capability::SourceRegenerationV1,
-            Instruction::ModifySourcePowerToughness { .. } if temporary_source_pump => {
-                Capability::TemporaryPowerToughnessV1
-            }
-            Instruction::SacrificeDamage { .. }
-            | Instruction::ModifySourcePowerToughness { .. } => Capability::SacrificeV1,
+            Instruction::SacrificeDamage { .. } => Capability::SacrificeV1,
             Instruction::ChangeLifeFromTarget { .. }
             | Instruction::CreateTokensFor { .. }
             | Instruction::DamageTargetController { .. } => Capability::PermanentRemovalV1,
@@ -6623,8 +6746,6 @@ fn add_program_requirements_for_source_pump(
             }
             Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
             Instruction::LoseGameTargetPlayer { .. } => Capability::TargetedGameLossV1,
-            Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
-            Instruction::CreatePredefinedTokens { .. } => Capability::PredefinedArtifactTokensV1,
             Instruction::AddResolutionMana { .. } => Capability::ResolutionManaV1,
             Instruction::ExileLibraryForPlay { .. } => Capability::LibraryPlayWindowV1,
             Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
@@ -6633,8 +6754,6 @@ fn add_program_requirements_for_source_pump(
             Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
             Instruction::Proliferate { .. } => Capability::ProliferateV1,
             Instruction::SetTargetColor { .. } => Capability::TargetColorSetV1,
-            Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
-            Instruction::GrantSourceKeywords { .. } => Capability::ActivatedSourceKeywordGrantV1,
             Instruction::GrantKeywords { .. } => {
                 if composed_spell::grant(program).is_some() {
                     continue; // The ordinary sequence and keyword primitives supply closure.
@@ -6648,7 +6767,6 @@ fn add_program_requirements_for_source_pump(
             Instruction::GrantCreatureRestriction { .. } => {
                 Capability::TemporaryCombatRestrictionV1
             }
-            Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
             kernel!(Move {
@@ -6709,6 +6827,18 @@ fn add_program_requirements_for_source_pump(
                 set.extend(kir::node_capabilities(node));
                 if let Some((player, count, _)) = instruction.fixed_draw() {
                     set.insert(fixed_draw_capability(program, player, count));
+                }
+                // CR 613.4c: the source's own pump names its complete
+                // ability: the reviewed temporary pump, else the sacrifice
+                // surface it shares.
+                if let Some((what, ..)) = instruction.pumped()
+                    && *what == SetExpr::source()
+                {
+                    set.insert(if temporary_source_pump {
+                        Capability::TemporaryPowerToughnessV1
+                    } else {
+                        Capability::SacrificeV1
+                    });
                 }
                 // CR 701.9a: the controller's discard names its program.
                 if instruction.controller_discard().is_some() {
@@ -6950,8 +7080,7 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
     let pump = json!({"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{
         "slot":{"const":0},"domain":{"const":"battlefield_creature"},"stage":{"const":"announcement"},
         "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"pattern":"^line:(0|[1-9][0-9]*):1$"}}}},
-        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"modify_power_toughness"},
-        "target_slot":{"const":0},"duration":{"const":"until_end_of_turn"}}}}}});
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::any_pump(instruction_schema::target_object(Some(0)))}}});
     let child = json!({"anyOf":[draw,damage,life,pump],"properties":{
         "modes":{"maxItems":0},"timing":{"const":"instant"},
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}
@@ -7256,7 +7385,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"items":{"properties":{"domain":{"const":"blocking_battlefield_creature"},"filter":{"type":"null"}}}},
-            "instructions":{"minItems":1,"items":{"properties":{"op":{"const":"modify_power_toughness"},"duration":{"const":"until_end_of_turn"}}}}
+            "instructions":{"minItems":1,"items":instruction_schema::any_pump(instruction_schema::target_object(None))}
         }}
     }));
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
@@ -7679,7 +7808,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions","targets"],"properties":{
-            "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"modify_power_toughness"}}}},
+            "instructions":{"contains":instruction_schema::any_pump(instruction_schema::target_object(None))},
             "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"controlled_battlefield_creature"}}}}
         }},
         "then":{"properties":{"instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}}}
@@ -8696,15 +8825,20 @@ mod tests {
                 d.spell.as_ref().is_some_and(|p| {
                     matches!(
                         p.instructions.first(),
-                        Some(Instruction::CreateCreatureTokens { .. })
+                        Some(kernel!(CreateTokens {
+                            token: kir::TokenSpec::Creature { .. },
+                            ..
+                        }))
                     )
                 })
             })
             .unwrap()
             .clone();
         creator.source_labels = None;
-        if let Instruction::CreateCreatureTokens { token, .. } =
-            &mut creator.spell.as_mut().unwrap().instructions[0]
+        if let kernel!(CreateTokens {
+            token: kir::TokenSpec::Creature { spec: token },
+            ..
+        }) = &mut creator.spell.as_mut().unwrap().instructions[0]
         {
             token.colors.clear();
             token.keywords.clear();

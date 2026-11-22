@@ -165,13 +165,12 @@ impl BoundArtifactMode {
                 (
                     json!({"effect":"pump","what":{"ref":"target","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1},"selectionId":selection},
                     "power":p,"toughness":t,"duration":{"duration":"end-of-turn"}}),
-                    Instruction::ModifyPowerToughness {
-                        target_slot: 0,
-                        power: power.into(),
-                        toughness: toughness.into(),
-                        duration: Duration::UntilEndOfTurn,
-                        source_block: block,
-                    },
+                    Instruction::pump(
+                        kir::SetExpr::target(0),
+                        power.into(),
+                        toughness.into(),
+                        block,
+                    ),
                 )
             };
             child.instructions.push(instruction);
@@ -231,7 +230,16 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
                 m.program.instructions.iter().any(|i| {
                     matches!(
                         i,
-                        kernel!(GainLife { .. }) | Instruction::ModifyPowerToughness { .. }
+                        kernel!(GainLife { .. })
+                            | kernel!(ModifyUntil {
+                                what: target_object!(_),
+                                change: kir::Change::PowerToughness {
+                                    power: _,
+                                    toughness: _
+                                },
+                                until: kir::Until::EndOfTurn,
+                                ..
+                            })
                     )
                 })
             })

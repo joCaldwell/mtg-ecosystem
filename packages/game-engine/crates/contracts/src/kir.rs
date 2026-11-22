@@ -2048,6 +2048,76 @@ impl Walk<'_, '_> {
                     _ => unaudited("sacrifice recipient"),
                 }
             }
+            // CR 111.1-111.4, 111.10: "you" create a positive fixed number
+            // of tokens of one exact recipe.
+            Verb::CreateTokens {
+                controller:
+                    PlayerExpr::Is {
+                        who: Ref::Controller { .. },
+                    },
+                count,
+                ..
+            } => {
+                Self::fixed_at_least(count, 1, "token count")?;
+                if count.as_fixed().and_then(Quantity::to_u32).is_none() {
+                    return kind("token count above the supported range");
+                }
+                Ok(())
+            }
+            // CR 122.1, 122.6: a positive fixed number of +1/+1 counters on
+            // the exact source or one announced creature.
+            Verb::PutCounters {
+                on: SetExpr::One { object },
+                counter: CounterKind::PlusOnePlusOne,
+                amount,
+            } => {
+                Self::fixed_at_least(amount, 1, "counter amount")?;
+                match object {
+                    Ref::Source => Ok(()),
+                    Ref::Target { slot } => match self.domain(*slot)? {
+                        TargetDomain::BattlefieldCreature
+                        | TargetDomain::ControlledBattlefieldCreature => Ok(()),
+                        _ => unaudited("counter target domain"),
+                    },
+                    _ => unaudited("counter recipient"),
+                }
+            }
+            // CR 611.2c, 613.4c, 514.2: a fixed signed P/T modification of the
+            // exact source, one announced creature or a board-wide set until
+            // end of turn.
+            Verb::ModifyUntil {
+                what,
+                layer: Layer::PowerToughnessModify,
+                change: Change::PowerToughness { power, toughness },
+                until: Until::EndOfTurn,
+            } if power.as_fixed().is_some() && toughness.as_fixed().is_some() => match what {
+                SetExpr::One {
+                    object: Ref::Source,
+                } => Ok(()),
+                SetExpr::One {
+                    object: Ref::Target { slot },
+                } => match self.domain(*slot)? {
+                    TargetDomain::BattlefieldCreature
+                    | TargetDomain::BlockingBattlefieldCreature
+                    | TargetDomain::ControlledBattlefieldCreature => Ok(()),
+                    _ => unaudited("pump target domain"),
+                },
+                SetExpr::Matching {
+                    zone: ZoneExpr::Battlefield,
+                    filter,
+                } => Self::audited_filter(filter),
+                _ => unaudited("pump set"),
+            },
+            // CR 611.2c, 613.1f, 514.2: the exact source gains keywords until
+            // end of turn.
+            Verb::ModifyUntil {
+                what: SetExpr::One {
+                    object: Ref::Source,
+                },
+                layer: Layer::Ability,
+                change: Change::AddKeywords { keywords },
+                until: Until::EndOfTurn,
+            } if !keywords.is_empty() => Ok(()),
             _ => unaudited("verb"),
         }
     }
@@ -2291,6 +2361,61 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         } => {
             out.insert(Capability::UntapControllerLandsV1);
         }
+        // CR 111.10: predefined artifact tokens; CR 111.3-111.4: creature
+        // tokens, with the reviewed multi-type and hexproof/shroud surfaces.
+        Verb::CreateTokens { token, .. } => match token {
+            TokenSpec::Predefined { .. } => {
+                out.insert(Capability::PredefinedArtifactTokensV1);
+            }
+            TokenSpec::Creature { spec } => {
+                out.insert(Capability::CreatureTokensV1);
+                if !spec.additional_types.is_empty() {
+                    out.insert(Capability::MultiTypeCreatureTokensV1);
+                }
+                if spec
+                    .keywords
+                    .iter()
+                    .any(|k| matches!(k, KeywordAbility::Hexproof | KeywordAbility::Shroud))
+                {
+                    out.insert(Capability::AttachmentsV1);
+                }
+            }
+        },
+        // CR 122.1.
+        Verb::PutCounters {
+            counter: CounterKind::PlusOnePlusOne,
+            ..
+        } => {
+            out.insert(Capability::PlusOneCountersV1);
+        }
+        // CR 613.4c: a targeted pump names the temporary P/T surface and a
+        // board-wide pump the reviewed wipe surface. The source pump is named
+        // by its complete ability (`Definition::requirements`).
+        Verb::ModifyUntil {
+            what,
+            change: Change::PowerToughness { .. },
+            ..
+        } => match what {
+            SetExpr::One {
+                object: Ref::Target { .. },
+            } => {
+                out.insert(Capability::TemporaryPowerToughnessV1);
+            }
+            SetExpr::Matching { .. } => {
+                out.insert(Capability::BoardWipesV1);
+            }
+            _ => {}
+        },
+        // CR 613.1f: the source's own keyword grant.
+        Verb::ModifyUntil {
+            what: SetExpr::One {
+                object: Ref::Source,
+            },
+            change: Change::AddKeywords { .. },
+            ..
+        } => {
+            out.insert(Capability::ActivatedSourceKeywordGrantV1);
+        }
         // CR 701.17a, 107.3.
         Verb::Mill { amount, .. } => {
             out.insert(if amount.is_announced_x() {
@@ -2508,6 +2633,16 @@ macro_rules! target_object {
     ($slot:pat) => {
         $crate::kir::SetExpr::One {
             object: $crate::kir::Ref::Target { slot: $slot },
+        }
+    };
+}
+
+/// Pattern for the exact source object.
+#[macro_export]
+macro_rules! source_object {
+    () => {
+        $crate::kir::SetExpr::One {
+            object: $crate::kir::Ref::Source,
         }
     };
 }

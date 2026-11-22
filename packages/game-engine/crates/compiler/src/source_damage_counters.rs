@@ -79,7 +79,7 @@ fn slice6d_source_damage_counter_graph_and_intrinsic_siblings_are_exact() {
     );
     assert!(
         matches!(definition.triggered[0].program.instructions.as_slice(),
-        [Instruction::PutPlusOneCounters { on: CounterRecipient::Source, amount, source_block: 2 }]
+        [kernel!(PutCounters { on: source_object!(), amount: fixed!(amount), .. } @ 2)]
         if *amount == Quantity::from(2))
     );
     definition.keywords.remove(1);

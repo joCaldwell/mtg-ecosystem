@@ -13,8 +13,10 @@ fn contains_reserved_instruction(program: &SpellProgram) -> bool {
         .iter()
         .any(|instruction| match instruction {
             kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => *what == kernel_set,
-            Instruction::PumpSet { set: operand, .. }
-            | Instruction::GrantKeywordsSet { set: operand, .. } => operand == &set,
+            Instruction::GrantKeywordsSet { set: operand, .. } => operand == &set,
+            instruction if ObjectSet::pumped(instruction).is_some() => {
+                ObjectSet::pumped(instruction).is_some_and(|what| set.denotes(what))
+            }
             instruction => instruction
                 .set_damage()
                 .is_some_and(|damage| damage.sets.contains(&&kernel_set)),

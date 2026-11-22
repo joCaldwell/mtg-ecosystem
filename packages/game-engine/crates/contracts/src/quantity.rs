@@ -21,6 +21,14 @@ impl Quantity {
         Self(Small(0))
     }
 
+    /// The value as a `u32`, when it is one.
+    pub fn to_u32(&self) -> Option<u32> {
+        match &self.0 {
+            Small(value) => u32::try_from(*value).ok(),
+            Big(_) => None,
+        }
+    }
+
     pub fn is_negative(&self) -> bool {
         match &self.0 {
             Small(value) => *value < 0,

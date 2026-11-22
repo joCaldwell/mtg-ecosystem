@@ -19,7 +19,6 @@ pub(super) fn split(p: &mut SpellProgram, reverse: bool) {
     let Instruction::GrantKeywords {
         modifier,
         target_slot,
-        duration,
         source_block,
         ..
     } = &mut p.instructions[0]
@@ -27,13 +26,12 @@ pub(super) fn split(p: &mut SpellProgram, reverse: bool) {
         unreachable!()
     };
     let m = modifier.take().unwrap();
-    let pump = Instruction::ModifyPowerToughness {
-        target_slot: *target_slot,
-        power: m.power,
-        toughness: m.toughness,
-        duration: *duration,
-        source_block: *source_block,
-    };
+    let pump = Instruction::pump(
+        kir::SetExpr::target(*target_slot),
+        m.power,
+        m.toughness,
+        *source_block,
+    );
     p.instructions.insert(0, pump);
     if reverse {
         p.instructions.reverse();

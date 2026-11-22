@@ -606,10 +606,10 @@ fn mana_self_keyword_grant_captures_only_the_present_source() {
     assert_eq!(definition.keywords, [KeywordAbility::Flying]);
     assert_eq!(
         definition.activated[0].program.instructions,
-        [Instruction::GrantSourceKeywords {
-            keywords: vec![KeywordAbility::Deathtouch],
-            source_block: 1,
-        },]
+        [Instruction::grant_source_keywords(
+            vec![KeywordAbility::Deathtouch],
+            1
+        ),]
     );
     let mut omitted = (*definition).clone();
     omitted.activated.clear();
@@ -929,12 +929,8 @@ fn signed_self_attack_pump_resolves_on_the_declared_incarnation() {
     );
     assert!(!definition.capabilities.contains(&Capability::SacrificeV1));
     let mut altered = (*definition).clone();
-    altered.triggered[0].program.instructions[0] = Instruction::ModifySourcePowerToughness {
-        power: 4.into(),
-        toughness: (-3).into(),
-        duration: Duration::UntilEndOfTurn,
-        source_block: 0,
-    };
+    altered.triggered[0].program.instructions[0] =
+        Instruction::pump(kir::SetExpr::source(), 4.into(), (-3).into(), 0);
     assert!(altered.validate().is_err());
     p.config.cards[0].oracle_id = definition.oracle_id.clone();
     let catalog = Arc::make_mut(&mut p.catalog);

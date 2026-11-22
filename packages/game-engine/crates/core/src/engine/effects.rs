@@ -598,12 +598,8 @@ impl Game {
                 }
                 (ResolvedEffectKind::RegenerationShield, source_block)
             }
-            Instruction::ModifySourcePowerToughness {
-                power,
-                toughness,
-                source_block,
-                ..
-            } => {
+            kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
+            {
                 let target = self.entry(frame.stack_id)?.source;
                 if !self.target_is_creature(target) {
                     return self
@@ -618,10 +614,8 @@ impl Game {
                     source_block,
                 )
             }
-            Instruction::GrantSourceKeywords {
-                keywords,
-                source_block,
-            } => {
+            kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::AddKeywords { keywords }, .. } @ source_block) =>
+            {
                 let target = self.entry(frame.stack_id)?.source;
                 if !self.target_is_creature(target) {
                     return self
@@ -685,13 +679,8 @@ impl Game {
                     source_block,
                 )
             }
-            Instruction::ModifyPowerToughness {
-                target_slot,
-                power,
-                toughness,
-                source_block,
-                ..
-            } => {
+            kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
+            {
                 let target = *self
                     .entry(frame.stack_id)?
                     .targets
@@ -1658,22 +1647,23 @@ impl Game {
                     }
 
                     (
-                        Instruction::PumpSet {
-                            set,
-                            power,
-                            toughness,
-                            source_block,
-                        },
+                        i,
                         ResolvedEffectKind::PumpSet {
                             targets,
                             power: p,
                             toughness: t,
                         },
-                    ) => {
-                        *targets == self.objects_in_set(set, self.entry(frame.stack_id)?.controller)
-                            && p == power
-                            && t == toughness
-                            && *source_block == effect.origin.source_block
+                    ) if mtg_contracts::ObjectSet::pumped(i).is_some() => {
+                        i.pumped()
+                            .is_some_and(|(what, power, toughness, source_block)| {
+                                mtg_contracts::ObjectSet::from_kernel(what).is_some_and(|set| {
+                                    self.entry(frame.stack_id).is_ok_and(|entry| {
+                                        *targets == self.objects_in_set(&set, entry.controller)
+                                    })
+                                }) && p == power
+                                    && t == toughness
+                                    && source_block == effect.origin.source_block
+                            })
                     }
                     (
                         Instruction::GrantKeywordsSet {
@@ -1709,12 +1699,7 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
-                        Instruction::ModifySourcePowerToughness {
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -1728,10 +1713,11 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
-                        Instruction::GrantSourceKeywords {
-                            keywords,
-                            source_block,
-                        },
+                        kernel!(ModifyUntil {
+                            what: source_object!(),
+                            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+                            ..
+                        } @ source_block),
                         ResolvedEffectKind::GrantKeywords {
                             target,
                             modifier: None,
@@ -1802,13 +1788,7 @@ impl Game {
                             })
                     }
                     (
-                        Instruction::ModifyPowerToughness {
-                            target_slot,
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -2291,12 +2271,7 @@ impl Game {
                     }
 
                     (
-                        Instruction::PumpSet {
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: mtg_contracts::kir::SetExpr::Matching { .. }, change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::PumpSet {
                             targets,
                             power: p,
@@ -2340,12 +2315,7 @@ impl Game {
                             && self.valid_set_effect_targets(e, targets, None)
                     }
                     (
-                        Instruction::ModifySourcePowerToughness {
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -2358,10 +2328,11 @@ impl Game {
                             && *source_block == e.origin.source_block
                     }
                     (
-                        Instruction::GrantSourceKeywords {
-                            keywords,
-                            source_block,
-                        },
+                        kernel!(ModifyUntil {
+                            what: source_object!(),
+                            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+                            ..
+                        } @ source_block),
                         ResolvedEffectKind::GrantKeywords {
                             target,
                             modifier: None,
@@ -2411,12 +2382,7 @@ impl Game {
                                 ))
                     }
                     (
-                        Instruction::ModifyPowerToughness {
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,

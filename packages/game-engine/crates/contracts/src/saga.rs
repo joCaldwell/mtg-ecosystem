@@ -93,11 +93,11 @@ impl LifeChapter {
                 ChapterEffect::Ordinary(ref chapter) => return triggered(chapter.program(block)),
                 ChapterEffect::Impulse { ref program, .. } => return triggered(program.clone()),
                 ChapterEffect::DelayedCastCounter => {
-                    let mut child = program(vec![Instruction::PutPlusOneCounters {
-                        on: CounterRecipient::Target { target_slot: 0 },
-                        amount: 1.into(),
-                        source_block: block,
-                    }]);
+                    let mut child = program(vec![Instruction::plus_one_counters(
+                        kir::SetExpr::target(0),
+                        1.into(),
+                        block,
+                    )]);
                     child.targets.push(TargetSpec {
                         slot: 0,
                         selection_id: format!("line:{block}:21"),
@@ -487,11 +487,9 @@ pub(super) fn extend_schema(schema: &mut Value) {
         steps.push(instruction_schema::kernel_verb("lose_life"));
         variants.push(sequence(steps));
     }
-    variants.push(sequence(vec![
-        json!({"required":["op","count"],"properties":{
-            "op":{"const":"create_creature_tokens"},"count":{"const":1}
-        }}),
-    ]));
+    variants.push(sequence(vec![instruction_schema::creature_tokens(
+        json!({"const":"1"}),
+    )]));
     let mana = sequence(vec![ordinary::mana_shape()]);
     schema["$defs"]["SagaFixedManaChapter"] = json!({"allOf":[chapter],
         "required":["program"],"properties":{"program":{
@@ -533,13 +531,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
         }})
     };
     let grant_program = targeted(grant);
-    let counter_program = targeted(sequence(vec![json!({
-        "required":["op","on","amount"],"properties":{"op":{"const":"put_plus_one_counters"},
-            "on":{"const":{"recipient":"target","target_slot":0}},"amount":{"pattern":"^[1-9][0-9]*$"}}
-    })]));
-    let mut delayed_counter = counter_program.clone();
-    delayed_counter["properties"]["instructions"]["prefixItems"][0]["properties"]["amount"] =
-        json!({"const":"1"});
+    let counter = |amount| {
+        instruction_schema::plus_one_counters(instruction_schema::target_object(Some(0)), amount)
+    };
+    let counter_program = targeted(sequence(vec![counter(json!({"pattern":"^[1-9][0-9]*$"}))]));
+    let delayed_counter = targeted(sequence(vec![counter(json!({"const":"1"}))]));
     let delayed_cast = json!({"required":["op","program"],"properties":{
         "op":{"const":"register_controller_spell_cast_this_turn"},"program":delayed_counter
     }});

@@ -4383,11 +4383,12 @@ fn append_spell_effects(
                     who: None,
                 } if count.amount == "fixed" && count.value > 0 => {
                     let token = lower_creature_token(token)?;
-                    Instruction::CreateCreatureTokens {
-                        count: count.value,
-                        token,
+                    Instruction::create_tokens(
+                        context,
+                        count.value,
+                        kir::TokenSpec::Creature { spec: token },
                         source_block,
-                    }
+                    )
                 }
                 Step::PutCounters {
                     on: SourceCounterRecipient::Source(r),
@@ -4406,13 +4407,13 @@ fn append_spell_effects(
                 }
                 Step::PutCounters { on, counter, count } if counter.r#type == "+1/+1" => {
                     let on = match on {
-                        SourceCounterRecipient::Target(t) => CounterRecipient::Target {
-                            target_slot: bind_creature_target(program, slots, t)?,
-                        },
+                        SourceCounterRecipient::Target(t) => {
+                            kir::SetExpr::target(bind_creature_target(program, slots, t)?)
+                        }
                         SourceCounterRecipient::Source(t)
                             if t.reference == "this" && t.noun == "creature" =>
                         {
-                            CounterRecipient::Source
+                            kir::SetExpr::source()
                         }
                         _ => {
                             return Err(unsupported(
@@ -4421,14 +4422,14 @@ fn append_spell_effects(
                             ));
                         }
                     };
-                    Instruction::PutPlusOneCounters {
+                    Instruction::plus_one_counters(
                         on,
-                        amount: fixed_positive(&decode::<Count>(
+                        fixed_positive(&decode::<Count>(
                             &count.to_string(),
                             "effects.counters.count",
                         )?)?,
                         source_block,
-                    }
+                    )
                 }
                 Step::GainAbilities {
                     what,
@@ -4452,25 +4453,24 @@ fn append_spell_effects(
                 } if *what == serde_json::json!({"ref":"this","noun":"creature"})
                     && duration.duration == "end-of-turn" =>
                 {
-                    Instruction::ModifySourcePowerToughness {
-                        power: signed_fixed(power)?,
-                        toughness: signed_fixed(toughness)?,
-                        duration: Duration::UntilEndOfTurn,
+                    Instruction::pump(
+                        kir::SetExpr::source(),
+                        signed_fixed(power)?,
+                        signed_fixed(toughness)?,
                         source_block,
-                    }
+                    )
                 }
                 Step::Pump {
                     what,
                     power,
                     toughness,
                     duration,
-                } if duration.duration == "end-of-turn" => Instruction::ModifyPowerToughness {
-                    target_slot: bind_pump_target(program, slots, what)?,
-                    power: signed_fixed(power)?,
-                    toughness: signed_fixed(toughness)?,
-                    duration: Duration::UntilEndOfTurn,
+                } if duration.duration == "end-of-turn" => Instruction::pump(
+                    kir::SetExpr::target(bind_pump_target(program, slots, what)?),
+                    signed_fixed(power)?,
+                    signed_fixed(toughness)?,
                     source_block,
-                },
+                ),
                 Step::PreventDamage {
                     prevention,
                     duration,
@@ -5195,12 +5195,12 @@ fn lower_wipes_step(
         } if (what["ref"] == "all" || what["ref"] == "each")
             && duration.duration == "end-of-turn" =>
         {
-            Instruction::PumpSet {
-                set: lower_object_set(what)?,
-                power: signed_fixed(power)?,
-                toughness: signed_fixed(toughness)?,
+            Instruction::pump(
+                lower_object_set(what)?.kernel(context),
+                signed_fixed(power)?,
+                signed_fixed(toughness)?,
                 source_block,
-            }
+            )
         }
         Step::Damage {
             source: DamageSource::SelfReference {},
@@ -7976,8 +7976,10 @@ mod tests {
         }
         for keyword in [KeywordAbility::Hexproof, KeywordAbility::Shroud] {
             let mut token_spell = get("Raise the Alarm").clone();
-            let Instruction::CreateCreatureTokens { token, .. } =
-                &mut token_spell.spell.as_mut().unwrap().instructions[0]
+            let kernel!(CreateTokens {
+                token: kir::TokenSpec::Creature { spec: token },
+                ..
+            }) = &mut token_spell.spell.as_mut().unwrap().instructions[0]
             else {
                 panic!("token program")
             };
@@ -8792,7 +8794,7 @@ mod tests {
         );
         for (i, op) in p.instructions.iter().enumerate() {
             assert!(
-                matches!(op,Instruction::ModifyPowerToughness{target_slot,power,toughness,duration:Duration::UntilEndOfTurn,source_block}
+                matches!(op,kernel!(ModifyUntil { what: target_object!(target_slot), change: kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: kir::Until::EndOfTurn, .. } @ source_block)
                 if *target_slot==i as u32 && *source_block==i as u32 && *power==Quantity::from(1) && *toughness==Quantity::from(1))
             );
         }
@@ -8852,7 +8854,7 @@ mod tests {
             Some(InterveningCondition::ControllerHandEmpty)
         );
         assert!(
-            matches!(b.triggered[0].program.instructions.as_slice(),[Instruction::ModifyPowerToughness{target_slot:0,power,toughness,duration:Duration::UntilEndOfTurn,source_block:0}] if *power==Quantity::from(-3) && *toughness==Quantity::from(-3))
+            matches!(b.triggered[0].program.instructions.as_slice(),[kernel!(ModifyUntil { what: target_object!(0), change: kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: kir::Until::EndOfTurn, .. } @ 0)] if *power==Quantity::from(-3) && *toughness==Quantity::from(-3))
         );
         assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
         for name in ["boros-charm", "lavaborn-muse"] {
@@ -9237,8 +9239,8 @@ mod tests {
         for (name, power, toughness) in [("Giant Growth", 3, 3), ("Disfigure", -2, -2)] {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             assert!(matches!(d.spell.as_ref().unwrap().instructions.as_slice(),
-                [Instruction::ModifyPowerToughness { power:p,toughness:t,duration:Duration::UntilEndOfTurn,target_slot:0,source_block:0 }]
-                if *p == Quantity::from(power) && *t == Quantity::from(toughness)));
+                [i] if i.pumped().is_some_and(|(what, p, t, block)| *what == kir::SetExpr::target(0)
+                    && block == 0 && *p == Quantity::from(power) && *t == Quantity::from(toughness))));
             assert_eq!(
                 d.spell.as_ref().unwrap().targets[0].domain,
                 TargetDomain::BattlefieldCreature
@@ -9621,13 +9623,12 @@ mod tests {
                     domain: TargetDomain::BlockingBattlefieldCreature,
                     filter: None
                 }],
-                instructions: vec![Instruction::ModifyPowerToughness {
-                    target_slot: 0,
-                    power: 7.into(),
-                    toughness: 7.into(),
-                    duration: Duration::UntilEndOfTurn,
-                    source_block: 0
-                }],
+                instructions: vec![Instruction::pump(
+                    kir::SetExpr::target(0),
+                    7.into(),
+                    7.into(),
+                    0
+                )],
             })
         );
         assert_eq!(

@@ -1237,18 +1237,36 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "B"
-                  ],
-                  "subtypes": [
-                    "Zombie"
-                  ],
-                  "power": "2",
-                  "toughness": "2",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "B"
+                        ],
+                        "subtypes": [
+                          "Zombie"
+                        ],
+                        "power": "2",
+                        "toughness": "2",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -2895,20 +2913,38 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "R"
-                  ],
-                  "subtypes": [
-                    "Dragon"
-                  ],
-                  "power": "4",
-                  "toughness": "4",
-                  "keywords": [
-                    "flying"
-                  ]
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "R"
+                        ],
+                        "subtypes": [
+                          "Dragon"
+                        ],
+                        "power": "4",
+                        "toughness": "4",
+                        "keywords": [
+                          "flying"
+                        ]
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -3331,21 +3367,39 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 4,
-                "token": {
-                  "colors": [
-                    "G"
-                  ],
-                  "subtypes": [
-                    "Insect"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": [
-                    "flying",
-                    "deathtouch"
-                  ]
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "4"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "G"
+                        ],
+                        "subtypes": [
+                          "Insect"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": [
+                          "flying",
+                          "deathtouch"
+                        ]
+                      }
+                    }
+                  }
                 },
                 "source_block": 1
               }
@@ -3976,12 +4030,26 @@
             ],
             "instructions": [
               {
-                "op": "put_plus_one_counters",
-                "on": {
-                  "recipient": "target",
-                  "target_slot": 0
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "put_counters",
+                    "on": {
+                      "set": "one",
+                      "object": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "counter": {
+                      "counter": "plus_one_plus_one"
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
                 },
-                "amount": "1",
                 "source_block": 0
               }
             ]
@@ -4376,11 +4444,32 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "3",
-            "toughness": "3",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "3"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "3"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]
@@ -4668,20 +4757,38 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "W"
-                  ],
-                  "subtypes": [
-                    "Spirit"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": [
-                    "flying"
-                  ]
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "W"
+                        ],
+                        "subtypes": [
+                          "Spirit"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": [
+                          "flying"
+                        ]
+                      }
+                    }
+                  }
                 },
                 "source_block": 1
               }
@@ -4756,18 +4863,36 @@
         "targets": [],
         "instructions": [
           {
-            "op": "create_creature_tokens",
-            "count": 2,
-            "token": {
-              "colors": [
-                "W"
-              ],
-              "subtypes": [
-                "Soldier"
-              ],
-              "power": "1",
-              "toughness": "1",
-              "keywords": []
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "create_tokens",
+                "controller": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "count": {
+                  "amount": "fixed",
+                  "value": "2"
+                },
+                "token": {
+                  "token": "creature",
+                  "spec": {
+                    "colors": [
+                      "W"
+                    ],
+                    "subtypes": [
+                      "Soldier"
+                    ],
+                    "power": "1",
+                    "toughness": "1",
+                    "keywords": []
+                  }
+                }
+              }
             },
             "source_block": 0
           }
@@ -4832,20 +4957,38 @@
         "targets": [],
         "instructions": [
           {
-            "op": "create_creature_tokens",
-            "count": 2,
-            "token": {
-              "colors": [
-                "W"
-              ],
-              "subtypes": [
-                "Vampire"
-              ],
-              "power": "1",
-              "toughness": "1",
-              "keywords": [
-                "lifelink"
-              ]
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "create_tokens",
+                "controller": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "count": {
+                  "amount": "fixed",
+                  "value": "2"
+                },
+                "token": {
+                  "token": "creature",
+                  "spec": {
+                    "colors": [
+                      "W"
+                    ],
+                    "subtypes": [
+                      "Vampire"
+                    ],
+                    "power": "1",
+                    "toughness": "1",
+                    "keywords": [
+                      "lifelink"
+                    ]
+                  }
+                }
+              }
             },
             "source_block": 0
           }
@@ -5189,12 +5332,26 @@
         ],
         "instructions": [
           {
-            "op": "put_plus_one_counters",
-            "on": {
-              "recipient": "target",
-              "target_slot": 0
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "put_counters",
+                "on": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "counter": {
+                  "counter": "plus_one_plus_one"
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
             },
-            "amount": "1",
             "source_block": 0
           }
         ]
@@ -6560,11 +6717,32 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "-2",
-            "toughness": "-2",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "-2"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "-2"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]
@@ -7353,11 +7531,32 @@
             ],
             "instructions": [
               {
-                "op": "modify_power_toughness",
-                "target_slot": 0,
-                "power": "-3",
-                "toughness": "-3",
-                "duration": "until_end_of_turn",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "modify_until",
+                    "what": {
+                      "set": "one",
+                      "object": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "layer": "power_toughness_modify",
+                    "change": {
+                      "change": "power_toughness",
+                      "power": {
+                        "amount": "fixed",
+                        "value": "-3"
+                      },
+                      "toughness": {
+                        "amount": "fixed",
+                        "value": "-3"
+                      }
+                    },
+                    "until": "end_of_turn"
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -7690,20 +7889,38 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "G"
-                  ],
-                  "subtypes": [
-                    "Dinosaur"
-                  ],
-                  "power": "3",
-                  "toughness": "3",
-                  "keywords": [
-                    "trample"
-                  ]
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "G"
+                        ],
+                        "subtypes": [
+                          "Dinosaur"
+                        ],
+                        "power": "3",
+                        "toughness": "3",
+                        "keywords": [
+                          "trample"
+                        ]
+                      }
+                    }
+                  }
                 },
                 "source_block": 1
               }
@@ -7792,20 +8009,38 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "W"
-                  ],
-                  "subtypes": [
-                    "Bird"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": [
-                    "flying"
-                  ]
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "W"
+                        ],
+                        "subtypes": [
+                          "Bird"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": [
+                          "flying"
+                        ]
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -7957,18 +8192,36 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "R"
-                  ],
-                  "subtypes": [
-                    "Goblin"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "R"
+                        ],
+                        "subtypes": [
+                          "Goblin"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -8386,18 +8639,36 @@
         "targets": [],
         "instructions": [
           {
-            "op": "create_creature_tokens",
-            "count": 3,
-            "token": {
-              "colors": [
-                "G"
-              ],
-              "subtypes": [
-                "Saproling"
-              ],
-              "power": "1",
-              "toughness": "1",
-              "keywords": []
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "create_tokens",
+                "controller": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "count": {
+                  "amount": "fixed",
+                  "value": "3"
+                },
+                "token": {
+                  "token": "creature",
+                  "spec": {
+                    "colors": [
+                      "G"
+                    ],
+                    "subtypes": [
+                      "Saproling"
+                    ],
+                    "power": "1",
+                    "toughness": "1",
+                    "keywords": []
+                  }
+                }
+              }
             },
             "source_block": 0
           }
@@ -8725,10 +8996,43 @@
             "targets": [],
             "instructions": [
               {
-                "op": "pump_set",
-                "set": "opponent_creatures",
-                "power": "-2",
-                "toughness": "-2",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "modify_until",
+                    "what": {
+                      "set": "matching",
+                      "zone": {
+                        "zone": "battlefield"
+                      },
+                      "filter": [
+                        {
+                          "atom": "type",
+                          "kind": "creature"
+                        },
+                        {
+                          "atom": "controlled_by",
+                          "player": {
+                            "player": "each_opponent"
+                          }
+                        }
+                      ]
+                    },
+                    "layer": "power_toughness_modify",
+                    "change": {
+                      "change": "power_toughness",
+                      "power": {
+                        "amount": "fixed",
+                        "value": "-2"
+                      },
+                      "toughness": {
+                        "amount": "fixed",
+                        "value": "-2"
+                      }
+                    },
+                    "until": "end_of_turn"
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -9654,18 +9958,36 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "G"
-                  ],
-                  "subtypes": [
-                    "Wolf"
-                  ],
-                  "power": "2",
-                  "toughness": "2",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "G"
+                        ],
+                        "subtypes": [
+                          "Wolf"
+                        ],
+                        "power": "2",
+                        "toughness": "2",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -9762,11 +10084,25 @@
             "targets": [],
             "instructions": [
               {
-                "op": "put_plus_one_counters",
-                "on": {
-                  "recipient": "source"
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "put_counters",
+                    "on": {
+                      "set": "one",
+                      "object": {
+                        "ref": "source"
+                      }
+                    },
+                    "counter": {
+                      "counter": "plus_one_plus_one"
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
                 },
-                "amount": "1",
                 "source_block": 1
               }
             ]
@@ -9900,20 +10236,38 @@
         "targets": [],
         "instructions": [
           {
-            "op": "create_creature_tokens",
-            "count": 2,
-            "token": {
-              "colors": [
-                "W"
-              ],
-              "subtypes": [
-                "Spirit"
-              ],
-              "power": "1",
-              "toughness": "1",
-              "keywords": [
-                "flying"
-              ]
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "create_tokens",
+                "controller": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "count": {
+                  "amount": "fixed",
+                  "value": "2"
+                },
+                "token": {
+                  "token": "creature",
+                  "spec": {
+                    "colors": [
+                      "W"
+                    ],
+                    "subtypes": [
+                      "Spirit"
+                    ],
+                    "power": "1",
+                    "toughness": "1",
+                    "keywords": [
+                      "flying"
+                    ]
+                  }
+                }
+              }
             },
             "source_block": 0
           }
@@ -10358,10 +10712,31 @@
             "targets": [],
             "instructions": [
               {
-                "op": "modify_source_power_toughness",
-                "power": "2",
-                "toughness": "2",
-                "duration": "until_end_of_turn",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "modify_until",
+                    "what": {
+                      "set": "one",
+                      "object": {
+                        "ref": "source"
+                      }
+                    },
+                    "layer": "power_toughness_modify",
+                    "change": {
+                      "change": "power_toughness",
+                      "power": {
+                        "amount": "fixed",
+                        "value": "2"
+                      },
+                      "toughness": {
+                        "amount": "fixed",
+                        "value": "2"
+                      }
+                    },
+                    "until": "end_of_turn"
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -10961,18 +11336,36 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "W"
-                  ],
-                  "subtypes": [
-                    "Soldier"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "W"
+                        ],
+                        "subtypes": [
+                          "Soldier"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 1
               }
@@ -11063,20 +11456,38 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "W"
-                  ],
-                  "subtypes": [
-                    "Knight"
-                  ],
-                  "power": "2",
-                  "toughness": "2",
-                  "keywords": [
-                    "vigilance"
-                  ]
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "W"
+                        ],
+                        "subtypes": [
+                          "Knight"
+                        ],
+                        "power": "2",
+                        "toughness": "2",
+                        "keywords": [
+                          "vigilance"
+                        ]
+                      }
+                    }
+                  }
                 },
                 "source_block": 1
               }
@@ -11927,19 +12338,37 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "W"
-                  ],
-                  "subtypes": [
-                    "Human",
-                    "Soldier"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "W"
+                        ],
+                        "subtypes": [
+                          "Human",
+                          "Soldier"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -12785,10 +13214,37 @@
         "targets": [],
         "instructions": [
           {
-            "op": "pump_set",
-            "set": "creatures",
-            "power": "-2",
-            "toughness": "-2",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  },
+                  "filter": [
+                    {
+                      "atom": "type",
+                      "kind": "creature"
+                    }
+                  ]
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "-2"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "-2"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]
@@ -13057,27 +13513,90 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           },
           {
-            "op": "modify_power_toughness",
-            "target_slot": 1,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 1
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 1
           },
           {
-            "op": "modify_power_toughness",
-            "target_slot": 2,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 2
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 2
           }
         ]
@@ -13209,18 +13728,36 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 3,
-                "token": {
-                  "colors": [
-                    "R"
-                  ],
-                  "subtypes": [
-                    "Goblin"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "3"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "R"
+                        ],
+                        "subtypes": [
+                          "Goblin"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -14123,16 +14660,34 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [],
-                  "subtypes": [
-                    "Hero"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [],
+                        "subtypes": [
+                          "Hero"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 1
               }
@@ -14223,18 +14778,36 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 2,
-                "token": {
-                  "colors": [
-                    "R"
-                  ],
-                  "subtypes": [
-                    "Goblin"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "2"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "R"
+                        ],
+                        "subtypes": [
+                          "Goblin"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -14403,19 +14976,37 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "R"
-                  ],
-                  "subtypes": [
-                    "Phyrexian",
-                    "Goblin"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "R"
+                        ],
+                        "subtypes": [
+                          "Phyrexian",
+                          "Goblin"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 1
               }
@@ -14513,12 +15104,26 @@
             ],
             "instructions": [
               {
-                "op": "put_plus_one_counters",
-                "on": {
-                  "recipient": "target",
-                  "target_slot": 0
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "put_counters",
+                    "on": {
+                      "set": "one",
+                      "object": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "counter": {
+                      "counter": "plus_one_plus_one"
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
                 },
-                "amount": "1",
                 "source_block": 0
               }
             ]

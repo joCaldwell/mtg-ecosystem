@@ -687,7 +687,7 @@ fn temporary_creature_keyword_atomic_modifier_json_and_pure_wire_parity() {
                 compound_indestructible_tests::split(p, reverse);
                 for (instruction, block) in p.instructions.iter_mut().zip(blocks) {
                     match instruction {
-                        Instruction::ModifyPowerToughness { source_block, .. }
+                        kernel!(ModifyUntil { what: target_object!(_), change: kir::Change::PowerToughness { power: _, toughness: _ }, until: kir::Until::EndOfTurn, .. } @ source_block)
                         | Instruction::GrantKeywords { source_block, .. } => *source_block = block,
                         _ => unreachable!(),
                     }

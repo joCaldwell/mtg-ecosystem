@@ -82,7 +82,10 @@ fn d2cc_archived_whole_programs_capability_closure() {
     ));
     assert!(matches!(
         lower(SIGIL).triggered[0].program.instructions.as_slice(),
-        [Instruction::CreateCreatureTokens { .. }]
+        [kernel!(CreateTokens {
+            token: kir::TokenSpec::Creature { .. },
+            ..
+        })]
     ));
     assert!(matches!(
         compile(MANIFEST, WIZARD),

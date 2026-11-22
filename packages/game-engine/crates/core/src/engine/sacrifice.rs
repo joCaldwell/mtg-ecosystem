@@ -377,9 +377,15 @@ impl Game {
                 Ok(())
             }
             Instruction::SacrificeDamage { .. } => self.start_sacrifice_damage(frame),
-            i @ Instruction::ModifySourcePowerToughness { .. } => {
-                self.execute_effect_instruction(frame, i)
-            }
+            i @ kernel!(ModifyUntil {
+                what: source_object!(),
+                change: mtg_contracts::kir::Change::PowerToughness {
+                    power: _,
+                    toughness: _
+                },
+                until: mtg_contracts::kir::Until::EndOfTurn,
+                ..
+            }) => self.execute_effect_instruction(frame, i),
             _ => Err("not sacrifice instruction".into()),
         }
     }

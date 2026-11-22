@@ -35,6 +35,10 @@ const discard = (player: any, count: string, source_block: number) => ({op:"kern
 // CR 701.21a: a Kernel IR sacrifice of one creature by `player`.
 const sacrifice = (player: any, source_block: number) => ({op:"kernel",
   node:{do:{verb:"sacrifice",player,count:{amount:"fixed",value:"1"},filter:[{atom:"type",kind:"creature"}]}},source_block});
+// CR 613.4c: a Kernel IR end-of-turn pump of target `slot`.
+const pump = (slot: number, power: string, toughness: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"modify_until",what:{set:"one",object:{ref:"target",slot}},layer:"power_toughness_modify",
+    change:{change:"power_toughness",power:{amount:"fixed",value:power},toughness:{amount:"fixed",value:toughness}},until:"end_of_turn"}},source_block});
 const draw = (role: string, count: string, source_block: number) => ({op:"kernel",
   node:{do:{verb:"draw",player:{player:"is",who:{ref:"controller",role}},amount:{amount:"fixed",value:count}}},source_block});
 const preflight = process.env.MTG_ENGINE_CONTRACT_PREFLIGHT === "1";
@@ -554,7 +558,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
     assert.deepEqual(d.characteristics.mana_cost,{generic,colored});
   }
   for (const [name,amount] of [["Giant Growth","3"],["Disfigure","-2"]] as const) {
-    assert.deepEqual(get(name).spell.instructions,[{op:"modify_power_toughness",target_slot:0,power:amount,toughness:amount,duration:"until_end_of_turn",source_block:0}]);
+    assert.deepEqual(get(name).spell.instructions,[pump(0,amount,amount,0)]);
     assert.deepEqual(get(name).spell.targets,[{slot:0,selection_id:"line:0:0",chooser:"controller",stage:"announcement",domain:"battlefield_creature"}]);
   }
   assert.deepEqual(get("Fog").spell.instructions,[{op:"prevent_combat_damage",duration:"until_end_of_turn",source_block:0}]);
@@ -607,7 +611,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   }
   const seeds=get("Seeds of Strength").spell;
   assert.deepEqual(seeds.targets.map((t: any)=>[t.slot,t.selection_id,t.domain]),[[0,"line:0:0","battlefield_creature"],[1,"line:1:0","battlefield_creature"],[2,"line:2:0","battlefield_creature"]]);
-  assert.deepEqual(seeds.instructions,[0,1,2].map((slot)=>({op:"modify_power_toughness",target_slot:slot,power:"1",toughness:"1",duration:"until_end_of_turn",source_block:slot})));
+  assert.deepEqual(seeds.instructions,[0,1,2].map((slot)=>pump(slot,"1","1",slot)));
   const salve=get("Healing Salve");assert.deepEqual(salve.spell.instructions,[]);assert.deepEqual(salve.spell.targets,[]);assert.equal(salve.spell.modes.length,2);
   const [gain,shield]=salve.spell.modes.map((m: any)=>m.program);
   assert.deepEqual(gain.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"3"}}},source_block:0}]);
@@ -616,7 +620,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   for(const cap of ["modal_choice_v1","life_gain_v1","damage_budget_prevention_v1","any_player_target_v1","any_damage_target_v1"])assert.ok(salve.capabilities.includes(cap));
   const bouncer=get("Slaughterhouse Bouncer");assert.equal(bouncer.characteristics.power,"3");assert.equal(bouncer.characteristics.toughness,"3");
   assert.equal(bouncer.triggered[0].condition,"self_dies");assert.equal(bouncer.triggered[0].intervening_if,"controller_hand_empty");
-  assert.deepEqual(bouncer.triggered[0].program.instructions,[{op:"modify_power_toughness",target_slot:0,power:"-3",toughness:"-3",duration:"until_end_of_turn",source_block:0}]);
+  assert.deepEqual(bouncer.triggered[0].program.instructions,[pump(0,"-3","-3",0)]);
   assert.equal(JSON.parse(read("slaughterhouse-bouncer.json")).faces[0].result.abilities[0].abilityWord,"Hellbent");
   for(const name of ["Boros Charm","Lavaborn Muse"])assert.equal(catalog.definitions.some((d: any)=>d.name===name),false);
   const boros=JSON.parse(read("boros-charm.json"));assert.equal(boros.faces[0].result.abilities[0].effects[0].steps[0].options.length,3);
@@ -2133,8 +2137,8 @@ test("headless damage v2 profile compiles all 36 exact sources", () => {
   const catalog=loadCatalog("damage-matches-v2");
   assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,36);
-  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"8329a5d31a9d862021a4a178880c2d65d5c6bf82a0f8ab74d2185d4d1efbd60d");
-  assert.equal(read("catalogs/damage-matches.sha256").trim(),"cebf67b51574456419e7cd6fa5fc7e1c4f0a92d43179d52382e537ad072c167d");
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"a5717e657e4d35120d8d29d77ba01a3ebc9d2309c29b2175f03ec4f2271d4e36");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"ee014c3bf306f38769b64d7694f5ecc39620c8c5dae6dc502bbdf7f034d6bd38");
   const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
@@ -2277,7 +2281,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
     }
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
-    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"8329a5d31a9d862021a4a178880c2d65d5c6bf82a0f8ab74d2185d4d1efbd60d");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"a5717e657e4d35120d8d29d77ba01a3ebc9d2309c29b2175f03ec4f2271d4e36");
     assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
@@ -2353,7 +2357,7 @@ test("exact-source Righteousness preserves its blocking creature target and boun
     assert.deepEqual(d.spell,{
       timing:"instant",resolution:"instructions",functioning_zone:"stack",
       targets:[{slot:0,selection_id:"line:0:0",chooser:"controller",stage:"announcement",domain:"blocking_battlefield_creature"}],
-      instructions:[{op:"modify_power_toughness",target_slot:0,power:"7",toughness:"7",duration:"until_end_of_turn",source_block:0}],
+      instructions:[pump(0,"7","7",0)],
     });
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));

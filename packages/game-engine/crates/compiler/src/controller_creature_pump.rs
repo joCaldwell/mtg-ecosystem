@@ -10,13 +10,7 @@ pub(super) fn bind(
 ) -> Result<(), Failure> {
     if !definition.spell.as_ref().is_some_and(|spell| {
         spell.instructions.iter().any(|i| {
-            matches!(
-                i,
-                Instruction::PumpSet {
-                    set: ObjectSet::ControllerCreatures,
-                    ..
-                }
-            )
+            ObjectSet::pumped(i).is_some_and(|what| ObjectSet::ControllerCreatures.denotes(what))
         })
     }) {
         return Ok(());
@@ -68,12 +62,12 @@ mod tests {
         assert!(spell.targets.is_empty());
         assert_eq!(
             spell.instructions,
-            [Instruction::PumpSet {
-                set: ObjectSet::ControllerCreatures,
-                power: 2.into(),
-                toughness: 1.into(),
-                source_block: 0,
-            }]
+            [Instruction::pump(
+                ObjectSet::ControllerCreatures.kernel(kir::Context::Spell),
+                2.into(),
+                1.into(),
+                0
+            )]
         );
         let mut forged = *definition;
         forged

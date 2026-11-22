@@ -380,7 +380,13 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
     schema["$defs"]["FixedCountersChild"] = basic(
         TargetDomain::BattlefieldCreature,
         json!({"type":"null"}),
-        json!({"properties":{"op":{"const":"put_plus_one_counters"},"source_block":{"const":0},"on":{"const":CounterRecipient::Target{target_slot:0}},"amount":{"enum":(2..=10).map(Quantity::from).collect::<Vec<_>>()}}}),
+        instruction_schema::at(
+            instruction_schema::plus_one_counters(
+                instruction_schema::target_object(Some(0)),
+                json!({"enum":(2..=10).map(Quantity::from).collect::<Vec<_>>()}),
+            ),
+            0,
+        ),
     );
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"properties":{"activated":{"items":{"properties":{"program":free}}},"triggered":{"items":{"properties":{"program":free}}},"static_abilities":{"items":{"properties":{"effect":{"properties":{"grant_spell_cascade":{"properties":{"program":free}}}}}}}},"if":{"anyOf":[{"required":["capabilities"],"properties":{"capabilities":cap}},{"required":["spell"],"properties":{"spell":{"type":"object","not":free}}}]},"then":{"required":["spell","capabilities"],"properties":{"capabilities":{"allOf":[cap,{"contains":{"const":Capability::ModalChoiceV1}}]},"activated":{"maxItems":0},"triggered":{"maxItems":0},"static_abilities":{"maxItems":0},"spell":{"type":"object","properties":{"resolution":marker,"modes":{"minItems":2,"items":child},"targets":{"maxItems":0},"instructions":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}}}));
 }
@@ -457,11 +463,11 @@ pub fn mixed_target_modes(
                         "on",
                         TargetDomain::BattlefieldCreature,
                         None,
-                        Instruction::PutPlusOneCounters {
-                            on: CounterRecipient::Target { target_slot: 0 },
-                            amount: Quantity::from(i64::from(n)),
-                            source_block: 0,
-                        },
+                        Instruction::plus_one_counters(
+                            kir::SetExpr::target(0),
+                            Quantity::from(i64::from(n)),
+                            0,
+                        ),
                         json!({"effect":"put-counters","on":{"ref":"target","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1},"selectionId":id},"counter":{"type":"+1/+1"},"count":{"amount":"fixed","value":n}}),
                     )
                 }

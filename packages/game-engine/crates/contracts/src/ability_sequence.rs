@@ -109,7 +109,8 @@ fn effects(body: &str, block: u32, context: Context) -> Option<(Vec<Instruction>
         let mut steps = Vec::new();
         for clause in sentence.split(", then ").flat_map(|s| s.split(" and ")) {
             let lower = clause.to_ascii_lowercase();
-            let (ast, inst) = if let Some(step) = predefined_tokens::printed(clause, block) {
+            let (ast, inst) = if let Some(step) = predefined_tokens::printed(clause, context, block)
+            {
                 step
             } else if let Some(n) = lower
                 .strip_prefix("scry ")
@@ -277,7 +278,10 @@ fn has_scalar(a: &SpellProgram) -> bool {
             i,
             Instruction::Scry { .. }
                 | Instruction::Surveil { .. }
-                | Instruction::CreatePredefinedTokens { .. }
+                | kernel!(CreateTokens {
+                    token: kir::TokenSpec::Predefined { .. },
+                    ..
+                })
         )
     }) || matches!(
         a.instructions.as_slice(),
@@ -288,10 +292,15 @@ fn has_scalar(a: &SpellProgram) -> bool {
 pub(crate) fn activation(a: &ActivatedAbility) -> bool {
     (matches!(a.cost, ActivationCost::Composite { .. }) && has_scalar(&a.program))
         || (a.cost == ActivationCost::TapSource
-            && a.program
-                .instructions
-                .iter()
-                .any(|i| matches!(i, Instruction::CreatePredefinedTokens { .. })))
+            && a.program.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    kernel!(CreateTokens {
+                        token: kir::TokenSpec::Predefined { .. },
+                        ..
+                    })
+                )
+            }))
 }
 
 pub(crate) fn trigger(a: &TriggeredAbility, kind: CardKind) -> bool {
@@ -302,7 +311,10 @@ pub(crate) fn trigger(a: &TriggeredAbility, kind: CardKind) -> bool {
                 i,
                 Instruction::Scry { .. }
                     | Instruction::Surveil { .. }
-                    | Instruction::CreatePredefinedTokens { .. }
+                    | kernel!(CreateTokens {
+                        token: kir::TokenSpec::Predefined { .. },
+                        ..
+                    })
             )
         })
         && (a.condition == TriggerCondition::SelfEntersBattlefield
@@ -327,7 +339,10 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
                 i,
                 Instruction::Scry { .. }
                     | Instruction::Surveil { .. }
-                    | Instruction::CreatePredefinedTokens { .. }
+                    | kernel!(CreateTokens {
+                        token: kir::TokenSpec::Predefined { .. },
+                        ..
+                    })
                     | kernel!(Draw {
                         player: you!(),
                         amount: fixed!(_)
@@ -416,8 +431,8 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    let has_look = json!({"contains":{"properties":{"op":{"enum":["scry","surveil","create_predefined_tokens"]}}}});
-    let inst = json!({"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["scry","surveil","create_predefined_tokens"]}}},instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}});
+    let has_look = json!({"contains":{"anyOf":[{"properties":{"op":{"enum":["scry","surveil"]}}},instruction_schema::predefined_tokens()]}});
+    let inst = json!({"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["scry","surveil"]}}},instruction_schema::predefined_tokens(),instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}});
     schema["$defs"]["ScalarAbilityProgram"] = json!({"type":"object","required":["instructions","targets"],"properties":{
         "timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
         "targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},

@@ -906,12 +906,33 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "duration": "until_end_of_turn",
-                "op": "modify_power_toughness",
-                "power": "0",
-                "source_block": 0,
-                "target_slot": 0,
-                "toughness": "3"
+                "node": {
+                  "do": {
+                    "change": {
+                      "change": "power_toughness",
+                      "power": {
+                        "amount": "fixed",
+                        "value": "0"
+                      },
+                      "toughness": {
+                        "amount": "fixed",
+                        "value": "3"
+                      }
+                    },
+                    "layer": "power_toughness_modify",
+                    "until": "end_of_turn",
+                    "verb": "modify_until",
+                    "what": {
+                      "object": {
+                        "ref": "target",
+                        "slot": 0
+                      },
+                      "set": "one"
+                    }
+                  }
+                },
+                "op": "kernel",
+                "source_block": 0
               }
             ],
             "resolution": "instructions",
@@ -1011,11 +1032,41 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "op": "pump_set",
-                "power": "1",
-                "set": "attacking_creatures",
-                "source_block": 0,
-                "toughness": "1"
+                "node": {
+                  "do": {
+                    "change": {
+                      "change": "power_toughness",
+                      "power": {
+                        "amount": "fixed",
+                        "value": "1"
+                      },
+                      "toughness": {
+                        "amount": "fixed",
+                        "value": "1"
+                      }
+                    },
+                    "layer": "power_toughness_modify",
+                    "until": "end_of_turn",
+                    "verb": "modify_until",
+                    "what": {
+                      "filter": [
+                        {
+                          "atom": "type",
+                          "kind": "creature"
+                        },
+                        {
+                          "atom": "attacking"
+                        }
+                      ],
+                      "set": "matching",
+                      "zone": {
+                        "zone": "battlefield"
+                      }
+                    }
+                  }
+                },
+                "op": "kernel",
+                "source_block": 0
               }
             ],
             "resolution": "instructions",
@@ -1235,11 +1286,41 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "op": "pump_set",
-                "power": "1",
-                "set": "attacking_creatures",
-                "source_block": 0,
-                "toughness": "1"
+                "node": {
+                  "do": {
+                    "change": {
+                      "change": "power_toughness",
+                      "power": {
+                        "amount": "fixed",
+                        "value": "1"
+                      },
+                      "toughness": {
+                        "amount": "fixed",
+                        "value": "1"
+                      }
+                    },
+                    "layer": "power_toughness_modify",
+                    "until": "end_of_turn",
+                    "verb": "modify_until",
+                    "what": {
+                      "filter": [
+                        {
+                          "atom": "type",
+                          "kind": "creature"
+                        },
+                        {
+                          "atom": "attacking"
+                        }
+                      ],
+                      "set": "matching",
+                      "zone": {
+                        "zone": "battlefield"
+                      }
+                    }
+                  }
+                },
+                "op": "kernel",
+                "source_block": 0
               }
             ],
             "resolution": "instructions",

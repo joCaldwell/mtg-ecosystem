@@ -753,12 +753,9 @@ mod diagnostic {
             .instructions[0]
             .clone();
         let (power, toughness, source_block) = match &instruction {
-            Instruction::ModifyPowerToughness {
-                power,
-                toughness,
-                source_block,
-                ..
-            } => (power.clone(), toughness.clone(), *source_block),
+            kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) => {
+                (power.clone(), toughness.clone(), *source_block)
+            }
             _ => panic!("archived complete signed P/T instruction"),
         };
         let targets = base

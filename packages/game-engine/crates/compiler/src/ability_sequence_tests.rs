@@ -173,7 +173,7 @@ fn slice4_predefined_tokens_preserve_the_template_and_creation_context() {
                 .contains(&Capability::PredefinedArtifactTokensV1)
         );
         assert!(
-            matches!(d.triggered[0].program.instructions.as_slice(),[Instruction::CreatePredefinedTokens{kind:k,count:1,..}] if *k==kind)
+            matches!(d.triggered[0].program.instructions.as_slice(),[i] if i.created_tokens() == Some((&kir::TokenSpec::Predefined { kind }, 1)))
         );
     }
     let activated = compiled(include_str!(
@@ -182,11 +182,8 @@ fn slice4_predefined_tokens_preserve_the_template_and_creation_context() {
     assert_eq!(activated.activated[0].cost, ActivationCost::TapSource);
     assert!(matches!(
         activated.activated[0].program.instructions.as_slice(),
-        [Instruction::CreatePredefinedTokens {
-            kind: PredefinedToken::Treasure,
-            count: 1,
-            ..
-        }]
+        [i] if i.created_tokens()
+            == Some((&kir::TokenSpec::Predefined { kind: PredefinedToken::Treasure }, 1))
     ));
 }
 

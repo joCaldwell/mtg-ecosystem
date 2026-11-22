@@ -51,12 +51,12 @@ fn printed_trigger(line: &str, block: u32) -> Option<(TriggeredAbility, Value)> 
                 resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
                 targets: vec![],
-                instructions: vec![Instruction::ModifySourcePowerToughness {
+                instructions: vec![Instruction::pump(
+                    kir::SetExpr::source(),
                     power,
                     toughness,
-                    duration: Duration::UntilEndOfTurn,
-                    source_block: block,
-                }],
+                    block,
+                )],
                 modes: vec![],
             },
         },
@@ -137,10 +137,20 @@ pub fn source(text: &str, raw_ast: &str) -> Result<Option<SourceAttackPump>, Str
 }
 
 fn has_source_pump(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::ModifySourcePowerToughness { .. }))
-        || p.modes.iter().any(|mode| has_source_pump(&mode.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(ModifyUntil {
+                what: source_object!(),
+                change: kir::Change::PowerToughness {
+                    power: _,
+                    toughness: _
+                },
+                until: kir::Until::EndOfTurn,
+                ..
+            })
+        )
+    }) || p.modes.iter().any(|mode| has_source_pump(&mode.program))
 }
 
 pub(super) fn is_attack_pump(a: &TriggeredAbility) -> bool {
@@ -160,10 +170,15 @@ pub(super) fn is_attack_pump(a: &TriggeredAbility) -> bool {
         && a.program.modes.is_empty()
         && matches!(
             a.program.instructions.as_slice(),
-            [Instruction::ModifySourcePowerToughness {
-                duration: Duration::UntilEndOfTurn,
+            [kernel!(ModifyUntil {
+                what: source_object!(),
+                change: kir::Change::PowerToughness {
+                    power: _,
+                    toughness: _
+                },
+                until: kir::Until::EndOfTurn,
                 ..
-            }]
+            })]
         )
 }
 
@@ -211,8 +226,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    let opcode =
-        json!({"required":["op"],"properties":{"op":{"const":"modify_source_power_toughness"}}});
+    let opcode = instruction_schema::any_pump(instruction_schema::source_object());
     let present = json!({"$ref":"#/$defs/SourceAttackPumpFreeProgram"});
     schema["$defs"]["SourceAttackPumpFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":opcode}},

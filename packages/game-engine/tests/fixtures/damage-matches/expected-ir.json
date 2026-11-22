@@ -476,20 +476,38 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": 1,
-                "op": "create_creature_tokens",
-                "source_block": 0,
-                "token": {
-                  "colors": [
-                    "B"
-                  ],
-                  "keywords": [],
-                  "power": "2",
-                  "subtypes": [
-                    "Zombie"
-                  ],
-                  "toughness": "2"
-                }
+                "node": {
+                  "do": {
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "spec": {
+                        "colors": [
+                          "B"
+                        ],
+                        "keywords": [],
+                        "power": "2",
+                        "subtypes": [
+                          "Zombie"
+                        ],
+                        "toughness": "2"
+                      },
+                      "token": "creature"
+                    },
+                    "verb": "create_tokens"
+                  }
+                },
+                "op": "kernel",
+                "source_block": 0
               }
             ],
             "resolution": "instructions",
@@ -2476,18 +2494,36 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": 1,
-                "op": "create_creature_tokens",
-                "source_block": 1,
-                "token": {
-                  "colors": [],
-                  "keywords": [],
-                  "power": "1",
-                  "subtypes": [
-                    "Hero"
-                  ],
-                  "toughness": "1"
-                }
+                "node": {
+                  "do": {
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "spec": {
+                        "colors": [],
+                        "keywords": [],
+                        "power": "1",
+                        "subtypes": [
+                          "Hero"
+                        ],
+                        "toughness": "1"
+                      },
+                      "token": "creature"
+                    },
+                    "verb": "create_tokens"
+                  }
+                },
+                "op": "kernel",
+                "source_block": 1
               }
             ],
             "resolution": "instructions",

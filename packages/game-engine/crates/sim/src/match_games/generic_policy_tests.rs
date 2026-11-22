@@ -896,13 +896,7 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
         .unwrap();
     let p = bolt.spell.as_mut().unwrap();
     p.instructions = vec![
-        I::ModifyPowerToughness {
-            target_slot: 0,
-            power: 1.into(),
-            toughness: 1.into(),
-            duration: mtg_contracts::Duration::UntilEndOfTurn,
-            source_block: 0,
-        },
+        I::pump(kir::SetExpr::target(0), 1.into(), 1.into(), 0),
         I::optional_destroy_target(kir::Context::Spell, 1, 0),
     ];
     v.stack.last_mut().unwrap().targets = vec![

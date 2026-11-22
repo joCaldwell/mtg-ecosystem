@@ -117,6 +117,33 @@ impl Game {
                 self.execute_damage_life_instruction(frame, instruction)
             };
         }
+        // CR 111.1, 122.1: tokens and +1/+1 counters keep the token executor,
+        // whose proposed events and recipe authentication recovery re-derives.
+        if matches!(
+            node,
+            Node::Do(Verb::CreateTokens { .. } | Verb::PutCounters { .. })
+        ) {
+            return self
+                .execute_token_instruction(frame, Instruction::Kernel { node, source_block });
+        }
+        // CR 611.2c, 613.4c, 613.1f: an end-of-turn change keeps the set,
+        // source and target effect executors, whose captured members and
+        // effect origins recovery re-derives.
+        if matches!(node, Node::Do(Verb::ModifyUntil { .. })) {
+            let instruction = Instruction::Kernel { node, source_block };
+            let (set, source) = match instruction.pumped() {
+                Some((SetExpr::Matching { .. }, ..)) => (true, false),
+                Some((what, ..)) => (false, *what == SetExpr::source()),
+                None => (false, false),
+            };
+            return if set {
+                self.execute_wipes_instruction(frame, instruction)
+            } else if source {
+                self.execute_sacrifice_instruction(frame, instruction)
+            } else {
+                self.execute_effect_instruction(frame, instruction)
+            };
+        }
         // CR 701.17a, 701.9a-b, 701.21a: mill, discard and sacrifice keep
         // their executors, choices and recovery checks.
         if matches!(

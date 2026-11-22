@@ -31,11 +31,8 @@ fn printed_stats(text: &str) -> Option<((i64, Value), (i64, Value))> {
 pub(super) fn program(p: &SpellProgram) -> bool {
     matches!(
         p.instructions.as_slice(),
-        [Instruction::PumpSet {
-            set: ObjectSet::ControllerCreatures,
-            source_block: 0,
-            ..
-        }]
+        [i] if i.pumped().is_some_and(|(what, _, _, block)| block == 0
+            && ObjectSet::ControllerCreatures.denotes(what))
     ) && p.targets.is_empty()
         && p.modes.is_empty()
         && p.additional_sacrifice.is_none()
@@ -46,13 +43,7 @@ pub(super) fn program(p: &SpellProgram) -> bool {
 
 fn uses(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
-        matches!(
-            i,
-            Instruction::PumpSet {
-                set: ObjectSet::ControllerCreatures,
-                ..
-            }
-        )
+        ObjectSet::pumped(i).is_some_and(|what| ObjectSet::ControllerCreatures.denotes(what))
     }) || p.modes.iter().any(|m| uses(&m.program))
 }
 
@@ -90,12 +81,12 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     }]}]}]);
     if ast != expected
         || spell.instructions
-            != [Instruction::PumpSet {
-                set: ObjectSet::ControllerCreatures,
-                power: Quantity::from(power),
-                toughness: Quantity::from(toughness),
-                source_block: 0,
-            }]
+            != [Instruction::pump(
+                ObjectSet::ControllerCreatures.kernel(kir::Context::Spell),
+                Quantity::from(power),
+                Quantity::from(toughness),
+                0,
+            )]
         || d.x_mana_cost
         || c.basic
         || c.snow
@@ -124,9 +115,10 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) -> Value {
-    let op = json!({"required":["op","set"],"properties":{
-        "op":{"const":"pump_set"},"set":{"const":ObjectSet::ControllerCreatures}
-    }});
+    let op = instruction_schema::any_pump(json!({"anyOf":[
+        {"const":ObjectSet::ControllerCreatures.kernel(Context::Spell)},
+        {"const":ObjectSet::ControllerCreatures.kernel(Context::Activated)}
+    ]}));
     let has_pump = json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":op}}});
     let free = json!({"$ref":"#/$defs/ControllerCreaturePumpFree"});
     schema["$defs"]["ControllerCreaturePumpFree"] = json!({

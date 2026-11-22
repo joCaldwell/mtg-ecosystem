@@ -1406,18 +1406,14 @@ impl Game {
                     },
                 )
             }
-            i @ (Instruction::PumpSet { .. }
-            | Instruction::RemoveOpponentNonlandIndestructible { .. }
+            i @ (Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }
             | Instruction::LoseLifeDeathController { .. }) => {
                 self.execute_wipes_instruction(frame, i)
             }
-            i @ (Instruction::SacrificeDamage { .. }
-            | Instruction::ModifySourcePowerToughness { .. }) => {
-                self.execute_sacrifice_instruction(frame, i)
-            }
+            i @ Instruction::SacrificeDamage { .. } => self.execute_sacrifice_instruction(frame, i),
             i @ (Instruction::ReturnEntryTargetCreature { .. }
             | Instruction::ChangeLifeFromTarget { .. }
             | Instruction::CreateTokensFor { .. }
@@ -1473,17 +1469,12 @@ impl Game {
                 target_slot,
                 source_block,
             } => self.copy_creature_spell(frame, target_slot, source_block),
-            op @ (Instruction::CreateCreatureTokens { .. }
-            | Instruction::CreatePredefinedTokens { .. }
-            | Instruction::PutPlusOneCounters { .. }
-            | Instruction::PutSourcePlusOneCountersForCastColors { .. }) => {
+            op @ Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
                 self.execute_token_instruction(frame, op)
             }
             op @ (Instruction::GrantKeywords { .. }
             | Instruction::RegenerateSource { .. }
-            | Instruction::GrantSourceKeywords { .. }
             | Instruction::GrantCreatureRestriction { .. }
-            | Instruction::ModifyPowerToughness { .. }
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::PreventCombatDamage { .. }
             | Instruction::GrantLandPlaysThisTurn { .. }

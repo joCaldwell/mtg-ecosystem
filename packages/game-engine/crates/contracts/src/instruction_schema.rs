@@ -176,6 +176,81 @@ pub(crate) fn any_target_discard() -> Value {
     kernel_do("discard", json!({ "player": target_player(None) }))
 }
 
+/// The exact source object (CR 113.7a).
+pub(crate) fn source_object() -> Value {
+    json!({ "const": SetExpr::source() })
+}
+
+/// The object announced as target `slot` (any slot when `None`).
+pub(crate) fn target_object(slot: Option<u32>) -> Value {
+    let slot = slot.map_or(json!({}), |slot| json!({ "const": slot }));
+    json!({"required":["set","object"],"properties":{"set":{"const":"one"},
+        "object":{"required":["ref","slot"],"properties":{"ref":{"const":"target"},"slot":slot}}}})
+}
+
+/// CR 611.2c, 514.2: one end-of-turn continuous change of `what`.
+fn modify_until(what: Value, layer: &str, change: Value) -> Value {
+    kernel_do(
+        "modify_until",
+        json!({"what":what,"layer":{"const":layer},"change":change,"until":{"const":"end_of_turn"}}),
+    )
+}
+
+/// CR 613.4c: an end-of-turn P/T modification of `what` by amounts whose
+/// fixed values match `power` and `toughness` (string schemas).
+pub(crate) fn pump(what: Value, power: Value, toughness: Value) -> Value {
+    modify_until(
+        what,
+        "power_toughness_modify",
+        json!({"required":["change","power","toughness"],"properties":{
+        "change":{"const":"power_toughness"},"power":fixed(power),"toughness":fixed(toughness)}}),
+    )
+}
+
+/// CR 613.4c: any end-of-turn P/T modification of `what`.
+pub(crate) fn any_pump(what: Value) -> Value {
+    pump(what, json!({"type":"string"}), json!({"type":"string"}))
+}
+
+/// CR 613.1f: the source gains keywords matching `keywords` until end of turn.
+pub(crate) fn source_keywords(keywords: Value) -> Value {
+    modify_until(
+        source_object(),
+        "ability",
+        json!({"required":["change","keywords"],"properties":{
+        "change":{"const":"add_keywords"},"keywords":keywords}}),
+    )
+}
+
+/// CR 111.10: "you" create predefined tokens.
+pub(crate) fn predefined_tokens() -> Value {
+    kernel_do(
+        "create_tokens",
+        json!({"controller":you(),
+        "token":{"required":["token"],"properties":{"token":{"const":"predefined"}}}}),
+    )
+}
+
+/// CR 111.3: "you" create creature tokens; the count's fixed value matches
+/// `count` (a string schema).
+pub(crate) fn creature_tokens(count: Value) -> Value {
+    kernel_do(
+        "create_tokens",
+        json!({"controller":you(),"count":fixed(count),
+        "token":{"required":["token"],"properties":{"token":{"const":"creature"}}}}),
+    )
+}
+
+/// CR 122.1: +1/+1 counters on `on`, by a fixed amount matching `amount`
+/// (a string schema).
+pub(crate) fn plus_one_counters(on: Value, amount: Value) -> Value {
+    kernel_do(
+        "put_counters",
+        json!({"on":on,
+        "counter":{"const":super::kir::CounterKind::PlusOnePlusOne},"amount":fixed(amount)}),
+    )
+}
+
 /// CR 121.1: the controller draws exactly one card.
 pub(crate) fn single_draw() -> Value {
     draw(you(), fixed(json!({"const":"1"})))
@@ -276,13 +351,6 @@ pub(crate) fn set_damage_to(to: &DamageTo) -> Value {
         json!({"const":to}),
         fixed(json!({"type":"string","pattern":COUNT})),
     )
-}
-
-/// The single object of announced target `slot` (any slot when `None`).
-fn target_object(slot: Option<u32>) -> Value {
-    let slot = slot.map_or(json!({}), |slot| json!({"const":slot}));
-    json!({"required":["set","object"],"properties":{"set":{"const":"one"},
-        "object":{"required":["ref","slot"],"properties":{"ref":{"const":"target"},"slot":slot}}}})
 }
 
 /// One kernel verb `verb` whose further operands match `operands`.

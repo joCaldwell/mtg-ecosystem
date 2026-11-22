@@ -53,7 +53,8 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
     for (i, sentence) in body.strip_suffix('.')?.split(". ").enumerate() {
         let mut steps = Vec::new();
         for (j, part) in sentence.split(" and ").enumerate() {
-            let (operand, instruction) = if let Some(step) = predefined_tokens::printed(part, block)
+            let (operand, instruction) = if let Some(step) =
+                predefined_tokens::printed(part, Context::Triggered, block)
             {
                 step
             } else if let Some(text) = part
@@ -255,7 +256,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
                 "program":{"properties":{"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
                     "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["optional_draw_cards","create_predefined_tokens"]}}},instruction_schema::chosen_discard(),instruction_schema::untap_lands(),instruction_schema::target_damage(None),instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}}}}
+                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["optional_draw_cards"]}}},instruction_schema::predefined_tokens(),instruction_schema::chosen_discard(),instruction_schema::untap_lands(),instruction_schema::target_damage(None),instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}}}}
             }}}}}},
         "else":{"properties":{"capabilities":{"not":cap}}}
     }));

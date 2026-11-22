@@ -1003,11 +1003,32 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "3",
-            "toughness": "3",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "3"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "3"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]
@@ -1486,11 +1507,32 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "-2",
-            "toughness": "-2",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "-2"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "-2"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]
@@ -1691,11 +1733,32 @@
             ],
             "instructions": [
               {
-                "op": "modify_power_toughness",
-                "target_slot": 0,
-                "power": "-3",
-                "toughness": "-3",
-                "duration": "until_end_of_turn",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "modify_until",
+                    "what": {
+                      "set": "one",
+                      "object": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "layer": "power_toughness_modify",
+                    "change": {
+                      "change": "power_toughness",
+                      "power": {
+                        "amount": "fixed",
+                        "value": "-3"
+                      },
+                      "toughness": {
+                        "amount": "fixed",
+                        "value": "-3"
+                      }
+                    },
+                    "until": "end_of_turn"
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -2791,27 +2854,90 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           },
           {
-            "op": "modify_power_toughness",
-            "target_slot": 1,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 1
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 1
           },
           {
-            "op": "modify_power_toughness",
-            "target_slot": 2,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 2
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 2
           }
         ]

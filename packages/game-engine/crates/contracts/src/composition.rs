@@ -46,22 +46,10 @@ fn contexts(instruction: &Instruction) -> u8 {
         I::ChangeLifeFromTarget { .. } | I::DamageTargetController { .. } => ANY,
         // CR 111.1-111.4, 111.10: recovery re-derives every token from the
         // creating recipe of its source's spell, activated or triggered program.
-        I::CreateCreatureTokens { .. }
-        | I::CreateTokensFor { .. }
-        | I::CreatePredefinedTokens { .. } => ANY,
-        // CR 122.1, 122.6: +1/+1 counters on an announced creature or on the
-        // exact battlefield source.
-        I::PutPlusOneCounters { on, .. } => match on {
-            CounterRecipient::Target { .. } => ANY,
-            CounterRecipient::Source => SOURCE,
-        },
-        // CR 611.2c, 613.4c, 514.2: one captured creature until cleanup.
-        I::ModifyPowerToughness { .. } => ANY,
+        I::CreateTokensFor { .. } => ANY,
         // CR 508.1d, 509.1b: the restriction effect authenticates a spell or
         // an activated ability as its origin.
         I::GrantCreatureRestriction { .. } => SPELL | ACTIVATED,
-        // CR 400.7, 113.7a: these act on the exact battlefield source.
-        I::ModifySourcePowerToughness { .. } => SOURCE,
         // CR 701.19a: the shield authenticates an activated ability.
         I::RegenerateSource { .. } => ACTIVATED,
         // CR 701.22, 701.25, 701.17: the controller's own library prefix.
@@ -76,7 +64,6 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::CounterSpellAndMillController { .. }
         | I::CounterSpellUnlessPays { .. } => ANY,
         // CR 608.2h: non-targeted sets are read when the instruction is performed.
-        I::PumpSet { .. } => ANY,
         // CR 400.7, 608.2b: an announced graveyard card or player's graveyard.
         I::ReturnOwnGraveyardCreatureToHand { optional, .. }
         | I::ReturnOwnGraveyardCardToHand { optional, .. } => {
@@ -127,7 +114,6 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::PutSourcePlusOneCountersForCastColors { .. }
         | I::DistributePlusOneCounters { .. }
         | I::GrantKeywordsSet { .. }
-        | I::GrantSourceKeywords { .. }
         | I::GrantKeywords { .. }
         | I::PreventNextDamage { .. }
         | I::ReturnEntryTargetCreature { .. }
@@ -221,6 +207,33 @@ fn kernel_contexts(node: &kir::Node) -> u8 {
                 ..
             },
         ) => ANY,
+        // CR 111.1-111.4, 111.10: recovery re-derives every token from the
+        // creating recipe of its source's spell, activated or triggered
+        // program.
+        Some(Verb::CreateTokens { .. }) => ANY,
+        // CR 122.1, 122.6: +1/+1 counters on an announced creature, or on the
+        // exact battlefield source (CR 400.7, 113.7a).
+        Some(Verb::PutCounters { on, .. }) => {
+            if *on == SetExpr::source() {
+                SOURCE
+            } else {
+                ANY
+            }
+        }
+        // CR 611.2c, 613.4c, 514.2: one captured creature or a board-wide
+        // set until cleanup; the exact battlefield source (CR 400.7). The
+        // source's keyword grant binds its family.
+        Some(Verb::ModifyUntil {
+            what,
+            change: kir::Change::PowerToughness { .. },
+            ..
+        }) => {
+            if *what == SetExpr::source() {
+                SOURCE
+            } else {
+                ANY
+            }
+        }
         // CR 701.17a: the controller's or one announced player's own
         // library. An announced X binds its family.
         Some(Verb::Mill { amount, .. }) if amount.as_fixed().is_some() => ANY,
@@ -1059,12 +1072,7 @@ mod tests {
         assert!(!admits_instruction(&regenerate, Context::Spell));
         assert!(admits_instruction(&regenerate, Context::Activated));
         assert!(!admits_instruction(&regenerate, Context::Triggered));
-        let pump = Instruction::ModifySourcePowerToughness {
-            power: 1.into(),
-            toughness: 1.into(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 0,
-        };
+        let pump = Instruction::pump(kir::SetExpr::source(), 1.into(), 1.into(), 0);
         assert!(!admits_instruction(&pump, Context::Spell));
         assert!(admits_instruction(&pump, Context::Activated));
         assert!(admits_instruction(&pump, Context::Triggered));

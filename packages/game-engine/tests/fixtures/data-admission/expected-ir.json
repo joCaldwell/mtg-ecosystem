@@ -461,11 +461,32 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "-5",
-            "toughness": "-5",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "-5"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "-5"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]

@@ -246,7 +246,7 @@ fn explicit_sources_and_complete_self_sacrifice_sources_remain_supported() {
         .program
         .instructions;
     assert!(
-        matches!(first.as_slice(), [Instruction::CreateCreatureTokens {count:1,..}, kernel!(Damage { to: kir::DamageTo::Ref { who: kir::Ref::Target { slot: 0 } }, amount: fixed!(amount), .. })] if *amount == Quantity::from(1))
+        matches!(first.as_slice(), [tokens, kernel!(Damage { to: kir::DamageTo::Ref { who: kir::Ref::Target { slot: 0 } }, amount: fixed!(amount), .. })] if tokens.creature_token().is_some() && tokens.created_tokens().is_some_and(|(_, count)| count == 1) && *amount == Quantity::from(1))
     );
     definition.validate().unwrap();
 }

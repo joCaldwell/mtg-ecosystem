@@ -1087,11 +1087,7 @@ fn d2cc_exact_source_incarnation_after_bounce_flash_recast() {
         d.spell.as_mut().unwrap().timing = SpellTiming::Instant;
         d.triggered[0].program.instructions.insert(
             0,
-            Instruction::PutPlusOneCounters {
-                on: CounterRecipient::Source,
-                amount: 1.into(),
-                source_block: 0,
-            },
+            Instruction::plus_one_counters(mtg_contracts::kir::SetExpr::source(), 1.into(), 0),
         );
     });
     let mut g = Game::new(p);

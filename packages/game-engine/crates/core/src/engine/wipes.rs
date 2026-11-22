@@ -428,12 +428,12 @@ impl Game {
                     source_block,
                 )
             }
-            Instruction::PumpSet {
-                set,
-                power,
-                toughness,
-                source_block,
-            } => {
+            i if mtg_contracts::ObjectSet::pumped(&i).is_some() => {
+                let (what, power, toughness, source_block) =
+                    i.pumped().ok_or("pump set instruction invariant")?;
+                let (power, toughness) = (power.clone(), toughness.clone());
+                let set = mtg_contracts::ObjectSet::from_kernel(what)
+                    .ok_or("kernel pump set has no audited closed set")?;
                 let targets = self.objects_in_set(&set, self.entry(frame.stack_id)?.controller);
                 self.create_set_effect(
                     frame,

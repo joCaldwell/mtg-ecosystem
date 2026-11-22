@@ -428,7 +428,7 @@ pub(super) fn row(enabled: bool, empty_hand: bool, rep: usize, collect: bool) ->
             assert_eq!(p.instructions.len(), 1);
             assert_eq!(p.targets.len(), 1);
             assert!(
-                matches!(&p.instructions[0],Instruction::ModifyPowerToughness{power,toughness,..}if *power==expected_power.into()&&*toughness==expected_power.into())
+                matches!(&p.instructions[0],kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. })if *power==expected_power.into()&&*toughness==expected_power.into())
             );
         }
         let fog = game.definition(CardId(7)).unwrap().spell.as_ref().unwrap();

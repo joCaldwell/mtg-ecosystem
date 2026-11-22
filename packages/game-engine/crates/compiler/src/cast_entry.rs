@@ -405,12 +405,12 @@ fn fixed_self_pump_preserves_signed_stats_and_rejects_wrong_source() {
     assert!(activation.program.targets.is_empty());
     assert_eq!(
         activation.program.instructions,
-        [Instruction::ModifySourcePowerToughness {
-            power: 2.into(),
-            toughness: (-2).into(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 1,
-        }]
+        [Instruction::pump(
+            kir::SetExpr::source(),
+            2.into(),
+            (-2).into(),
+            1
+        )]
     );
     assert!(
         definition

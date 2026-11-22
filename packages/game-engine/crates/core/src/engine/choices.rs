@@ -370,10 +370,10 @@ impl BoundModeSubset {
                                 what: target_object!(target_slot),
                                 to: mtg_contracts::kir::Destination::OwnerHand
                             })
-                            | Instruction::PutPlusOneCounters {
-                                on: mtg_contracts::CounterRecipient::Target { target_slot },
+                            | kernel!(PutCounters {
+                                on: target_object!(target_slot),
                                 ..
-                            },
+                            }),
                             [target],
                         ) if *target_slot == 0 && target.slot == 0 => {
                             *target_slot = offset;

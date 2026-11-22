@@ -335,18 +335,21 @@ pub(super) fn witness() -> Definition {
             modes: vec![],
             optional_additional_costs: vec![],
             additional_sacrifice: None,
-            instructions: vec![Instruction::CreateCreatureTokens {
-                count: 1,
-                token: CreatureToken {
-                    colors: vec![],
-                    subtypes: vec!["Phyrexian".into(), "Golem".into()],
-                    additional_types: vec![CardKind::Artifact],
-                    keywords: vec![],
-                    power: 3.into(),
-                    toughness: 3.into(),
+            instructions: vec![Instruction::create_tokens(
+                kir::Context::Triggered,
+                1,
+                kir::TokenSpec::Creature {
+                    spec: CreatureToken {
+                        colors: vec![],
+                        subtypes: vec!["Phyrexian".into(), "Golem".into()],
+                        additional_types: vec![CardKind::Artifact],
+                        keywords: vec![],
+                        power: 3.into(),
+                        toughness: 3.into(),
+                    },
                 },
-                source_block: 0,
-            }],
+                0,
+            )],
         },
     }];
     d.capabilities = d.requirements();

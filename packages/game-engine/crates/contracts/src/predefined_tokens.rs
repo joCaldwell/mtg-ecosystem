@@ -37,7 +37,11 @@ impl PredefinedToken {
     }
 }
 
-pub fn printed(clause: &str, source_block: u32) -> Option<(Value, Instruction)> {
+pub fn printed(
+    clause: &str,
+    context: kir::Context,
+    source_block: u32,
+) -> Option<(Value, Instruction)> {
     let clause = clause
         .strip_prefix("Create ")
         .or_else(|| clause.strip_prefix("create "))?;
@@ -49,26 +53,32 @@ pub fn printed(clause: &str, source_block: u32) -> Option<(Value, Instruction)> 
         .find(|k| k.name() == noun)?;
     Some((
         json!({"effect":"create-token","count":{"amount":"fixed","value":count},"token":{"predefined":kind.name()}}),
-        Instruction::CreatePredefinedTokens {
+        Instruction::create_tokens(
+            context,
             count,
-            kind,
+            kir::TokenSpec::Predefined { kind },
             source_block,
-        },
+        ),
     ))
 }
 
 pub(crate) fn reminder(text: &str, instructions: &[Instruction]) -> bool {
     instructions.iter().any(|i| {
-        matches!(i,Instruction::CreatePredefinedTokens{kind,..}
+        matches!(i,kernel!(CreateTokens { token: kir::TokenSpec::Predefined { kind }, .. })
         if text.strip_suffix(')')==Some(kind.reminder()))
     })
 }
 
 fn has_tokens(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::CreatePredefinedTokens { .. }))
-        || p.modes.iter().any(|m| has_tokens(&m.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(CreateTokens {
+                token: kir::TokenSpec::Predefined { .. },
+                ..
+            })
+        )
+    }) || p.modes.iter().any(|m| has_tokens(&m.program))
 }
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
@@ -82,7 +92,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(s: &mut Value) {
-    let op = json!({"required":["op"],"properties":{"op":{"const":"create_predefined_tokens"}}});
+    let op = instruction_schema::predefined_tokens();
     let free = "#/$defs/PredefinedTokenFreeProgram";
     s["$defs"]["PredefinedTokenFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":op}},"modes":{"items":{"properties":{"program":{"$ref":free}}}}
