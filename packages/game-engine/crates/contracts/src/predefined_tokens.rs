@@ -92,7 +92,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(s: &mut Value) {
-    let op = instruction_schema::predefined_tokens();
+    let op = instruction_schema::any_predefined_tokens();
     let free = "#/$defs/PredefinedTokenFreeProgram";
     s["$defs"]["PredefinedTokenFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":op}},"modes":{"items":{"properties":{"program":{"$ref":free}}}}

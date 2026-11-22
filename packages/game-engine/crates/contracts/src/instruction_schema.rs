@@ -227,11 +227,21 @@ pub(crate) fn source_keywords(keywords: Value) -> Value {
     )
 }
 
-/// CR 111.10: "you" create predefined tokens.
+const POSITIVE_U32: &str = "^([1-9][0-9]{0,8}|[1-3][0-9]{9}|4([01][0-9]{8}|2([0-8][0-9]{7}|9([0-3][0-9]{6}|4([0-8][0-9]{5}|9([0-5][0-9]{4}|6([0-6][0-9]{3}|7([01][0-9]{2}|2([0-8][0-9]|9[0-5])))))))))$";
+
+/// CR 111.10: any predefined token creation instruction, independent of count.
+pub(crate) fn any_predefined_tokens() -> Value {
+    kernel_do(
+        "create_tokens",
+        json!({"token":{"required":["token"],"properties":{"token":{"const":"predefined"}}}}),
+    )
+}
+
+/// CR 111.10: "you" create predefined tokens (`1..=4294967295`).
 pub(crate) fn predefined_tokens() -> Value {
     kernel_do(
         "create_tokens",
-        json!({"controller":you(),"count":positive(),
+        json!({"controller":you(),"count":fixed(json!({"type":"string","pattern":POSITIVE_U32})),
         "token":{"required":["token"],"properties":{"token":{"const":"predefined"}}}}),
     )
 }

@@ -2450,7 +2450,12 @@ test("composed triggers, attachments and artifact tokens retain their schema con
     reject("Rogue's Gloves", d => {
       d.capabilities = d.capabilities.filter((c: string) => c !== "equipped_creature_trigger_v1");
     });
+    const maxSailor = structuredClone(catalog);
+    maxSailor.definitions.find((row: any) => row.name === "Sailor of Means")
+      .triggered[0].program.instructions[0].node.do.count.value = "4294967295";
+    assert.equal(validate(maxSailor), true, JSON.stringify(validate.errors));
     reject("Sailor of Means", d => { d.triggered[0].program.instructions[0].node.do.count.value = "0"; });
+    reject("Sailor of Means", d => { d.triggered[0].program.instructions[0].node.do.count.value = "4294967296"; });
     reject("Sailor of Means", d => { d.triggered[0].condition = "opponent_creature_dies"; });
     reject("Glittermonger", d => { d.activated[0].cost = "sacrifice_source"; });
     passed = true;
@@ -2536,6 +2541,40 @@ test("count-1 flash draw, draw/discard, counted-draw life loss, and target destr
       "destroy_creature_v1", "controller_scry_v1", "composed_ordinary_spell_v1",
     ];
     assert.equal(validate(destroyScry), true, `Destroy+Scry: ${JSON.stringify(validate.errors)}`);
+    const unboundDestroy = structuredClone(destroyScry);
+    unboundDestroy.definitions[0].spell.instructions[0].node.do.what.object.slot = 1;
+    assert.equal(validate(unboundDestroy), false, "Destroy+Scry unbound slot 1 should fail");
+
+    const exilePermanentScry = structuredClone(destroyScry);
+    const ex = exilePermanentScry.definitions[0];
+    ex.spell.targets = [{
+      slot: 0, selection_id: "line:0:0", chooser: "controller", stage: "announcement",
+      domain: "battlefield_permanent",
+      filter: { types: ["artifact"], non_types: [], non_colors: [], opponent: false },
+    }];
+    ex.spell.instructions = [move(0, "exile", 0), { op: "scry", amount: "1", source_block: 0 }];
+    ex.capabilities = [
+      "normal_layout_v1", "cast_sorcery_v1", "permanent_removal_v1",
+      "controller_scry_v1", "composed_ordinary_spell_v1",
+    ];
+    assert.equal(validate(exilePermanentScry), true, `ExilePermanent+Scry: ${JSON.stringify(validate.errors)}`);
+    const unboundExile = structuredClone(exilePermanentScry);
+    unboundExile.definitions[0].spell.instructions[0].node.do.what.object.slot = 1;
+    assert.equal(validate(unboundExile), false, "ExilePermanent+Scry unbound slot 1 should fail");
+    const missingPermanentFilter = structuredClone(exilePermanentScry);
+    delete missingPermanentFilter.definitions[0].spell.targets[0].filter;
+    assert.equal(validate(missingPermanentFilter), false, "ExilePermanent+Scry missing target filter should fail");
+
+    const zeroTreasureSpell = structuredClone(compiled);
+    const zt = zeroTreasureSpell.definitions[0];
+    delete zt.source_labels;
+    zt.spell.instructions = [{
+      op: "kernel",
+      node: { do: { verb: "create_tokens", controller: you("spell_controller"), count: { amount: "fixed", value: "0" }, token: { token: "predefined", kind: "treasure" } } },
+      source_block: 0,
+    }];
+    zt.capabilities = ["normal_layout_v1", "cast_sorcery_v1"];
+    assert.equal(validate(zeroTreasureSpell), false, "Zero predefined-token spell without capability should fail");
 
     const countedLoss = structuredClone(compiled);
     const cl = countedLoss.definitions[0];

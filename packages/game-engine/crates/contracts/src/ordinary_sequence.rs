@@ -637,15 +637,19 @@ pub(crate) fn extend_schema(schema: &mut Value) {
     let draw = instruction_schema::kernel_verb("draw");
     let has_instruction = |op: &Value| json!({"properties":{"instructions":{"contains":op}}});
     let targets = |domain: &str, filter: Value| {
+        let mut item = json!({"properties":{"domain":{"const":domain},"filter":filter}});
+        if domain == "battlefield_permanent" {
+            item["required"] = json!(["filter"]);
+        }
         json!({"properties":{"targets":{
-            "minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"filter":filter}}
+            "minItems":1,"maxItems":1,"items":item
         }}})
     };
     let mill_target = instruction_schema::target_mill(Some(0));
-    let exile = instruction_schema::target_move(None, "exile");
+    let exile = instruction_schema::target_move(Some(0), "exile");
     let destroy_or_bounce = json!({"anyOf":[
-        instruction_schema::target_destroy(None, Some(false)),
-        instruction_schema::target_move(None, "owner_hand")
+        instruction_schema::target_destroy(Some(0), Some(false)),
+        instruction_schema::target_move(Some(0), "owner_hand")
     ]});
     let needs_target = json!({"anyOf":[mill_target,exile,destroy_or_bounce]});
     let one_targeted_step = json!({"properties":{"instructions":{"contains":needs_target,"minContains":1,"maxContains":1}}});
@@ -659,12 +663,12 @@ pub(crate) fn extend_schema(schema: &mut Value) {
             "instructions":{"minItems":2,"items":{"anyOf":[
                 op("scry"),op("surveil"),instruction_schema::controller_mill(),instruction_schema::target_mill(Some(0)),op("grant_land_plays_this_turn"),
                 instruction_schema::any_counted_draw(),
-                instruction_schema::target_move(None, "exile"),instruction_schema::target_move(None, "owner_hand"),
+                instruction_schema::target_move(Some(0), "exile"),instruction_schema::target_move(Some(0), "owner_hand"),
                 instruction_schema::single_draw(),
                 instruction_schema::controller_discard(json!({"type":"string"})),
                 instruction_schema::kernel_verb("gain_life"),
                 instruction_schema::kernel_verb("lose_life"),
-                instruction_schema::target_destroy(None, Some(false))
+                instruction_schema::target_destroy(Some(0), Some(false))
             ]},"anyOf":[{"contains":library},{"prefixItems":[instruction_schema::controller_discard(json!({"type":"string"}))],"contains":draw}]
             }
         },
