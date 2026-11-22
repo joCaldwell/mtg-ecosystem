@@ -88,63 +88,10 @@ pub(super) fn lower(
             ),
         }
     }
-    if g.validate(
+    g.validate(
         binding,
         "colored library search requires complete allocation bindings",
-    )
-    .is_err()
-    {
-        // The original archive recorded exactly three holes for this grammar. Derive
-        // its complete expected envelope from the independently proven source graph.
-        let reveal = format!("{base}/effects/1/steps/0/what");
-        let moved = format!("{base}/effects/1/steps/1/what");
-        let holes = [
-            (
-                &path,
-                "unsupported-scope",
-                "Separate card-extraction slots require distinct allocation, shared-pool, branch-choice and aggregate result bindings.",
-                json!(["201.5", "607"]),
-            ),
-            (
-                &reveal,
-                "missing-antecedent",
-                "No antecedent is established in this scope.",
-                json!(["608.2k", "400.7j", "608.2h"]),
-            ),
-            (
-                &moved,
-                "missing-antecedent",
-                "No antecedent is established in this scope.",
-                json!(["608.2k", "400.7j", "608.2h"]),
-            ),
-        ];
-        let diagnostics=holes.iter().map(|(path,code,message,rules)|json!({"code":code,"path":path,"message":message,"rules":rules})).collect();
-        let mut expected = g.with_diagnostics(diagnostics);
-        let nodes = expected["nodes"].as_array_mut().unwrap();
-        nodes.retain(|n| n["node"] != "distinct-library-search" && n["node"] != "event-result");
-        for event in nodes.iter_mut().filter(|n| n["node"] == "event") {
-            event["inputs"]
-                .as_array_mut()
-                .unwrap()
-                .retain(|operand| operand != &allocation);
-        }
-        for (path, code, _, rules) in holes {
-            let reference = expected["references"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|r| r["path"] == *path)
-                .unwrap();
-            *reference = json!({"path":path,"expression":reference["expression"],"binding":"unresolved","code":code,"candidates":[],"rules":rules});
-        }
-        expected["counts"] = json!({"obligations":10,"bound":7,"unresolved":3});
-        if expected != *binding {
-            return Err(unsupported(
-                "binding",
-                "incomplete or altered historic colored library search graph",
-            ));
-        }
-    }
+    )?;
     Ok(Some(colored_library_program(colors)))
 }
 
@@ -176,25 +123,21 @@ fn colored_library_search_requires_complete_bound_aggregate() {
     }
 }
 
+/// The archive R4 row binds every allocation operand; the pre-Pass-2 revision
+/// 17 graph with three unresolved holes is no longer a second accepted shape.
 #[test]
-fn historic_colored_search_closes_only_exact_diagnostic_graph() {
-    let record =
-        include_str!("../../../tests/fixtures/ramos/32ebb029-9f03-49c9-b9bb-cb1954e2a324.json");
-    let manifest = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
-    let result = compile(manifest, record);
+fn colored_search_lowers_the_r4_row_and_rejects_the_unresolved_historic_graph() {
+    let r4 = include_str!("../../../tests/fixtures/phase1-r4/conflux.json");
+    let r4_manifest = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    let result = compile(r4_manifest, r4);
     assert!(
         matches!(result, CompileResult::Lowered { .. }),
         "{result:?}"
     );
-    for n in 0..4 {
-        let bad = crate::tests::changed_source(record, |r| match n {
-            0 => r["binding"]["diagnostics"][0]["rules"] = json!(["608.2d"]),
-            1 => r["binding"]["references"][2]["candidates"] = json!(["foreign"]),
-            2 => r["binding"]["nodes"][5]["inputs"] = json!([]),
-            _ => r["binding"]["counts"]["unresolved"] = json!(2),
-        });
-        assert!(
-            matches!(compile(manifest,&bad),CompileResult::Unsupported{path,..} if path=="binding")
-        );
-    }
+    let historic =
+        include_str!("../../../tests/fixtures/ramos/32ebb029-9f03-49c9-b9bb-cb1954e2a324.json");
+    let manifest = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
+    assert!(
+        matches!(compile(manifest, historic), CompileResult::Unsupported { path, .. } if path == "binding")
+    );
 }

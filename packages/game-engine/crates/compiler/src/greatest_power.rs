@@ -1,5 +1,6 @@
 //! Reconstruct the narrowly recognized complete creature and its bound event
-//! identities. The old unparsed-face proof stays in archive provenance.
+//! identities. Only a complete parsed row lowers; the unparsed revision 17
+//! row's authenticated replacement AST is retired with its archive exception.
 use super::*;
 use crate::bindings::Bindings;
 use serde_json::{Value, json};
@@ -134,20 +135,6 @@ pub(super) fn lower(r: &Record, archive: &AcceptedArchive) -> Result<Option<Defi
             }
             (s, hash)
         }
-        "unsupported" => {
-            let expected = json!({"name":src.name,"ok":false,"lines":[{"text":lines[0],"ok":false,"error":"expected 'player's' | 'opponent's' at \"other\" (token 18)"},{"text":lines[1],"ok":true,"ability":ast[1]}]});
-            let diagnostic = json!({"code":"unparsed-face","path":"/faces/0","message":"A missing or failed structural parse cannot have complete reference binding.","rules":[]});
-            if face != expected
-                || r.ast_sha256.is_some()
-                || Bindings::new(&r.oracle_identity, &raw).with_scope_diagnostic(diagnostic)
-                    != binding
-            {
-                return Err(fail());
-            }
-            let s = canonical(&ast).map_err(|_| fail())?;
-            let hash = sha256(format!("[{s}]").as_bytes());
-            (s, hash)
-        }
         _ => return Err(fail()),
     };
     let types = type_line::parse(&src.type_line)?;
@@ -215,11 +202,11 @@ mod tests {
     const SYNTHETIC: &str =
         include_str!("../../../tests/fixtures/synthetic-copperleaf-surveyor.json");
     #[test]
-    fn greatest_power_requires_complete_current_or_historical_binding() {
-        let historic =
-            include_str!("../../../tests/fixtures/ramos/1d725121-e50c-42f0-9128-56802f07c89e.json");
-        for row in [historic, SYNTHETIC] {
-            let result = compile(MANIFEST, row);
+    fn greatest_power_requires_a_complete_parsed_binding() {
+        let r4 = include_str!("../../../tests/fixtures/phase1-r4/selvala-heart-of-the-wilds.json");
+        let r4_manifest = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+        for (manifest, row) in [(r4_manifest, r4), (MANIFEST, SYNTHETIC)] {
+            let result = compile(manifest, row);
             assert!(
                 matches!(result, CompileResult::Lowered { .. }),
                 "{result:?}"
@@ -232,11 +219,11 @@ mod tests {
             compile(MANIFEST, &detached),
             CompileResult::Unsupported { .. }
         ));
-        // Preserve exact archive source and graph layout through the mutation.
-        let altered = historic.replace("expected 'player's' | 'opponent's'", "different");
-        assert_ne!(altered, historic);
+        // The unparsed revision 17 row no longer carries a replacement AST.
+        let historic =
+            include_str!("../../../tests/fixtures/ramos/1d725121-e50c-42f0-9128-56802f07c89e.json");
         assert!(matches!(
-            compile(MANIFEST, &altered),
+            compile(MANIFEST, historic),
             CompileResult::Unsupported { .. }
         ));
     }

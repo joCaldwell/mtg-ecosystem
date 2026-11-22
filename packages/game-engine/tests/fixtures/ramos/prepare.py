@@ -31,10 +31,13 @@ R4_MANIFEST = "archive-manifest-phase1-r4.json"
 # compiled from its accepted Archive R4 row instead.
 R4_CARDS = {
     "0623c51a-e829-413f-a3a0-817c0902821e": "Call Forth the Tempest",
+    "1d725121-e50c-42f0-9128-56802f07c89e": "Selvala, Heart of the Wilds",
     "23695bc2-86d3-4d78-b374-9e83c4cc9cc4": "Averna, the Chaos Bloom",
     "26445dc7-8363-4205-aee8-1cafeb4ba4c0": "Omnath, Locus of All",
     "2d7e00b6-12f0-4b03-82a6-50e3d1b5395e": "Progenitus",
+    "32ebb029-9f03-49c9-b9bb-cb1954e2a324": "Conflux",
     "4137a22c-f793-4e27-a9b2-72740a6e2121": "Abzan Charm",
+    "70a6f08e-854d-4e2f-9d8c-c45ec3231157": "Faeburrow Elder",
     "7cb9e29f-835f-4155-a2a5-4b778866c773": "Mosswort Bridge",
     "9efe8aff-9a7d-4397-b5fd-c1a0fad7c15f": "Yidris, Maelstrom Wielder",
     "c336b735-3e6b-471e-be7a-84d7402ae2f5": "Creative Technique",

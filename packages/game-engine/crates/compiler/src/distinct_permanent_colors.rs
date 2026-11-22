@@ -161,19 +161,33 @@ fn validate_binding(
             ]);
         }
     }
+    // The R4 binder proves the continuous subject and query directly (CR
+    // 611.3a, 613.1g, 613.6); the pre-Pass-2 graph with two unresolved scope
+    // references is no longer a second accepted shape.
+    let static_scope = format!("{root}/faces/0/abilities/1#ability");
+    let static_you = format!("{root}/faces/0/abilities/1#you");
+    let stats_query = format!("{root}{stats_among}#query");
+    let rules = ["611.3a", "613.1g", "613.6"];
+    nodes.extend([
+        json!({"id":format!("{root}{stats}#affected-member"),"path":stats,
+            "node":"characteristic-subject","scope":static_scope,"role":"affected-member",
+            "of":source,"timing":"continuous","rules":rules}),
+        json!({"id":stats_query,"path":stats_among,"node":"selection","scope":static_scope,
+            "expression":among,"cardinality":"many","timing":"continuous",
+            "selection":"evaluate-reference","rules":["608.2h"]}),
+    ]);
+    let activation_index = nodes
+        .iter()
+        .position(|node| node["id"] == mana_scope)
+        .expect("activation ability node");
+    let affected = nodes.split_off(nodes.len() - 2);
+    nodes.splice(activation_index..activation_index, affected);
     nodes.extend([
         json!({"id":query,"path":mana_among,"node":"selection","scope":mana_scope,"expression":among,
             "cardinality":"many","timing":"resolution","selection":"evaluate-reference","rules":["608.2h"]}),
         json!({"id":format!("{root}{step}#event"),"path":step,"node":"event","scope":mana_scope,
             "operation":"add-mana","inputs":[mana_you],"availability":"when-performed","rules":["608.2c"]}),
     ]);
-
-    // The retained parser could not bind the modifier's affected-object scope.
-    // Exact self-reference plus the complete selector above make that scope
-    // unambiguous: the affected object is the source and "you" is its controller
-    // (CR 109.5, 611.3). Only these two known unresolved references are consumed.
-    let diagnostic =
-        "A dynamic characteristic value needs a distinct affected-object binding for each match.";
     let expected = json!({
         "artifactKind":"oracle-reference-binding","schemaVersion":1,"executable":false,
         "identity":card.oracle_id,
@@ -181,10 +195,8 @@ fn validate_binding(
         "nodes":nodes,
         "references":[
             {"path":stats_what,"expression":what,"binding":"bound","target":source,"rules":["201.5"]},
-            {"path":stats_control,"expression":you,"binding":"unresolved","code":"unsupported-scope",
-                "candidates":[],"rules":["109.5"]},
-            {"path":stats_among,"expression":among,"binding":"unresolved","code":"unsupported-scope",
-                "candidates":[],"rules":["201.5","607"]},
+            {"path":stats_control,"expression":you,"binding":"bound","target":static_you,"rules":["109.5"]},
+            {"path":stats_among,"expression":among,"binding":"bound","target":stats_query,"rules":["608.2h"]},
             {"path":format!("{activation}/costs/0/source"),"expression":{"ref":"self"},"binding":"bound",
                 "target":source,"rules":["201.5"]},
             {"path":format!("{activation}/costs/0/payer"),"expression":you,"binding":"bound",
@@ -193,48 +205,14 @@ fn validate_binding(
             {"path":mana_control,"expression":you,"binding":"bound","target":mana_you,"rules":["109.5"]},
             {"path":mana_among,"expression":among,"binding":"bound","target":query,"rules":["608.2h"]}
         ],
-        "diagnostics":[
-            {"code":"unsupported-scope","path":stats,"message":diagnostic,"rules":["611.3","613.6"]},
-            {"code":"unsupported-scope","path":stats_control,"message":diagnostic,"rules":["109.5"]},
-            {"code":"unsupported-scope","path":stats_among,"message":diagnostic,"rules":["201.5","607"]}
-        ],
-        "counts":{"obligations":8,"bound":6,"unresolved":2},
-        "referencesBound":false,"engineFeatures":[],"fullyBound":false
-    });
-    let mut expected = expected;
-    if binding["referencesBound"] == true {
-        let static_scope = format!("{root}/faces/0/abilities/1#ability");
-        let static_you = format!("{root}/faces/0/abilities/1#you");
-        let query = format!("{root}{stats_among}#query");
-        let rules = ["611.3a", "613.1g", "613.6"];
-        // The typed archive proves the continuous subject and query directly.
-        let nodes = expected["nodes"].as_array_mut().unwrap();
-        let activation_index = nodes
-            .iter()
-            .position(|node| node["id"] == mana_scope)
-            .unwrap();
-        nodes.splice(
-            activation_index..activation_index,
-            [
-                json!({"id":format!("{root}{stats}#affected-member"),"path":stats,
-                "node":"characteristic-subject","scope":static_scope,"role":"affected-member",
-                "of":source,"timing":"continuous","rules":rules}),
-                json!({"id":query,"path":stats_among,"node":"selection","scope":static_scope,
-                "expression":among,"cardinality":"many","timing":"continuous",
-                "selection":"evaluate-reference","rules":["608.2h"]}),
-            ],
-        );
-        expected["references"][1] = json!({"path":stats_control,"expression":you,"binding":"bound",
-            "target":static_you,"rules":["109.5"]});
-        expected["references"][2] = json!({"path":stats_among,"expression":among,"binding":"bound",
-            "target":query,"rules":["608.2h"]});
-        expected["diagnostics"] = json!([]);
-        expected["counts"] = json!({"obligations":8,"bound":8,"unresolved":0});
-        expected["referencesBound"] = json!(true);
-        expected["engineFeatures"] = json!([{"feature":"characteristic-layers","path":stats,
+        "diagnostics":[],
+        "counts":{"obligations":8,"bound":8,"unresolved":0},
+        "referencesBound":true,
+        "engineFeatures":[{"feature":"characteristic-layers","path":stats,
             "message":"Reevaluate the modifier on each affected object in the appropriate layer.",
-            "rules":rules}]);
-    }
+            "rules":rules}],
+        "fullyBound":false
+    });
     if *binding != expected {
         return Err(unsupported(
             "binding.mana",
