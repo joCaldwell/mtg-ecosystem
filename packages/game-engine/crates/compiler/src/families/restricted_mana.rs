@@ -12,11 +12,7 @@ pub(crate) fn lower(
     let Some((ability, ast)) = restricted_mana_source(&source.oracle_text) else {
         return Ok(None);
     };
-    let type_line = source
-        .type_line
-        .strip_prefix("Legendary ")
-        .unwrap_or(&source.type_line);
-    if !type_line.starts_with("Creature — ")
+    if !type_line::exactly(&source.type_line, &[CardKind::Creature], true)
         || decode::<Value>(result.abilities.get(), "abilities")? != ast
     {
         return Err(unsupported(

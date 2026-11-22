@@ -13,7 +13,7 @@ pub(crate) fn bound(
     let Some(ast) = land_reclamation_source(&source.oracle_text) else {
         return Ok(false);
     };
-    if !source.type_line.starts_with("Creature — ")
+    if !type_line::exactly(&source.type_line, &[CardKind::Creature], false)
         || decode::<Value>(result.abilities.get(), "abilities")? != ast
     {
         return Err(unsupported(

@@ -84,9 +84,9 @@ pub(crate) fn cast_plan(
     if index != 0
         || blocks.len() != 3
         || source["layout"] != "normal"
-        || !source["type_line"]
-            .as_str()
-            .is_some_and(|ty| ty.starts_with("Enchantment Creature — "))
+        || !source["type_line"].as_str().is_some_and(|ty| {
+            type_line::exactly(ty, &[CardKind::Enchantment, CardKind::Creature], false)
+        })
     {
         return Err(unsupported());
     }

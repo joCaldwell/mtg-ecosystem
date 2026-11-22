@@ -19,6 +19,21 @@ pub(super) fn parse_source(line: &str, layout: &str) -> Result<ParsedTypes, Fail
     parse(line)
 }
 
+/// Whether a printed type line has exactly these card types, at least one
+/// subtype, and no supertype other than an allowed "Legendary" (CR 205.2-205.4).
+pub(crate) fn exactly(line: &str, kinds: &[CardKind], legendary: bool) -> bool {
+    parse(line).is_ok_and(|t| {
+        !t.basic
+            && !t.snow
+            && (legendary || !t.legendary)
+            && !t.subtypes.is_empty()
+            && std::iter::once(t.kind)
+                .chain(t.additional_types.iter().copied())
+                .collect::<BTreeSet<_>>()
+                == kinds.iter().copied().collect()
+    })
+}
+
 pub(super) fn parse(line: &str) -> Result<ParsedTypes, Failure> {
     let (head, tail) = line.split_once(" — ").unwrap_or((line, ""));
     let mut types = BTreeSet::new();
