@@ -10,11 +10,15 @@ fn prepared(hand: bool) -> Prepared {
     ))
     .unwrap();
     for raw in [
-        include_str!("../../../../tests/fixtures/f2902dfd-888f-4b02-b8ad-1056f0059fc3.json"),
-        include_str!("../../../../tests/fixtures/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/f2902dfd-888f-4b02-b8ad-1056f0059fc3.json"
+        ),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
+        ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
             raw,
         ) else {
             panic!("complete activated counter witness must lower");

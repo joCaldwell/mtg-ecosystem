@@ -17,7 +17,7 @@ fn discard_spell(catalog: &Catalog) -> Definition {
             })
             .expect("pinned complete Hymn to Tourach");
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
             hymn,
         ) else {
             panic!("Hymn to Tourach must lower");

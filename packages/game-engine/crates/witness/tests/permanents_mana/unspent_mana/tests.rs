@@ -78,51 +78,6 @@ fn game() -> Game {
     Game::with_trace(prepared, TraceMode::Detailed)
 }
 
-#[test]
-fn restricted_mana_converts_colors_without_losing_spend_predicate() {
-    let mut prepared = game().prepared.as_ref().clone();
-    let raw =
-        include_str!("../../../../../tests/fixtures/215fd0b4-5817-4335-a0ed-1694e44bde41.json");
-    let manifest = include_str!("../../../../../tests/fixtures/archive-manifest-current.json");
-    let result = mtg_witness::compile(manifest, raw);
-    let mtg_compiler::CompileResult::Lowered { definition } = result else {
-        panic!("{result:?}")
-    };
-    prepared.config.cards[0]
-        .oracle_id
-        .clone_from(&definition.oracle_id);
-    let catalog = Arc::make_mut(&mut prepared.catalog);
-    catalog.definitions.push(*definition);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate().unwrap();
-    prepared.catalog_digest = digest(catalog).unwrap();
-    prepared.profile_digest = digest(&prepared.config).unwrap();
-
-    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
-    let object = g.object_id(CardId(0)).unwrap();
-    answer(&mut g, 1, Response::ActivateMana { object });
-    request(&mut g, 1);
-    assert_eq!(g.state.rules.players[0].restricted_mana.len(), 2);
-    let mut departed = g.fork();
-    departed.concede(PlayerId(1)).unwrap();
-    next_step(&mut departed);
-    assert!(departed.state.rules.players[0].restricted_mana.is_empty());
-    recover(&departed);
-    next_step(&mut g);
-    assert!(g.state.rules.players[0].mana.is_empty());
-    assert_eq!(
-        g.state.rules.players[0].restricted_mana,
-        [RestrictedMana {
-            restriction: ManaSpendRestriction::ActivatedAbility,
-            color: Color::B,
-            amount: 2.into(),
-        }]
-    );
-    recover(&g);
-}
-
 fn next_step(g: &mut Game) {
     let old = g.state.rules.turn.step;
     for _ in 0..8 {

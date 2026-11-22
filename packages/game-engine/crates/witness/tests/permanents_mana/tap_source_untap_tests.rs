@@ -11,19 +11,21 @@ fn prepared(hand: bool, target: &str) -> Prepared {
     .unwrap();
     for (header, raw) in [
         (
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
-            include_str!("../../../../tests/fixtures/704723f3-0490-4d96-930a-aacc6d19ba8d.json"),
-        ),
-        (
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
-            include_str!("../../../../tests/fixtures/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"),
-        ),
-        (
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
             include_str!(
-                "../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"
+                "../../../../tests/fixtures/phase1-r4/704723f3-0490-4d96-930a-aacc6d19ba8d.json"
             ),
+        ),
+        (
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
             include_str!(
-                "../../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
+                "../../../../tests/fixtures/phase1-r4/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
+            ),
+        ),
+        (
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r4/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
             ),
         ),
     ] {

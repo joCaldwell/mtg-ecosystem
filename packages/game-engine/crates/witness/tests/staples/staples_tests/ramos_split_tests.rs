@@ -9,7 +9,7 @@ use super::*;
 fn ramos_split_prepared(raw: &str) -> Prepared {
     let mut p = search_prepared("Rampant Growth");
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-        include_str!("../../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
         raw,
     ) else {
         panic!("complete frozen split source must lower")
@@ -49,8 +49,12 @@ fn ramos_split_prepared(raw: &str) -> Prepared {
     p
 }
 const RAMOS_SPLIT_SOURCES: [&str; 2] = [
-    include_str!("../../../../../tests/fixtures/ramos/8b755881-a72d-4e21-a369-d2924eb4585a.json"),
-    include_str!("../../../../../tests/fixtures/ramos/1593ea18-2f2f-4ab4-83fb-6ccc0bec8a90.json"),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/8b755881-a72d-4e21-a369-d2924eb4585a.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/1593ea18-2f2f-4ab4-83fb-6ccc0bec8a90.json"
+    ),
 ];
 fn ramos_split_search(g: &mut Game, name: &str) -> Request {
     let spell = develop_search(g, name, 3);

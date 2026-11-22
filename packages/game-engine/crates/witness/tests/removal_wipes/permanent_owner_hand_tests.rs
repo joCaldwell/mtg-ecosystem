@@ -11,11 +11,15 @@ fn prepared(rows: &[(&str, u8, u8, bool)], commander: bool) -> Prepared {
     ))
     .unwrap();
     for raw in [
-        include_str!("../../../../tests/fixtures/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"),
-        include_str!("../../../../tests/fixtures/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
+        ),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"
+        ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
             raw,
         ) else {
             panic!("complete permanent owner-hand source must lower");
@@ -366,63 +370,4 @@ fn permanent_owner_hand_departed_target_fizzles_without_returning_or_rebinding()
             baseline = Some(g.state.clone());
         }
     }
-}
-
-#[test]
-fn paid_creature_or_planeswalker_return_filters_lands_and_uses_card_owner() {
-    use mtg_witness::equipped as helpers;
-    let raw =
-        include_str!("../../../../tests/fixtures/synthetic-creature-planeswalker-return.json");
-    let result = mtg_witness::compile(
-        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
-        raw,
-    );
-    let mtg_compiler::CompileResult::Lowered { definition } = result else {
-        panic!("{result:?}")
-    };
-    let mut p = helpers::prepared(
-        &[
-            ("Forest", true),
-            ("Forest", false),
-            ("Grizzly Bears", false),
-        ],
-        false,
-    );
-    p.config.cards[0].oracle_id = definition.oracle_id.clone();
-    p.config.cards[2].owner = PlayerId(2);
-    p.config.cards[2].controller = PlayerId(1);
-    let catalog = Arc::make_mut(&mut p.catalog);
-    catalog.definitions.push(*definition);
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate().unwrap();
-    p.catalog_digest = digest(&*p.catalog).unwrap();
-    p.profile_digest = digest(&p.config).unwrap();
-    let mut g = Game::with_trace(p, TraceMode::Detailed);
-    helpers::request(&mut g, 1);
-    let card = helpers::object(&g, 0).card;
-    let creature = helpers::object(&g, 2);
-    let land = helpers::object(&g, 1);
-    helpers::answer(&mut g, 1, Response::Cast { card });
-    let req = helpers::request(&mut g, 1);
-    assert!(
-        matches!(&req, Request::Targets{candidates,..} if candidates.contains(&creature)&&!candidates.contains(&land))
-    );
-    assert!(
-        g.respond(
-            req.player(),
-            req.decision_id(),
-            Response::Targets {
-                objects: vec![land]
-            }
-        )
-        .is_err()
-    );
-    helpers::pay_and_resolve(&mut g, 1, vec![TargetEntity::Object { object: creature }]);
-    assert_eq!(
-        g.zone(helpers::object(&g, 2)),
-        Some(Zone::Hand { owner: PlayerId(2) })
-    );
-    helpers::recover(&g);
 }

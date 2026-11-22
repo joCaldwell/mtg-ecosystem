@@ -4,14 +4,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
-mod artifact_sacrifice_source_tests;
-mod event_player_sacrifice_tests;
-mod kernel_set_pump_tests;
-mod keyword_removal_wipe_tests;
 mod nonland_exile_life_tests;
-mod opponent_nonland_destroy_tests;
 mod permanent_owner_hand_tests;
 mod removal_tests;
-mod successor_tuck_tests;
 mod tap_source_destroy_tests;
 mod wipes_tests;

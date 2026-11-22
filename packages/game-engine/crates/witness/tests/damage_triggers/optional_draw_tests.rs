@@ -10,9 +10,9 @@ fn prepared(empty: bool, commander: bool) -> Prepared {
     ))
     .unwrap();
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-        include_str!("../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
         include_str!(
-            "../../../../tests/fixtures/cards-data-d2ce/48936751-429b-4c40-88f5-72acde6278cc.json"
+            "../../../../tests/fixtures/phase1-r4/48936751-429b-4c40-88f5-72acde6278cc.json"
         ),
     ) else {
         panic!("complete Neurok Commando source must lower")
