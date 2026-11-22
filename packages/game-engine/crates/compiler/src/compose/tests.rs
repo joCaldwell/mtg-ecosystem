@@ -138,7 +138,6 @@ const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-p
 const DRAGON: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/compose-destructor-dragon.json");
 const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-bake-into-a-pie.json");
-// A complete row whose reference graph a family recognised and refused.
 const CREW: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-hire-a-crew.json");
 const WITNESSES: [&str; 9] = [
     include_str!("../../../../tests/fixtures/phase1-r4/compose-marble-chalice.json"),
@@ -374,7 +373,6 @@ fn printed_text_and_ast_must_agree_on_choices_words_and_numbers() {
 #[test]
 fn changed_sources_reject_instead_of_dropping_or_guessing() {
     let rejected = |raw: &str| !matches!(compile(R4, raw), CompileResult::Lowered { .. });
-    // Whole-card families never read the resolution; ask the pipeline.
     let composition_rejects = |raw: &str| lower(accepted_manifest(R4).unwrap(), raw).is_err();
     for witness in [DRAGON, MARSH] {
         assert!(lower(accepted_manifest(R4).unwrap(), witness).is_ok());
@@ -414,7 +412,6 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
     })));
     // A clause removed from the AST leaves its bound references dangling,
     // and an injected clause has no bound event.
-    // (A family may itself lower the shortened spell, so ask the pipeline.)
     let shortened = changed(CREW, |row| {
         row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"]
             .as_array_mut()
@@ -460,7 +457,7 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
         row["faces"][0]["result"]["abilities"][1]["costs"][0] =
             json!({"cost":"mana","symbols":["1"]});
     })));
-    // Variable costs keep their reviewed families.
+    // Variable costs have no block table row.
     assert!(rejected(
         &changed(PIE, |row| row["source"]["mana_cost"] = json!("{X}{B}"))
     ));

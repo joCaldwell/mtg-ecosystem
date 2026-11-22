@@ -98,6 +98,35 @@ fn profile_data_is_strict_and_every_default_pod_is_admitted() {
     }
 }
 
+/// Composition is the only lowering pipeline, so its marker capability names
+/// no mechanic: a reviewed pod stays admitted when its definitions carry it,
+/// and an unreviewed mechanic beside it is still rejected.
+#[test]
+fn composed_marker_is_reviewed_but_never_admits_a_mechanic() {
+    for p in MATCH_PROFILES.iter().filter(|p| p.search || p.hosted) {
+        let mut catalog = p.catalog().clone();
+        for definition in &mut catalog.definitions {
+            definition.composed = true;
+        }
+        assert!(
+            catalog.definitions[0]
+                .requirements()
+                .contains(&Capability::ComposedAbilityV1)
+        );
+        p.validate_requested_features(&catalog).unwrap();
+        let wipes = match_profile("commander-wipes-v1").unwrap().catalog();
+        catalog
+            .definitions
+            .extend(wipes.definitions.iter().cloned());
+        assert!(matches!(
+            p.validate_requested_features(&catalog),
+            Err(ProfileError::UnreviewedCapabilities { ref capabilities, .. })
+                if capabilities.contains(&Capability::BoardWipesV1)
+                    && !capabilities.contains(&Capability::ComposedAbilityV1)
+        ));
+    }
+}
+
 #[test]
 fn feature_requests_reject_unreviewed_mechanics_and_ignore_profile_names() {
     let wipes = match_profile("commander-wipes-v1").unwrap();

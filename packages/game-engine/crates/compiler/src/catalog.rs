@@ -305,8 +305,18 @@ pub fn embedded_catalog(name: &str) -> Result<Catalog, CatalogError> {
         .iter()
         .find(|(m, ..)| *m == key)
         .ok_or_else(|| format!("missing reviewed IR for {key}"))?;
+    admit_reviewed(&manifest, embedded_file, ir, pinned).map(|(_, c)| c)
+}
+
+/// Admit reviewed IR for every row of a manifest, in place of lowering.
+fn admit_reviewed(
+    manifest: &Path,
+    read: impl Fn(&Path) -> Result<String, String>,
+    ir: &str,
+    pinned: &str,
+) -> Result<(CatalogManifest, Catalog), CatalogError> {
     let reviewed: Catalog = strict_read(ir)?;
-    let (_, catalog) = build_lowering(&manifest, embedded_file, &|file, _, raw| {
+    let (manifest_data, catalog) = build_lowering(manifest, read, &|file, _, raw| {
         let record: serde_json::Value = strict_read(raw)?;
         let id = record["oracleIdentity"]
             .as_str()
@@ -320,17 +330,52 @@ pub fn embedded_catalog(name: &str) -> Result<Catalog, CatalogError> {
     })?;
     if catalog.definitions.len() != reviewed.definitions.len()
         || catalog.schema_version != reviewed.schema_version
-        || digest(&catalog)? != *pinned
-        || digest(&reviewed)? != *pinned
+        || digest(&catalog)? != pinned
+        || digest(&reviewed)? != pinned
     {
-        return Err(format!("{key}: reviewed IR does not match its manifest and digest").into());
+        return Err(format!(
+            "{}: reviewed IR does not match its manifest and digest",
+            manifest.display()
+        )
+        .into());
     }
-    Ok(catalog)
+    Ok((manifest_data, catalog))
 }
+
+/// Whether any row of a manifest predates Archive R4 (has no resolution), so
+/// the manifest's catalog can only be its reviewed IR.
+fn predates_r4(
+    manifest: &Path,
+    read: impl Fn(&Path) -> Result<String, String>,
+) -> Result<bool, CatalogError> {
+    let data: CatalogManifest = strict_read(&read(manifest)?)?;
+    let base = manifest.parent().ok_or("manifest has no parent")?;
+    for file in &data.records {
+        let record: serde_json::Value = strict_read(&read(&relative(base, file))?)?;
+        if record.get("resolution").is_none_or(|r| r.is_null()) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Without --write this is a check, including exact expected JSON bytes.
 /// The digest hashes canonical IR; the manifest selects the fixture encoding.
 pub fn generate_catalog(path: &Path, write: bool) -> Result<serde_json::Value, CatalogError> {
-    let (manifest, catalog) = build_with(path, read_file)?;
+    // Rows that predate Archive R4 cannot be lowered: check their reviewed IR
+    // against the manifest's pins instead, and never regenerate it.
+    let (manifest, catalog) = if !write && predates_r4(path, read_file)? {
+        let data: CatalogManifest = strict_read(&read_file(path)?)?;
+        let base = path.parent().ok_or("manifest has no parent")?;
+        admit_reviewed(
+            path,
+            read_file,
+            &read_file(&relative(base, &data.expected_ir))?,
+            &read_file(&relative(base, &data.expected_digest))?,
+        )?
+    } else {
+        build_with(path, read_file)?
+    };
     let base = path.parent().ok_or("manifest has no parent")?;
     let expected = relative(base, &manifest.expected_ir);
     let digest_path = relative(base, &manifest.expected_digest);

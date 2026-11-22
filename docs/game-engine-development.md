@@ -263,7 +263,7 @@ sh scripts/engine-env.sh npm run engine:smoke:replay -- generated/NEW.json
 ```
 
 Artifact is create-new, <=65,536 bytes; no parent creation/replacement/symlink
-overwrite. Seedless, tracing-off smoke compiles five exact fixtures, admits
+overwrite. Seedless, tracing-off smoke loads the five reviewed base definitions, admits
 `ScenarioConfig::land_return()` (three cards/four seats), activates Island mana,
 passes priority through public observations/validation, replays every accepted
 prefix and atomically rejects stale tokens. Success artifacts are read back;

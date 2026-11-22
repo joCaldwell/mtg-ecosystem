@@ -646,15 +646,16 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
             return Err("invalid source label provenance".into());
         }
     }
-    // Whole-card characteristics the composition tables do not describe stay
-    // with their families: second faces, hybrid and X costs, snow,
-    // attachments and Sagas.
+    // Whole-card characteristics the composition tables do not describe
+    // reject: second faces, hybrid and X costs, snow, attachments and Sagas.
+    // CR 205.4: the basic supertype is admitted only on a land, whose shell
+    // below then requires the land's intrinsic mana (CR 305.6).
     if d.modal_land.is_some()
         || d.transform_faces.is_some()
         || !c.hybrid_mana.is_empty()
         || d.x_mana_cost
         || c.snow
-        || c.basic
+        || (c.basic && c.kind != CardKind::Land)
         || c.subtypes.iter().any(|s| {
             unsupported_rules_subtype(s)
                 || matches!(s.as_str(), "Aura" | "Equipment")
@@ -980,7 +981,7 @@ mod tests {
         equipped.capabilities = equipped.requirements();
         assert!(equipped.validate().is_err());
 
-        // Shell: attachments, snow and hybrid cards keep their families.
+        // Shell: attachments, snow, hybrid and basic nonland cards reject.
         let aura = with(|d| {
             d.activated.push(tap_gain());
             d.characteristics.subtypes = vec!["Aura".into()];
@@ -991,6 +992,11 @@ mod tests {
             d.characteristics.snow = true;
         });
         assert!(snow.validate().is_err());
+        let basic_nonland = with(|d| {
+            d.activated.push(tap_gain());
+            d.characteristics.basic = true;
+        });
+        assert!(basic_nonland.validate().is_err());
 
         // Provenance is checked exactly as for a family definition.
         let mut edited = valid.clone();

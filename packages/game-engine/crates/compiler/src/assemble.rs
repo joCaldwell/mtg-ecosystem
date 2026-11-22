@@ -15,8 +15,8 @@ pub(crate) fn shell(
     ast_sha256: String,
 ) -> Result<(Definition, SourceLabels), Failure> {
     let kind = types.kind;
-    // CR 118.6: an absent mana cost is not {0}. Hybrid and X costs keep their
-    // reviewed families.
+    // CR 118.6: an absent mana cost is not {0}. Hybrid and X costs have no
+    // block table row.
     if kind != CardKind::Land && source.mana_cost.is_empty() {
         return Err(unsupported(
             "source.mana_cost",
@@ -26,7 +26,7 @@ pub(crate) fn shell(
     if source.mana_cost.contains("{X}") || color_hybrid_cost(&source.mana_cost).is_some() {
         return Err(unsupported(
             "source.mana_cost",
-            "variable or hybrid costs require a reviewed family",
+            "variable or hybrid costs outside the block tables",
         ));
     }
     let power = source

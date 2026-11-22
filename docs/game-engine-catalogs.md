@@ -22,7 +22,15 @@ cargo run --locked -p mtg-sim -- catalog verify /path/to/accepted.jsonl packages
 ```
 
 `build` checks complete supported records, provenance pins, IR bytes and digest.
-`--write` regenerates both outputs. `--json-errors` emits a structured diagnostic
+`--write` regenerates both outputs by lowering every record, so it requires
+Archive R4 rows. Every committed catalog predates R4: its expected IR is frozen
+reviewed data that the compiler no longer reproduces. `build` without `--write`
+and `mtg_compiler::catalog::embedded_catalog` admit that IR instead, row by row:
+each definition must carry exactly the oracle, source, AST, binding and archive
+identity its provenance row pins for the same accepted record, and the catalog
+must validate and hash to the committed digest. Core embeds the same IR for
+profiles. Converting or retiring these catalogs belongs with the legacy
+`Instruction` variants they use. `--json-errors` emits a structured diagnostic
 on stderr. Coverage publishes both receipts together and preserves occupied
 destinations unless their receipts already match. Manifest fields are `schema_version: 1`,
 `provenance`, `records`, `expected_ir`, `expected_digest` and `output_order`:
@@ -168,34 +176,38 @@ Foundations and Ramos pod digests.
 
 The compiler is one pipeline: `ingest/` (hash-bound record, source, parse and
 typed AST mirror), `operands.rs` (total operand lowerers), `rules/` (effect,
-static, trigger and activation lowerers), `shells/` (Saga, modal/transforming
-faces, Bestow, optional costs, linked Hideaway) and `assemble.rs` (definition
-shell and admission), driven block by block by `compose.rs`. `families/` holds
-the residual whole-card families and the legacy diagnostic-graph builders
-(`bindings.rs`, `self_reference.rs`) that pre-R4 frozen fixture rows still need;
-`lib.rs` is only the public API and route. Families are tried first; retire one
-only when a whole-archive differential shows composition lowers its rows with
-equal IR and no fixture catalog row depends on it. A record whose shape no
-family supports falls back to `compose.rs`, which repeats the
-archive integrity checks, decodes the complete AST through the generated
-`mtg-oracle-ast` types and verifies the record's archive R4 resolution
-(`compiler/src/resolution.rs`, contract in the [parser guide](oracle_parser.md#ast-archive)):
-it must be complete; each reference's closed `Ref` role must be one the shared
-lowerer reads ("you" and implicit payers the block's controller, printed targets
-announced targets, other pronouns targets or results of the block's own steps,
-a kernel event player only under the one trigger that supplies it);
-the step map must be exactly the AST's steps; and each block's span certificate
-must tile its text, give every sentence its own span and print every top-level
-field. Composition never reads the diagnostic graph. Lowering then uses small
-tables: `compose/costs.rs`, `compose/events.rs`, `compose/keywords.rs`,
+static, trigger and activation lowerers, with `rules/procedures.rs` holding the
+whole-procedure shapes that still emit dedicated legacy instructions) and
+`assemble.rs` (definition shell and admission), driven block by block by
+`compose.rs`; `lib.rs` is only the public API. There are no whole-card families,
+diagnostic-graph builders or text recognizers, and no Saga, modal/transforming
+face, Bestow, optional-cost or linked-Hideaway shell: those mechanics reject
+until they are rebuilt as composition rows on Kernel IR. Every record goes
+through `compose.rs`, which checks archive integrity, decodes the complete AST
+through the generated `mtg-oracle-ast` types and verifies the record's archive
+R4 resolution (`compiler/src/resolution.rs`, contract in the
+[parser guide](oracle_parser.md#ast-archive)). A record without a resolution
+(every archive before R4) rejects at path `resolution`. The resolution must be
+complete; each reference's closed `Ref` role must be one the shared lowerer reads
+("you" and implicit payers the block's controller, printed targets announced
+targets, other pronouns targets or results of the block's own steps, a kernel
+event player only under the one trigger that supplies it); the step map must be
+exactly the AST's steps; and each block's span certificate must tile its text,
+give every sentence its own span and print every top-level field. Composition
+never reads the diagnostic graph. Lowering then uses small tables:
+`compose/costs.rs`, `compose/events.rs`, `compose/keywords.rs`,
 `compose/steps.rs` and the shared typed step lowerer. Unknown kinds, fields,
 operands and unconsumed references reject; a shape outside the lowering mirror
-is named by its verb. A family that recognised the source and refused its
-reference graph (path `binding`) has given an integrity verdict, which is final:
-only shape rejections fall back. A family rejection that composition does not
-recover keeps its original reason, so coverage reasons stay comparable.
+is named by its verb. "Draw N cards" lowers to N ordered single draws
+(CR 121.2) in every block kind, and a paid one-card basic land search to the
+tapped search instruction.
 
-The fallback also rejects "may", "up to" and "if"/"unless" against `optional`,
+The normalized source lines must equal the parsed blocks. When the parser
+groups the same printed lines differently (an ability-word "instead" rider kept
+with the block it modifies) the row is unsupported at path `lines`; text the
+parse does not account for is invalid.
+
+Composition also rejects "may", "up to" and "if"/"unless" against `optional`,
 `upTo` and a condition; a printed number absent from the block's AST; a cost
 term; an ability word the block does not print; and an evergreen keyword present
 in only one of the source keyword list and the AST. Hand-built test rows with
@@ -210,7 +222,7 @@ after them, `binding` the card-wide rejection and `block` the failing printed bl
 structs from `PermanentFilter::any()`, `TargetSpec::new` and `SpellProgram::instructions`
 (`contracts/src/builders.rs`), so a new field touches one constructor.
 
-Adding a primitive touches the row that owns it, not every family:
+Adding a primitive touches the row that owns it, not every card:
 
 | Primitive | Files |
 | --- | --- |

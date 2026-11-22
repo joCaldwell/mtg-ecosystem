@@ -18,8 +18,8 @@ pub(crate) struct Record {
     pub(crate) ast_sha256: Option<String>,
     pub(crate) binding: Box<RawValue>,
     pub(crate) binding_sha256: String,
-    /// Archive R4 (schema 4): the authoritative resolution. Absent from the
-    /// schema-3 fixture archives the whole-card families still read.
+    /// Archive R4 (schema 4): the authoritative resolution. Absent from older
+    /// archives, whose rows therefore reject.
     #[serde(default)]
     pub(crate) resolution: Option<Box<RawValue>>,
     #[serde(default)]

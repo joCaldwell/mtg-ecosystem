@@ -1,8 +1,8 @@
 //! A deliberately fixed, tiny developer probe. This is trusted diagnostic data,
 //! not a player API, full game, universal replay debugger, or acceptance gate.
 use crate::BUILD;
-use mtg_compiler::{CompileResult, compile, fixtures};
-use mtg_contracts::{Catalog, Color, Quantity, canonical, digest, sha256, strict_read};
+use mtg_compiler::fixtures;
+use mtg_contracts::{Color, Quantity, canonical, digest, sha256, strict_read};
 use mtg_core::{
     Advance, Budget, Game, Observation, PlayerId, PlayerRequest, PlayerResponse, Prepared,
     QueryRejection, QueryResult, QueryValue, ReplayJournal, ScenarioConfig, TraceMode,
@@ -63,32 +63,28 @@ fn identity() -> Value {
     })
 }
 fn prepare() -> Result<Prepared, String> {
-    // Admission still requires the five-definition historical base pool, even
-    // though this scenario has only three physical cards. Compile all five from
-    // their exact archive-bound sources; never substitute the expected IR.
-    let mut catalog = Catalog {
-        schema_version: mtg_contracts::CURRENT_IR_VERSION,
-        rules_edition: mtg_contracts::RULES_EDITION.into(),
-        rules_sha256: mtg_contracts::RULES_SHA256.into(),
-        definitions: vec![],
-    };
-    for (name, raw) in fixtures::RECORDS
+    // Admission requires the five-definition historical base pool, even though
+    // this scenario has only three physical cards. Those sources predate
+    // Archive R4, so the pool is their reviewed IR, admitted against the base
+    // manifest's pinned provenance and digest (`embedded_catalog`).
+    let catalog = mtg_compiler::catalog::embedded_catalog("base")
+        .map_err(|e| format!("base catalog: {}", short(&e.to_string())))?;
+    let mut sources = fixtures::RECORDS
         .iter()
         .filter(|(name, _)| SOURCE_NAMES.contains(name))
-    {
-        match compile(fixtures::MANIFEST, raw) {
-            CompileResult::Lowered { definition } => catalog.definitions.push(*definition),
-            other => {
-                return Err(format!(
-                    "source compilation {name}: {}",
-                    short(&format!("{other:?}"))
-                ));
-            }
-        }
-    }
-    catalog
+        .map(|(_, raw)| {
+            strict_read::<Value>(raw).map(|r| r["oracleIdentity"].as_str().map(str::to_owned))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    sources.sort();
+    let pool: Vec<_> = catalog
         .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        .iter()
+        .map(|d| Some(d.oracle_id.clone()))
+        .collect();
+    if pool != sources {
+        return Err("base catalog is not the five smoke sources".into());
+    }
     Prepared::admit(catalog, ScenarioConfig::land_return())
 }
 fn observe(game: &Game) -> Result<Observation, String> {

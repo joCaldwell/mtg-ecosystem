@@ -1,13 +1,11 @@
 //! Compositional lowering: one ability block at a time.
 //!
-//! The residual matchers in `families` recognise whole cards. This pipeline is
-//! the fallback when no family claims a record: every printed block is lowered
-//! independently from its complete typed AST by small tables (`costs`,
-//! `events`, `keywords`) plus the shared step lowerer, and the resulting
-//! definition is admitted only by `mtg_contracts::composition`.
+//! The only lowering pipeline: every printed block is lowered independently
+//! from its complete typed AST by small tables (`costs`, `events`,
+//! `keywords`) plus the shared step lowerer, and the resulting definition is
+//! admitted only by `mtg_contracts::composition`.
 //!
-//! Invariants kept from the family path: the exact archived source, AST and
-//! binding hashes; the normalized line/aggregate mirror; complete typed
+//! Invariants: the exact archived source, AST, binding and resolution hashes; the normalized line/aggregate mirror; complete typed
 //! decoding with unknown fields rejected; and an explicit rejection whenever a
 //! clause, operand or reference is not consumed. Nothing here reads a card
 //! name, an Oracle identity or a profile.
@@ -173,7 +171,7 @@ fn block_mirror_gap(raw: &str, error: &serde_json::Error) -> Failure {
     )
 }
 
-/// Sentence conditions and X bindings belong to reviewed families; the shared
+/// Sentence conditions and X bindings have no block table row; the shared
 /// step lowerer would reject them later, but reject here with a stable reason.
 fn plain_sentences(effects: &[Sentence]) -> Result<(), Failure> {
     if effects
@@ -182,14 +180,14 @@ fn plain_sentences(effects: &[Sentence]) -> Result<(), Failure> {
     {
         return Err(unsupported(
             "compose.effects",
-            "conditional or bound sentence requires a reviewed family",
+            "conditional or bound sentence outside the block tables",
         ));
     }
     Ok(())
 }
 
 /// Lower one block's sentences in printed order (CR 608.2c). A block made
-/// only of typed sentences uses the shared lowerer once, exactly as a family
+/// only of typed sentences uses the shared lowerer once, as one whole
 /// would. A block with table sentences lowers sentence by sentence; a typed
 /// damage pronoun is then rejected because its antecedent could be a table
 /// step the shared binder cannot see.
@@ -316,7 +314,7 @@ fn trigger(
     condition: Option<&SourceCondition>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
-    // The event table only adds self events the family lowerer keys to one
+    // The event table only adds self events the shared lowerer keys to one
     // card type; every other event keeps the shared trigger lowerer, which
     // also binds event players, damage quantities and intervening conditions.
     let Some(event) = events::lower(card, trigger) else {
@@ -502,7 +500,7 @@ fn compose(
     record: &str,
     mut deferred: Option<&mut Blockers>,
 ) -> Result<Definition, Failure> {
-    // Integrity: the same checks, in the same order, as the family path.
+    // Integrity: the exact record, source, parse and AST hashes.
     let SingleFace {
         record: r,
         shape,
@@ -669,7 +667,7 @@ fn compose(
                 } else if restriction.is_some() {
                     return Err(unsupported(
                         "restriction",
-                        "activation restriction requires a reviewed family",
+                        "activation restriction outside the block tables",
                     ));
                 } else {
                     labels.activated.push(label);
@@ -703,7 +701,7 @@ fn compose(
             _ => {
                 return Err(unsupported(
                     "compose.kind",
-                    "ability kind requires a reviewed family",
+                    "ability kind outside the block tables",
                 ));
             }
         }
