@@ -952,7 +952,7 @@ impl GameTestkit for Game {
         RulesTxn::has_target_domain(self, program, player, source)
     }
     fn history_charge(&self) -> usize {
-        RulesTxn::history_charge(self)
+        RulesTxn::history_charge(self).expect("valid fixture continuation")
     }
     fn initial_query_task(&self, query: &Query) -> Result<Task, QueryRejection> {
         RulesTxn::initial_query_task(self, query)
@@ -1003,7 +1003,7 @@ impl GameTestkit for Game {
         RulesTxn::mana_ability_used(self, source)
     }
     fn mana_continuation_charge(&self) -> usize {
-        RulesTxn::mana_continuation_charge(self)
+        RulesTxn::mana_continuation_charge(self).expect("valid fixture continuation")
     }
     fn matches_permanent_filter(
         &self,

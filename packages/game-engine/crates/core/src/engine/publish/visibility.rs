@@ -3210,9 +3210,15 @@ impl RulesTxn {
             Some((old, dirty)) if same_definitions => self.update_projection_index(old, dirty),
             _ => Arc::new(self.projection_index()),
         };
-        // A static ability can count other permanents or depend on attacker membership.
-        // Any board change in its presence starts a new layer epoch, as do changes to
-        // effect sources, bestow on the stack, and per-turn ability restrictions.
+        // Dependencies of project_visible_object, its derived characteristics and
+        // ability restrictions: the physical card/token definitions, entry copies
+        // and back faces above; the object incarnation and its dirty chunk; active
+        // effects, stack and bestow frame, turn number, mana uses, and combat below.
+        // Static sources can read other permanents, so a dirty board with a static
+        // source in either revision or an active effect invalidates the whole layer.
+        // Reusing a viewer row also requires unchanged viewer knowledge, the same
+        // issued handle, and no attachment or hideaway links (see stored_view).
+        // New inputs to either projection must participate in these checks.
         let clean_except = previous
             .as_ref()
             .filter(|old| {

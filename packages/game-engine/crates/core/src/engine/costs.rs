@@ -251,7 +251,7 @@ impl RulesTxn {
                 .characteristics
                 .hybrid_mana
                 .is_empty();
-        let choosing = matches!(self.underlying_mana_frame(&self.state.rules.frame),Frame::HybridCost {cast} if cast.stack_id==entry.id);
+        let choosing = matches!(self.underlying_mana_frame(&self.state.rules.frame)?,Frame::HybridCost {cast} if cast.stack_id==entry.id);
         if choosing && (!needs_choice || entry.paid.is_some())
             || (!entry.hybrid_colors.is_empty()) != (needs_choice && !choosing)
         {
@@ -268,7 +268,7 @@ impl RulesTxn {
             };
         }
         if let Some(lock) = &entry.cost_lock {
-            if matches!(self.underlying_mana_frame(&self.state.rules.frame),
+            if matches!(self.underlying_mana_frame(&self.state.rules.frame)?,
                 Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Modes {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
             {
                 return Err("spell cost locked before announcement choices".into());
@@ -289,7 +289,7 @@ impl RulesTxn {
             }
             return Ok(());
         }
-        let frame = self.underlying_mana_frame(&self.state.rules.frame);
+        let frame = self.underlying_mana_frame(&self.state.rules.frame)?;
         if entry.paid.is_none()
             && matches!(frame,
             Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Modes {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)

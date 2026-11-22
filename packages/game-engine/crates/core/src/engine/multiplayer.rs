@@ -381,7 +381,7 @@ impl RulesTxn {
         // A departure can remove a legend or change a controller while choices
         // are pending. Recompute the entire SBA wave; no stale keep survives.
         if let Frame::LegendRule { resume, .. } = &self.state.rules.frame {
-            let resume = self.saved_frame(*resume).clone();
+            let resume = self.saved_frame(*resume)?.clone();
             self.rules_mut().pending = None;
             self.rules_mut().frame = resume;
         }

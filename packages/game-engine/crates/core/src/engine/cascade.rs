@@ -762,7 +762,7 @@ impl RulesTxn {
     }
     pub(super) fn validate_cascade_state(&self) -> Result<(), String> {
         let (progress, permission, announcing) = match self
-            .underlying_mana_frame(&self.state.rules.frame)
+            .underlying_mana_frame(&self.state.rules.frame)?
         {
             Frame::PlayHideawayLinked { progress } => {
                 return self.validate_linked_play(progress, None);

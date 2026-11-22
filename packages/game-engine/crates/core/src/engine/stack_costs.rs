@@ -338,7 +338,7 @@ impl RulesTxn {
             },
         };
         let program = self.program_for(entry)?;
-        let announcing = match self.underlying_mana_frame(&self.state.rules.frame) {
+        let announcing = match self.underlying_mana_frame(&self.state.rules.frame)? {
             Frame::Modes { cast }
             | Frame::Targets { cast }
             | Frame::PlayerTargets { cast }

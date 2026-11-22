@@ -418,7 +418,7 @@ impl RulesTxn {
                 resume,
                 cleanup,
                 changed,
-            } => self.stabilization_wave(self.saved_frame(resume).clone(), cleanup, changed)?,
+            } => self.stabilization_wave(self.saved_frame(resume)?.clone(), cleanup, changed)?,
             _ => return Err("invalid combat continuation".into()),
         }
         Ok(())
@@ -710,7 +710,7 @@ impl RulesTxn {
         }
         if occurrences.is_empty()
             && losses.is_empty()
-            && self.begin_trigger_placement(self.saved_frame(parent).clone(), cleanup, changed)?
+            && self.begin_trigger_placement(self.saved_frame(parent)?.clone(), cleanup, changed)?
         {
             return Ok(());
         }
@@ -726,7 +726,7 @@ impl RulesTxn {
                 self.rules_mut().cleanup_repeat = true;
                 Frame::Priority
             } else {
-                self.saved_frame(parent).clone()
+                self.saved_frame(parent)?.clone()
             };
             if cleanup && changed && matches!(self.state.rules.frame, Frame::Priority) {
                 self.rules_mut().priority = self

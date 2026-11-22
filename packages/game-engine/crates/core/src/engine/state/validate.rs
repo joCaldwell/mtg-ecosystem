@@ -30,9 +30,14 @@ impl RulesTxn {
     pub(crate) fn validate_state(&self) -> Result<(), RuleError> {
         self.validate_stack_links()?;
         let rules = &self.state.rules;
-        for frame in rules.frames.iter().chain(std::iter::once(&rules.frame)) {
+        for (depth, frame) in rules
+            .frames
+            .iter()
+            .chain(std::iter::once(&rules.frame))
+            .enumerate()
+        {
             if let Frame::Kernel { task } = frame {
-                self.validate_kernel_task(task)?;
+                self.validate_kernel_task(task, depth)?;
             }
         }
         self.validate_match_state()?;
@@ -202,7 +207,7 @@ impl RulesTxn {
             }
             let incomplete_top = index + 1 == s.rules.stack.len()
                 && (matches!(
-                    self.underlying_mana_frame(&s.rules.frame),
+                    self.underlying_mana_frame(&s.rules.frame)?,
                     Frame::TriggerTargets { .. }
                         | Frame::AdditionalCosts { .. }
                         | Frame::HybridCost { .. }
@@ -217,7 +222,7 @@ impl RulesTxn {
                         | Frame::SacrificeCost { .. }
                         | Frame::Payment { .. }
                 ) || (matches!(
-                    self.underlying_mana_frame(&s.rules.frame),
+                    self.underlying_mana_frame(&s.rules.frame)?,
                     Frame::Finished { .. } | Frame::Fault { .. }
                 ) && stack.paid.is_none()
                     && !self.is_spell_copy(stack)));
@@ -253,7 +258,7 @@ impl RulesTxn {
         {
             self.validate_resolution_payment(frame, payment)?;
         }
-        match self.underlying_mana_frame(&s.rules.frame) {
+        match self.underlying_mana_frame(&s.rules.frame)? {
             Frame::AdditionalCosts { cast }
             | Frame::HybridCost { cast }
             | Frame::AnnounceX { cast }
@@ -269,7 +274,7 @@ impl RulesTxn {
                 let top = self.top()?;
                 if (!cast.sacrifices.is_empty()
                     && !matches!(
-                        self.underlying_mana_frame(&s.rules.frame),
+                        self.underlying_mana_frame(&s.rules.frame)?,
                         Frame::SacrificeCost { .. }
                     ))
                     || cast.origin.is_spell() != top.kind.is_spell()
@@ -293,7 +298,7 @@ impl RulesTxn {
                             || (a.permanent.is_none() && a.amount != Quantity::from(1))
                     })
                     || (matches!(
-                        self.underlying_mana_frame(&s.rules.frame),
+                        self.underlying_mana_frame(&s.rules.frame)?,
                         Frame::AdditionalCosts { .. }
                             | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
@@ -304,13 +309,13 @@ impl RulesTxn {
                             | Frame::StackTargets { .. }
                     ) && (!cast.mana_activations.is_empty() || cast.undo_mana))
                     || (matches!(
-                        self.underlying_mana_frame(&s.rules.frame),
+                        self.underlying_mana_frame(&s.rules.frame)?,
                         Frame::Mana { .. }
                     ) && cast.undo_mana)
                 {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
-                let stage = self.underlying_mana_frame(&s.rules.frame);
+                let stage = self.underlying_mana_frame(&s.rules.frame)?;
                 let target_stage = matches!(
                     stage,
                     Frame::EntityTargets { .. }
@@ -361,7 +366,7 @@ impl RulesTxn {
                     return Err("snapshot announcement target invariant".into());
                 }
                 if matches!(
-                    self.underlying_mana_frame(&s.rules.frame),
+                    self.underlying_mana_frame(&s.rules.frame)?,
                     Frame::Mana { .. }
                         | Frame::SpendMana { .. }
                         | Frame::SacrificeCost { .. }

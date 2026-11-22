@@ -454,13 +454,11 @@ impl RulesTxn {
                             BatchCause::CommanderReturn,
                             EventGroup::Simultaneous { occurrences },
                         )?;
-                        if let Frame::Stabilize { changed, .. } =
-                            &mut self.rules_mut().frames[resume.0]
-                        {
+                        if let Frame::Stabilize { changed, .. } = self.saved_frame_mut(resume)? {
                             *changed = true;
                         }
                     }
-                    self.rules_mut().frame = self.saved_frame(resume).clone();
+                    self.rules_mut().frame = self.saved_frame(resume)?.clone();
                 }
             }
             CommanderContinuation::StateBased { resume } => {
@@ -470,12 +468,11 @@ impl RulesTxn {
                         Zone::Command { owner },
                         BatchCause::CommanderReturn,
                     )?;
-                    if let Frame::Stabilize { changed, .. } = &mut self.rules_mut().frames[resume.0]
-                    {
+                    if let Frame::Stabilize { changed, .. } = self.saved_frame_mut(resume)? {
                         *changed = true;
                     }
                 }
-                self.rules_mut().frame = self.saved_frame(resume).clone();
+                self.rules_mut().frame = self.saved_frame(resume)?.clone();
             }
         }
         Ok(())
@@ -777,7 +774,7 @@ impl RulesTxn {
                         .collect::<Vec<_>>();
                     if ids.len() > self.state.rules.commanders.records.len()
                         || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
-                        || !matches!(self.saved_frame(*resume), Frame::Stabilize { .. })
+                        || !matches!(self.saved_frame(*resume)?, Frame::Stabilize { .. })
                         || current.zone != *destination
                         || !matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
                     {
@@ -811,7 +808,7 @@ impl RulesTxn {
                 CommanderContinuation::StateBased { resume } => {
                     if current.zone != *destination
                         || !matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
-                        || !matches!(self.saved_frame(*resume), Frame::Stabilize { .. })
+                        || !matches!(self.saved_frame(*resume)?, Frame::Stabilize { .. })
                     {
                         return Err("snapshot commander SBA continuation invariant".into());
                     }

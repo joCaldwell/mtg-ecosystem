@@ -284,12 +284,25 @@ impl RulesTxn {
                 )),
             ) = self.request_header(viewer)
         {
-            return QueryResult::Complete(QueryValue::Observation(Observation {
+            let observation = Observation {
                 observation_version: crate::formats::OBSERVATION_VERSION,
                 decision_context: self.permitted_decision_context(viewer, decision.as_ref()),
                 view: row.to_public(),
                 decision,
-            }));
+            };
+            #[cfg(debug_assertions)]
+            {
+                let QueryResult::Complete(QueryValue::Observation(full)) =
+                    self.resume_work(work, budget)
+                else {
+                    panic!("committed observation exceeded its builder budget or was rejected");
+                };
+                assert_eq!(
+                    observation, full,
+                    "committed observation differs from full builder"
+                );
+            }
+            return QueryResult::Complete(QueryValue::Observation(observation));
         }
         self.resume_work(work, budget)
     }

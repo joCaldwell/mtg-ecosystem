@@ -356,7 +356,7 @@ macro_rules! frame_parent {
         match self {
             Self::ResolutionPayment {payment, ..} => match &$($mutable)? payment.purpose {
                 resolution_payment::PaymentPurpose::Kernel {resume} => Some((resume, Hold::Resolving)),
-                _ => None,
+                resolution_payment::PaymentPurpose::Counter { .. } | resolution_payment::PaymentPurpose::CastPayerDraw => None,
             },
             Self::Kernel { task } => Some((&$($mutable)? task.resume, Hold::Resolving)),
             Self::Stabilize { resume, .. } | Self::LegendRule { resume, .. } => {
@@ -367,7 +367,7 @@ macro_rules! frame_parent {
             Self::GraveyardGroup { tx } => match &$($mutable)? tx.finish {
                 GroupFinish::StateBased { resume, .. } => Some((resume, Hold::Resolving)),
                 GroupFinish::Payment { resume } => Some((resume, Hold::Suspended)),
-                _ => None,
+                GroupFinish::Cleanup | GroupFinish::Instruction { .. } => None,
             },
             Self::CommanderReturn {
                 continuation:
@@ -383,10 +383,54 @@ macro_rules! frame_parent {
                     DamageContinuation::Mana { activation, .. } => {
                         Some((&$($mutable)? activation.resume, Hold::Suspended))
                     }
-                    _ => None,
+                    DamageContinuation::Combat | DamageContinuation::Instruction { .. } => None,
                 }
             }
-            _ => None,
+            Self::CommanderReturn { continuation: CommanderContinuation::CascadeBottom { .. }
+                | CommanderContinuation::GraveyardShuffle { .. }
+                | CommanderContinuation::HandReturn { .. }
+                | CommanderContinuation::LookTopMana { .. }
+                | CommanderContinuation::LibrarySelect { .. }
+                | CommanderContinuation::BoardReturn { .. }
+                | CommanderContinuation::SpellMove { .. }
+                | CommanderContinuation::ResolutionDraw { .. }
+                | CommanderContinuation::Draw { .. }, .. }
+            | Self::GraveyardReplacement { .. }
+            | Self::PlayHideawayLinked { .. }
+            | Self::LandEntry { .. }
+            | Self::RevealAndCast { .. }
+            | Self::HandCast { .. }
+            | Self::Cascade { .. }
+            | Self::AdditionalCosts { .. }
+            | Self::AnnounceX { .. }
+            | Self::HybridCost { .. }
+            | Self::SacrificeCost { .. }
+            | Self::ForcedSacrifice { .. }
+            | Self::OptionalDamage { .. }
+            | Self::Setup
+            | Self::Modes { .. }
+            | Self::CounterPlacement { .. }
+            | Self::EntityTargets { .. }
+            | Self::StackTargets { .. }
+            | Self::PlayerTargets { .. }
+            | Self::SpendMana { .. }
+            | Self::ResolutionChoice { .. }
+            | Self::Attackers
+            | Self::Blockers { .. }
+            | Self::Damage
+            | Self::DamageChoice { .. }
+            | Self::Discard { .. }
+            | Self::CleanupClear
+            | Self::Draw
+            | Self::Priority
+            | Self::Transition
+            | Self::EnterStep
+            | Self::Targets { .. }
+            | Self::Mana { .. }
+            | Self::Payment { .. }
+            | Self::Resolve { .. }
+            | Self::Fault { .. }
+            | Self::Finished { .. } => None,
         }
     }
 
@@ -612,8 +656,21 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    pub(in crate::engine) fn saved_frame(&self, link: FrameLink) -> &Frame {
-        &self.state.rules.frames[link.0]
+    pub(in crate::engine) fn saved_frame(&self, link: FrameLink) -> Result<&Frame, String> {
+        self.state
+            .rules
+            .frames
+            .get(link.0)
+            .ok_or_else(|| "invalid saved frame link".into())
+    }
+    pub(in crate::engine) fn saved_frame_mut(
+        &mut self,
+        link: FrameLink,
+    ) -> Result<&mut Frame, String> {
+        self.rules_mut()
+            .frames
+            .get_mut(link.0)
+            .ok_or_else(|| "invalid saved frame link".into())
     }
     pub(in crate::engine) fn save_frame(&mut self, frame: Frame) -> FrameLink {
         let frames = &mut self.rules_mut().frames;
@@ -624,16 +681,22 @@ impl RulesTxn {
 
     /// Rule routines may still read the installed frame while preparing its
     /// successor. Drop abandoned branches only once that successor is installed.
-    pub(in crate::engine) fn retire_returned_frames(&mut self) {
+    pub(in crate::engine) fn retire_returned_frames(&mut self) -> Result<(), String> {
         let base = self
             .kernel_leaf
             .as_ref()
             .map_or(0, |leaf| leaf.marker.0 + 1);
         let rules = self.rules_mut();
+        if base > rules.frames.len() {
+            return Err("invalid kernel leaf marker".into());
+        }
         let Some((top, _)) = rules.frame.parent() else {
             rules.frames.truncate(base);
-            return;
+            return Ok(());
         };
+        if top.0 < base || top.0 >= rules.frames.len() {
+            return Err("invalid saved frame link".into());
+        }
         rules.frames.truncate(top.0 + 1);
         if rules
             .frames
@@ -644,11 +707,14 @@ impl RulesTxn {
                 frame.parent().map(|(link, _)| link.0) == (depth > base).then(|| depth - 1)
             })
         {
-            return;
+            return Ok(());
         }
         let mut path = vec![top.0];
         let mut next = top;
         while let Some((parent, _)) = rules.frames[next.0].parent() {
+            if parent.0 < base || parent.0 >= next.0 {
+                return Err("invalid saved frame ancestry".into());
+            }
             path.push(parent.0);
             next = parent;
         }
@@ -660,6 +726,7 @@ impl RulesTxn {
             }
         }
         rules.frames.truncate(base + path.len());
-        rules.frame.parent_mut().expect("saved parent").0.0 = base + path.len() - 1;
+        rules.frame.parent_mut().ok_or("missing saved parent")?.0.0 = base + path.len() - 1;
+        Ok(())
     }
 }

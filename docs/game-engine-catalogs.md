@@ -99,9 +99,9 @@ edits. A new production module edits a watched `mod` declaration; a new
 Core wire/persistence versions (`SNAPSHOT_VERSION`, `OBSERVATION_VERSION`,
 `WORK_VERSION` and the search envelopes) have one owner,
 `crates/core/src/formats.rs`. `formats_tests` pins the Observation schema and
-Snapshot/SavedWork shape fingerprints (Snapshot samples include a game paused in
-a resolving spell's choice) and names the constant to bump. Tests import
-the constants; only deliberate historical forgeries keep literal versions.
+Snapshot/SavedWork shape fingerprints. Snapshot samples include a resolving
+spell choice and a nested Kernel-IR control choice with saved continuations.
+Tests import the constants. Deliberate historical forgeries use literal versions.
 
 `python3 scripts/engine-structure-check.py` verifies declared direct dependency
 boundaries (including target/workspace/alias tables and dev-dependencies: core

@@ -118,6 +118,27 @@ fn nested_controls_restore_and_replay_at_live_choices() {
             answer(game, Response::OptionalEffect { perform: true });
             game.validate_state().unwrap();
         }
+        assert!(matches!(
+            game.advance(Budget::unlimited()),
+            Advance::AwaitingDecision(Request::Mana { .. })
+        ));
+        assert!(
+            game.state
+                .rules
+                .frames
+                .iter()
+                .any(|f| matches!(f, Frame::Kernel { .. }))
+        );
+        let payment_charge = game
+            .state
+            .rules
+            .frames
+            .iter()
+            .filter(|f| !matches!(f, Frame::Kernel { .. }))
+            .chain(std::iter::once(&game.state.rules.frame))
+            .map(stored_history::payload_charge)
+            .sum::<usize>();
+        assert_eq!(game.mana_continuation_charge(), payment_charge);
         answer(game, Response::FinishMana { undo_mana: false });
         answer(
             game,
@@ -199,15 +220,36 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
                 object: candidates[0],
             },
         );
-        let next = g.advance(Budget::unlimited());
-        // The scenario commander can be selected for the sacrifice.
-        if matches!(
-            next,
-            Advance::AwaitingDecision(Request::CommanderReturn { .. })
-        ) {
-            answer(g, Response::CommanderReturn { to_command: false });
-            g.advance(Budget::unlimited());
+        // Inspect the instruction boundary before resolving the rest of the spell.
+        // The moving object may be a commander whose owner must choose a zone.
+        for _ in 0..64 {
+            match g.advance(Budget::new(1)) {
+                Advance::AwaitingDecision(Request::CommanderReturn { .. }) => {
+                    answer(g, Response::CommanderReturn { to_command: false });
+                }
+                Advance::Suspended { .. } => {}
+                other => panic!("missing completed control instruction: {other:?}"),
+            }
+            if let Frame::Resolve { frame } = &g.state.rules.frame
+                && frame.cursor == 1
+                && g.state.rules.frames.is_empty()
+            {
+                break;
+            }
         }
+        let Frame::Resolve { frame } = &g.state.rules.frame else {
+            panic!("missing completed instruction")
+        };
+        let [InstructionOutcome::Kernel { outcomes }] = frame.outcomes.as_slice() else {
+            panic!("lost control outcomes")
+        };
+        assert!(matches!(outcomes.as_slice(), [
+            InstructionOutcome::Sacrificed { player: p, movement: Some(movement) },
+            InstructionOutcome::Life { actual: Some(EventOutcome::LifeGained { player: PlayerId(0), amount, .. }) }
+        ] if *p == player && movement.previous == candidates[0] && *amount == Quantity::from(4)));
+        g.validate_state().unwrap();
+        let roundtrip = Game::restore(prepared.clone(), &g.snapshot().unwrap()).unwrap();
+        assert_eq!(roundtrip.state_digest().unwrap(), g.state_digest().unwrap());
         assert!(g.state.rules.frames.is_empty());
         let mut expected = before.clone();
         expected.add(&4.into());
@@ -217,5 +259,20 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
     assert_eq!(
         game.state_digest().unwrap(),
         restored.state_digest().unwrap()
+    );
+}
+
+#[test]
+fn missing_kernel_parent_rejects_the_step() {
+    let mut game = suspended_control();
+    game.state.rules.frames.clear();
+    assert!(game.validate_state().is_err());
+    game.state.rules.frame = Frame::Stabilize {
+        resume: FrameLink(usize::MAX),
+        cleanup: false,
+        changed: false,
+    };
+    assert!(
+        matches!(game.advance(Budget::new(1)), Advance::Fault(reason) if reason.contains("invalid continuation stack link"))
     );
 }

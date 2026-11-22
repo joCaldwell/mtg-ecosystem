@@ -7,6 +7,14 @@ impl Game {
         mut budget: Budget,
         processed: &mut Vec<InputProcessingFact>,
     ) -> Advance {
+        // Check before even looking up a pending decision: that and retention
+        // metering traverse saved frames. Each subsequent step retires its own
+        // links before installing its successor.
+        if (!self.state.rules.frames.is_empty() || self.state.rules.frame.parent().is_some())
+            && let Err(error) = self.validate_stack_links()
+        {
+            return self.enter_fault(error);
+        }
         loop {
             if let Frame::Finished { winner } = self.state.rules.frame {
                 return Advance::Finished { winner };

@@ -17,6 +17,9 @@ enum Stage {
     #[default]
     Run,
     Leaf,
+    Complete {
+        outcomes: Vec<InstructionOutcome>,
+    },
     Optional {
         chooser: PlayerId,
     },
@@ -68,7 +71,7 @@ impl Task {
 
     fn chooser(&self) -> Option<PlayerId> {
         match self.stage {
-            Stage::Run | Stage::Leaf => None,
+            Stage::Run | Stage::Leaf | Stage::Complete { .. } => None,
             Stage::Optional { chooser } | Stage::Choose { chooser, .. } => Some(chooser),
             Stage::Life { payer, .. } => Some(payer),
         }
@@ -78,12 +81,22 @@ impl Task {
 impl RulesTxn {
     pub(super) fn begin_kernel_control(&mut self, frame: Resolving) -> Result<(), String> {
         let resume = self.save_frame(Frame::Resolve { frame });
-        self.install_kernel(Task {
+        let root = Task {
             resume,
             path: Vec::new(),
             bindings: BTreeMap::new(),
+            stage: Stage::Complete {
+                outcomes: Vec::new(),
+            },
+        };
+        let mut task = Task {
             stage: Stage::Run,
+            ..root.clone()
+        };
+        task.resume = self.save_frame(Frame::Kernel {
+            task: Box::new(root),
         });
+        self.install_kernel(task);
         Ok(())
     }
 
@@ -274,16 +287,32 @@ impl RulesTxn {
     }
 
     fn return_kernel(&mut self, resume: FrameLink) -> Result<(), String> {
-        match self.saved_frame(resume).clone() {
-            Frame::Resolve { frame } => {
-                self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-            }
-            frame @ Frame::Kernel { .. } => {
-                self.rules_mut().frame = frame;
-                Ok(())
-            }
-            _ => Err("invalid kernel return frame".into()),
+        let Frame::Kernel { task } = self.saved_frame(resume)?.clone() else {
+            return Err("invalid kernel return frame".into());
+        };
+        if let Stage::Complete { mut outcomes } = task.stage {
+            let outcome = match outcomes.len() {
+                0 => InstructionOutcome::Effect { actual: None },
+                1 => outcomes.remove(0),
+                _ => InstructionOutcome::Kernel { outcomes },
+            };
+            self.finish_instruction(self.kernel_root()?.clone(), outcome)
+        } else {
+            self.install_kernel(*task);
+            Ok(())
         }
+    }
+
+    /// The saved resolving invocation is followed by the task that collects
+    /// this instruction's leaf results in execution order, across suspensions.
+    fn kernel_results(&mut self) -> Result<&mut Vec<InstructionOutcome>, String> {
+        let Some(Frame::Kernel { task }) = self.rules_mut().frames.get_mut(1) else {
+            return Err("missing kernel completion".into());
+        };
+        let Stage::Complete { outcomes } = &mut task.stage else {
+            return Err("missing kernel result collector".into());
+        };
+        Ok(outcomes)
     }
 
     fn schedule(
@@ -353,13 +382,31 @@ impl RulesTxn {
             })
     }
 
-    pub(in crate::engine) fn validate_kernel_task(&self, task: &Task) -> Result<(), String> {
+    pub(in crate::engine) fn validate_kernel_task(
+        &self,
+        task: &Task,
+        depth: usize,
+    ) -> Result<(), String> {
         let (node, _) = self.node_at(task)?;
         self.validate_resolving(self.kernel_root()?)?;
         if task.chooser().is_some_and(|p| p.0 >= 4) {
             return Err("invalid kernel chooser".into());
         }
+        if !matches!(task.stage, Stage::Complete { .. })
+            && !matches!(self.state.rules.frames.get(1), Some(Frame::Kernel { task }) if matches!(task.stage, Stage::Complete { .. }))
+        {
+            return Err("missing kernel completion".into());
+        }
         match (&task.stage, node) {
+            (Stage::Complete { .. }, _)
+                if task.resume == FrameLink(0)
+                    && task.path.is_empty()
+                    && task.bindings.is_empty()
+                    && depth == 1
+                    && depth < self.state.rules.frames.len() =>
+            {
+                Ok(())
+            }
             (Stage::Leaf, Node::Do(_))
             | (Stage::Run, _)
             | (Stage::Optional { .. }, Node::Optional { .. })
@@ -438,7 +485,9 @@ impl RulesTxn {
                     };
                     self.choose_next(task, var, player, remaining, selected, minimum, maximum)?;
                 }
-                Stage::Run | Stage::Leaf => return Err("unexpected kernel input".into()),
+                Stage::Run | Stage::Leaf | Stage::Complete { .. } => {
+                    return Err("unexpected kernel input".into());
+                }
             }
             return Ok(());
         }
@@ -563,10 +612,16 @@ impl RulesTxn {
                         })
                         .collect::<Vec<_>>();
                     if !occurrences.is_empty() {
-                        self.commit_batch(
+                        let batch = self.commit_batch(
                             self.instruction_cause(self.kernel_root()?, block)?,
                             EventGroup::Simultaneous { occurrences },
                         )?;
+                        self.kernel_results()?
+                            .extend(batch.occurrences.into_iter().map(|event| {
+                                InstructionOutcome::Life {
+                                    actual: Some(event.actual),
+                                }
+                            }));
                     }
                 }
                 self.return_kernel(task.resume)?;
@@ -583,7 +638,7 @@ impl RulesTxn {
         &self,
         resume: FrameLink,
     ) -> Result<(PlayerId, u32), String> {
-        let Frame::Kernel { task } = self.saved_frame(resume) else {
+        let Frame::Kernel { task } = self.saved_frame(resume)? else {
             return Err("missing kernel payment parent".into());
         };
         let (
@@ -609,7 +664,7 @@ impl RulesTxn {
         resume: FrameLink,
         paid: bool,
     ) -> Result<(), String> {
-        let Frame::Kernel { task } = self.saved_frame(resume) else {
+        let Frame::Kernel { task } = self.saved_frame(resume)? else {
             return Err("invalid kernel payment parent".into());
         };
         if paid {
@@ -718,10 +773,28 @@ impl RulesTxn {
         let root = self.kernel_root()?;
         if matches!(&self.state.rules.frame, Frame::Resolve {frame} if frame.stack_id == root.stack_id && frame.cursor > root.cursor)
         {
-            let Frame::Kernel { task } = self.saved_frame(marker) else {
+            let Frame::Kernel { task } = self.saved_frame(marker)? else {
                 return Err("missing kernel leaf marker".into());
             };
             let resume = task.resume;
+            let cursor = root.cursor;
+            let Frame::Resolve { mut frame } = self.working_frame() else {
+                return Err("missing completed kernel leaf".into());
+            };
+            if frame.cursor.checked_sub(1) != Some(cursor)
+                || frame.outcomes.len() != frame.cursor as usize
+            {
+                return Err("invalid kernel leaf completion".into());
+            }
+            let outcome = frame.outcomes.pop().ok_or("missing kernel leaf outcome")?;
+            frame.cursor = cursor;
+            self.kernel_results()?.push(outcome);
+            // Carry the native executor's updated facts and progress back to
+            // the invocation. Only the outer instruction advances this cursor.
+            let Some(Frame::Resolve { frame: root }) = self.rules_mut().frames.first_mut() else {
+                return Err("missing kernel invocation".into());
+            };
+            *root = frame;
             self.kernel_leaf = None;
             self.return_kernel(resume)?;
         } else if !self

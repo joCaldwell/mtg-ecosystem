@@ -17,7 +17,7 @@ impl RulesTxn {
         if self.kernel_leaf.is_some() {
             self.resume_finished_kernel_leaf()?;
         }
-        self.retire_returned_frames();
+        self.retire_returned_frames()?;
         self.release_detached();
         Ok(())
     }
@@ -184,7 +184,7 @@ impl RulesTxn {
                 player,
                 source,
                 scope,
-                self.saved_frame(resume).clone(),
+                self.saved_frame(resume)?.clone(),
             )?,
             Frame::ManaAbility { activation } => self.permanent_mana_step(*activation)?,
             Frame::Payment { cast } => self.payment_step(cast)?,

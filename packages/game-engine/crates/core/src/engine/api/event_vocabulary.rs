@@ -578,6 +578,9 @@ pub enum EventOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InstructionOutcome {
+    Kernel {
+        outcomes: Vec<InstructionOutcome>,
+    },
     OptionalBlock {
         accepted_by: Option<PlayerId>,
     },
