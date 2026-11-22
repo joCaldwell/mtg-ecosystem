@@ -226,8 +226,8 @@ or about this app.
 
 ## Deck editor and inspection
 
-Add cards shares the toolbar with find, tags, Group and Sort; on tablets it gets
-its own row. `/` focuses Add cards, Enter adds, Shift+Enter shortlists and keeps
+Toolbar and active filters use the deck canvas with a single bottom hairline.
+Add cards gets its own tablet row. `/` focuses it, Enter adds, Shift+Enter shortlists and keeps
 results, and Escape returns focus to the input. Fit results within the viewport.
 Only current query/scope results are actionable. Loading, errors and empty results
 are statuses.

@@ -1,5 +1,4 @@
-/* The list area's first line: the toolbar's surface over a hairline. */
-.summary { display: flex; flex: none; align-items: center; gap: var(--s-4); padding: var(--s-3) var(--s-6); border-bottom: 1px solid var(--line); background: var(--surface); }
+.summary { display: flex; flex: none; align-items: center; gap: var(--s-4); padding: var(--s-3) var(--s-6); border-block-end: 1px solid var(--line); background: var(--bg); }
 .query { max-width: var(--toolbar-search-max); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .summary > *:not(.query) { flex: none; }
 .count { color: var(--text-soft); }
