@@ -2751,10 +2751,14 @@ impl RulesTxn {
         viewer: PlayerId,
         key: &EffectKey,
     ) -> Result<EffectHandle, String> {
-        self.effect_handle_id(viewer,key).map(EffectHandle::from)
+        self.effect_handle_id(viewer, key).map(EffectHandle::from)
     }
 
-    fn effect_handle_id(&self, viewer: PlayerId, key: &EffectKey) -> Result<&publish::HandleId<b'e'>,String> {
+    fn effect_handle_id(
+        &self,
+        viewer: PlayerId,
+        key: &EffectKey,
+    ) -> Result<&publish::HandleId<b'e'>, String> {
         self.state
             .knowledge
             .visibility
@@ -2823,11 +2827,15 @@ impl RulesTxn {
         viewer: PlayerId,
         key: &EffectKey,
     ) -> Result<VisibleEffect, String> {
-        self.project_effect(viewer,key)
+        self.project_effect(viewer, key)
     }
 
-    fn project_effect<H: for<'a> From<&'a publish::HandleId<b'e'>>>(&self,viewer: PlayerId,key: &EffectKey) -> Result<VisibleEffect<H>,String> {
-        let handle = H::from(self.effect_handle_id(viewer,key)?);
+    fn project_effect<H: for<'a> From<&'a publish::HandleId<b'e'>>>(
+        &self,
+        viewer: PlayerId,
+        key: &EffectKey,
+    ) -> Result<VisibleEffect<H>, String> {
+        let handle = H::from(self.effect_handle_id(viewer, key)?);
         let origin = self.effect_origin_view(viewer, key)?;
         let EffectKey::Resolved { id } = key else {
             let EffectKey::Static { source, ability } = key else {

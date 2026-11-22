@@ -34,10 +34,10 @@ pub struct VisibleAbility<H = StackHandle> {
 impl<H> VisibleAbility<H> {
     pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleAbility<T> {
         VisibleAbility {
-handle: convert(self.handle),
-source: self.source,
-oracle_id: self.oracle_id,
-ability: self.ability,
+            handle: convert(self.handle),
+            source: self.source,
+            oracle_id: self.oracle_id,
+            ability: self.ability,
         }
     }
 }
@@ -81,10 +81,10 @@ pub struct VisibleTriggered<H = StackHandle> {
 impl<H> VisibleTriggered<H> {
     pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleTriggered<T> {
         VisibleTriggered {
-handle: convert(self.handle),
-source: self.source,
-oracle_id: self.oracle_id,
-ability: self.ability,
+            handle: convert(self.handle),
+            source: self.source,
+            oracle_id: self.oracle_id,
+            ability: self.ability,
         }
     }
 }
@@ -229,8 +229,8 @@ pub struct VisibleStackTarget<H = StackHandle> {
 impl<H> VisibleStackTarget<H> {
     pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleStackTarget<T> {
         VisibleStackTarget {
-announced: convert(self.announced),
-current: self.current.map(&mut convert),
+            announced: convert(self.announced),
+            current: self.current.map(&mut convert),
         }
     }
 }
@@ -288,24 +288,28 @@ pub struct VisibleStackEntry<H = StackHandle> {
 impl<H> VisibleStackEntry<H> {
     pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleStackEntry<T> {
         VisibleStackEntry {
-bestowed: self.bestowed,
-selected_additional_costs: self.selected_additional_costs,
-x: self.x,
-hybrid_colors: self.hybrid_colors,
-mana_value: self.mana_value,
-mode: self.mode,
-selected_modes: self.selected_modes,
-triggered: self.triggered.map(|row|row.map_handles(&mut convert)),
-entity_targets: self.entity_targets,
-handle: self.handle.map(&mut convert),
-stack_targets: self.stack_targets.into_iter().map(|row|row.map_handles(&mut convert)).collect(),
-spell: self.spell,
-ability: self.ability.map(|row|row.map_handles(&mut convert)),
-player_targets: self.player_targets,
-controller: self.controller,
-cast_complete: self.cast_complete,
-spell_copy: self.spell_copy,
-targets: self.targets,
+            bestowed: self.bestowed,
+            selected_additional_costs: self.selected_additional_costs,
+            x: self.x,
+            hybrid_colors: self.hybrid_colors,
+            mana_value: self.mana_value,
+            mode: self.mode,
+            selected_modes: self.selected_modes,
+            triggered: self.triggered.map(|row| row.map_handles(&mut convert)),
+            entity_targets: self.entity_targets,
+            handle: self.handle.map(&mut convert),
+            stack_targets: self
+                .stack_targets
+                .into_iter()
+                .map(|row| row.map_handles(&mut convert))
+                .collect(),
+            spell: self.spell,
+            ability: self.ability.map(|row| row.map_handles(&mut convert)),
+            player_targets: self.player_targets,
+            controller: self.controller,
+            cast_complete: self.cast_complete,
+            spell_copy: self.spell_copy,
+            targets: self.targets,
         }
     }
 }
@@ -1503,10 +1507,14 @@ impl RulesTxn {
         viewer: PlayerId,
         id: StackId,
     ) -> Result<StackHandle, String> {
-        self.stack_handle_id(viewer,id).map(StackHandle::from)
+        self.stack_handle_id(viewer, id).map(StackHandle::from)
     }
 
-    pub(in crate::engine) fn stack_handle_id(&self, viewer: PlayerId, id: StackId) -> Result<&HandleId<b's'>, String> {
+    pub(in crate::engine) fn stack_handle_id(
+        &self,
+        viewer: PlayerId,
+        id: StackId,
+    ) -> Result<&HandleId<b's'>, String> {
         if !self.state.rules.stack.iter().any(|entry| entry.id == id) {
             return Err("stale stack identity".into());
         }
@@ -1870,10 +1878,14 @@ impl RulesTxn {
         viewer: PlayerId,
         index: usize,
     ) -> Result<VisibleStackEntry, String> {
-        self.project_stack_entry(viewer,index)
+        self.project_stack_entry(viewer, index)
     }
 
-    fn project_stack_entry<H: for<'a> From<&'a HandleId<b's'>>>(&self, viewer: PlayerId, index: usize) -> Result<VisibleStackEntry<H>,String> {
+    fn project_stack_entry<H: for<'a> From<&'a HandleId<b's'>>>(
+        &self,
+        viewer: PlayerId,
+        index: usize,
+    ) -> Result<VisibleStackEntry<H>, String> {
         let instance = self
             .state
             .rules
@@ -1947,11 +1959,13 @@ impl RulesTxn {
             .enumerate()
             .map(|(slot, target)| {
                 Ok(VisibleStackTarget {
-                    announced: H::from(instance
-                        .announced_stack_targets
-                        .get(viewer.0 as usize)
-                        .and_then(|entries| entries.get(slot))
-                        .ok_or("missing announced stack target")?),
+                    announced: H::from(
+                        instance
+                            .announced_stack_targets
+                            .get(viewer.0 as usize)
+                            .and_then(|entries| entries.get(slot))
+                            .ok_or("missing announced stack target")?,
+                    ),
                     current: self.stack_handle_id(viewer, *target).ok().map(H::from),
                 })
             })

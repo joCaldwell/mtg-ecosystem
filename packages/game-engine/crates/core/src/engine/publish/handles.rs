@@ -125,13 +125,19 @@ impl<const KIND: u8> From<&str> for HandleId<KIND> {
 macro_rules! boundary_handle {
     ($kind:literal, $public:ty) => {
         impl From<&HandleId<$kind>> for $public {
-            fn from(id: &HandleId<$kind>) -> Self { Self(id.to_string()) }
+            fn from(id: &HandleId<$kind>) -> Self {
+                Self(id.to_string())
+            }
         }
         impl From<&$public> for HandleId<$kind> {
-            fn from(handle: &$public) -> Self { Self::parse(&handle.0) }
+            fn from(handle: &$public) -> Self {
+                Self::parse(&handle.0)
+            }
         }
         impl From<&$public> for $public {
-            fn from(handle: &Self) -> Self { handle.clone() }
+            fn from(handle: &Self) -> Self {
+                handle.clone()
+            }
         }
     };
 }
@@ -140,7 +146,9 @@ boundary_handle!(b's', super::visibility::StackHandle);
 boundary_handle!(b'e', crate::engine::EffectHandle);
 
 impl<const KIND: u8> From<&HandleId<KIND>> for HandleId<KIND> {
-    fn from(id: &Self) -> Self { id.clone() }
+    fn from(id: &Self) -> Self {
+        id.clone()
+    }
 }
 
 #[cfg(test)]

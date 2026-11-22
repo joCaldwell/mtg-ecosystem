@@ -150,10 +150,18 @@ impl StoredStack {
         stack
     }
     fn to_public(&self) -> Vec<VisibleStackEntry> {
-        self.rows().into_iter().map(|n| n.value.clone().map_handles(|h|StackHandle::from(&h))).collect()
+        self.rows()
+            .into_iter()
+            .map(|n| n.value.clone().map_handles(|h| StackHandle::from(&h)))
+            .collect()
     }
     fn matches_public(&self, rows: &[VisibleStackEntry]) -> bool {
-        self.len == rows.len() && self.rows().iter().zip(rows).all(|(n, r)| n.value == r.clone().map_handles(|h| super::HandleId::from(&h)))
+        self.len == rows.len()
+            && self
+                .rows()
+                .iter()
+                .zip(rows)
+                .all(|(n, r)| n.value == r.clone().map_handles(|h| super::HandleId::from(&h)))
     }
     fn write_canonical<W: Write>(&self, writer: &mut W) -> Result<(), String> {
         for (i, row) in self.rows().into_iter().enumerate() {
@@ -366,7 +374,10 @@ impl From<PermittedView> for StoredPermittedView {
                 known_library_positions,
                 sacrifice_choices,
                 setup,
-                effects: effects.into_iter().map(|e|e.map_handle(|h|super::HandleId::from(&h))).collect(),
+                effects: effects
+                    .into_iter()
+                    .map(|e| e.map_handle(|h| super::HandleId::from(&h)))
+                    .collect(),
                 combat,
                 viewer,
                 active,
@@ -377,7 +388,13 @@ impl From<PermittedView> for StoredPermittedView {
                 priority,
                 players: Arc::new(stored_players),
                 objects: Arc::new(stored_objects),
-                stack: StoredStack::from_rows(stack.into_iter().map(|row|row.map_handles(|h|super::HandleId::from(&h))).collect(), None),
+                stack: StoredStack::from_rows(
+                    stack
+                        .into_iter()
+                        .map(|row| row.map_handles(|h| super::HandleId::from(&h)))
+                        .collect(),
+                    None,
+                ),
             },
             segments: OnceLock::new(),
             commanders_bytes: Arc::new(OnceLock::new()),
@@ -458,7 +475,16 @@ impl StoredPermittedView {
             _ => (Arc::new(commanders), Arc::new(OnceLock::new())),
         };
         let stack = match previous {
-            Some(previous) if previous.data.stack.len == stack.len() && previous.data.stack.rows().iter().zip(&stack).all(|(n,r)|n.value == *r) => {
+            Some(previous)
+                if previous.data.stack.len == stack.len()
+                    && previous
+                        .data
+                        .stack
+                        .rows()
+                        .iter()
+                        .zip(&stack)
+                        .all(|(n, r)| n.value == *r) =>
+            {
                 previous.data.stack.clone()
             }
             _ => StoredStack::from_rows(stack, previous.map(|p| &p.data.stack)),
@@ -526,7 +552,11 @@ impl StoredPermittedView {
             known_library_positions: known_library_positions.clone(),
             sacrifice_choices: sacrifice_choices.clone(),
             setup: setup.clone(),
-            effects: effects.iter().cloned().map(|e|e.map_handle(|h|EffectHandle::from(&h))).collect(),
+            effects: effects
+                .iter()
+                .cloned()
+                .map(|e| e.map_handle(|h| EffectHandle::from(&h)))
+                .collect(),
             combat: combat.clone(),
             viewer: *viewer,
             active: *active,
@@ -586,7 +616,10 @@ impl StoredPermittedView {
             && positions == known_library_positions
             && sc == sacrifice_choices
             && s == setup
-            && e.len() == effects.len() && e.iter().zip(effects).all(|(stored,public)|*stored == public.clone().map_handle(|h|super::HandleId::from(&h)))
+            && e.len() == effects.len()
+            && e.iter().zip(effects).all(|(stored, public)| {
+                *stored == public.clone().map_handle(|h| super::HandleId::from(&h))
+            })
             && c == combat
             && v == viewer
             && a == active
@@ -610,7 +643,15 @@ impl StoredPermittedView {
         self.data.stack = if self.data.stack == previous.data.stack {
             previous.data.stack.clone()
         } else {
-            StoredStack::from_rows(self.data.stack.rows().iter().map(|node|node.value.clone()).collect(), Some(&previous.data.stack))
+            StoredStack::from_rows(
+                self.data
+                    .stack
+                    .rows()
+                    .iter()
+                    .map(|node| node.value.clone())
+                    .collect(),
+                Some(&previous.data.stack),
+            )
         };
         // Complete ordered typed equality, never a hash or handle-only test.
         // All shared element types are Eq; pointer identity cannot bypass an
