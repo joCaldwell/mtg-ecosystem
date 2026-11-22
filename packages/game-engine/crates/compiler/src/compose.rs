@@ -147,11 +147,15 @@ fn mirror_gap(sentence: &serde_json::Value, error: &serde_json::Error) -> Failur
     }
 }
 
-/// A serde failure that names no shape: an untagged-enum mismatch or a
-/// field the mirror requires in another variant.
+/// A serde failure that names no shape: an untagged-enum mismatch, a field
+/// the mirror requires in another variant, or an operand the mirror types
+/// differently (a map where it reads a string, a string where it reads a
+/// counter).
 fn opaque(error: &serde_json::Error) -> bool {
     let message = error.to_string();
-    message.contains("untagged enum") || message.starts_with("missing field")
+    message.contains("untagged enum")
+        || message.starts_with("missing field")
+        || message.starts_with("invalid type")
 }
 
 /// The block decoded as the complete typed AST but not as the lowering
