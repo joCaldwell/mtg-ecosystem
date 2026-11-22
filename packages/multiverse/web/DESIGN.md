@@ -189,6 +189,8 @@ or about this app.
 
 ## Deck editor and inspection
 
+The toolbar and active filters use the deck canvas with a single bottom hairline.
+
 Add cards keeps `/`, Enter, Shift+Enter (shortlist, keep results) and Escape.
 The results stay within the available viewport and Escape returns to the input.
 Loading, errors and empty results are statuses, not listbox options.
