@@ -10,23 +10,38 @@
 //! is read from table identity: a written table or object chunk is a new
 //! allocation, so publication needs no separate dirty set.
 use crate::engine::*;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 /// The staged copy one change runs on. Rule routines are methods of the game;
 /// through this handle they act on the staged copy only.
-pub struct RulesTxn<'a> {
+struct RulesTxn<'a> {
     staged: &'a mut Game,
 }
 
-impl Deref for RulesTxn<'_> {
-    type Target = Game;
-    fn deref(&self) -> &Game {
-        self.staged
+impl RulesTxn<'_> {
+    fn execute_step(&mut self, coalesce: bool) -> Result<(), RuleError> {
+        self.staged.in_rule_step = coalesce;
+        self.staged.step()?;
+        let rules = self.staged.rules_mut();
+        rules.rule_steps = rules
+            .rule_steps
+            .checked_add(1)
+            .ok_or_else(|| RuleError::resource("execution boundary resource limit"))?;
+        Ok(())
     }
-}
-impl DerefMut for RulesTxn<'_> {
-    fn deref_mut(&mut self) -> &mut Game {
-        self.staged
+
+    fn accept_input(&mut self, input: AcceptedInput) -> Result<(), RuleError> {
+        let rules = self.staged.rules_mut();
+        rules.revision = rules
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| RuleError::resource("structural revision resource limit"))?;
+        rules.retained_auxiliary_charge = rules
+            .retained_auxiliary_charge
+            .saturating_add(stored_history::payload_charge(&input));
+        rules.pending = Some(input.clone());
+        self.staged.state.audit.journal.push(input);
+        Ok(())
     }
 }
 
@@ -34,24 +49,21 @@ impl Game {
     /// Runs one rule change atomically: stage, change, publish, check the
     /// history capacity, commit. On failure nothing is committed, and a
     /// capacity fault the change recorded travels with the error.
-    pub(crate) fn transact<T>(
-        &mut self,
-        change: impl FnOnce(&mut RulesTxn<'_>) -> Result<T, RuleError>,
-    ) -> Result<T, RuleError> {
-        self.commit_staged(true, change)
+    pub(in crate::engine) fn commit_rule_step(&mut self, coalesce: bool) -> Result<(), RuleError> {
+        self.transact(true, |tx| tx.execute_step(coalesce))
     }
 
     /// Accepts an input atomically. Retaining an input is charged to history
     /// but never refused here: the next rule step's capacity check faults
     /// instead, so an accepted input is always journaled.
-    pub(crate) fn transact_input<T>(
+    pub(in crate::engine) fn commit_input(
         &mut self,
-        change: impl FnOnce(&mut RulesTxn<'_>) -> Result<T, RuleError>,
-    ) -> Result<T, RuleError> {
-        self.commit_staged(false, change)
+        input: AcceptedInput,
+    ) -> Result<(), RuleError> {
+        self.transact(false, |tx| tx.accept_input(input))
     }
 
-    fn commit_staged<T>(
+    fn transact<T>(
         &mut self,
         metered: bool,
         change: impl FnOnce(&mut RulesTxn<'_>) -> Result<T, RuleError>,
