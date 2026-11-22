@@ -115,7 +115,7 @@
   }
 }
 
-/* A filter confined to maybes has no main board to title. */
+/* A filter confined to maybes has no card columns to show. */
 .frame:has(> .cols:empty) { display: none; }
 
 /* One native list offset includes the header's travel. Compensation keeps

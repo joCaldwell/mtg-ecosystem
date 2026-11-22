@@ -86,10 +86,10 @@ export function Sidebar({ route, brand = true, collapsed = false, onToggle, togg
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ""} ${brand ? "" : styles.inDrawer}`} aria-label="Sidebar">
       {brand && <div className={styles.brand}>
-        <a className={styles.brandName} href={href({ page: "home" })} aria-label="Multiverse home"><BrandMark className={styles.mark} />{!collapsed && "Multiverse"}</a>
-        {onToggle && <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={onToggle} disabled={toggleDisabled} className={styles.toggle}>
+        {onToggle && <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={toggleDisabled ? undefined : onToggle} aria-disabled={toggleDisabled} className={styles.toggle}>
           <Icon name={collapsed ? "sidebarExpand" : "sidebarCollapse"} />
         </IconButton>}
+        {!collapsed && <a className={styles.brandName} href={href({ page: "home" })} aria-label="Multiverse home"><BrandMark /><span>Multiverse</span></a>}
       </div>}
 
       <nav className={styles.nav} aria-label="Sections">

@@ -15,7 +15,6 @@ import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
 import type { DeckListEditorEffectsProps } from "./DeckListEditorEffects.ts";
-import { GroupHeader } from "./GroupHeader.tsx";
 import { GroupBlock } from "./GroupBlock.tsx";
 import { MARK_LABEL, Mark, type MarkKind } from "./Mark.tsx";
 import { MaybeList } from "./MaybeList.tsx";
@@ -88,7 +87,6 @@ export function DeckList({ view, emptyAction, EditorEffects }: {
         ) : (
           <>
             <div className={styles.frame}>
-              <GroupHeader title="Main deck" board />
               <div ref={cols} className={styles.cols}>
                 <GroupBlock
                   filter={filter}

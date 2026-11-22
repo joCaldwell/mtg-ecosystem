@@ -1,29 +1,3 @@
-.item {
-  display: inline-flex;
-  vertical-align: top;
-  inline-size: 100%;
-  break-inside: avoid;
-}
-
-.item .row { flex: 1; min-inline-size: 0; inline-size: auto; }
-
-.selector {
-  display: grid;
-  place-items: center;
-  flex: none;
-  min-inline-size: var(--h-sm);
-  min-block-size: var(--h-sm);
-  cursor: pointer;
-  border-radius: var(--r-sm);
-}
-
-.selector:hover { background: var(--hover); }
-.selector .selectCheck { min-block-size: 0; margin: 0; accent-color: var(--sel); cursor: inherit; }
-
-@media (pointer: coarse) {
-  .selector { min-inline-size: var(--tap); min-block-size: var(--tap); }
-}
-
 .row {
   --sym-size: var(--mana-list-size);
   --mana-gap: var(--mana-list-gap);
@@ -61,6 +35,8 @@
   font: var(--text-sm) var(--font-mono);
   text-align: right;
 }
+
+.q:empty { display: none; }
 
 .name {
   min-width: 0;
@@ -104,16 +80,23 @@
   font-weight: 600;
 }
 
-.row.selected {
-  background: var(--sel-bg);
+/* The selection outline also reads over inspection and review backgrounds. */
+.row.open {
+  background: var(--raised);
 }
 
-/* The card open in the panel: the owner's selection cue, a blue leading rule
-   and tint (DESIGN.md, --sel). Review's add and cut rules below replace the
-   rule's colour, and the review cursor's outline is drawn over it. */
-.row.open {
-  border-left-color: var(--sel);
-  background: var(--sel-bg);
+.row:where([data-selected]):not(.open) {
+  background: color-mix(in srgb, var(--sel) 14%, var(--bg));
+}
+
+.row[data-selected]:not(:focus-visible) {
+  outline: 1px solid color-mix(in srgb, var(--sel) 70%, var(--bg));
+  outline-offset: -1px;
+}
+
+@media (forced-colors: active) {
+  .row.open { border-left-color: Highlight; }
+  .row[data-selected]:not(:focus-visible) { outline-color: Highlight; }
 }
 
 .row.cut {

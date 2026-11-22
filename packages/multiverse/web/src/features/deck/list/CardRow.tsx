@@ -1,5 +1,5 @@
-// One card in the list. Inspection and bulk selection have separate controls;
-// modifier-click and Shift+Space on the card are selection shortcuts.
+// Primary activation inspects a card. Right-click, modifier-click and
+// Shift+Space toggle bulk selection.
 
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { CardMark } from "../../../domain/marks.ts";
@@ -28,16 +28,18 @@ export interface CardRowProps {
 
 export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, purpose }: CardRowProps) {
   const ui = useDeckUi();
-  const { readOnly } = useDeckList();
+  const { readOnly, state } = useDeckList();
   const hover = useCardHover();
   const inspect = useCardInspect();
-  const selected = ui.selected.includes(card.oracle_id);
+  const selectable = change !== "add" && !readOnly && state.deck.category !== "archived";
+  const selected = selectable && ui.selected.includes(card.oracle_id);
   const open = ui.openCard?.oracleId === card.oracle_id;
-  // Proposed adds are not in the deck, and a read-only list has no selection.
-  const selectable = change !== "add" && !readOnly;
 
   function onClick(e: MouseEvent) {
-    if (selectable && (e.ctrlKey || e.metaKey || e.shiftKey)) ui.toggleSelected(card.oracle_id);
+    // On touch, the details action starts selection. Then taps can add or
+    // remove cards directly without reopening the sheet for each one.
+    const touchSelection = ui.selected.length > 0 && "pointerType" in e.nativeEvent && e.nativeEvent.pointerType === "touch";
+    if (selectable && (touchSelection || e.ctrlKey || e.metaKey || e.shiftKey)) ui.toggleSelected(card.oracle_id);
     else ui.openCardPanel(open ? null : { oracleId: card.oracle_id, name: card.name });
   }
 
@@ -60,7 +62,6 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
     styles.row,
     change === "cut" && styles.cut,
     change === "add" && styles.add,
-    selected && styles.selected,
     open && styles.open,
     current && styles.current,
     bold && styles.bold,
@@ -68,16 +69,22 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
     .filter(Boolean)
     .join(" ");
 
-  const row = (
+  return (
     <button
       type="button"
       className={cls}
       data-current={current || undefined}
       data-oracle-id={card.oracle_id}
       data-filter-match={filterMatch || undefined}
+      data-selected={selected || undefined}
       aria-current={open || undefined}
+      aria-description={selected ? "Selected for bulk actions" : undefined}
       aria-keyshortcuts={selectable ? "Shift+Space" : undefined}
       onClick={onClick}
+      onContextMenu={selectable ? (e) => {
+        e.preventDefault();
+        ui.toggleSelected(card.oracle_id);
+      } : undefined}
       onKeyDown={onKeyDown}
       {...hover(card)}
     >
@@ -98,17 +105,4 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       <span className={styles.price}><Price currency={card.currency} cents={card.cents} column /></span>
     </button>
   );
-  if (!selectable) return row;
-  return <div className={styles.item}>
-    <label className={styles.selector}>
-      <input
-        className={styles.selectCheck}
-        type="checkbox"
-        aria-label={`Select ${card.name}`}
-        checked={selected}
-        onChange={() => ui.toggleSelected(card.oracle_id)}
-      />
-    </label>
-    {row}
-  </div>;
 }

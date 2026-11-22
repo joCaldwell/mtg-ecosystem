@@ -80,8 +80,9 @@ owns the approved breakpoints. Coarse pointers omit keyboard hints. Touch uses c
 inspection instead of hover. Respect 200% text scaling.
 
 Navigation is Home, My decks, Play, Inbox, Memories, Activity, Profile, Settings,
-then decks. The collapsed desktop rail keeps accessible names, lifecycle and Inbox
-count; failed preference saves retain the prior state. The footer names the latest authenticated request plus confirmed Agent
+then decks. The desktop toggle stays in the same position when the rail collapses
+or expands. The rail keeps accessible names, lifecycle and Inbox count. Failed
+preference saves retain the prior state. The footer names the latest authenticated request plus confirmed Agent
 context, never implies a persistent connection or mistakes reads for writes.
 
 Lifecycle and sharing labels are neutral, with state in accessible names; Paper
@@ -195,10 +196,14 @@ Loading, errors and empty results are statuses, not listbox options.
 Filters show matched/full counts and keep global totals and review scope
 unchanged. Clearing restores scroll, selection and open details.
 
-Add columns at wide sizes rather than stretching them. Main deck rows have a
-selection checkbox and support Shift+Space. Bulk actions stay by the list header.
-Maybe rows are whole buttons and do not join bulk actions requiring main membership;
-`?` inspects.
+Add columns at wide sizes rather than stretching them. Card groups open the list.
+Clicking opens card details and marks that row with a neutral fill.
+Right-click, modifier-click, Shift+Space and the card details action toggle bulk
+selection on editable deck rows. Once a selection is active, touch taps can add
+or remove cards. Selected rows use a blue outline and fill. The details and
+review fills take priority when both states apply. Bulk actions appear below the
+list without moving the rows and stick to the bottom of the viewport on tablets.
+Maybe rows are whole buttons and stay outside bulk selection. `?` inspects.
 
 Panel navigation is one line: Review, Brief, Power, Stats, Checks, Memories,
 History, with `aria-current` on the current view. The strip scrolls when text

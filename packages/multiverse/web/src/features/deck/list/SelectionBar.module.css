@@ -5,15 +5,12 @@
   align-items: center;
   gap: var(--s-2) var(--s-4);
   padding: var(--s-3) var(--s-4);
-  border-bottom: 1px solid var(--line-strong);
+  border-block-start: 1px solid var(--line-strong);
   background: var(--raised);
 }
 
 .bar button[aria-disabled="true"] { color: var(--disabled-ink); cursor: progress; }
 
 @media (max-width: 1099px) {
-  .bar { position: sticky; top: var(--deck-sticky-offset); z-index: var(--z-sticky); }
-  [aria-label="Active deck filters"] + .bar {
-    top: calc(var(--deck-sticky-offset) + var(--tap) + 2 * var(--s-3) + 1px);
-  }
+  .bar { position: sticky; inset-block-end: 0; z-index: var(--z-sticky); }
 }

@@ -9,3 +9,8 @@
   flex: 1 1 0;
   justify-content: center;
 }
+
+.actions > button[aria-pressed="true"] {
+  border-color: var(--sel);
+  background: var(--sel-bg);
+}

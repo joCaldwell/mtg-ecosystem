@@ -143,13 +143,17 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
 
   useHotkeys({
     // Escape backs out one layer at a time, innermost first.
-    escape: () => {
+    escape: (e) => {
       ui.cancelCardLookup();
       if (confirmingAll) setConfirmingAll(false);
       else if (ui.openCard) ui.openCardPanel(null);
       else if (ui.rejecting) ui.setRejecting(null);
-      else if (ui.selected.length) ui.clearSelection();
-      else if (ui.reviewing) ui.stopReview();
+      else if (ui.selected.length) {
+        if (e.target instanceof Element && e.target.closest("[data-deck-selection]")) {
+          page.current?.querySelector<HTMLElement>("[data-deck-list]")?.focus({ preventScroll: true });
+        }
+        ui.clearSelection();
+      } else if (ui.reviewing) ui.stopReview();
     },
     enter: (e) => pending && !ui.reviewing && !pressesFocusedControl(e) && ui.startReview(),
     j: (event) => canReview(event) && ui.setCursor(Math.min(ui.cursor + 1, view.units.length - 1)),
@@ -183,8 +187,8 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
               list={
                 <>
                   <DeckFilterSummary />
-                  {state.deck.category !== "archived" && <SelectionBar />}
                   <DeckList view={view} EditorEffects={DeckListEditorEffects} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
+                  {state.deck.category !== "archived" && <SelectionBar />}
                 </>
               }
               panel={<DeckPanel view={view} review={review} />}

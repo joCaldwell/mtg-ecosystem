@@ -15,10 +15,13 @@
   background: var(--hover);
 }
 
-/* The card open in the panel, as in CardRow: blue leading rule and tint. */
+/* The card open in the panel uses the same surface as CardRow. */
 .row.open {
-  border-left-color: var(--sel);
-  background: var(--sel-bg);
+  background: var(--raised);
+}
+
+@media (forced-colors: active) {
+  .row.open { border-left-color: Highlight; }
 }
 
 .name {
