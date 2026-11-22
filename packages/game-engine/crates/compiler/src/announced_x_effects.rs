@@ -222,11 +222,13 @@ pub(super) fn instruction(
             )?,
             source_block,
         },
-        Step::GainLife { who, .. } => Instruction::ChangeLifeAnnouncedX {
-            recipient: life_recipient(program, slots, who, false)?,
-            gain: true,
+        Step::GainLife { who, .. } => Instruction::announced_x_life(
+            life_recipient(program, slots, who, false)?
+                .kernel(Context::Spell)
+                .ok_or_else(fail)?,
+            true,
             source_block,
-        },
+        ),
         Step::Draw {
             amount: DrawAmount::X {},
             ..

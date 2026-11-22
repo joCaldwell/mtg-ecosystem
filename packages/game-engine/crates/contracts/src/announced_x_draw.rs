@@ -37,7 +37,14 @@ pub(super) fn has_x_instruction(p: &SpellProgram) -> bool {
         matches!(
             i,
             Instruction::DrawAnnouncedX { .. }
-                | Instruction::ChangeLifeAnnouncedX { .. }
+                | kernel!(GainLife {
+                    amount: announced_x!(),
+                    ..
+                })
+                | kernel!(LoseLife {
+                    amount: announced_x!(),
+                    ..
+                })
                 | Instruction::DealDamageAnnouncedX { .. }
                 | Instruction::MillAnnouncedX { .. }
         )
@@ -102,10 +109,9 @@ impl Shape {
             recipient,
             source_block: 0,
         };
-        let life = |recipient, gain| Instruction::ChangeLifeAnnouncedX {
-            recipient,
-            gain,
-            source_block: 0,
+        let life = |recipient: LifeRecipient, gain| {
+            let player = recipient.kernel(Context::Spell).expect("spell recipient");
+            Instruction::announced_x_life(player, gain, 0)
         };
         let damage = Instruction::DealDamageAnnouncedX {
             target_slot: 0,
@@ -355,11 +361,7 @@ fn announced_x_effects() {
         (
             Shape::MillGain,
             1,
-            Instruction::ChangeLifeAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot: 0 },
-                gain: true,
-                source_block: 0,
-            },
+            Instruction::announced_x_life(kir::PlayerExpr::target(0), true, 0),
         ),
         (
             Shape::DamageGain(TargetDomain::BattlefieldCreature),

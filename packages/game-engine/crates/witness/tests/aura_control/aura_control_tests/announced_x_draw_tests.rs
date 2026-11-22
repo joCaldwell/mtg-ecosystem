@@ -38,11 +38,7 @@ fn paid_draw_setup() -> Prepared {
             recipient: recipient.clone(),
             source_block: 0,
         },
-        Instruction::ChangeLifeAnnouncedX {
-            recipient,
-            gain: false,
-            source_block: 0,
-        },
+        Instruction::announced_x_life(recipient.kernel(Context::Spell).unwrap(), false, 0),
     ];
     spell.capabilities = spell.requirements();
     prepared.config.cards[0].oracle_id = spell.oracle_id.clone();

@@ -16,39 +16,8 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{
-    Amount, Context, Destination, Node, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
+    Amount, Destination, Node, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
 };
-
-/// The kernel context of a resolving invocation (CR 113.3).
-fn context(entry: &StackInstance) -> Context {
-    match entry.kind {
-        StackKind::Spell => Context::Spell,
-        StackKind::Activated { .. } => Context::Activated,
-        StackKind::Triggered { .. } => Context::Triggered,
-    }
-}
-
-/// Desugars the not-yet-migrated announced-X life instruction: the same life
-/// verb with the announced X as its amount (CR 107.3).
-pub(super) fn announced_x_life(
-    entry: &StackInstance,
-    recipient: &LifeRecipient,
-    gain: bool,
-) -> Result<Node, String> {
-    let player = match recipient {
-        LifeRecipient::Controller => PlayerExpr::you(context(entry)),
-        LifeRecipient::Target { target_slot } => PlayerExpr::target(*target_slot),
-        _ => return Err("unsupported announced X life recipient".into()),
-    };
-    let amount = Amount::Var {
-        of: Ref::AnnouncedX,
-    };
-    Ok(Node::Do(if gain {
-        Verb::GainLife { player, amount }
-    } else {
-        Verb::LoseLife { player, amount }
-    }))
-}
 
 /// The players a player expression denotes for one resolving invocation.
 enum Players {
@@ -67,6 +36,11 @@ impl Game {
         node: Node,
         source_block: u32,
     ) -> Result<(), String> {
+        // CR 119.3: the drain pair is the one audited sequence.
+        if let Some(amount) = mtg_contracts::kir::drain(&node) {
+            let amount = self.kernel_amount(&frame, amount)?;
+            return self.drain_opponents(frame, amount, source_block);
+        }
         let Node::Do(verb) = node else {
             return Err("kernel control node has no audited executor".into());
         };

@@ -573,17 +573,9 @@ impl Game {
     pub(super) fn drain_opponents(
         &mut self,
         frame: Resolving,
-        amount: OpponentDrainAmount,
+        amount: Quantity,
         source_block: u32,
     ) -> Result<(), String> {
-        let amount = match amount {
-            OpponentDrainAmount::Fixed { value } => value,
-            OpponentDrainAmount::AnnouncedX => self
-                .entry(frame.stack_id)?
-                .x
-                .clone()
-                .ok_or("missing announced X")?,
-        };
         if amount == Quantity::zero() {
             return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
         }

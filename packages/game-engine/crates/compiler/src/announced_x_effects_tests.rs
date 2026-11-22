@@ -73,11 +73,7 @@ fn damage() -> Instruction {
 }
 
 fn gain(recipient: LifeRecipient) -> Instruction {
-    Instruction::ChangeLifeAnnouncedX {
-        recipient,
-        gain: true,
-        source_block: 0,
-    }
+    Instruction::announced_x_life(recipient.kernel(Context::Spell).unwrap(), true, 0)
 }
 
 fn archive_witness(raw: &str, index: u32) {

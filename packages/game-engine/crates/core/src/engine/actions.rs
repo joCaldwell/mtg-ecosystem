@@ -1535,18 +1535,6 @@ impl Game {
                 quantity,
                 source_block,
             } => self.produce_resolution_mana(frame, color, quantity, source_block),
-            Instruction::DrainOpponents {
-                amount,
-                source_block,
-            } => self.drain_opponents(frame, amount, source_block),
-            Instruction::ChangeLifeAnnouncedX {
-                recipient,
-                gain,
-                source_block,
-            } => {
-                let node = kir::announced_x_life(self.entry(frame.stack_id)?, &recipient, gain)?;
-                self.execute_kernel(frame, node, source_block)
-            }
             op @ (Instruction::DealDamage { .. }
             | Instruction::DealDamageToController { .. }
             | Instruction::DealDamageToManaActivator { .. }

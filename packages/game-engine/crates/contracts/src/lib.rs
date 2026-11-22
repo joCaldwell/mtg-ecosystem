@@ -744,15 +744,6 @@ pub enum WipeAmount {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
-pub enum OpponentDrainAmount {
-    Fixed {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        value: Quantity,
-    },
-    AnnouncedX,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RandomDiscardCount {
     Fixed {
         #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
@@ -811,6 +802,18 @@ pub enum LifeRecipient {
     Target {
         target_slot: u32,
     },
+}
+impl LifeRecipient {
+    /// The kernel player this recipient denotes for "you" in `context`. An
+    /// event player needs the role its event supplies and is not converted.
+    pub fn kernel(&self, context: Context) -> Option<PlayerExpr> {
+        match self {
+            Self::Controller => Some(PlayerExpr::you(context)),
+            Self::Target { target_slot } => Some(PlayerExpr::target(*target_slot)),
+            Self::EachOpponent => Some(PlayerExpr::EachOpponent),
+            Self::EventPlayer => None,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1368,13 +1371,6 @@ pub enum Instruction {
         #[schemars(range(max = 0))]
         source_block: u32,
     },
-    ChangeLifeAnnouncedX {
-        #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
-        #[schemars(with = "LifeRecipient")]
-        recipient: LifeRecipient,
-        gain: bool,
-        source_block: u32,
-    },
     /// CR 118.12a and 603.5: the event caster may pay before the controller may draw.
     OptionalDrawUnlessCasterPays {
         #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
@@ -1474,12 +1470,6 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
-    /// Each opponent loses the amount, then the controller gains the total life actually lost.
-    DrainOpponents {
-        amount: OpponentDrainAmount,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
 }
 impl Instruction {
     /// One kernel verb as an instruction.
@@ -1487,6 +1477,33 @@ impl Instruction {
         Self::Kernel {
             node: kir::Node::Do(verb),
             source_block,
+        }
+    }
+    /// CR 119.3: each opponent loses `amount`, then "you" in `context` gain
+    /// the total life actually lost.
+    pub fn drain(context: kir::Context, amount: kir::Amount, source_block: u32) -> Self {
+        Self::Kernel {
+            node: kir::Node::drain(context, amount),
+            source_block,
+        }
+    }
+    /// CR 107.3, 119.3: `player` gains or loses the announced X.
+    pub fn announced_x_life(player: kir::PlayerExpr, gain: bool, source_block: u32) -> Self {
+        let amount = kir::Amount::announced_x();
+        Self::act(
+            if gain {
+                kir::Verb::GainLife { player, amount }
+            } else {
+                kir::Verb::LoseLife { player, amount }
+            },
+            source_block,
+        )
+    }
+    /// CR 119.3: the amount of an opponent drain pair ([`kir::drain`]).
+    pub fn drain_amount(&self) -> Option<&kir::Amount> {
+        match self {
+            Self::Kernel { node, .. } => kir::drain(node),
+            _ => None,
         }
     }
     /// The verb of a single-verb kernel instruction.
@@ -1597,7 +1614,6 @@ impl Instruction {
             | Self::DrawAnnouncedX { source_block, .. }
             | Self::DealDamageAnnouncedX { source_block, .. }
             | Self::MillAnnouncedX { source_block, .. }
-            | Self::ChangeLifeAnnouncedX { source_block, .. }
             | Self::DrawCards { source_block, .. } => *source_block,
             Self::UntapControllerLands { source_block } => *source_block,
             Self::OptionalDrawForSoleGreatestEntrant { source_block }
@@ -1615,7 +1631,6 @@ impl Instruction {
             Self::DealDamage { source_block, .. }
             | Self::DealDamageToController { source_block, .. }
             | Self::DealDamageToManaActivator { source_block, .. } => *source_block,
-            Self::DrainOpponents { source_block, .. } => *source_block,
         }
     }
 }
@@ -3812,14 +3827,11 @@ impl Definition {
                             } | Instruction::DrawEachPlayer {
                                 count: DrawEachCount::AnnouncedX,
                                 ..
-                            } | Instruction::DrainOpponents {
-                                amount: OpponentDrainAmount::AnnouncedX,
-                                ..
                             } | Instruction::DiscardTargetPlayerAtRandom {
                                 count: RandomDiscardCount::AnnouncedX,
                                 ..
                             }
-                        )
+                        ) || i.drain_amount().is_some_and(kir::Amount::is_announced_x)
                     })
             })
         {
@@ -5720,7 +5732,6 @@ fn validate_program_bindings(
                 target_slot.map(|slot| (slot, TargetDomain::AnyDamageTarget))
             }
             Instruction::EachOpponentSacrifice { .. }
-            | Instruction::DrainOpponents { .. }
             | Instruction::ModifySourcePowerToughness { .. }
             | Instruction::RegenerateSource { .. } => None,
             Instruction::DestroyPermanent {
@@ -6119,8 +6130,7 @@ fn validate_program_bindings(
                     _ => return Err("unsupported mill recipient".into()),
                 }
             }
-            Instruction::DrawAnnouncedX { recipient, .. }
-            | Instruction::ChangeLifeAnnouncedX { recipient, .. } => match recipient {
+            Instruction::DrawAnnouncedX { recipient, .. } => match recipient {
                 LifeRecipient::Controller => None,
                 LifeRecipient::Target { target_slot } => {
                     Some((*target_slot, TargetDomain::AnyPlayer))
@@ -6183,7 +6193,8 @@ fn kernel_family_guard(p: &SpellProgram, node: &kir::Node) -> Result<(), String>
                 && player.is_you()
                 && amount.as_fixed() == Some(&Quantity::zero())
                 && temporary_permanent_keyword_program(p).is_some();
-            if !zero_tail && amount.as_fixed().is_none_or(|n| *n <= Quantity::zero()) {
+            // CR 107.3: an announced X may be zero; a fixed amount may not.
+            if !zero_tail && amount.as_fixed().is_some_and(|n| *n <= Quantity::zero()) {
                 return Err("life quantity must be positive".into());
             }
         }
@@ -6421,11 +6432,10 @@ fn add_program_requirements_for_source_pump(
     }
     if matches!(
         program.instructions.as_slice(),
-        [Instruction::ChangeLifeAnnouncedX {
-            recipient: LifeRecipient::Target { target_slot: 0 },
-            gain: true,
-            source_block: 0
-        }]
+        [kernel!(GainLife {
+            player: target_player!(0),
+            amount: announced_x!()
+        } @ 0)]
     ) {
         set.insert(Capability::AnnouncedXEffectsV1);
     }
@@ -6531,9 +6541,6 @@ fn add_program_requirements_for_source_pump(
         if matches!(instruction, Instruction::CounterSpellUnlessPays { .. }) {
             set.insert(Capability::CounterStackObjectV1);
         }
-        if matches!(instruction, Instruction::DrainOpponents { .. }) {
-            set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
-        }
         if matches!(instruction, Instruction::Hideaway { .. }) {
             set.insert(Capability::RandomBottomV1);
         }
@@ -6636,8 +6643,6 @@ fn add_program_requirements_for_source_pump(
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::DiscardTargetPlayerAtRandom { .. } => Capability::RandomPlayerDiscardV1,
             Instruction::LoseGameTargetPlayer { .. } => Capability::TargetedGameLossV1,
-            Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
-            Instruction::ChangeLifeAnnouncedX { gain: false, .. } => Capability::LifeLossV1,
             Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
                 Capability::TargetedCountedDrawV1
             }
@@ -6738,7 +6743,6 @@ fn add_program_requirements_for_source_pump(
             Instruction::OrderLibraryTop { .. } | Instruction::OptionalShuffleLibrary { .. } => {
                 Capability::ControllerLibraryOrderV1
             }
-            Instruction::DrainOpponents { .. } => Capability::OpponentLifeDrainV1,
             // The kernel walker derives every capability of a kernel node.
             Instruction::Kernel { node, .. } => {
                 set.extend(kir::node_capabilities(node));

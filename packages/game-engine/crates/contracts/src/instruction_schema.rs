@@ -1,4 +1,4 @@
-use super::{Instruction, SetExpr};
+use super::{Instruction, SetExpr, kir::Amount};
 use serde_json::{Value, json};
 
 pub(super) fn forbid_unbound_operation(schema: &mut Value, name: &str, operation: &str) {
@@ -31,6 +31,27 @@ pub(crate) fn kernel_verb(verb: &str) -> Value {
 pub(crate) fn kernel_verbs(verbs: &[&str]) -> Value {
     json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
         "required":["do"],"properties":{"do":{"required":["verb"],"properties":{"verb":{"enum":verbs}}}}}}})
+}
+
+/// Selects a kernel sequence. The opponent drain pair is the only audited one
+/// (`kir::drain`).
+pub(crate) fn kernel_seq() -> Value {
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{"required":["seq"]}}})
+}
+
+/// Selects a kernel sequence whose first step's amount is the announced X.
+pub(crate) fn kernel_seq_announced_x() -> Value {
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
+        "required":["seq"],"properties":{"seq":{"minItems":1,"prefixItems":[{"required":["do"],"properties":{
+            "do":{"required":["amount"],"properties":{"amount":{"const":Amount::announced_x()}}}}}]}}}}})
+}
+
+/// Selects one kernel verb of `verbs` whose amount is the announced X
+/// (CR 107.3): the mark of an announced-X program.
+pub(crate) fn kernel_announced_x(verbs: &[&str]) -> Value {
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
+        "required":["do"],"properties":{"do":{"required":["verb","amount"],"properties":{
+            "verb":{"enum":verbs},"amount":{"const":Amount::announced_x()}}}}}}})
 }
 
 /// `kernel_verb(verb)` at exactly `source_block`.

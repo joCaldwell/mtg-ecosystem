@@ -3022,10 +3022,11 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                     continue;
                 }
                 if let Some(amount) = &drain {
-                    program.instructions.push(Instruction::DrainOpponents {
-                        amount: amount.clone(),
-                        source_block: 0,
-                    });
+                    program.instructions.push(Instruction::drain(
+                        Context::Spell,
+                        amount.clone(),
+                        0,
+                    ));
                     continue;
                 }
                 if announced_x_effects {

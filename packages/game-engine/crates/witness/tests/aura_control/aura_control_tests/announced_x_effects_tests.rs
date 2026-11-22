@@ -106,11 +106,11 @@ fn paid_effects_setup() -> Prepared {
                         target_slot: 0,
                         source_block: 0,
                     },
-                    Instruction::ChangeLifeAnnouncedX {
-                        recipient: LifeRecipient::Controller,
-                        gain: true,
-                        source_block: 0,
-                    },
+                    Instruction::announced_x_life(
+                        mtg_contracts::kir::PlayerExpr::you(Context::Spell),
+                        true,
+                        0,
+                    ),
                 ];
             }
             _ => unreachable!(),

@@ -355,6 +355,20 @@ impl Amount {
             _ => None,
         }
     }
+    /// CR 107.3: the value announced for X.
+    pub fn announced_x() -> Self {
+        Self::Var {
+            of: Ref::AnnouncedX,
+        }
+    }
+    pub fn is_announced_x(&self) -> bool {
+        matches!(
+            self,
+            Self::Var {
+                of: Ref::AnnouncedX
+            }
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -810,6 +824,24 @@ pub enum Node {
 }
 
 impl Node {
+    /// The drain pair of [`drain`] for "you" in `context`.
+    pub fn drain(context: Context, amount: Amount) -> Self {
+        Self::Seq(vec![
+            Self::Do(Verb::LoseLife {
+                player: PlayerExpr::EachOpponent,
+                amount,
+            }),
+            Self::Do(Verb::GainLife {
+                player: PlayerExpr::you(context),
+                amount: Amount::Var {
+                    of: Ref::StepResult {
+                        step: 0,
+                        role: StepRole::Amount,
+                    },
+                },
+            }),
+        ])
+    }
     /// The verb of a single-action node.
     pub fn verb(&self) -> Option<&Verb> {
         match self {
@@ -1532,6 +1564,19 @@ impl Walk<'_, '_> {
             // nested position, so the interpreter cannot suspend and resume
             // inside a kernel node yet.
             Node::Seq(nodes) => {
+                // CR 119.3, 608.2c: the drain pair is one resolution step
+                // with no decision between its two life events.
+                if let Some(amount) = drain(node) {
+                    self.amount(amount)?;
+                    if let [_, Node::Do(Verb::GainLife { player, .. })] = nodes.as_slice() {
+                        self.player(player)?;
+                    }
+                    if !self.scan {
+                        Self::fixed_or_announced_x(amount, 1, "drain amount")?;
+                        self.out.capabilities.extend(DRAIN_CAPABILITIES);
+                    }
+                    return Ok(());
+                }
                 let steps = std::mem::take(&mut self.steps);
                 for node in nodes {
                     self.node_unaudited(node)?;
@@ -1643,6 +1688,17 @@ impl Walk<'_, '_> {
         }
     }
 
+    /// A fixed amount of at least `minimum`, or the announced X (CR 107.3).
+    /// Returns true for the announced X.
+    fn fixed_or_announced_x(amount: &Amount, minimum: i64, what: &str) -> Result<bool, KirError> {
+        match amount {
+            Amount::Var {
+                of: Ref::AnnouncedX,
+            } => Ok(true),
+            _ => Self::fixed_at_least(amount, minimum, what).map(|()| false),
+        }
+    }
+
     /// The target domain of a player expression that names one target.
     fn player_target(&self, player: &PlayerExpr) -> Result<Option<TargetDomain>, KirError> {
         player
@@ -1662,12 +1718,21 @@ impl Walk<'_, '_> {
             // of the permanent-grant family; program validation keeps every
             // other life amount positive.
             Verb::GainLife { player, amount } | Verb::LoseLife { player, amount } => {
-                Self::fixed_at_least(amount, 0, "life amount")?;
+                // CR 107.3: an announced X is the amount for the controller
+                // or one announced player only.
+                let announced = Self::fixed_or_announced_x(amount, 0, "life amount")?;
                 match player {
                     PlayerExpr::Is {
-                        who: Ref::Controller { .. } | Ref::EventPlayer { .. },
+                        who: Ref::Controller { .. },
+                    } => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::EventPlayer { .. },
                     }
-                    | PlayerExpr::EachOpponent => Ok(()),
+                    | PlayerExpr::EachOpponent
+                        if !announced =>
+                    {
+                        Ok(())
+                    }
                     PlayerExpr::Is {
                         who: Ref::Target { .. },
                     } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
@@ -1805,8 +1870,49 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
 /// The capabilities a node derives, independent of where it resolves.
 pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
     let mut out = BTreeSet::new();
-    visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
+    if drain(node).is_some() {
+        out.extend(DRAIN_CAPABILITIES);
+    } else {
+        visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
+    }
     out
+}
+
+/// The drain pair names its own reviewed surface instead of the group life
+/// executor's (CR 119.3).
+const DRAIN_CAPABILITIES: [Capability; 3] = [
+    Capability::OpponentLifeDrainV1,
+    Capability::LifeLossV1,
+    Capability::LifeGainV1,
+];
+
+/// CR 119.3, 608.2c: "each opponent loses N life. You gain life equal to the
+/// life lost this way." Returns N when `node` is exactly that pair: one
+/// simultaneous loss, then one gain of the total actually lost.
+pub fn drain(node: &Node) -> Option<&Amount> {
+    let Node::Seq(steps) = node else {
+        return None;
+    };
+    match steps.as_slice() {
+        [
+            Node::Do(Verb::LoseLife {
+                player: PlayerExpr::EachOpponent,
+                amount,
+            }),
+            Node::Do(Verb::GainLife {
+                player,
+                amount:
+                    Amount::Var {
+                        of:
+                            Ref::StepResult {
+                                step: 0,
+                                role: StepRole::Amount,
+                            },
+                    },
+            }),
+        ] if player.is_you() => Some(amount),
+        _ => None,
+    }
 }
 
 /// Calls `visit` for every verb of a node, in written order.
@@ -1912,6 +2018,16 @@ macro_rules! target_object {
     ($slot:pat) => {
         $crate::kir::SetExpr::One {
             object: $crate::kir::Ref::Target { slot: $slot },
+        }
+    };
+}
+
+/// Pattern for the announced X (CR 107.3).
+#[macro_export]
+macro_rules! announced_x {
+    () => {
+        $crate::kir::Amount::Var {
+            of: $crate::kir::Ref::AnnouncedX,
         }
     };
 }
@@ -2061,8 +2177,93 @@ mod tests {
         assert!(matches!(check(&node, &spell(&[])), Err(KirError::Scope(_))));
         let mut with_x = spell(&[]);
         with_x.announced_x = true;
-        // In scope and well typed; the computed life amount has no cell yet.
-        assert!(matches!(check(&node, &with_x), Err(KirError::Unaudited(_))));
+        let requirements = check(&node, &with_x).unwrap();
+        assert!(requirements.announced_x);
+        // CR 107.3: X is the amount for the controller or one announced
+        // player; a group or event player has no audited X cell.
+        let targets = player_target();
+        let mut targeted = spell(&targets);
+        targeted.announced_x = true;
+        let x = |player| {
+            Node::Do(Verb::LoseLife {
+                player,
+                amount: Amount::announced_x(),
+            })
+        };
+        check(&x(PlayerExpr::target(0)), &targeted).unwrap();
+        assert!(matches!(
+            check(&x(PlayerExpr::EachOpponent), &targeted),
+            Err(KirError::Unaudited(_))
+        ));
+        // Any other computed amount stays unaudited.
+        let counted = gain(
+            PlayerExpr::you(Context::Spell),
+            Amount::Count {
+                set: SetExpr::battlefield(Pred::default()),
+            },
+        );
+        assert!(matches!(
+            check(&counted, &with_x),
+            Err(KirError::Unaudited(_))
+        ));
+    }
+
+    #[test]
+    fn the_drain_pair_is_the_one_audited_sequence() {
+        let pair = |amount| Node::drain(Context::Spell, amount);
+        let requirements = check(&pair(Amount::fixed(2)), &spell(&[])).unwrap();
+        assert_eq!(
+            requirements.capabilities,
+            BTreeSet::from([
+                Capability::OpponentLifeDrainV1,
+                Capability::LifeLossV1,
+                Capability::LifeGainV1
+            ])
+        );
+        assert_eq!(
+            node_capabilities(&pair(Amount::fixed(2))),
+            requirements.capabilities
+        );
+        assert_eq!(drain(&pair(Amount::fixed(2))), Some(&Amount::fixed(2)));
+        // CR 119.3: a fixed drain is positive; X needs an announced X.
+        assert!(matches!(
+            check(&pair(Amount::fixed(0)), &spell(&[])),
+            Err(KirError::Type(_))
+        ));
+        assert!(matches!(
+            check(&pair(Amount::announced_x()), &spell(&[])),
+            Err(KirError::Scope(_))
+        ));
+        let mut with_x = spell(&[]);
+        with_x.announced_x = true;
+        assert!(
+            check(&pair(Amount::announced_x()), &with_x)
+                .unwrap()
+                .announced_x
+        );
+        // "You" must be the role of the resolving context (CR 109.5).
+        assert!(matches!(
+            check(
+                &Node::drain(Context::Triggered, Amount::fixed(1)),
+                &spell(&[])
+            ),
+            Err(KirError::Scope(_))
+        ));
+        // Every other sequence is scope-checked and then unaudited.
+        let Node::Seq(steps) = pair(Amount::fixed(2)) else {
+            unreachable!()
+        };
+        for other in [
+            Node::Seq(vec![steps[0].clone()]),
+            Node::Seq(vec![steps[0].clone(), steps[0].clone()]),
+            Node::Seq(vec![steps[0].clone(), steps[1].clone(), steps[0].clone()]),
+        ] {
+            assert_eq!(drain(&other), None);
+            assert!(matches!(
+                check(&other, &spell(&[])),
+                Err(KirError::Unaudited(_))
+            ));
+        }
     }
 
     #[test]

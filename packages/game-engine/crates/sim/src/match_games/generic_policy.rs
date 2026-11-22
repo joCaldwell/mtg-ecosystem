@@ -49,7 +49,14 @@ fn announced_x(instruction: &I) -> bool {
         } | I::DrawAnnouncedX { .. }
             | I::DealDamageAnnouncedX { .. }
             | I::MillAnnouncedX { .. }
-            | I::ChangeLifeAnnouncedX { .. }
+            | kernel!(GainLife {
+                amount: mtg_contracts::announced_x!(),
+                ..
+            })
+            | kernel!(LoseLife {
+                amount: mtg_contracts::announced_x!(),
+                ..
+            })
     )
 }
 
@@ -399,11 +406,6 @@ impl Strategy<'_> {
             }
             | I::DrawAnnouncedX {
                 recipient: LifeRecipient::Target { target_slot },
-                ..
-            }
-            | I::ChangeLifeAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot },
-                gain: true,
                 ..
             } => *target_slot == slot,
             _ => false,

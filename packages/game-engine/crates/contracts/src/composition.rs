@@ -53,10 +53,6 @@ fn contexts(instruction: &Instruction) -> u8 {
         // CR 119.3: positive life changes for the controller, each opponent
         // or one announced player.
         I::Kernel { node, .. } => kernel_contexts(node),
-        I::DrainOpponents { amount, .. } => match amount {
-            OpponentDrainAmount::Fixed { .. } => ANY,
-            OpponentDrainAmount::AnnouncedX => FAMILY,
-        },
         // CR 120.2b: noncombat damage from the invocation's source, using its
         // last known information if it has left (CR 608.2h).
         I::DealDamage { .. } => ANY,
@@ -198,7 +194,6 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::DrawAnnouncedX { .. }
         | I::DealDamageAnnouncedX { .. }
         | I::MillAnnouncedX { .. }
-        | I::ChangeLifeAnnouncedX { .. }
         | I::OptionalDrawUnlessCasterPays { .. }
         | I::OptionalDrawForSoleGreatestEntrant { .. }
         | I::DrawDamageAmount { .. }
@@ -222,11 +217,15 @@ fn contexts(instruction: &Instruction) -> u8 {
 /// the actual context; this row only keeps operands that read a reviewed
 /// family's event data out of composition.
 fn kernel_contexts(node: &kir::Node) -> u8 {
+    // CR 119.3: the opponent drain pair; an announced X binds its family.
+    if let Some(amount) = kir::drain(node) {
+        return if amount.is_announced_x() { FAMILY } else { ANY };
+    }
     match node.verb() {
         // CR 119.3: life changes for the controller, each opponent or one
-        // announced player.
-        Some(Verb::GainLife { player, .. } | Verb::LoseLife { player, .. }) => {
-            if player.is_event_player() {
+        // announced player. An announced X binds its family.
+        Some(Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }) => {
+            if player.is_event_player() || amount.is_announced_x() {
                 FAMILY
             } else {
                 ANY
@@ -1114,10 +1113,11 @@ mod tests {
         ];
         assert!(super::program(&modal, Context::Spell).is_err());
         let x = program(
-            vec![Instruction::DrainOpponents {
-                amount: OpponentDrainAmount::AnnouncedX,
-                source_block: 0,
-            }],
+            vec![Instruction::drain(
+                Context::Spell,
+                kir::Amount::announced_x(),
+                0,
+            )],
             vec![],
         );
         assert!(super::program(&x, Context::Spell).is_err());

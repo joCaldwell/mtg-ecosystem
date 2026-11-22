@@ -106,11 +106,11 @@ pub(super) fn lower(
                 count: 1.into(),
                 source_block: 0,
             },
-            "gain-life" | "lose-life" => Instruction::ChangeLifeAnnouncedX {
-                recipient: recipient.clone(),
-                gain: op == "gain-life",
-                source_block: 0,
-            },
+            "gain-life" | "lose-life" => Instruction::announced_x_life(
+                recipient.kernel(Context::Spell).expect("spell recipient"),
+                op == "gain-life",
+                0,
+            ),
             _ => unreachable!(),
         });
     }
@@ -198,18 +198,10 @@ mod tests {
         let expected = match index {
             6121 => vec![
                 draw,
-                Instruction::ChangeLifeAnnouncedX {
-                    recipient,
-                    gain: false,
-                    source_block: 0,
-                },
+                Instruction::announced_x_life(recipient.kernel(Context::Spell).unwrap(), false, 0),
             ],
             17136 => vec![
-                Instruction::ChangeLifeAnnouncedX {
-                    recipient,
-                    gain: true,
-                    source_block: 0,
-                },
+                Instruction::announced_x_life(recipient.kernel(Context::Spell).unwrap(), true, 0),
                 draw,
             ],
             26764 => vec![

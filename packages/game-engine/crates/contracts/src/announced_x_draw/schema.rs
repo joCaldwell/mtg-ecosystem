@@ -46,13 +46,16 @@ fn program_schema(shape: Shape) -> Value {
 pub(crate) fn extend_schema(schema: &mut Value) {
     let free = json!({"$ref":"#/$defs/AnnouncedXDrawFreeProgram"});
     schema["$defs"]["AnnouncedXDrawFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":[
-            "draw_announced_x","change_life_announced_x","deal_damage_announced_x","mill_announced_x"
-        ]}}}}},
+        "instructions":{"items":{"not":{"anyOf":[
+            {"required":["op"],"properties":{"op":{"enum":[
+                "draw_announced_x","deal_damage_announced_x","mill_announced_x"
+            ]}}},
+            instruction_schema::kernel_announced_x(&["gain_life","lose_life"])
+        ]}}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
     schema["$defs"]["Instruction"]["allOf"].as_array_mut().unwrap().push(json!({
-        "if":{"properties":{"op":{"enum":["draw_announced_x","change_life_announced_x"]}}},
+        "if":{"properties":{"op":{"enum":["draw_announced_x"]}}},
         "then":{"properties":{"source_block":{"const":0},"recipient":{"enum":[LifeRecipient::Controller,LifeRecipient::Target{target_slot:0}]}}}
     }));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":free}}});
@@ -119,9 +122,10 @@ pub(crate) fn extend_schema(schema: &mut Value) {
             Capability::AnnouncedXDrawV1,Capability::AnnouncedXEffectsV1
         ]}}}}}}),
     );
-    let x_amount = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
-        "required":["op","amount"],"properties":{"op":{"enum":["damage_set","drain_opponents"]},"amount":{"const":{"amount":"announced_x"}}}
-    }}}}}});
+    let x_amount = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{"anyOf":[
+        {"required":["op","amount"],"properties":{"op":{"enum":["damage_set"]},"amount":{"const":{"amount":"announced_x"}}}},
+        instruction_schema::kernel_seq_announced_x()
+    ]}}}}}});
     let counted_x = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
         "required":["op","count"],"properties":{"op":{"enum":["discard_target_player_at_random","draw_each_player"]},"count":{"const":{"amount":"announced_x"}}}
     }}}}}});

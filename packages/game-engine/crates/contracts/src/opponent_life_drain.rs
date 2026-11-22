@@ -2,26 +2,8 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl<'de> Deserialize<'de> for OpponentDrainAmount {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        // Serde's internally tagged unit variant otherwise accepts unused operands.
-        #[derive(Deserialize)]
-        #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
-        enum Amount {
-            Fixed { value: Quantity },
-            AnnouncedX {},
-        }
-        Ok(match Amount::deserialize(d)? {
-            Amount::Fixed { value } => Self::Fixed { value },
-            Amount::AnnouncedX {} => Self::AnnouncedX,
-        })
-    }
-}
-
 fn has_drain(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::DrainOpponents { .. }))
+    p.instructions.iter().any(|i| i.drain_amount().is_some())
         || p.modes.iter().any(|m| has_drain(&m.program))
 }
 
@@ -35,17 +17,17 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         return Ok(());
     };
     let [
-        Instruction::DrainOpponents {
-            amount,
-            source_block: 0,
+        instruction @ Instruction::Kernel {
+            source_block: 0, ..
         },
     ] = p.instructions.as_slice()
     else {
         return Err("opponent drain requires a sole instruction from block zero".into());
     };
-    let valid_amount = match amount {
-        OpponentDrainAmount::Fixed { value } => *value > Quantity::zero() && !d.x_mana_cost,
-        OpponentDrainAmount::AnnouncedX => d.x_mana_cost,
+    let valid_amount = match instruction.drain_amount() {
+        Some(fixed!(value)) => *value > Quantity::zero() && !d.x_mana_cost,
+        Some(amount) => amount.is_announced_x() && d.x_mana_cost,
+        None => false,
     };
     let c = &d.characteristics;
     if !valid_amount
@@ -76,10 +58,10 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     use Capability::*;
     use serde_json::json;
-    let op = "drain_opponents";
+    let drain = instruction_schema::kernel_seq();
     let free = json!({"$ref":"#/$defs/OpponentLifeDrainFreeProgram"});
     schema["$defs"]["OpponentLifeDrainFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":{"properties":{"op":{"const":op}}}}},
+        "instructions":{"items":{"not":drain}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({
@@ -87,10 +69,7 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
             "timing":{"const":SpellTiming::MainPhase},"functioning_zone":{"const":"stack"},
             "resolution":{"const":"instructions"},"targets":{"maxItems":0},"modes":{"maxItems":0},
             "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":op},"amount":{"if":{"properties":{"amount":{"const":"announced_x"}}},
-                    "then":{"const":OpponentDrainAmount::AnnouncedX}}
-            }}}
+            "instructions":{"minItems":1,"maxItems":1,"items":drain}
         }}
     }));
     let caps = [
@@ -132,10 +111,7 @@ pub(super) fn witness() -> Definition {
     d.characteristics.kind = CardKind::Sorcery;
     let p = d.spell.as_mut().unwrap();
     p.timing = SpellTiming::MainPhase;
-    p.instructions = vec![Instruction::DrainOpponents {
-        amount: OpponentDrainAmount::Fixed { value: 3.into() },
-        source_block: 0,
-    }];
+    p.instructions = vec![Instruction::drain(Context::Spell, kir::Amount::fixed(3), 0)];
     d.capabilities = d.requirements();
     d
 }
@@ -144,20 +120,18 @@ pub(super) fn witness() -> Definition {
 fn opponent_life_drain() {
     use Capability::*;
     use serde_json::json;
-    let fixed = |n: i64| OpponentDrainAmount::Fixed { value: n.into() };
+    let fixed = |n: i64| kir::Amount::fixed(n);
     for (amount, x, valid) in [
         (fixed(3), false, true),
-        (OpponentDrainAmount::AnnouncedX, true, true),
+        (kir::Amount::announced_x(), true, true),
         (fixed(1), true, false),
-        (OpponentDrainAmount::AnnouncedX, false, false),
+        (kir::Amount::announced_x(), false, false),
         (fixed(0), false, false),
         (fixed(-1), false, false),
     ] {
         let mut d = witness();
-        d.spell.as_mut().unwrap().instructions = vec![Instruction::DrainOpponents {
-            amount,
-            source_block: 0,
-        }];
+        d.spell.as_mut().unwrap().instructions =
+            vec![Instruction::drain(Context::Spell, amount, 0)];
         d.x_mana_cost = x;
         assert_eq!(d.validate().is_ok(), valid);
         if valid {
@@ -213,7 +187,7 @@ fn opponent_life_drain() {
                 p.modes = vec![mode; 2];
             },
             |d| {
-                if let Instruction::DrainOpponents { source_block, .. } =
+                if let Instruction::Kernel { source_block, .. } =
                     &mut d.spell.as_mut().unwrap().instructions[0]
                 {
                     *source_block = 1;
@@ -226,10 +200,49 @@ fn opponent_life_drain() {
         d.capabilities = d.requirements();
         assert!(d.validate().is_err());
     }
+    // Kernel operands are strict: no unused operand, no legacy spelling.
+    let pair = |amount: serde_json::Value, extra: serde_json::Value| {
+        let mut wire =
+            serde_json::to_value(Instruction::drain(Context::Spell, kir::Amount::fixed(3), 0))
+                .unwrap();
+        wire["node"]["seq"][0]["do"]["amount"] = amount;
+        if let Some(extra) = extra.as_object() {
+            wire.as_object_mut().unwrap().extend(extra.clone());
+        }
+        wire
+    };
+    assert!(
+        serde_json::from_value::<Instruction>(pair(
+            json!({"amount":"fixed","value":"3"}),
+            json!({})
+        ))
+        .is_ok()
+    );
     for wire in [
-        json!({"op":"drain_opponents","amount":{"amount":"announced_x","value":"1"},"source_block":0}),
-        json!({"op":"drain_opponents","amount":{"amount":"fixed","value":"3"},"source_block":0,"target_slot":0}),
+        pair(
+            json!({"amount":"var","of":{"ref":"announced_x"},"value":"1"}),
+            json!({}),
+        ),
+        pair(
+            json!({"amount":"fixed","value":"3"}),
+            json!({"target_slot":0}),
+        ),
+        json!({"op":"drain_opponents","amount":{"amount":"fixed","value":"3"},"source_block":0}),
     ] {
         assert!(serde_json::from_value::<Instruction>(wire).is_err());
+    }
+    // The pair is the only audited sequence: any other one is rejected.
+    for (first, second) in [(0, 0), (1, 1)] {
+        let mut d = witness();
+        let Instruction::Kernel {
+            node: kir::Node::Seq(steps),
+            ..
+        } = &mut d.spell.as_mut().unwrap().instructions[0]
+        else {
+            panic!("drain pair");
+        };
+        *steps = vec![steps[first].clone(), steps[second].clone()];
+        d.capabilities = d.requirements();
+        assert!(d.validate().is_err());
     }
 }

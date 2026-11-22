@@ -77,7 +77,7 @@ pub(super) fn lower(
     source: &Value,
     result: &ParseResult,
     binding: &Value,
-) -> Result<Option<OpponentDrainAmount>, Failure> {
+) -> Result<Option<kir::Amount>, Failure> {
     let text = source["oracle_text"].as_str().unwrap_or_default();
     let Some(rest) = text.strip_prefix("Each opponent loses ") else {
         return Ok(None);
@@ -93,7 +93,7 @@ pub(super) fn lower(
         .ok_or_else(fail)?;
     let x = literal == "X";
     let (amount, raw_amount) = if x {
-        (OpponentDrainAmount::AnnouncedX, json!({"amount":"x"}))
+        (kir::Amount::announced_x(), json!({"amount":"x"}))
     } else {
         let n = literal
             .parse::<u32>()
@@ -101,9 +101,7 @@ pub(super) fn lower(
             .filter(|n| *n > 0 && n.to_string() == literal)
             .ok_or_else(fail)?;
         (
-            OpponentDrainAmount::Fixed {
-                value: i64::from(n).into(),
-            },
+            kir::Amount::fixed(i64::from(n)),
             json!({"amount":"fixed","value":n}),
         )
     };
@@ -184,13 +182,13 @@ mod tests {
         )
     }
 
-    fn witness(raw: &str, amount: OpponentDrainAmount) {
+    fn witness(raw: &str, amount: kir::Amount) {
         use Capability::*;
         let compiled = compile(MANIFEST, raw);
         let CompileResult::Lowered { definition: d } = compiled else {
             panic!("{compiled:?}")
         };
-        assert_eq!(d.x_mana_cost, amount == OpponentDrainAmount::AnnouncedX);
+        assert_eq!(d.x_mana_cost, amount.is_announced_x());
         assert_eq!(
             d.capabilities,
             BTreeSet::from([
@@ -210,10 +208,7 @@ mod tests {
         );
         assert_eq!(
             p.instructions,
-            [Instruction::DrainOpponents {
-                amount,
-                source_block: 0
-            }]
+            [Instruction::drain(kir::Context::Spell, amount, 0)]
         );
         for case in [
             "loss actor",
@@ -296,11 +291,8 @@ mod tests {
 
     #[test]
     fn opponent_life_drain() {
-        witness(
-            &synthetic(false),
-            OpponentDrainAmount::Fixed { value: 1.into() },
-        );
-        witness(&synthetic(true), OpponentDrainAmount::AnnouncedX);
+        witness(&synthetic(false), kir::Amount::fixed(1));
+        witness(&synthetic(true), kir::Amount::announced_x());
         if let Some(path) = std::env::var_os("MTG_OPPONENT_LIFE_DRAIN_ARCHIVE_PROBE") {
             // Two unmodified JSONL records, in physical archive order (19469, 30162).
             let rows = std::fs::read_to_string(path).unwrap();
@@ -308,12 +300,12 @@ mod tests {
                 (
                     19469,
                     "a77306b60e81ef512604cd681331a9cd37ea6d86d89f1ed45915f4aa4e9b5e5c",
-                    OpponentDrainAmount::AnnouncedX,
+                    kir::Amount::announced_x(),
                 ),
                 (
                     30162,
                     "e2482338d88940a4b9094194fc4649922ee90917dd69109ac831526435b047f0",
-                    OpponentDrainAmount::Fixed { value: 3.into() },
+                    kir::Amount::fixed(3),
                 ),
             ];
             assert_eq!(rows.lines().count(), pins.len());
