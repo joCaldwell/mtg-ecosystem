@@ -133,7 +133,7 @@ fn ownership_groups_preserve_the_frozen_flat_wire_contract_and_roundtrip() {
 
 #[test]
 fn flat_state_decoder_rejects_unknown_duplicate_and_missing_group_fields() {
-    let state = game().state;
+    let state = game().committed.state;
     let encoded = canonical(&state).unwrap();
     for added in [
         "\"rules\":{}",

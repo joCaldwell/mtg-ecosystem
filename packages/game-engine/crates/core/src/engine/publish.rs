@@ -3,16 +3,18 @@
 //! A publication updates every viewer's handles and decision token, projects
 //! the permitted view and appends it to that viewer's history when it differs
 //! from the last one. The complete projection (`publish_full`, in
-//! `visibility.rs`) is the definition. This module adds the coarse
-//! incremental path: when nothing a view row, handle or public table is
-//! derived from has changed since the last publication, the last view's rows
-//! are reused and only the priority and turn fields are refreshed.
+//! `visibility.rs`) is the definition. The incremental path reuses
+//! unchanged viewer rows and projects dirty object chunks against the
+//! committed layer epoch.
 //!
 //! In builds with `debug_assertions`, every publication is also run as a
 //! complete projection of the same prior state and the two results must be
 //! equal, so every test proves the incremental path against its definition.
 use super::*;
 
+mod handles;
+pub(in crate::engine) use handles::HandleId;
+pub type StoredObjectHandle = HandleId<b'o'>;
 pub mod permitted_history;
 mod reuse;
 pub mod stored_history;
@@ -20,7 +22,7 @@ pub mod visibility;
 
 pub use reuse::Published;
 
-impl Game {
+impl RulesTxn {
     /// Publishes the current rules state to all four viewers.
     pub(crate) fn refresh_visibility(&mut self) -> Result<(), String> {
         #[cfg(debug_assertions)]
@@ -36,16 +38,22 @@ impl Game {
             return Ok(());
         }
         let decider = self.state.rules.frame.decider(self)?;
-        if !self.republish_rows(decider)? {
-            self.publish_full(decider, false)?;
-        }
-        self.published = Some(Arc::new(Published::of(&self.state)));
+        let cache = if self.republish_rows(decider)? {
+            self.published
+                .as_ref()
+                .expect("reused a published view")
+                .cache
+                .clone()
+        } else {
+            self.publish_full(decider, false)?
+        };
+        self.published = Some(Arc::new(Published::of(&self.state, cache)));
         Ok(())
     }
 
     /// The prior state, to be published by the complete projection alone.
     #[cfg(debug_assertions)]
-    fn complete_publication(&self) -> Game {
+    fn complete_publication(&self) -> RulesTxn {
         let mut reference = self.fork();
         reference.published = None;
         reference
@@ -57,7 +65,7 @@ impl Game {
     #[cfg(debug_assertions)]
     fn assert_matches_complete_publication(
         &self,
-        mut reference: Game,
+        mut reference: RulesTxn,
         published: &Result<(), String>,
     ) {
         // The reference publishes nothing incrementally and builds each view
@@ -71,7 +79,7 @@ impl Game {
                 .frame
                 .decider(&reference)
                 .map_err(String::from)
-                .and_then(|decider| reference.publish_full(decider, true))
+                .and_then(|decider| reference.publish_full(decider, true).map(|_| ()))
         };
         assert_eq!(
             *published, complete,

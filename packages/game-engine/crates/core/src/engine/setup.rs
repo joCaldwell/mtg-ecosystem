@@ -239,7 +239,7 @@ impl ScenarioConfig {
         capacities::OWNED_LIMIT
     }
 }
-impl Game {
+impl RulesTxn {
     pub(crate) fn damage_limit(&self) -> usize {
         capacities::DAMAGE_LIMIT
     }

@@ -17,8 +17,25 @@ pub struct TargetFacts {
     power: Option<Quantity>,
     mana_value: Quantity,
 }
-impl Game {
-    fn target_information_frame(frame: &mut Frame) -> Option<&mut Resolving> {
+impl RulesTxn {
+    fn target_information_frame(&mut self) -> Option<&mut Resolving> {
+        let rules = self.rules_mut();
+        let mut frame = &mut rules.frame;
+        let mut frames = rules.frames.as_mut_slice();
+        while let Frame::Stabilize { resume, .. }
+        | Frame::LegendRule { resume, .. }
+        | Frame::CommanderReturn {
+            continuation:
+                CommanderContinuation::StateBased { resume }
+                | CommanderContinuation::StateBasedBatch { resume, .. },
+            ..
+        } = frame
+        {
+            let (rest, top) = frames.split_at_mut(resume.0);
+            frame = &mut top[0];
+            frames = rest;
+        }
+
         match frame {
             Frame::RevealAndCast { progress } => Some(&mut progress.frame),
             Frame::HandCast { frame, .. } => Some(frame.as_mut()),
@@ -39,15 +56,12 @@ impl Game {
             Frame::GraveyardReplacement { transaction } => Some(&mut transaction.frame),
             Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-                match transaction.continuation.as_mut() {
+                match &mut transaction.continuation {
                     DamageContinuation::Instruction { frame } => Some(frame),
                     DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
                 }
             }
-            Frame::Stabilize { resume, .. } | Frame::LegendRule { resume, .. } => {
-                Self::target_information_frame(resume)
-            }
-            Frame::CommanderReturn { continuation, .. } => match continuation.as_mut() {
+            Frame::CommanderReturn { continuation, .. } => match continuation {
                 CommanderContinuation::GraveyardShuffle { frame, .. }
                 | CommanderContinuation::HandReturn { frame, .. }
                 | CommanderContinuation::LookTopMana { frame, .. }
@@ -55,10 +69,8 @@ impl Game {
                 | CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }
                 | CommanderContinuation::ResolutionDraw { frame, .. } => Some(frame),
-                CommanderContinuation::StateBased { resume }
-                | CommanderContinuation::StateBasedBatch { resume, .. } => {
-                    Self::target_information_frame(resume)
-                }
+                CommanderContinuation::StateBased { .. }
+                | CommanderContinuation::StateBasedBatch { .. } => None,
                 CommanderContinuation::CascadeBottom { progress } => Some(&mut progress.frame),
                 CommanderContinuation::Draw { .. } => None,
             },
@@ -70,7 +82,7 @@ impl Game {
     /// atomic step, including concessions between instructions. This never
     /// repeats the resolution-start target legality check (CR608.2b).
     pub(super) fn refresh_removal_target_facts(&mut self) -> Result<(), String> {
-        let (id, legal) = match Self::target_information_frame(&mut self.rules_mut().frame) {
+        let (id, legal) = match self.target_information_frame() {
             Some(frame) if !frame.target_facts.is_empty() => {
                 (frame.stack_id, frame.legal_targets.clone())
             }
@@ -97,7 +109,8 @@ impl Game {
             })
             .collect::<Vec<_>>();
         let fresh = self.capture_target_facts(entry, &current)?;
-        let frame = Self::target_information_frame(&mut self.rules_mut().frame)
+        let frame = self
+            .target_information_frame()
             .ok_or("missing target information frame")?;
         for (slot, fact) in fresh.into_iter().enumerate() {
             if fact.is_some() {

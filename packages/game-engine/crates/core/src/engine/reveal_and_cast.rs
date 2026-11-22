@@ -41,7 +41,7 @@ impl RevealAndCastProgress {
             stage: RevealStage::Scan,
         }
     }
-    pub(super) fn permission(&self, game: &Game) -> Result<CastPermission, String> {
+    pub(super) fn permission(&self, game: &RulesTxn) -> Result<CastPermission, String> {
         let RevealStage::Offer { hit } = self.stage else {
             return Err("no revealed card cast offer".into());
         };
@@ -72,7 +72,7 @@ impl RevealAndCastProgress {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn resolution_cast_request(&self) -> Result<Option<Request>, String> {
         if matches!(self.state.rules.frame, Frame::PlayHideawayLinked { .. }) {
             return self.linked_play_request();

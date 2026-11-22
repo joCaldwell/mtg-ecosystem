@@ -152,6 +152,35 @@ impl ObjectTable {
         };
         self.rows(self.cursor(start), self.cursor(stop))
     }
+    /// Changed card keys, including retired rows. Shared chunks require no row reads.
+    pub(in crate::engine) fn changed_cards(
+        &self,
+        before: &Self,
+    ) -> std::collections::BTreeSet<CardId> {
+        let mut changed = std::collections::BTreeSet::new();
+        for (number, chunk) in &self.chunks {
+            let old = before.position(*number).ok().map(|i| &before.chunks[i].1);
+            if old.is_some_and(|old| Arc::ptr_eq(chunk, old)) {
+                continue;
+            }
+            for (offset, row) in chunk.iter().enumerate() {
+                if row.as_ref() != old.and_then(|old| old[offset].as_ref()) {
+                    changed.insert(CardId(number * OBJECT_CHUNK as u32 + offset as u32));
+                }
+            }
+        }
+        for (number, old) in &before.chunks {
+            if self.position(*number).is_err() {
+                for (offset, row) in old.iter().enumerate() {
+                    if row.is_some() {
+                        changed.insert(CardId(number * OBJECT_CHUNK as u32 + offset as u32));
+                    }
+                }
+            }
+        }
+        changed
+    }
+
     /// True when both tables share every chunk: no row can differ.
     pub fn shares_rows(&self, other: &Self) -> bool {
         self.chunks.len() == other.chunks.len()

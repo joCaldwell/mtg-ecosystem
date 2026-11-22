@@ -46,7 +46,7 @@ pub struct AdvanceReport {
     /// the processed concession. No fact is retained between advance calls.
     pub processed: Vec<InputProcessingFact>,
 }
-impl Game {
+impl RulesTxn {
     /// Cheap trusted journal lengths; after a successful submit/concede, its
     /// zero-based ordinal is the corresponding count minus one.
     pub fn accepted_input_counts(&self) -> Result<AcceptedInputCounts, String> {
@@ -57,6 +57,8 @@ impl Game {
                 .map_err(|_| "concession journal ordinal resource limit")?,
         })
     }
+}
+impl Game {
     /// Same rules, atomicity and Budget units as advance. Facts describe only
     /// accepted inputs actually removed by committed steps during THIS call.
     /// A rolled-back step emits none, even if it removed inputs in its staging
@@ -74,7 +76,7 @@ pub(super) struct StepInputCapture {
     cause: InputProcessingCause,
 }
 impl StepInputCapture {
-    pub(super) fn capture(game: &Game) -> Self {
+    pub(super) fn capture(game: &RulesTxn) -> Self {
         // Restored/admitted states bind pending to journal.last(). Do not
         // fabricate an ordinal for malformed private test/domain states.
         let decision = game.state.rules.pending.as_ref().and_then(|pending| {
@@ -117,7 +119,7 @@ impl StepInputCapture {
     /// succeeded and the staging State was installed. CR800.4 departure
     /// revalidation can clear any nested pending choice; inspect the committed
     /// result rather than infer processing from an ordinary next request.
-    pub(super) fn committed(self, game: &Game, out: &mut Vec<InputProcessingFact>) {
+    pub(super) fn committed(self, game: &RulesTxn, out: &mut Vec<InputProcessingFact>) {
         if game.state.rules.pending.is_none()
             && let Some(identity) = self.decision
         {

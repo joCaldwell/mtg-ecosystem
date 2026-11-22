@@ -10,23 +10,86 @@
 //! is read from table identity: a written table or object chunk is a new
 //! allocation, so publication needs no separate dirty set.
 use crate::engine::*;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
-/// The staged copy one change runs on. Rule routines are methods of the game;
-/// through this handle they act on the staged copy only.
-pub struct RulesTxn<'a> {
-    staged: &'a mut Game,
+mod queries;
+
+testkit_fields! {
+/// A committed executor only lends its rules for reads. Rule routines receive
+/// an owned, copy-on-write stage. Only this module installs its changes.
+pub struct Game {
+    committed: RulesTxn,
 }
 
-impl Deref for RulesTxn<'_> {
-    type Target = Game;
-    fn deref(&self) -> &Game {
-        self.staged
+}
+impl Deref for Game {
+    type Target = RulesTxn;
+    fn deref(&self) -> &RulesTxn {
+        &self.committed
     }
 }
-impl DerefMut for RulesTxn<'_> {
-    fn deref_mut(&mut self) -> &mut Game {
-        self.staged
+// White-box witnesses construct and corrupt otherwise unreachable states.
+#[cfg(any(test, feature = "testkit"))]
+impl std::ops::DerefMut for Game {
+    fn deref_mut(&mut self) -> &mut RulesTxn {
+        self.committed.published = None;
+        &mut self.committed
+    }
+}
+
+impl Game {
+    pub(in crate::engine) fn from_initial(committed: RulesTxn) -> Self {
+        Self { committed }
+    }
+    pub fn new(prepared: Prepared) -> Self {
+        Self::from_initial(RulesTxn::new(prepared))
+    }
+    pub fn with_trace(prepared: Prepared, mode: TraceMode) -> Self {
+        Self::from_initial(RulesTxn::with_trace(prepared, mode))
+    }
+    pub fn fork(&self) -> Self {
+        Self::from_initial(self.committed.fork())
+    }
+    /// A failed step is never a rules outcome: the game keeps its pre-step
+    /// state and stops at a fault, typed when a capacity was exhausted.
+    pub(in crate::engine) fn enter_fault(&mut self, error: RuleError) -> Advance {
+        self.committed.published = None;
+        self.committed.kernel_leaf = None;
+        self.committed.rules_mut().frames.clear();
+        self.committed.rules_mut().typed_fault = error.fault().cloned();
+        let reason = String::from(error);
+        self.committed.rules_mut().frame = Frame::Fault {
+            reason: reason.clone(),
+        };
+        self.committed.state_token = Arc::new(());
+        Advance::Fault(reason)
+    }
+}
+
+impl RulesTxn {
+    fn execute_step(&mut self, coalesce: bool) -> Result<(), RuleError> {
+        self.in_rule_step = coalesce;
+        self.step()?;
+        let rules = self.rules_mut();
+        rules.rule_steps = rules
+            .rule_steps
+            .checked_add(1)
+            .ok_or_else(|| RuleError::resource("execution boundary resource limit"))?;
+        Ok(())
+    }
+
+    fn accept_input(&mut self, input: AcceptedInput) -> Result<(), RuleError> {
+        let rules = self.rules_mut();
+        rules.revision = rules
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| RuleError::resource("structural revision resource limit"))?;
+        rules.retained_auxiliary_charge = rules
+            .retained_auxiliary_charge
+            .saturating_add(stored_history::payload_charge(&input));
+        rules.pending = Some(input.clone());
+        self.state.audit.journal.push(input);
+        Ok(())
     }
 }
 
@@ -34,38 +97,57 @@ impl Game {
     /// Runs one rule change atomically: stage, change, publish, check the
     /// history capacity, commit. On failure nothing is committed, and a
     /// capacity fault the change recorded travels with the error.
-    pub(crate) fn transact<T>(
-        &mut self,
-        change: impl FnOnce(&mut RulesTxn<'_>) -> Result<T, RuleError>,
-    ) -> Result<T, RuleError> {
-        self.commit_staged(true, change)
+    pub(in crate::engine) fn commit_rule_step(&mut self, coalesce: bool) -> Result<(), RuleError> {
+        self.transact(true, |tx| tx.execute_step(coalesce))
     }
 
     /// Accepts an input atomically. Retaining an input is charged to history
     /// but never refused here: the next rule step's capacity check faults
     /// instead, so an accepted input is always journaled.
-    pub(crate) fn transact_input<T>(
+    pub(in crate::engine) fn commit_input(
         &mut self,
-        change: impl FnOnce(&mut RulesTxn<'_>) -> Result<T, RuleError>,
-    ) -> Result<T, RuleError> {
-        self.commit_staged(false, change)
+        input: AcceptedInput,
+    ) -> Result<(), RuleError> {
+        self.transact(false, |tx| tx.accept_input(input))
     }
 
-    fn commit_staged<T>(
+    pub(in crate::engine) fn commit_concession(
+        &mut self,
+        player: PlayerId,
+        revision: u64,
+    ) -> Result<(), RuleError> {
+        self.transact(false, |next| {
+            let input = ExternalInput {
+                after_decisions: u64::try_from(next.state.audit.journal.len())
+                    .map_err(|_| RuleError::resource("input count resource limit"))?,
+                boundary: next.state.rules.rule_steps,
+                player,
+            };
+            let charge = stored_history::payload_charge(&input);
+            next.state.audit.external_inputs.push(input);
+            let rules = next.rules_mut();
+            rules.retained_auxiliary_charge =
+                rules.retained_auxiliary_charge.saturating_add(charge);
+            rules.pending_concessions.push(player);
+            rules.revision = revision;
+            Ok(())
+        })
+    }
+
+    fn transact<T>(
         &mut self,
         metered: bool,
-        change: impl FnOnce(&mut RulesTxn<'_>) -> Result<T, RuleError>,
+        change: impl FnOnce(&mut RulesTxn) -> Result<T, RuleError>,
     ) -> Result<T, RuleError> {
         // A transaction preserves the state invariant. A state that did not
         // satisfy it beforehand (a white-box test's synthetic board) proves
         // nothing either way.
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, any(test, feature = "testkit")))]
         let valid_before = self.validate_state().is_ok();
-        let mut staged = self.fork();
-        let outcome = change(&mut RulesTxn {
-            staged: &mut staged,
-        })
-        .and_then(|value| {
+        #[cfg(all(debug_assertions, not(any(test, feature = "testkit"))))]
+        let valid_before = true;
+        let mut staged = self.committed.fork();
+        let outcome = change(&mut staged).and_then(|value| {
             staged.refresh_visibility()?;
             if metered {
                 staged.check_history_capacity()?;
@@ -78,10 +160,11 @@ impl Game {
                 if valid_before && let Err(violation) = staged.validate_state() {
                     panic!("a transaction broke the state invariant: {violation}");
                 }
-                self.state = staged.state;
-                self.trace = staged.trace;
-                self.published = staged.published;
-                self.state_token = Arc::new(());
+                self.committed.state = staged.state;
+                self.committed.trace = staged.trace;
+                self.committed.published = staged.published;
+                self.committed.kernel_leaf = staged.kernel_leaf;
+                self.committed.state_token = Arc::new(());
                 Ok(value)
             }
             Err(error) => Err(error.with_fault(staged.state.rules.typed_fault.clone())),
@@ -94,18 +177,18 @@ impl Game {
 /// consumes. An explicit read-only capture: it shares every rules table and
 /// each viewer's handles with the game, and carries no audit history, trace
 /// or publication record, so taking one copies no table.
-pub struct PreEvent(Game);
+pub struct PreEvent(RulesTxn);
 
 impl Deref for PreEvent {
-    type Target = Game;
-    fn deref(&self) -> &Game {
+    type Target = RulesTxn;
+    fn deref(&self) -> &RulesTxn {
         &self.0
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(in crate::engine) fn pre_event(&self) -> PreEvent {
-        PreEvent(Game {
+        PreEvent(RulesTxn {
             opening_library_sizes: self.opening_library_sizes,
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
             catalog_has_land_reclamation: self.catalog_has_land_reclamation,
@@ -127,6 +210,7 @@ impl Game {
             executor: self.executor.clone(),
             state_token: self.state_token.clone(),
             in_rule_step: false,
+            kernel_leaf: self.kernel_leaf.clone(),
             published: None,
         })
     }

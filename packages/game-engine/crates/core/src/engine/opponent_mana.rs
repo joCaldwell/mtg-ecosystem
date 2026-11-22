@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn opponent_land_mana_colors(&self, player: PlayerId) -> Result<Vec<Color>, String> {
         if !self.is_live(player) {
             return Err("opponent-land mana requires a live activator".into());

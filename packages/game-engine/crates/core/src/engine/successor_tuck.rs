@@ -18,7 +18,7 @@ pub(super) fn self_graveyard_successor(
     .then_some(movement.successor)
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn is_successor_tuck(&self, frame: &Resolving) -> Result<bool, String> {
         Ok(matches!(
             self.program_for(self.entry(frame.stack_id)?)?
@@ -65,10 +65,10 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Library { owner },
-                continuation: Box::new(CommanderContinuation::SpellMove {
+                continuation: CommanderContinuation::SpellMove {
                     frame,
                     source_block,
-                }),
+                },
             };
             return Ok(());
         }

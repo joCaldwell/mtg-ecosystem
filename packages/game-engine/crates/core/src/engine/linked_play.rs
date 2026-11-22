@@ -16,7 +16,7 @@ pub struct LinkedPlayProgress {
 impl LinkedPlayProgress {
     pub(super) fn receipt_matches(
         &self,
-        game: &Game,
+        game: &RulesTxn,
         receipt: &HideawayLink,
         object: ObjectId,
     ) -> Result<bool, String> {
@@ -28,7 +28,7 @@ impl LinkedPlayProgress {
     }
     pub(super) fn permission(
         &self,
-        game: &Game,
+        game: &RulesTxn,
         object: ObjectId,
     ) -> Result<CastPermission, String> {
         CastPermission::from_instruction(game, &self.frame, self.source_block, object, None)
@@ -39,7 +39,7 @@ impl LinkedPlayProgress {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn begin_linked_play(
         &mut self,
         frame: Resolving,

@@ -10,7 +10,7 @@ pub struct CopyIdentity {
     stack_id: StackId,
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn is_spell_copy(&self, entry: &StackInstance) -> bool {
         entry.kind.is_spell()
             && entry.source.incarnation == 0

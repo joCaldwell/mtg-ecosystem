@@ -10,7 +10,7 @@ pub struct HideawayLink {
     card: ObjectId,
     source: ObjectId,
     source_block: u32,
-    source_handles: [ObjectHandle; 4],
+    source_handles: [publish::StoredObjectHandle; 4],
     lookers: [bool; 4],
 }
 
@@ -19,7 +19,7 @@ impl HideawayLink {
         self.source == source && self.source_block == source_block && self.card == card
     }
 
-    pub(super) fn source_handle(&self, viewer: PlayerId) -> &ObjectHandle {
+    pub(super) fn source_handle(&self, viewer: PlayerId) -> &publish::StoredObjectHandle {
         &self.source_handles[viewer.0 as usize]
     }
 
@@ -36,7 +36,7 @@ pub struct RandomBottom {
     remaining: u32,
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn linked_hideaway_cards(
         &self,
         source: ObjectId,

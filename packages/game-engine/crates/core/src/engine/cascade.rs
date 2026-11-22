@@ -48,7 +48,7 @@ pub enum CastOwner {
     RevealAndCast(Box<RevealAndCastProgress>),
 }
 impl CastOwner {
-    pub(super) fn permission(&self, game: &Game) -> Result<CastPermission, String> {
+    pub(super) fn permission(&self, game: &RulesTxn) -> Result<CastPermission, String> {
         match self {
             Self::LinkedPlay {
                 progress, object, ..
@@ -67,7 +67,7 @@ impl CastOwner {
 }
 impl CastPermission {
     pub(super) fn from_instruction(
-        game: &Game,
+        game: &RulesTxn,
         frame: &Resolving,
         source_block: u32,
         object: ObjectId,
@@ -119,10 +119,10 @@ pub struct CascadeProgress {
     redirected: Vec<ObjectId>,
 }
 impl CascadeProgress {
-    fn caster(&self, game: &Game) -> Result<PlayerId, String> {
+    fn caster(&self, game: &RulesTxn) -> Result<PlayerId, String> {
         Ok(game.entry(self.frame.stack_id)?.controller)
     }
-    fn permission(&self, game: &Game) -> Result<CastPermission, String> {
+    fn permission(&self, game: &RulesTxn) -> Result<CastPermission, String> {
         if self.stage != CascadeStage::Offer || self.child.is_some() {
             return Err("cascade permission outside its offer".into());
         }
@@ -135,7 +135,7 @@ impl CascadeProgress {
         )
     }
 }
-impl Game {
+impl RulesTxn {
     fn cascade_threshold(&self, frame: &Resolving) -> Result<Quantity, String> {
         let StackKind::Triggered {
             witness: TriggerEventWitness::SpellCast { cast },
@@ -607,9 +607,9 @@ impl Game {
                         self.rules_mut().frame = Frame::CommanderReturn {
                             object,
                             destination: Zone::Library { owner },
-                            continuation: Box::new(CommanderContinuation::CascadeBottom {
+                            continuation: CommanderContinuation::CascadeBottom {
                                 progress: Box::new(progress),
-                            }),
+                            },
                         };
                         return Ok(());
                     }
@@ -727,17 +727,17 @@ impl Game {
         Ok(())
     }
     pub(crate) fn cascade_charge(&self) -> usize {
-        let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
+        let frame = spell_cascade_grants::retained_effect_frame(
+            &self.state.rules.frames,
+            &self.state.rules.frame,
+        );
         match frame {
             Frame::PlayHideawayLinked { .. }
             | Frame::Cascade { .. }
             | Frame::HandCast { .. }
             | Frame::RevealAndCast { .. } => stored_history::payload_charge(frame),
             Frame::CommanderReturn { continuation, .. }
-                if matches!(
-                    continuation.as_ref(),
-                    CommanderContinuation::CascadeBottom { .. }
-                ) =>
+                if matches!(continuation, CommanderContinuation::CascadeBottom { .. }) =>
             {
                 stored_history::payload_charge(frame)
             }
@@ -762,7 +762,7 @@ impl Game {
     }
     pub(super) fn validate_cascade_state(&self) -> Result<(), String> {
         let (progress, permission, announcing) = match self
-            .underlying_mana_frame(&self.state.rules.frame)
+            .underlying_mana_frame(&self.state.rules.frame)?
         {
             Frame::PlayHideawayLinked { progress } => {
                 return self.validate_linked_play(progress, None);
@@ -822,8 +822,7 @@ impl Game {
                 }
             }
             Frame::CommanderReturn { continuation, .. } => {
-                let CommanderContinuation::CascadeBottom { progress } = continuation.as_ref()
-                else {
+                let CommanderContinuation::CascadeBottom { progress } = continuation else {
                     return Ok(());
                 };
                 (progress.as_ref(), None, false)

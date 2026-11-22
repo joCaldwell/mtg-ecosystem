@@ -17,7 +17,7 @@ pub struct EntryCopy {
     entry_sequence: u64,
 }
 
-impl Game {
+impl RulesTxn {
     fn entry_copy(&self, object: ObjectId) -> Option<&EntryCopy> {
         self.state
             .rules
@@ -67,7 +67,7 @@ impl Game {
         }
         let sequence = self.state.rules.next_event_sequence;
         let charge = stored_history::payload_charge(&(successor, sequence));
-        let requested = self.history_charge().saturating_add(charge);
+        let requested = self.history_charge()?.saturating_add(charge);
         if requested > capacities::HISTORY_LIMIT {
             return Err(self.capacity_error(RuleFault::HistoryCapacityExceeded {
                 capacity: capacities::HISTORY_LIMIT,
@@ -196,7 +196,7 @@ impl Game {
             entry_sequence: self.state.rules.next_event_sequence,
         };
         let charge = stored_history::payload_charge(&(entering, row));
-        let requested = self.history_charge().saturating_add(charge);
+        let requested = self.history_charge()?.saturating_add(charge);
         if requested > capacities::HISTORY_LIMIT {
             return Err(self.capacity_error(RuleFault::HistoryCapacityExceeded {
                 capacity: capacities::HISTORY_LIMIT,

@@ -5,7 +5,7 @@ use super::*;
 // One equip can begin an otherwise empty-stack episode. Four Rancors can
 // each enter the graveyard once per episode; recasting requires an empty stack.
 
-impl Game {
+impl RulesTxn {
     /// Only the inner permanent-completion movement changes; the caller still
     /// owns stack removal, completion history, priority and stabilization.
     pub(super) fn finish_spell_aura_entry(

@@ -1,7 +1,7 @@
 use super::*;
 use mtg_contracts::ManaResolutionQuantity;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn produce_resolution_mana(
         &mut self,
         frame: Resolving,

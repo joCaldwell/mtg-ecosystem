@@ -2,25 +2,26 @@
 //! the stack top and its program, and the retained-history charge.
 use crate::engine::*;
 
-impl Game {
-    pub(crate) fn history_charge(&self) -> usize {
+impl RulesTxn {
+    pub(crate) fn history_charge(&self) -> Result<usize, String> {
         // Charge actual retained allocations, independently of trace mode.
-        self.state.knowledge.visibility.iter().fold(
+        Ok(self.state.knowledge.visibility.iter().fold(
             self.state
                 .rules
                 .retained_auxiliary_charge
+                .saturating_add(self.kernel_charge())
                 .saturating_add(self.cost_lock_charge())
                 .saturating_add(self.cascade_charge())
-                .saturating_add(self.mana_continuation_charge())
+                .saturating_add(self.mana_continuation_charge()?)
                 .saturating_add(self.land_entry_charge())
                 .saturating_add(self.replacement_charge())
                 .saturating_add(self.counter_placement_charge())
                 .saturating_add(self.grant_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
-        )
+        ))
     }
     pub(crate) fn check_history_capacity(&mut self) -> Result<(), RuleError> {
-        let requested = self.history_charge();
+        let requested = self.history_charge()?;
         if requested > capacities::HISTORY_LIMIT {
             let fault = RuleFault::HistoryCapacityExceeded {
                 capacity: capacities::HISTORY_LIMIT,
@@ -129,6 +130,18 @@ impl Game {
         self.program_for(entry)
     }
     pub(crate) fn program_for<'a>(
+        &'a self,
+        stack: &'a StackInstance,
+    ) -> Result<&'a SpellProgram, RuleError> {
+        if let Some(leaf) = &self.kernel_leaf
+            && leaf.invocation == stack.id
+        {
+            return Ok(&leaf.program);
+        }
+        self.original_program_for(stack)
+    }
+
+    pub(in crate::engine) fn original_program_for<'a>(
         &'a self,
         stack: &'a StackInstance,
     ) -> Result<&'a SpellProgram, RuleError> {

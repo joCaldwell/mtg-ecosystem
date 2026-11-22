@@ -36,7 +36,7 @@ pub enum EffectiveTriggerAbility {
 #[serde(deny_unknown_fields)]
 pub struct CascadeGrantProvenance {
     pub source_facts: ObjectBefore,
-    pub source_handles: Vec<ObjectHandle>,
+    pub source_handles: Vec<publish::StoredObjectHandle>,
 }
 fn trigger_grant_charge(
     ability: EffectiveTriggerAbility,
@@ -75,7 +75,7 @@ pub fn entry_grant_charge(entry: &StackInstance) -> usize {
             .map_or(0, stored_history::payload_charge),
     }
 }
-impl Game {
+impl RulesTxn {
     pub(crate) fn grant_payload_charge(&self) -> usize {
         let mut charge = 0usize;
         for registration in &self.state.rules.delayed_chapters {
@@ -295,7 +295,7 @@ impl Game {
         &self,
         source: ObjectId,
         fact: &ObjectBefore,
-        handles: &[ObjectHandle],
+        handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
         if fact.object != source
             || fact.zone != Zone::Battlefield
@@ -344,22 +344,22 @@ pub(super) fn eligible(
 }
 
 /// Unwrap owning continuations without copying or mutating them.
-pub fn retained_effect_frame(mut frame: &Frame) -> &Frame {
+pub fn retained_effect_frame<'a>(frames: &'a [Frame], mut frame: &'a Frame) -> &'a Frame {
     loop {
         frame = match frame {
-            Frame::ManaAbility { activation } => &activation.resume,
+            Frame::ManaAbility { activation } => &frames[activation.resume.0],
             Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-                match transaction.continuation.as_ref() {
-                    DamageContinuation::Mana { activation, .. } => &activation.resume,
+                match &transaction.continuation {
+                    DamageContinuation::Mana { activation, .. } => &frames[activation.resume.0],
                     _ => return frame,
                 }
             }
             Frame::ManaSourceChoice { resume, .. }
             | Frame::Stabilize { resume, .. }
-            | Frame::LegendRule { resume, .. } => resume,
-            Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
+            | Frame::LegendRule { resume, .. } => &frames[resume.0],
+            Frame::CommanderReturn { continuation, .. } => match continuation {
                 CommanderContinuation::StateBased { resume }
-                | CommanderContinuation::StateBasedBatch { resume, .. } => resume,
+                | CommanderContinuation::StateBasedBatch { resume, .. } => &frames[resume.0],
                 _ => return frame,
             },
             _ => return frame,

@@ -43,7 +43,7 @@ impl CounterDivision {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn object_target_number_valid(program: &SpellProgram, count: usize) -> bool {
         CounterDivision::offered_by(program).map_or(count == program.targets.len(), |offer| {
             offer.allows_count(count)

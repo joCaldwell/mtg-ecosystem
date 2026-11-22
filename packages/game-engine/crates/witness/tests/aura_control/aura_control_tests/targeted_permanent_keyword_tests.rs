@@ -950,7 +950,7 @@ fn targeted_permanent_keyword_authenticated_restore_rejects_normalized_grant_and
                     };
                     *target = object(g, 2);
                     e.target_handles = (0..4)
-                        .map(|s| g.handle_for(PlayerId(s), *target).unwrap())
+                        .map(|s| g.stored_handle_for(PlayerId(s), *target).unwrap())
                         .collect();
                 }
                 2 => e.origin.controller = PlayerId(1),

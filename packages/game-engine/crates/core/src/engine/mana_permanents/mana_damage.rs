@@ -1,7 +1,7 @@
 //! Immediate damage from the disjoint mana family and its payment reversal.
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn begin_mana_damage(
         &mut self,
         a: ManaActivation,
@@ -37,9 +37,9 @@ impl Game {
         Ok(())
     }
 
-    pub(super) fn mana_damage_resume_available(&self, a: &ManaActivation) -> bool {
-        self.is_live(a.player)
-            && match self.underlying_mana_frame(&a.resume) {
+    pub(super) fn mana_damage_resume_available(&self, a: &ManaActivation) -> Result<bool, String> {
+        Ok(self.is_live(a.player)
+            && match self.underlying_mana_frame(self.saved_frame(a.resume)?)? {
                 Frame::Priority => self.state.rules.priority == a.player,
                 Frame::ResolutionPayment { payment, .. } => {
                     payment.payer == a.player && payment.stage == ResolutionPaymentStage::Mana
@@ -48,7 +48,7 @@ impl Game {
                     .top()
                     .is_ok_and(|top| top.id == cast.stack_id && top.controller == a.player),
                 _ => false,
-            }
+            })
     }
 
     pub(in crate::engine) fn validate_mana_damage(
@@ -95,11 +95,11 @@ impl Game {
         {
             return Err("unbound mana damage transaction".into());
         }
-        if self.mana_damage_resume_available(a) {
-            if !self.mana_resume_player(&a.resume, a.player) {
+        if self.mana_damage_resume_available(a)? {
+            if !self.mana_resume_player(self.saved_frame(a.resume)?, a.player) {
                 return Err("invalid mana damage continuation".into());
             }
-            self.validate_nested_mana_frame(&a.resume)?;
+            self.validate_nested_mana_frame(self.saved_frame(a.resume)?)?;
         } else if !departed {
             return Err("missing suspended mana payment".into());
         }
@@ -168,22 +168,27 @@ impl Game {
                 shields,
                 triggers,
             }));
-        if !self.mana_damage_resume_available(&a) {
+        if !self.mana_damage_resume_available(&a)? {
             // A departure may remove the payer or the suspended announcement.
             // Its legal paid activation stands, with any invalid damage cancelled
             // by the ordinary transaction. Leave their last-known state alone.
             if let frame @ Frame::ResolutionPayment { .. } =
-                spell_cascade_grants::retained_effect_frame(&a.resume)
+                spell_cascade_grants::retained_effect_frame(
+                    &self.state.rules.frames,
+                    self.saved_frame(a.resume)?,
+                )
             {
                 self.rules_mut().frame = frame.clone();
                 return self.revalidate_resolution_payment_departure();
             }
             self.rules_mut().passes.clear();
-            if let Frame::Mana { cast } = spell_cascade_grants::retained_effect_frame(&a.resume)
-                && let CastCompletion::Resolution {
-                    progress: CastOwner::LinkedPlay { progress, .. },
-                    ..
-                } = &cast.completion
+            if let Frame::Mana { cast } = spell_cascade_grants::retained_effect_frame(
+                &self.state.rules.frames,
+                self.saved_frame(a.resume)?,
+            ) && let CastCompletion::Resolution {
+                progress: CastOwner::LinkedPlay { progress, .. },
+                ..
+            } = &cast.completion
                 && self.is_live(self.entry(progress.frame.stack_id)?.controller)
             {
                 self.rules_mut().frame = Frame::PlayHideawayLinked {

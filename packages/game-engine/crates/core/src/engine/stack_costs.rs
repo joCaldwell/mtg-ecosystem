@@ -13,7 +13,7 @@ impl AnnouncementOrigin {
     }
 }
 
-impl Game {
+impl RulesTxn {
     // CR602.2/702.29a: a hand card's owner activates it. A stale battlefield
     // controller never supplies (or removes) permission outside battlefield.
     pub(super) fn hand_activation_source_payable(
@@ -316,7 +316,7 @@ impl Game {
         &self,
         entry: &StackInstance,
         ability: u32,
-        source_handles: &[ObjectHandle],
+        source_handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
         let definition = self.activation_definition(entry.source)?;
         let activated = definition
@@ -338,7 +338,7 @@ impl Game {
             },
         };
         let program = self.program_for(entry)?;
-        let announcing = match self.underlying_mana_frame(&self.state.rules.frame) {
+        let announcing = match self.underlying_mana_frame(&self.state.rules.frame)? {
             Frame::Modes { cast }
             | Frame::Targets { cast }
             | Frame::PlayerTargets { cast }
@@ -597,7 +597,7 @@ impl Game {
             .map(|viewer| {
                 entries
                     .iter()
-                    .map(|target| self.stack_handle_for(PlayerId(viewer), *target))
+                    .map(|target| self.stack_handle_id(PlayerId(viewer), *target).cloned())
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;

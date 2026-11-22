@@ -73,7 +73,7 @@ impl<'a> LandSearch<'a> {
         self.force_tapped
     }
 }
-impl Game {
+impl RulesTxn {
     fn land_search_for<'a>(&'a self, frame: &'a Resolving) -> Option<LandSearch<'a>> {
         LandSearch::instruction(
             self.program_for(self.entry(frame.stack_id).ok()?)
@@ -573,10 +573,10 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object: target,
                 destination: Zone::Hand { owner },
-                continuation: Box::new(CommanderContinuation::SpellMove {
+                continuation: CommanderContinuation::SpellMove {
                     frame,
                     source_block: block,
-                }),
+                },
             };
             return Ok(());
         }

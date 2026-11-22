@@ -147,7 +147,7 @@ impl ActionQueryResult {
 }
 
 /// Private, non-serializable, single-owner query progress. Dropping/cancelling
-/// it cannot change Game, accepted inputs, handles, history or any clock.
+/// it cannot change RulesTxn, accepted inputs, handles, history or any clock.
 ///
 /// ```compile_fail
 /// fn cannot_serialize(work: &mtg_core::ActionContinuation) {
@@ -178,7 +178,7 @@ struct ObjectCandidates {
     back_land: bool,
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn begin_actions(
         &self,
         viewer: PlayerId,
@@ -442,7 +442,7 @@ fn action_rejection(reason: QueryRejection) -> ActionQueryResult {
     }
 }
 
-impl Game {
+impl RulesTxn {
     fn action_label(&self, viewer: PlayerId, action: &ActionInitiation) -> ActionLabel {
         let (text, source) = match action {
             ActionInitiation::Pass => ("Pass priority", None),

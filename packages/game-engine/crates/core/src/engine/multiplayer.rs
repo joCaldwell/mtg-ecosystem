@@ -175,7 +175,7 @@ impl CommanderLedger {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn initialize_commanders(&mut self) -> Result<(), String> {
         for card in self.prepared.config.commanders.clone() {
             let d = self.definition(card)?;
@@ -261,6 +261,8 @@ impl Game {
         };
         Ok(())
     }
+}
+impl Game {
     /// Queued at an explicit boundary; advance applies it before ordinary work.
     /// CR 104.3a, 800.4a/j. Pinned official rules:
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -285,25 +287,11 @@ impl Game {
             .revision
             .checked_add(1)
             .ok_or("revision resource limit")?;
-        let mut next = self.fork();
-        next.state.audit.external_inputs.push(ExternalInput {
-            after_decisions: u64::try_from(next.state.audit.journal.len())
-                .map_err(|_| "input count resource limit")?,
-            boundary: next.state.rules.rule_steps,
-            player,
-        });
-        next.rules_mut().retained_auxiliary_charge =
-            next.state.rules.retained_auxiliary_charge.saturating_add(
-                stored_history::payload_charge(next.state.audit.external_inputs.last().unwrap()),
-            );
-        next.rules_mut().pending_concessions.push(player);
-        next.rules_mut().revision = revision;
-        next.refresh_visibility()?;
-        self.state = next.state;
-        self.trace = next.trace;
-        self.state_token = Arc::new(());
+        self.commit_concession(player, revision)?;
         Ok(())
     }
+}
+impl RulesTxn {
     fn reverse_departure_cast(&mut self, cast: Casting) -> Result<(), String> {
         self.reverse_cast(cast, "departure made casting targets illegal", true)
     }
@@ -393,7 +381,7 @@ impl Game {
         // A departure can remove a legend or change a controller while choices
         // are pending. Recompute the entire SBA wave; no stale keep survives.
         if let Frame::LegendRule { resume, .. } = &self.state.rules.frame {
-            let resume = Frame::clone(resume);
+            let resume = self.saved_frame(*resume)?.clone();
             self.rules_mut().pending = None;
             self.rules_mut().frame = resume;
         }
@@ -678,6 +666,8 @@ impl Game {
         self.rules_mut().losing_players.clear();
         Ok(())
     }
+}
+impl Game {
     pub(crate) fn replay_to(
         prepared: Prepared,
         journal: &ReplayJournal,

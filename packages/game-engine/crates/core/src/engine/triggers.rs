@@ -21,7 +21,7 @@ pub struct PendingTrigger {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant: Option<CascadeGrantProvenance>,
     pub source_facts: ObjectBefore,
-    pub(super) source_handles: Vec<ObjectHandle>,
+    pub(super) source_handles: Vec<publish::StoredObjectHandle>,
     event: TriggerOccurrenceId,
     pub witness: TriggerEventWitness,
 }
@@ -32,7 +32,7 @@ enum MatchedCascadeGrant {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerPlacement {
-    pub(super) resume: Box<Frame>,
+    pub(super) resume: FrameLink,
     cleanup: bool,
     changed: bool,
     remaining: Vec<PlayerId>,
@@ -378,7 +378,7 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
         _ => None,
     }
 }
-impl Game {
+impl RulesTxn {
     fn grouped_damage_member_matches(
         &self,
         condition: &TriggerCondition,
@@ -449,7 +449,7 @@ impl Game {
     pub(crate) fn collect_triggers(
         &mut self,
         cause: &BatchCause,
-        before: &Game,
+        before: &RulesTxn,
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
         for occurrence in occurrences {
@@ -740,7 +740,7 @@ impl Game {
     }
     pub(super) fn collect_trigger_witness(
         &mut self,
-        before: Option<(&Game, &BatchCause)>,
+        before: Option<(&RulesTxn, &BatchCause)>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -762,7 +762,7 @@ impl Game {
     }
     fn collect_trigger_witness_staged(
         &mut self,
-        before: Option<(&Game, &BatchCause)>,
+        before: Option<(&RulesTxn, &BatchCause)>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -1331,7 +1331,7 @@ impl Game {
         }
         self.rules_mut().frame = Frame::TriggerOrder {
             placement: TriggerPlacement {
-                resume: Box::new(resume),
+                resume: self.save_frame(resume),
                 cleanup,
                 changed,
                 remaining: self.apnap_players(),
@@ -1630,7 +1630,7 @@ impl Game {
         self.rules_mut()
             .pending_triggers
             .retain(|t| live.contains(&t.controller));
-        let revalidate = |mut placement: TriggerPlacement, game: &Game| {
+        let revalidate = |mut placement: TriggerPlacement, game: &RulesTxn| {
             placement.remaining.retain(|p| game.is_live(*p));
             placement.order.retain(|id| {
                 game.state
@@ -1691,7 +1691,7 @@ impl Game {
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         fact: &ObjectBefore,
-        handles: &[ObjectHandle],
+        handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
         // A hideaway invocation keeps its entry-time chooser even if a later
@@ -1839,7 +1839,7 @@ impl Game {
         controller: PlayerId,
         death_controller: Option<PlayerId>,
         facts: &ObjectBefore,
-        handles: &[ObjectHandle],
+        handles: &[publish::StoredObjectHandle],
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
@@ -2408,7 +2408,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     fn bind_trigger_entity_targets(
         &mut self,
         placement: TriggerPlacement,
@@ -2429,9 +2429,10 @@ impl Game {
                     .iter()
                     .map(|t| match t {
                         TargetEntity::Player { .. } => Ok(None),
-                        TargetEntity::Object { object } => {
-                            self.handle_for(PlayerId(v), *object).map(Some)
-                        }
+                        TargetEntity::Object { object } => self
+                            .object_handle_id(PlayerId(v), *object)
+                            .cloned()
+                            .map(Some),
                     })
                     .collect::<Result<Vec<_>, String>>()
             })
@@ -2477,7 +2478,7 @@ impl Game {
             .map(|v| {
                 objects
                     .iter()
-                    .map(|o| self.handle_for(PlayerId(v), *o))
+                    .map(|o| self.object_handle_id(PlayerId(v), *o).cloned())
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;

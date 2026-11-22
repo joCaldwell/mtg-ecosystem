@@ -386,7 +386,7 @@ fn commander_metadata_and_continuations_cannot_be_forged() {
             }
             _ => {
                 if let Frame::CommanderReturn { continuation, .. } = &mut snapshot.state.rules.frame
-                    && let CommanderContinuation::SpellMove { frame, .. } = continuation.as_mut()
+                    && let CommanderContinuation::SpellMove { frame, .. } = continuation
                 {
                     frame.cursor = 1;
                 }

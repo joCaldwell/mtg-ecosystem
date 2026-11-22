@@ -3,7 +3,7 @@
 use super::*;
 use mtg_contracts::{MANA_COMBINATION_COLORS, validate_mana_combination};
 
-impl Game {
+impl RulesTxn {
     fn look_top_mana_spec(&self, frame: &Resolving) -> Result<(Quantity, Quantity, u32), String> {
         match self
             .program_for(self.entry(frame.stack_id)?)?
@@ -248,7 +248,7 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand { owner: player },
-                continuation: Box::new(CommanderContinuation::LookTopMana { frame, revealed }),
+                continuation: CommanderContinuation::LookTopMana { frame, revealed },
             };
             return Ok(());
         }

@@ -2,7 +2,7 @@
 //! 603.2c/10a, 608.2h, 700.4, 701.21a, 101.4, 800.4a and 509.1b.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-impl Game {
+impl RulesTxn {
     pub(crate) fn sacrifice_candidates(
         &self,
         player: PlayerId,
@@ -453,7 +453,7 @@ impl Game {
         self.prepare_noncombat_set_damage(frame, amount, block, targets)
     }
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn validate_sacrifice_state(&self) -> Result<(), String> {
         for e in &self.state.rules.stack {
             if let Some(f) = &e.sacrificed {

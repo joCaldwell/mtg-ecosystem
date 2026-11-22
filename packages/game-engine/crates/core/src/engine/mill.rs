@@ -1,7 +1,7 @@
 //! CR701.17/400.7/608.2b-c/903.9a: fixed library-to-graveyard operations.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-impl Game {
+impl RulesTxn {
     pub(super) fn move_library_cards_to_graveyard(
         &mut self,
         player: PlayerId,

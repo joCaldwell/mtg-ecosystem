@@ -27,8 +27,13 @@ impl<T: Clone> Clone for Row<T> {
 }
 #[derive(Clone)]
 pub struct StoredRow<T>(pub Arc<Row<T>>);
-pub type StoredObject = StoredRow<VisibleObject>;
-pub(in crate::engine) type StoredPlayer = StoredRow<VisiblePlayer>;
+pub type StoredObject = StoredRow<VisibleObject<super::HandleId<b'o'>>>;
+impl From<VisibleObject> for StoredObject {
+    fn from(object: VisibleObject) -> Self {
+        Self::new(object.map_handles(|h| super::HandleId::from(&h)))
+    }
+}
+pub(in crate::engine) type StoredPlayer = StoredRow<VisiblePlayer<super::StoredObjectHandle>>;
 impl<T: Serialize> StoredRow<T> {
     pub fn new(value: T) -> Self {
         Self(Arc::new(Row {
@@ -90,8 +95,10 @@ pub struct StoredStack {
     tail: Option<Arc<StackNode>>,
     len: usize,
 }
+type StackRow =
+    VisibleStackEntry<super::HandleId<b's'>, super::StoredObjectHandle, super::HandleId<b'e'>>;
 struct StackNode {
-    value: VisibleStackEntry,
+    value: StackRow,
     previous: StoredStack,
     bytes: OnceLock<Result<Box<[u8]>, String>>,
 }
@@ -117,7 +124,7 @@ impl StoredStack {
         rows.reverse();
         rows
     }
-    fn from_rows(rows: Vec<VisibleStackEntry>, previous: Option<&Self>) -> Self {
+    fn from_rows(rows: Vec<StackRow>, previous: Option<&Self>) -> Self {
         let old = previous.map(Self::rows).unwrap_or_default();
         let mut stack = Self::default();
         let mut prefix = true;
@@ -144,10 +151,18 @@ impl StoredStack {
         stack
     }
     fn to_public(&self) -> Vec<VisibleStackEntry> {
-        self.rows().into_iter().map(|n| n.value.clone()).collect()
+        self.rows()
+            .into_iter()
+            .map(|n| n.value.clone().map_handles(|h| StackHandle::from(&h)))
+            .collect()
     }
     fn matches_public(&self, rows: &[VisibleStackEntry]) -> bool {
-        self.len == rows.len() && self.rows().iter().zip(rows).all(|(n, r)| n.value == *r)
+        self.len == rows.len()
+            && self
+                .rows()
+                .iter()
+                .zip(rows)
+                .all(|(n, r)| n.value == r.clone().map_handles(|h| super::HandleId::from(&h)))
     }
     fn write_canonical<W: Write>(&self, writer: &mut W) -> Result<(), String> {
         for (i, row) in self.rows().into_iter().enumerate() {
@@ -212,7 +227,7 @@ impl Serialize for StoredStack {
 }
 impl<'de> Deserialize<'de> for StoredStack {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Vec::<VisibleStackEntry>::deserialize(d).map(|rows| Self::from_rows(rows, None))
+        Vec::<StackRow>::deserialize(d).map(|rows| Self::from_rows(rows, None))
     }
 }
 
@@ -226,12 +241,13 @@ pub struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
+    sacrifice_choices: Vec<(PlayerId, super::StoredObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::engine) setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(in crate::engine) effects: Vec<VisibleEffect>,
-    pub(in crate::engine) combat: Vec<VisibleAttacker>,
+    pub(in crate::engine) effects:
+        Vec<VisibleEffect<super::HandleId<b'e'>, super::StoredObjectHandle>>,
+    pub(in crate::engine) combat: Vec<VisibleAttacker<super::StoredObjectHandle>>,
     pub(in crate::engine) viewer: PlayerId,
     pub(in crate::engine) active: Option<PlayerId>,
     pub(in crate::engine) turn_owner: PlayerId,
@@ -348,20 +364,26 @@ impl From<PermittedView> for StoredPermittedView {
         // release that per-view excess capacity. Preserve every value/order.
         let mut stored_objects = Vec::with_capacity(objects.len());
         for object in objects {
-            stored_objects.push(StoredObject::new(object));
+            stored_objects.push(StoredObject::from(object));
         }
         let mut stored_players = Vec::with_capacity(players.len());
         for player in players {
-            stored_players.push(StoredPlayer::new(player));
+            stored_players.push(StoredPlayer::new(player.convert()));
         }
         Self {
             data: StoredViewData {
                 known_searched_hand,
                 known_library_positions,
-                sacrifice_choices,
+                sacrifice_choices: sacrifice_choices
+                    .iter()
+                    .map(|(p, h)| (*p, h.into()))
+                    .collect(),
                 setup,
-                effects,
-                combat,
+                effects: effects
+                    .into_iter()
+                    .map(|e| e.map_handle(|h| super::HandleId::from(&h)))
+                    .collect(),
+                combat: combat.into_iter().map(|a| a.convert()).collect(),
                 viewer,
                 active,
                 turn_owner,
@@ -371,7 +393,13 @@ impl From<PermittedView> for StoredPermittedView {
                 priority,
                 players: Arc::new(stored_players),
                 objects: Arc::new(stored_objects),
-                stack: StoredStack::from_rows(stack, None),
+                stack: StoredStack::from_rows(
+                    stack
+                        .into_iter()
+                        .map(|row| row.map_handles(|h| super::HandleId::from(&h)))
+                        .collect(),
+                    None,
+                ),
             },
             segments: OnceLock::new(),
             commanders_bytes: Arc::new(OnceLock::new()),
@@ -384,10 +412,11 @@ impl StoredPermittedView {
     /// collection, and each row, that equals `previous`'s is that allocation:
     /// exactly the sharing `reuse_previous` gives a converted public view.
     pub(in crate::engine) fn from_rows(
-        header: PermittedView,
-        players: Vec<VisiblePlayer>,
-        objects: Vec<VisibleObject>,
-        stack: Vec<VisibleStackEntry>,
+        header: PermittedView<super::StoredObjectHandle>,
+        effects: Vec<VisibleEffect<super::HandleId<b'e'>, super::StoredObjectHandle>>,
+        players: Vec<VisiblePlayer<super::StoredObjectHandle>>,
+        objects: Vec<StoredObject>,
+        stack: Vec<StackRow>,
         previous: Option<&Self>,
     ) -> Self {
         let PermittedView {
@@ -395,7 +424,7 @@ impl StoredPermittedView {
             known_library_positions,
             sacrifice_choices,
             setup,
-            effects,
+            effects: _,
             combat,
             viewer,
             active,
@@ -409,34 +438,9 @@ impl StoredPermittedView {
             stack: _,
         } = header;
         let previous = previous.filter(|previous| previous.viewer == viewer);
-        // Object rows: both lists are ordered by handle.
-        let mut rows = Vec::with_capacity(objects.len());
-        let mut all_shared = previous.is_some_and(|p| p.objects.len() == objects.len());
-        let old_rows = previous.map_or(&[][..], |p| p.objects.as_slice());
-        let mut old = old_rows.iter().peekable();
-        for object in objects {
-            while old
-                .peek()
-                .is_some_and(|row| row.handle.0.as_str() < object.handle.0.as_str())
-            {
-                old.next();
-            }
-            match old.peek() {
-                Some(row) if row.handle == object.handle && row.0.value == object => {
-                    all_shared &=
-                        rows.len() < old_rows.len() && Arc::ptr_eq(&row.0, &old_rows[rows.len()].0);
-                    rows.push((*row).clone());
-                    old.next();
-                }
-                _ => {
-                    all_shared = false;
-                    rows.push(StoredObject::new(object));
-                }
-            }
-        }
         let objects = match previous {
-            Some(previous) if all_shared => previous.data.objects.clone(),
-            _ => Arc::new(rows),
+            Some(old) if *old.objects == objects => old.objects.clone(),
+            _ => Arc::new(objects),
         };
         let players = match previous {
             Some(previous)
@@ -476,7 +480,16 @@ impl StoredPermittedView {
             _ => (Arc::new(commanders), Arc::new(OnceLock::new())),
         };
         let stack = match previous {
-            Some(previous) if previous.data.stack.matches_public(&stack) => {
+            Some(previous)
+                if previous.data.stack.len == stack.len()
+                    && previous
+                        .data
+                        .stack
+                        .rows()
+                        .iter()
+                        .zip(&stack)
+                        .all(|(n, r)| n.value == *r) =>
+            {
                 previous.data.stack.clone()
             }
             _ => StoredStack::from_rows(stack, previous.map(|p| &p.data.stack)),
@@ -542,10 +555,17 @@ impl StoredPermittedView {
         PermittedView {
             known_searched_hand: known_searched_hand.clone(),
             known_library_positions: known_library_positions.clone(),
-            sacrifice_choices: sacrifice_choices.clone(),
+            sacrifice_choices: sacrifice_choices
+                .iter()
+                .map(|(p, h)| (*p, h.into()))
+                .collect(),
             setup: setup.clone(),
-            effects: effects.clone(),
-            combat: combat.clone(),
+            effects: effects
+                .iter()
+                .cloned()
+                .map(|e| e.map_handle(|h| EffectHandle::from(&h)))
+                .collect(),
+            combat: combat.iter().cloned().map(|a| a.convert()).collect(),
             viewer: *viewer,
             active: *active,
             turn_owner: *turn_owner,
@@ -553,8 +573,14 @@ impl StoredPermittedView {
             live_turn_order: live_turn_order.clone(),
             commanders: commanders.as_ref().clone(),
             priority: *priority,
-            players: players.iter().map(|r| r.0.value.clone()).collect(),
-            objects: objects.iter().map(|r| r.0.value.clone()).collect(),
+            players: players
+                .iter()
+                .map(|r| r.0.value.clone().convert())
+                .collect(),
+            objects: objects
+                .iter()
+                .map(|r| r.0.value.clone().map_handles(|h| ObjectHandle::from(&h)))
+                .collect(),
             stack: stack.to_public(),
         }
     }
@@ -599,10 +625,19 @@ impl StoredPermittedView {
         } = &self.data;
         searched == known_searched_hand
             && positions == known_library_positions
-            && sc == sacrifice_choices
+            && sc
+                .iter()
+                .map(|(p, h)| (*p, ObjectHandle::from(h)))
+                .eq(sacrifice_choices.iter().cloned())
             && s == setup
-            && e == effects
-            && c == combat
+            && e.len() == effects.len()
+            && e.iter().zip(effects).all(|(stored, public)| {
+                *stored == public.clone().map_handle(|h| super::HandleId::from(&h))
+            })
+            && c.iter()
+                .cloned()
+                .map(|a| a.convert())
+                .eq(combat.iter().cloned())
             && v == viewer
             && a == active
             && o == turn_owner
@@ -611,10 +646,14 @@ impl StoredPermittedView {
             && d.as_ref() == commanders
             && p == priority
             && u.len() == players.len()
-            && u.iter().zip(players).all(|(r, p)| r.0.value == *p)
+            && u.iter()
+                .zip(players)
+                .all(|(r, p)| r.0.value == p.clone().convert())
             && k.matches_public(stack)
             && r.len() == objects.len()
-            && r.iter().zip(objects).all(|(r, o)| r.0.value == *o)
+            && r.iter()
+                .zip(objects)
+                .all(|(r, o)| r.0.value == o.clone().map_handles(|h| super::HandleId::from(&h)))
     }
     pub fn reuse_previous(&mut self, previous: Option<&Self>) {
         let Some(previous) = previous.filter(|p| p.viewer == self.viewer) else {
@@ -623,7 +662,15 @@ impl StoredPermittedView {
         self.data.stack = if self.data.stack == previous.data.stack {
             previous.data.stack.clone()
         } else {
-            StoredStack::from_rows(self.data.stack.to_public(), Some(&previous.data.stack))
+            StoredStack::from_rows(
+                self.data
+                    .stack
+                    .rows()
+                    .iter()
+                    .map(|node| node.value.clone())
+                    .collect(),
+                Some(&previous.data.stack),
+            )
         };
         // Complete ordered typed equality, never a hash or handle-only test.
         // All shared element types are Eq; pointer identity cannot bypass an
@@ -662,10 +709,10 @@ impl StoredPermittedView {
             let mut rows = previous
                 .objects
                 .iter()
-                .map(|r| (r.handle.0.as_str(), r))
+                .map(|r| (&r.handle, r))
                 .collect::<BTreeMap<_, _>>();
             for row in Arc::make_mut(&mut self.data.objects) {
-                if let Some(old) = rows.remove(row.handle.0.as_str())
+                if let Some(old) = rows.remove(&row.handle)
                     && *old == *row
                 {
                     *row = old.clone();
@@ -784,7 +831,10 @@ impl StoredPermittedView {
     pub fn mutate_object(&mut self, index: usize, edit: impl FnOnce(&mut VisibleObject)) {
         // No &mut StoredObject/StoredViewData escapes; the caller cannot warm a
         // row cache while retaining its mutable underlying VisibleObject.
-        edit(&mut Arc::make_mut(&mut self.data.objects)[index]);
+        let row = &mut Arc::make_mut(&mut self.data.objects)[index];
+        let mut public = row.0.value.clone().map_handles(|h| ObjectHandle::from(&h));
+        edit(&mut public);
+        *row = StoredObject::new(public.map_handles(|h| super::HandleId::from(&h)));
     }
 }
 
@@ -850,13 +900,13 @@ impl StoredPermittedView {
                 .map(|p| {
                     p.objects
                         .iter()
-                        .map(|r| (r.handle.0.as_str(), r))
+                        .map(|r| (&r.handle, r))
                         .collect::<BTreeMap<_, _>>()
                 })
                 .unwrap_or_default();
             for row in self.objects.iter() {
                 if !old
-                    .get(row.handle.0.as_str())
+                    .get(&row.handle)
                     .is_some_and(|r| Arc::ptr_eq(&r.0, &row.0))
                 {
                     charge = charge.saturating_add(payload_charge(&row.0.value));

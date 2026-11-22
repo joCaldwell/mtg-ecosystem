@@ -12,7 +12,7 @@ pub struct HandCastPermission {
     child: StackId,
 }
 
-impl Game {
+impl RulesTxn {
     fn validate_hand_cast_issuer(&self, issuer: &StackInstance) -> Result<(), String> {
         let StackKind::Triggered {
             ability: EffectiveTriggerAbility::Intrinsic { .. },
@@ -138,38 +138,39 @@ impl Game {
                 }
             }
         }
-        let (frame, child, announcing) = match self.underlying_mana_frame(&self.state.rules.frame) {
-            Frame::HandCast { frame, child } => (frame, *child, false),
-            Frame::AdditionalCosts { cast }
-            | Frame::HybridCost { cast }
-            | Frame::AnnounceX { cast }
-            | Frame::Modes { cast }
-            | Frame::Targets { cast }
-            | Frame::EntityTargets { cast }
-            | Frame::StackTargets { cast }
-            | Frame::PlayerTargets { cast }
-            | Frame::Mana { cast }
-            | Frame::SpendMana { cast }
-            | Frame::Payment { cast }
-            | Frame::SacrificeCost { cast } => {
-                let top = self.top()?;
-                let CastCompletion::HandTrigger { frame } = &cast.completion else {
-                    if top.hand_cast_permission.is_some() {
-                        return Err("hand cast lost its owning trigger".into());
+        let (frame, child, announcing) =
+            match self.underlying_mana_frame(&self.state.rules.frame)? {
+                Frame::HandCast { frame, child } => (frame, *child, false),
+                Frame::AdditionalCosts { cast }
+                | Frame::HybridCost { cast }
+                | Frame::AnnounceX { cast }
+                | Frame::Modes { cast }
+                | Frame::Targets { cast }
+                | Frame::EntityTargets { cast }
+                | Frame::StackTargets { cast }
+                | Frame::PlayerTargets { cast }
+                | Frame::Mana { cast }
+                | Frame::SpendMana { cast }
+                | Frame::Payment { cast }
+                | Frame::SacrificeCost { cast } => {
+                    let top = self.top()?;
+                    let CastCompletion::HandTrigger { frame } = &cast.completion else {
+                        if top.hand_cast_permission.is_some() {
+                            return Err("hand cast lost its owning trigger".into());
+                        }
+                        return Ok(());
+                    };
+                    let permission = top
+                        .hand_cast_permission
+                        .as_ref()
+                        .ok_or("hand cast lost its permission")?;
+                    if cast.stack_id != top.id || cast.original_object != permission.original {
+                        return Err("hand cast announcement identity mismatch".into());
                     }
-                    return Ok(());
-                };
-                let permission = top
-                    .hand_cast_permission
-                    .as_ref()
-                    .ok_or("hand cast lost its permission")?;
-                if cast.stack_id != top.id || cast.original_object != permission.original {
-                    return Err("hand cast announcement identity mismatch".into());
+                    (frame, Some(top.id), true)
                 }
-                (frame, Some(top.id), true)
-            }
-            _ => return Ok(()),
-        };
+                _ => return Ok(()),
+            };
         self.validate_resolving_owned(frame, child)?;
         self.validate_hand_cast_issuer(self.entry(frame.stack_id)?)?;
         if frame.cursor != 0 {

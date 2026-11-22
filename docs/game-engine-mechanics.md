@@ -45,20 +45,20 @@ origin variant with no wildcard arm; a new variant fails to compile there, in
 classified. A hand-cast permission names its issuer, and a delayed chapter
 registration is a frozen record of what its issuer fixed.
 
-Rules tables are private to `engine::state`: the engine reads them through
-`RulesState` and writes them only through `Game::rules_mut`. Every change commits
-through `Game::transact`, which stages a copy sharing the tables (objects in
-chunks, stack, libraries, effects and each viewer's knowledge copy on write),
-publishes it, checks the history capacity and replaces the state only if all of
-that succeeded. `state/`, `frame/` and `step/` report `RuleError`
-(invariant, resource, illegal input); public results keep text.
+The committed `Game` lends its `RulesState` for reads. Each rule step or accepted
+input runs on a copy-on-write stage whose `RulesTxn::rules_mut` grants exclusive
+table access. `Game::transact` publishes each seat's knowledge before installing
+the stage. Rule steps check history capacity at commit. Accepted inputs enter the
+journal immediately and the next step enforces their capacity charge. Failed
+transactions discard the stage. Internal `RuleError` carries invariant, resource
+or illegal-input failures to the public error boundary.
 
-Publication reuses the last view's rows when nothing a row, handle or public table
-derives from has changed, and otherwise projects every row. With
-`debug_assertions`, each publication is also run as a complete row-by-row
-projection of the same prior state and must equal it, including the history
-retention charge, and a transaction that starts from a state satisfying
-`validate_state` must commit one.
+Publication compares object chunks with the preceding revision to locate changed
+cards. Within a layer epoch it reuses unaffected derived characteristics and
+each viewer's eligible rows from that viewer's own history. Changes to shared
+layer inputs invalidate the cache. Debug builds compare every publication and
+its history charge against a full projection, check completed cached observations
+against the budgeted builder, and validate each transaction from a valid state.
 
 `Game::with_trace` selects Off/Compact/Detailed. Diagnostics enter neither semantic
 hashes nor permitted views; `events()` populates only in Detailed, while `trace()`

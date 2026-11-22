@@ -88,7 +88,7 @@ struct Assignment {
 pub struct SampleBuildWork {
     capture: SearchCapture,
     proposal: Box<WorldProposal>,
-    game: Box<Game>,
+    game: Box<RulesTxn>,
     rows: Vec<Assignment>,
     cursor: usize,
     unused: BTreeMap<(PlayerId, String), BTreeSet<CardId>>,
@@ -154,11 +154,11 @@ impl SampleBuildWork {
             seed: proposal.future_seed,
         };
         let prepared = Prepared::admit_pod(catalog, config).map_err(|e| invalid(e.to_string()))?;
-        let mut game = Game::with_trace(prepared, TraceMode::Off);
+        let mut game = RulesTxn::with_trace(prepared, TraceMode::Off);
         let origin_id = digest(&(capture.context_id(), &proposal)).map_err(invariant)?;
         let view = &data.context.observation.view;
         // All scalar future-relevant facts are public. All inert fields remain
-        // the explicitly reviewed fresh-origin values from Game::new: empty
+        // the explicitly reviewed fresh-origin values from RulesTxn::new: empty
         // stack/passes/effects/combat/queues/journal, zero counters, no failed
         // draws or pending fresh Commander opportunities. Setup is NOT rerun.
         game.rules_mut().objects.clear();
@@ -325,7 +325,7 @@ impl SampleBuildWork {
                 Ok(Some(map)) => {
                     return SampleBuildOutcome::Complete {
                         game: SampledGame::from_origin(
-                            *self.game,
+                            Game::from_initial(*self.game),
                             self.capture,
                             *self.proposal,
                             self.origin_id,
@@ -449,7 +449,7 @@ pub struct RootHandleMap {
 }
 impl RootHandleMap {
     fn new(
-        game: &Game,
+        game: &RulesTxn,
         capture: &SearchCapture,
         objects: Vec<(ObjectHandle, ObjectHandle)>,
     ) -> Result<Self, SearchRejection> {

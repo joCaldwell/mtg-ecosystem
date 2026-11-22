@@ -5,11 +5,11 @@ use crate::query::{ObjectFacts, Tri};
 use std::borrow::Cow;
 
 pub struct DerivedObject<'a> {
-    game: &'a Game,
+    game: &'a RulesTxn,
     object: &'a Object,
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn object_facts<'a>(&'a self, object: &'a Object) -> DerivedObject<'a> {
         DerivedObject { game: self, object }
     }

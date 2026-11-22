@@ -336,7 +336,7 @@ fn permanent_set_keyword_paid_mixed_capture_atomic_queries_and_normalized_forger
         let mut handles = Vec::new();
         for target in &forged {
             for viewer in 0..4 {
-                handles.push(g.handle_for(PlayerId(viewer), *target).unwrap());
+                handles.push(g.stored_handle_for(PlayerId(viewer), *target).unwrap());
             }
         }
         let e = bad.state.rules.effects.last_mut().unwrap();

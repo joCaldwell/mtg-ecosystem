@@ -52,7 +52,7 @@ pub(super) fn valid_buckets(pool: &[RestrictedMana]) -> bool {
         && pool.windows(2).all(|pair| pair[0].key() < pair[1].key())
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn activation_mana_consumer(&self, source: ObjectId) -> ManaConsumer {
         ManaConsumer::Activation {
             battlefield_creature: self
@@ -107,7 +107,7 @@ impl Game {
                 self.announced_mana_consumer(self.top()?)
             }
             Frame::GraveyardGroup { tx }
-                if tx.payment_stack().is_some_and(|id| {
+                if tx.payment_stack(self)?.is_some_and(|id| {
                     self.top()
                         .is_ok_and(|stack| stack.controller == player && stack.id == id)
                 }) =>

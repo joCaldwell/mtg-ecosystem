@@ -1,7 +1,7 @@
 //! CR121.5/400.7/404.3/608.2c/903.9b: selecting into hand is not drawing.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-impl Game {
+impl RulesTxn {
     pub(super) fn selection_destination(
         &self,
         frame: &Resolving,
@@ -135,13 +135,13 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand { owner: player },
-                continuation: Box::new(CommanderContinuation::LibrarySelect {
+                continuation: CommanderContinuation::LibrarySelect {
                     frame,
                     looked,
                     hand,
                     remainder,
                     source_block,
-                }),
+                },
             };
             return Ok(());
         }

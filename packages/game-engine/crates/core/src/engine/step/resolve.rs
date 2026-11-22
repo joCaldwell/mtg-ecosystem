@@ -2,7 +2,7 @@
 //! the announcement stages share.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
     pub(in crate::engine) fn finish_spell(
         &mut self,
         id: StackId,

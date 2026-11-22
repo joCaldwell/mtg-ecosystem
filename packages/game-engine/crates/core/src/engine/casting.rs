@@ -13,7 +13,7 @@ struct SpellAnnouncement {
     completion: CastCompletion,
 }
 
-impl Game {
+impl RulesTxn {
     fn priority_spell_announcement(
         &self,
         player: PlayerId,
@@ -421,7 +421,7 @@ impl Game {
         object: ObjectId,
     ) -> Result<(), String> {
         if self.has_granted_land_mana(object)? {
-            if self.reserved_mana_source(object) {
+            if self.reserved_mana_source(object)? {
                 return Err("reserved granted mana source".into());
             }
             return self.mixed_mana_choices(player, object).map(|_| ());
@@ -429,7 +429,7 @@ impl Game {
         if self.is_permanent_mana(object) {
             return self.validate_permanent_mana_activation(player, object);
         }
-        if self.reserved_mana_source(object) {
+        if self.reserved_mana_source(object)? {
             return Err("mana source is already announcing".into());
         }
         self.intrinsic_choice_colors(player, object)?;

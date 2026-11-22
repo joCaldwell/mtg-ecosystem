@@ -56,7 +56,7 @@ pub struct VisibleCounterPlacementCandidate {
     pub amount_before: Quantity,
     pub amount_after: Quantity,
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn begin_counter_placement(
         &mut self,
         frame: Resolving,
@@ -639,7 +639,10 @@ impl Game {
         Ok(())
     }
     pub(super) fn counter_placement_charge(&self) -> usize {
-        let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
+        let frame = spell_cascade_grants::retained_effect_frame(
+            &self.state.rules.frames,
+            &self.state.rules.frame,
+        );
         if !matches!(frame, Frame::CounterPlacement { .. }) {
             return 0;
         }

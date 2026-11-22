@@ -77,7 +77,7 @@ impl EntryOrigin {
         )
     }
 
-    pub(super) fn player(&self, game: &Game) -> Result<PlayerId, String> {
+    pub(super) fn player(&self, game: &RulesTxn) -> Result<PlayerId, String> {
         Ok(match self {
             Self::LandPlay { player, .. } => *player,
             Self::Copy { frame, .. } => game.entry(frame.stack_id)?.controller,
@@ -127,7 +127,7 @@ impl PreparedEntryAuthority {
         Ok((self.player, *paid == Some(false)))
     }
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn optional_entry_cost(
         &self,
         object: ObjectId,
@@ -604,7 +604,10 @@ impl Game {
         if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
             return self.validate_entry_plan();
         }
-        let retained = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
+        let retained = spell_cascade_grants::retained_effect_frame(
+            &self.state.rules.frames,
+            &self.state.rules.frame,
+        );
         if matches!(retained, Frame::LandEntry { .. }) {
             let mut validation = self.fork();
             validation.rules_mut().frame = retained.clone();
@@ -704,7 +707,10 @@ impl Game {
         self.entry_group().unwrap()
     }
     pub(crate) fn land_entry_charge(&self) -> usize {
-        let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
+        let frame = spell_cascade_grants::retained_effect_frame(
+            &self.state.rules.frames,
+            &self.state.rules.frame,
+        );
         if !matches!(frame, Frame::LandEntry { .. }) {
             return 0;
         }

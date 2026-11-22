@@ -16,7 +16,7 @@ pub(crate) enum SetMove {
 // Set semantics: docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
 // Shared resource bounds: docs/game-engine-capacity-policy.md.
 
-impl Game {
+impl RulesTxn {
     // CR 109.5, 205.2b, 608.2h, 806.1: current control, and every card type.
     pub(crate) fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
         self.state
@@ -202,13 +202,13 @@ impl Game {
                 destination: Zone::Hand {
                     owner: self.state.rules.cards[&object.card].owner,
                 },
-                continuation: Box::new(CommanderContinuation::BoardReturn {
+                continuation: CommanderContinuation::BoardReturn {
                     frame,
                     objects,
                     remaining,
                     choices,
                     source_block,
-                }),
+                },
             };
             Ok(())
         } else {
@@ -541,7 +541,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn valid_set_effect_targets(
         &self,
         e: &ResolvedEffect,

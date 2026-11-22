@@ -7,6 +7,14 @@ impl Game {
         mut budget: Budget,
         processed: &mut Vec<InputProcessingFact>,
     ) -> Advance {
+        // Check before even looking up a pending decision: that and retention
+        // metering traverse saved frames. Each subsequent step retires its own
+        // links before installing its successor.
+        if (!self.state.rules.frames.is_empty() || self.state.rules.frame.parent().is_some())
+            && let Err(error) = self.validate_stack_links()
+        {
+            return self.enter_fault(error);
+        }
         loop {
             if let Frame::Finished { winner } = self.state.rules.frame {
                 return Advance::Finished { winner };
@@ -36,12 +44,7 @@ impl Game {
             // A rules step commits atomically. Resource/invariant failures retain
             // its pre-step state and become faults, never wins/losses/draws.
             let input_report = REPORT.then(|| advance_report::StepInputCapture::capture(self));
-            let stepped = self.transact(|tx: &mut RulesTxn<'_>| {
-                tx.in_rule_step = COALESCE;
-                tx.check_history_capacity()?;
-                tx.step()?;
-                tx.count_rule_step()
-            });
+            let stepped = self.commit_rule_step(COALESCE);
             if let Err(error) = stepped {
                 return self.enter_fault(error);
             }
@@ -64,42 +67,6 @@ impl Game {
         {
             return Err(RuleError::illegal("stale or foreign validation receipt"));
         }
-        let revision = self
-            .state
-            .rules
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| RuleError::resource("structural revision resource limit"))?;
-        let input = receipt.input;
-        self.transact_input(|tx| {
-            let rules = tx.rules_mut();
-            rules.retained_auxiliary_charge = rules
-                .retained_auxiliary_charge
-                .saturating_add(stored_history::payload_charge(&input));
-            rules.pending = Some(input.clone());
-            rules.revision = revision;
-            tx.state.audit.journal.push(input);
-            Ok(())
-        })
-    }
-    /// Counts the rule step this transaction executed.
-    fn count_rule_step(&mut self) -> Result<(), RuleError> {
-        let rules = self.rules_mut();
-        rules.rule_steps = rules
-            .rule_steps
-            .checked_add(1)
-            .ok_or_else(|| RuleError::resource("execution boundary resource limit"))?;
-        Ok(())
-    }
-    /// A failed step is never a rules outcome: the game keeps its pre-step
-    /// state and stops at a fault, typed when a capacity was exhausted.
-    pub(in crate::engine) fn enter_fault(&mut self, error: RuleError) -> Advance {
-        self.rules_mut().typed_fault = error.fault().cloned();
-        let reason = String::from(error);
-        self.rules_mut().frame = Frame::Fault {
-            reason: reason.clone(),
-        };
-        self.state_token = Arc::new(());
-        Advance::Fault(reason)
+        self.commit_input(receipt.input)
     }
 }

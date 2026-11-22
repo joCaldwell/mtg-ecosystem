@@ -1,7 +1,7 @@
 //! The pending decision and the validation of a proposed answer.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
     /// The decision `viewer` owes now, if any.
     pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
         Ok(self
@@ -13,6 +13,9 @@ impl Game {
     pub(crate) fn pending_decision(&self) -> Result<Option<Request>, String> {
         if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
             return Ok(None);
+        }
+        if let Frame::Kernel { task } = &self.state.rules.frame {
+            return self.kernel_request(task);
         }
         if matches!(
             self.state.rules.frame,
@@ -235,6 +238,9 @@ impl Game {
                 Err("invalid graveyard replacement decision".into())
             };
         }
+        if let Frame::Kernel { task } = &self.state.rules.frame {
+            return self.validate_kernel_response(task, player, response);
+        }
         if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
             return self.validate_land_entry_response(player, response);
         }
@@ -302,7 +308,7 @@ impl Game {
         }
         if let Frame::Stabilize { resume, .. } = &self.state.rules.frame {
             let mut validation = self.fork();
-            validation.rules_mut().frame = *resume.clone();
+            validation.rules_mut().frame = self.saved_frame(*resume)?.clone();
             return validation.validate_response(player, response);
         }
         if let (Frame::CounterPlacement { .. }, Response::CounterPlacementEffect { effect }) =

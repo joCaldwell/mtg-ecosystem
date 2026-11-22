@@ -33,7 +33,7 @@ impl PhasingSchedule {
     /// The caller owns the eventual event and the installation of this projection.
     pub fn phase_out_controlled(
         &mut self,
-        game: &Game,
+        game: &RulesTxn,
         controller: PlayerId,
     ) -> Result<Vec<ObjectId>, String> {
         self.phase_out(game, PhaseSelection::Controlled(controller))
@@ -41,7 +41,7 @@ impl PhasingSchedule {
 
     pub(super) fn phase_out(
         &mut self,
-        game: &Game,
+        game: &RulesTxn,
         selection: PhaseSelection,
     ) -> Result<Vec<ObjectId>, String> {
         match selection {
@@ -116,7 +116,7 @@ impl PhasingSchedule {
     /// Extra turns and skipped untaps are outside the existing scheduler.
     pub fn phase_in_at_untap(
         &mut self,
-        game: &Game,
+        game: &RulesTxn,
         previous_turn_owner: PlayerId,
     ) -> Result<Vec<ObjectId>, String> {
         if previous_turn_owner.0 >= 4 {
@@ -167,7 +167,7 @@ impl PhasingSchedule {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn installed_phasing(&self) -> PhasingSchedule {
         PhasingSchedule {
             members: self

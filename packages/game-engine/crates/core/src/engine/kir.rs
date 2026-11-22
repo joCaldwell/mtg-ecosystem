@@ -19,6 +19,9 @@ use mtg_contracts::kir::{
     Amount, Destination, Node, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
 };
 
+mod control;
+pub use control::{LeafProgram, Task};
+
 /// The players a player expression denotes for one resolving invocation.
 enum Players {
     One(PlayerId),
@@ -29,7 +32,7 @@ enum Players {
     EachOpponent,
 }
 
-impl Game {
+impl RulesTxn {
     /// The target domain of an instruction that destroys one announced
     /// target, if it is one.
     pub(super) fn target_destroy_domain(
@@ -57,6 +60,15 @@ impl Game {
         if let Some(amount) = mtg_contracts::kir::drain(&node) {
             let amount = self.kernel_amount(&frame, amount)?;
             return self.drain_opponents(frame, amount, source_block);
+        }
+        if !matches!(node, Node::Do(_)) {
+            let instruction = Instruction::Kernel {
+                node: node.clone(),
+                source_block,
+            };
+            if instruction.target_destroy().is_none() {
+                return self.begin_kernel_control(frame);
+            }
         }
         // CR 608.2b, 608.2d: a verb on one announced target, and the optional
         // destroy, keep the executors whose events, outcomes and choices

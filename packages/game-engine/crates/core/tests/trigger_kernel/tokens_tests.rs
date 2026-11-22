@@ -1266,8 +1266,9 @@ fn capacity_release_probe() {
         Some(RuleFault::StackCapacityExceeded { .. })
     ));
     g.state.rules.typed_fault = None;
+    g.state.rules.frames = vec![Frame::Priority];
     g.state.rules.frame = Frame::Stabilize {
-        resume: Box::new(Frame::Priority),
+        resume: FrameLink(0),
         cleanup: false,
         changed: false,
     };
@@ -1495,8 +1496,9 @@ fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
         triggers > 1024,
         "regression must exceed old ceiling: {triggers}"
     );
+    g.state.rules.frames = vec![Frame::Priority];
     g.state.rules.frame = Frame::Stabilize {
-        resume: Box::new(Frame::Priority),
+        resume: FrameLink(0),
         cleanup: false,
         changed: true,
     };
@@ -1646,8 +1648,9 @@ fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
     let (deaths, triggers) = wipe_death_payoff_board(&mut g);
     assert_eq!(deaths, tokens as usize + 4);
     assert_eq!(triggers, deaths * 4);
+    g.state.rules.frames = vec![Frame::Priority];
     g.state.rules.frame = Frame::Stabilize {
-        resume: Box::new(Frame::Priority),
+        resume: FrameLink(0),
         cleanup: false,
         changed: true,
     };
@@ -1784,7 +1787,7 @@ fn history_capacity_fault_rolls_back_the_entire_public_step_in_all_traces() {
         let roundtrip: RuleFault =
             serde_json::from_str(&serde_json::to_string(&fault).unwrap()).unwrap();
         assert_eq!(fault, roundtrip);
-        states.push(g.state);
+        states.push(g.committed.state);
     }
     assert_eq!(states[0], states[1]);
     assert_eq!(states[0], states[2]);

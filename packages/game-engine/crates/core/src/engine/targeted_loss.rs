@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn targeted_loss_authority(&self) -> Result<(BatchCause, PlayerId), String> {
         let Frame::Resolve { frame } = &self.state.rules.frame else {
             return Err("targeted loss requires a resolving activation".into());

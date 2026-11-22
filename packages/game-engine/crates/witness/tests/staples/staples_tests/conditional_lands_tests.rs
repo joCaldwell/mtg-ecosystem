@@ -844,10 +844,10 @@ fn conditional_lands_synthetic_dependency_and_wrapper_accounting_probes() {
     assert_eq!(
         g.mana_continuation_charge(),
         stored_history::payload_charge(&g.state.rules.frame)
-            - stored_history::payload_charge(resume)
     );
+    assert!(matches!(g.state.rules.frames[resume.0], Frame::Priority));
     assert!(matches!(
-        spell_cascade_grants::retained_effect_frame(&g.state.rules.frame),
+        spell_cascade_grants::retained_effect_frame(&g.state.rules.frames, &g.state.rules.frame),
         Frame::Priority
     ));
 }

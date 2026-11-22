@@ -10,7 +10,7 @@ pub struct SnapshotWriteInfo {
     pub state_sha256: String,
 }
 testkit_fields! {
-    pub struct Game {
+    pub struct RulesTxn {
         pub(in crate::engine) opening_library_sizes: [u32; 4],
         pub(in crate::engine) catalog_has_land_type_grant: bool,
         pub(in crate::engine) catalog_has_land_reclamation: bool,
@@ -28,6 +28,8 @@ testkit_fields! {
         pub(in crate::engine) state_token: Arc<()>,
         // Private staging scope: nested event batches share the outer rollback.
         pub(in crate::engine) in_rule_step: bool,
+        // Reconstructed from the admitted program and a saved node address.
+        pub(in crate::engine) kernel_leaf: Option<Arc<kir::LeafProgram>>,
         // Derived accelerator only, never state: what the last publication read.
         pub(in crate::engine) published: Option<Arc<publish::Published>>,
     }
@@ -71,8 +73,8 @@ pub enum Advance {
     Fault(String),
     Suspended { required_minimum: u64 },
 }
-impl Game {
-    pub fn new(prepared: Prepared) -> Self {
+impl RulesTxn {
+    pub(in crate::engine) fn new(prepared: Prepared) -> Self {
         let cards: BTreeMap<_, _> = prepared
             .config
             .cards
@@ -183,6 +185,7 @@ impl Game {
                 next_stack_id: 0,
                 stack: vec![].into(),
                 detached: BTreeMap::new(),
+                frames: vec![],
                 frame: Frame::Priority,
                 pending: None,
                 next_batch_id: 0,
@@ -216,6 +219,7 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
+            kernel_leaf: None,
             published: None,
         };
         if let Some(starting) = game
@@ -236,7 +240,7 @@ impl Game {
             .expect("admitted initial visibility");
         game
     }
-    pub fn fork(&self) -> Self {
+    pub(in crate::engine) fn fork(&self) -> Self {
         Self {
             opening_library_sizes: self.opening_library_sizes,
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
@@ -251,6 +255,7 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
+            kernel_leaf: self.kernel_leaf.clone(),
             published: self.published.clone(),
         }
     }

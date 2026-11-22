@@ -2,7 +2,7 @@
 //! A paid explicit ability's later production-color choice is a separate stage.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-impl Game {
+impl RulesTxn {
     pub(super) fn intrinsic_mana_colors(&self, source: ObjectId) -> Result<Vec<Color>, String> {
         let object = self.current(source)?;
         if !object.present_on_battlefield()
@@ -97,7 +97,7 @@ impl Game {
                 player: input.player,
                 source,
                 scope: ManaSourceScope::Intrinsic,
-                resume: Box::new(resume),
+                resume: self.save_frame(resume),
             };
             Ok(())
         }

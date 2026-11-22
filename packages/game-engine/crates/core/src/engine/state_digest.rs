@@ -385,7 +385,7 @@ mod tests {
                     incarnation: 0,
                 },
                 controller: PlayerId(0),
-                source_handles: vec![ObjectHandle("historical\nsource".into())],
+                source_handles: vec!["historical\nsource".into()],
                 cursor: 2,
                 source_block: 1,
             },

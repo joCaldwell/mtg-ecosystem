@@ -119,7 +119,7 @@ pub fn apply_aura_control_effects(
     Ok(())
 }
 
-impl Game {
+impl RulesTxn {
     fn supported_control_grant(&self, effect: &ControlEffect) -> bool {
         self.is_live(effect.controller)
             && match effect.source {

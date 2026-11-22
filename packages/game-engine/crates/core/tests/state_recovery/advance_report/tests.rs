@@ -35,6 +35,7 @@ impl ReferenceAdvance for Game {
             // its pre-step state and become faults, never wins/losses/draws.
             let mut next = self.fork();
             if let Err(reason) = next.step() {
+                self.state.rules.frames.clear();
                 self.state.rules.frame = Frame::Fault {
                     reason: reason.clone(),
                 };
@@ -45,6 +46,7 @@ impl ReferenceAdvance for Game {
                 // Rule-boundary overflow latches a fault like other execution failures.
                 let reason = String::from("execution boundary resource limit");
                 self.state.rules.typed_fault = None;
+                self.state.rules.frames.clear();
                 self.state.rules.frame = Frame::Fault {
                     reason: reason.clone(),
                 };
@@ -55,8 +57,8 @@ impl ReferenceAdvance for Game {
             if let Err(reason) = next.refresh_visibility() {
                 return Advance::Fault(reason);
             }
-            self.state = next.state;
-            self.trace = next.trace;
+            self.state = next.committed.state;
+            self.trace = next.committed.trace;
             self.state_token = Arc::new(());
         }
     }

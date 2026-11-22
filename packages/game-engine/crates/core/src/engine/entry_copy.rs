@@ -12,7 +12,7 @@ pub struct EntryCopySelection {
     attachment: Option<ObjectId>,
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn has_entry_copy(&self, source: ObjectId) -> Result<bool, String> {
         Ok(self
             .copiable_definition(source)?

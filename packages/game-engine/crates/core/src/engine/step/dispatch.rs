@@ -1,7 +1,7 @@
 //! One rule step: the suspended frame selects the routine that advances it.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn step(&mut self) -> Result<(), RuleError> {
         self.check_history_capacity()?;
         self.refresh_removal_target_facts()?;
@@ -14,6 +14,10 @@ impl Game {
         }
         // An invocation that left the stack stays owned only while the
         // installed frame still resumes it (CR 608.2m).
+        if self.kernel_leaf.is_some() {
+            self.resume_finished_kernel_leaf()?;
+        }
+        self.retire_returned_frames()?;
         self.release_detached();
         Ok(())
     }
@@ -26,6 +30,7 @@ impl Game {
     }
     pub(in crate::engine) fn step_frame(&mut self, frame: Frame) -> Result<(), RuleError> {
         match frame {
+            Frame::Kernel { task } => self.step_kernel_task(*task)?,
             Frame::GraveyardGroup { tx } => self.graveyard_group_step(tx)?,
             Frame::GraveyardReplacement { transaction } => {
                 self.graveyard_replacement_step(transaction)?
@@ -122,7 +127,7 @@ impl Game {
                     .map(|v| {
                         objects
                             .iter()
-                            .map(|object| self.handle_for(PlayerId(v), *object))
+                            .map(|object| self.object_handle_id(PlayerId(v), *object).cloned())
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -175,7 +180,12 @@ impl Game {
                 source,
                 scope,
                 resume,
-            } => self.mana_source_choice_step(player, source, scope, *resume)?,
+            } => self.mana_source_choice_step(
+                player,
+                source,
+                scope,
+                self.saved_frame(resume)?.clone(),
+            )?,
             Frame::ManaAbility { activation } => self.permanent_mana_step(*activation)?,
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
@@ -260,10 +270,10 @@ impl Game {
                                     self.rules_mut().frame = Frame::CommanderReturn {
                                         object: target,
                                         destination,
-                                        continuation: Box::new(CommanderContinuation::SpellMove {
+                                        continuation: CommanderContinuation::SpellMove {
                                             frame,
                                             source_block: *source_block,
-                                        }),
+                                        },
                                     };
                                     return Ok(());
                                 }
@@ -305,7 +315,7 @@ impl Game {
                 object,
                 destination,
                 continuation,
-            } => self.answer_commander_return(object, destination, *continuation)?,
+            } => self.answer_commander_return(object, destination, continuation)?,
             frame @ (Frame::Attackers
             | Frame::Blockers { .. }
             | Frame::Damage

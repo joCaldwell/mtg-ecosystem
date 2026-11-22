@@ -44,7 +44,7 @@ pub struct DecisionContext {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modes: Vec<DecisionMode>,
 }
-impl Game {
+impl RulesTxn {
     pub(crate) fn trigger_source_label(
         &self,
         source: ObjectId,
@@ -178,7 +178,7 @@ impl Game {
                         .as_ref()?
                         .source_handles
                         .get(viewer.0 as usize)
-                        .cloned(),
+                        .map(ObjectHandle::from),
                     ability: Some(index),
                     text: self.trigger_source_label(entry.source, ability)?.into(),
                 });
@@ -192,6 +192,34 @@ impl Game {
         request: Option<&PlayerRequest>,
     ) -> Option<DecisionContext> {
         let request = request?;
+        if let Frame::Kernel { task } = &self.state.rules.frame {
+            let entry = self.entry(self.kernel_root().ok()?.stack_id).ok()?;
+            let (source_block, candidate) = self.kernel_choice_context(task).ok()?;
+            let labels = self
+                .copiable_definition(entry.source)
+                .ok()?
+                .source_labels
+                .as_ref();
+            let instruction = if let Some(object) = candidate {
+                let handle = self.handle_for(viewer, object).ok()?;
+                Some(DecisionInstruction {
+                    source_block,
+                    text: format!("Include {} among the chosen objects?", handle.0),
+                })
+            } else {
+                labels
+                    .and_then(|labels| labels.blocks.get(source_block as usize))
+                    .map(|text| DecisionInstruction {
+                        source_block,
+                        text: text.clone(),
+                    })
+            };
+            return Some(DecisionContext {
+                source: self.stack_description(viewer, entry),
+                instruction,
+                modes: vec![],
+            });
+        }
         if let PlayerRequest::CascadeLandEntry { .. } = request
             && let Frame::Cascade { progress } = &self.state.rules.frame
         {
@@ -231,7 +259,7 @@ impl Game {
         }
 
         if let Frame::DamageEffects { transaction } = &self.state.rules.frame
-            && let DamageContinuation::Mana { activation, .. } = transaction.continuation.as_ref()
+            && let DamageContinuation::Mana { activation, .. } = &transaction.continuation
             && activation.player == viewer
         {
             return self
@@ -353,7 +381,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn effect_decision_context(
         &self,
         viewer: PlayerId,

@@ -30,7 +30,7 @@ pub(super) fn actual(
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn reverse_mana_life(
         &mut self,
         player: PlayerId,

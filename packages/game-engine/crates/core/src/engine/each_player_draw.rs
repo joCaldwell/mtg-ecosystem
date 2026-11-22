@@ -19,7 +19,7 @@ pub struct EachPlayerDrawProgress {
     pub(super) remaining: Vec<PlayerId>,
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn finish_player_draws(
         &mut self,
         mut frame: Resolving,

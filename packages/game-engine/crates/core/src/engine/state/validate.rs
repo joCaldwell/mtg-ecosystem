@@ -3,8 +3,43 @@
 //! every committed transaction.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
+    pub(crate) fn validate_stack_links(&self) -> Result<(), RuleError> {
+        let rules = &self.state.rules;
+        let mut new_root = true;
+        let mut has_leaf = false;
+        for (depth, frame) in rules
+            .frames
+            .iter()
+            .chain(std::iter::once(&rules.frame))
+            .enumerate()
+        {
+            if frame.parent().map(|(link, _)| link.0) != (!new_root).then(|| depth - 1) {
+                return Err("invalid continuation stack link".into());
+            }
+            new_root = matches!(frame, Frame::Kernel { task } if task.is_leaf());
+            if new_root {
+                if has_leaf || depth == rules.frames.len() {
+                    return Err("invalid kernel leaf marker".into());
+                }
+                has_leaf = true;
+            }
+        }
+        Ok(())
+    }
     pub(crate) fn validate_state(&self) -> Result<(), RuleError> {
+        self.validate_stack_links()?;
+        let rules = &self.state.rules;
+        for (depth, frame) in rules
+            .frames
+            .iter()
+            .chain(std::iter::once(&rules.frame))
+            .enumerate()
+        {
+            if let Frame::Kernel { task } = frame {
+                self.validate_kernel_task(task, depth)?;
+            }
+        }
         self.validate_match_state()?;
         self.validate_phasing_state()?;
         if self.state.rules.players.iter().any(|p| {
@@ -26,12 +61,12 @@ impl Game {
             entry.id != *id
                 || id.0 >= s.rules.next_stack_id
                 || s.rules.stack.iter().any(|stacked| stacked.id == *id)
-                || !s.rules.frame.holds(*id)
+                || !s.rules.frame.holds(&s.rules.frames, *id)
         }) {
             return Err("snapshot detached invocation ownership invariant".into());
         }
         let mut unowned = false;
-        s.rules.frame.for_each_held(&mut |held| {
+        s.rules.frame.for_each_held(&s.rules.frames, &mut |held| {
             if let frame::Held::Invocation { hold: _, id } = held {
                 unowned |= self.entry(id).is_err();
             }
@@ -172,7 +207,7 @@ impl Game {
             }
             let incomplete_top = index + 1 == s.rules.stack.len()
                 && (matches!(
-                    self.underlying_mana_frame(&s.rules.frame),
+                    self.underlying_mana_frame(&s.rules.frame)?,
                     Frame::TriggerTargets { .. }
                         | Frame::AdditionalCosts { .. }
                         | Frame::HybridCost { .. }
@@ -187,7 +222,7 @@ impl Game {
                         | Frame::SacrificeCost { .. }
                         | Frame::Payment { .. }
                 ) || (matches!(
-                    self.underlying_mana_frame(&s.rules.frame),
+                    self.underlying_mana_frame(&s.rules.frame)?,
                     Frame::Finished { .. } | Frame::Fault { .. }
                 ) && stack.paid.is_none()
                     && !self.is_spell_copy(stack)));
@@ -219,11 +254,11 @@ impl Game {
         // Paid mana damage can retain the resolving instruction even after its
         // payer departs and the activation no longer has a live mana window.
         if let Frame::ResolutionPayment { frame, payment } =
-            spell_cascade_grants::retained_effect_frame(&s.rules.frame)
+            spell_cascade_grants::retained_effect_frame(&self.state.rules.frames, &s.rules.frame)
         {
             self.validate_resolution_payment(frame, payment)?;
         }
-        match self.underlying_mana_frame(&s.rules.frame) {
+        match self.underlying_mana_frame(&s.rules.frame)? {
             Frame::AdditionalCosts { cast }
             | Frame::HybridCost { cast }
             | Frame::AnnounceX { cast }
@@ -239,7 +274,7 @@ impl Game {
                 let top = self.top()?;
                 if (!cast.sacrifices.is_empty()
                     && !matches!(
-                        self.underlying_mana_frame(&s.rules.frame),
+                        self.underlying_mana_frame(&s.rules.frame)?,
                         Frame::SacrificeCost { .. }
                     ))
                     || cast.origin.is_spell() != top.kind.is_spell()
@@ -263,7 +298,7 @@ impl Game {
                             || (a.permanent.is_none() && a.amount != Quantity::from(1))
                     })
                     || (matches!(
-                        self.underlying_mana_frame(&s.rules.frame),
+                        self.underlying_mana_frame(&s.rules.frame)?,
                         Frame::AdditionalCosts { .. }
                             | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
@@ -274,13 +309,13 @@ impl Game {
                             | Frame::StackTargets { .. }
                     ) && (!cast.mana_activations.is_empty() || cast.undo_mana))
                     || (matches!(
-                        self.underlying_mana_frame(&s.rules.frame),
+                        self.underlying_mana_frame(&s.rules.frame)?,
                         Frame::Mana { .. }
                     ) && cast.undo_mana)
                 {
                     return Err("snapshot casting mana receipt invariant".into());
                 }
-                let stage = self.underlying_mana_frame(&s.rules.frame);
+                let stage = self.underlying_mana_frame(&s.rules.frame)?;
                 let target_stage = matches!(
                     stage,
                     Frame::EntityTargets { .. }
@@ -291,7 +326,7 @@ impl Game {
                 if target_stage && self.mixed_mode_children(top)?.is_some() {
                     // CR 601.2c: the selected modes announce their targets in
                     // printed order, each in the stage casting opens for its
-                    // first target's domain (`Game::spell_announcement_frame`).
+                    // first target's domain (`RulesTxn::spell_announcement_frame`).
                     let next = self.next_mode_target(top)?;
                     let group = next
                         .is_some_and(|p| mtg_contracts::graveyard_shuffle::offered_by(p).is_some());
@@ -331,7 +366,7 @@ impl Game {
                     return Err("snapshot announcement target invariant".into());
                 }
                 if matches!(
-                    self.underlying_mana_frame(&s.rules.frame),
+                    self.underlying_mana_frame(&s.rules.frame)?,
                     Frame::Mana { .. }
                         | Frame::SpendMana { .. }
                         | Frame::SacrificeCost { .. }

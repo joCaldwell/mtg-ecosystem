@@ -3,7 +3,7 @@
 use super::*;
 use std::num::NonZeroU32;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn conditional_basic_fetch_minimum(
         &self,
         frame: &Resolving,

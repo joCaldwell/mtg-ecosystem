@@ -55,7 +55,7 @@ pub struct CommanderDamageResult {
     pub current: Quantity,
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn combat_decision_player(&self) -> Option<PlayerId> {
         match &self.state.rules.frame {
             Frame::Attackers => self.state.rules.active,
@@ -322,7 +322,7 @@ impl Game {
     }
     pub(super) fn schedule_stabilization(&mut self, resume: Frame, cleanup: bool) {
         self.rules_mut().frame = Frame::Stabilize {
-            resume: Box::new(resume),
+            resume: self.save_frame(resume),
             cleanup,
             changed: false,
         };
@@ -418,7 +418,7 @@ impl Game {
                 resume,
                 cleanup,
                 changed,
-            } => self.stabilization_wave(*resume, cleanup, changed)?,
+            } => self.stabilization_wave(self.saved_frame(resume)?.clone(), cleanup, changed)?,
             _ => return Err("invalid combat continuation".into()),
         }
         Ok(())
@@ -603,11 +603,12 @@ impl Game {
         changed: bool,
         kept: Option<Vec<ObjectId>>,
     ) -> Result<(), String> {
+        let parent = self.save_frame(resume);
         let groups = self.legend_groups()?;
         if kept.is_none() && !groups.is_empty() {
             self.rules_mut().frame = Frame::LegendRule {
-                resume: Box::new(Frame::Stabilize {
-                    resume: Box::new(resume),
+                resume: self.save_frame(Frame::Stabilize {
+                    resume: parent,
                     cleanup,
                     changed,
                 }),
@@ -700,7 +701,7 @@ impl Game {
         if occurrences.is_empty()
             && losses.is_empty()
             && self.offer_commander_sba(Frame::Stabilize {
-                resume: Box::new(resume.clone()),
+                resume: parent,
                 cleanup,
                 changed,
             })?
@@ -709,7 +710,7 @@ impl Game {
         }
         if occurrences.is_empty()
             && losses.is_empty()
-            && self.begin_trigger_placement(resume.clone(), cleanup, changed)?
+            && self.begin_trigger_placement(self.saved_frame(parent)?.clone(), cleanup, changed)?
         {
             return Ok(());
         }
@@ -725,7 +726,7 @@ impl Game {
                 self.rules_mut().cleanup_repeat = true;
                 Frame::Priority
             } else {
-                resume
+                self.saved_frame(parent)?.clone()
             };
             if cleanup && changed && matches!(self.state.rules.frame, Frame::Priority) {
                 self.rules_mut().priority = self
@@ -750,15 +751,16 @@ impl Game {
             player: *player,
             reason: *reason,
         }));
+        let resume = self.save_frame(Frame::Stabilize {
+            resume: parent,
+            cleanup,
+            changed: true,
+        });
         self.complete_graveyard_group(
             BatchCause::StateBased,
             EventGroup::Simultaneous { occurrences },
             GroupFinish::StateBased {
-                resume: Box::new(Frame::Stabilize {
-                    resume: Box::new(resume),
-                    cleanup,
-                    changed: true,
-                }),
+                resume,
                 checked: checked_deathtouch,
                 kept: kept.unwrap_or_default(),
             },

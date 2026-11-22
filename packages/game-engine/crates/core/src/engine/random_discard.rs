@@ -9,7 +9,7 @@ pub struct RandomDiscardProgress {
     pub selected: Vec<ObjectId>,
 }
 
-impl Game {
+impl RulesTxn {
     fn random_discard_spec<'a>(
         &'a self,
         frame: &'a Resolving,

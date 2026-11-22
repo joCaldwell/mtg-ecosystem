@@ -11,14 +11,14 @@ pub enum StackKind {
         ability: EffectiveTriggerAbility,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         grant: Option<CascadeGrantProvenance>,
-        source_handles: Vec<ObjectHandle>,
+        source_handles: Vec<publish::StoredObjectHandle>,
         trigger_id: TriggerId,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     },
     Activated {
         ability: u32,
-        source_handles: Vec<ObjectHandle>,
+        source_handles: Vec<publish::StoredObjectHandle>,
     },
 }
 impl StackKind {
@@ -147,7 +147,7 @@ pub enum ResolutionChoice {
         source_block: u32,
     },
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn opponents(&self, player: PlayerId) -> Vec<PlayerId> {
         self.live_players()
             .into_iter()
@@ -1774,11 +1774,11 @@ impl Game {
                 self.rules_mut().frame = Frame::CommanderReturn {
                     object,
                     destination: Zone::Hand { owner: player },
-                    continuation: Box::new(CommanderContinuation::ResolutionDraw {
+                    continuation: CommanderContinuation::ResolutionDraw {
                         frame,
                         player,
                         source_block,
-                    }),
+                    },
                 };
                 Ok(())
             } else {

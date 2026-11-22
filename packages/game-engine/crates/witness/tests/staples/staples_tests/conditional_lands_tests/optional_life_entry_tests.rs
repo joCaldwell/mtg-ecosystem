@@ -742,8 +742,9 @@ fn optional_entry_retention_charge_is_the_exact_frame_payload_and_owners_charge_
         g.land_entry_charge()
     );
     let mut wrapped = g.fork();
+    wrapped.state.rules.frames = vec![g.state.rules.frame.clone()];
     wrapped.state.rules.frame = Frame::Stabilize {
-        resume: Box::new(g.state.rules.frame.clone()),
+        resume: FrameLink(0),
         cleanup: false,
         changed: false,
     };
@@ -982,7 +983,7 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
     let mut owner = g.entry(root.stack_id).unwrap().clone();
     let fact = g.object_before(owner.source).unwrap();
     let handles = (0..4)
-        .map(|s| g.handle_for(PlayerId(s), owner.source).unwrap())
+        .map(|s| g.stored_handle_for(PlayerId(s), owner.source).unwrap())
         .collect::<Vec<_>>();
     owner.cost_lock = None;
     owner.kind = StackKind::Triggered {
@@ -1039,10 +1040,13 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
     assert_eq!(probe.grant_payload_charge(), before + grant);
     assert_eq!(probe.land_entry_charge(), payload);
     let existing = probe.grant_payload_charge();
+    probe.state.rules.frames = vec![entry];
     probe.state.rules.frame = Frame::CommanderReturn {
         object: objects[0],
         destination: Zone::Graveyard { owner: PlayerId(0) },
-        continuation: Box::new(CommanderContinuation::StateBased { resume: entry }),
+        continuation: CommanderContinuation::StateBased {
+            resume: FrameLink(0),
+        },
     };
     assert_eq!(probe.land_entry_charge(), payload);
     assert_eq!(probe.grant_payload_charge(), existing);
