@@ -6883,11 +6883,12 @@ fn fixed_draw_capability(
     } else if *count == Quantity::from(1)
         && !hand_return::controller_hand_return_program(program)
         && !hand_return::controller_draw_land_allowance_program(program)
+        && !controller_draw_discard_program(program)
     {
         // CR 121.1: one card is the canonical single draw. A complete hand
-        // return or land-allowance program names its own family; a draw and
-        // life loss of one card is the ordinary single draw (the shape a
-        // trigger such as "draw a card and lose 1 life" also has).
+        // return, land-allowance, or draw-discard spell names its own family;
+        // a draw and life loss of one card is the ordinary single draw (the
+        // shape a trigger such as "draw a card and lose 1 life" also has).
         Capability::ControllerDrawV1
     } else {
         counted_hand_capability(program)

@@ -64,7 +64,7 @@ pub fn controller_counted_draw_program(p: &SpellProgram) -> bool {
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     s["$defs"]["ControllerCountedDrawProgram"] = serde_json::json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"anyOf":[
         {"minItems":1,"maxItems":1,"prefixItems":[instruction_schema::at(instruction_schema::any_counted_draw(), 0)],"items":false},
-        {"minItems":2,"maxItems":2,"prefixItems":[instruction_schema::at(instruction_schema::any_counted_draw(), 0),instruction_schema::kernel_verb_at("lose_life", 0)],"items":false}
+        {"minItems":2,"maxItems":2,"prefixItems":[instruction_schema::at(instruction_schema::any_counted_draw(), 0),instruction_schema::at(instruction_schema::positive_controller_life_loss(), 0)],"items":false}
     ]}}});
 }
 #[cfg(test)]

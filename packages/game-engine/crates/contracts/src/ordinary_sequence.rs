@@ -433,11 +433,7 @@ fn instruction(
             match cl.operation {
                 Destroy => (
                     json!({"effect":"destroy","what":what}),
-                    if creature {
-                        Instruction::destroy_target(0, false, source_block)
-                    } else {
-                        Instruction::destroy_target(0, false, source_block)
-                    },
+                    Instruction::destroy_target(0, false, source_block),
                 ),
                 Exile => (
                     json!({"effect":"exile","what":what}),
@@ -646,13 +642,12 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         }}})
     };
     let mill_target = instruction_schema::target_mill(Some(0));
-    let creature_move = instruction_schema::target_destroy(None, Some(false));
-    let permanent_move = json!({"anyOf":[
-        instruction_schema::any_target_destroy(None),
-        instruction_schema::target_move(None, "exile")
+    let exile = instruction_schema::target_move(None, "exile");
+    let destroy_or_bounce = json!({"anyOf":[
+        instruction_schema::target_destroy(None, Some(false)),
+        instruction_schema::target_move(None, "owner_hand")
     ]});
-    let bounce = instruction_schema::target_move(None, "owner_hand");
-    let needs_target = json!({"anyOf":[mill_target,creature_move,permanent_move,bounce]});
+    let needs_target = json!({"anyOf":[mill_target,exile,destroy_or_bounce]});
     let one_targeted_step = json!({"properties":{"instructions":{"contains":needs_target,"minContains":1,"maxContains":1}}});
     schema["$defs"]["OrdinaryScalarSequence"] = json!({
         "type":"object","required":["instructions","targets"],
@@ -676,9 +671,8 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         "allOf":[
             {"if":has_instruction(&needs_target),"then":one_targeted_step,"else":{"properties":{"targets":{"maxItems":0}}}},
             {"if":has_instruction(&mill_target),"then":targets("any_player",json!({"type":"null"}))},
-            {"if":has_instruction(&creature_move),"then":targets("battlefield_creature",json!({"type":"null"}))},
-            {"if":has_instruction(&permanent_move),"then":targets("battlefield_permanent",json!({"type":"object"}))},
-            {"if":has_instruction(&bounce),"then":{"anyOf":[targets("battlefield_creature",json!({"type":"null"})),targets("battlefield_permanent",json!({"type":"object"}))]}},
+            {"if":has_instruction(&exile),"then":targets("battlefield_permanent",json!({"type":"object"}))},
+            {"if":has_instruction(&destroy_or_bounce),"then":{"anyOf":[targets("battlefield_creature",json!({"type":"null"})),targets("battlefield_permanent",json!({"type":"object"}))]}},
             {"properties":{"instructions":{"items":{"properties":{
                 "target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"},"count":{"pattern":"^[1-9][0-9]*$"}
             }}}}}

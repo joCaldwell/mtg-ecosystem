@@ -27,6 +27,64 @@ fn draw_discard_complete_source_cost_bindings_and_program() {
     );
 }
 #[test]
+fn draw_discard_accepts_one_card_draw_and_discard_spell() {
+    let one = tests::changed_source(STUDY, |r| {
+        let text = "Draw a card, then discard a card.";
+        r["source"]["oracle_text"] = json!(text);
+        let result = &mut r["faces"][0]["result"];
+        result["lines"][0]["text"] = json!(text);
+        let steps = &mut result["abilities"][0]["effects"][0]["steps"];
+        steps[0]["amount"]["value"] = json!(1);
+        steps[1]["what"]["count"]["value"] = json!(1);
+        result["lines"][0]["ability"] = result["abilities"][0].clone();
+        let b = &mut r["binding"];
+        for node in b["nodes"].as_array_mut().unwrap().iter_mut() {
+            match node["id"].as_str() {
+                Some(id)
+                    if id.ends_with("/steps/0#objects") || id.ends_with("/steps/1#objects") =>
+                {
+                    node["cardinality"] = json!("one");
+                }
+                Some(id) if id.ends_with("/steps/1/what#query") => {
+                    node["cardinality"] = json!("one");
+                    node["expression"]["count"]["value"] = json!(1);
+                }
+                _ => {}
+            }
+        }
+        b["nodes"].as_array_mut().unwrap().retain(|node| {
+            !node["id"]
+                .as_str()
+                .is_some_and(|id| id.ends_with("/steps/1#quantity"))
+        });
+        b["references"][2]["expression"]["count"]["value"] = json!(1);
+    });
+    let compiled = compile(HEADER, &one);
+    let CompileResult::Lowered { definition: d } = compiled else {
+        panic!("{compiled:?}")
+    };
+    d.validate().unwrap();
+    let program = d.spell.as_ref().unwrap();
+    assert!(controller_draw_discard_program(program));
+    assert!(
+        d.capabilities
+            .contains(&Capability::ControllerDrawDiscardV1)
+    );
+    assert!(!d.capabilities.contains(&Capability::ControllerDrawV1));
+    assert_eq!(
+        program.instructions,
+        vec![
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0),
+            Instruction::discard(
+                kir::PlayerExpr::you(kir::Context::Spell),
+                kir::Amount::Fixed { value: 1.into() },
+                false,
+                0
+            )
+        ]
+    );
+}
+#[test]
 fn draw_discard_rejects_null_wrong_pool_partial_and_binding() {
     for case in 0..12 {
         let changed = tests::changed_source(STUDY, |r| {

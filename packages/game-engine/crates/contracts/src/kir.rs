@@ -2108,10 +2108,9 @@ impl Walk<'_, '_> {
                 SetExpr::Matching {
                     zone: ZoneExpr::Battlefield,
                     filter,
-                } if filter.0.first()
-                    == Some(&Atom::Type {
-                        kind: CardKind::Creature,
-                    }) =>
+                } if filter.0.contains(&Atom::Type {
+                    kind: CardKind::Creature,
+                }) =>
                 {
                     Self::audited_filter(filter)
                 }
@@ -3206,6 +3205,22 @@ mod tests {
             check(&yours(Context::Triggered), &env),
             Err(KirError::Scope(_))
         ));
+        // Creature pump sets admit creature predicates regardless of conjunct order.
+        let reordered_pump = Node::Do(Verb::ModifyUntil {
+            what: SetExpr::battlefield(Pred(vec![
+                Atom::Color { color: Color::B },
+                Atom::Type {
+                    kind: CardKind::Creature,
+                },
+            ])),
+            layer: Layer::PowerToughnessModify,
+            change: Change::PowerToughness {
+                power: Amount::fixed(1),
+                toughness: Amount::fixed(1),
+            },
+            until: Until::EndOfTurn,
+        });
+        check(&reordered_pump, &env).unwrap();
         assert!(
             Pred(vec![Atom::ControlledBy {
                 player: PlayerExpr::you(Context::Spell)

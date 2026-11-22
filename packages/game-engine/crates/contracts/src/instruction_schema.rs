@@ -50,6 +50,11 @@ fn you() -> Value {
         "who":{"required":["ref"],"properties":{"ref":{"const":"controller"}}}}})
 }
 
+/// "You" strictly as the spell's controller (CR 112.2, 109.5).
+fn spell_you() -> Value {
+    json!({ "const": PlayerExpr::you(super::kir::Context::Spell) })
+}
+
 /// A fixed amount whose value matches `value` (a string schema).
 pub(crate) fn fixed(value: Value) -> Value {
     json!({"required":["amount","value"],"properties":{"amount":{"const":"fixed"},"value":value}})
@@ -226,7 +231,7 @@ pub(crate) fn source_keywords(keywords: Value) -> Value {
 pub(crate) fn predefined_tokens() -> Value {
     kernel_do(
         "create_tokens",
-        json!({"controller":you(),
+        json!({"controller":you(),"count":positive(),
         "token":{"required":["token"],"properties":{"token":{"const":"predefined"}}}}),
     )
 }
@@ -269,6 +274,25 @@ pub(crate) fn counted_draw(pattern: &str) -> Value {
 /// one card included.
 pub(crate) fn fixed_controller_draw(pattern: &str) -> Value {
     draw(you(), fixed(json!({"type":"string","pattern":pattern})))
+}
+
+/// CR 121.1-121.2: a spell controller draws a fixed count matching `pattern`,
+/// one card included.
+pub(crate) fn fixed_spell_controller_draw(pattern: &str) -> Value {
+    draw(
+        spell_you(),
+        fixed(json!({"type":"string","pattern":pattern})),
+    )
+}
+
+/// CR 701.9a: a spell controller discards a fixed count matching `count`.
+pub(crate) fn spell_controller_discard(count: Value) -> Value {
+    discard(spell_you(), fixed(count), false)
+}
+
+/// CR 119.3: the controller loses a fixed positive amount of life.
+pub(crate) fn positive_controller_life_loss() -> Value {
+    kernel_do("lose_life", json!({"player":you(),"amount":positive()}))
 }
 
 /// `counted_draw` for any count.

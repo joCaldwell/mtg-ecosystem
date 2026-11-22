@@ -585,7 +585,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
 
   for (const mutate of [
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].node.do.change.power.value="-0";},
-    (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
+    (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].node.do.change.toughness.value=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].to=[];},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Samite Healer").activated[0].program.instructions[0].amount="0";},
@@ -2450,9 +2450,105 @@ test("composed triggers, attachments and artifact tokens retain their schema con
     reject("Rogue's Gloves", d => {
       d.capabilities = d.capabilities.filter((c: string) => c !== "equipped_creature_trigger_v1");
     });
-    reject("Sailor of Means", d => { d.triggered[0].program.instructions[0].count = 0; });
+    reject("Sailor of Means", d => { d.triggered[0].program.instructions[0].node.do.count.value = "0"; });
     reject("Sailor of Means", d => { d.triggered[0].condition = "opponent_creature_dies"; });
     reject("Glittermonger", d => { d.activated[0].cost = "sacrifice_source"; });
+    passed = true;
+  } finally {
+    if (passed) fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("count-1 flash draw, draw/discard, counted-draw life loss, and target destroy sequences match exported schema", () => {
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+
+  // 1 & 7-card FlashEndStepDrawDefinition.
+  const baseCatalog = JSON.parse(read("expected-tokens-ir.json"));
+  const dreadmaw = baseCatalog.definitions.find((d: any) => d.name === "Colossal Dreadmaw");
+  assert.ok(dreadmaw);
+  for (const [count, drawCap] of [["1", "controller_draw_v1"], ["7", "controller_counted_draw_v1"]] as const) {
+    const c = { ...structuredClone(baseCatalog), definitions: [structuredClone(dreadmaw)] };
+    const d = c.definitions[0];
+    delete d.source_labels;
+    d.characteristics.legendary = true;
+    d.keywords = ["flash"];
+    d.spell.timing = "instant";
+    d.static_abilities = [{ functioning_zone: "battlefield", effect: { reduce_maximum_hand_size: { scope: "opponents", amount: "7" } } }];
+    d.triggered = [{
+      functioning_zone: "battlefield",
+      condition: { step_began: { step: "end", turn_relation: "controller" } },
+      death_filter: null,
+      intervening_if: null,
+      program: { timing: "instant", resolution: "instructions", functioning_zone: "stack", targets: [], instructions: [draw("ability_controller", count, 1)] },
+    }];
+    d.capabilities = [
+      "normal_layout_v1", "base_creature_v1", "cast_creature_v1", "commander_identity_v1",
+      "flash_v1", "reduced_hand_size_v1", "triggered_ability_v1", "step_beginning_trigger_v1", drawCap,
+    ];
+    assert.equal(validate(c), true, `FlashEndStepDraw(${count}): ${JSON.stringify(validate.errors)}`);
+    const wrongCap = structuredClone(c);
+    wrongCap.definitions[0].capabilities = wrongCap.definitions[0].capabilities.map((cap: string) =>
+      cap === drawCap ? (count === "1" ? "controller_counted_draw_v1" : "controller_draw_v1") : cap
+    );
+    assert.equal(validate(wrongCap), false, `FlashEndStepDraw(${count}) wrong draw cap`);
+  }
+
+  // Compile Careful Study, then validate 1-card DrawDiscard, OrdinaryScalarSequence Destroy+Scry, and CountedDraw+LoseLife(0).
+  const source = fileURLToPath(fixtureDir);
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-kir-schema-fixes-"));
+  let passed = false;
+  try {
+    const manifest = path.join(temporary, "catalog.json");
+    fs.writeFileSync(manifest, JSON.stringify({
+      schema_version: IR_SCHEMA_VERSION,
+      output_order: "sorted",
+      provenance: path.join(source, "provenance.json"),
+      records: [path.join(source, "32e9aa23-fc0a-4b82-82f9-1659c304428c.json")],
+      expected_ir: "actual-ir.json",
+      expected_digest: "actual.sha256",
+    }));
+    const report = run("catalog", "build", manifest, "--write");
+    const compiled = JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
+    assert.equal(validate(compiled), true, JSON.stringify(validate.errors));
+
+    const oneDrawDiscard = structuredClone(compiled);
+    oneDrawDiscard.definitions[0].spell.instructions = [
+      draw("spell_controller", "1", 0),
+      discard(you("spell_controller"), "1", 0),
+    ];
+    assert.equal(validate(oneDrawDiscard), true, `DrawDiscard(1): ${JSON.stringify(validate.errors)}`);
+    const badDrawDiscardCap = structuredClone(oneDrawDiscard);
+    badDrawDiscardCap.definitions[0].capabilities = badDrawDiscardCap.definitions[0].capabilities.filter((cap: string) => cap !== "controller_draw_discard_v1");
+    assert.equal(validate(badDrawDiscardCap), false, "DrawDiscard(1) missing capability");
+
+    const destroyScry = structuredClone(compiled);
+    const ds = destroyScry.definitions[0];
+    delete ds.source_labels;
+    ds.spell.targets = [{ slot: 0, selection_id: "line:0:0", chooser: "controller", stage: "announcement", domain: "battlefield_creature" }];
+    ds.spell.instructions = [
+      { op: "kernel", node: { do: { verb: "destroy", what: { set: "one", object: { ref: "target", slot: 0 } } } }, source_block: 0 },
+      { op: "scry", amount: "1", source_block: 0 },
+    ];
+    ds.capabilities = [
+      "normal_layout_v1", "cast_sorcery_v1", "creature_target_v1",
+      "destroy_creature_v1", "controller_scry_v1", "composed_ordinary_spell_v1",
+    ];
+    assert.equal(validate(destroyScry), true, `Destroy+Scry: ${JSON.stringify(validate.errors)}`);
+
+    const countedLoss = structuredClone(compiled);
+    const cl = countedLoss.definitions[0];
+    delete cl.source_labels;
+    cl.spell.instructions = [
+      draw("spell_controller", "2", 0),
+      { op: "kernel", node: { do: { verb: "lose_life", player: you("spell_controller"), amount: { amount: "fixed", value: "2" } } }, source_block: 0 },
+    ];
+    cl.capabilities = ["normal_layout_v1", "cast_sorcery_v1", "controller_counted_draw_v1", "life_loss_v1"];
+    assert.equal(validate(countedLoss), true, `CountedDraw+LoseLife(2): ${JSON.stringify(validate.errors)}`);
+    const zeroLoss = structuredClone(countedLoss);
+    zeroLoss.definitions[0].spell.instructions[1].node.do.amount.value = "0";
+    assert.equal(validate(zeroLoss), false, "CountedDraw+LoseLife(0) should fail");
     passed = true;
   } finally {
     if (passed) fs.rmSync(temporary, { recursive: true, force: true });

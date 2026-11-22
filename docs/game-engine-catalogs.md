@@ -151,7 +151,8 @@ Every flat effect is a kernel verb; the audited cells are:
 
 The core interpreter routes each cell to the executor whose events, choices,
 effects and recovery facts the legacy variant used, so state and journals are
-unchanged. `ObjectSet::from_kernel` is the exact inverse a set executor reads.
+unchanged. Board-wide sets evaluate directly via the general battlefield or
+graveyard query.
 Control, linked and multi-step procedures stay legacy variants (optional
 blocks and draws, cascade, hideaway, impulse and library selection, searches,
 scry/surveil, demonstrate, reveal-and-cast, counterspells, copies, bestow and
