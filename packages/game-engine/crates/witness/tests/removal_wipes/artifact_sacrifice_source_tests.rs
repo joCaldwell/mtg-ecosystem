@@ -474,7 +474,7 @@ fn fixed_artifact_setup(with_mana: bool) -> Prepared {
             targets: vec![],
             modes: vec![],
             instructions: vec![Instruction::draw(
-                PlayerExpr::you(Context::Spell),
+                PlayerExpr::you(Context::Activated),
                 1.into(),
                 0,
             )],
@@ -504,11 +504,11 @@ fn fixed_artifact_setup(with_mana: bool) -> Prepared {
         domain: TargetDomain::AnyDamageTarget,
         filter: None,
     });
-    damage.instructions = vec![Instruction::DealDamage {
-        target_slot: 0,
-        amount: 3.into(),
-        source_block: 0,
-    }];
+    damage.instructions = vec![Instruction::damage_target(
+        0,
+        kir::Amount::Fixed { value: 3.into() },
+        0,
+    )];
     modal.program.instructions.clear();
     modal.program.modes = vec![SpellMode { program: draw }, SpellMode { program: damage }];
     source.activated.push(modal);

@@ -1244,7 +1244,7 @@ fn flash_end_step_draw() {
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
             instructions: vec![Instruction::draw(
-                PlayerExpr::you(Context::Spell),
+                PlayerExpr::you(Context::Triggered),
                 7.into(),
                 1,
             )],
