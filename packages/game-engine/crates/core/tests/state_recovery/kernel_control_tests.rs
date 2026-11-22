@@ -162,3 +162,60 @@ fn declining_optional_and_unless_payments_follows_only_selected_branches() {
     assert_eq!(g.state.rules.players[0].life, expected);
     g.validate_state().unwrap();
 }
+
+#[test]
+fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
+    let mut prepared = super::formats_tests::actions_scenario();
+    let catalog = Arc::make_mut(&mut prepared.catalog);
+    let program = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Cruel Edict")
+        .unwrap()
+        .spell
+        .as_mut()
+        .unwrap();
+    let Instruction::Kernel { node, .. } = &mut program.instructions[0] else {
+        panic!("expected the admitted sacrifice verb")
+    };
+    *node = Node::Seq(vec![node.clone(), gain(controller(), Amount::fixed(4))]);
+    prepared.catalog_digest = mtg_contracts::digest(catalog).unwrap();
+    let mut game = super::formats_tests::cast_edict(prepared.clone());
+    let next = game.advance(Budget::unlimited());
+    let Advance::AwaitingDecision(Request::Sacrifice {
+        player, candidates, ..
+    }) = next
+    else {
+        panic!("expected nested sacrifice, got {next:?}")
+    };
+    assert_eq!(player, PlayerId(1));
+    game.validate_state().unwrap();
+    let before = game.state.rules.players[0].life.clone();
+    let mut restored = Game::restore(prepared.clone(), &game.snapshot().unwrap()).unwrap();
+    for g in [&mut game, &mut restored] {
+        answer(
+            g,
+            Response::Sacrifice {
+                object: candidates[0],
+            },
+        );
+        let next = g.advance(Budget::unlimited());
+        // The scenario commander can be selected for the sacrifice.
+        if matches!(
+            next,
+            Advance::AwaitingDecision(Request::CommanderReturn { .. })
+        ) {
+            answer(g, Response::CommanderReturn { to_command: false });
+            g.advance(Budget::unlimited());
+        }
+        assert!(g.state.rules.frames.is_empty());
+        let mut expected = before.clone();
+        expected.add(&4.into());
+        assert_eq!(g.state.rules.players[0].life, expected);
+        g.validate_state().unwrap();
+    }
+    assert_eq!(
+        game.state_digest().unwrap(),
+        restored.state_digest().unwrap()
+    );
+}

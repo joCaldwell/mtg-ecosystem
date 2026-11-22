@@ -116,7 +116,7 @@ impl Game {
         self.committed.turn()
     }
     pub fn observe(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
-        self.committed.observe(viewer, budget)
+        self.committed.observe_committed(viewer, budget)
     }
     pub fn player_decision_for(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
         self.committed.player_decision_for(viewer, budget)

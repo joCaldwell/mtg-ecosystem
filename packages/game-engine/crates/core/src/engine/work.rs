@@ -252,6 +252,47 @@ pub struct SavedWork {
 }
 
 impl RulesTxn {
+    /// When the entire observation fits and the decision has no candidate
+    /// enumeration, the last published history row is the completed builder.
+    /// Partial budgets still produce their original resumable work prefix.
+    pub(in crate::engine) fn observe_committed(
+        &self,
+        viewer: PlayerId,
+        budget: Budget,
+    ) -> QueryResult {
+        let work = match self.start_work(Query::Observe { viewer }) {
+            Ok(work) => work,
+            Err(error) => return QueryResult::Rejected(error),
+        };
+        if self.published.is_some()
+            && let Some(row) = self.state.knowledge.visibility[viewer.0 as usize]
+                .history
+                .last()
+            && budget.remaining
+                >= 5 + self.state.rules.objects.len() as u64
+                    + self.state.rules.stack.len() as u64
+                    + row.effects.len() as u64
+            && let Ok(
+                decision @ (None
+                | Some(
+                    PlayerRequest::Priority { .. }
+                    | PlayerRequest::Mana { .. }
+                    | PlayerRequest::SpendMana { .. }
+                    | PlayerRequest::OptionalEffect { .. }
+                    | PlayerRequest::Attackers { .. }
+                    | PlayerRequest::Blockers { .. },
+                )),
+            ) = self.request_header(viewer)
+        {
+            return QueryResult::Complete(QueryValue::Observation(Observation {
+                observation_version: crate::formats::OBSERVATION_VERSION,
+                decision_context: self.permitted_decision_context(viewer, decision.as_ref()),
+                view: row.to_public(),
+                decision,
+            }));
+        }
+        self.resume_work(work, budget)
+    }
     pub fn observe(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
         self.begin_query(Query::Observe { viewer }, budget)
     }

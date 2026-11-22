@@ -4,18 +4,32 @@
 use crate::engine::*;
 
 impl RulesTxn {
-    pub(crate) fn validate_state(&self) -> Result<(), RuleError> {
+    pub(crate) fn validate_stack_links(&self) -> Result<(), RuleError> {
         let rules = &self.state.rules;
+        let mut new_root = true;
+        let mut has_leaf = false;
         for (depth, frame) in rules
             .frames
             .iter()
             .chain(std::iter::once(&rules.frame))
             .enumerate()
         {
-            if frame.parent().map(|(link, _)| link.0) != depth.checked_sub(1) {
+            if frame.parent().map(|(link, _)| link.0) != (!new_root).then(|| depth - 1) {
                 return Err("invalid continuation stack link".into());
             }
+            new_root = matches!(frame, Frame::Kernel { task } if task.is_leaf());
+            if new_root {
+                if has_leaf || depth == rules.frames.len() {
+                    return Err("invalid kernel leaf marker".into());
+                }
+                has_leaf = true;
+            }
         }
+        Ok(())
+    }
+    pub(crate) fn validate_state(&self) -> Result<(), RuleError> {
+        self.validate_stack_links()?;
+        let rules = &self.state.rules;
         for frame in rules.frames.iter().chain(std::iter::once(&rules.frame)) {
             if let Frame::Kernel { task } = frame {
                 self.validate_kernel_task(task)?;

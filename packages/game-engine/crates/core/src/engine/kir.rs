@@ -20,7 +20,7 @@ use mtg_contracts::kir::{
 };
 
 mod control;
-pub use control::Task;
+pub use control::{LeafProgram, Task};
 
 /// The players a player expression denotes for one resolving invocation.
 enum Players {

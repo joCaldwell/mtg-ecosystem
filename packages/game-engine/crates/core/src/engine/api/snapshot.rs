@@ -62,7 +62,7 @@ impl Game {
         {
             return Err("snapshot version/build/catalog/profile/hash mismatch".into());
         }
-        let game = RulesTxn {
+        let mut game = RulesTxn {
             opening_library_sizes: prepared.config.initial_library_sizes(),
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
             catalog_has_land_reclamation: prepared
@@ -80,8 +80,11 @@ impl Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
+            kernel_leaf: None,
             published: None,
         };
+        game.validate_stack_links()?;
+        game.rebuild_kernel_leaf()?;
         game.validate_state()?;
         Ok((Self::from_initial(game), s.state_sha256))
     }

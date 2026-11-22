@@ -133,6 +133,18 @@ impl RulesTxn {
         &'a self,
         stack: &'a StackInstance,
     ) -> Result<&'a SpellProgram, RuleError> {
+        if let Some(leaf) = &self.kernel_leaf
+            && leaf.invocation == stack.id
+        {
+            return Ok(&leaf.program);
+        }
+        self.original_program_for(stack)
+    }
+
+    pub(in crate::engine) fn original_program_for<'a>(
+        &'a self,
+        stack: &'a StackInstance,
+    ) -> Result<&'a SpellProgram, RuleError> {
         if let Some(plan) = &stack.mode_subset {
             return Ok(plan.program(self.root_program_for(stack)?)?);
         }

@@ -625,9 +625,13 @@ impl RulesTxn {
     /// Rule routines may still read the installed frame while preparing its
     /// successor. Drop abandoned branches only once that successor is installed.
     pub(in crate::engine) fn retire_returned_frames(&mut self) {
+        let base = self
+            .kernel_leaf
+            .as_ref()
+            .map_or(0, |leaf| leaf.marker.0 + 1);
         let rules = self.rules_mut();
         let Some((top, _)) = rules.frame.parent() else {
-            rules.frames.clear();
+            rules.frames.truncate(base);
             return;
         };
         rules.frames.truncate(top.0 + 1);
@@ -635,7 +639,10 @@ impl RulesTxn {
             .frames
             .iter()
             .enumerate()
-            .all(|(depth, frame)| frame.parent().map(|(link, _)| link.0) == depth.checked_sub(1))
+            .skip(base)
+            .all(|(depth, frame)| {
+                frame.parent().map(|(link, _)| link.0) == (depth > base).then(|| depth - 1)
+            })
         {
             return;
         }
@@ -646,12 +653,13 @@ impl RulesTxn {
             next = parent;
         }
         for (depth, from) in path.iter().rev().copied().enumerate() {
+            let depth = base + depth;
             rules.frames.swap(depth, from);
             if let Some((link, _)) = rules.frames[depth].parent_mut() {
                 link.0 = depth - 1;
             }
         }
-        rules.frames.truncate(path.len());
-        rules.frame.parent_mut().expect("saved parent").0.0 = path.len() - 1;
+        rules.frames.truncate(base + path.len());
+        rules.frame.parent_mut().expect("saved parent").0.0 = base + path.len() - 1;
     }
 }

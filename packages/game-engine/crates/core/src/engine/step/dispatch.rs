@@ -14,6 +14,9 @@ impl RulesTxn {
         }
         // An invocation that left the stack stays owned only while the
         // installed frame still resumes it (CR 608.2m).
+        if self.kernel_leaf.is_some() {
+            self.resume_finished_kernel_leaf()?;
+        }
         self.retire_returned_frames();
         self.release_detached();
         Ok(())

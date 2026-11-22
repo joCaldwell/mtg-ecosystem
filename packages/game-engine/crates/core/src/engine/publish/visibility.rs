@@ -1053,7 +1053,7 @@ impl Knowledge {
 // Scratch for one publication or one query's Work. Rules are stable while the
 // four observers' handles and histories are updated, and for as long as a
 // Work's state token is current. Lists preserve object-table order.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ProjectionIndex {
     outside_libraries: Vec<CardId>,
     hand_counts: [usize; 4],
@@ -1065,6 +1065,7 @@ pub struct ProjectionIndex {
 // and by all four viewers. Each is carried forward only across its dependencies.
 #[derive(Clone, Default)]
 pub(super) struct ProjectionCache {
+    layer_epoch: u64,
     index: Arc<ProjectionIndex>,
     cores: Arc<BTreeMap<ObjectId, Arc<ObjectCore>>>,
 }
@@ -1131,6 +1132,90 @@ impl RulesTxn {
         index
     }
 
+    /// Update the projection index in table order. Tapping or damaging an
+    /// existing permanent typically changes no index entry at all.
+    fn update_projection_index(
+        &self,
+        old: &Published,
+        dirty: &BTreeSet<CardId>,
+    ) -> Arc<ProjectionIndex> {
+        fn member<T: Ord>(rows: &mut Vec<T>, value: T, present: bool) {
+            match (rows.binary_search(&value), present) {
+                (Err(i), true) => rows.insert(i, value),
+                (Ok(i), false) => {
+                    rows.remove(i);
+                }
+                _ => {}
+            }
+        }
+        fn count(index: &mut ProjectionIndex, zone: Zone, entering: bool) {
+            let slot = match zone {
+                Zone::Hand { owner } => index.hand_counts.get_mut(owner.0 as usize),
+                Zone::Library { owner } => index.library_counts.get_mut(owner.0 as usize),
+                _ => None,
+            };
+            if let Some(n) = slot {
+                if entering {
+                    *n += 1;
+                } else {
+                    *n -= 1;
+                }
+            }
+        }
+        let mut index = old.cache.index.clone();
+        for card in dirty {
+            let was = old.rules.objects.get(card);
+            let now = self.state.rules.objects.get(card);
+            let old_zone = was.map(|o| o.zone);
+            let new_zone = now.map(|o| o.zone);
+            if old_zone != new_zone {
+                let index = Arc::make_mut(&mut index);
+                if let Some(zone) = old_zone {
+                    count(index, zone, false);
+                }
+                if let Some(zone) = new_zone {
+                    count(index, zone, true);
+                }
+                member(
+                    &mut index.outside_libraries,
+                    *card,
+                    new_zone.is_some_and(|zone| !matches!(zone, Zone::Library { .. })),
+                );
+            }
+            let link = |o: &Object| {
+                if o.zone == Zone::Battlefield {
+                    o.attached_to.map(|host| (host, o.id))
+                } else {
+                    None
+                }
+            };
+            let before = was.and_then(link);
+            let after = now.and_then(link);
+            if before != after {
+                let attachments = &mut Arc::make_mut(&mut index).attachments;
+                if let Some((host, id)) = before
+                    && let Some(rows) = attachments.get_mut(&host)
+                {
+                    member(rows, id, false);
+                    if rows.is_empty() {
+                        attachments.remove(&host);
+                    }
+                }
+                if let Some((host, id)) = after {
+                    member(attachments.entry(host).or_default(), id, true);
+                }
+            }
+            let is_static = now.is_some_and(|object| self.indexed_static_source(object));
+            if index.static_sources.binary_search(card).is_ok() != is_static {
+                member(
+                    &mut Arc::make_mut(&mut index).static_sources,
+                    *card,
+                    is_static,
+                );
+            }
+        }
+        index
+    }
     pub(in crate::engine) fn search_decision_token(
         &self,
         player: PlayerId,
@@ -2908,13 +2993,10 @@ impl RulesTxn {
                 && rules.entry_copies == old.rules.entry_copies
                 && rules.back_face_objects == old.rules.back_face_objects
         });
-        let projection = previous
-            .as_ref()
-            .filter(|_| same_definitions && dirty.as_ref().is_some_and(BTreeSet::is_empty))
-            .map_or_else(
-                || Arc::new(self.projection_index()),
-                |old| old.cache.index.clone(),
-            );
+        let projection = match previous.as_ref().zip(dirty.as_ref()) {
+            Some((old, dirty)) if same_definitions => self.update_projection_index(old, dirty),
+            _ => Arc::new(self.projection_index()),
+        };
         // A static ability can count other permanents or depend on attacker membership.
         // Any board change in its presence starts a new layer epoch, as do changes to
         // effect sources, bestow on the stack, and per-turn ability restrictions.
@@ -2937,9 +3019,16 @@ impl RulesTxn {
                             && rules.effects.is_empty()))
             })
             .and(dirty.as_ref());
+        let layer_epoch = previous.as_ref().map_or(0, |old| {
+            if clean_except.is_some() {
+                old.cache.layer_epoch
+            } else {
+                old.cache.layer_epoch.wrapping_add(1)
+            }
+        });
         let mut cached = previous
             .as_ref()
-            .filter(|_| clean_except.is_some())
+            .filter(|old| old.cache.layer_epoch == layer_epoch)
             .map(|old| old.cache.cores.clone())
             .unwrap_or_default();
         if let Some(dirty) = clean_except
@@ -3086,6 +3175,7 @@ impl RulesTxn {
             }
         }
         Ok(ProjectionCache {
+            layer_epoch,
             index: projection,
             cores: cores.into_inner(),
         })

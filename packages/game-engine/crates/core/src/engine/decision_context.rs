@@ -192,6 +192,34 @@ impl RulesTxn {
         request: Option<&PlayerRequest>,
     ) -> Option<DecisionContext> {
         let request = request?;
+        if let Frame::Kernel { task } = &self.state.rules.frame {
+            let entry = self.entry(self.kernel_root().ok()?.stack_id).ok()?;
+            let (source_block, candidate) = self.kernel_choice_context(task).ok()?;
+            let labels = self
+                .copiable_definition(entry.source)
+                .ok()?
+                .source_labels
+                .as_ref();
+            let instruction = if let Some(object) = candidate {
+                let handle = self.handle_for(viewer, object).ok()?;
+                Some(DecisionInstruction {
+                    source_block,
+                    text: format!("Include {} among the chosen objects?", handle.0),
+                })
+            } else {
+                labels
+                    .and_then(|labels| labels.blocks.get(source_block as usize))
+                    .map(|text| DecisionInstruction {
+                        source_block,
+                        text: text.clone(),
+                    })
+            };
+            return Some(DecisionContext {
+                source: self.stack_description(viewer, entry),
+                instruction,
+                modes: vec![],
+            });
+        }
         if let PlayerRequest::CascadeLandEntry { .. } = request
             && let Frame::Cascade { progress } = &self.state.rules.frame
         {

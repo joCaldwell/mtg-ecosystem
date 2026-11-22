@@ -16,6 +16,7 @@ enum Binding {
 enum Stage {
     #[default]
     Run,
+    Leaf,
     Optional {
         chooser: PlayerId,
     },
@@ -53,9 +54,21 @@ impl Task {
         }
     }
 
+    pub(in crate::engine) fn is_leaf(&self) -> bool {
+        self.stage == Stage::Leaf
+    }
+
+    pub(in crate::engine) fn candidate(&self) -> Option<ObjectId> {
+        if let Stage::Choose { remaining, .. } = &self.stage {
+            remaining.last().copied()
+        } else {
+            None
+        }
+    }
+
     fn chooser(&self) -> Option<PlayerId> {
         match self.stage {
-            Stage::Run => None,
+            Stage::Run | Stage::Leaf => None,
             Stage::Optional { chooser } | Stage::Choose { chooser, .. } => Some(chooser),
             Stage::Life { payer, .. } => Some(payer),
         }
@@ -90,7 +103,7 @@ impl RulesTxn {
     fn node_at(&self, task: &Task) -> Result<(&Node, u32), String> {
         let frame = self.kernel_root()?;
         let Some(Instruction::Kernel { node, source_block }) = self
-            .program_for(self.entry(frame.stack_id)?)?
+            .original_program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
@@ -303,6 +316,13 @@ impl RulesTxn {
             }))
     }
 
+    pub(in crate::engine) fn kernel_choice_context(
+        &self,
+        task: &Task,
+    ) -> Result<(u32, Option<ObjectId>), String> {
+        Ok((self.node_at(task)?.1, task.candidate()))
+    }
+
     pub(in crate::engine) fn validate_kernel_response(
         &self,
         task: &Task,
@@ -340,7 +360,8 @@ impl RulesTxn {
             return Err("invalid kernel chooser".into());
         }
         match (&task.stage, node) {
-            (Stage::Run, _)
+            (Stage::Leaf, Node::Do(_))
+            | (Stage::Run, _)
             | (Stage::Optional { .. }, Node::Optional { .. })
             | (
                 Stage::Life { .. },
@@ -417,7 +438,7 @@ impl RulesTxn {
                     };
                     self.choose_next(task, var, player, remaining, selected, minimum, maximum)?;
                 }
-                Stage::Run => return Err("unexpected kernel input".into()),
+                Stage::Run | Stage::Leaf => return Err("unexpected kernel input".into()),
             }
             return Ok(());
         }
@@ -479,6 +500,9 @@ impl RulesTxn {
                     return self.return_kernel(task.resume);
                 };
                 let mut objects = self.control_objects(&task, from)?;
+                for object in &objects {
+                    self.handle_for(player, *object)?;
+                }
                 let min = self.control_amount(&task, minimum)?;
                 let max = self.control_amount(&task, maximum)?;
                 if min.is_negative() || max < min {
@@ -547,7 +571,10 @@ impl RulesTxn {
                 }
                 self.return_kernel(task.resume)?;
             }
-            _ => return Err("unsupported nested kernel verb or control".into()),
+            Node::Do(_) => self.begin_kernel_leaf(task)?,
+            Node::Delayed { .. } | Node::Reflexive { .. } => {
+                return Err("unsupported kernel trigger control".into());
+            }
         }
         Ok(())
     }
@@ -621,6 +648,90 @@ impl RulesTxn {
                 maximum,
             };
             self.install_kernel(task);
+        }
+        Ok(())
+    }
+}
+
+/// While a leaf is executing, ordinary verb executors see that leaf at the
+/// root instruction's cursor. The executable program is always derived from
+/// the admitted catalog. Only the marker and its address enter the snapshot.
+pub struct LeafProgram {
+    pub(in crate::engine) marker: FrameLink,
+    pub(in crate::engine) invocation: StackId,
+    pub(in crate::engine) program: SpellProgram,
+}
+
+impl RulesTxn {
+    fn begin_kernel_leaf(&mut self, mut task: Task) -> Result<(), String> {
+        task.stage = Stage::Leaf;
+        self.save_frame(Frame::Kernel {
+            task: Box::new(task),
+        });
+        self.rebuild_kernel_leaf()?;
+        self.rules_mut().frame = Frame::Resolve {
+            frame: self.kernel_root()?.clone(),
+        };
+        Ok(())
+    }
+
+    pub(in crate::engine) fn rebuild_kernel_leaf(&mut self) -> Result<(), String> {
+        let Some((index, task)) = self
+            .state
+            .rules
+            .frames
+            .iter()
+            .enumerate()
+            .find_map(|(i, f)| match f {
+                Frame::Kernel { task } if task.is_leaf() => Some((i, task)),
+                _ => None,
+            })
+        else {
+            self.kernel_leaf = None;
+            return Ok(());
+        };
+        let (node, source_block) = self.node_at(task)?;
+        if !matches!(node, Node::Do(_)) {
+            return Err("kernel leaf must be a verb".into());
+        }
+        let frame = self.kernel_root()?;
+        let mut program = self
+            .original_program_for(self.entry(frame.stack_id)?)?
+            .clone();
+        program.instructions[frame.cursor as usize] = Instruction::Kernel {
+            node: node.clone(),
+            source_block,
+        };
+        self.kernel_leaf = Some(Arc::new(LeafProgram {
+            marker: FrameLink(index),
+            invocation: frame.stack_id,
+            program,
+        }));
+        Ok(())
+    }
+
+    pub(in crate::engine) fn resume_finished_kernel_leaf(&mut self) -> Result<(), String> {
+        let Some(leaf) = &self.kernel_leaf else {
+            return Ok(());
+        };
+        let marker = leaf.marker;
+        let root = self.kernel_root()?;
+        if matches!(&self.state.rules.frame, Frame::Resolve {frame} if frame.stack_id == root.stack_id && frame.cursor > root.cursor)
+        {
+            let Frame::Kernel { task } = self.saved_frame(marker) else {
+                return Err("missing kernel leaf marker".into());
+            };
+            let resume = task.resume;
+            self.kernel_leaf = None;
+            self.return_kernel(resume)?;
+        } else if !self
+            .state
+            .rules
+            .frame
+            .holds(&self.state.rules.frames, root.stack_id)
+        {
+            // Departure can cancel the invocation and its remaining instructions.
+            self.kernel_leaf = None;
         }
         Ok(())
     }

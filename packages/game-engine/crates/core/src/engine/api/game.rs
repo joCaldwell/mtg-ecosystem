@@ -29,6 +29,8 @@ testkit_fields! {
         // Private staging scope: nested event batches share the outer rollback.
         pub(in crate::engine) in_rule_step: bool,
         // Derived accelerator only, never state: what the last publication read.
+        // Reconstructed from the admitted program and a saved node address.
+        pub(in crate::engine) kernel_leaf: Option<Arc<kir::LeafProgram>>,
         pub(in crate::engine) published: Option<Arc<publish::Published>>,
     }
 }
@@ -217,6 +219,7 @@ impl RulesTxn {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
+            kernel_leaf: None,
             published: None,
         };
         if let Some(starting) = game
@@ -252,6 +255,7 @@ impl RulesTxn {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
+            kernel_leaf: self.kernel_leaf.clone(),
             published: self.published.clone(),
         }
     }

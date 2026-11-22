@@ -32,6 +32,7 @@ impl Deref for Game {
 #[cfg(any(test, feature = "testkit"))]
 impl std::ops::DerefMut for Game {
     fn deref_mut(&mut self) -> &mut RulesTxn {
+        self.committed.published = None;
         &mut self.committed
     }
 }
@@ -52,6 +53,8 @@ impl Game {
     /// A failed step is never a rules outcome: the game keeps its pre-step
     /// state and stops at a fault, typed when a capacity was exhausted.
     pub(in crate::engine) fn enter_fault(&mut self, error: RuleError) -> Advance {
+        self.committed.published = None;
+        self.committed.kernel_leaf = None;
         self.committed.rules_mut().frames.clear();
         self.committed.rules_mut().typed_fault = error.fault().cloned();
         let reason = String::from(error);
@@ -158,6 +161,7 @@ impl Game {
                 self.committed.state = staged.state;
                 self.committed.trace = staged.trace;
                 self.committed.published = staged.published;
+                self.committed.kernel_leaf = staged.kernel_leaf;
                 self.committed.state_token = Arc::new(());
                 Ok(value)
             }
@@ -204,6 +208,7 @@ impl RulesTxn {
             executor: self.executor.clone(),
             state_token: self.state_token.clone(),
             in_rule_step: false,
+            kernel_leaf: self.kernel_leaf.clone(),
             published: None,
         })
     }
