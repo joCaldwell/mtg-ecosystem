@@ -42,7 +42,7 @@ fn ramos_m3c_exact_complete_records_preserve_source_and_linked_semantics() {
         }
     );
     assert!(
-        matches!(p.instructions.as_slice(),[Instruction::DestroyPermanent {optional:false,target_slot:0,..},Instruction::DrawCardsIfAdditionalCost {count,cost_identity,..}]
+        matches!(p.instructions.as_slice(),[kernel!(Destroy { what: target_object!(0), regeneration_forbidden: _ }),Instruction::DrawCardsIfAdditionalCost {count,cost_identity,..}]
         if *count==2.into() && *cost_identity==p.optional_additional_costs[0].identity)
     );
     assert!(
@@ -64,10 +64,10 @@ fn ramos_m3c_exact_complete_records_preserve_source_and_linked_semantics() {
     );
     assert!(matches!(
         reclamation.spell.as_ref().unwrap().instructions.as_slice(),
-        [Instruction::DestroyPermanent {
-            optional: false,
-            ..
-        }]
+        [kernel!(Destroy {
+            what: target_object!(_),
+            regeneration_forbidden: _
+        })]
     ));
 }
 #[test]

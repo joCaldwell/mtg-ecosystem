@@ -9,16 +9,6 @@ const DAMAGE: &str = " deals damage to each creature your opponents control equa
 const INVALID: &str =
     "requires a complete ordinary double cascade sorcery and other-casts damage sweep";
 
-// Serde's default internally tagged unit visitor discards excess operands.
-pub(super) fn empty_amount<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<(), D::Error> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct NoOperands {}
-    NoOperands::deserialize(deserializer).map(|_| ())
-}
-
 fn abilities() -> Value {
     json!([
         {"kind":"keywords","keywords":[{"keyword":"cascade"},{"keyword":"cascade"}]},
@@ -31,12 +21,14 @@ fn abilities() -> Value {
 }
 
 fn instruction() -> Instruction {
-    Instruction::DamageSet {
-        sets: vec![ObjectSet::OpponentCreatures],
-        each_player: false,
-        amount: WipeAmount::OtherCastsManaValue,
-        source_block: 1,
-    }
+    SetDamage::instruction(
+        vec![ObjectSet::OpponentCreatures.kernel(Context::Spell)],
+        false,
+        kir::Amount::OtherCastsManaValue {
+            caster: PlayerExpr::you(Context::Spell),
+        },
+        1,
+    )
 }
 
 fn cascade() -> TriggeredAbility {
@@ -137,10 +129,9 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 
 fn program_schema() -> Value {
-    json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":{
-        "required":["op","amount"],"properties":{"op":{"const":"damage_set"},
-        "amount":{"required":["amount"],"properties":{"amount":{"const":"other_casts_mana_value"}}}}
-    }}}})
+    json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":
+        instruction_schema::set_damage(json!({"required":["amount"],"properties":{"amount":{"const":"other_casts_mana_value"}}}))
+    }}})
 }
 
 pub(super) fn spell_schema() -> Value {

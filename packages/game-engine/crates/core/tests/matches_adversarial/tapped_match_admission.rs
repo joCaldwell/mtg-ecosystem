@@ -74,10 +74,10 @@ fn run_tapped_pod(seed: [u8; 32], quantum: u64) -> Game {
     );
     assert!(matches!(
         source.spell.as_ref().unwrap().instructions.as_slice(),
-        [mtg_contracts::Instruction::DestroyPermanent {
-            optional: false,
-            ..
-        }]
+        [mtg_contracts::kernel!(Destroy {
+            what: mtg_contracts::target_object!(_),
+            regeneration_forbidden: _
+        })]
     ));
     let prepared = Prepared::admit_pod(catalog.clone(), tapped_config(&catalog, seed)).unwrap();
     let mut game = Game::with_trace(prepared.clone(), TraceMode::Off);

@@ -119,11 +119,11 @@ fn complete_shrapnel_blast_lowers_artifact_cost_and_fixed_self_damage_without_om
                 domain: TargetDomain::AnyDamageTarget,
                 filter: None
             }],
-            instructions: vec![Instruction::DealDamage {
-                target_slot: 0,
-                amount: 5.into(),
-                source_block: 1
-            }],
+            instructions: vec![Instruction::damage_target(
+                0,
+                kir::Amount::Fixed { value: 5.into() },
+                1
+            )],
         })
     );
     assert_eq!(

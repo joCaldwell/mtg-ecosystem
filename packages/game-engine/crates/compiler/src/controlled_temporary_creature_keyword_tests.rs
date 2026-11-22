@@ -615,7 +615,7 @@ fn controlled_temporary_keyword_typed_ir_source_block_controls() {
         let mut d = lowered(w.raw);
         for instruction in &mut d.spell.as_mut().unwrap().instructions {
             match instruction {
-                Instruction::ModifyPowerToughness { source_block, .. }
+                kernel!(ModifyUntil { what: target_object!(_), change: kir::Change::PowerToughness { power: _, toughness: _ }, until: kir::Until::EndOfTurn, .. } @ source_block)
                 | Instruction::GrantKeywords { source_block, .. } => *source_block = 1,
                 _ => unreachable!(),
             }

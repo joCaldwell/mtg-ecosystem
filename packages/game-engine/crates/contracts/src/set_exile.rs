@@ -124,11 +124,15 @@ fn reserved(p: &SpellProgram) -> bool {
         [ObjectSet::Artifacts, ObjectSet::GraveyardCards].map(|s| s.kernel(Context::Spell));
     p.instructions.iter().any(|i| match i {
         kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => kernel_sets.contains(what),
-        Instruction::PumpSet { set, .. } | Instruction::GrantKeywordsSet { set, .. } => {
-            selected(set)
-        }
-        Instruction::DamageSet { sets, .. } => sets.iter().any(selected),
-        _ => false,
+        Instruction::GrantKeywordsSet { set, .. } => selected(set),
+        i if ObjectSet::pumped(i).is_some() => ObjectSet::pumped(i).is_some_and(|what| {
+            [ObjectSet::Artifacts, ObjectSet::GraveyardCards]
+                .iter()
+                .any(|set| set.denotes(what))
+        }),
+        i => i
+            .set_damage()
+            .is_some_and(|damage| damage.sets.iter().any(|set| kernel_sets.contains(set))),
     }) || p.modes.iter().any(|m| reserved(&m.program))
 }
 

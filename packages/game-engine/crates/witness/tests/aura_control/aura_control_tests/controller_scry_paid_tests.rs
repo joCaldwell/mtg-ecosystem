@@ -292,7 +292,10 @@ fn paid_controller_scry_complete_sources_costs_order_and_provenance() {
         } else {
             assert!(matches!(
                 &program.instructions[1 - scry_cursor],
-                Instruction::DrawCards { .. }
+                kernel!(Draw {
+                    player: kir::PlayerExpr::Is { .. },
+                    amount: fixed!(_)
+                })
             ));
         }
         both(p, |g, q| {

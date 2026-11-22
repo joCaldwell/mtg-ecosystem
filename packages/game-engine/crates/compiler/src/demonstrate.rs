@@ -1,15 +1,51 @@
-//! CR 400.7j, 608.2c–g, 701.20, 701.24, 702.144a, and 707.10.
+//! The Demonstrate keyword and the reveal-and-cast effect, lowered block by
+//! block from the typed AST (CR 400.7j, 608.2c–g, 701.20, 701.24, 702.144a,
+//! 707.10). Definition validation admits their reviewed composition.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::bindings::Bindings;
+use mtg_contracts::demonstrate::{Block, block};
 use serde_json::{Value, json};
 
-pub(super) fn candidate(source: &Source, raw: &Value) -> bool {
-    raw["keywords"].as_array().is_some_and(|ks| ks.iter().any(|k| k == "Demonstrate"))
-        || source.oracle_text.lines().any(|line| line.starts_with("Demonstrate"))
-        || source.oracle_text.contains(
-            "Shuffle your library, then reveal cards from the top of it until you reveal a nonland card.",
+/// One ability per printed block when some block is a Demonstrate keyword or
+/// the reveal-and-cast effect; `None` when no block is either.
+pub(super) fn lower(
+    source: &Source,
+    raw: &Value,
+    result: &ParseResult,
+) -> Result<Option<Vec<Ability>>, Failure> {
+    // A printed Demonstrate keyword or the reveal-and-cast scan makes the
+    // source this family's; every block must then be one of the two.
+    let marked = raw["keywords"]
+        .as_array()
+        .is_some_and(|ks| ks.iter().any(|k| k == "Demonstrate"))
+        || source
+            .oracle_text
+            .lines()
+            .any(|line| line.starts_with("Demonstrate"))
+        || source
+            .oracle_text
+            .contains(mtg_contracts::demonstrate::SCAN);
+    if !marked {
+        return Ok(None);
+    }
+    let blocks: Vec<Value> = decode(result.abilities.get(), "abilities")?;
+    let fail = || {
+        unsupported(
+            "definition",
+            "requires the complete targetless demonstrate and reveal-and-cast sorcery",
         )
+    };
+    let kinds: Vec<_> = blocks.iter().map(block).collect();
+    kinds
+        .into_iter()
+        .map(|kind| match kind {
+            Some(Block::Demonstrate) => Ok(Ability::Demonstrate),
+            Some(Block::RevealAndCast) => Ok(Ability::RevealAndCast),
+            None => Err(fail()),
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 pub(super) fn validate_binding(

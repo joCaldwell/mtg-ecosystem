@@ -13,37 +13,59 @@ pub(crate) fn standalone_controller_draw(p: &SpellProgram) -> Option<(&Quantity,
         return None;
     }
     match p.instructions.as_slice() {
-        [
-            Instruction::DrawControllerCards {
-                count,
-                source_block,
-            },
-        ] if !count.is_negative() => Some((count, *source_block)),
+        [draw] => draw
+            .counted_controller_draw()
+            .filter(|(count, _)| !count.is_negative()),
         _ => None,
     }
 }
-/// Complete counted controller draws, optionally followed by fixed controller life loss.
+/// A single unbound fixed controller draw, one card included: the trigger
+/// program of a family whose printed count may be one.
+pub(crate) fn standalone_fixed_controller_draw(p: &SpellProgram) -> Option<(&Quantity, u32)> {
+    if p.additional_sacrifice.is_some()
+        || !p.optional_additional_costs.is_empty()
+        || !p.modes.is_empty()
+        || !p.targets.is_empty()
+        || p.functioning_zone != FunctioningZone::Stack
+        || p.resolution != SpellResolution::Instructions
+    {
+        return None;
+    }
+    match p.instructions.as_slice() {
+        [draw] => draw
+            .fixed_controller_draw()
+            .filter(|(count, _)| !count.is_negative()),
+        _ => None,
+    }
+}
+/// A counted controller draw followed by fixed controller life loss
+/// (CR 121.2, 119.3). One card is the ordinary single draw, not this family.
+pub(crate) fn paired_controller_draw(p: &SpellProgram) -> bool {
+    p.additional_sacrifice.is_none()
+        && p.optional_additional_costs.is_empty()
+        && p.modes.is_empty()
+        && p.targets.is_empty()
+        && p.functioning_zone == FunctioningZone::Stack
+        && p.resolution == SpellResolution::Instructions
+        && match p.instructions.as_slice() {
+            [
+                kernel!(Draw { player: you!(), amount: fixed!(count) } @ 0),
+                kernel!(LoseLife { player: you!(), amount: fixed!(amount) } @ 0),
+            ] => !count.is_negative() && *count != Quantity::from(1) && *amount > Quantity::zero(),
+            _ => false,
+        }
+}
+/// Complete counted controller draws, optionally followed by fixed
+/// controller life loss. One card, alone or paired, is the ordinary CR 121.1
+/// draw, not this family.
 pub fn controller_counted_draw_program(p: &SpellProgram) -> bool {
-    standalone_controller_draw(p).is_some_and(|(_, block)| block == 0)
-        || (p.additional_sacrifice.is_none()
-            && p.optional_additional_costs.is_empty()
-            && p.modes.is_empty()
-            && p.targets.is_empty()
-            && p.functioning_zone == FunctioningZone::Stack
-            && p.resolution == SpellResolution::Instructions
-            && match p.instructions.as_slice() {
-                [
-                    Instruction::DrawControllerCards {
-                        count,
-                        source_block: 0,
-                    },
-                    kernel!(LoseLife { player: you!(), amount: fixed!(amount) } @ 0),
-                ] => !count.is_negative() && *amount > Quantity::zero(),
-                _ => false,
-            })
+    standalone_controller_draw(p).is_some_and(|(_, block)| block == 0) || paired_controller_draw(p)
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
-    s["$defs"]["ControllerCountedDrawProgram"] = serde_json::json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":1,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},instruction_schema::kernel_verb_at("lose_life", 0)],"items":false}}});
+    s["$defs"]["ControllerCountedDrawProgram"] = serde_json::json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"anyOf":[
+        {"minItems":1,"maxItems":1,"prefixItems":[instruction_schema::at(instruction_schema::any_counted_draw(), 0)],"items":false},
+        {"minItems":2,"maxItems":2,"prefixItems":[instruction_schema::at(instruction_schema::any_counted_draw(), 0),instruction_schema::at(instruction_schema::positive_controller_life_loss(), 0)],"items":false}
+    ]}}});
 }
 #[cfg(test)]
 pub(crate) fn witness() -> Definition {
@@ -57,7 +79,15 @@ mod tests {
     use super::*;
     #[test]
     fn controller_counted_draw_quantities_capability_and_cast_kind() {
-        for n in ["0", "1", "2", "3", "999999999999999999999999999999"] {
+        // CR 121.1: one card is the single draw, never a counted draw.
+        let mut single = witness();
+        single.spell.as_mut().unwrap().instructions[0] =
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0);
+        assert!(!controller_counted_draw_program(
+            single.spell.as_ref().unwrap()
+        ));
+        assert!(single.spell.as_ref().unwrap().instructions[0].single_draw());
+        for n in ["0", "2", "3", "999999999999999999999999999999"] {
             for kind in [CardKind::Instant, CardKind::Sorcery] {
                 let mut d = witness();
                 d.characteristics.kind = kind;
@@ -67,7 +97,11 @@ mod tests {
                 } else {
                     SpellTiming::MainPhase
                 };
-                let Instruction::DrawControllerCards { count, .. } = &mut p.instructions[0] else {
+                let kernel!(Draw {
+                    player: you!(),
+                    amount: fixed!(count)
+                }) = &mut p.instructions[0]
+                else {
                     unreachable!()
                 };
                 *count = n.parse().unwrap();
@@ -110,12 +144,16 @@ mod tests {
             match case {
                 0 => p.instructions.push(p.instructions[0].clone()),
                 1 => {
-                    if let Instruction::DrawControllerCards { count, .. } = &mut p.instructions[0] {
+                    if let kernel!(Draw {
+                        player: you!(),
+                        amount: fixed!(count)
+                    }) = &mut p.instructions[0]
+                    {
                         *count = (-1).into()
                     }
                 }
                 2 => {
-                    if let Instruction::DrawControllerCards { source_block, .. } =
+                    if let kernel!(Draw { player: you!(), amount: fixed!(_) } @ source_block) =
                         &mut p.instructions[0]
                     {
                         *source_block = 1
@@ -160,9 +198,36 @@ mod tests {
     }
     #[test]
     fn controller_counted_draw_life_quantities_and_exact_capabilities() {
+        // CR 121.1: a draw of one card paired with a life loss is admitted as
+        // the canonical single draw `Draw(you, Fixed(1))`, which records the
+        // single-draw outcome; it names ControllerDrawV1, never this family.
+        for loss in ["1", "3"] {
+            let mut d = witness();
+            d.spell.as_mut().unwrap().instructions = vec![
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0),
+                Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: Amount::Fixed {
+                            value: loss.parse().unwrap(),
+                        },
+                    },
+                    0,
+                ),
+            ];
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            assert!(!controller_counted_draw_program(d.spell.as_ref().unwrap()));
+            assert!(d.capabilities.contains(&Capability::ControllerDrawV1));
+            assert!(d.capabilities.contains(&Capability::LifeLossV1));
+            assert!(
+                !d.capabilities
+                    .contains(&Capability::ControllerCountedDrawV1)
+            );
+        }
         for (count, loss) in [
             ("0", "1"),
-            ("1", "3"),
+            ("2", "3"),
             ("3", "3"),
             ("999999999999999999999999", "999999999999999999999999"),
         ] {
@@ -176,10 +241,7 @@ mod tests {
                     SpellTiming::MainPhase
                 };
                 p.instructions = vec![
-                    Instruction::DrawControllerCards {
-                        count: count.parse().unwrap(),
-                        source_block: 0,
-                    },
+                    Instruction::draw(PlayerExpr::you(Context::Spell), count.parse().unwrap(), 0),
                     Instruction::act(
                         Verb::LoseLife {
                             player: PlayerExpr::you(Context::Spell),
@@ -297,11 +359,8 @@ mod tests {
                     )
                 }
                 _ => {
-                    p.instructions[0] = Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: 0,
-                    }
+                    p.instructions[0] =
+                        Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0)
                 }
             }
             d.capabilities = d.requirements();

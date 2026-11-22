@@ -94,11 +94,12 @@ fn token_action(action: &str, block: u32) -> Option<(Value, Instruction)> {
     token.validate().ok()?;
     Some((
         ast,
-        Instruction::CreateCreatureTokens {
-            count: 1,
-            token,
-            source_block: block,
-        },
+        Instruction::create_tokens(
+            kir::Context::Triggered,
+            1,
+            kir::TokenSpec::Creature { spec: token },
+            block,
+        ),
     ))
 }
 
@@ -120,11 +121,7 @@ fn action(action: &str, block: u32) -> Option<(Value, Instruction)> {
                 source_block: block,
             }
         } else {
-            Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: block,
-            }
+            Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block)
         },
     ))
 }

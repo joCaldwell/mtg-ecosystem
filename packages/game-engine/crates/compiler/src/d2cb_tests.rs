@@ -40,16 +40,14 @@ fn d2cb_archive_programs_and_capability_closure() {
         })
     );
     assert!(
-        matches!(mine.triggered[0].program.instructions.as_slice(), [Instruction::DrawCards { recipient: Some(LifeRecipient::EventPlayer), count, .. }] if *count == 1.into())
+        matches!(mine.triggered[0].program.instructions.as_slice(), [kernel!(Draw { player: event_player!(), amount: fixed!(count) })] if *count == 1.into())
     );
     assert!(
-        matches!(seizan.triggered[0].program.instructions.as_slice(), [kernel!(LoseLife { player: event_player!(), amount: fixed!(amount) }), Instruction::DrawCards {recipient: Some(LifeRecipient::EventPlayer), ..}, Instruction::DrawCards {recipient: Some(LifeRecipient::EventPlayer), ..}] if *amount == 2.into())
+        matches!(seizan.triggered[0].program.instructions.as_slice(), [kernel!(LoseLife { player: event_player!(), amount: fixed!(amount) }), kernel!(Draw { player: event_player!(), amount: fixed!(_) }), kernel!(Draw { player: event_player!(), amount: fixed!(_) })] if *amount == 2.into())
     );
     let mut status_only = mine.clone();
-    if let Instruction::DrawCards { recipient, .. } =
-        &mut status_only.triggered[0].program.instructions[0]
-    {
-        *recipient = None;
+    if let kernel!(Draw { player, .. }) = &mut status_only.triggered[0].program.instructions[0] {
+        *player = PlayerExpr::you(Context::Triggered);
     }
     status_only.capabilities = status_only.requirements();
     let mut actor_only = mine.clone();

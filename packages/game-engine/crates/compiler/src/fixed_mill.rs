@@ -12,10 +12,11 @@ pub(super) fn instruction(
     slots: &mut BTreeMap<String, u32>,
     who: &serde_json::Value,
     amount: &serde_json::Value,
+    context: Context,
     source_block: u32,
 ) -> Result<Instruction, Failure> {
-    let recipient = if *who == serde_json::json!({"player":"you"}) {
-        None
+    let player = if *who == serde_json::json!({"player":"you"}) {
+        PlayerExpr::you(context)
     } else {
         let id = target_selection(who).ok_or_else(|| {
             unsupported(
@@ -23,13 +24,13 @@ pub(super) fn instruction(
                 "requires exact controller or target-player actor",
             )
         })?;
-        Some(LifeRecipient::Target {
-            target_slot: bind_target(program, slots, id, TargetDomain::AnyPlayer)?,
-        })
+        PlayerExpr::target(bind_target(program, slots, id, TargetDomain::AnyPlayer)?)
     };
-    Ok(Instruction::MillCards {
-        recipient,
-        count: controller_library::fixed_count(amount)?,
+    Ok(Instruction::mill(
+        player,
+        Amount::Fixed {
+            value: controller_library::fixed_count(amount)?,
+        },
         source_block,
-    })
+    ))
 }

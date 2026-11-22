@@ -385,14 +385,12 @@ fn fixed_saga_chapters_keep_tokens_counters_and_grant_in_their_blocks() {
     };
     assert!(matches!(
         first.program.instructions.as_slice(),
-        [Instruction::CreateCreatureTokens {
-            count: 1,
-            source_block: 0,
-            ..
-        }]
+        [i] if i.creature_token().is_some()
+            && i.created_tokens().is_some_and(|(_, count)| count == 1)
+            && i.source_block() == 0
     ));
     assert!(matches!(second.program.instructions.as_slice(), [
-        Instruction::PutPlusOneCounters { amount, source_block: 1, .. }
+        kernel!(PutCounters { counter: kir::CounterKind::PlusOnePlusOne, amount: fixed!(amount), .. } @ 1)
     ] if *amount == Quantity::from(2)));
     assert!(matches!(
         third.program.instructions.as_slice(),
@@ -442,12 +440,7 @@ fn shared_chapter_mana_damage_and_destroy_use_exact_operands() {
     assert!(saga_damage_target(&damage.program.targets[0]));
     assert!(matches!(
         destroy.program.instructions.as_slice(),
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            regeneration_forbidden: false,
-            source_block: 1
-        }]
+        [kernel!(Destroy { what: target_object!(0), regeneration_forbidden: false } @ 1)]
     ));
     assert_eq!(third.program, fourth.program);
     assert_ne!(third.condition, fourth.condition);

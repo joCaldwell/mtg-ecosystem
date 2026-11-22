@@ -97,7 +97,7 @@ fn frozen_absent_and_present_operands_preserve_catalog_ir() {
     }
     assert!(matches!(
         lowered(RAISE).spell.unwrap().instructions.as_slice(),
-        [Instruction::CreateCreatureTokens { count: 2, .. }]
+        [i] if i.creature_token().is_some() && i.created_tokens().is_some_and(|(_, count)| count == 2)
     ));
     assert!(matches!(
         lowered(NECTAR).spell.unwrap().instructions.as_slice(),

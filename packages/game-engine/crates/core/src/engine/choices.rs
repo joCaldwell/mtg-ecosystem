@@ -340,24 +340,58 @@ impl BoundModeSubset {
                                 player: target_player!(target_slot),
                                 ..
                             })
-                            | Instruction::DrawCards {
-                                recipient: Some(LifeRecipient::Target { target_slot }),
+                            | kernel!(Draw {
+                                player: target_player!(target_slot),
+                                amount: fixed!(_)
+                            })
+                            | kernel!(Move {
+                                what: mtg_contracts::kir::SetExpr::Matching {
+                                    zone: mtg_contracts::kir::ZoneExpr::Graveyard {
+                                        of: target_player!(target_slot)
+                                    },
+                                    ..
+                                },
+                                to: mtg_contracts::kir::Destination::Exile
+                            })
+                            | kernel!(Damage {
+                                to: mtg_contracts::kir::DamageTo::Ref {
+                                    who: mtg_contracts::kir::Ref::Target { slot: target_slot }
+                                },
+                                amount: fixed!(_),
                                 ..
-                            }
-                            | Instruction::ExileTargetGraveyard { target_slot, .. }
-                            | Instruction::DealDamage { target_slot, .. }
-                            | Instruction::DestroyPermanent { target_slot, .. }
+                            })
+                            | kernel!(Destroy {
+                                what: target_object!(target_slot),
+                                ..
+                            })
                             | Instruction::PhaseOutTargetPermanent { target_slot, .. }
                             | Instruction::CounterStackObject { target_slot, .. }
-                            | Instruction::ReturnToOwnerHand { target_slot, .. }
-                            | Instruction::PutPlusOneCounters {
-                                on: mtg_contracts::CounterRecipient::Target { target_slot },
+                            | kernel!(Move {
+                                what: target_object!(target_slot),
+                                to: mtg_contracts::kir::Destination::OwnerHand
+                            })
+                            | kernel!(PutCounters {
+                                on: target_object!(target_slot),
                                 ..
-                            },
+                            }),
                             [target],
                         ) if *target_slot == 0 && target.slot == 0 => {
                             *target_slot = offset;
                         }
+                        // CR 608.2d: "you may destroy" the mode's one target.
+                        (
+                            Instruction::Kernel {
+                                node: mtg_contracts::kir::Node::Optional { node, .. },
+                                ..
+                            },
+                            [target],
+                        ) if target.slot == 0 => match &mut **node {
+                            mtg_contracts::kir::Node::Do(mtg_contracts::kir::Verb::Destroy {
+                                what: target_object!(target_slot),
+                                ..
+                            }) if *target_slot == 0 => *target_slot = offset,
+                            _ => return Err("unsupported targeted mode effect".into()),
+                        },
                         _ => return Err("unsupported targeted mode effect".into()),
                     }
                     for (local, target) in child.targets.iter().enumerate() {
@@ -652,7 +686,7 @@ impl Game {
         // CR 601.2b, 700.2a, 903.3: choose both at announcement using the
         // current controller of a physically designated battlefield commander.
         let may_choose_both = !top.kind.is_spell()
-            || !akromas_will_program(root)
+            || !commander_choose_both(root)
             || self.state.rules.commanders.records.keys().any(|card| {
                 self.state.rules.objects.get(card).is_some_and(|object| {
                     object.zone == Zone::Battlefield && object.controller == top.controller

@@ -252,7 +252,7 @@ fn append_effects(
             }
             Part::Table(steps) => {
                 for step in &steps {
-                    let instruction = steps::lower(step, program, slots, label)?;
+                    let instruction = steps::lower(step, program, slots, context, label)?;
                     program.instructions.push(instruction);
                 }
             }

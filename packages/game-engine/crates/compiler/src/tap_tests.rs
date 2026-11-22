@@ -107,15 +107,8 @@ fn complete_pressure_point_preserves_tap_then_draw_and_full_provenance() {
                 filter: None
             }],
             instructions: vec![
-                Instruction::TapPermanent {
-                    target_slot: 0,
-                    source_block: 0
-                },
-                Instruction::DrawCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 1
-                }
+                Instruction::tap_target(0, 0),
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
             ],
         })
     );
@@ -190,7 +183,7 @@ fn tap_source_consumes_complete_target_and_rejects_optional_or_qualified_steps()
         let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
         let spell = d.spell.as_ref().unwrap();
         assert_eq!(tests::sole_target(spell), expected);
-        assert_eq!(tests::ops(spell), ["tap_permanent", "draw_cards"]);
+        assert_eq!(tests::ops(spell), ["kernel", "kernel"]);
     }
     for filter in [
         Value::Null,
@@ -241,10 +234,7 @@ fn tap_source_preserves_standalone_support_and_rejects_unreviewed_composition() 
     };
     assert!(matches!(
         definition.spell.unwrap().instructions.as_slice(),
-        [Instruction::TapPermanent {
-            target_slot: 0,
-            source_block: 0
-        }]
+        [kernel!(Tap { what: target_object!(0) } @ 0)]
     ));
     for case in ["optional", "other-player", "extra-step", "reversed"] {
         let text = if case == "reversed" {
@@ -298,20 +288,9 @@ fn tap_then_two_draws_is_an_ordinary_composed_sequence() {
     assert_eq!(
         spell.instructions,
         [
-            Instruction::TapPermanent {
-                target_slot: 0,
-                source_block: 0
-            },
-            Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 1
-            },
-            Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 1
-            }
+            Instruction::tap_target(0, 0),
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1),
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
         ]
     );
 }

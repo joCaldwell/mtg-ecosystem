@@ -53,8 +53,29 @@
         ],
         "instructions": [
           {
-            "op": "target_player_sacrifice_creature",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "sacrifice",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "count": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "filter": [
+                  {
+                    "atom": "type",
+                    "kind": "creature"
+                  }
+                ]
+              }
+            },
             "source_block": 0
           }
         ]
@@ -253,13 +274,43 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {
-                "op": "discard_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "discard",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -482,8 +533,22 @@
         ],
         "instructions": [
           {
-            "op": "put_on_top_owner_library",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "owner_library_top"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -707,8 +772,23 @@
             "source_block": 0
           },
           {
-            "op": "draw_cards",
-            "count": "1",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
+            },
             "source_block": 1
           }
         ]
@@ -782,9 +862,26 @@
         ],
         "instructions": [
           {
-            "op": "deal_damage",
-            "target_slot": 0,
-            "amount": "3",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "ref",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "3"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -906,11 +1003,32 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "3",
-            "toughness": "3",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "3"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "3"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]
@@ -1000,9 +1118,26 @@
             ],
             "instructions": [
               {
-                "op": "deal_damage",
-                "target_slot": 0,
-                "amount": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "damage",
+                    "source": {
+                      "ref": "source"
+                    },
+                    "to": {
+                      "to": "ref",
+                      "who": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -1088,13 +1223,43 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {
-                "op": "discard_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "discard",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -1342,11 +1507,32 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "-2",
-            "toughness": "-2",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "-2"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "-2"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]
@@ -1547,11 +1733,32 @@
             ],
             "instructions": [
               {
-                "op": "modify_power_toughness",
-                "target_slot": 0,
-                "power": "-3",
-                "toughness": "-3",
-                "duration": "until_end_of_turn",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "modify_until",
+                    "what": {
+                      "set": "one",
+                      "object": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "layer": "power_toughness_modify",
+                    "change": {
+                      "change": "power_toughness",
+                      "power": {
+                        "amount": "fixed",
+                        "value": "-3"
+                      },
+                      "toughness": {
+                        "amount": "fixed",
+                        "value": "-3"
+                      }
+                    },
+                    "until": "end_of_turn"
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -1630,8 +1837,22 @@
         ],
         "instructions": [
           {
-            "op": "return_to_owner_hand",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "owner_hand"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -2301,8 +2522,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -2436,8 +2672,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -2668,27 +2919,90 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           },
           {
-            "op": "modify_power_toughness",
-            "target_slot": 1,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 1
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 1
           },
           {
-            "op": "modify_power_toughness",
-            "target_slot": 2,
-            "power": "1",
-            "toughness": "1",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 2
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "1"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "1"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 2
           }
         ]

@@ -128,11 +128,12 @@ pub(super) fn lower(
         graph.result(STEP, "quantity", "measured-quantity", None);
     }
     graph.validate(binding, "requires complete group discard bindings")?;
-    Ok(Some(Instruction::DiscardPlayerSet {
-        scope,
-        count: i64::from(count).into(),
-        source_block: 0,
-    }))
+    Ok(Some(Instruction::discard(
+        scope.player(),
+        Amount::fixed(i64::from(count)),
+        false,
+        0,
+    )))
 }
 
 pub(super) fn entry_trigger(discard: Instruction) -> TriggeredAbility {
@@ -290,11 +291,12 @@ fn group_discard() {
         assert!(p.targets.is_empty());
         assert_eq!(
             p.instructions,
-            [Instruction::DiscardPlayerSet {
-                scope,
-                count: count.into(),
-                source_block: 0
-            }]
+            [Instruction::discard(
+                scope.player(),
+                Amount::fixed(count),
+                false,
+                0
+            )]
         );
 
         // The first creature and first spell exercise different actor and result graphs.

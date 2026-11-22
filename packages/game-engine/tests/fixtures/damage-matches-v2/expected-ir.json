@@ -142,8 +142,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -348,9 +363,30 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "target_player_sacrifice_creature",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "count": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "filter": [
+                  {
+                    "atom": "type",
+                    "kind": "creature"
+                  }
+                ],
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "sacrifice"
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -440,20 +476,38 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": 1,
-                "op": "create_creature_tokens",
-                "source_block": 0,
-                "token": {
-                  "colors": [
-                    "B"
-                  ],
-                  "keywords": [],
-                  "power": "2",
-                  "subtypes": [
-                    "Zombie"
-                  ],
-                  "toughness": "2"
-                }
+                "node": {
+                  "do": {
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "spec": {
+                        "colors": [
+                          "B"
+                        ],
+                        "keywords": [],
+                        "power": "2",
+                        "subtypes": [
+                          "Zombie"
+                        ],
+                        "toughness": "2"
+                      },
+                      "token": "creature"
+                    },
+                    "verb": "create_tokens"
+                  }
+                },
+                "op": "kernel",
+                "source_block": 0
               }
             ],
             "resolution": "instructions",
@@ -711,8 +765,29 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "op": "sacrifice_creature",
-                "recipient": "event_player",
+                "node": {
+                  "do": {
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "filter": [
+                      {
+                        "atom": "type",
+                        "kind": "creature"
+                      }
+                    ],
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "damaged_player"
+                      }
+                    },
+                    "verb": "sacrifice"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -1232,14 +1307,43 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "discard_cards",
-                "recipient": "event_player",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "damaged_player"
+                      }
+                    },
+                    "verb": "discard"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               },
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -1331,8 +1435,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -1604,13 +1723,43 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "count": "1",
-            "op": "draw_cards",
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "verb": "draw"
+              }
+            },
+            "op": "kernel",
             "source_block": 0
           },
           {
-            "count": "1",
-            "op": "draw_cards",
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "verb": "draw"
+              }
+            },
+            "op": "kernel",
             "source_block": 0
           },
           {
@@ -1695,9 +1844,23 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "return_to_owner_hand",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "to": {
+                  "to": "owner_hand"
+                },
+                "verb": "move",
+                "what": {
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  },
+                  "set": "one"
+                }
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -1836,9 +1999,20 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "destroy_target_creature",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  },
+                  "set": "one"
+                }
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -2012,8 +2186,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 2
               }
             ],
@@ -2042,8 +2231,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -2214,13 +2418,43 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               },
               {
-                "count": "1",
-                "op": "discard_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "discard"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -2289,23 +2523,43 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "count": "1",
-            "op": "draw_cards",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "draw"
               }
             },
+            "op": "kernel",
             "source_block": 0
           },
           {
-            "count": "1",
-            "op": "draw_cards",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "draw"
               }
             },
+            "op": "kernel",
             "source_block": 0
           },
           {
@@ -2427,8 +2681,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -2656,18 +2925,36 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": 1,
-                "op": "create_creature_tokens",
-                "source_block": 1,
-                "token": {
-                  "colors": [],
-                  "keywords": [],
-                  "power": "1",
-                  "subtypes": [
-                    "Hero"
-                  ],
-                  "toughness": "1"
-                }
+                "node": {
+                  "do": {
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "spec": {
+                        "colors": [],
+                        "keywords": [],
+                        "power": "1",
+                        "subtypes": [
+                          "Hero"
+                        ],
+                        "toughness": "1"
+                      },
+                      "token": "creature"
+                    },
+                    "verb": "create_tokens"
+                  }
+                },
+                "op": "kernel",
+                "source_block": 1
               }
             ],
             "resolution": "instructions",

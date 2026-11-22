@@ -108,12 +108,12 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
                 }
                 p.instructions.insert(
                     0,
-                    Instruction::PumpSet {
-                        set: set.clone(),
-                        power: (-2).into(),
-                        toughness: Quantity::zero(),
-                        source_block: 0,
-                    },
+                    Instruction::pump(
+                        set.clone().kernel(kir::Context::Spell),
+                        (-2).into(),
+                        Quantity::zero(),
+                        0,
+                    ),
                 );
                 if reverse {
                     p.instructions.reverse();
@@ -150,12 +150,12 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
         );
     }
     for i in [
-        Instruction::PumpSet {
-            set: ObjectSet::ControllerCreatures,
-            power: Quantity::from(1),
-            toughness: Quantity::zero(),
-            source_block: 0,
-        },
+        Instruction::pump(
+            ObjectSet::ControllerCreatures.kernel(kir::Context::Spell),
+            Quantity::from(1),
+            Quantity::zero(),
+            0,
+        ),
         Instruction::act(
             Verb::Destroy {
                 what: ObjectSet::ControllerCreatures.kernel(Context::Spell),
@@ -163,14 +163,12 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
             },
             0,
         ),
-        Instruction::DamageSet {
-            sets: vec![ObjectSet::ControllerCreatures],
-            each_player: false,
-            amount: WipeAmount::Fixed {
-                value: Quantity::from(1),
-            },
-            source_block: 0,
-        },
+        SetDamage::instruction(
+            vec![ObjectSet::ControllerCreatures.kernel(Context::Spell)],
+            false,
+            kir::Amount::fixed(1),
+            0,
+        ),
     ] {
         reject(d.clone(), |p| p.instructions = vec![i]);
     }
@@ -183,12 +181,12 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
     for name in ["Samite Healer", "Blood Artist"] {
         for program in [d.spell.as_ref().unwrap().clone(), {
             let mut p = d.spell.as_ref().unwrap().clone();
-            p.instructions = vec![Instruction::PumpSet {
-                set: ObjectSet::ControllerCreatures,
-                power: Quantity::from(1),
-                toughness: Quantity::zero(),
-                source_block: 0,
-            }];
+            p.instructions = vec![Instruction::pump(
+                ObjectSet::ControllerCreatures.kernel(kir::Context::Spell),
+                Quantity::from(1),
+                Quantity::zero(),
+                0,
+            )];
             p
         }] {
             let mut host = catalog

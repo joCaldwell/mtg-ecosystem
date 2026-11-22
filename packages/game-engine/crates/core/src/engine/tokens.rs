@@ -2,7 +2,7 @@
 //! 302.6, 603.6a, 613.4c and 704.5d.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::{CounterRecipient, CreatureToken, PredefinedToken};
+use mtg_contracts::{CreatureToken, PredefinedToken};
 
 // Generic live-object cap. Physical token identities are never reused,
 // including after a token ceases; history is retained independently.
@@ -284,11 +284,12 @@ impl Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         let (event, block) = match instruction {
-            Instruction::CreatePredefinedTokens {
-                count,
-                kind,
-                source_block,
-            } => {
+            kernel!(CreateTokens {
+                count: fixed!(count),
+                token: mtg_contracts::kir::TokenSpec::Predefined { kind },
+                ..
+            } @ source_block) => {
+                let count = count.to_u32().ok_or("token count overflow")?;
                 if !self.is_live(self.entry(frame.stack_id)?.controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -304,11 +305,12 @@ impl Game {
                     source_block,
                 )
             }
-            Instruction::CreateCreatureTokens {
-                count,
-                token,
-                source_block,
-            } => {
+            kernel!(CreateTokens {
+                count: fixed!(count),
+                token: mtg_contracts::kir::TokenSpec::Creature { spec: token },
+                ..
+            } @ source_block) => {
+                let count = count.to_u32().ok_or("token count overflow")?;
                 if !self.is_live(self.entry(frame.stack_id)?.controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -363,14 +365,14 @@ impl Game {
                     source_block,
                 )
             }
-            Instruction::PutPlusOneCounters {
+            kernel!(PutCounters {
                 on,
-                amount,
-                source_block,
-            } => {
+                counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
+                amount: fixed!(amount),
+            } @ source_block) => {
                 let target = match on {
-                    CounterRecipient::Source => self.entry(frame.stack_id)?.source,
-                    CounterRecipient::Target { target_slot } => {
+                    source_object!() => self.entry(frame.stack_id)?.source,
+                    target_object!(target_slot) => {
                         if frame.legal_targets.get(target_slot as usize) != Some(&true) {
                             return self.finish_instruction(
                                 frame,
@@ -381,6 +383,7 @@ impl Game {
                             .bound_object_target(self.entry(frame.stack_id)?, target_slot as usize)
                             .ok_or("missing counter target")?
                     }
+                    _ => return Err("kernel counter recipient has no audited executor".into()),
                 };
                 if !self.is_battlefield_creature(target) {
                     return self
@@ -522,7 +525,7 @@ impl Game {
             }
             let source = self.copiable_definition(t.source)?;
             fn creates(p: &SpellProgram, spec: &CreatureToken) -> bool {
-                p.instructions.iter().any(|i| matches!(i, Instruction::CreateCreatureTokens { token, .. } | Instruction::CreateTokensFor {token,..} if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
+                p.instructions.iter().any(|i| matches!(i, kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Creature { spec: token }, .. }) | Instruction::CreateTokensFor {token,..} if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
             }
             let expected = match &t.spec {
                 TokenTemplate::Created(spec) => {

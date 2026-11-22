@@ -104,11 +104,11 @@ mod tests {
                     let mut b = d.clone();
                     let p = b.spell.as_mut().unwrap();
                     match variant {
-                        0 => p.instructions.push(Instruction::DrawCards {
-                            recipient: None,
-                            count: 1.into(),
-                            source_block: 0,
-                        }),
+                        0 => p.instructions.push(Instruction::draw(
+                            PlayerExpr::you(Context::Spell),
+                            1.into(),
+                            0,
+                        )),
                         1 => {
                             if let Instruction::SelectLibraryCard { amount, .. } =
                                 &mut p.instructions[0]

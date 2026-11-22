@@ -81,14 +81,11 @@ impl LifeChapter {
             let ops = match self.effect {
                 ChapterEffect::Gain { amount } => vec![gain(amount)],
                 ChapterEffect::DrawLose { draw, loss } => {
-                    let mut steps = vec![
-                        Instruction::DrawCards {
-                            recipient: Some(LifeRecipient::Controller),
-                            count: 1.into(),
-                            source_block: block
-                        };
-                        draw as usize
-                    ];
+                    let mut steps =
+                        vec![
+                            Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block);
+                            draw as usize
+                        ];
                     steps.push(lose(PlayerExpr::you(Context::Triggered), loss));
                     steps
                 }
@@ -96,11 +93,11 @@ impl LifeChapter {
                 ChapterEffect::Ordinary(ref chapter) => return triggered(chapter.program(block)),
                 ChapterEffect::Impulse { ref program, .. } => return triggered(program.clone()),
                 ChapterEffect::DelayedCastCounter => {
-                    let mut child = program(vec![Instruction::PutPlusOneCounters {
-                        on: CounterRecipient::Target { target_slot: 0 },
-                        amount: 1.into(),
-                        source_block: block,
-                    }]);
+                    let mut child = program(vec![Instruction::plus_one_counters(
+                        kir::SetExpr::target(0),
+                        1.into(),
+                        block,
+                    )]);
                     child.targets.push(TargetSpec {
                         slot: 0,
                         selection_id: format!("line:{block}:21"),
@@ -475,7 +472,6 @@ pub(super) fn extend_schema(schema: &mut Value) {
         ResolutionManaV1,
         LibraryPlayWindowV1,
     ];
-    let fixed = |op: &str, recipient: &str, field: &str| json!({"type":"object","required":["op","recipient",field],"properties":{"op":{"const":op},"recipient":{"const":recipient},(field):{"pattern":"^[1-9][0-9]*$"}}});
     let gain = instruction_schema::kernel_verb("gain_life");
     let sequence =
         |ops: Vec<Value>| json!({"minItems":ops.len(),"maxItems":ops.len(),"prefixItems":ops});
@@ -485,18 +481,15 @@ pub(super) fn extend_schema(schema: &mut Value) {
     ]);
     let registration = json!({"required":["op","program"],"properties":{"op":{"const":"register_controller_creature_entry_this_turn"},"program":{"properties":{"resolution":{"const":"instructions"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"instructions":child,"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
     let mut variants = vec![sequence(vec![gain]), sequence(vec![registration])];
-    let mut draw = fixed("draw_cards", "controller", "count");
-    draw["properties"]["count"] = json!({"const":"1"});
+    let draw = instruction_schema::single_draw();
     for n in 1..=3 {
         let mut steps = vec![draw.clone(); n];
         steps.push(instruction_schema::kernel_verb("lose_life"));
         variants.push(sequence(steps));
     }
-    variants.push(sequence(vec![
-        json!({"required":["op","count"],"properties":{
-            "op":{"const":"create_creature_tokens"},"count":{"const":1}
-        }}),
-    ]));
+    variants.push(sequence(vec![instruction_schema::creature_tokens(
+        json!({"const":"1"}),
+    )]));
     let mana = sequence(vec![ordinary::mana_shape()]);
     schema["$defs"]["SagaFixedManaChapter"] = json!({"allOf":[chapter],
         "required":["program"],"properties":{"program":{
@@ -538,13 +531,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
         }})
     };
     let grant_program = targeted(grant);
-    let counter_program = targeted(sequence(vec![json!({
-        "required":["op","on","amount"],"properties":{"op":{"const":"put_plus_one_counters"},
-            "on":{"const":{"recipient":"target","target_slot":0}},"amount":{"pattern":"^[1-9][0-9]*$"}}
-    })]));
-    let mut delayed_counter = counter_program.clone();
-    delayed_counter["properties"]["instructions"]["prefixItems"][0]["properties"]["amount"] =
-        json!({"const":"1"});
+    let counter = |amount| {
+        instruction_schema::plus_one_counters(instruction_schema::target_object(Some(0)), amount)
+    };
+    let counter_program = targeted(sequence(vec![counter(json!({"pattern":"^[1-9][0-9]*$"}))]));
+    let delayed_counter = targeted(sequence(vec![counter(json!({"const":"1"}))]));
     let delayed_cast = json!({"required":["op","program"],"properties":{
         "op":{"const":"register_controller_spell_cast_this_turn"},"program":delayed_counter
     }});
@@ -563,20 +554,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
     };
     let damage_program = removal(
         CardKind::Creature,
-        json!({
-            "required":["op","target_slot","amount"],"properties":{
-                "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}
-            }
-        }),
+        instruction_schema::target_damage(Some(0)),
     );
     let destroy_program = removal(
         CardKind::Artifact,
-        json!({
-            "required":["op","target_slot"],"properties":{
-                "op":{"const":"destroy_permanent"},"target_slot":{"const":0},"optional":{"const":false},
-            "regeneration_forbidden":{"const":false}
-            }
-        }),
+        instruction_schema::target_destroy(Some(0), Some(false)),
     );
     let chapter_programs = json!({"oneOf":[
         {"properties":{"targets":{"maxItems":0},"instructions":programs}},
@@ -585,12 +567,17 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let chapter_order: Vec<_> = (1..=4).map(|n| json!({
         "required":["condition"],"properties":{"condition":{"const":{"saga_chapter":{"number":n}}}}
     })).collect();
-    let registration_chapter = |operation| {
+    let registration_chapter = |operation: &str| {
+        let instruction = if operation == "damage" {
+            instruction_schema::target_damage(None)
+        } else if operation == "destroy" {
+            instruction_schema::any_target_destroy(None)
+        } else {
+            json!({"required":["op"],"properties":{"op":{"const":operation}}})
+        };
         json!({
             "required":["program"],"properties":{"program":{
-                "required":["instructions"],"properties":{"instructions":{"contains":{
-                    "required":["op"],"properties":{"op":{"const":operation}}
-                }}}
+                "required":["instructions"],"properties":{"instructions":{"contains":instruction}}
             }}
         })
     };
@@ -633,13 +620,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":DelayedControllerSpellCastV1}}}}}
         },
         {
-            "if":{"properties":{"triggered":{"contains":registration_chapter("deal_damage")}}},
+            "if":{"properties":{"triggered":{"contains":registration_chapter("damage")}}},
             "then":{"properties":{"capabilities":{"contains":{"const":NoncombatDamageV1}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":NoncombatDamageV1}}}}}
         },
         {
             "if":{"properties":{"triggered":{"contains":{"anyOf":[
-                registration_chapter("deal_damage"),registration_chapter("destroy_permanent")
+                registration_chapter("damage"),registration_chapter("destroy")
             ]}}}},
             "then":{"properties":{"capabilities":{"contains":{"const":PermanentRemovalV1}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":PermanentRemovalV1}}}}}

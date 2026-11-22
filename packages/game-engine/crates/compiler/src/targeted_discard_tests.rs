@@ -14,11 +14,14 @@ fn lowered(raw: &str) -> Box<Definition> {
 fn assert_discard(p: &SpellProgram, domain: TargetDomain, selection: &str, count: i64) {
     assert_eq!(
         p.instructions,
-        [Instruction::DiscardTargetPlayer {
-            target_slot: 0,
-            count: count.into(),
-            source_block: 0,
-        }]
+        [Instruction::discard(
+            kir::PlayerExpr::target(0),
+            kir::Amount::Fixed {
+                value: count.into()
+            },
+            false,
+            0
+        )]
     );
     assert_eq!(
         p.targets,
@@ -110,24 +113,12 @@ fn modal_witness(d: &Definition) {
     );
     assert_eq!(
         destroy.program.instructions,
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            regeneration_forbidden: false,
-            source_block: 0
-        }]
+        [Instruction::destroy_target(0, false, 0)]
     );
     assert!(draw.program.targets.is_empty());
     assert_eq!(
         draw.program.instructions,
-        vec![
-            Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0
-            };
-            2
-        ]
+        vec![Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0); 2]
     );
     assert_discard(&discard.program, TargetDomain::AnyPlayer, "line:3:1", 2);
 }
@@ -280,12 +271,8 @@ fn random_discard() {
         result["abilities"][0]["effects"][0]["steps"][0]["random"] = json!(true);
         result["lines"][0]["ability"] = result["abilities"][0].clone();
     });
-    let random = |count| Instruction::DiscardTargetPlayerAtRandom {
-        target_slot: 0,
-        source_block: 0,
-        count,
-    };
-    let fixed = |n: i64| RandomDiscardCount::Fixed { value: n.into() };
+    let random = |count| Instruction::discard(PlayerExpr::target(0), count, true, 0);
+    let fixed = |n: i64| Amount::fixed(n);
     assert_eq!(
         lowered(&synthetic).spell.unwrap().instructions,
         [random(fixed(1))]
@@ -356,7 +343,7 @@ fn random_discard() {
         let x = matches!(row, 5790 | 18241);
         assert_eq!(d.x_mana_cost, x);
         let mut expected = vec![random(if x {
-            RandomDiscardCount::AnnouncedX
+            Amount::announced_x()
         } else if row == 23084 {
             fixed(2)
         } else {
@@ -374,11 +361,12 @@ fn random_discard() {
             cap,
         ]);
         if row == 29178 {
-            expected.push(Instruction::DiscardTargetPlayer {
-                target_slot: 0,
-                count: 1.into(),
-                source_block: 0,
-            });
+            expected.push(Instruction::discard(
+                kir::PlayerExpr::target(0),
+                kir::Amount::Fixed { value: 1.into() },
+                false,
+                0,
+            ));
             caps.insert(Capability::TargetPlayerDiscardV1);
         }
         let p = d.spell.unwrap();

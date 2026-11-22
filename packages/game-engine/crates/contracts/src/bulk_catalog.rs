@@ -1,7 +1,7 @@
 //! Pinned offline bulk catalog format. Validation uses typed values and byte proofs.
 use crate::{
     CURRENT_IR_VERSION, Catalog, Color, Definition, JsonByteProof, RULES_EDITION, RULES_SHA256,
-    Sha256Sink, SourceProvenance, accepted_archives, library_top_mana, strict_read,
+    Sha256Sink, SourceProvenance, accepted_archives, strict_read,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -333,9 +333,6 @@ pub fn archived_predecessor_binding(
     record_hash: &str,
     p: &SourceProvenance,
 ) -> Option<&'static str> {
-    if record_hash == library_top_mana::ARCHIVED_ROW && library_top_mana::authenticated_reparse(p) {
-        return Some(library_top_mana::ARCHIVED_BINDING);
-    }
     const ROW: &str = "6f10d88ec4ec087b6bc9b4db76c64349bf82e99e1bae4953f46ccb72d86dccf8";
     const BINDING: &str = "3ad6bd5c6338f8c57845036aac5dfae7837a7c007f0c1617bc0506236175b137";
     const AST: &str = "ca7acbda3c3d8ea7414ed87c89839fd839bb014537b44d8143b2f3b2bc2831dc";

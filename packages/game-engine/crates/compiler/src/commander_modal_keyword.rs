@@ -4,30 +4,48 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::bindings::Bindings;
-use mtg_contracts::commander_modal_keyword::{TEXT, abilities};
+use mtg_contracts::commander_modal_keyword::{
+    HEADER, abilities, keyword_rules, keywords_of, program, text,
+};
 use serde_json::{Value, json};
 
 const BASE: &str = "/faces/0/abilities/0";
 
+/// The modal program of a complete "choose one, or both with a commander"
+/// keyword source, lowered from the AST's two option keyword lists.
 pub(super) fn validate(
     source: &Value,
     result: &ParseResult,
     binding: &Value,
-) -> Result<bool, Failure> {
-    if source["oracle_text"] != TEXT {
-        return Ok(false);
+) -> Result<Option<SpellProgram>, Failure> {
+    let Some(printed) = source["oracle_text"].as_str() else {
+        return Ok(None);
+    };
+    if !printed.starts_with(HEADER) {
+        return Ok(None);
     }
-    let ast: Value = decode(result.abilities.get(), "abilities")?;
-    if ast != abilities()
-        || source["type_line"] != "Instant"
-        || source["keywords"] != json!([])
-        || !matches!(result.lines.as_slice(), [line] if line.text == TEXT)
-    {
-        return Err(unsupported(
+    let fail = || {
+        unsupported(
             "commander_modal_keyword",
             "requires the complete printed cast condition and both keyword choices",
-        ));
+        )
+    };
+    let ast: Value = decode(result.abilities.get(), "abilities")?;
+    // Only a source whose AST is this shape is this family's.
+    let Some([first, second]) = keywords_of(&ast) else {
+        return Ok(None);
+    };
+    let lowered = program(first, second);
+    let expected = text(&lowered).ok_or_else(fail)?;
+    if abilities(&lowered).as_ref() != Some(&ast)
+        || printed != expected
+        || source["type_line"] != "Instant"
+        || source["keywords"] != json!([])
+        || !matches!(result.lines.as_slice(), [line] if line.text == expected)
+    {
+        return Err(fail());
     }
+    let rules = keyword_rules(&lowered).ok_or_else(fail)?;
     let identity = source["oracle_id"]
         .as_str()
         .ok_or_else(|| invalid("source.oracle_id", "missing identity"))?;
@@ -55,10 +73,7 @@ pub(super) fn validate(
         "109.5",
     );
 
-    for (index, rules) in [["702.9", "702.20", "702.4"], ["702.15", "702.12", "702.16"]]
-        .iter()
-        .enumerate()
-    {
+    for (index, rules) in rules.iter().enumerate() {
         let path = format!("{step_path}/options/{index}/effects/0/steps/0");
         let step = &modal["options"][index]["effects"][0]["steps"][0];
         let what = format!("{path}/what");
@@ -124,7 +139,7 @@ pub(super) fn validate(
         binding,
         "incomplete commander condition or modal recipient graph",
     )?;
-    Ok(true)
+    Ok(Some(lowered))
 }
 
 #[test]
@@ -142,10 +157,10 @@ fn commander_modal_keyword_exact_archive_and_binding() {
         panic!("{result:?}")
     };
     let root = definition.spell.as_ref().unwrap();
-    assert!(akromas_will_program(root));
+    assert!(commander_choose_both(root));
     assert_eq!(
-        definition.source_labels.as_ref().unwrap().spell_modes,
-        mtg_contracts::commander_modal_keyword::mode_labels()
+        Some(&definition.source_labels.as_ref().unwrap().spell_modes),
+        mtg_contracts::commander_modal_keyword::mode_labels(root).as_ref()
     );
     let grant = |keywords| Instruction::GrantKeywordsSet {
         set: ObjectSet::ControllerCreatures,
@@ -201,7 +216,7 @@ fn commander_modal_keyword_exact_archive_and_binding() {
                 }
                 "unbound" => r["binding"]["fullyBound"] = json!(false),
                 _ => {
-                    let edited = TEXT.replace("a commander", "your commander");
+                    let edited = text(root).unwrap().replace("a commander", "your commander");
                     r["source"]["oracle_text"] = json!(edited);
                     r["faces"][0]["result"]["lines"][0]["text"] = json!(edited);
                 }

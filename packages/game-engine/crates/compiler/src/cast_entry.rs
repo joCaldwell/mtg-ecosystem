@@ -104,7 +104,9 @@ pub(super) fn validate_binding(
     let step = format!("{base}/effects/0/steps/0");
     if matches!(
         d.triggered[0].program.instructions.as_slice(),
-        [Instruction::UntapControllerLands { .. }]
+        [kernel!(Untap {
+            what: kir::SetExpr::Matching { .. }
+        })]
     ) {
         let path = format!("{step}/what");
         let what = json!({"ref":"all","filter":{"types":["land"],"control":"you"}});
@@ -403,12 +405,12 @@ fn fixed_self_pump_preserves_signed_stats_and_rejects_wrong_source() {
     assert!(activation.program.targets.is_empty());
     assert_eq!(
         activation.program.instructions,
-        [Instruction::ModifySourcePowerToughness {
-            power: 2.into(),
-            toughness: (-2).into(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 1,
-        }]
+        [Instruction::pump(
+            kir::SetExpr::source(),
+            2.into(),
+            (-2).into(),
+            1
+        )]
     );
     assert!(
         definition
@@ -428,11 +430,11 @@ fn fixed_self_pump_preserves_signed_stats_and_rejects_wrong_source() {
     forged.activated[0]
         .program
         .instructions
-        .push(Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 1,
-        });
+        .push(Instruction::draw(
+            PlayerExpr::you(Context::Activated),
+            1.into(),
+            1,
+        ));
     forged.capabilities = forged.requirements();
     assert!(forged.validate().is_err());
 }

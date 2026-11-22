@@ -986,16 +986,20 @@ fn d2cc_actor_commander_draw_suspension_departure_and_decline_all_traces() {
             synthetic_relation(&mut p, CasterRelation::AnyPlayer, TypePredicate::Any {});
             edit(&mut p, STUDENT, |d| {
                 d.triggered[0].program.instructions = vec![
-                    Instruction::DrawCards {
-                        recipient: Some(LifeRecipient::EventPlayer),
-                        count: 1.into(),
-                        source_block: 0,
-                    },
-                    Instruction::DrawCards {
-                        recipient: Some(LifeRecipient::EventPlayer),
-                        count: 1.into(),
-                        source_block: 0,
-                    },
+                    Instruction::draw(
+                        mtg_contracts::kir::PlayerExpr::event(
+                            mtg_contracts::kir::EventPlayerRole::Caster,
+                        ),
+                        1.into(),
+                        0,
+                    ),
+                    Instruction::draw(
+                        mtg_contracts::kir::PlayerExpr::event(
+                            mtg_contracts::kir::EventPlayerRole::Caster,
+                        ),
+                        1.into(),
+                        0,
+                    ),
                     Instruction::act(
                         Verb::GainLife {
                             player: PlayerExpr::you(Context::Triggered),
@@ -1083,11 +1087,7 @@ fn d2cc_exact_source_incarnation_after_bounce_flash_recast() {
         d.spell.as_mut().unwrap().timing = SpellTiming::Instant;
         d.triggered[0].program.instructions.insert(
             0,
-            Instruction::PutPlusOneCounters {
-                on: CounterRecipient::Source,
-                amount: 1.into(),
-                source_block: 0,
-            },
+            Instruction::plus_one_counters(mtg_contracts::kir::SetExpr::source(), 1.into(), 0),
         );
     });
     let mut g = Game::new(p);

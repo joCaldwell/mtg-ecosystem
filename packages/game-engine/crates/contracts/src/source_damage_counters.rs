@@ -46,11 +46,11 @@ pub fn printed(line: &str, ast: &Value, source_block: u32) -> Option<TriggeredAb
             additional_sacrifice: None,
             targets: vec![],
             modes: vec![],
-            instructions: vec![Instruction::PutPlusOneCounters {
-                on: CounterRecipient::Source,
-                amount: i64::from(n).into(),
+            instructions: vec![Instruction::plus_one_counters(
+                kir::SetExpr::source(),
+                i64::from(n).into(),
                 source_block,
-            }],
+            )],
         },
     })
 }
@@ -64,10 +64,11 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
                 && a.program.instructions.iter().any(|i| {
                     matches!(
                         i,
-                        Instruction::PutPlusOneCounters {
-                            on: CounterRecipient::Source,
+                        kernel!(PutCounters {
+                            on: source_object!(),
+                            counter: kir::CounterKind::PlusOnePlusOne,
                             ..
-                        }
+                        })
                     )
                 })
         })
@@ -149,9 +150,10 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(s: &mut Value) {
-    let counters = json!({"required":["op","on"],"properties":{
-        "op":{"const":"put_plus_one_counters"},"on":{"const":CounterRecipient::Source},
-    }});
+    let counters = instruction_schema::plus_one_counters(
+        instruction_schema::source_object(),
+        json!({"type":"string"}),
+    );
     let trigger = json!({"required":["condition","program"],"properties":{
         "condition":{"const":condition()}, "functioning_zone":{"const":"battlefield"},
         "death_filter":{"type":"null"}, "intervening_if":{"type":"null"},

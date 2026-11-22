@@ -36,10 +36,7 @@ fn prepared_urban_evolution() -> Prepared {
     assert_eq!(
         program.instructions,
         [
-            Instruction::DrawControllerCards {
-                count: 3.into(),
-                source_block: 0
-            },
+            Instruction::draw(PlayerExpr::you(Context::Spell), 3.into(), 0),
             Instruction::GrantLandPlaysThisTurn {
                 count: 1.into(),
                 source_block: 0

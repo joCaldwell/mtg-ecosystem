@@ -64,19 +64,12 @@ pub fn program(name: &str, text: &str, ast: &Value, timing: SpellTiming) -> Opti
             }
             "Target player draws a card." => (
                 TargetDomain::AnyPlayer,
-                Instruction::DrawCards {
-                    recipient: Some(LifeRecipient::Target { target_slot: 0 }),
-                    count: 1.into(),
-                    source_block: 0,
-                },
+                Instruction::draw(PlayerExpr::target(0), 1.into(), 0),
                 json!({"effect":"draw","who":player,"amount":fixed(1)}),
             ),
             "Exile target player's graveyard." => (
                 TargetDomain::AnyPlayer,
-                Instruction::ExileTargetGraveyard {
-                    target_slot: 0,
-                    source_block: 0,
-                },
+                Instruction::exile_target_graveyard(0, 0),
                 json!({"effect":"exile","what":{"ref":"zone-cards","zone":"graveyard","owner":player}}),
             ),
             "Destroy target artifact or enchantment." => {
@@ -90,12 +83,7 @@ pub fn program(name: &str, text: &str, ast: &Value, timing: SpellTiming) -> Opti
                 });
                 (
                     TargetDomain::BattlefieldPermanent,
-                    Instruction::DestroyPermanent {
-                        target_slot: 0,
-                        source_block: 0,
-                        optional: false,
-                        regeneration_forbidden: false,
-                    },
+                    Instruction::destroy_target(0, false, 0),
                     json!({"effect":"destroy","what":target(id,json!({"allOf":[{"anyOf":[{"types":["artifact"]},{"types":["enchantment"]}]}]}))}),
                 )
             }
@@ -110,11 +98,13 @@ pub fn program(name: &str, text: &str, ast: &Value, timing: SpellTiming) -> Opti
                     .filter(|v| *v > 0 && v.to_string() == n)?;
                 (
                     TargetDomain::AnyDamageTarget,
-                    Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: Quantity::from(i64::from(value)),
-                        source_block: 0,
-                    },
+                    Instruction::damage_target(
+                        0,
+                        kir::Amount::Fixed {
+                            value: Quantity::from(i64::from(value)),
+                        },
+                        0,
+                    ),
                     json!({"effect":"damage","source":{"ref":"self"},"amount":fixed(value),"to":{"to":"any-target","selectionId":id}}),
                 )
             }
@@ -164,48 +154,48 @@ pub(super) fn schema(s: &mut Value) {
             "phase_out_target_permanent",
             Some(Capability::TargetedPhasingV1),
         ),
-        (TargetDomain::AnyPlayer, "draw_cards", None),
+        (TargetDomain::AnyPlayer, "draw", None),
         (
             TargetDomain::AnyPlayer,
-            "exile_target_graveyard",
+            "exile_graveyard",
             Some(Capability::EntryGraveyardExileV1),
         ),
         (
             TargetDomain::AnyDamageTarget,
-            "deal_damage",
+            "damage",
             Some(Capability::NoncombatDamageV1),
         ),
-        (
-            TargetDomain::BattlefieldPermanent,
-            "destroy_permanent",
-            None,
-        ),
+        (TargetDomain::BattlefieldPermanent, "destroy", None),
     ];
     let mut children = vec![];
     for (domain, op, required) in variants {
-        let mut operand =
+        let operand =
             json!({"op":{"const":op},"source_block":{"const":0},"target_slot":{"const":0}});
         let mut filter = json!({"type":"null"});
         match op {
-            "phase_out_target_permanent" | "destroy_permanent" => {
-                let types = if op == "destroy_permanent" {
+            "phase_out_target_permanent" | "destroy" => {
+                let types = if op == "destroy" {
                     vec![CardKind::Artifact, CardKind::Enchantment]
                 } else {
                     vec![]
                 };
                 filter = json!({"const":PermanentFilter{types,non_types:vec![],non_colors:vec![],opponent:false,power:None,tapped:false}});
-                if op == "destroy_permanent" {
-                    operand["optional"] = json!({"const":false});
-                    operand["regeneration_forbidden"] = json!({"const":false});
-                }
             }
-            "draw_cards" => {
-                operand["recipient"] = json!({"const":LifeRecipient::Target{target_slot:0}});
-                operand["count"] = json!({"const":Quantity::from(1)});
-            }
+            "draw" => {}
             _ => {}
         }
-        let child = json!({"required":["program"],"properties":{"program":{"properties":{"resolution":{"const":"instructions"},"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"slot":{"const":0},"filter":filter}}},"instructions":{"minItems":1,"maxItems":1,"items":{"properties":operand}},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
+        let item = if op == "draw" {
+            instruction_schema::at(instruction_schema::target_draw(0, json!({"const":"1"})), 0)
+        } else if op == "damage" {
+            instruction_schema::at(instruction_schema::target_damage(Some(0)), 0)
+        } else if op == "exile_graveyard" {
+            instruction_schema::at(instruction_schema::exile_target_graveyard(Some(0)), 0)
+        } else if op == "destroy" {
+            instruction_schema::at(instruction_schema::target_destroy(Some(0), Some(false)), 0)
+        } else {
+            json!({"properties":operand})
+        };
+        let child = json!({"required":["program"],"properties":{"program":{"properties":{"resolution":{"const":"instructions"},"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"slot":{"const":0},"filter":filter}}},"instructions":{"minItems":1,"maxItems":1,"items":item},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
         if let Some(required) = required {
             s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"required":["spell"],"properties":{"spell":{"type":"object","properties":{"resolution":{"const":SpellResolution::ChooseRepeatedModes{exactly:5}},"modes":{"contains":child}}}}},"then":{"properties":{"capabilities":{"contains":{"const":required}}}}}));
         }

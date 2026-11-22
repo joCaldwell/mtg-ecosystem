@@ -519,11 +519,11 @@ fn damage_life_admission_binds_complete_catalog_version_and_exact_five_profiles(
                     .spell
                     .as_mut()
                     .unwrap()
-                    .instructions[0] = Instruction::DealDamage {
-                    target_slot: 0,
-                    amount: 4.into(),
-                    source_block: 0,
-                }
+                    .instructions[0] = Instruction::damage_target(
+                    0,
+                    mtg_contracts::kir::Amount::Fixed { value: 4.into() },
+                    0,
+                )
             }
             _ => {
                 let mut extra = bad.definitions[0].clone();

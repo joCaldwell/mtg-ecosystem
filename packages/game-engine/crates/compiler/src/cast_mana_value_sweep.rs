@@ -145,12 +145,14 @@ fn cast_mana_value_sweep() {
     );
     assert_eq!(
         d.spell.unwrap().instructions,
-        [Instruction::DamageSet {
-            sets: vec![ObjectSet::OpponentCreatures],
-            each_player: false,
-            amount: WipeAmount::OtherCastsManaValue,
-            source_block: 1
-        }]
+        [SetDamage::instruction(
+            vec![ObjectSet::OpponentCreatures.kernel(kir::Context::Spell)],
+            false,
+            kir::Amount::OtherCastsManaValue {
+                caster: PlayerExpr::you(kir::Context::Spell)
+            },
+            1
+        )]
     );
     assert!(d.capabilities.contains(&Capability::CastManaValueSweepV1));
 

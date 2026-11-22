@@ -86,9 +86,10 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
             let clause = clause.to_ascii_lowercase();
             let archived = &ast["effects"][i]["steps"][j];
             let step = if each_creature_sacrifice(line) {
-                program.instructions.push(Instruction::EachPlayerSacrifice {
-                    source_block: block,
-                });
+                program.instructions.push(Instruction::sacrifice_creature(
+                    kir::PlayerExpr::EachPlayer,
+                    block,
+                ));
                 json!({"effect":"sacrifice","who":{"player":"each-player"},"what":{"ref":"filter","filter":{"types":["creature"]},"count":fixed(1)},"chosenBy":{"player":"each-player"}})
             } else if let Some(count) = clause
                 .strip_prefix("draw ")
@@ -96,13 +97,9 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
                 .and_then(equipped_trigger::draw_count)
                 .filter(|n| *n <= 10)
             {
-                program
-                    .instructions
-                    .extend((0..count).map(|_| Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: block,
-                    }));
+                program.instructions.extend((0..count).map(|_| {
+                    Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block)
+                }));
                 json!({"effect":"draw","who":you,"amount":fixed(count)})
             } else if let Some(n) = clause
                 .strip_prefix("you gain ")
@@ -137,11 +134,13 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
             {
                 let id = archived["to"]["selectionId"].as_str()?;
                 let slot = add_target(id, TargetDomain::AnyDamageTarget, None)?;
-                program.instructions.push(Instruction::DealDamage {
-                    target_slot: slot,
-                    amount: i64::from(n).into(),
-                    source_block: block,
-                });
+                program.instructions.push(Instruction::damage_target(
+                    slot,
+                    kir::Amount::Fixed {
+                        value: i64::from(n).into(),
+                    },
+                    block,
+                ));
                 json!({"effect":"damage","source":{"ref":"it"},"amount":fixed(n),"to":{"to":"any-target","selectionId":id}})
             } else {
                 let (types, archive_filter) = match clause.strip_prefix("destroy target ")? {
@@ -162,12 +161,9 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
                         power: None,
                     }),
                 )?;
-                program.instructions.push(Instruction::DestroyPermanent {
-                    target_slot: slot,
-                    optional: false,
-                    regeneration_forbidden: false,
-                    source_block: block,
-                });
+                program
+                    .instructions
+                    .push(Instruction::destroy_target(slot, false, block));
                 json!({"effect":"destroy","what":{"ref":"target","filter":archive_filter,"count":fixed(1),"selectionId":id}})
             };
             steps.push(step);

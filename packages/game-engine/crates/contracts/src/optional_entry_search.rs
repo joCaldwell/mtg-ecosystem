@@ -74,11 +74,11 @@ fn draw_program(block: u32, optional: bool) -> TriggeredAbility {
             source_block: block,
         }
     } else {
-        Instruction::DrawCards {
-            count: Quantity::from(1),
-            recipient: None,
-            source_block: block,
-        }
+        Instruction::draw(
+            PlayerExpr::you(Context::Triggered),
+            Quantity::from(1),
+            block,
+        )
     }];
     ability
 }

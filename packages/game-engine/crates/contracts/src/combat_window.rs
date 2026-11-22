@@ -87,11 +87,11 @@ pub fn spell(text: &str, ast: &Value, kind: CardKind) -> Option<SpellProgram> {
         blocks.push(json!({"kind":"spell","effects":[{"steps":[{
             "effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}
         }]}]}));
-        instructions.push(Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 1,
-        });
+        instructions.push(Instruction::draw(
+            PlayerExpr::you(Context::Spell),
+            1.into(),
+            1,
+        ));
     }
     (*ast == json!(blocks)).then_some(program(kind, target, instructions))
 }

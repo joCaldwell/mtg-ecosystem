@@ -105,23 +105,26 @@ impl FixedChapter {
                 power,
                 toughness,
                 ..
-            } => Instruction::CreateCreatureTokens {
-                token: CreatureToken {
-                    additional_types: vec![],
-                    colors: colors.clone(),
-                    subtypes: vec![subtype.clone()],
-                    power: quantity(*power),
-                    toughness: quantity(*toughness),
-                    keywords: vec![],
+            } => Instruction::create_tokens(
+                kir::Context::Triggered,
+                1,
+                kir::TokenSpec::Creature {
+                    spec: CreatureToken {
+                        additional_types: vec![],
+                        colors: colors.clone(),
+                        subtypes: vec![subtype.clone()],
+                        power: quantity(*power),
+                        toughness: quantity(*toughness),
+                        keywords: vec![],
+                    },
                 },
-                count: 1,
                 source_block,
-            },
-            Self::Counters { amount } => Instruction::PutPlusOneCounters {
-                on: CounterRecipient::Target { target_slot: 0 },
-                amount: quantity(*amount),
+            ),
+            Self::Counters { amount } => Instruction::plus_one_counters(
+                kir::SetExpr::target(0),
+                quantity(*amount),
                 source_block,
-            },
+            ),
             Self::Trample { power, toughness } => Instruction::GrantKeywords {
                 target_slot: 0,
                 modifier: Some(CreatureStatModifier {

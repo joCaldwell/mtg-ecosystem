@@ -102,13 +102,11 @@ fn trigger_source(
     ability: &TriggeredAbility,
 ) -> Result<(String, Value), Failure> {
     let optional = match ability.program.instructions.as_slice() {
-        [
-            Instruction::DrawCards {
-                recipient: None,
-                count,
-                source_block,
-            },
-        ] if *source_block == block && *count == 1.into() => false,
+        [kernel!(Draw { player: you!(), amount: fixed!(count) } @ source_block)]
+            if *source_block == block && *count == 1.into() =>
+        {
+            false
+        }
         [Instruction::OptionalDrawCards { source_block }] if *source_block == block => true,
         _ => return Err(shape_error()),
     };
@@ -319,11 +317,11 @@ fn power_entry_draw() {
     );
     assert_eq!(
         trigger.program.instructions,
-        [Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 2
-        }]
+        [Instruction::draw(
+            PlayerExpr::you(Context::Triggered),
+            1.into(),
+            2
+        )]
     );
     assert!(lower_subject("dies", &subject).is_err());
     for (path, value) in [
@@ -450,11 +448,7 @@ fn power_entry_draw() {
                     source_block: block,
                 }
             } else {
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: block,
-                }
+                Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block)
             }]
         );
         assert_eq!(d.static_abilities.len(), usize::from(keyword.is_some()));
@@ -485,11 +479,11 @@ fn power_entry_draw() {
             );
             assert_eq!(
                 self_entry.program.instructions,
-                [Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 0
-                }]
+                [Instruction::draw(
+                    PlayerExpr::you(Context::Triggered),
+                    1.into(),
+                    0
+                )]
             );
         } else {
             assert_eq!(d.triggered.len(), 1);

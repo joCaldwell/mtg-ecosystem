@@ -95,10 +95,7 @@ fn complete_temporal_adept_preserves_paid_unqualified_owner_hand_activation() {
     );
     assert_eq!(
         a.program.instructions,
-        [Instruction::ReturnToOwnerHand {
-            target_slot: 0,
-            source_block: 0
-        }]
+        [Instruction::move_target(0, kir::Destination::OwnerHand, 0)]
     );
     assert_eq!(a.program.targets.len(), 1);
     assert_eq!(
@@ -165,7 +162,7 @@ fn activated_permanent_return_rejects_qualified_or_incomplete_selectors() {
         };
         assert_eq!(ability.cost, original.activated[0].cost);
         assert_eq!(tests::sole_target(&ability.program), expected);
-        assert_eq!(tests::ops(&ability.program), ["return_to_owner_hand"]);
+        assert_eq!(tests::ops(&ability.program), ["kernel"]);
     }
     for (field, value) in [
         ("count", json!({"amount":"fixed","value":2})),

@@ -2,33 +2,6 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-// Unit variants in externally tagged enums also accept {"controller":null}
-// through Serde. Limit the new wire fields to the canonical recipient forms.
-pub(super) fn deserialize_recipient<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<LifeRecipient, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged, deny_unknown_fields)]
-    enum Recipient {
-        Name(String),
-        Target { target: Slot },
-    }
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Slot {
-        target_slot: u32,
-    }
-    match Recipient::deserialize(deserializer)? {
-        Recipient::Name(name) if name == "controller" => Ok(LifeRecipient::Controller),
-        Recipient::Target {
-            target: Slot { target_slot: 0 },
-        } => Ok(LifeRecipient::Target { target_slot: 0 }),
-        _ => Err(serde::de::Error::custom(
-            "expected controller or player target slot zero",
-        )),
-    }
-}
-
 mod schema;
 pub(super) use schema::extend_schema;
 
@@ -36,10 +9,25 @@ pub(super) fn has_x_instruction(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
         matches!(
             i,
-            Instruction::DrawAnnouncedX { .. }
-                | Instruction::ChangeLifeAnnouncedX { .. }
-                | Instruction::DealDamageAnnouncedX { .. }
-                | Instruction::MillAnnouncedX { .. }
+            kernel!(Draw {
+                player: kir::PlayerExpr::Is { .. },
+                amount: announced_x!()
+            }) | kernel!(GainLife {
+                amount: announced_x!(),
+                ..
+            }) | kernel!(LoseLife {
+                amount: announced_x!(),
+                ..
+            }) | kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot: _ }
+                },
+                amount: announced_x!(),
+                ..
+            }) | kernel!(Mill {
+                player: target_player!(_),
+                amount: announced_x!()
+            })
         )
     }) || p.modes.iter().any(|m| has_x_instruction(&m.program))
 }
@@ -98,24 +86,26 @@ impl Shape {
 
     fn instructions(self) -> Vec<Instruction> {
         let player = LifeRecipient::Target { target_slot: 0 };
-        let draw = |recipient| Instruction::DrawAnnouncedX {
-            recipient,
-            source_block: 0,
+        let draw = |recipient: LifeRecipient| {
+            Instruction::act(
+                Verb::Draw {
+                    player: recipient.kernel(Context::Spell).expect("spell recipient"),
+                    amount: kir::Amount::announced_x(),
+                },
+                0,
+            )
         };
-        let life = |recipient, gain| Instruction::ChangeLifeAnnouncedX {
-            recipient,
-            gain,
-            source_block: 0,
+        let life = |recipient: LifeRecipient, gain| {
+            let player = recipient.kernel(Context::Spell).expect("spell recipient");
+            Instruction::announced_x_life(player, gain, 0)
         };
-        let damage = Instruction::DealDamageAnnouncedX {
-            target_slot: 0,
-            source_block: 0,
-        };
-        let discard = Instruction::DiscardCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0,
-        };
+        let damage = Instruction::damage_target(0, kir::Amount::announced_x(), 0);
+        let discard = Instruction::discard(
+            kir::PlayerExpr::you(kir::Context::Spell),
+            kir::Amount::Fixed { value: 1.into() },
+            false,
+            0,
+        );
         let controller = LifeRecipient::Controller;
         match self {
             Self::Draw => vec![draw(controller)],
@@ -126,19 +116,12 @@ impl Shape {
             Self::Damage(_) => vec![damage],
             Self::DamageGain(_) => vec![damage, life(controller, true)],
             Self::DamageDrawDiscard => {
-                let unit = Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 0,
-                };
+                let unit = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0);
                 vec![damage, unit.clone(), unit, discard]
             }
             Self::TargetGain => vec![life(player, true)],
             Self::MillGain => vec![
-                Instruction::MillAnnouncedX {
-                    target_slot: 0,
-                    source_block: 0,
-                },
+                Instruction::mill(kir::PlayerExpr::target(0), kir::Amount::announced_x(), 0),
                 life(controller, true),
             ],
             Self::DrawOrDamage => vec![],
@@ -204,16 +187,7 @@ impl Shape {
         {
             return false;
         }
-        let mut instructions = self.instructions();
-        if let Some(Instruction::DiscardCards {
-            recipient: Some(ActionRecipient::Controller),
-            ..
-        }) = p.instructions.last()
-            && let Some(Instruction::DiscardCards { recipient, .. }) = instructions.last_mut()
-        {
-            *recipient = Some(ActionRecipient::Controller);
-        }
-        p.instructions == instructions
+        p.instructions == self.instructions()
             && self
                 .modes()
                 .iter()
@@ -346,28 +320,17 @@ fn announced_x_effects() {
         (
             Shape::DamageDrawDiscard,
             1,
-            Instruction::DrawCards {
-                recipient: None,
-                count: 2.into(),
-                source_block: 0,
-            },
+            Instruction::draw(PlayerExpr::you(Context::Spell), 2.into(), 0),
         ),
         (
             Shape::MillGain,
             1,
-            Instruction::ChangeLifeAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot: 0 },
-                gain: true,
-                source_block: 0,
-            },
+            Instruction::announced_x_life(kir::PlayerExpr::target(0), true, 0),
         ),
         (
             Shape::DamageGain(TargetDomain::BattlefieldCreature),
             0,
-            Instruction::DealDamageAnnouncedX {
-                target_slot: 0,
-                source_block: 1,
-            },
+            Instruction::damage_target(0, kir::Amount::announced_x(), 1),
         ),
     ] {
         let mut p = shape.program(SpellTiming::MainPhase);

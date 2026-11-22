@@ -53,11 +53,11 @@ mod tests {
             if target.domain == TargetDomain::BattlefieldCreature && target.selection_id == "line:0:5"));
         assert_eq!(
             spell.instructions,
-            [Instruction::DealDamage {
-                target_slot: 0,
-                amount: 2.into(),
-                source_block: 0,
-            }]
+            [Instruction::damage_target(
+                0,
+                kir::Amount::Fixed { value: 2.into() },
+                0
+            )]
         );
 
         let wrong_binding = crate::tests::changed_source(record, |record| {
@@ -68,11 +68,8 @@ mod tests {
             CompileResult::Unsupported { .. }
         ));
         let mut forged = *definition;
-        forged.spell.as_mut().unwrap().instructions[0] = Instruction::DealDamage {
-            target_slot: 0,
-            amount: 3.into(),
-            source_block: 0,
-        };
+        forged.spell.as_mut().unwrap().instructions[0] =
+            Instruction::damage_target(0, kir::Amount::Fixed { value: 3.into() }, 0);
         assert!(forged.validate().is_err());
     }
 }

@@ -43,21 +43,30 @@ fn slice4_equipment_binds_distinct_sources_and_ordered_steps() {
     assert!(matches!(
         compiled(BLADE).triggered[0].program.instructions.as_slice(),
         [
-            Instruction::DealDamage { target_slot: 0, .. },
-            Instruction::DrawCards {
-                recipient: None,
+            kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot: 0 }
+                },
+                amount: fixed!(_),
                 ..
-            }
+            }),
+            kernel!(Draw {
+                player: you!(),
+                amount: fixed!(_)
+            })
         ]
     ));
     assert!(matches!(
         compiled(FEAST).triggered[0].program.instructions.as_slice(),
         [
-            Instruction::DiscardCards {
-                recipient: Some(ActionRecipient::EventPlayer),
-                ..
-            },
-            Instruction::UntapControllerLands { .. }
+            kernel!(Discard {
+                player: event_player!(),
+                amount: fixed!(_),
+                random: false
+            }),
+            kernel!(Untap {
+                what: kir::SetExpr::Matching { .. }
+            })
         ]
     ));
     let d = compiled(CLAMP);
@@ -91,7 +100,13 @@ fn slice4_look_steps_reuse_entry_attack_and_paid_sacrifice_contexts() {
     );
     assert!(matches!(
         omen.triggered[0].program.instructions.as_slice(),
-        [Instruction::Scry { .. }, Instruction::DrawCards { .. }]
+        [
+            Instruction::Scry { .. },
+            kernel!(Draw {
+                player: kir::PlayerExpr::Is { .. },
+                amount: fixed!(_)
+            })
+        ]
     ));
 }
 
@@ -158,7 +173,7 @@ fn slice4_predefined_tokens_preserve_the_template_and_creation_context() {
                 .contains(&Capability::PredefinedArtifactTokensV1)
         );
         assert!(
-            matches!(d.triggered[0].program.instructions.as_slice(),[Instruction::CreatePredefinedTokens{kind:k,count:1,..}] if *k==kind)
+            matches!(d.triggered[0].program.instructions.as_slice(),[i] if i.created_tokens() == Some((&kir::TokenSpec::Predefined { kind }, 1)))
         );
     }
     let activated = compiled(include_str!(
@@ -167,11 +182,8 @@ fn slice4_predefined_tokens_preserve_the_template_and_creation_context() {
     assert_eq!(activated.activated[0].cost, ActivationCost::TapSource);
     assert!(matches!(
         activated.activated[0].program.instructions.as_slice(),
-        [Instruction::CreatePredefinedTokens {
-            kind: PredefinedToken::Treasure,
-            count: 1,
-            ..
-        }]
+        [i] if i.created_tokens()
+            == Some((&kir::TokenSpec::Predefined { kind: PredefinedToken::Treasure }, 1))
     ));
 }
 

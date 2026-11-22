@@ -21,12 +21,7 @@ pub(super) fn tap_source_destroy() -> Definition {
         opponent: false,
         tapped: true,
     });
-    p.instructions = vec![Instruction::DestroyPermanent {
-        target_slot: 0,
-        optional: false,
-        regeneration_forbidden: false,
-        source_block: 0,
-    }];
+    p.instructions = vec![Instruction::destroy_target(0, false, 0)];
     d.capabilities = d.requirements();
     d
 }
@@ -191,35 +186,27 @@ fn source_tap_destroy_rejects_unreviewed_costs_filters_programs_and_source_kinds
                 .push(Color::B),
             "opponent" => a.program.targets[0].filter.as_mut().unwrap().opponent = true,
             "optional" => {
-                let Instruction::DestroyPermanent { optional, .. } = &mut a.program.instructions[0]
-                else {
-                    panic!("destroy")
-                };
-                *optional = true;
+                let (slot, _, _, block) =
+                    a.program.instructions[0].target_destroy().expect("destroy");
+                a.program.instructions[0] =
+                    Instruction::optional_destroy_target(Context::Activated, slot, block);
             }
             "regeneration" => {
-                let Instruction::DestroyPermanent {
+                let kernel!(Destroy {
                     regeneration_forbidden,
                     ..
-                } = &mut a.program.instructions[0]
+                }) = &mut a.program.instructions[0]
                 else {
                     panic!("destroy")
                 };
                 *regeneration_forbidden = true;
             }
-            "draw" => a.program.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
-            "slot" => {
-                a.program.instructions = vec![Instruction::DestroyPermanent {
-                    target_slot: 1,
-                    optional: false,
-                    regeneration_forbidden: false,
-                    source_block: 0,
-                }]
-            }
+            "draw" => a.program.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                0,
+            )),
+            "slot" => a.program.instructions = vec![Instruction::destroy_target(1, false, 0)],
             "domain" => a.program.targets[0].domain = TargetDomain::BattlefieldCreature,
             "ability-zone" => a.functioning_zone = FunctioningZone::Stack,
             "program-zone" => a.program.functioning_zone = FunctioningZone::Battlefield,

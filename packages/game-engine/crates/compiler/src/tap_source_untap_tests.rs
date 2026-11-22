@@ -82,13 +82,7 @@ fn complete_seeker_of_skybreak_preserves_source_tap_and_creature_untap() {
     assert!(d.triggered.is_empty() && d.static_abilities.is_empty() && d.keywords.is_empty());
     let a = &d.activated[0];
     assert_eq!(a.cost, ActivationCost::TapSource);
-    assert_eq!(
-        a.program.instructions,
-        [Instruction::UntapPermanent {
-            target_slot: 0,
-            source_block: 0
-        }]
-    );
+    assert_eq!(a.program.instructions, [Instruction::untap_target(0, 0)]);
     assert_eq!(a.program.targets.len(), 1);
     assert_eq!(
         a.program.targets[0].domain,
@@ -129,7 +123,7 @@ fn tap_source_untap_rejects_unrepresented_target_qualifiers() {
             false
         )
     );
-    assert_eq!(tests::ops(&ability.program), ["untap_permanent"]);
+    assert_eq!(tests::ops(&ability.program), ["kernel"]);
     for (field, value) in [
         ("filter", json!({"types":["creature"],"status":["tapped"]})),
         ("filter", json!({"types":["artifact"],"status":["tapped"]})),

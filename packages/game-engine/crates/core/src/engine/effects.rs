@@ -598,12 +598,8 @@ impl Game {
                 }
                 (ResolvedEffectKind::RegenerationShield, source_block)
             }
-            Instruction::ModifySourcePowerToughness {
-                power,
-                toughness,
-                source_block,
-                ..
-            } => {
+            kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
+            {
                 let target = self.entry(frame.stack_id)?.source;
                 if !self.target_is_creature(target) {
                     return self
@@ -618,10 +614,8 @@ impl Game {
                     source_block,
                 )
             }
-            Instruction::GrantSourceKeywords {
-                keywords,
-                source_block,
-            } => {
+            kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::AddKeywords { keywords }, .. } @ source_block) =>
+            {
                 let target = self.entry(frame.stack_id)?.source;
                 if !self.target_is_creature(target) {
                     return self
@@ -685,13 +679,8 @@ impl Game {
                     source_block,
                 )
             }
-            Instruction::ModifyPowerToughness {
-                target_slot,
-                power,
-                toughness,
-                source_block,
-                ..
-            } => {
+            kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
+            {
                 let target = *self
                     .entry(frame.stack_id)?
                     .targets
@@ -870,7 +859,7 @@ impl Game {
         let Some(root) = definition
             .spell
             .as_ref()
-            .filter(|p| mtg_contracts::akromas_will_program(p))
+            .filter(|p| mtg_contracts::commander_choose_both(p))
         else {
             return false;
         };
@@ -895,7 +884,7 @@ impl Game {
                 .ok()
                 .and_then(|definition| definition.spell.as_ref())
                 .is_some_and(|root| {
-                    mtg_contracts::akromas_will_program(root)
+                    mtg_contracts::commander_choose_both(root)
                         && root
                             .modes
                             .get(mode as usize)
@@ -1658,23 +1647,22 @@ impl Game {
                     }
 
                     (
-                        Instruction::PumpSet {
-                            set,
-                            power,
-                            toughness,
-                            source_block,
-                        },
+                        i,
                         ResolvedEffectKind::PumpSet {
                             targets,
                             power: p,
                             toughness: t,
                         },
-                    ) => {
-                        *targets == self.objects_in_set(set, self.entry(frame.stack_id)?.controller)
-                            && p == power
-                            && t == toughness
-                            && *source_block == effect.origin.source_block
-                    }
+                    ) if mtg_contracts::ObjectSet::pumped(i).is_some() => i.pumped().is_some_and(
+                        |(what, power, toughness, source_block)| {
+                            matches!(what, mtg_contracts::kir::SetExpr::Matching { zone, filter }
+                                    if self.kernel_set(frame, zone, filter)
+                                        .is_ok_and(|(members, _)| *targets == members))
+                                && p == power
+                                && t == toughness
+                                && source_block == effect.origin.source_block
+                        },
+                    ),
                     (
                         Instruction::GrantKeywordsSet {
                             set,
@@ -1709,12 +1697,7 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
-                        Instruction::ModifySourcePowerToughness {
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -1728,10 +1711,11 @@ impl Game {
                             && *source_block == effect.origin.source_block
                     }
                     (
-                        Instruction::GrantSourceKeywords {
-                            keywords,
-                            source_block,
-                        },
+                        kernel!(ModifyUntil {
+                            what: source_object!(),
+                            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+                            ..
+                        } @ source_block),
                         ResolvedEffectKind::GrantKeywords {
                             target,
                             modifier: None,
@@ -1802,13 +1786,7 @@ impl Game {
                             })
                     }
                     (
-                        Instruction::ModifyPowerToughness {
-                            target_slot,
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -2291,12 +2269,7 @@ impl Game {
                     }
 
                     (
-                        Instruction::PumpSet {
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: mtg_contracts::kir::SetExpr::Matching { .. }, change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::PumpSet {
                             targets,
                             power: p,
@@ -2340,12 +2313,7 @@ impl Game {
                             && self.valid_set_effect_targets(e, targets, None)
                     }
                     (
-                        Instruction::ModifySourcePowerToughness {
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -2358,10 +2326,11 @@ impl Game {
                             && *source_block == e.origin.source_block
                     }
                     (
-                        Instruction::GrantSourceKeywords {
-                            keywords,
-                            source_block,
-                        },
+                        kernel!(ModifyUntil {
+                            what: source_object!(),
+                            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+                            ..
+                        } @ source_block),
                         ResolvedEffectKind::GrantKeywords {
                             target,
                             modifier: None,
@@ -2411,12 +2380,7 @@ impl Game {
                                 ))
                     }
                     (
-                        Instruction::ModifyPowerToughness {
-                            power,
-                            toughness,
-                            source_block,
-                            ..
-                        },
+                        kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::ModifyPowerToughness {
                             target,
                             power: p,
@@ -3526,14 +3490,26 @@ impl Game {
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
-                if matches!(instruction, Instruction::DamageSet { .. }) {
+                if instruction.set_damage().is_some() {
                     self.validate_wipe_damage_transaction(tx, frame)?;
                 } else if matches!(instruction, Instruction::SacrificeDamage { .. }) {
                     self.validate_sacrifice_damage_transaction(tx, frame)?;
                 } else {
                     let (target_slot, amount, source_block, recipient) = match instruction {
-                        Instruction::DealDamage { .. }
-                        | Instruction::DealDamageAnnouncedX { .. } => {
+                        kernel!(Damage {
+                            to: mtg_contracts::kir::DamageTo::Ref {
+                                who: mtg_contracts::kir::Ref::Target { slot: _ }
+                            },
+                            amount: fixed!(_),
+                            ..
+                        })
+                        | kernel!(Damage {
+                            to: mtg_contracts::kir::DamageTo::Ref {
+                                who: mtg_contracts::kir::Ref::Target { slot: _ }
+                            },
+                            amount: announced_x!(),
+                            ..
+                        }) => {
                             let (slot, amount, block, target) = self.directed_damage_operands(
                                 self.entry(frame.stack_id)?,
                                 instruction,
@@ -3552,28 +3528,26 @@ impl Game {
                                 player: self.removal_target_controller(frame, *target_slot)?,
                             },
                         ),
-                        Instruction::DealDamageToManaActivator {
-                            amount,
-                            source_block,
-                        } => (
-                            None,
-                            amount,
-                            *source_block,
-                            TargetEntity::Player {
-                                player: Self::mana_tap_activator(self.entry(frame.stack_id)?)?,
-                            },
-                        ),
-                        Instruction::DealDamageToController {
-                            amount,
-                            source_block,
-                        } => (
-                            None,
-                            amount,
-                            *source_block,
-                            TargetEntity::Player {
-                                player: self.entry(frame.stack_id)?.controller,
-                            },
-                        ),
+                        kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::EventPlayer { role: mtg_contracts::kir::EventPlayerRole::ActivatingPlayer } }, amount: fixed!(amount), .. } @ source_block) => {
+                            (
+                                None,
+                                amount,
+                                *source_block,
+                                TargetEntity::Player {
+                                    player: Self::mana_tap_activator(self.entry(frame.stack_id)?)?,
+                                },
+                            )
+                        }
+                        kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Controller { .. } }, amount: fixed!(amount), .. } @ source_block) => {
+                            (
+                                None,
+                                amount,
+                                *source_block,
+                                TargetEntity::Player {
+                                    player: self.entry(frame.stack_id)?.controller,
+                                },
+                            )
+                        }
                         _ => return Err("damage continuation not damage instruction".into()),
                     };
                     let expected = BatchCause::Instruction {

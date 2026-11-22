@@ -8,14 +8,21 @@ const SHAPE_ERROR: &str =
     "source tap damage requires a complete land with a separate any-color mana ability";
 
 fn controller_damage(program: &SpellProgram) -> bool {
-    program
-        .instructions
+    program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Controller { .. }
+                },
+                amount: fixed!(_),
+                ..
+            })
+        )
+    }) || program
+        .modes
         .iter()
-        .any(|i| matches!(i, Instruction::DealDamageToController { .. }))
-        || program
-            .modes
-            .iter()
-            .any(|mode| controller_damage(&mode.program))
+        .any(|mode| controller_damage(&mode.program))
 }
 
 pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
@@ -75,7 +82,13 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || !p.modes.is_empty()
         || !matches!(
             p.instructions.as_slice(),
-            [Instruction::DealDamageToController { amount, source_block: 0 }]
+            [kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Controller { .. }
+                },
+                amount: fixed!(amount),
+                ..
+            } @ 0)]
                 if *amount > Quantity::zero()
         )
         || d.source_labels.as_ref().is_some_and(|labels| {
@@ -89,7 +102,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(schema: &mut Value) {
     let condition = TriggerCondition::SelfBecomesTapped;
-    let op = json!({"required":["op"],"properties":{"op":{"const":"deal_damage_to_controller"}}});
+    let op = instruction_schema::controller_damage();
     let free = json!({"$ref":"#/$defs/ControllerDamageFreeProgram"});
     schema["$defs"]["ControllerDamageFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":op}},
@@ -195,10 +208,13 @@ pub(super) fn witness() -> Definition {
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
-            instructions: vec![Instruction::DealDamageToController {
-                amount: 1.into(),
-                source_block: 0,
-            }],
+            instructions: vec![Instruction::damage(
+                kir::DamageTo::Ref {
+                    who: kir::Ref::controller(kir::Context::Triggered),
+                },
+                kir::Amount::Fixed { value: 1.into() },
+                0,
+            )],
             modes: vec![],
         },
     });

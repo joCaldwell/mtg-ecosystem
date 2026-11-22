@@ -66,18 +66,11 @@ fn assert_target(p: &SpellProgram, domain: TargetDomain, id: &str) {
 }
 
 fn damage() -> Instruction {
-    Instruction::DealDamageAnnouncedX {
-        target_slot: 0,
-        source_block: 0,
-    }
+    Instruction::damage_target(0, kir::Amount::announced_x(), 0)
 }
 
 fn gain(recipient: LifeRecipient) -> Instruction {
-    Instruction::ChangeLifeAnnouncedX {
-        recipient,
-        gain: true,
-        source_block: 0,
-    }
+    Instruction::announced_x_life(recipient.kernel(Context::Spell).unwrap(), true, 0)
 }
 
 fn archive_witness(raw: &str, index: u32) {
@@ -92,10 +85,13 @@ fn archive_witness(raw: &str, index: u32) {
         assert!(draw.targets.is_empty());
         assert_eq!(
             draw.instructions,
-            [Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Controller,
-                source_block: 0
-            }]
+            [Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: kir::Amount::announced_x()
+                },
+                0
+            )]
         );
         let burn = &p.modes[1].program;
         assert_target(burn, TargetDomain::AnyDamageTarget, "line:2:7");
@@ -117,27 +113,21 @@ fn archive_witness(raw: &str, index: u32) {
         21951 | 24464 => vec![damage(), gain(controller)],
         23936 => vec![gain(target)],
         25940 => vec![
-            Instruction::MillAnnouncedX {
-                target_slot: 0,
-                source_block: 0,
-            },
+            Instruction::mill(kir::PlayerExpr::target(0), kir::Amount::announced_x(), 0),
             gain(controller),
         ],
         1066 => {
-            let draw = Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            };
+            let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0);
             vec![
                 damage(),
                 draw.clone(),
                 draw,
-                Instruction::DiscardCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 0,
-                },
+                Instruction::discard(
+                    kir::PlayerExpr::you(kir::Context::Spell),
+                    kir::Amount::Fixed { value: 1.into() },
+                    false,
+                    0,
+                ),
             ]
         }
         _ => unreachable!(),

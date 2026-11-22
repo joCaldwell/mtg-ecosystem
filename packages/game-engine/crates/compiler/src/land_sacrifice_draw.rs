@@ -45,11 +45,11 @@ pub(super) fn lower(
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             targets: vec![],
-            instructions: vec![Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: source_block(block)?,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                source_block(block)?,
+            )],
             modes: vec![],
         },
     }))
@@ -164,11 +164,11 @@ mod tests {
         );
         assert_eq!(
             ability.program.instructions,
-            [Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 2
-            }]
+            [Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                2
+            )]
         );
 
         let wrong_payer = crate::tests::changed_source(SOURCE, |r| {

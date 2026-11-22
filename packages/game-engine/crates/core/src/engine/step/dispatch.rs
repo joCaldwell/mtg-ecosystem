@@ -233,14 +233,9 @@ impl Game {
                         Instruction::MoveTriggeredSuccessor { .. } => {
                             return Ok(self.resolve_successor_tuck(frame)?);
                         }
-                        Instruction::ReturnToOwnerHand {
-                            target_slot,
-                            source_block,
-                        }
-                        | Instruction::PutOnTopOwnerLibrary {
-                            target_slot,
-                            source_block,
-                        } => {
+                        kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerHand } @ source_block)
+                        | kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerLibraryTop } @ source_block) =>
+                        {
                             let target = *self
                                 .bound_object_target(&stack, *target_slot as usize)
                                 .ok_or("missing return target")?;
@@ -252,7 +247,10 @@ impl Game {
                                 let owner = self.state.rules.cards[&target.card].owner;
                                 let destination = if matches!(
                                     instruction,
-                                    Instruction::PutOnTopOwnerLibrary { .. }
+                                    kernel!(Move {
+                                        what: target_object!(_),
+                                        to: mtg_contracts::kir::Destination::OwnerLibraryTop
+                                    })
                                 ) {
                                     Zone::Library { owner }
                                 } else {

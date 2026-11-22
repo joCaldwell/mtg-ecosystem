@@ -492,10 +492,11 @@ fn each_lower_entry_is_validated_against_its_own_program() {
     target.slot = 1;
     target.selection_id = "synthetic:second".into();
     program.targets.push(target);
-    program.instructions.push(Instruction::ReturnToOwnerHand {
-        target_slot: 1,
-        source_block: 1,
-    });
+    program.instructions.push(Instruction::move_target(
+        1,
+        mtg_contracts::kir::Destination::OwnerHand,
+        1,
+    ));
     p.config
         .cards
         .iter_mut()

@@ -289,18 +289,36 @@
             "targets": [],
             "instructions": [
               {
-                "op": "create_creature_tokens",
-                "count": 1,
-                "token": {
-                  "colors": [
-                    "G"
-                  ],
-                  "subtypes": [
-                    "Saproling"
-                  ],
-                  "power": "1",
-                  "toughness": "1",
-                  "keywords": []
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "create_tokens",
+                    "controller": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "token": {
+                      "token": "creature",
+                      "spec": {
+                        "colors": [
+                          "G"
+                        ],
+                        "subtypes": [
+                          "Saproling"
+                        ],
+                        "power": "1",
+                        "toughness": "1",
+                        "keywords": []
+                      }
+                    }
+                  }
                 },
                 "source_block": 0
               }
@@ -500,11 +518,25 @@
             "targets": [],
             "instructions": [
               {
-                "op": "put_plus_one_counters",
-                "on": {
-                  "recipient": "source"
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "put_counters",
+                    "on": {
+                      "set": "one",
+                      "object": {
+                        "ref": "source"
+                      }
+                    },
+                    "counter": {
+                      "counter": "plus_one_plus_one"
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
                 },
-                "amount": "1",
                 "source_block": 1
               },
               {
@@ -752,8 +784,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 1
               }
             ]
@@ -893,13 +940,23 @@
             ],
             "instructions": [
               {
-                "op": "draw_cards",
-                "recipient": {
-                  "target": {
-                    "target_slot": 0
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
                   }
                 },
-                "count": "1",
                 "source_block": 1
               },
               {
@@ -1120,8 +1177,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {
@@ -1232,8 +1304,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {

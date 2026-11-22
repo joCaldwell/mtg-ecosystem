@@ -129,12 +129,7 @@ fn complete_tapped_creature_spells_preserve_source_and_current_target_predicate(
                         tapped: true
                     })
                 }],
-                instructions: vec![Instruction::DestroyPermanent {
-                    target_slot: 0,
-                    optional: false,
-                    regeneration_forbidden: false,
-                    source_block: 0
-                }],
+                instructions: vec![Instruction::destroy_target(0, false, 0)],
             })
         );
         assert_eq!(

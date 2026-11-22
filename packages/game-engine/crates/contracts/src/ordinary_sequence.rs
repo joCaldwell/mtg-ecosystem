@@ -360,37 +360,22 @@ fn instruction(
         ),
         Draw => (
             json!({"effect":"draw","who":you,"amount":amount}),
-            if cl.count == 1 {
-                Instruction::DrawCards {
-                    recipient: None,
-                    count,
-                    source_block,
-                }
-            } else {
-                Instruction::DrawControllerCards {
-                    count,
-                    source_block,
-                }
-            },
+            Instruction::draw(PlayerExpr::you(Context::Spell), count, source_block),
         ),
         Mill | TargetMill => {
-            let (who, recipient) = if cl.operation == TargetMill {
+            let (who, player) = if cl.operation == TargetMill {
                 let id = selection(&raw["who"], source_block)?;
                 push_target(p, id, TargetDomain::AnyPlayer, None)?;
                 (
                     json!({"player":"target-player","selectionId":id}),
-                    Some(LifeRecipient::Target { target_slot: 0 }),
+                    PlayerExpr::target(0),
                 )
             } else {
-                (you, None)
+                (you, PlayerExpr::you(Context::Spell))
             };
             (
                 json!({"effect":"mill","who":who,"amount":amount}),
-                Instruction::MillCards {
-                    recipient,
-                    count,
-                    source_block,
-                },
+                Instruction::mill(player, Amount::Fixed { value: count }, source_block),
             )
         }
         Gain => (
@@ -422,11 +407,12 @@ fn instruction(
         ),
         Discard => (
             json!({"effect":"discard","who":you,"what":{"ref":"filter","filter":{"cls":"card"},"count":amount}}),
-            Instruction::DiscardCards {
-                recipient: None,
-                count,
+            Instruction::discard(
+                PlayerExpr::you(Context::Spell),
+                Amount::Fixed { value: count },
+                false,
                 source_block,
-            },
+            ),
         ),
         Destroy | Exile | Bounce => {
             let id = selection(&raw["what"], source_block)?;
@@ -447,33 +433,15 @@ fn instruction(
             match cl.operation {
                 Destroy => (
                     json!({"effect":"destroy","what":what}),
-                    if creature {
-                        Instruction::DestroyTargetCreature {
-                            target_slot: 0,
-                            source_block,
-                        }
-                    } else {
-                        Instruction::DestroyPermanent {
-                            target_slot: 0,
-                            optional: false,
-                            regeneration_forbidden: false,
-                            source_block,
-                        }
-                    },
+                    Instruction::destroy_target(0, false, source_block),
                 ),
                 Exile => (
                     json!({"effect":"exile","what":what}),
-                    Instruction::ExilePermanent {
-                        target_slot: 0,
-                        source_block,
-                    },
+                    Instruction::move_target(0, kir::Destination::Exile, source_block),
                 ),
                 Bounce => (
                     json!({"effect":"return-to-hand","what":what,"to":"owner"}),
-                    Instruction::ReturnToOwnerHand {
-                        target_slot: 0,
-                        source_block,
-                    },
+                    Instruction::move_target(0, kir::Destination::OwnerHand, source_block),
                 ),
                 _ => unreachable!(),
             }
@@ -541,39 +509,44 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
     }
     let mut library = matches!(
         p.instructions.first(),
-        Some(Instruction::DiscardCards {
-            recipient: None,
-            ..
-        })
-    ) && p.instructions.iter().any(|i| {
-        matches!(
-            i,
-            Instruction::DrawCards { .. } | Instruction::DrawControllerCards { .. }
-        )
-    });
+        Some(kernel!(Discard {
+            player: you!(),
+            amount: fixed!(_),
+            random: false
+        }))
+    ) && p.instructions.iter().any(|i| i.fixed_draw().is_some());
     for i in &p.instructions {
         match i {
             Instruction::Scry { .. }
             | Instruction::Surveil { .. }
-            | Instruction::MillCards { .. }
+            | kernel!(Mill {
+                amount: fixed!(_),
+                ..
+            })
             | Instruction::GrantLandPlaysThisTurn { .. } => library = true,
-            Instruction::DrawControllerCards { .. }
-            | Instruction::DrawCards {
-                recipient: None, ..
-            }
+            kernel!(Draw {
+                player: you!(),
+                amount: fixed!(_)
+            })
             | kernel!(GainLife { player: you!(), .. })
             | kernel!(LoseLife { player: you!(), .. })
-            | Instruction::DiscardCards {
-                recipient: None, ..
-            }
-            | Instruction::DestroyTargetCreature { .. }
-            | Instruction::DestroyPermanent {
-                optional: false,
-                regeneration_forbidden: false,
-                ..
-            }
-            | Instruction::ExilePermanent { .. }
-            | Instruction::ReturnToOwnerHand { .. } => {}
+            | kernel!(Discard {
+                player: you!(),
+                amount: fixed!(_),
+                random: false
+            })
+            | kernel!(Destroy {
+                what: target_object!(_),
+                regeneration_forbidden: false
+            })
+            | kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::Exile
+            })
+            | kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::OwnerHand
+            }) => {}
             _ => return false,
         }
     }
@@ -657,22 +630,28 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 
 pub(crate) fn extend_schema(schema: &mut Value) {
     let op = |name: &str| json!({"required":["op"],"properties":{"op":{"const":name}}});
-    let library = json!({"required":["op"],"properties":{"op":{"enum":["scry","surveil","mill_cards","grant_land_plays_this_turn"]}}});
-    let draw = json!({"required":["op"],"properties":{"op":{"enum":["draw_cards","draw_controller_cards"]}}});
-    let none = json!({"recipient":{"type":"null"}});
+    let library = json!({"anyOf":[
+        {"required":["op"],"properties":{"op":{"enum":["scry","surveil","grant_land_plays_this_turn"]}}},
+        instruction_schema::fixed_mill()
+    ]});
+    let draw = instruction_schema::kernel_verb("draw");
     let has_instruction = |op: &Value| json!({"properties":{"instructions":{"contains":op}}});
     let targets = |domain: &str, filter: Value| {
+        let mut item = json!({"properties":{"domain":{"const":domain},"filter":filter}});
+        if domain == "battlefield_permanent" {
+            item["required"] = json!(["filter"]);
+        }
         json!({"properties":{"targets":{
-            "minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"filter":filter}}
+            "minItems":1,"maxItems":1,"items":item
         }}})
     };
-    let mill_target = json!({"allOf":[op("mill_cards"), {"required":["recipient"],"properties":{
-        "recipient":{"const":LifeRecipient::Target { target_slot: 0 }}
-    }}]});
-    let creature_move = op("destroy_target_creature");
-    let permanent_move = json!({"required":["op"],"properties":{"op":{"enum":["destroy_permanent","exile_permanent"]}}});
-    let bounce = op("return_to_owner_hand");
-    let needs_target = json!({"anyOf":[mill_target,creature_move,permanent_move,bounce]});
+    let mill_target = instruction_schema::target_mill(Some(0));
+    let exile = instruction_schema::target_move(Some(0), "exile");
+    let destroy_or_bounce = json!({"anyOf":[
+        instruction_schema::target_destroy(Some(0), Some(false)),
+        instruction_schema::target_move(Some(0), "owner_hand")
+    ]});
+    let needs_target = json!({"anyOf":[mill_target,exile,destroy_or_bounce]});
     let one_targeted_step = json!({"properties":{"instructions":{"contains":needs_target,"minContains":1,"maxContains":1}}});
     schema["$defs"]["OrdinaryScalarSequence"] = json!({
         "type":"object","required":["instructions","targets"],
@@ -682,23 +661,22 @@ pub(crate) fn extend_schema(schema: &mut Value) {
                 "chooser":{"const":"controller"},"stage":{"const":"announcement"},
                 "domain":{"enum":["any_player","battlefield_creature","battlefield_permanent"]}}}},
             "instructions":{"minItems":2,"items":{"anyOf":[
-                op("scry"),op("surveil"),{"allOf":[op("mill_cards"),{"properties":{"recipient":{"anyOf":[{"type":"null"},{"const":LifeRecipient::Target { target_slot:0 }}]}}}]},op("grant_land_plays_this_turn"),
-                op("draw_controller_cards"),op("destroy_target_creature"),
-                op("exile_permanent"),op("return_to_owner_hand"),
-                {"allOf":[op("draw_cards"),{"properties":{"recipient":{"type":"null"},"count":{"const":"1"}}}]},
-                {"allOf":[op("discard_cards"),{"properties":none}]},
+                op("scry"),op("surveil"),instruction_schema::controller_mill(),instruction_schema::target_mill(Some(0)),op("grant_land_plays_this_turn"),
+                instruction_schema::any_counted_draw(),
+                instruction_schema::target_move(Some(0), "exile"),instruction_schema::target_move(Some(0), "owner_hand"),
+                instruction_schema::single_draw(),
+                instruction_schema::controller_discard(json!({"type":"string"})),
                 instruction_schema::kernel_verb("gain_life"),
                 instruction_schema::kernel_verb("lose_life"),
-                {"allOf":[op("destroy_permanent"),{"properties":{"optional":{"const":false},"regeneration_forbidden":{"const":false}}}]}
-            ]},"anyOf":[{"contains":library},{"prefixItems":[op("discard_cards")],"contains":draw}]
+                instruction_schema::target_destroy(Some(0), Some(false))
+            ]},"anyOf":[{"contains":library},{"prefixItems":[instruction_schema::controller_discard(json!({"type":"string"}))],"contains":draw}]
             }
         },
         "allOf":[
             {"if":has_instruction(&needs_target),"then":one_targeted_step,"else":{"properties":{"targets":{"maxItems":0}}}},
             {"if":has_instruction(&mill_target),"then":targets("any_player",json!({"type":"null"}))},
-            {"if":has_instruction(&creature_move),"then":targets("battlefield_creature",json!({"type":"null"}))},
-            {"if":has_instruction(&permanent_move),"then":targets("battlefield_permanent",json!({"type":"object"}))},
-            {"if":has_instruction(&bounce),"then":{"anyOf":[targets("battlefield_creature",json!({"type":"null"})),targets("battlefield_permanent",json!({"type":"object"}))]}},
+            {"if":has_instruction(&exile),"then":targets("battlefield_permanent",json!({"type":"object"}))},
+            {"if":has_instruction(&destroy_or_bounce),"then":{"anyOf":[targets("battlefield_creature",json!({"type":"null"})),targets("battlefield_permanent",json!({"type":"object"}))]}},
             {"properties":{"instructions":{"items":{"properties":{
                 "target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"},"count":{"pattern":"^[1-9][0-9]*$"}
             }}}}}
@@ -734,18 +712,24 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         }}
     }));
     for (name, cap) in [
-        ("draw_controller_cards", Capability::ControllerCountedDrawV1),
         (
             "grant_land_plays_this_turn",
             Capability::ControllerDrawLandAllowanceV1,
         ),
         ("scry", Capability::ControllerScryV1),
         ("surveil", Capability::ControllerSurveilV1),
-        ("mill_cards", Capability::FixedMillProgramV1),
     ]
     .map(|(name, cap)| (op(name), cap))
     .into_iter()
     .chain([
+        (
+            instruction_schema::any_counted_draw(),
+            Capability::ControllerCountedDrawV1,
+        ),
+        (
+            instruction_schema::fixed_mill(),
+            Capability::FixedMillProgramV1,
+        ),
         (
             instruction_schema::kernel_verb("gain_life"),
             Capability::LifeGainV1,

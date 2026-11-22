@@ -20,6 +20,27 @@ const fixtureDir = new URL("fixtures/", import.meta.url);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8");
 const IR_SCHEMA_VERSION = 1;
+// CR 120.2b: a Kernel IR damage verb from the source to target `slot`.
+const damage = (slot: number, value: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"damage",source:{ref:"source"},to:{to:"ref",who:{ref:"target",slot}},amount:{amount:"fixed",value}}},source_block});
+// CR 121.1: a Kernel IR draw of `count` cards by "you" in `role`.
+// CR 400.3: a Kernel IR move of target `slot` to `to`.
+const move = (slot: number, to: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"move",what:{set:"one",object:{ref:"target",slot}},to:{to}}},source_block});
+// CR 701.9a: a Kernel IR discard of `count` cards by `player`.
+const you = (role: string) => ({player:"is",who:{ref:"controller",role}});
+const damaged = {player:"is",who:{ref:"event_player",role:"damaged_player"}};
+const discard = (player: any, count: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"discard",player,amount:{amount:"fixed",value:count}}},source_block});
+// CR 701.21a: a Kernel IR sacrifice of one creature by `player`.
+const sacrifice = (player: any, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"sacrifice",player,count:{amount:"fixed",value:"1"},filter:[{atom:"type",kind:"creature"}]}},source_block});
+// CR 613.4c: a Kernel IR end-of-turn pump of target `slot`.
+const pump = (slot: number, power: string, toughness: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"modify_until",what:{set:"one",object:{ref:"target",slot}},layer:"power_toughness_modify",
+    change:{change:"power_toughness",power:{amount:"fixed",value:power},toughness:{amount:"fixed",value:toughness}},until:"end_of_turn"}},source_block});
+const draw = (role: string, count: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"draw",player:{player:"is",who:{ref:"controller",role}},amount:{amount:"fixed",value:count}}},source_block});
 const preflight = process.env.MTG_ENGINE_CONTRACT_PREFLIGHT === "1";
 // The normal acceptance run registers every existing test. Only the explicit
 // early preflight omits runtime-backed cases; it repeats cheap source/schema
@@ -292,7 +313,7 @@ test("library and damage catalogs retain exact source semantics", () => {
   assert.deepEqual(ebb.spell, {
     timing: "main_phase", resolution: "instructions", functioning_zone: "stack",
     targets: [{ slot: 0, selection_id: "line:0:1", chooser: "controller", stage: "announcement", domain: "battlefield_creature" }],
-    instructions: [{ op: "put_on_top_owner_library", target_slot: 0, source_block: 0 }],
+    instructions: [move(0, "owner_library_top", 0)],
   });
   assert.equal(ebb.capabilities.includes("cast_sorcery_v1"), true);
   assert.equal(ebb.capabilities.includes("owner_library_top_move_v1"), true);
@@ -332,12 +353,12 @@ test("action catalog preserves complete activated costs and opponent choice", ()
   assert.deepEqual(researcher.activated, [{
     functioning_zone: "battlefield", cost: "sacrifice_source",
     program: { functioning_zone: "stack", timing: "instant", resolution: "instructions", targets: [],
-      instructions: [{ op: "draw_cards", count: "1", source_block: 0 }, { op: "discard_cards", count: "1", source_block: 0 }] },
+      instructions: [draw("ability_controller", "1", 0), discard(you("ability_controller"), "1", 0)] },
   }]);
   const edict = catalog.definitions.find((d: any) => d.oracle_id === "10c585c4-bf5b-4d8f-94a9-e9a5036a688f");
   assert.deepEqual(edict.characteristics.mana_cost, { generic: "1", colored: ["B"] });
   assert.deepEqual(edict.spell.targets, [{ slot: 0, selection_id: "line:0:0", chooser: "controller", stage: "announcement", domain: "opponent_player" }]);
-  assert.deepEqual(edict.spell.instructions, [{ op: "target_player_sacrifice_creature", target_slot: 0, source_block: 0 }]);
+  assert.deepEqual(edict.spell.instructions, [sacrifice({ player: "is", who: { ref: "target", slot: 0 } }, 0)]);
   assert.equal(edict.capabilities.includes("opponent_target_v1"), true);
   assert.equal(edict.capabilities.includes("creature_target_v1"), false);
   const swamp = catalog.definitions.find((d: any) => d.oracle_id === "56719f6a-1a6c-4c0a-8d21-18f7d7350b68");
@@ -381,8 +402,8 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     assert.equal(d.capabilities.includes("counter_stack_object_v1"), true);
   }
   for (const [name, cost, instructions] of [
-    ["merfolk-looter", "tap_source", ["draw_cards", "discard_cards"]],
-    ["azure-mage", { mana: { cost: { generic: "3", colored: ["U"] } } }, ["draw_cards"]],
+    ["merfolk-looter", "tap_source", ["draw", "discard_cards"]],
+    ["azure-mage", { mana: { cost: { generic: "3", colored: ["U"] } } }, ["draw"]],
   ] as const) {
     const source = JSON.parse(read(`${name}.json`));
     const d = catalog.definitions.find((d: any) => d.oracle_id === source.oracleIdentity);
@@ -390,7 +411,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     assert.deepEqual(d.characteristics.mana_cost, { generic: "1", colored: ["U"] });
     assert.deepEqual(d.activated, [{ functioning_zone: "battlefield", cost,
       program: { functioning_zone: "stack", timing: "instant", resolution: "instructions", targets: [],
-        instructions: instructions.map(op => ({ op, count: "1", source_block: 0 })) } }]);
+        instructions: instructions.map(op => op === "draw" ? draw("ability_controller", "1", 0) : discard(you("ability_controller"), "1", 0)) } }]);
   }
   const validate = new Ajv2020({ strict: false, formats: {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
@@ -424,11 +445,11 @@ test("damage and life catalog preserves complete sources and target domains", ()
   const bolt=get("Lightning Bolt");
   assert.deepEqual(bolt.characteristics.mana_cost,{generic:"0",colored:["R"]});
   assert.deepEqual(bolt.spell.targets,[{slot:0,selection_id:"line:0:6",chooser:"controller",stage:"announcement",domain:"any_damage_target"}]);
-  assert.deepEqual(bolt.spell.instructions,[{op:"deal_damage",target_slot:0,amount:"3",source_block:0}]);
+  assert.deepEqual(bolt.spell.instructions,[damage(0,"3",0)]);
   const sorcerer=get("Prodigal Sorcerer");
   assert.deepEqual(sorcerer.characteristics.mana_cost,{generic:"2",colored:["U"]});
   assert.equal(sorcerer.characteristics.power,"1"); assert.equal(sorcerer.characteristics.toughness,"1");
-  assert.deepEqual(sorcerer.activated,[{functioning_zone:"battlefield",cost:"tap_source",program:{functioning_zone:"stack",timing:"instant",resolution:"instructions",targets:[{slot:0,selection_id:"line:0:9",chooser:"controller",stage:"announcement",domain:"any_damage_target"}],instructions:[{op:"deal_damage",target_slot:0,amount:"1",source_block:0}]}}]);
+  assert.deepEqual(sorcerer.activated,[{functioning_zone:"battlefield",cost:"tap_source",program:{functioning_zone:"stack",timing:"instant",resolution:"instructions",targets:[{slot:0,selection_id:"line:0:9",chooser:"controller",stage:"announcement",domain:"any_damage_target"}],instructions:[damage(0,"1",0)]}}]);
   const soul=get("Soul Feast");
   assert.deepEqual(soul.characteristics.mana_cost,{generic:"3",colored:["B","B"]});
   assert.equal(soul.spell.targets[0].domain,"any_player");
@@ -436,7 +457,7 @@ test("damage and life catalog preserves complete sources and target domains", ()
   const hands=get("Healing Hands");
   assert.deepEqual(hands.characteristics.mana_cost,{generic:"2",colored:["W"]});
   assert.equal(hands.spell.targets[0].domain,"any_player");
-  assert.deepEqual(hands.spell.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"4"}}},source_block:0},{op:"draw_cards",count:"1",source_block:1}]);
+  assert.deepEqual(hands.spell.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"4"}}},source_block:0},draw("spell_controller","1",1)]);
   const nectar=get("Sacred Nectar");
   assert.deepEqual(nectar.characteristics.mana_cost,{generic:"1",colored:["W"]});
   assert.deepEqual(nectar.spell.targets,[]);
@@ -485,7 +506,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
   assert.deepEqual(visionary.characteristics.mana_cost,{generic:"1",colored:["G"]});
   assert.equal(visionary.triggered[0].condition,"self_enters_battlefield");
   assert.deepEqual(visionary.triggered[0].program.targets,[]);
-  assert.deepEqual(visionary.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:0}]);
+  assert.deepEqual(visionary.triggered[0].program.instructions,[draw("ability_controller","1",0)]);
   const warden=get("Essence Warden");
   assert.deepEqual(warden.characteristics.mana_cost,{generic:"0",colored:["G"]});
   assert.equal(warden.triggered[0].condition,"other_creature_enters_battlefield");
@@ -537,7 +558,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
     assert.deepEqual(d.characteristics.mana_cost,{generic,colored});
   }
   for (const [name,amount] of [["Giant Growth","3"],["Disfigure","-2"]] as const) {
-    assert.deepEqual(get(name).spell.instructions,[{op:"modify_power_toughness",target_slot:0,power:amount,toughness:amount,duration:"until_end_of_turn",source_block:0}]);
+    assert.deepEqual(get(name).spell.instructions,[pump(0,amount,amount,0)]);
     assert.deepEqual(get(name).spell.targets,[{slot:0,selection_id:"line:0:0",chooser:"controller",stage:"announcement",domain:"battlefield_creature"}]);
   }
   assert.deepEqual(get("Fog").spell.instructions,[{op:"prevent_combat_damage",duration:"until_end_of_turn",source_block:0}]);
@@ -563,8 +584,8 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n: number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
 
   for (const mutate of [
-    (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].power="-0";},
-    (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
+    (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].node.do.change.power.value="-0";},
+    (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].node.do.change.toughness.value=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].to=[];},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Samite Healer").activated[0].program.instructions[0].amount="0";},
@@ -590,7 +611,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   }
   const seeds=get("Seeds of Strength").spell;
   assert.deepEqual(seeds.targets.map((t: any)=>[t.slot,t.selection_id,t.domain]),[[0,"line:0:0","battlefield_creature"],[1,"line:1:0","battlefield_creature"],[2,"line:2:0","battlefield_creature"]]);
-  assert.deepEqual(seeds.instructions,[0,1,2].map((slot)=>({op:"modify_power_toughness",target_slot:slot,power:"1",toughness:"1",duration:"until_end_of_turn",source_block:slot})));
+  assert.deepEqual(seeds.instructions,[0,1,2].map((slot)=>pump(slot,"1","1",slot)));
   const salve=get("Healing Salve");assert.deepEqual(salve.spell.instructions,[]);assert.deepEqual(salve.spell.targets,[]);assert.equal(salve.spell.modes.length,2);
   const [gain,shield]=salve.spell.modes.map((m: any)=>m.program);
   assert.deepEqual(gain.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"3"}}},source_block:0}]);
@@ -599,7 +620,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   for(const cap of ["modal_choice_v1","life_gain_v1","damage_budget_prevention_v1","any_player_target_v1","any_damage_target_v1"])assert.ok(salve.capabilities.includes(cap));
   const bouncer=get("Slaughterhouse Bouncer");assert.equal(bouncer.characteristics.power,"3");assert.equal(bouncer.characteristics.toughness,"3");
   assert.equal(bouncer.triggered[0].condition,"self_dies");assert.equal(bouncer.triggered[0].intervening_if,"controller_hand_empty");
-  assert.deepEqual(bouncer.triggered[0].program.instructions,[{op:"modify_power_toughness",target_slot:0,power:"-3",toughness:"-3",duration:"until_end_of_turn",source_block:0}]);
+  assert.deepEqual(bouncer.triggered[0].program.instructions,[pump(0,"-3","-3",0)]);
   assert.equal(JSON.parse(read("slaughterhouse-bouncer.json")).faces[0].result.abilities[0].abilityWord,"Hellbent");
   for(const name of ["Boros Charm","Lavaborn Muse"])assert.equal(catalog.definitions.some((d: any)=>d.name===name),false);
   const boros=JSON.parse(read("boros-charm.json"));assert.equal(boros.faces[0].result.abilities[0].effects[0].steps[0].options.length,3);
@@ -609,7 +630,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   for(const mutate of [
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes[0].hidden=true;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes.pop();},
-    (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[{op:"draw_cards",count:"1",source_block:0}];},
+    (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[draw("spell_controller","1",0)];},
     (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.modes[0].program.modes=structuredClone(p.modes);},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Slaughterhouse Bouncer").triggered[0].intervening_if="owner_hand_empty";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Seeds of Strength").spell.targets[0].selection_id=3;},
@@ -1839,14 +1860,15 @@ test("exact-source damage recipient discard preserves its actor", () => {
     assert.equal(definition.name,"Dimir Cutpurse");
     assert.ok(definition.capabilities.includes("event_player_discard_v1"));
     assert.deepEqual(definition.triggered[0].program.instructions,[
-      {op:"discard_cards",recipient:"event_player",count:"1",source_block:0},
-      {op:"draw_cards",count:"1",source_block:0},
+      discard(damaged,"1",0),
+      draw("ability_controller","1",0),
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
 
-    for(const recipient of ["target", "each_opponent", {target_slot:0}, true]) {
-      const bad=structuredClone(catalog);bad.definitions[0].triggered[0].program.instructions[0].recipient=recipient;
+    // Malformed kernel players are structurally rejected.
+    for(const player of ["target", {player:"target"}, {player:"is",who:{ref:"event_player"}}, {target_slot:0}, true]) {
+      const bad=structuredClone(catalog);bad.definitions[0].triggered[0].program.instructions[0].node.do.player=player;
       assert.equal(validate(bad),false);
     }
     const modal=loadCatalog("choices");
@@ -1854,7 +1876,7 @@ test("exact-source damage recipient discard preserves its actor", () => {
     assert.ok(modal.definitions[0]);
     modal.definitions[0].capabilities.push("event_player_discard_v1");
     const child=modal.definitions[0].spell.modes[0].program;
-    child.targets=[];child.instructions=[{op:"discard_cards",recipient:"event_player",count:"1",source_block:0}];
+    child.targets=[];child.instructions=[discard(damaged,"1",0)];
     // This is an intentionally unbound schema-only witness. Runtime definition
     // validation additionally rejects event recipients on a spell program.
     assert.equal(validate(modal),true,JSON.stringify(validate.errors));
@@ -1885,16 +1907,16 @@ test("exact-source damage recipient sacrifice preserves its actor", () => {
     assert.equal(definition.name,"Demon of Loathing");
     assert.deepEqual(new Set(definition.keywords),new Set(["flying","trample"]));
     assert.ok(definition.capabilities.includes("event_player_sacrifice_v1"));
-    assert.deepEqual(definition.triggered[0].program.instructions,[{op:"sacrifice_creature",recipient:"event_player",source_block:1}]);
+    assert.deepEqual(definition.triggered[0].program.instructions,[sacrifice(damaged,1)]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
 
     for(const mutate of [
-      (i:any)=>{i.recipient="controller";},
-      (i:any)=>{i.recipient={event_player:null};},
-      (i:any)=>{i.count="1";},
-      (i:any)=>{i.optional=true;},
-      (i:any)=>{delete i.recipient;},
+      (i:any)=>{i.node.do.player="controller";},
+      (i:any)=>{i.node.do.player={event_player:null};},
+      (i:any)=>{i.node.do.count="1";},
+      (i:any)=>{i.node.do.optional=true;},
+      (i:any)=>{delete i.node.do.player;},
     ]) {
       const bad=structuredClone(catalog);mutate(bad.definitions[0].triggered[0].program.instructions[0]);
       assert.equal(validate(bad),false);
@@ -1904,7 +1926,7 @@ test("exact-source damage recipient sacrifice preserves its actor", () => {
     assert.ok(modal.definitions[0]);
     modal.definitions[0].capabilities.push("event_player_sacrifice_v1");
     const child=modal.definitions[0].spell.modes[0].program;
-    child.targets=[];child.instructions=[{op:"sacrifice_creature",recipient:"event_player",source_block:0}];
+    child.targets=[];child.instructions=[sacrifice(damaged,0)];
     // Structural schema witness only; runtime also rejects an unbound actor.
     assert.equal(validate(modal),true,JSON.stringify(validate.errors));
     passed=true;
@@ -1983,7 +2005,7 @@ test("exact-source filtered damage distinguishes observer and creature source", 
       source:{subject:"creature_filter",controller:"controller",types:{predicate:"all",terms:[{predicate:"type",kind:"artifact"},{predicate:"type",kind:"creature"}]}},
       kind:"combat",recipient:"player",
     }});
-    assert.deepEqual(research.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:2}]);
+    assert.deepEqual(research.triggered[0].program.instructions,[draw("ability_controller","1",2)]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
 
@@ -2033,15 +2055,15 @@ test("exact-source controller damage discard preserves sequencing and context", 
     assert.ok(definition.capabilities.includes("controller_discard_v1"));
     assert.deepEqual(definition.triggered[0].condition,{damage_dealt:{source:{subject:"source"},kind:"combat",recipient:"player"}});
     assert.deepEqual(definition.triggered[0].program.instructions,[
-      {op:"draw_cards",count:"1",source_block:1},
-      {op:"discard_cards",count:"1",source_block:1},
+      draw("ability_controller","1",1),
+      discard(you("ability_controller"),"1",1),
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
 
-    for(const recipient of [undefined,"controller"]) {
+    // The kernel controller discard has one encoding.
+    {
       const witness=structuredClone(catalog);
-      if(recipient!==undefined) witness.definitions[0].triggered[0].program.instructions[1].recipient=recipient;
       assert.equal(validate(witness),true,JSON.stringify(validate.errors));
 
       // Synthetic schema closure only; runtime deliberately rejects modal damage programs.
@@ -2115,8 +2137,8 @@ test("headless damage v2 profile compiles all 36 exact sources", () => {
   const catalog=loadCatalog("damage-matches-v2");
   assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,36);
-  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"46a6ab070f1d3a094a8b95c6ae43b4c7f301bfae04fb10a2b5eee754abe578a4");
-  assert.equal(read("catalogs/damage-matches.sha256").trim(),"30886a2a41478249356703bf39a52153449cb66cc512084d3a1ff94da682a2a5");
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"a5717e657e4d35120d8d29d77ba01a3ebc9d2309c29b2175f03ec4f2271d4e36");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"ee014c3bf306f38769b64d7694f5ecc39620c8c5dae6dc502bbdf7f034d6bd38");
   const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
@@ -2175,7 +2197,7 @@ test("exact-source Snow creature and attacking deathtouch preserve strict shapes
     for(const cap of ["snow_supertype_v1","attacking_creature_keywords_v1","filtered_damage_trigger_v1"]) assert.ok(d.capabilities.includes(cap),cap);
     assert.deepEqual(d.static_abilities,[{functioning_zone:"battlefield",effect:{modify_creatures:{scope:"attacking_controller",power:"0",toughness:"0",keywords:["deathtouch"],restrictions:[]}}}]);
     assert.deepEqual(d.triggered[0].condition,{damage_dealt:{source:{subject:"creature_filter",controller:"controller",types:{predicate:"type",kind:"creature"}},kind:"combat",recipient:"player"}});
-    assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:1}]);
+    assert.deepEqual(d.triggered[0].program.instructions,[draw("ability_controller","1",1)]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
     for(const isolated of ["snow","scope"]) {
@@ -2240,7 +2262,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       source:{subject:"creature_filter",controller:"controller",types:{predicate:"type",kind:"creature"}},
       kind:"combat",recipient:"player",source_power:"greater_than_base",
     }});
-    assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:1}]);
+    assert.deepEqual(d.triggered[0].program.instructions,[draw("ability_controller","1",1)]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
     for(const mutate of [
@@ -2259,7 +2281,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
     }
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
-    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"46a6ab070f1d3a094a8b95c6ae43b4c7f301bfae04fb10a2b5eee754abe578a4");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"a5717e657e4d35120d8d29d77ba01a3ebc9d2309c29b2175f03ec4f2271d4e36");
     assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
@@ -2335,7 +2357,7 @@ test("exact-source Righteousness preserves its blocking creature target and boun
     assert.deepEqual(d.spell,{
       timing:"instant",resolution:"instructions",functioning_zone:"stack",
       targets:[{slot:0,selection_id:"line:0:0",chooser:"controller",stage:"announcement",domain:"blocking_battlefield_creature"}],
-      instructions:[{op:"modify_power_toughness",target_slot:0,power:"7",toughness:"7",duration:"until_end_of_turn",source_block:0}],
+      instructions:[pump(0,"7","7",0)],
     });
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
@@ -2348,10 +2370,10 @@ test("exact-source Righteousness preserves its blocking creature target and boun
       ["extra target filter",(x:any)=>{x.spell.targets[0].filter={types:["creature"],non_types:[],non_colors:[],opponent:false};}],
       ["missing blocking capability",(x:any)=>{x.capabilities=x.capabilities.filter((cap:string)=>cap!=="blocking_creature_target_v1");}],
       ["mixed target domains",(x:any)=>{x.spell.targets.push({...x.spell.targets[0],slot:1,selection_id:"line:0:1",domain:"battlefield_creature"});}],
-      ["noncanonical quantity",(x:any)=>{x.spell.instructions[0].power="07";}],
-      ["unsupported duration",(x:any)=>{x.spell.instructions[0].duration="this_turn";}],
+      ["noncanonical quantity",(x:any)=>{x.spell.instructions[0].node.do.change.power.value="07";}],
+      ["unsupported duration",(x:any)=>{x.spell.instructions[0].node.do.until="this_turn";}],
       ["empty program",(x:any)=>{x.spell.instructions=[];}],
-      ["non-pump instruction",(x:any)=>{x.spell.instructions=[{op:"return_to_owner_hand",target_slot:0,source_block:0}];}],
+      ["non-pump instruction",(x:any)=>{x.spell.instructions=[move(0,"owner_hand",0)];}],
       ["permanent spell",(x:any)=>{x.spell.resolution="permanent";}],
       ["battlefield program",(x:any)=>{x.spell.functioning_zone="battlefield";}],
       ["creature source",(x:any)=>{x.characteristics.kind="creature";x.characteristics.power="1";x.characteristics.toughness="1";}],
@@ -2428,9 +2450,144 @@ test("composed triggers, attachments and artifact tokens retain their schema con
     reject("Rogue's Gloves", d => {
       d.capabilities = d.capabilities.filter((c: string) => c !== "equipped_creature_trigger_v1");
     });
-    reject("Sailor of Means", d => { d.triggered[0].program.instructions[0].count = 0; });
+    const maxSailor = structuredClone(catalog);
+    maxSailor.definitions.find((row: any) => row.name === "Sailor of Means")
+      .triggered[0].program.instructions[0].node.do.count.value = "4294967295";
+    assert.equal(validate(maxSailor), true, JSON.stringify(validate.errors));
+    reject("Sailor of Means", d => { d.triggered[0].program.instructions[0].node.do.count.value = "0"; });
+    reject("Sailor of Means", d => { d.triggered[0].program.instructions[0].node.do.count.value = "4294967296"; });
     reject("Sailor of Means", d => { d.triggered[0].condition = "opponent_creature_dies"; });
     reject("Glittermonger", d => { d.activated[0].cost = "sacrifice_source"; });
+    passed = true;
+  } finally {
+    if (passed) fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("count-1 flash draw, draw/discard, counted-draw life loss, and target destroy sequences match exported schema", () => {
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+
+  // 1 & 7-card FlashEndStepDrawDefinition.
+  const baseCatalog = JSON.parse(read("expected-tokens-ir.json"));
+  const dreadmaw = baseCatalog.definitions.find((d: any) => d.name === "Colossal Dreadmaw");
+  assert.ok(dreadmaw);
+  for (const [count, drawCap] of [["1", "controller_draw_v1"], ["7", "controller_counted_draw_v1"]] as const) {
+    const c = { ...structuredClone(baseCatalog), definitions: [structuredClone(dreadmaw)] };
+    const d = c.definitions[0];
+    delete d.source_labels;
+    d.characteristics.legendary = true;
+    d.keywords = ["flash"];
+    d.spell.timing = "instant";
+    d.static_abilities = [{ functioning_zone: "battlefield", effect: { reduce_maximum_hand_size: { scope: "opponents", amount: "7" } } }];
+    d.triggered = [{
+      functioning_zone: "battlefield",
+      condition: { step_began: { step: "end", turn_relation: "controller" } },
+      death_filter: null,
+      intervening_if: null,
+      program: { timing: "instant", resolution: "instructions", functioning_zone: "stack", targets: [], instructions: [draw("ability_controller", count, 1)] },
+    }];
+    d.capabilities = [
+      "normal_layout_v1", "base_creature_v1", "cast_creature_v1", "commander_identity_v1",
+      "flash_v1", "reduced_hand_size_v1", "triggered_ability_v1", "step_beginning_trigger_v1", drawCap,
+    ];
+    assert.equal(validate(c), true, `FlashEndStepDraw(${count}): ${JSON.stringify(validate.errors)}`);
+    const wrongCap = structuredClone(c);
+    wrongCap.definitions[0].capabilities = wrongCap.definitions[0].capabilities.map((cap: string) =>
+      cap === drawCap ? (count === "1" ? "controller_counted_draw_v1" : "controller_draw_v1") : cap
+    );
+    assert.equal(validate(wrongCap), false, `FlashEndStepDraw(${count}) wrong draw cap`);
+  }
+
+  // Compile Careful Study, then validate 1-card DrawDiscard, OrdinaryScalarSequence Destroy+Scry, and CountedDraw+LoseLife(0).
+  const source = fileURLToPath(fixtureDir);
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-kir-schema-fixes-"));
+  let passed = false;
+  try {
+    const manifest = path.join(temporary, "catalog.json");
+    fs.writeFileSync(manifest, JSON.stringify({
+      schema_version: IR_SCHEMA_VERSION,
+      output_order: "sorted",
+      provenance: path.join(source, "provenance.json"),
+      records: [path.join(source, "32e9aa23-fc0a-4b82-82f9-1659c304428c.json")],
+      expected_ir: "actual-ir.json",
+      expected_digest: "actual.sha256",
+    }));
+    const report = run("catalog", "build", manifest, "--write");
+    const compiled = JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
+    assert.equal(validate(compiled), true, JSON.stringify(validate.errors));
+
+    const oneDrawDiscard = structuredClone(compiled);
+    oneDrawDiscard.definitions[0].spell.instructions = [
+      draw("spell_controller", "1", 0),
+      discard(you("spell_controller"), "1", 0),
+    ];
+    assert.equal(validate(oneDrawDiscard), true, `DrawDiscard(1): ${JSON.stringify(validate.errors)}`);
+    const badDrawDiscardCap = structuredClone(oneDrawDiscard);
+    badDrawDiscardCap.definitions[0].capabilities = badDrawDiscardCap.definitions[0].capabilities.filter((cap: string) => cap !== "controller_draw_discard_v1");
+    assert.equal(validate(badDrawDiscardCap), false, "DrawDiscard(1) missing capability");
+
+    const destroyScry = structuredClone(compiled);
+    const ds = destroyScry.definitions[0];
+    delete ds.source_labels;
+    ds.spell.targets = [{ slot: 0, selection_id: "line:0:0", chooser: "controller", stage: "announcement", domain: "battlefield_creature" }];
+    ds.spell.instructions = [
+      { op: "kernel", node: { do: { verb: "destroy", what: { set: "one", object: { ref: "target", slot: 0 } } } }, source_block: 0 },
+      { op: "scry", amount: "1", source_block: 0 },
+    ];
+    ds.capabilities = [
+      "normal_layout_v1", "cast_sorcery_v1", "creature_target_v1",
+      "destroy_creature_v1", "controller_scry_v1", "composed_ordinary_spell_v1",
+    ];
+    assert.equal(validate(destroyScry), true, `Destroy+Scry: ${JSON.stringify(validate.errors)}`);
+    const unboundDestroy = structuredClone(destroyScry);
+    unboundDestroy.definitions[0].spell.instructions[0].node.do.what.object.slot = 1;
+    assert.equal(validate(unboundDestroy), false, "Destroy+Scry unbound slot 1 should fail");
+
+    const exilePermanentScry = structuredClone(destroyScry);
+    const ex = exilePermanentScry.definitions[0];
+    ex.spell.targets = [{
+      slot: 0, selection_id: "line:0:0", chooser: "controller", stage: "announcement",
+      domain: "battlefield_permanent",
+      filter: { types: ["artifact"], non_types: [], non_colors: [], opponent: false },
+    }];
+    ex.spell.instructions = [move(0, "exile", 0), { op: "scry", amount: "1", source_block: 0 }];
+    ex.capabilities = [
+      "normal_layout_v1", "cast_sorcery_v1", "permanent_removal_v1",
+      "controller_scry_v1", "composed_ordinary_spell_v1",
+    ];
+    assert.equal(validate(exilePermanentScry), true, `ExilePermanent+Scry: ${JSON.stringify(validate.errors)}`);
+    const unboundExile = structuredClone(exilePermanentScry);
+    unboundExile.definitions[0].spell.instructions[0].node.do.what.object.slot = 1;
+    assert.equal(validate(unboundExile), false, "ExilePermanent+Scry unbound slot 1 should fail");
+    const missingPermanentFilter = structuredClone(exilePermanentScry);
+    delete missingPermanentFilter.definitions[0].spell.targets[0].filter;
+    assert.equal(validate(missingPermanentFilter), false, "ExilePermanent+Scry missing target filter should fail");
+
+    const zeroTreasureSpell = structuredClone(compiled);
+    const zt = zeroTreasureSpell.definitions[0];
+    delete zt.source_labels;
+    zt.spell.instructions = [{
+      op: "kernel",
+      node: { do: { verb: "create_tokens", controller: you("spell_controller"), count: { amount: "fixed", value: "0" }, token: { token: "predefined", kind: "treasure" } } },
+      source_block: 0,
+    }];
+    zt.capabilities = ["normal_layout_v1", "cast_sorcery_v1"];
+    assert.equal(validate(zeroTreasureSpell), false, "Zero predefined-token spell without capability should fail");
+
+    const countedLoss = structuredClone(compiled);
+    const cl = countedLoss.definitions[0];
+    delete cl.source_labels;
+    cl.spell.instructions = [
+      draw("spell_controller", "2", 0),
+      { op: "kernel", node: { do: { verb: "lose_life", player: you("spell_controller"), amount: { amount: "fixed", value: "2" } } }, source_block: 0 },
+    ];
+    cl.capabilities = ["normal_layout_v1", "cast_sorcery_v1", "controller_counted_draw_v1", "life_loss_v1"];
+    assert.equal(validate(countedLoss), true, `CountedDraw+LoseLife(2): ${JSON.stringify(validate.errors)}`);
+    const zeroLoss = structuredClone(countedLoss);
+    zeroLoss.definitions[0].spell.instructions[1].node.do.amount.value = "0";
+    assert.equal(validate(zeroLoss), false, "CountedDraw+LoseLife(0) should fail");
     passed = true;
   } finally {
     if (passed) fs.rmSync(temporary, { recursive: true, force: true });

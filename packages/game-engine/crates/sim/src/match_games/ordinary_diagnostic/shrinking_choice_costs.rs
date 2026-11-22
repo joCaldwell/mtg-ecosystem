@@ -1413,7 +1413,10 @@ fn choice_profile_is_one_fixed_admitted400_card_pod_and_archived_edict() {
     assert_eq!(program.targets.len(), 1);
     assert!(program.instructions.iter().any(|i| matches!(
         i,
-        mtg_contracts::Instruction::TargetPlayerSacrificeCreature { .. }
+        mtg_contracts::kernel!(Sacrifice {
+            player: mtg_contracts::target_player!(_),
+            ..
+        })
     )));
 }
 #[test]

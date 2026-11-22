@@ -34,11 +34,7 @@ fn phase1_sequences_scalar_steps_keep_source_order_and_primitive_capabilities() 
                 count: 1.into(),
                 source_block: 0
             },
-            Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1
-            },
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1),
         ]
     );
     for (raw, capabilities) in [
@@ -146,11 +142,10 @@ fn phase1_sequences_target_facts_reject_wrong_antecedent_and_unconsumed_source()
         assert!(matches!(
             p.instructions.as_slice(),
             [
-                Instruction::DestroyPermanent {
-                    target_slot: 0,
-                    optional: false,
-                    ..
-                },
+                kernel!(Destroy {
+                    what: target_object!(0),
+                    regeneration_forbidden: _
+                }),
                 Instruction::CreateTokensFor {
                     recipient: EffectRecipient::TargetController { target_slot: 0 },
                     ..

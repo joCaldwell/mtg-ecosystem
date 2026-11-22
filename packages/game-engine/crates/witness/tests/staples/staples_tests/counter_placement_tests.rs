@@ -2,7 +2,7 @@
 //! Ramos/Scales/Corpsejack are paid normally after construction. Separate tests
 //! explicitly label synthetic quantities, control/zone probes and IR variation.
 use super::*;
-use mtg_contracts::{CounterPlacementModification, CounterRecipient};
+use mtg_contracts::CounterPlacementModification;
 fn prepared() -> Prepared {
     let mut c = Catalog::read(include_str!(
         "../../../../../tests/fixtures/expected-staples-ir.json"
@@ -347,11 +347,12 @@ fn counter_placement_fixed_target_self_enters_and_opponent_control() {
         .find(|d| d.name == "Satyr Grovedancer")
         .unwrap();
     d.triggered[0].program.targets.clear();
-    let Instruction::PutPlusOneCounters { on, .. } = &mut d.triggered[0].program.instructions[0]
+    let mtg_contracts::kernel!(PutCounters { on, .. }) =
+        &mut d.triggered[0].program.instructions[0]
     else {
         panic!()
     };
-    *on = CounterRecipient::Source;
+    *on = mtg_contracts::kir::SetExpr::source();
     d.capabilities = d.requirements();
     c.validate().unwrap();
     p.catalog_digest = digest(c).unwrap();

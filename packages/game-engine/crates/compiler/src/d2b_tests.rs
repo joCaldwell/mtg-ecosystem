@@ -139,7 +139,7 @@ fn bound_self_trigger_uses_the_same_source_incarnation_ir_as_this_creature() {
     assert_eq!(ir, direct);
     assert_eq!(ir.condition, TriggerCondition::SelfEntersBattlefield);
     assert!(
-        matches!(ir.program.instructions.as_slice(),[Instruction::DrawCards {count,recipient:None,..}] if *count == Quantity::from(1))
+        matches!(ir.program.instructions.as_slice(),[kernel!(Draw { player: you!(), amount: fixed!(count) })] if *count == Quantity::from(1))
     );
 }
 

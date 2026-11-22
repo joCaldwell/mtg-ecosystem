@@ -112,7 +112,10 @@ pub(super) fn bind(d: &Definition, source: &Value, binding: &Value) -> Result<()
     for (index, instruction) in d.triggered[0].program.instructions.iter().enumerate() {
         let step = format!("{root}/effects/0/steps/{index}");
         let operation = match instruction {
-            Instruction::DrawCards { .. } => "draw",
+            kernel!(Draw {
+                player: kir::PlayerExpr::Is { .. },
+                amount: fixed!(_)
+            }) => "draw",
             Instruction::Proliferate { .. } => "keyword-action",
             _ => "gain-life",
         };

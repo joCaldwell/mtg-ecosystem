@@ -21,10 +21,7 @@ pub(super) fn tap_source_untap() -> Definition {
         opponent: false,
         tapped: false,
     });
-    p.instructions = vec![Instruction::UntapPermanent {
-        target_slot: 0,
-        source_block: 0,
-    }];
+    p.instructions = vec![Instruction::untap_target(0, 0)];
     d.capabilities = d.requirements();
     d
 }
@@ -169,17 +166,12 @@ fn source_tap_untap_rejects_unreviewed_costs_filters_programs_and_source_kinds()
                 .non_colors
                 .push(Color::B),
             "opponent" => a.program.targets[0].filter.as_mut().unwrap().opponent = true,
-            "draw" => a.program.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
-            "slot" => {
-                a.program.instructions = vec![Instruction::UntapPermanent {
-                    target_slot: 1,
-                    source_block: 0,
-                }]
-            }
+            "draw" => a.program.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                0,
+            )),
+            "slot" => a.program.instructions = vec![Instruction::untap_target(1, 0)],
             "domain" => a.program.targets[0].domain = TargetDomain::BattlefieldCreature,
             "ability-zone" => a.functioning_zone = FunctioningZone::Stack,
             "program-zone" => a.program.functioning_zone = FunctioningZone::Battlefield,

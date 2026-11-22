@@ -7,7 +7,7 @@ const LAST_SOURCE_BLOCK: u32 = 2;
 
 pub(super) fn trigger_program(program: &SpellProgram) -> bool {
     program.timing == SpellTiming::Instant
-        && controller_counted_draw::standalone_controller_draw(program)
+        && controller_counted_draw::standalone_fixed_controller_draw(program)
             .is_some_and(|(count, block)| *count > Quantity::zero() && block <= LAST_SOURCE_BLOCK)
 }
 
@@ -72,8 +72,12 @@ pub(super) fn extend_schema(schema: &mut Value) {
         ReducedHandSizeV1,
         TriggeredAbilityV1,
         StepBeginningTriggerV1,
-        ControllerCountedDrawV1,
     ];
+    // CR 121.1-121.2: one card is the single draw, more is the counted draw.
+    let single = json!({"required":["triggered"],"properties":{"triggered":{"items":{"properties":{
+        "program":{"properties":{"instructions":{"items":instruction_schema::single_draw()}}}}}}}});
+    let mut allowed = capabilities.to_vec();
+    allowed.extend([ControllerCountedDrawV1, ControllerDrawV1]);
     let disallowed_subtypes: Vec<_> = UNSUPPORTED_RULES_SUBTYPES
         .iter()
         .chain(unlimited_hand_size::DISALLOWED_CREATURE_SUBTYPES)
@@ -85,13 +89,9 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
         "targets":{"maxItems":0},
         "modes":{"maxItems":0},
-        "instructions":{"minItems":1,"maxItems":1,"items":{
-            "required":["op","count","source_block"],"properties":{
-                "op":{"const":"draw_controller_cards"},
-                "count":{"type":"string","pattern":"^[1-9][0-9]*$"},
-                "source_block":{"maximum":LAST_SOURCE_BLOCK}
-            }
-        }}
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at_most(
+            instruction_schema::fixed_controller_draw("^[1-9][0-9]*$"), LAST_SOURCE_BLOCK
+        )}
     }});
     schema["$defs"]["FlashEndStepDrawDefinition"] = json!({
         "required":["characteristics","spell","keywords","static_abilities","triggered","capabilities"],
@@ -143,10 +143,14 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "targets":{"maxItems":0},"instructions":{"maxItems":0},"modes":{"maxItems":0}
             }},
             "capabilities":{
-                "minItems":capabilities.len(),"maxItems":capabilities.len(),
-                "uniqueItems":true,"items":{"enum":capabilities}
+                "minItems":capabilities.len() + 1,"maxItems":capabilities.len() + 1,
+                "uniqueItems":true,"items":{"enum":allowed},
+                "allOf":capabilities.iter().map(|c| json!({"contains":{"const":c}})).collect::<Vec<_>>()
             }
-        }
+        },
+        "if":single,
+        "then":{"properties":{"capabilities":{"contains":{"const":ControllerDrawV1}}}},
+        "else":{"properties":{"capabilities":{"contains":{"const":ControllerCountedDrawV1}}}}
     });
 }
 
@@ -162,10 +166,11 @@ mod tests {
         definition.spell.as_mut().unwrap().timing = SpellTiming::Instant;
         let program = SpellProgram {
             resolution: SpellResolution::Instructions,
-            instructions: vec![Instruction::DrawControllerCards {
-                count: 7.into(),
-                source_block: 1,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Triggered),
+                7.into(),
+                1,
+            )],
             ..definition.spell.clone().unwrap()
         };
         definition.triggered = vec![TriggeredAbility {
@@ -213,12 +218,44 @@ mod tests {
             amount: 2.into(),
         };
         check_invalid(invalid);
+        // CR 121.1: "draw a card" is the single draw, named ControllerDrawV1.
+        let mut single = definition.clone();
+        single.triggered[0].program.instructions = vec![Instruction::draw(
+            PlayerExpr::you(Context::Triggered),
+            1.into(),
+            1,
+        )];
+        single.capabilities = single.requirements();
+        single.validate().unwrap();
+        assert!(single.capabilities.contains(&Capability::ControllerDrawV1));
+        assert!(
+            !single
+                .capabilities
+                .contains(&Capability::ControllerCountedDrawV1)
+        );
+        let mut mislabelled = single.clone();
+        mislabelled
+            .capabilities
+            .remove(&Capability::ControllerDrawV1);
+        mislabelled
+            .capabilities
+            .insert(Capability::ControllerCountedDrawV1);
+        assert!(mislabelled.validate().is_err());
+        let schema = catalog_schema();
+        let items =
+            schema["$defs"]["FlashEndStepDrawProgram"]["properties"]["instructions"]["items"]
+                .to_string();
+        assert!(
+            !items.contains(r#""not":{"const":"1"}"#),
+            "the end-step draw admits one card"
+        );
         for (count, source_block) in [(0, 1), (7, 3)] {
             let mut invalid = definition.clone();
-            invalid.triggered[0].program.instructions = vec![Instruction::DrawControllerCards {
-                count: count.into(),
+            invalid.triggered[0].program.instructions = vec![Instruction::draw(
+                PlayerExpr::you(Context::Triggered),
+                count.into(),
                 source_block,
-            }];
+            )];
             check_invalid(invalid);
         }
         let mut ordinary = controller_counted_draw::witness();

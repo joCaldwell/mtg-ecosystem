@@ -37,6 +37,15 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// An internally tagged unit variant carries no operands. Serde's default
+/// unit visitor ignores extra fields; the IR rejects them.
+fn no_operands<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<(), D::Error> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct NoOperands {}
+    NoOperands::deserialize(deserializer).map(|_| ())
+}
+
 // ---------------------------------------------------------------------------
 // References
 // ---------------------------------------------------------------------------
@@ -124,6 +133,7 @@ pub enum StepRole {
 pub enum Ref {
     /// CR 201.5, 400.7, 113.7a: the exact incarnation the ability is printed
     /// on, or its last known information once it has left.
+    #[serde(deserialize_with = "no_operands")]
     Source,
     Controller {
         role: ControllerRole,
@@ -133,6 +143,7 @@ pub enum Ref {
         slot: u32,
     },
     /// CR 301.5, 303.4: the permanent the source is attached to.
+    #[serde(deserialize_with = "no_operands")]
     AttachedTo,
     EventObject {
         role: EventObjectRole,
@@ -143,6 +154,7 @@ pub enum Ref {
     /// CR 614.12: the permanent a replacement effect is modifying as it
     /// enters. Never the source: a copy effect's source enters as something
     /// else, and the entering object is what the effect reads.
+    #[serde(deserialize_with = "no_operands")]
     EnteringObject,
     StepResult {
         step: u32,
@@ -157,6 +169,7 @@ pub enum Ref {
         id: u32,
     },
     /// CR 107.3, 601.2b: the value announced for X.
+    #[serde(deserialize_with = "no_operands")]
     AnnouncedX,
 }
 
@@ -175,8 +188,10 @@ pub enum PlayerExpr {
     OwnerOf { object: Ref },
     /// CR 102.2-102.3: each opponent of the invocation's controller, in APNAP
     /// order (CR 101.4).
+    #[serde(deserialize_with = "no_operands")]
     EachOpponent,
     /// Each player, in APNAP order.
+    #[serde(deserialize_with = "no_operands")]
     EachPlayer,
 }
 
@@ -211,9 +226,13 @@ pub enum Atom {
     NotSubtype {
         subtype: String,
     },
+    #[serde(deserialize_with = "no_operands")]
     Legendary,
+    #[serde(deserialize_with = "no_operands")]
     NotLegendary,
+    #[serde(deserialize_with = "no_operands")]
     Basic,
+    #[serde(deserialize_with = "no_operands")]
     NotBasic,
     Color {
         color: Color,
@@ -228,12 +247,18 @@ pub enum Atom {
     OwnedBy {
         player: PlayerExpr,
     },
+    #[serde(deserialize_with = "no_operands")]
     Tapped,
+    #[serde(deserialize_with = "no_operands")]
     Untapped,
     /// CR 506.4: an attacking creature.
+    #[serde(deserialize_with = "no_operands")]
     Attacking,
+    #[serde(deserialize_with = "no_operands")]
     Blocking,
+    #[serde(deserialize_with = "no_operands")]
     Token,
+    #[serde(deserialize_with = "no_operands")]
     NotToken,
     Keyword {
         keyword: KeywordAbility,
@@ -273,8 +298,10 @@ pub struct Pred(pub Vec<Atom>);
 #[serde(tag = "zone", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ZoneExpr {
     /// CR 110.1, 702.26b: phased-in permanents.
+    #[serde(deserialize_with = "no_operands")]
     Battlefield,
     /// Every graveyard (CR 404).
+    #[serde(deserialize_with = "no_operands")]
     Graveyards,
     Graveyard {
         of: PlayerExpr,
@@ -285,7 +312,9 @@ pub enum ZoneExpr {
     Library {
         of: PlayerExpr,
     },
+    #[serde(deserialize_with = "no_operands")]
     Exile,
+    #[serde(deserialize_with = "no_operands")]
     Stack,
 }
 
@@ -341,6 +370,11 @@ pub enum Amount {
     LifeOf {
         player: PlayerExpr,
     },
+    /// CR 202.3, 601.2i: the total mana value of the spells `caster` cast
+    /// this turn other than the resolving spell.
+    OtherCastsManaValue {
+        caster: PlayerExpr,
+    },
 }
 
 impl Amount {
@@ -354,6 +388,20 @@ impl Amount {
             Self::Fixed { value } => Some(value),
             _ => None,
         }
+    }
+    /// CR 107.3: the value announced for X.
+    pub fn announced_x() -> Self {
+        Self::Var {
+            of: Ref::AnnouncedX,
+        }
+    }
+    pub fn is_announced_x(&self) -> bool {
+        matches!(
+            self,
+            Self::Var {
+                of: Ref::AnnouncedX
+            }
+        )
     }
 }
 
@@ -384,11 +432,16 @@ pub enum DamageTo {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "to", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Destination {
+    #[serde(deserialize_with = "no_operands")]
     Exile,
     /// CR 400.3: an object goes to its owner's hand, library or graveyard.
+    #[serde(deserialize_with = "no_operands")]
     OwnerHand,
+    #[serde(deserialize_with = "no_operands")]
     OwnerLibraryTop,
+    #[serde(deserialize_with = "no_operands")]
     OwnerLibraryBottom,
+    #[serde(deserialize_with = "no_operands")]
     OwnerGraveyard,
     Battlefield {
         controller: PlayerExpr,
@@ -401,7 +454,9 @@ pub enum Destination {
 #[serde(tag = "counter", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CounterKind {
     /// CR 122.1a.
+    #[serde(deserialize_with = "no_operands")]
     PlusOnePlusOne,
+    #[serde(deserialize_with = "no_operands")]
     MinusOneMinusOne,
     Named {
         name: String,
@@ -513,10 +568,12 @@ pub struct SearchSpec {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "at", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DelayedEvent {
+    #[serde(deserialize_with = "no_operands")]
     NextEndStep,
     NextUpkeep {
         of: PlayerExpr,
     },
+    #[serde(deserialize_with = "no_operands")]
     EndOfCombat,
     /// An ordinary event pattern, watched until `until` (CR 603.7c).
     Event {
@@ -810,6 +867,24 @@ pub enum Node {
 }
 
 impl Node {
+    /// The drain pair of [`drain`] for "you" in `context`.
+    pub fn drain(context: Context, amount: Amount) -> Self {
+        Self::Seq(vec![
+            Self::Do(Verb::LoseLife {
+                player: PlayerExpr::EachOpponent,
+                amount,
+            }),
+            Self::Do(Verb::GainLife {
+                player: PlayerExpr::you(context),
+                amount: Amount::Var {
+                    of: Ref::StepResult {
+                        step: 0,
+                        role: StepRole::Amount,
+                    },
+                },
+            }),
+        ])
+    }
     /// The verb of a single-action node.
     pub fn verb(&self) -> Option<&Verb> {
         match self {
@@ -883,6 +958,9 @@ impl PlayerExpr {
             _ => None,
         }
     }
+    pub fn is_target(&self) -> bool {
+        self.target_slot().is_some()
+    }
     pub fn is_event_player(&self) -> bool {
         matches!(
             self,
@@ -894,6 +972,23 @@ impl PlayerExpr {
 }
 
 impl Pred {
+    /// "Lands you control" (CR 205.2a, 109.5).
+    pub fn lands_you_control(context: Context) -> Self {
+        Self(vec![
+            Atom::Type {
+                kind: CardKind::Land,
+            },
+            Atom::ControlledBy {
+                player: PlayerExpr::you(context),
+            },
+        ])
+    }
+    /// "Creatures" (CR 205.2a).
+    pub fn creatures() -> Self {
+        Self(vec![Atom::Type {
+            kind: CardKind::Creature,
+        }])
+    }
     /// "Nonland permanent" (CR 110.1, 205.2a).
     pub fn nonland_permanents() -> Self {
         Self(vec![Atom::NotType {
@@ -911,6 +1006,17 @@ impl Pred {
 }
 
 impl SetExpr {
+    /// CR 701.26b: the lands "you" in `context` control, on the battlefield.
+    pub fn lands_you_control(context: Context) -> Self {
+        Self::battlefield(Pred::lands_you_control(context))
+    }
+    /// Every card in one player's graveyard (CR 404.1).
+    pub fn graveyard_of(player: PlayerExpr) -> Self {
+        Self::Matching {
+            zone: ZoneExpr::Graveyard { of: player },
+            filter: Pred::default(),
+        }
+    }
     /// Every card in every graveyard (CR 404).
     pub fn graveyards() -> Self {
         Self::Matching {
@@ -1142,7 +1248,7 @@ impl Walk<'_, '_> {
                 else {
                     return scope("event player outside a triggered ability");
                 };
-                if !event_player_roles(event).contains(role) {
+                if !event_supplies(event, *role) {
                     return scope(format!("event has no {role:?}"));
                 }
                 self.out.event_player = true;
@@ -1311,7 +1417,9 @@ impl Walk<'_, '_> {
             Amount::StatOf { object, .. } => self
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
-            Amount::LifeOf { player } => self.player(player),
+            Amount::LifeOf { player } | Amount::OtherCastsManaValue { caster: player } => {
+                self.player(player)
+            }
         }
     }
 
@@ -1532,6 +1640,19 @@ impl Walk<'_, '_> {
             // nested position, so the interpreter cannot suspend and resume
             // inside a kernel node yet.
             Node::Seq(nodes) => {
+                // CR 119.3, 608.2c: the drain pair is one resolution step
+                // with no decision between its two life events.
+                if let Some(amount) = drain(node) {
+                    self.amount(amount)?;
+                    if let [_, Node::Do(Verb::GainLife { player, .. })] = nodes.as_slice() {
+                        self.player(player)?;
+                    }
+                    if !self.scan {
+                        Self::fixed_or_announced_x(amount, 1, "drain amount")?;
+                        self.out.capabilities.extend(DRAIN_CAPABILITIES);
+                    }
+                    return Ok(());
+                }
                 let steps = std::mem::take(&mut self.steps);
                 for node in nodes {
                     self.node_unaudited(node)?;
@@ -1554,6 +1675,28 @@ impl Walk<'_, '_> {
             }
             Node::Optional { chooser, node } => {
                 self.player(chooser)?;
+                // CR 608.2d: "you may destroy target permanent", a choice the
+                // resolving frame offers at this instruction's cursor.
+                if let Node::Do(
+                    verb @ Verb::Destroy {
+                        what:
+                            SetExpr::One {
+                                object: Ref::Target { slot },
+                            },
+                        regeneration_forbidden: false,
+                    },
+                ) = &**node
+                    && chooser.is_you()
+                {
+                    self.operands(verb)?;
+                    if !self.scan {
+                        if self.domain(*slot)? != TargetDomain::BattlefieldPermanent {
+                            return unaudited("optional destroy target domain");
+                        }
+                        verb_capabilities(verb, &mut self.out.capabilities);
+                    }
+                    return Ok(());
+                }
                 self.nested_unaudited(node)?;
                 missing_cell!(self, "optional node")
             }
@@ -1643,6 +1786,26 @@ impl Walk<'_, '_> {
         }
     }
 
+    /// The event-player roles whose player the life and draw executors read:
+    /// a cast trigger's caster and a step trigger's active player.
+    fn recipient_role(role: EventPlayerRole) -> bool {
+        matches!(
+            role,
+            EventPlayerRole::Caster | EventPlayerRole::ActivePlayer
+        )
+    }
+
+    /// A fixed amount of at least `minimum`, or the announced X (CR 107.3).
+    /// Returns true for the announced X.
+    fn fixed_or_announced_x(amount: &Amount, minimum: i64, what: &str) -> Result<bool, KirError> {
+        match amount {
+            Amount::Var {
+                of: Ref::AnnouncedX,
+            } => Ok(true),
+            _ => Self::fixed_at_least(amount, minimum, what).map(|()| false),
+        }
+    }
+
     /// The target domain of a player expression that names one target.
     fn player_target(&self, player: &PlayerExpr) -> Result<Option<TargetDomain>, KirError> {
         player
@@ -1662,18 +1825,118 @@ impl Walk<'_, '_> {
             // of the permanent-grant family; program validation keeps every
             // other life amount positive.
             Verb::GainLife { player, amount } | Verb::LoseLife { player, amount } => {
-                Self::fixed_at_least(amount, 0, "life amount")?;
+                // CR 107.3: an announced X is the amount for the controller
+                // or one announced player only.
+                let announced = Self::fixed_or_announced_x(amount, 0, "life amount")?;
                 match player {
                     PlayerExpr::Is {
-                        who: Ref::Controller { .. } | Ref::EventPlayer { .. },
-                    }
-                    | PlayerExpr::EachOpponent => Ok(()),
+                        who: Ref::Controller { .. },
+                    } => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::EventPlayer { role },
+                    } if !announced && Self::recipient_role(*role) => Ok(()),
+                    PlayerExpr::EachOpponent if !announced => Ok(()),
                     PlayerExpr::Is {
                         who: Ref::Target { .. },
                     } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
                     _ => unaudited("life recipient"),
                 }
             }
+            // CR 121.1-121.2: the controller, one announced player, the
+            // trigger's event player or every player draws a fixed count or
+            // the announced X.
+            Verb::Draw { player, amount } => {
+                let announced = Self::fixed_or_announced_x(amount, 0, "draw count")?;
+                match player {
+                    PlayerExpr::Is {
+                        who: Ref::Controller { .. },
+                    }
+                    | PlayerExpr::EachPlayer => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::EventPlayer { role },
+                    } if !announced && Self::recipient_role(*role) => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::Target { .. },
+                    } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
+                    _ => unaudited("draw recipient"),
+                }
+            }
+            // CR 120.1-120.3: the resolving object's source deals damage.
+            Verb::Damage { source, to, amount } => {
+                if *source != Ref::Source {
+                    return unaudited("damage source");
+                }
+                self.audit_damage(to, amount)
+            }
+            // CR 701.8, 608.2b: destroy one announced permanent or creature.
+            // CR 701.19c: forbidding regeneration is audited for a permanent.
+            Verb::Destroy {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+                regeneration_forbidden,
+            } => match self.domain(*slot)? {
+                TargetDomain::BattlefieldPermanent => Ok(()),
+                TargetDomain::BattlefieldCreature if !regeneration_forbidden => Ok(()),
+                _ => unaudited("destroy target domain"),
+            },
+            // CR 400.3, 400.7, 608.2b: one announced permanent to exile, its
+            // owner's hand or the top of its owner's library.
+            Verb::Move {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+                to,
+            } => match (to, self.domain(*slot)?) {
+                (Destination::Exile, TargetDomain::BattlefieldPermanent)
+                | (
+                    Destination::OwnerHand,
+                    TargetDomain::BattlefieldPermanent
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::CreatureOrPlaneswalker,
+                )
+                | (Destination::OwnerLibraryTop, TargetDomain::BattlefieldCreature) => Ok(()),
+                _ => unaudited("move target destination"),
+            },
+            // CR 701.26a-b, 608.2b: tap or untap one announced permanent.
+            Verb::Tap {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+            } => match self.domain(*slot)? {
+                TargetDomain::BattlefieldPermanent | TargetDomain::BattlefieldCreature => Ok(()),
+                _ => unaudited("tap target domain"),
+            },
+            Verb::Untap {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+            } => match self.domain(*slot)? {
+                TargetDomain::BattlefieldPermanent => Ok(()),
+                _ => unaudited("untap target domain"),
+            },
+            // CR 701.26b, 608.2h: untap every land you control.
+            Verb::Untap { what } if *what == SetExpr::lands_you_control(self.env.context) => Ok(()),
+            // CR 404.1, 400.3: exile every card in one announced player's
+            // graveyard.
+            Verb::Move {
+                what:
+                    SetExpr::Matching {
+                        zone:
+                            ZoneExpr::Graveyard {
+                                of:
+                                    PlayerExpr::Is {
+                                        who: Ref::Target { slot },
+                                    },
+                            },
+                        filter,
+                    },
+                to: Destination::Exile,
+            } if filter.0.is_empty() && self.domain(*slot)? == TargetDomain::AnyPlayer => Ok(()),
             // CR 701.8, 608.2h: destroy every battlefield permanent that
             // satisfies the filter as the instruction is performed.
             // CR 701.19c: forbidding regeneration is audited for the nonland
@@ -1710,8 +1973,241 @@ impl Walk<'_, '_> {
                     },
                 to: Destination::Exile,
             } if filter.0.is_empty() => Ok(()),
+            // CR 701.17a: the controller or one announced player mills a
+            // fixed count; one announced player mills the announced X.
+            Verb::Mill { player, amount } => {
+                let announced = Self::fixed_or_announced_x(amount, 0, "mill count")?;
+                match player {
+                    PlayerExpr::Is {
+                        who: Ref::Controller { .. },
+                    } if !announced => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::Target { .. },
+                    } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
+                    _ => unaudited("mill recipient"),
+                }
+            }
+            // CR 701.9a-b: the controller or the damaged player discards a
+            // fixed count, one announced player discards a positive count
+            // (at random, also the announced X), and each player or each
+            // opponent discards a positive count.
+            Verb::Discard {
+                player,
+                amount,
+                random,
+            } => {
+                let announced = Self::fixed_or_announced_x(amount, 0, "discard count")?;
+                match player {
+                    PlayerExpr::Is {
+                        who:
+                            Ref::Controller { .. }
+                            | Ref::EventPlayer {
+                                role: EventPlayerRole::DamagedPlayer,
+                            },
+                    } if !random && !announced => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::Target { .. },
+                    } if matches!(
+                        self.player_target(player)?,
+                        Some(TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)
+                    ) && (*random || !announced) =>
+                    {
+                        if announced {
+                            Ok(())
+                        } else {
+                            Self::fixed_at_least(amount, 1, "discard count")
+                        }
+                    }
+                    PlayerExpr::EachPlayer | PlayerExpr::EachOpponent if !random && !announced => {
+                        Self::fixed_at_least(amount, 1, "discard count")
+                    }
+                    _ => unaudited("discard recipient"),
+                }
+            }
+            // CR 701.21a: the damaged player, one announced opponent, each
+            // player or each opponent sacrifices one creature.
+            Verb::Sacrifice {
+                player,
+                count,
+                filter,
+            } if *filter == Pred::creatures() && count.as_fixed() == Some(&Quantity::from(1)) => {
+                match player {
+                    PlayerExpr::Is {
+                        who:
+                            Ref::EventPlayer {
+                                role: EventPlayerRole::DamagedPlayer,
+                            },
+                    }
+                    | PlayerExpr::EachPlayer
+                    | PlayerExpr::EachOpponent => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::Target { .. },
+                    } if self.player_target(player)? == Some(TargetDomain::OpponentPlayer) => {
+                        Ok(())
+                    }
+                    _ => unaudited("sacrifice recipient"),
+                }
+            }
+            // CR 111.1-111.4, 111.10: "you" create a positive fixed number
+            // of tokens of one exact recipe.
+            Verb::CreateTokens {
+                controller:
+                    PlayerExpr::Is {
+                        who: Ref::Controller { .. },
+                    },
+                count,
+                ..
+            } => {
+                Self::fixed_at_least(count, 1, "token count")?;
+                if count.as_fixed().and_then(Quantity::to_u32).is_none() {
+                    return kind("token count above the supported range");
+                }
+                Ok(())
+            }
+            // CR 122.1, 122.6: a positive fixed number of +1/+1 counters on
+            // the exact source or one announced creature.
+            Verb::PutCounters {
+                on: SetExpr::One { object },
+                counter: CounterKind::PlusOnePlusOne,
+                amount,
+            } => {
+                Self::fixed_at_least(amount, 1, "counter amount")?;
+                match object {
+                    Ref::Source => Ok(()),
+                    Ref::Target { slot } => match self.domain(*slot)? {
+                        TargetDomain::BattlefieldCreature
+                        | TargetDomain::ControlledBattlefieldCreature => Ok(()),
+                        _ => unaudited("counter target domain"),
+                    },
+                    _ => unaudited("counter recipient"),
+                }
+            }
+            // CR 611.2c, 613.4c, 514.2: a fixed signed P/T modification of the
+            // exact source, one announced creature or a board-wide set until
+            // end of turn.
+            Verb::ModifyUntil {
+                what,
+                layer: Layer::PowerToughnessModify,
+                change: Change::PowerToughness { power, toughness },
+                until: Until::EndOfTurn,
+            } if power.as_fixed().is_some() && toughness.as_fixed().is_some() => match what {
+                SetExpr::One {
+                    object: Ref::Source,
+                } => Ok(()),
+                SetExpr::One {
+                    object: Ref::Target { slot },
+                } => match self.domain(*slot)? {
+                    TargetDomain::BattlefieldCreature
+                    | TargetDomain::BlockingBattlefieldCreature
+                    | TargetDomain::ControlledBattlefieldCreature => Ok(()),
+                    _ => unaudited("pump target domain"),
+                },
+                // CR 613.4c: a P/T change applies to creatures; the set is
+                // read through the general battlefield query and recovered as
+                // a creature-only capture.
+                SetExpr::Matching {
+                    zone: ZoneExpr::Battlefield,
+                    filter,
+                } if filter.0.contains(&Atom::Type {
+                    kind: CardKind::Creature,
+                }) =>
+                {
+                    Self::audited_filter(filter)
+                }
+                _ => unaudited("pump set"),
+            },
+            // CR 611.2c, 613.1f, 514.2: the exact source gains keywords until
+            // end of turn.
+            Verb::ModifyUntil {
+                what: SetExpr::One {
+                    object: Ref::Source,
+                },
+                layer: Layer::Ability,
+                change: Change::AddKeywords { keywords },
+                until: Until::EndOfTurn,
+            } if !keywords.is_empty() => Ok(()),
             _ => unaudited("verb"),
         }
+    }
+
+    /// CR 120.2b: noncombat damage to one announced recipient, the
+    /// controller or the mana ability's activator, or (CR 608.2h) to every
+    /// creature of a board-wide set and optionally each player.
+    fn audit_damage(&self, to: &DamageTo, amount: &Amount) -> Result<(), KirError> {
+        match to {
+            DamageTo::Ref {
+                who: Ref::Target { slot },
+            } => {
+                let announced = Self::fixed_or_announced_x(amount, 1, "damage amount")?;
+                match (self.domain(*slot)?, announced) {
+                    (TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature, _)
+                    | (
+                        TargetDomain::OpponentPlayer
+                        | TargetDomain::PlayerOrPlaneswalker
+                        | TargetDomain::BattlefieldPermanent,
+                        false,
+                    ) => Ok(()),
+                    _ => unaudited("damage target domain"),
+                }
+            }
+            DamageTo::Ref {
+                who: Ref::Controller { .. },
+            }
+            | DamageTo::Ref {
+                who:
+                    Ref::EventPlayer {
+                        role: EventPlayerRole::ActivatingPlayer,
+                    },
+            } => Self::fixed_at_least(amount, 1, "damage amount"),
+            DamageTo::Ref { .. } => unaudited("damage recipient"),
+            set => {
+                Self::set_damage_parts(set)?;
+                match amount {
+                    Amount::Fixed { .. } => Self::fixed_at_least(amount, 1, "damage amount"),
+                    Amount::Var {
+                        of: Ref::AnnouncedX,
+                    } => Ok(()),
+                    Amount::Count { set } if *set == SetExpr::battlefield(Pred::creatures()) => {
+                        Ok(())
+                    }
+                    Amount::OtherCastsManaValue { caster } if caster.is_you() => Ok(()),
+                    _ => unaudited("set damage amount"),
+                }
+            }
+        }
+    }
+
+    /// The parts of a set damage recipient: creature sets of the battlefield
+    /// and at most one "each player", in that order.
+    fn set_damage_parts(to: &DamageTo) -> Result<(), KirError> {
+        let parts = match to {
+            DamageTo::All { parts } => parts.as_slice(),
+            part => std::slice::from_ref(part),
+        };
+        let mut players = false;
+        for part in parts {
+            match part {
+                DamageTo::Objects {
+                    set:
+                        SetExpr::Matching {
+                            zone: ZoneExpr::Battlefield,
+                            filter,
+                        },
+                } if !players
+                    && filter.0.first()
+                        == Some(&Atom::Type {
+                            kind: CardKind::Creature,
+                        }) =>
+                {
+                    Self::audited_filter(filter)?
+                }
+                DamageTo::Players {
+                    players: PlayerExpr::EachPlayer,
+                } if !players => players = true,
+                _ => return unaudited("set damage recipient"),
+            }
+        }
+        Ok(())
     }
 
     /// The atoms the core evaluates for a board-wide set (CR 608.2h). Every
@@ -1787,7 +2283,54 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
                 out.insert(Capability::SacrificeV1);
             }
         }
-        // Board-wide destruction and movement share the reviewed wipe surface.
+        // CR 121.2c, 107.3: the group and announced-X draws name their own
+        // surface. A fixed draw by one player is named by the complete
+        // program it belongs to (`Definition::requirements`).
+        Verb::Draw { player, amount } => {
+            event_player(player, out);
+            if *player == PlayerExpr::EachPlayer {
+                out.insert(Capability::EachPlayerDrawV1);
+            } else if amount.is_announced_x() {
+                out.insert(Capability::AnnouncedXDrawV1);
+            }
+        }
+        // CR 120.2b: directed noncombat damage; an announced X names its
+        // surface too. Board-wide damage shares the reviewed wipe surface, and
+        // a cast-history amount names the history surface.
+        Verb::Damage { to, amount, .. } => match to {
+            DamageTo::Ref { .. } => {
+                out.insert(Capability::NoncombatDamageV1);
+                if amount.is_announced_x() {
+                    out.insert(Capability::AnnouncedXEffectsV1);
+                }
+            }
+            _ => {
+                out.insert(Capability::BoardWipesV1);
+                if matches!(amount, Amount::OtherCastsManaValue { .. }) {
+                    out.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
+                }
+            }
+        },
+        // CR 701.8: destroying every creature names the reviewed creature
+        // destruction surface; every other board-wide destruction and
+        // movement shares the reviewed wipe surface.
+        Verb::Destroy {
+            what: SetExpr::Matching { zone, filter },
+            ..
+        } if *zone == ZoneExpr::Battlefield && *filter == Pred::creatures() => {
+            out.insert(Capability::DestroyCreatureV1);
+        }
+        // CR 404.1: exiling one announced player's graveyard.
+        Verb::Move {
+            what:
+                SetExpr::Matching {
+                    zone: ZoneExpr::Graveyard { .. },
+                    ..
+                },
+            ..
+        } => {
+            out.insert(Capability::EntryGraveyardExileV1);
+        }
         Verb::Destroy {
             what: SetExpr::Matching { .. },
             ..
@@ -1798,15 +2341,187 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         } => {
             out.insert(Capability::BoardWipesV1);
         }
+        // One announced permanent: each verb and destination names its
+        // reviewed surface. A target destroy's surface depends on its target
+        // domain and is named with the program (`Definition::requirements`).
+        Verb::Move {
+            what: SetExpr::One { .. },
+            to,
+        } => {
+            out.insert(match to {
+                Destination::OwnerHand => Capability::OwnerHandMoveV1,
+                Destination::OwnerLibraryTop => Capability::OwnerLibraryTopMoveV1,
+                _ => Capability::PermanentRemovalV1,
+            });
+        }
+        Verb::Tap {
+            what: SetExpr::One { .. },
+        } => {
+            out.insert(Capability::TapPermanentV1);
+        }
+        Verb::Untap {
+            what: SetExpr::One { .. },
+        } => {
+            out.insert(Capability::UntapPermanentV1);
+        }
+        Verb::Untap {
+            what: SetExpr::Matching { .. },
+        } => {
+            out.insert(Capability::UntapControllerLandsV1);
+        }
+        // CR 111.10: predefined artifact tokens; CR 111.3-111.4: creature
+        // tokens, with the reviewed multi-type and hexproof/shroud surfaces.
+        Verb::CreateTokens { token, .. } => match token {
+            TokenSpec::Predefined { .. } => {
+                out.insert(Capability::PredefinedArtifactTokensV1);
+            }
+            TokenSpec::Creature { spec } => {
+                out.insert(Capability::CreatureTokensV1);
+                if !spec.additional_types.is_empty() {
+                    out.insert(Capability::MultiTypeCreatureTokensV1);
+                }
+                if spec
+                    .keywords
+                    .iter()
+                    .any(|k| matches!(k, KeywordAbility::Hexproof | KeywordAbility::Shroud))
+                {
+                    out.insert(Capability::AttachmentsV1);
+                }
+            }
+        },
+        // CR 122.1.
+        Verb::PutCounters {
+            counter: CounterKind::PlusOnePlusOne,
+            ..
+        } => {
+            out.insert(Capability::PlusOneCountersV1);
+        }
+        // CR 613.4c: a targeted pump names the temporary P/T surface and a
+        // board-wide pump the reviewed wipe surface. The source pump is named
+        // by its complete ability (`Definition::requirements`).
+        Verb::ModifyUntil {
+            what,
+            change: Change::PowerToughness { .. },
+            ..
+        } => match what {
+            SetExpr::One {
+                object: Ref::Target { .. },
+            } => {
+                out.insert(Capability::TemporaryPowerToughnessV1);
+            }
+            SetExpr::Matching { .. } => {
+                out.insert(Capability::BoardWipesV1);
+            }
+            _ => {}
+        },
+        // CR 613.1f: the source's own keyword grant.
+        Verb::ModifyUntil {
+            what: SetExpr::One {
+                object: Ref::Source,
+            },
+            change: Change::AddKeywords { .. },
+            ..
+        } => {
+            out.insert(Capability::ActivatedSourceKeywordGrantV1);
+        }
+        // CR 701.17a, 107.3.
+        Verb::Mill { amount, .. } => {
+            out.insert(if amount.is_announced_x() {
+                Capability::AnnouncedXEffectsV1
+            } else {
+                Capability::FixedMillProgramV1
+            });
+        }
+        // CR 701.9: each recipient names its reviewed surface. The
+        // controller's discard is named by its complete program
+        // (`Definition::requirements`).
+        Verb::Discard { player, random, .. } => match player {
+            PlayerExpr::EachPlayer | PlayerExpr::EachOpponent => {
+                out.insert(Capability::GroupHandDiscardV1);
+            }
+            _ if *random => {
+                out.insert(Capability::RandomPlayerDiscardV1);
+            }
+            PlayerExpr::Is {
+                who: Ref::Target { .. },
+            } => {
+                out.insert(Capability::TargetPlayerDiscardV1);
+            }
+            PlayerExpr::Is {
+                who: Ref::EventPlayer { .. },
+            } => {
+                out.insert(Capability::EventPlayerDiscardV1);
+            }
+            _ => {}
+        },
+        // CR 701.21a: "each player" shares the reviewed wipe surface and
+        // "each opponent" the reviewed group sacrifice surface.
+        Verb::Sacrifice { player, .. } => {
+            out.insert(match player {
+                PlayerExpr::EachPlayer => Capability::BoardWipesV1,
+                PlayerExpr::EachOpponent => Capability::SacrificeV1,
+                PlayerExpr::Is {
+                    who: Ref::Target { .. },
+                } => Capability::TargetPlayerSacrificeCreatureV1,
+                _ => Capability::EventPlayerSacrificeV1,
+            });
+        }
         _ => {}
     }
+}
+
+/// CR 121.2: a draw of exactly one card by one player is a single draw.
+/// Every other draw is performed as a counted sequence of single draws.
+pub fn single_draw(player: &PlayerExpr, amount: &Amount) -> bool {
+    matches!(player, PlayerExpr::Is { .. }) && amount.as_fixed() == Some(&Quantity::from(1))
 }
 
 /// The capabilities a node derives, independent of where it resolves.
 pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
     let mut out = BTreeSet::new();
-    visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
+    if drain(node).is_some() {
+        out.extend(DRAIN_CAPABILITIES);
+    } else {
+        visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
+    }
     out
+}
+
+/// The drain pair names its own reviewed surface instead of the group life
+/// executor's (CR 119.3).
+const DRAIN_CAPABILITIES: [Capability; 3] = [
+    Capability::OpponentLifeDrainV1,
+    Capability::LifeLossV1,
+    Capability::LifeGainV1,
+];
+
+/// CR 119.3, 608.2c: "each opponent loses N life. You gain life equal to the
+/// life lost this way." Returns N when `node` is exactly that pair: one
+/// simultaneous loss, then one gain of the total actually lost.
+pub fn drain(node: &Node) -> Option<&Amount> {
+    let Node::Seq(steps) = node else {
+        return None;
+    };
+    match steps.as_slice() {
+        [
+            Node::Do(Verb::LoseLife {
+                player: PlayerExpr::EachOpponent,
+                amount,
+            }),
+            Node::Do(Verb::GainLife {
+                player,
+                amount:
+                    Amount::Var {
+                        of:
+                            Ref::StepResult {
+                                step: 0,
+                                role: StepRole::Amount,
+                            },
+                    },
+            }),
+        ] if player.is_you() => Some(amount),
+        _ => None,
+    }
 }
 
 /// Calls `visit` for every verb of a node, in written order.
@@ -1845,8 +2560,22 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
         TriggerCondition::SpellCast { .. } => &[EventPlayerRole::Caster],
         // CR 500: the player whose step began.
         TriggerCondition::StepBegan { .. } => &[EventPlayerRole::ActivePlayer],
+        // CR 605.1a, 106.12: the player who activated the mana ability.
+        TriggerCondition::ManaTapped { .. } => &[EventPlayerRole::ActivatingPlayer],
         _ => &[],
     }
+}
+
+/// True when `event` supplies the event player in `role` (CR 603.2). A
+/// damage event's damaged player is bound only by the actions that read it,
+/// so it is not the role lowerers of "that player" choose.
+fn event_supplies(event: &TriggerCondition, role: EventPlayerRole) -> bool {
+    event_player_roles(event).contains(&role)
+        || (role == EventPlayerRole::DamagedPlayer
+            && matches!(
+                event,
+                TriggerCondition::DamageDealt { .. } | TriggerCondition::EquippedCombatDamage
+            ))
 }
 
 /// The event-player role an event supplies, for lowerers of "that player".
@@ -1912,6 +2641,26 @@ macro_rules! target_object {
     ($slot:pat) => {
         $crate::kir::SetExpr::One {
             object: $crate::kir::Ref::Target { slot: $slot },
+        }
+    };
+}
+
+/// Pattern for the exact source object.
+#[macro_export]
+macro_rules! source_object {
+    () => {
+        $crate::kir::SetExpr::One {
+            object: $crate::kir::Ref::Source,
+        }
+    };
+}
+
+/// Pattern for the announced X (CR 107.3).
+#[macro_export]
+macro_rules! announced_x {
+    () => {
+        $crate::kir::Amount::Var {
+            of: $crate::kir::Ref::AnnouncedX,
         }
     };
 }
@@ -2061,8 +2810,93 @@ mod tests {
         assert!(matches!(check(&node, &spell(&[])), Err(KirError::Scope(_))));
         let mut with_x = spell(&[]);
         with_x.announced_x = true;
-        // In scope and well typed; the computed life amount has no cell yet.
-        assert!(matches!(check(&node, &with_x), Err(KirError::Unaudited(_))));
+        let requirements = check(&node, &with_x).unwrap();
+        assert!(requirements.announced_x);
+        // CR 107.3: X is the amount for the controller or one announced
+        // player; a group or event player has no audited X cell.
+        let targets = player_target();
+        let mut targeted = spell(&targets);
+        targeted.announced_x = true;
+        let x = |player| {
+            Node::Do(Verb::LoseLife {
+                player,
+                amount: Amount::announced_x(),
+            })
+        };
+        check(&x(PlayerExpr::target(0)), &targeted).unwrap();
+        assert!(matches!(
+            check(&x(PlayerExpr::EachOpponent), &targeted),
+            Err(KirError::Unaudited(_))
+        ));
+        // Any other computed amount stays unaudited.
+        let counted = gain(
+            PlayerExpr::you(Context::Spell),
+            Amount::Count {
+                set: SetExpr::battlefield(Pred::default()),
+            },
+        );
+        assert!(matches!(
+            check(&counted, &with_x),
+            Err(KirError::Unaudited(_))
+        ));
+    }
+
+    #[test]
+    fn the_drain_pair_is_the_one_audited_sequence() {
+        let pair = |amount| Node::drain(Context::Spell, amount);
+        let requirements = check(&pair(Amount::fixed(2)), &spell(&[])).unwrap();
+        assert_eq!(
+            requirements.capabilities,
+            BTreeSet::from([
+                Capability::OpponentLifeDrainV1,
+                Capability::LifeLossV1,
+                Capability::LifeGainV1
+            ])
+        );
+        assert_eq!(
+            node_capabilities(&pair(Amount::fixed(2))),
+            requirements.capabilities
+        );
+        assert_eq!(drain(&pair(Amount::fixed(2))), Some(&Amount::fixed(2)));
+        // CR 119.3: a fixed drain is positive; X needs an announced X.
+        assert!(matches!(
+            check(&pair(Amount::fixed(0)), &spell(&[])),
+            Err(KirError::Type(_))
+        ));
+        assert!(matches!(
+            check(&pair(Amount::announced_x()), &spell(&[])),
+            Err(KirError::Scope(_))
+        ));
+        let mut with_x = spell(&[]);
+        with_x.announced_x = true;
+        assert!(
+            check(&pair(Amount::announced_x()), &with_x)
+                .unwrap()
+                .announced_x
+        );
+        // "You" must be the role of the resolving context (CR 109.5).
+        assert!(matches!(
+            check(
+                &Node::drain(Context::Triggered, Amount::fixed(1)),
+                &spell(&[])
+            ),
+            Err(KirError::Scope(_))
+        ));
+        // Every other sequence is scope-checked and then unaudited.
+        let Node::Seq(steps) = pair(Amount::fixed(2)) else {
+            unreachable!()
+        };
+        for other in [
+            Node::Seq(vec![steps[0].clone()]),
+            Node::Seq(vec![steps[0].clone(), steps[0].clone()]),
+            Node::Seq(vec![steps[0].clone(), steps[1].clone(), steps[0].clone()]),
+        ] {
+            assert_eq!(drain(&other), None);
+            assert!(matches!(
+                check(&other, &spell(&[])),
+                Err(KirError::Unaudited(_))
+            ));
+        }
     }
 
     #[test]
@@ -2274,9 +3108,20 @@ mod tests {
         };
         let moved = |what, to| Node::Do(Verb::Move { what, to });
         let env = spell(&[]);
+        // CR 701.8: destroying every creature names the creature
+        // destruction surface; every other board-wide set, the wipe surface.
         let requirements = check(&destroy(creatures.clone(), false), &env).unwrap();
         assert_eq!(
             requirements.capabilities,
+            BTreeSet::from([Capability::DestroyCreatureV1])
+        );
+        let artifacts = Pred(vec![Atom::Type {
+            kind: CardKind::Artifact,
+        }]);
+        assert_eq!(
+            check(&destroy(artifacts, false), &env)
+                .unwrap()
+                .capabilities,
             BTreeSet::from([Capability::BoardWipesV1])
         );
         for to in [Destination::Exile, Destination::OwnerHand] {
@@ -2360,6 +3205,22 @@ mod tests {
             check(&yours(Context::Triggered), &env),
             Err(KirError::Scope(_))
         ));
+        // Creature pump sets admit creature predicates regardless of conjunct order.
+        let reordered_pump = Node::Do(Verb::ModifyUntil {
+            what: SetExpr::battlefield(Pred(vec![
+                Atom::Color { color: Color::B },
+                Atom::Type {
+                    kind: CardKind::Creature,
+                },
+            ])),
+            layer: Layer::PowerToughnessModify,
+            change: Change::PowerToughness {
+                power: Amount::fixed(1),
+                toughness: Amount::fixed(1),
+            },
+            until: Until::EndOfTurn,
+        });
+        check(&reordered_pump, &env).unwrap();
         assert!(
             Pred(vec![Atom::ControlledBy {
                 player: PlayerExpr::you(Context::Spell)
@@ -2403,6 +3264,43 @@ mod tests {
         assert_eq!(
             caps(&nested),
             BTreeSet::from([Capability::LifeGainV1, Capability::LifeLossV1])
+        );
+    }
+
+    #[test]
+    fn unit_operands_reject_unknown_fields() {
+        // A unit operand's only field is its tag.
+        assert!(serde_json::from_value::<Destination>(serde_json::json!({"to":"exile"})).is_ok());
+        assert!(
+            serde_json::from_value::<Destination>(serde_json::json!({"to":"exile","x":1})).is_err()
+        );
+        assert!(serde_json::from_value::<Ref>(serde_json::json!({"ref":"source","x":1})).is_err());
+        assert!(
+            serde_json::from_value::<PlayerExpr>(
+                serde_json::json!({"player":"each_opponent","x":1})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ZoneExpr>(serde_json::json!({"zone":"battlefield","x":1}))
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<Atom>(serde_json::json!({"atom":"tapped","x":1})).is_err()
+        );
+        assert!(
+            serde_json::from_value::<CounterKind>(
+                serde_json::json!({"counter":"plus_one_plus_one","x":1})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<DelayedEvent>(serde_json::json!({"at":"next_end_step","x":1}))
+                .is_err()
+        );
+        assert_eq!(
+            serde_json::from_value::<Ref>(serde_json::json!({"ref":"announced_x"})).unwrap(),
+            Ref::AnnouncedX
         );
     }
 

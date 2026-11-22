@@ -87,11 +87,7 @@ impl BoundArtifactMode {
             let (ast, instruction) = if text == "Draw a card." {
                 (
                     json!({"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}),
-                    Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: block,
-                    },
+                    Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), block),
                 )
             } else if let Some(n) = text
                 .strip_prefix("You gain ")
@@ -142,11 +138,13 @@ impl BoundArtifactMode {
                 });
                 (
                     json!({"effect":"damage","source":{"ref":"self"},"amount":{"amount":"fixed","value":n},"to":to}),
-                    Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: i64::from(n).into(),
-                        source_block: block,
-                    },
+                    Instruction::damage_target(
+                        0,
+                        kir::Amount::Fixed {
+                            value: i64::from(n).into(),
+                        },
+                        block,
+                    ),
                 )
             } else {
                 let (p, t) = text
@@ -167,13 +165,12 @@ impl BoundArtifactMode {
                 (
                     json!({"effect":"pump","what":{"ref":"target","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1},"selectionId":selection},
                     "power":p,"toughness":t,"duration":{"duration":"end-of-turn"}}),
-                    Instruction::ModifyPowerToughness {
-                        target_slot: 0,
-                        power: power.into(),
-                        toughness: toughness.into(),
-                        duration: Duration::UntilEndOfTurn,
-                        source_block: block,
-                    },
+                    Instruction::pump(
+                        kir::SetExpr::target(0),
+                        power.into(),
+                        toughness.into(),
+                        block,
+                    ),
                 )
             };
             child.instructions.push(instruction);
@@ -233,7 +230,16 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
                 m.program.instructions.iter().any(|i| {
                     matches!(
                         i,
-                        kernel!(GainLife { .. }) | Instruction::ModifyPowerToughness { .. }
+                        kernel!(GainLife { .. })
+                            | kernel!(ModifyUntil {
+                                what: target_object!(_),
+                                change: kir::Change::PowerToughness {
+                                    power: _,
+                                    toughness: _
+                                },
+                                until: kir::Until::EndOfTurn,
+                                ..
+                            })
                     )
                 })
             })

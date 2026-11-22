@@ -56,11 +56,9 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
         });
     } else {
         let instruction = match kind {
-            PredefinedToken::Clue => Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            },
+            PredefinedToken::Clue => {
+                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0)
+            }
             PredefinedToken::Food => Instruction::act(
                 Verb::GainLife {
                     player: PlayerExpr::you(Context::Activated),
@@ -92,7 +90,7 @@ pub(super) fn can_create(source: &Definition, kind: PredefinedToken) -> bool {
     let program = |p: &SpellProgram| {
         p.instructions
             .iter()
-            .any(|i| matches!(i,Instruction::CreatePredefinedTokens{kind:k,..} if *k==kind))
+            .any(|i| matches!(i,kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Predefined { kind: k }, .. }) if *k==kind))
     };
     // CR 111.10: a resolving spell may be the creating recipe as well.
     source.triggered.iter().any(|a| program(&a.program))

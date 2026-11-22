@@ -25,7 +25,7 @@ pub(super) fn validate_program(p: &SpellProgram) -> Result<(), String> {
         || p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
         || !matches!(p.targets.as_slice(), [t] if t.slot == 0 && t.domain == TargetDomain::BattlefieldPermanent)
-        || !matches!(p.instructions.as_slice(), [Instruction::DestroyPermanent { target_slot: 0, optional: false, .. },
+        || !matches!(p.instructions.as_slice(), [kernel!(Destroy { what: target_object!(0), regeneration_forbidden: _ }),
             Instruction::DrawCardsIfAdditionalCost { cost_identity, count, .. }]
             if *cost_identity == cost.identity && count > &Quantity::zero())
     {
@@ -95,7 +95,7 @@ pub(super) fn schema(schema: &mut serde_json::Value) {
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"domain":{"const":"battlefield_permanent"}}}},
             "instructions":{"minItems":2,"maxItems":2,"prefixItems":[
-                {"properties":{"op":{"const":"destroy_permanent"},"optional":{"const":false},"target_slot":{"const":0}}},
+                instruction_schema::target_destroy(Some(0), None),
                 {"properties":{"op":{"const":"draw_cards_if_additional_cost"},"count":{"pattern":"^[1-9][0-9]*$"},"cost_identity":{"pattern":"^card:[0-9a-f-]+/faces/0/abilities/[0-9]+/keywords/0#keyword$"}}}
             ]}
         }},

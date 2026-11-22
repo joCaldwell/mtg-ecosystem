@@ -3,7 +3,7 @@ mod builders;
 mod mana_combination;
 pub use mana_combination::{MANA_COMBINATION_COLORS, validate_mana_combination};
 pub mod commander_modal_keyword;
-pub use commander_modal_keyword::akromas_will_program;
+pub use commander_modal_keyword::commander_choose_both;
 mod bestow;
 pub use bestow::{BestowCastPlan, BestowForm, bestow_alternative, canonical_bestow_program};
 mod cascade_land_entry;
@@ -73,7 +73,7 @@ mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 mod controlled_creature_spell_copy;
-mod creative_technique;
+pub mod demonstrate;
 pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
@@ -693,6 +693,20 @@ pub enum ObjectSet {
     NonflyingCreatures,
 }
 impl ObjectSet {
+    /// True when `what` is this set's kernel set in some context: "you" is
+    /// the spell's or the ability's controller (CR 109.5).
+    pub fn denotes(&self, what: &SetExpr) -> bool {
+        [Context::Spell, Context::Activated]
+            .into_iter()
+            .any(|context| *what == self.kernel(context))
+    }
+    /// The kernel set of an end-of-turn set pump (CR 613.4c).
+    pub fn pumped(instruction: &Instruction) -> Option<&SetExpr> {
+        instruction
+            .pumped()
+            .map(|(what, ..)| what)
+            .filter(|what| matches!(what, SetExpr::Matching { .. }))
+    }
     /// The kernel set this closed set denotes for "you" in `context`. Kernel
     /// verbs take a general filter; the instructions that still carry an
     /// `ObjectSet` name one of these.
@@ -730,51 +744,21 @@ impl ObjectSet {
         SetExpr::battlefield(kir::Pred(atoms))
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
-pub enum WipeAmount {
-    Fixed {
-        value: Quantity,
-    },
-    AnnouncedX,
-    CreatureCount,
-    /// Sum of the controller's other completed casts this turn, at resolution.
-    #[serde(deserialize_with = "cast_mana_value_sweep::empty_amount")]
-    OtherCastsManaValue,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
-pub enum OpponentDrainAmount {
-    Fixed {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        value: Quantity,
-    },
-    AnnouncedX,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
-pub enum RandomDiscardCount {
-    Fixed {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        value: Quantity,
-    },
-    AnnouncedX,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DrawEachCount {
-    Fixed {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        value: Quantity,
-    },
-    AnnouncedX,
-}
 /// The affected seats are evaluated relative to the invocation controller at resolution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum GroupDiscardScope {
     EachPlayer,
     EachOpponent,
+}
+impl GroupDiscardScope {
+    /// The kernel players the scope denotes (CR 102.3).
+    pub fn player(self) -> kir::PlayerExpr {
+        match self {
+            Self::EachPlayer => kir::PlayerExpr::EachPlayer,
+            Self::EachOpponent => kir::PlayerExpr::EachOpponent,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -811,6 +795,18 @@ pub enum LifeRecipient {
     Target {
         target_slot: u32,
     },
+}
+impl LifeRecipient {
+    /// The kernel player this recipient denotes for "you" in `context`. An
+    /// event player needs the role its event supplies and is not converted.
+    pub fn kernel(&self, context: Context) -> Option<PlayerExpr> {
+        match self {
+            Self::Controller => Some(PlayerExpr::you(context)),
+            Self::Target { target_slot } => Some(PlayerExpr::target(*target_slot)),
+            Self::EachOpponent => Some(PlayerExpr::EachOpponent),
+            Self::EventPlayer => None,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -989,10 +985,6 @@ pub enum Instruction {
     Demonstrate {
         source_block: u32,
     },
-    DrawControllerCards {
-        count: Quantity,
-        source_block: u32,
-    },
     GrantLandPlaysThisTurn {
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         count: Quantity,
@@ -1017,14 +1009,6 @@ pub enum Instruction {
         #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
         amount: Quantity,
         remainder: LibraryRemainder,
-        source_block: u32,
-    },
-    /// CR 701.22: only the invocation controller looks and orders the prefix.
-    MillCards {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        recipient: Option<LifeRecipient>,
-        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
-        count: Quantity,
         source_block: u32,
     },
     /// CR 701.22/701.25: the invocation controller looks and partitions the prefix.
@@ -1057,25 +1041,10 @@ pub enum Instruction {
     RemoveOpponentNonlandIndestructible {
         source_block: u32,
     },
-    PumpSet {
-        set: ObjectSet,
-        power: Quantity,
-        toughness: Quantity,
-        source_block: u32,
-    },
-    DamageSet {
-        sets: Vec<ObjectSet>,
-        each_player: bool,
-        amount: WipeAmount,
-        source_block: u32,
-    },
     GainLifeDestroyed {
         source_block: u32,
     },
     ExileDamagedThisTurn {
-        source_block: u32,
-    },
-    EachPlayerSacrifice {
         source_block: u32,
     },
     LoseLifeDeathController {
@@ -1089,37 +1058,8 @@ pub enum Instruction {
         optional: bool,
         source_block: u32,
     },
-    EachOpponentSacrifice {
-        source_block: u32,
-    },
     /// Create an until-cleanup destroy replacement for the exact invocation source (CR 701.19a).
     RegenerateSource {
-        source_block: u32,
-    },
-    ModifySourcePowerToughness {
-        power: Quantity,
-        toughness: Quantity,
-        duration: Duration,
-        source_block: u32,
-    },
-    DestroyPermanent {
-        target_slot: u32,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        optional: bool,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        regeneration_forbidden: bool,
-        source_block: u32,
-    },
-    ExilePermanent {
-        target_slot: u32,
-        source_block: u32,
-    },
-    UntapPermanent {
-        target_slot: u32,
-        source_block: u32,
-    },
-    TapPermanent {
-        target_slot: u32,
         source_block: u32,
     },
     ChangeLifeFromTarget {
@@ -1144,13 +1084,6 @@ pub enum Instruction {
         source_block: u32,
     },
     ReturnAuraFromGraveyard {
-        source_block: u32,
-    },
-    DestroyTargetCreature {
-        target_slot: u32,
-        source_block: u32,
-    },
-    DestroyAllCreatures {
         source_block: u32,
     },
     ReturnOwnGraveyardCreatureToBattlefield {
@@ -1212,17 +1145,6 @@ pub enum Instruction {
         quantity: ManaResolutionQuantity,
         source_block: u32,
     },
-    CreatePredefinedTokens {
-        #[schemars(range(min = 1))]
-        count: u32,
-        kind: PredefinedToken,
-        source_block: u32,
-    },
-    CreateCreatureTokens {
-        count: u32,
-        token: CreatureToken,
-        source_block: u32,
-    },
     PutSourcePlusOneCountersForCastColors {
         source_block: u32,
     },
@@ -1241,11 +1163,6 @@ pub enum Instruction {
     Proliferate {
         source_block: u32,
     },
-    PutPlusOneCounters {
-        on: CounterRecipient,
-        amount: Quantity,
-        source_block: u32,
-    },
     /// CR 611.2c, 613.5–6: one captured set receives all parts of this
     /// continuous effect, including an optional fixed signed P/T modifier.
     GrantKeywordsSet {
@@ -1254,11 +1171,6 @@ pub enum Instruction {
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         duration: Duration,
-        source_block: u32,
-    },
-    /// CR 400.7, 611.2c: capture the activating incarnation until cleanup.
-    GrantSourceKeywords {
-        keywords: Vec<KeywordAbility>,
         source_block: u32,
     },
     /// CR 611.2c, 613.5–6: all properties belong to one captured effect.
@@ -1275,13 +1187,6 @@ pub enum Instruction {
         restriction: CreatureRestriction,
         source_block: u32,
     },
-    ModifyPowerToughness {
-        target_slot: u32,
-        power: Quantity,
-        toughness: Quantity,
-        duration: Duration,
-        source_block: u32,
-    },
     PreventCombatDamage {
         duration: Duration,
         source_block: u32,
@@ -1293,17 +1198,9 @@ pub enum Instruction {
         duration: Duration,
         source_block: u32,
     },
-    ExileTargetGraveyard {
-        target_slot: u32,
-        source_block: u32,
-    },
     ReturnEntryTargetCreature {
         target_slot: u32,
         optional: bool,
-        source_block: u32,
-    },
-    ReturnToOwnerHand {
-        target_slot: u32,
         source_block: u32,
     },
     MoveTriggeredSuccessor {
@@ -1312,23 +1209,10 @@ pub enum Instruction {
         position: LibraryPosition,
         source_block: u32,
     },
-    PutOnTopOwnerLibrary {
-        target_slot: u32,
-        source_block: u32,
-    },
     LoseGameTargetPlayer {
         #[schemars(range(max = 0))]
         target_slot: u32,
         #[schemars(range(min = 1, max = 1))]
-        source_block: u32,
-    },
-    TargetPlayerSacrificeCreature {
-        target_slot: u32,
-        source_block: u32,
-    },
-    /// One creature chosen by the frozen damage recipient (CR 701.21a).
-    SacrificeCreature {
-        recipient: ActionRecipient,
         source_block: u32,
     },
     /// CR 702.33d/e, 121.2: declared kicker gates a fixed quantity of
@@ -1338,51 +1222,11 @@ pub enum Instruction {
         count: Quantity,
         source_block: u32,
     },
-    DrawCards {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        recipient: Option<LifeRecipient>,
-        count: Quantity,
-        source_block: u32,
-    },
-    /// CR 121.2c: each player finishes their draws before the next player in turn order.
-    DrawEachPlayer {
-        count: DrawEachCount,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
-    DrawAnnouncedX {
-        #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
-        #[schemars(with = "LifeRecipient")]
-        recipient: LifeRecipient,
-        source_block: u32,
-    },
-    DealDamageAnnouncedX {
-        #[schemars(range(max = 0))]
-        target_slot: u32,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
-    MillAnnouncedX {
-        #[schemars(range(max = 0))]
-        target_slot: u32,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
-    ChangeLifeAnnouncedX {
-        #[serde(deserialize_with = "announced_x_draw::deserialize_recipient")]
-        #[schemars(with = "LifeRecipient")]
-        recipient: LifeRecipient,
-        gain: bool,
-        source_block: u32,
-    },
     /// CR 118.12a and 603.5: the event caster may pay before the controller may draw.
     OptionalDrawUnlessCasterPays {
         #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
         generic: Quantity,
         #[schemars(range(max = 0))]
-        source_block: u32,
-    },
-    UntapControllerLands {
         source_block: u32,
     },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
@@ -1395,34 +1239,6 @@ pub enum Instruction {
     },
     /// Draw once per unit of the triggering actual damage amount (CR 121.2).
     DrawDamageAmount {
-        source_block: u32,
-    },
-    DiscardPlayerSet {
-        scope: GroupDiscardScope,
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        count: Quantity,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
-    DiscardTargetPlayer {
-        #[schemars(range(max = 0))]
-        target_slot: u32,
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        count: Quantity,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
-    DiscardTargetPlayerAtRandom {
-        #[schemars(range(max = 0))]
-        target_slot: u32,
-        count: RandomDiscardCount,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
-    DiscardCards {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        recipient: Option<ActionRecipient>,
-        count: Quantity,
         source_block: u32,
     },
     /// CR 608.2b/c/h, 701.6 and 701.17. Mill the target spell's controller
@@ -1456,30 +1272,39 @@ pub enum Instruction {
         #[schemars(range(max = 0))]
         source_block: u32,
     },
-    /// Noncombat damage from this invocation's physical source (CR 120.2b).
-    DealDamage {
-        target_slot: u32,
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
+}
+/// The parts of a board-wide damage instruction ([`Instruction::set_damage`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SetDamage<'a> {
+    pub sets: Vec<&'a SetExpr>,
+    pub each_player: bool,
+    pub amount: &'a kir::Amount,
+    pub source_block: u32,
+}
+impl SetDamage<'_> {
+    /// The board-wide damage instruction of these parts.
+    pub fn instruction(
+        sets: Vec<SetExpr>,
+        each_player: bool,
+        amount: kir::Amount,
         source_block: u32,
-    },
-    /// Untargeted noncombat damage from the source to the trigger's controller.
-    DealDamageToController {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
-        source_block: u32,
-    },
-    DealDamageToManaActivator {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
-        source_block: u32,
-    },
-    /// Each opponent loses the amount, then the controller gains the total life actually lost.
-    DrainOpponents {
-        amount: OpponentDrainAmount,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
+    ) -> Instruction {
+        let mut parts: Vec<_> = sets
+            .into_iter()
+            .map(|set| kir::DamageTo::Objects { set })
+            .collect();
+        if each_player {
+            parts.push(kir::DamageTo::Players {
+                players: kir::PlayerExpr::EachPlayer,
+            });
+        }
+        let to = if parts.len() == 1 {
+            parts.pop().unwrap()
+        } else {
+            kir::DamageTo::All { parts }
+        };
+        Instruction::damage(to, amount, source_block)
+    }
 }
 impl Instruction {
     /// One kernel verb as an instruction.
@@ -1487,6 +1312,388 @@ impl Instruction {
         Self::Kernel {
             node: kir::Node::Do(verb),
             source_block,
+        }
+    }
+    /// CR 119.3: each opponent loses `amount`, then "you" in `context` gain
+    /// the total life actually lost.
+    pub fn drain(context: kir::Context, amount: kir::Amount, source_block: u32) -> Self {
+        Self::Kernel {
+            node: kir::Node::drain(context, amount),
+            source_block,
+        }
+    }
+    /// CR 121.1: `player` draws `count` cards.
+    pub fn draw(player: kir::PlayerExpr, count: Quantity, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Draw {
+                player,
+                amount: kir::Amount::Fixed { value: count },
+            },
+            source_block,
+        )
+    }
+    /// The player, count and source block of a fixed draw by one player.
+    pub fn fixed_draw(&self) -> Option<(&kir::PlayerExpr, &Quantity, u32)> {
+        match self {
+            kernel!(Draw { player: player @ kir::PlayerExpr::Is { .. }, amount: fixed!(count) } @ block) => {
+                Some((player, count, *block))
+            }
+            _ => None,
+        }
+    }
+    /// CR 121.1: one card drawn by one player, the single draw.
+    pub fn single_draw(&self) -> bool {
+        self.fixed_draw()
+            .is_some_and(|(_, count, _)| *count == Quantity::from(1))
+    }
+    /// A fixed draw that is not a counted controller draw: one card for the
+    /// controller, or any fixed count for an announced or event player.
+    pub fn uncounted_draw(&self) -> bool {
+        self.fixed_draw()
+            .is_some_and(|(player, count, _)| !player.is_you() || *count == Quantity::from(1))
+    }
+    /// Any fixed draw by the controller, one card included (CR 121.1-121.2).
+    /// `Draw(you, Fixed(1))` is the one canonical single draw; families that
+    /// also admit counts above one read it through this accessor.
+    pub fn fixed_controller_draw(&self) -> Option<(&Quantity, u32)> {
+        self.fixed_draw()
+            .filter(|(player, ..)| player.is_you())
+            .map(|(_, count, block)| (count, block))
+    }
+    /// A fixed controller draw of any count other than one: the counted
+    /// controller draw of the hand-program families (CR 121.2).
+    pub fn counted_controller_draw(&self) -> Option<(&Quantity, u32)> {
+        self.fixed_draw()
+            .filter(|(player, count, _)| player.is_you() && **count != Quantity::from(1))
+            .map(|(_, count, block)| (count, block))
+    }
+    /// CR 111.1: "you" in `context` create `count` tokens of `token`.
+    pub fn create_tokens(
+        context: kir::Context,
+        count: u32,
+        token: kir::TokenSpec,
+        source_block: u32,
+    ) -> Self {
+        Self::act(
+            kir::Verb::CreateTokens {
+                controller: kir::PlayerExpr::you(context),
+                count: kir::Amount::fixed(i64::from(count)),
+                token,
+            },
+            source_block,
+        )
+    }
+    /// The recipe and count of a kernel token creation.
+    pub fn created_tokens(&self) -> Option<(&kir::TokenSpec, u32)> {
+        match self {
+            kernel!(CreateTokens {
+                count: fixed!(count),
+                token,
+                ..
+            }) => Some((token, count.to_u32()?)),
+            _ => None,
+        }
+    }
+    /// The creature recipe of a kernel creature-token creation.
+    pub fn creature_token(&self) -> Option<&CreatureToken> {
+        match self.created_tokens()? {
+            (kir::TokenSpec::Creature { spec }, _) => Some(spec),
+            _ => None,
+        }
+    }
+    /// CR 122.1: put `amount` +1/+1 counters on `on`.
+    pub fn plus_one_counters(on: kir::SetExpr, amount: Quantity, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::PutCounters {
+                on,
+                counter: kir::CounterKind::PlusOnePlusOne,
+                amount: kir::Amount::Fixed { value: amount },
+            },
+            source_block,
+        )
+    }
+    /// CR 611.2c, 613.4c, 514.2: `what` gets +`power`/+`toughness` until end
+    /// of turn.
+    pub fn pump(
+        what: kir::SetExpr,
+        power: Quantity,
+        toughness: Quantity,
+        source_block: u32,
+    ) -> Self {
+        Self::act(
+            kir::Verb::ModifyUntil {
+                what,
+                layer: kir::Layer::PowerToughnessModify,
+                change: kir::Change::PowerToughness {
+                    power: kir::Amount::Fixed { value: power },
+                    toughness: kir::Amount::Fixed { value: toughness },
+                },
+                until: kir::Until::EndOfTurn,
+            },
+            source_block,
+        )
+    }
+    /// The set, power and toughness of a kernel end-of-turn pump.
+    pub fn pumped(&self) -> Option<(&kir::SetExpr, &Quantity, &Quantity, u32)> {
+        match self {
+            kernel!(ModifyUntil {
+                what,
+                change: kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) },
+                until: kir::Until::EndOfTurn,
+                ..
+            } @ block) => Some((what, power, toughness, *block)),
+            _ => None,
+        }
+    }
+    /// CR 611.2c, 613.1f, 514.2: the source gains `keywords` until end of
+    /// turn.
+    pub fn grant_source_keywords(keywords: Vec<KeywordAbility>, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::ModifyUntil {
+                what: kir::SetExpr::source(),
+                layer: kir::Layer::Ability,
+                change: kir::Change::AddKeywords { keywords },
+                until: kir::Until::EndOfTurn,
+            },
+            source_block,
+        )
+    }
+    /// The keywords the source grants itself until end of turn.
+    pub fn source_keywords(&self) -> Option<&[KeywordAbility]> {
+        match self {
+            kernel!(ModifyUntil {
+                what: source_object!(),
+                change: kir::Change::AddKeywords { keywords },
+                ..
+            }) => Some(keywords),
+            _ => None,
+        }
+    }
+    /// CR 701.17a: `player` mills `amount` cards.
+    pub fn mill(player: kir::PlayerExpr, amount: kir::Amount, source_block: u32) -> Self {
+        Self::act(kir::Verb::Mill { player, amount }, source_block)
+    }
+    /// CR 701.9a-b: `player` discards `amount` cards, at random when `random`.
+    pub fn discard(
+        player: kir::PlayerExpr,
+        amount: kir::Amount,
+        random: bool,
+        source_block: u32,
+    ) -> Self {
+        Self::act(
+            kir::Verb::Discard {
+                player,
+                amount,
+                random,
+            },
+            source_block,
+        )
+    }
+    /// CR 701.21a: `player` sacrifices one creature.
+    pub fn sacrifice_creature(player: kir::PlayerExpr, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Sacrifice {
+                player,
+                count: kir::Amount::fixed(1),
+                filter: kir::Pred::creatures(),
+            },
+            source_block,
+        )
+    }
+    /// The player, count and source block of a chosen fixed discard by one
+    /// player: the controller, the damaged player or one announced player.
+    pub fn chosen_discard(&self) -> Option<(&kir::PlayerExpr, &Quantity, u32)> {
+        match self {
+            kernel!(Discard { player: player @ kir::PlayerExpr::Is { .. }, amount: fixed!(count), random: false } @ block) => {
+                Some((player, count, *block))
+            }
+            _ => None,
+        }
+    }
+    /// The count of the controller's own fixed discard.
+    pub fn controller_discard(&self) -> Option<&Quantity> {
+        self.chosen_discard()
+            .filter(|(player, ..)| player.is_you())
+            .map(|(_, count, _)| count)
+    }
+    /// CR 701.8: destroy the target of `slot` (CR 701.19c when
+    /// `regeneration_forbidden`).
+    pub fn destroy_target(slot: u32, regeneration_forbidden: bool, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Destroy {
+                what: kir::SetExpr::target(slot),
+                regeneration_forbidden,
+            },
+            source_block,
+        )
+    }
+    /// CR 608.2d: "you may destroy" the target of `slot`.
+    pub fn optional_destroy_target(context: kir::Context, slot: u32, source_block: u32) -> Self {
+        Self::Kernel {
+            node: kir::Node::Optional {
+                chooser: kir::PlayerExpr::you(context),
+                node: Box::new(kir::Node::Do(kir::Verb::Destroy {
+                    what: kir::SetExpr::target(slot),
+                    regeneration_forbidden: false,
+                })),
+            },
+            source_block,
+        }
+    }
+    /// The slot, optionality, regeneration prohibition and block of a destroy
+    /// of one announced target.
+    pub fn target_destroy(&self) -> Option<(u32, bool, bool, u32)> {
+        let Self::Kernel { node, source_block } = self else {
+            return None;
+        };
+        let (node, optional) = match node {
+            kir::Node::Optional { chooser, node } if chooser.is_you() => (&**node, true),
+            node => (node, false),
+        };
+        match node {
+            kir::Node::Do(kir::Verb::Destroy {
+                what: target_object!(slot),
+                regeneration_forbidden,
+            }) => Some((*slot, optional, *regeneration_forbidden, *source_block)),
+            _ => None,
+        }
+    }
+    /// CR 400.3: move the target of `slot` to `to`.
+    pub fn move_target(slot: u32, to: kir::Destination, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Move {
+                what: kir::SetExpr::target(slot),
+                to,
+            },
+            source_block,
+        )
+    }
+    /// CR 701.26a: tap the target of `slot`.
+    pub fn tap_target(slot: u32, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Tap {
+                what: kir::SetExpr::target(slot),
+            },
+            source_block,
+        )
+    }
+    /// CR 701.26b: untap the target of `slot`.
+    pub fn untap_target(slot: u32, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Untap {
+                what: kir::SetExpr::target(slot),
+            },
+            source_block,
+        )
+    }
+    /// CR 701.26b: untap every land "you" in `context` control.
+    pub fn untap_lands_you_control(context: kir::Context, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Untap {
+                what: kir::SetExpr::lands_you_control(context),
+            },
+            source_block,
+        )
+    }
+    /// CR 404.1: exile the graveyard of the target player of `slot`.
+    pub fn exile_target_graveyard(slot: u32, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Move {
+                what: kir::SetExpr::graveyard_of(kir::PlayerExpr::target(slot)),
+                to: kir::Destination::Exile,
+            },
+            source_block,
+        )
+    }
+    /// CR 701.8: destroy every creature.
+    pub fn destroy_all_creatures(source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Destroy {
+                what: kir::SetExpr::battlefield(kir::Pred::creatures()),
+                regeneration_forbidden: false,
+            },
+            source_block,
+        )
+    }
+    /// CR 120.2b: the resolving object's source deals `amount` damage `to`.
+    pub fn damage(to: kir::DamageTo, amount: kir::Amount, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Damage {
+                source: kir::Ref::Source,
+                to,
+                amount,
+            },
+            source_block,
+        )
+    }
+    /// CR 120.2b: damage to the target of `slot`.
+    pub fn damage_target(slot: u32, amount: kir::Amount, source_block: u32) -> Self {
+        Self::damage(
+            kir::DamageTo::Ref {
+                who: kir::Ref::Target { slot },
+            },
+            amount,
+            source_block,
+        )
+    }
+    /// The slot, amount and block of damage to one announced target.
+    pub fn directed_damage(&self) -> Option<(u32, &kir::Amount, u32)> {
+        match self {
+            kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot },
+                },
+                amount,
+                ..
+            } @ block) => Some((*slot, amount, *block)),
+            _ => None,
+        }
+    }
+    /// CR 608.2h: damage to every member of board-wide creature sets and,
+    /// optionally, each player.
+    pub fn set_damage(&self) -> Option<SetDamage<'_>> {
+        let kernel!(Damage { to, amount, .. } @ source_block) = self else {
+            return None;
+        };
+        let parts = match to {
+            kir::DamageTo::Ref { .. } => return None,
+            kir::DamageTo::All { parts } => parts.as_slice(),
+            part => std::slice::from_ref(part),
+        };
+        let mut damage = SetDamage {
+            sets: vec![],
+            each_player: false,
+            amount,
+            source_block: *source_block,
+        };
+        for part in parts {
+            match part {
+                kir::DamageTo::Objects { set } => damage.sets.push(set),
+                kir::DamageTo::Players {
+                    players: kir::PlayerExpr::EachPlayer,
+                } => damage.each_player = true,
+                _ => return None,
+            }
+        }
+        Some(damage)
+    }
+    /// CR 107.3, 119.3: `player` gains or loses the announced X.
+    pub fn announced_x_life(player: kir::PlayerExpr, gain: bool, source_block: u32) -> Self {
+        let amount = kir::Amount::announced_x();
+        Self::act(
+            if gain {
+                kir::Verb::GainLife { player, amount }
+            } else {
+                kir::Verb::LoseLife { player, amount }
+            },
+            source_block,
+        )
+    }
+    /// CR 119.3: the amount of an opponent drain pair ([`kir::drain`]).
+    pub fn drain_amount(&self) -> Option<&kir::Amount> {
+        match self {
+            Self::Kernel { node, .. } => kir::drain(node),
+            _ => None,
         }
     }
     /// The verb of a single-verb kernel instruction.
@@ -1527,43 +1734,30 @@ impl Instruction {
             | Self::SearchTypedLands { source_block, .. }
             | Self::PutSourcePlusOneCountersForCastColors { source_block, .. }
             | Self::DrawCardsIfAdditionalCost { source_block, .. } => *source_block,
-            Self::DrawControllerCards { source_block, .. }
-            | Self::GrantLandPlaysThisTurn { source_block, .. }
+            Self::GrantLandPlaysThisTurn { source_block, .. }
             | Self::PutHandOnLibrary { source_block, .. } => *source_block,
             Self::OrderLibraryTop { source_block, .. }
             | Self::ShufflePlayerGraveyard { source_block }
             | Self::OptionalShuffleLibrary { source_block }
             | Self::SelectLibraryCard { source_block, .. }
             | Self::Scry { source_block, .. }
-            | Self::Surveil { source_block, .. }
-            | Self::MillCards { source_block, .. } => *source_block,
+            | Self::Surveil { source_block, .. } => *source_block,
             Self::ExileResolvingSpell { source_block }
             | Self::ProtectControllerUntilNextTurn { source_block }
             | Self::FreezeControllerLifeUntilNextTurn { source_block }
             | Self::PhaseOutControllerPermanents { source_block }
             | Self::PhaseOutTargetPermanent { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
-            Self::PumpSet { source_block, .. } => *source_block,
-            Self::DamageSet { source_block, .. } => *source_block,
             Self::GainLifeDestroyed { source_block, .. } => *source_block,
             Self::ExileDamagedThisTurn { source_block, .. } => *source_block,
-            Self::EachPlayerSacrifice { source_block, .. } => *source_block,
             Self::LoseLifeDeathController { source_block, .. } => *source_block,
             Self::SacrificeDamage { source_block, .. } => *source_block,
-            Self::EachOpponentSacrifice { source_block, .. } => *source_block,
-            Self::ModifySourcePowerToughness { source_block, .. }
-            | Self::RegenerateSource { source_block } => *source_block,
-            Self::DestroyPermanent { source_block, .. } => *source_block,
-            Self::ExilePermanent { source_block, .. } => *source_block,
-            Self::UntapPermanent { source_block, .. } => *source_block,
-            Self::TapPermanent { source_block, .. } => *source_block,
+            Self::RegenerateSource { source_block } => *source_block,
             Self::ChangeLifeFromTarget { source_block, .. } => *source_block,
             Self::CreateTokensFor { source_block, .. } => *source_block,
             Self::DamageTargetController { source_block, .. } => *source_block,
             Self::AttachEquipment { source_block, .. } => *source_block,
             Self::ReturnAuraFromGraveyard { source_block, .. } => *source_block,
-            Self::DestroyTargetCreature { source_block, .. } => *source_block,
-            Self::DestroyAllCreatures { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
@@ -1571,51 +1765,26 @@ impl Instruction {
             | Self::SearchRecipientBasicLand { source_block, .. }
             | Self::SearchBasicLands { source_block, .. }
             | Self::FetchBasicLand { source_block, .. } => *source_block,
-            Self::CreateCreatureTokens { source_block, .. }
-            | Self::CreatePredefinedTokens { source_block, .. }
-            | Self::AddResolutionMana { source_block, .. } => *source_block,
+            Self::AddResolutionMana { source_block, .. } => *source_block,
             Self::DistributePlusOneCounters { source_block, .. }
             | Self::SetTargetColor { source_block, .. }
-            | Self::Proliferate { source_block }
-            | Self::PutPlusOneCounters { source_block, .. } => *source_block,
-            Self::GrantKeywords { source_block, .. }
-            | Self::GrantSourceKeywords { source_block, .. } => *source_block,
+            | Self::Proliferate { source_block } => *source_block,
+            Self::GrantKeywords { source_block, .. } => *source_block,
             Self::GrantKeywordsSet { source_block, .. } => *source_block,
-            Self::GrantCreatureRestriction { source_block, .. }
-            | Self::ModifyPowerToughness { source_block, .. } => *source_block,
+            Self::GrantCreatureRestriction { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
-            Self::ExileTargetGraveyard { source_block, .. }
-            | Self::ReturnEntryTargetCreature { source_block, .. }
-            | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
-            Self::MoveTriggeredSuccessor { source_block, .. }
-            | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
-            Self::LoseGameTargetPlayer { source_block, .. }
-            | Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
-            Self::SacrificeCreature { source_block, .. } => *source_block,
-            Self::DrawEachPlayer { source_block, .. }
-            | Self::DrawAnnouncedX { source_block, .. }
-            | Self::DealDamageAnnouncedX { source_block, .. }
-            | Self::MillAnnouncedX { source_block, .. }
-            | Self::ChangeLifeAnnouncedX { source_block, .. }
-            | Self::DrawCards { source_block, .. } => *source_block,
-            Self::UntapControllerLands { source_block } => *source_block,
+            Self::ReturnEntryTargetCreature { source_block, .. } => *source_block,
+            Self::MoveTriggeredSuccessor { source_block, .. } => *source_block,
+            Self::LoseGameTargetPlayer { source_block, .. } => *source_block,
             Self::OptionalDrawForSoleGreatestEntrant { source_block }
             | Self::OptionalDrawCards { source_block, .. }
             | Self::OptionalDrawUnlessCasterPays { source_block, .. } => *source_block,
             Self::DrawDamageAmount { source_block, .. } => *source_block,
-            Self::DiscardPlayerSet { source_block, .. }
-            | Self::DiscardTargetPlayer { source_block, .. }
-            | Self::DiscardTargetPlayerAtRandom { source_block, .. }
-            | Self::DiscardCards { source_block, .. } => *source_block,
             Self::CounterSpellAndMillController { source_block, .. }
             | Self::CounterSpellUnlessPays { source_block, .. }
             | Self::CounterStackObject { source_block, .. }
             | Self::CopyControlledCreatureSpell { source_block, .. } => *source_block,
-            Self::DealDamage { source_block, .. }
-            | Self::DealDamageToController { source_block, .. }
-            | Self::DealDamageToManaActivator { source_block, .. } => *source_block,
-            Self::DrainOpponents { source_block, .. } => *source_block,
         }
     }
 }
@@ -1987,21 +2156,22 @@ fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
         (
             [],
             [
-                Instruction::DrawCards {
-                    count,
-                    recipient: None,
-                    ..
-                },
+                kernel!(Draw {
+                    player: you!(),
+                    amount: fixed!(count)
+                }),
             ],
         ) => *count == Quantity::from(1),
         (
             [target],
             [
-                Instruction::DealDamage {
-                    target_slot: 0,
-                    amount,
+                kernel!(Damage {
+                    to: kir::DamageTo::Ref {
+                        who: kir::Ref::Target { slot: 0 }
+                    },
+                    amount: fixed!(amount),
                     ..
-                },
+                }),
             ],
         ) => {
             target.slot == 0
@@ -2026,11 +2196,15 @@ fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
         (
             [t],
             [
-                Instruction::ModifyPowerToughness {
-                    target_slot: 0,
-                    duration: Duration::UntilEndOfTurn,
+                kernel!(ModifyUntil {
+                    what: target_object!(0),
+                    change: kir::Change::PowerToughness {
+                        power: _,
+                        toughness: _
+                    },
+                    until: kir::Until::EndOfTurn,
                     ..
-                },
+                }),
             ],
         ) => {
             t.slot == 0
@@ -3080,11 +3254,15 @@ impl Definition {
         for ability in &self.triggered {
             if ability.death_filter.is_some()
                 || (ability.condition == TriggerCondition::SelfDies
-                    && ability
-                        .program
-                        .instructions
-                        .iter()
-                        .any(|i| matches!(i, Instruction::CreateCreatureTokens { .. })))
+                    && ability.program.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            kernel!(CreateTokens {
+                                token: kir::TokenSpec::Creature { .. },
+                                ..
+                            })
+                        )
+                    }))
             {
                 set.insert(Capability::SacrificeV1);
             }
@@ -3481,7 +3659,7 @@ impl Definition {
         controlled_phasing::validate(self)?;
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
-        creative_technique::validate_definition(self)?;
+        demonstrate::validate_definition(self)?;
         self_graveyard_shuffle::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
@@ -3543,7 +3721,7 @@ impl Definition {
                     && (!matches!(
                         self.characteristics.kind,
                         CardKind::Instant | CardKind::Sorcery
-                    ) || !(ordinary_keyword_grant(p) || akromas_will_program(p)))
+                    ) || !(ordinary_keyword_grant(p) || commander_choose_both(p)))
             })
         {
             return Err("unsupported complete temporary keyword definition".into());
@@ -3629,33 +3807,9 @@ impl Definition {
         }) {
             return Err("controller discard trigger requires a damage trigger".into());
         }
-        fn damage_recipient_action(p: &SpellProgram) -> bool {
-            p.instructions.iter().any(|i| {
-                matches!(
-                    i,
-                    Instruction::DiscardCards {
-                        recipient: Some(ActionRecipient::EventPlayer),
-                        ..
-                    } | Instruction::SacrificeCreature { .. }
-                )
-            }) || p.modes.iter().any(|m| damage_recipient_action(&m.program))
-        }
-        if self.spell.as_ref().is_some_and(damage_recipient_action)
-            || self
-                .activated
-                .iter()
-                .any(|a| damage_recipient_action(&a.program))
-            || self.triggered.iter().any(|a| {
-                damage_recipient_action(&a.program)
-                    && !matches!(
-                        a.condition,
-                        TriggerCondition::DamageDealt { .. }
-                            | TriggerCondition::EquippedCombatDamage
-                    )
-            })
-        {
-            return Err("event-player discard/sacrifice requires a bound damage trigger".into());
-        }
+        // CR 603.2: the damaged player of a discard or sacrifice is bound
+        // by the kernel scope check (`kir::check`), which admits it only in
+        // a damage trigger.
         fn cast_colors(p: &SpellProgram) -> bool {
             p.instructions
                 .iter()
@@ -3685,30 +3839,17 @@ impl Definition {
                 "cast-color counters require a standalone bound controller cast trigger".into(),
             );
         }
-        fn event_player(p: &SpellProgram) -> bool {
-            p.instructions.iter().any(Instruction::uses_event_player)
-                || p.modes.iter().any(|m| event_player(&m.program))
-        }
-        if self.spell.as_ref().is_some_and(event_player)
-            || self.activated.iter().any(|a| event_player(&a.program))
-            || self.triggered.iter().any(|a| {
-                event_player(&a.program)
-                    && !matches!(
-                        a.condition,
-                        TriggerCondition::StepBegan { .. } | TriggerCondition::SpellCast { .. }
-                    )
-            })
-        {
-            return Err(
-                "event-player recipient requires a bound step trigger or cast trigger".into(),
-            );
-        }
         fn new_ops(p: &SpellProgram) -> bool {
             p.instructions.iter().any(|i| {
                 matches!(
                     i,
-                    Instruction::CreateCreatureTokens { .. }
-                        | Instruction::PutPlusOneCounters { .. }
+                    kernel!(CreateTokens {
+                        token: kir::TokenSpec::Creature { .. },
+                        ..
+                    }) | kernel!(PutCounters {
+                        counter: kir::CounterKind::PlusOnePlusOne,
+                        ..
+                    })
                 )
             }) || p.modes.iter().any(|m| new_ops(&m.program))
         }
@@ -3740,10 +3881,11 @@ impl Definition {
             p.instructions.iter().any(|i| {
                 matches!(
                     i,
-                    Instruction::PutPlusOneCounters {
-                        on: CounterRecipient::Source,
+                    kernel!(PutCounters {
+                        on: source_object!(),
+                        counter: kir::CounterKind::PlusOnePlusOne,
                         ..
-                    }
+                    })
                 )
             }) || p.modes.iter().any(|m| source_counters(&m.program))
         }
@@ -3806,20 +3948,17 @@ impl Definition {
                     || p.instructions.iter().any(|i| {
                         matches!(
                             i,
-                            Instruction::DamageSet {
-                                amount: WipeAmount::AnnouncedX,
+                            kernel!(Damage {
+                                amount: announced_x!(),
                                 ..
-                            } | Instruction::DrawEachPlayer {
-                                count: DrawEachCount::AnnouncedX,
+                            }) | kernel!(Draw {
+                                player: kir::PlayerExpr::EachPlayer,
+                                amount: announced_x!()
+                            }) | kernel!(Discard {
+                                amount: announced_x!(),
                                 ..
-                            } | Instruction::DrainOpponents {
-                                amount: OpponentDrainAmount::AnnouncedX,
-                                ..
-                            } | Instruction::DiscardTargetPlayerAtRandom {
-                                count: RandomDiscardCount::AnnouncedX,
-                                ..
-                            }
-                        )
+                            })
+                        ) || i.drain_amount().is_some_and(kir::Amount::is_announced_x)
                     })
             })
         {
@@ -3895,11 +4034,10 @@ impl Definition {
         {
             return Err("invalid identity, characteristics, or capability closure".into());
         }
-        if !(accepted_provenance(
+        if !accepted_provenance(
             &self.provenance.archive_manifest_sha256,
             &self.provenance.parser_sha256,
-        ) || library_top_mana::authenticated_reparse(&self.provenance))
-            || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
+        ) || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
             || sha256(format!("[{}]", self.provenance.abilities_json).as_bytes())
                 != self.provenance.ast_sha256
         {
@@ -4051,7 +4189,7 @@ impl Definition {
                     || !p.optional_additional_costs.is_empty()
                     || if p.modes.is_empty() {
                         !p.targets.is_empty()
-                            || !matches!(p.instructions.as_slice(), [Instruction::DrawCards { .. }])
+                            || !matches!(p.instructions.as_slice(), [draw] if draw.uncounted_draw())
                             || !fixed_artifact_sacrifice_effect(p)
                     } else {
                         u32::try_from(p.modes.len()).is_err()
@@ -4228,16 +4366,16 @@ impl Definition {
                 }
                 if !costs.sacrifice
                     || !((c.kind == CardKind::Artifact
-                        && matches!(ability.program.instructions.as_slice(), [Instruction::DrawCards {count, recipient:None, ..}] if *count == Quantity::from(1)))
+                        && matches!(ability.program.instructions.as_slice(), [kernel!(Draw { player: you!(), amount: fixed!(count) })] if *count == Quantity::from(1)))
                         || (c.kind == CardKind::Creature
                             && !costs.tap
                             && costs.mana.is_some()
                             && matches!(
                                 ability.program.instructions.as_slice(),
-                                [Instruction::DestroyPermanent {
-                                    optional: false,
-                                    ..
-                                }]
+                                [kernel!(Destroy {
+                                    what: target_object!(_),
+                                    regeneration_forbidden: _
+                                })]
                             )))
                 {
                     return Err(
@@ -4262,11 +4400,19 @@ impl Definition {
                         Instruction::SacrificeDamage {
                             optional: false,
                             ..
-                        } | Instruction::PutPlusOneCounters {
-                            on: CounterRecipient::Source,
+                        } | kernel!(PutCounters {
+                            on: source_object!(),
+                            counter: kir::CounterKind::PlusOnePlusOne,
                             ..
-                        } | Instruction::ModifySourcePowerToughness { .. }
-                            | Instruction::SearchBasicLands { maximum: 1, .. }
+                        }) | kernel!(ModifyUntil {
+                            what: source_object!(),
+                            change: kir::Change::PowerToughness {
+                                power: _,
+                                toughness: _
+                            },
+                            until: kir::Until::EndOfTurn,
+                            ..
+                        }) | Instruction::SearchBasicLands { maximum: 1, .. }
                     )
                 }) {
                     false
@@ -4274,15 +4420,15 @@ impl Definition {
                     p.instructions.iter().any(|instruction| {
                         !matches!(instruction, Instruction::OptionalDrawCards { .. })
                             && !matches!(instruction,
-                                Instruction::DrawCards {count,..}|Instruction::DiscardCards {count,..} if *count==Quantity::from(1))
+                                kernel!(Draw { player: kir::PlayerExpr::Is { .. }, amount: fixed!(count) })|kernel!(Discard { player: you!() | event_player!(), amount: fixed!(count), random: false }) if *count==Quantity::from(1))
                     })
                 } else if matches!(ability.cost, ActivationCost::Composite { .. })
                     && matches!(
                         p.instructions.as_slice(),
-                        [Instruction::DestroyPermanent {
-                            optional: false,
-                            ..
-                        }]
+                        [kernel!(Destroy {
+                            what: target_object!(_),
+                            regeneration_forbidden: _
+                        })]
                     )
                 {
                     p.targets.len() != 1
@@ -4294,8 +4440,13 @@ impl Definition {
                         || p.instructions.iter().any(|instruction| {
                             !matches!(
                                 instruction,
-                                Instruction::DealDamage { .. }
-                                    | Instruction::PreventNextDamage { .. }
+                                kernel!(Damage {
+                                    to: kir::DamageTo::Ref {
+                                        who: kir::Ref::Target { slot: _ }
+                                    },
+                                    amount: fixed!(_),
+                                    ..
+                                }) | Instruction::PreventNextDamage { .. }
                             )
                         })
                 }
@@ -4351,7 +4502,7 @@ impl Definition {
                     || !ability.program.targets.is_empty()
                     || !ability.program.modes.is_empty()
                     || !matches!(ability.program.instructions.as_slice(),
-                        [Instruction::DrawCards {recipient:None|Some(LifeRecipient::Controller),count,..}] if *count == Quantity::from(1))
+                        [kernel!(Draw { player: you!(), amount: fixed!(count) })] if *count == Quantity::from(1))
                 {
                     return Err("grouped damage requires controlled creatures above base power, combat player damage and one mandatory controller draw".into());
                 }
@@ -4454,8 +4605,7 @@ impl Definition {
                     || p.resolution != SpellResolution::Instructions
                     || !p.targets.is_empty()
                     || !p.modes.is_empty()
-                    || !(is_canonical_cascade_program(p)
-                        || creative_technique::is_demonstrate_program(p))
+                    || !(is_canonical_cascade_program(p) || demonstrate::is_demonstrate_program(p))
                 {
                     return Err("unsupported self-cast trigger shape".into());
                 }
@@ -4487,16 +4637,19 @@ impl Definition {
                 validate_instruction_program(p)?;
                 continue;
             }
-            if p.instructions
-                .iter()
-                .any(|i| matches!(i, Instruction::EachPlayerSacrifice { .. }))
-                && !permanent_entry::source_matches(self, ability)
+            if p.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    kernel!(Sacrifice {
+                        player: kir::PlayerExpr::EachPlayer,
+                        ..
+                    })
+                )
+            }) && !permanent_entry::source_matches(self, ability)
             {
                 return Err("triggered sacrifice requires its exact entering source and one creature per player".into());
             }
-            if p.instructions
-                .iter()
-                .any(|i| matches!(i, Instruction::DestroyPermanent { .. }))
+            if p.instructions.iter().any(|i| permanent_destroy(p, i))
                 && ability.condition != TriggerCondition::SelfEntersBattlefield
                 && !matches!(
                     ability.condition,
@@ -4515,13 +4668,13 @@ impl Definition {
                     | TriggerCondition::CreatureAttacked { .. }
                     | TriggerCondition::DamageDealt { .. }
             ) && p.instructions.iter().any(|i| {
-                matches!(
-                    i,
-                    Instruction::DestroyPermanent { optional: true, .. }
-                        | Instruction::ReturnOwnGraveyardCreatureToHand { optional: true, .. }
-                        | Instruction::SacrificeDamage { optional: true, .. }
-                        | Instruction::LoseLifeDeathController { .. }
-                )
+                i.target_destroy().is_some_and(|(_, optional, ..)| optional)
+                    || matches!(
+                        i,
+                        Instruction::ReturnOwnGraveyardCreatureToHand { optional: true, .. }
+                            | Instruction::SacrificeDamage { optional: true, .. }
+                            | Instruction::LoseLifeDeathController { .. }
+                    )
             }) {
                 return Err(
                     "step/cast/attack/damage triggers require mandatory programs without death-event recipients"
@@ -4568,30 +4721,77 @@ impl Definition {
                     !matches!(
                         instruction,
                         Instruction::LookTopMayRevealForMana { .. }
-                            | Instruction::PumpSet { .. }
-                            | Instruction::DealDamage { .. }
+                            | kernel!(ModifyUntil {
+                                what: kir::SetExpr::Matching { .. },
+                                change: kir::Change::PowerToughness {
+                                    power: _,
+                                    toughness: _
+                                },
+                                until: kir::Until::EndOfTurn,
+                                ..
+                            })
+                            | kernel!(Damage {
+                                to: kir::DamageTo::Ref {
+                                    who: kir::Ref::Target { slot: _ }
+                                },
+                                amount: fixed!(_),
+                                ..
+                            })
                             | Instruction::LoseLifeDeathController { .. }
                             | Instruction::SacrificeDamage { .. }
-                            | Instruction::EachOpponentSacrifice { .. }
-                            | Instruction::EachPlayerSacrifice { .. }
+                            | kernel!(Sacrifice {
+                                player: kir::PlayerExpr::EachOpponent | kir::PlayerExpr::EachPlayer,
+                                ..
+                            })
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::ReturnOwnGraveyardCardToHand { .. }
-                            | Instruction::ExileTargetGraveyard { .. }
+                            | kernel!(Move {
+                                what: kir::SetExpr::Matching {
+                                    zone: kir::ZoneExpr::Graveyard {
+                                        of: target_player!(_)
+                                    },
+                                    ..
+                                },
+                                to: kir::Destination::Exile
+                            })
                             | Instruction::ReturnEntryTargetCreature { .. }
-                            | Instruction::DiscardPlayerSet { .. }
-                            | Instruction::DestroyPermanent { .. }
+                            | kernel!(Discard {
+                                player: kir::PlayerExpr::EachPlayer | kir::PlayerExpr::EachOpponent,
+                                ..
+                            })
+                            | kernel!(Destroy {
+                                what: target_object!(_),
+                                ..
+                            })
+                            | Instruction::Kernel {
+                                node: kir::Node::Optional { .. },
+                                ..
+                            }
                             | kernel!(Destroy {
                                 regeneration_forbidden: true,
                                 ..
                             })
-                            | Instruction::CreateCreatureTokens { .. }
-                            | Instruction::CreatePredefinedTokens { .. }
+                            | kernel!(CreateTokens {
+                                token: kir::TokenSpec::Creature { .. },
+                                ..
+                            })
+                            | kernel!(CreateTokens {
+                                token: kir::TokenSpec::Predefined { .. },
+                                ..
+                            })
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
                             | Instruction::Proliferate { .. }
-                            | Instruction::PutPlusOneCounters { .. }
-                            | Instruction::DrawCards { .. }
-                            | Instruction::DrawControllerCards { .. }
-                            | Instruction::UntapControllerLands { .. }
+                            | kernel!(PutCounters {
+                                counter: kir::CounterKind::PlusOnePlusOne,
+                                ..
+                            })
+                            | kernel!(Draw {
+                                player: kir::PlayerExpr::Is { .. },
+                                amount: fixed!(_)
+                            })
+                            | kernel!(Untap {
+                                what: kir::SetExpr::Matching { .. }
+                            })
                             | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::ChooseOptional { .. }
@@ -4601,11 +4801,29 @@ impl Definition {
                             | Instruction::GrantHandCastCascade { .. }
                             | Instruction::Hideaway { .. }
                             | Instruction::Scry { .. }
-                            | Instruction::MillCards { .. }
+                            | kernel!(Mill {
+                                amount: fixed!(_),
+                                ..
+                            })
                             | Instruction::Surveil { .. }
-                            | Instruction::DiscardCards { .. }
-                            | Instruction::SacrificeCreature { .. }
-                            | Instruction::ModifyPowerToughness { .. }
+                            | kernel!(Discard {
+                                player: you!() | event_player!(),
+                                amount: fixed!(_),
+                                random: false
+                            })
+                            | kernel!(Sacrifice {
+                                player: event_player!(),
+                                ..
+                            })
+                            | kernel!(ModifyUntil {
+                                what: target_object!(_),
+                                change: kir::Change::PowerToughness {
+                                    power: _,
+                                    toughness: _
+                                },
+                                until: kir::Until::EndOfTurn,
+                                ..
+                            })
                             | kernel!(GainLife { .. })
                             | kernel!(LoseLife { .. })
                     )
@@ -4903,7 +5121,7 @@ impl Definition {
                     return Err("invalid spell functioning zone or empty program".into());
                 }
                 // The closed modal grant was validated as a whole, including its protected child.
-                if !akromas_will_program(p) {
+                if !commander_choose_both(p) {
                     validate_instruction_program(p)?;
                 }
             }
@@ -4930,11 +5148,13 @@ fn ordinary_tap_program(p: &SpellProgram) -> bool {
         && p.targets[0].filter.is_none()
         && matches!(
             p.instructions.first(),
-            Some(Instruction::TapPermanent { target_slot: 0, .. })
+            Some(kernel!(Tap {
+                what: target_object!(0)
+            }))
         )
         && (p.instructions.len() == 1
             || (p.instructions.len() == 2
-                && matches!(&p.instructions[1], Instruction::DrawCards { recipient: None, count, .. } if *count == Quantity::from(1))))
+                && matches!(&p.instructions[1], kernel!(Draw { player: you!(), amount: fixed!(count) }) if *count == Quantity::from(1))))
 }
 fn activated_permanent_tap_program(p: &SpellProgram) -> bool {
     (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
@@ -4944,7 +5164,9 @@ fn activated_permanent_tap_program(p: &SpellProgram) -> bool {
         && p.resolution == SpellResolution::Instructions
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::TapPermanent { target_slot: 0, .. }]
+            [kernel!(Tap {
+                what: target_object!(0)
+            })]
         )
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
@@ -4977,7 +5199,9 @@ fn untap_program(p: &SpellProgram, types: &[CardKind]) -> bool {
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::UntapPermanent { target_slot: 0, .. }]
+            [kernel!(Untap {
+                what: target_object!(0)
+            })]
         )
         && matches!(p.targets.as_slice(), [t] if t.slot == 0
             && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
@@ -5008,12 +5232,10 @@ fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::DestroyPermanent {
-                target_slot: 0,
-                optional: false,
-                regeneration_forbidden: false,
-                ..
-            }]
+            [kernel!(Destroy {
+                what: target_object!(0),
+                regeneration_forbidden: false
+            })]
         )
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
@@ -5058,7 +5280,10 @@ fn activated_permanent_owner_hand_ability(a: &ActivatedAbility) -> bool {
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::ReturnToOwnerHand { target_slot: 0, .. }]
+            [kernel!(Move {
+                what: target_object!(0),
+                to: kir::Destination::OwnerHand
+            })]
         )
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
@@ -5404,19 +5629,21 @@ fn validate_instruction_program_with_chapter(
             kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => {
                 what.filter().is_some_and(kir::Pred::names_you)
             }
-            Instruction::PumpSet { set, .. } | Instruction::GrantKeywordsSet { set, .. } => {
+            Instruction::GrantKeywordsSet { set, .. } => {
                 matches!(
                     set,
                     ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
                 )
             }
-            Instruction::DamageSet { sets, .. } => sets.iter().any(|set| {
-                matches!(
-                    set,
-                    ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
-                )
+            i if ObjectSet::pumped(i).is_some() => ObjectSet::pumped(i)
+                .and_then(SetExpr::filter)
+                .is_some_and(kir::Pred::names_you),
+            i => i.set_damage().is_some_and(|damage| {
+                damage
+                    .sets
+                    .iter()
+                    .any(|set| set.filter().is_some_and(kir::Pred::names_you))
             }),
-            _ => false,
         }) || p.modes.iter().any(|m| controller_set(&m.program))
     }
     if p.targets
@@ -5467,7 +5694,10 @@ fn validate_instruction_program_with_chapter(
             })
             || !matches!(
                 p.instructions.as_slice(),
-                [Instruction::ReturnToOwnerHand { target_slot: 0, .. }]
+                [kernel!(Move {
+                    what: target_object!(0),
+                    to: kir::Destination::OwnerHand
+                })]
             ))
     {
         return Err("permanent owner-hand movement requires one unqualified or nonland permanent target and one instruction".into());
@@ -5492,10 +5722,15 @@ fn validate_instruction_program_with_chapter(
             || p.instructions.iter().any(|i| {
                 !matches!(
                     i,
-                    Instruction::ModifyPowerToughness {
-                        duration: Duration::UntilEndOfTurn,
+                    kernel!(ModifyUntil {
+                        what: target_object!(_),
+                        change: kir::Change::PowerToughness {
+                            power: _,
+                            toughness: _
+                        },
+                        until: kir::Until::EndOfTurn,
                         ..
-                    }
+                    })
                 )
             }))
     {
@@ -5636,31 +5871,14 @@ fn validate_program_bindings(
             | Instruction::FreezeControllerLifeUntilNextTurn { .. }
             | Instruction::PhaseOutControllerPermanents { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
-            | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
-            | Instruction::EachPlayerSacrifice { .. }
-            | Instruction::DrawEachPlayer { .. }
-            | Instruction::UntapControllerLands { .. }
+            | kernel!(Untap {
+                what: kir::SetExpr::Matching { .. }
+            })
             | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::DrawDamageAmount { .. } => None,
-            Instruction::DamageSet {
-                sets,
-                each_player,
-                amount,
-                ..
-            } => {
-                if sets.is_empty() && !each_player {
-                    return Err("empty damage set".into());
-                }
-                if let WipeAmount::Fixed { value } = amount
-                    && value <= &Quantity::zero()
-                {
-                    return Err("invalid set damage".into());
-                }
-                None
-            }
             Instruction::GainLifeDestroyed { .. } => {
                 if !p
                     .instructions
@@ -5669,11 +5887,10 @@ fn validate_program_bindings(
                     .any(|i| {
                         matches!(
                             i,
-                            Instruction::DestroyAllCreatures { .. }
-                                | kernel!(Destroy {
-                                    what: SetExpr::Matching { .. },
-                                    ..
-                                })
+                            kernel!(Destroy {
+                                what: SetExpr::Matching { .. },
+                                ..
+                            })
                         )
                     })
                 {
@@ -5682,7 +5899,11 @@ fn validate_program_bindings(
                 None
             }
             Instruction::ExileDamagedThisTurn { .. } => {
-                if !matches!(p.instructions.first(), Some(Instruction::DamageSet { .. })) {
+                if !p
+                    .instructions
+                    .first()
+                    .is_some_and(|i| i.set_damage().is_some())
+                {
                     return Err("damage history requires preceding damage".into());
                 }
                 None
@@ -5719,28 +5940,24 @@ fn validate_program_bindings(
                 }
                 target_slot.map(|slot| (slot, TargetDomain::AnyDamageTarget))
             }
-            Instruction::EachOpponentSacrifice { .. }
-            | Instruction::DrainOpponents { .. }
-            | Instruction::ModifySourcePowerToughness { .. }
-            | Instruction::RegenerateSource { .. } => None,
-            Instruction::DestroyPermanent {
-                target_slot,
-                optional,
-                ..
-            } => {
-                if *optional && p.timing != SpellTiming::Instant {
-                    return Err("optional destroy requires a triggered program".into());
-                }
-                Some((*target_slot, TargetDomain::BattlefieldPermanent))
-            }
-            Instruction::ExileTargetGraveyard { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::AnyPlayer))
-            }
+            Instruction::RegenerateSource { .. } => None,
+            kernel!(Move {
+                what: kir::SetExpr::Matching {
+                    zone: kir::ZoneExpr::Graveyard {
+                        of: target_player!(target_slot)
+                    },
+                    ..
+                },
+                to: kir::Destination::Exile
+            }) => Some((*target_slot, TargetDomain::AnyPlayer)),
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
-            | Instruction::ExilePermanent { target_slot, .. }
-            | Instruction::UntapPermanent { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldPermanent))
-            }
+            | kernel!(Move {
+                what: target_object!(target_slot),
+                to: kir::Destination::Exile
+            })
+            | kernel!(Untap {
+                what: target_object!(target_slot)
+            }) => Some((*target_slot, TargetDomain::BattlefieldPermanent)),
             Instruction::PhaseOutTargetPermanent { target_slot, .. } => Some((
                 *target_slot,
                 if composed_spell::program(p) {
@@ -5749,7 +5966,9 @@ fn validate_program_bindings(
                     TargetDomain::BattlefieldPermanent
                 },
             )),
-            Instruction::TapPermanent { target_slot, .. } => {
+            kernel!(Tap {
+                what: target_object!(target_slot)
+            }) => {
                 let domain = p
                     .targets
                     .get(*target_slot as usize)
@@ -5822,10 +6041,6 @@ fn validate_program_bindings(
                 Some((*target_slot, TargetDomain::ControlledBattlefieldCreature))
             }
             Instruction::ReturnAuraFromGraveyard { .. } => None,
-            Instruction::DestroyTargetCreature { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldCreature))
-            }
-            Instruction::DestroyAllCreatures { .. } => None,
             Instruction::ReturnOwnGraveyardCreatureToBattlefield { target_slot, .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
@@ -5868,19 +6083,6 @@ fn validate_program_bindings(
             }
             Instruction::FetchBasicLand { .. } => None,
             Instruction::AddResolutionMana { .. } | Instruction::ExileLibraryForPlay { .. } => None,
-            Instruction::CreatePredefinedTokens { count, .. } => {
-                if *count == 0 {
-                    return Err("token count must be positive".into());
-                }
-                None
-            }
-            Instruction::CreateCreatureTokens { count, token, .. } => {
-                if *count == 0 {
-                    return Err("token count must be positive".into());
-                }
-                token.validate()?;
-                None
-            }
             Instruction::RegisterControllerCreatureEntryThisTurn { .. }
             | Instruction::RegisterControllerSpellCastThisTurn { .. }
             | Instruction::Hideaway { .. }
@@ -5910,25 +6112,6 @@ fn validate_program_bindings(
             Instruction::DistributePlusOneCounters { .. } => {
                 Some((0, TargetDomain::BattlefieldCreature))
             }
-            Instruction::PutPlusOneCounters { on, amount, .. } => {
-                if *amount <= Quantity::zero() {
-                    return Err("counter amount must be positive".into());
-                }
-                match on {
-                    CounterRecipient::Source => None,
-                    CounterRecipient::Target { target_slot } => Some((
-                        *target_slot,
-                        if chapter {
-                            TargetDomain::ControlledBattlefieldCreature
-                        } else if composed_spell::program(p) {
-                            p.targets[0].domain
-                        } else {
-                            TargetDomain::BattlefieldCreature
-                        },
-                    )),
-                }
-            }
-            Instruction::GrantSourceKeywords { .. } => None,
             Instruction::GrantKeywords { target_slot, .. } => {
                 // The complete family guard above restricts this to its two domains.
                 Some((*target_slot, p.targets[0].domain))
@@ -5946,22 +6129,6 @@ fn validate_program_bindings(
                 }
                 Some((*target_slot, TargetDomain::BattlefieldCreature))
             }
-            Instruction::ModifyPowerToughness { target_slot, .. } => {
-                let domain = p
-                    .targets
-                    .get(*target_slot as usize)
-                    .map(|target| target.domain)
-                    .ok_or("unbound creature pump target")?;
-                if !matches!(
-                    domain,
-                    TargetDomain::BattlefieldCreature | TargetDomain::BlockingBattlefieldCreature
-                ) && !(domain == TargetDomain::ControlledBattlefieldCreature
-                    && temporary_creature_keyword_program(p).is_some())
-                {
-                    return Err("unsupported creature pump target domain".into());
-                }
-                Some((*target_slot, domain))
-            }
             Instruction::PreventNextDamage {
                 target_slot,
                 amount,
@@ -5973,7 +6140,10 @@ fn validate_program_bindings(
                 Some((*target_slot, TargetDomain::AnyDamageTarget))
             }
             Instruction::PreventCombatDamage { .. } => None,
-            Instruction::ReturnToOwnerHand { target_slot, .. } => {
+            kernel!(Move {
+                what: target_object!(target_slot),
+                to: kir::Destination::OwnerHand
+            }) => {
                 let domain = p
                     .targets
                     .get(*target_slot as usize)
@@ -5990,20 +6160,12 @@ fn validate_program_bindings(
                 Some((*target_slot, domain))
             }
             Instruction::MoveTriggeredSuccessor { .. } => None,
-            Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldCreature))
-            }
-            Instruction::SacrificeCreature { recipient, .. } => {
-                if *recipient != ActionRecipient::EventPlayer {
-                    return Err("controller sacrifice is outside supported action semantics".into());
-                }
-                None
-            }
+            kernel!(Move {
+                what: target_object!(target_slot),
+                to: kir::Destination::OwnerLibraryTop
+            }) => Some((*target_slot, TargetDomain::BattlefieldCreature)),
             Instruction::LoseGameTargetPlayer { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::AnyPlayer))
-            }
-            Instruction::TargetPlayerSacrificeCreature { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::OpponentPlayer))
             }
             Instruction::CounterSpellAndMillController { target_slot, .. }
             | Instruction::CounterSpellUnlessPays { target_slot, .. } => {
@@ -6033,53 +6195,51 @@ fn validate_program_bindings(
                 }
                 None
             }
-            Instruction::DealDamage {
-                target_slot,
-                amount,
-                ..
-            } => {
-                if *amount <= Quantity::zero() {
-                    return Err("damage quantity must be positive".into());
-                }
-                match p.targets.get(*target_slot as usize).map(|t| t.domain) {
-                    Some(
-                        domain @ (TargetDomain::AnyDamageTarget
-                        | TargetDomain::OpponentPlayer
-                        | TargetDomain::PlayerOrPlaneswalker
-                        | TargetDomain::BattlefieldCreature),
-                    ) => Some((*target_slot, domain)),
-                    Some(TargetDomain::BattlefieldPermanent)
-                        if chapter && saga_damage_target(&p.targets[*target_slot as usize]) =>
-                    {
-                        Some((*target_slot, TargetDomain::BattlefieldPermanent))
-                    }
-                    _ => return Err("unbound fixed damage target".into()),
-                }
-            }
-            Instruction::DealDamageToController { amount, .. }
-            | Instruction::DealDamageToManaActivator { amount, .. } => {
-                if *amount <= Quantity::zero() {
-                    return Err("damage quantity must be positive".into());
-                }
-                None
-            }
-            Instruction::DealDamageAnnouncedX { target_slot, .. } => {
-                let domain = p.targets.get(*target_slot as usize).map(|t| t.domain);
-                match domain {
-                    Some(
-                        d @ (TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature),
-                    ) => Some((*target_slot, d)),
-                    _ => return Err("unbound announced X damage target".into()),
-                }
-            }
-            Instruction::MillAnnouncedX { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::AnyPlayer))
-            }
             // `kir::check` owns scope, operand kinds and the audited cell
             // (see `Definition::kernel_check`). What stays here is the
             // admission each reviewed family still narrows.
             Instruction::Kernel { node, .. } => {
-                kernel_family_guard(p, node)?;
+                kernel_family_guard(p, node, chapter)?;
+                // CR 701.9a: a chosen discard by one player is one card
+                // except in a reviewed scalar sequence or draw/discard program.
+                if instruction
+                    .chosen_discard()
+                    .is_some_and(|(player, count, _)| {
+                        !player.is_target() && *count != Quantity::from(1)
+                    })
+                    && !scalar_sequence
+                    && !controller_draw_discard_program(p)
+                {
+                    return Err("unsupported draw/discard cardinality".into());
+                }
+                // CR 122.1: a chapter's counters go on a creature its
+                // controller controls; an ordinary composed spell names its
+                // own domain; otherwise the target is any creature.
+                if let kernel!(PutCounters {
+                    on: target_object!(slot),
+                    ..
+                }) = instruction
+                {
+                    let expected = if chapter {
+                        TargetDomain::ControlledBattlefieldCreature
+                    } else if composed_spell::program(p) {
+                        p.targets[0].domain
+                    } else {
+                        TargetDomain::BattlefieldCreature
+                    };
+                    if p.targets.get(*slot as usize).map(|t| t.domain) != Some(expected) {
+                        return Err("unbound target slot/domain".into());
+                    }
+                }
+                // CR 613.4c: a controlled creature is pumped only by the
+                // reviewed temporary keyword program.
+                if let Some((target_object!(slot), ..)) = instruction.pumped()
+                    && p.targets.get(*slot as usize).map(|t| t.domain)
+                        == Some(TargetDomain::ControlledBattlefieldCreature)
+                    && temporary_creature_keyword_program(p).is_none()
+                {
+                    return Err("unsupported creature pump target domain".into());
+                }
                 used.extend(kir::target_slots(node));
                 None
             }
@@ -6098,65 +6258,12 @@ fn validate_program_bindings(
                 }
                 None
             }
-            Instruction::DrawControllerCards { .. }
-            | Instruction::GrantLandPlaysThisTurn { .. }
+            Instruction::GrantLandPlaysThisTurn { .. }
             | Instruction::PutHandOnLibrary { .. }
             | Instruction::OrderLibraryTop { .. }
             | Instruction::ShufflePlayerGraveyard { .. }
             | Instruction::OptionalShuffleLibrary { .. }
             | Instruction::SelectLibraryCard { .. } => None,
-            Instruction::MillCards {
-                count, recipient, ..
-            } => {
-                if count.is_negative() {
-                    return Err("negative mill count".into());
-                }
-                match recipient {
-                    None => None,
-                    Some(LifeRecipient::Target { target_slot }) => {
-                        Some((*target_slot, TargetDomain::AnyPlayer))
-                    }
-                    _ => return Err("unsupported mill recipient".into()),
-                }
-            }
-            Instruction::DrawAnnouncedX { recipient, .. }
-            | Instruction::ChangeLifeAnnouncedX { recipient, .. } => match recipient {
-                LifeRecipient::Controller => None,
-                LifeRecipient::Target { target_slot } => {
-                    Some((*target_slot, TargetDomain::AnyPlayer))
-                }
-                _ => return Err("invalid announced X recipient".into()),
-            },
-            Instruction::DrawCards { recipient, .. } => match recipient {
-                Some(LifeRecipient::EachOpponent) => {
-                    return Err("unsupported each-opponent draw".into());
-                }
-                Some(LifeRecipient::Target { target_slot }) => {
-                    Some((*target_slot, TargetDomain::AnyPlayer))
-                }
-                _ => None,
-            },
-            Instruction::DiscardPlayerSet { .. } => None,
-            Instruction::DiscardTargetPlayer { target_slot, .. }
-            | Instruction::DiscardTargetPlayerAtRandom { target_slot, .. } => {
-                // The complete discard family already verified this player target.
-                Some((
-                    *target_slot,
-                    p.targets
-                        .get(*target_slot as usize)
-                        .ok_or("unbound discard target")?
-                        .domain,
-                ))
-            }
-            Instruction::DiscardCards { count, .. } => {
-                if *count != Quantity::from(1)
-                    && !scalar_sequence
-                    && !controller_draw_discard_program(p)
-                {
-                    return Err("unsupported draw/discard cardinality".into());
-                }
-                None
-            }
         };
         if let Some((slot, domain)) = binding {
             if p.targets
@@ -6174,8 +6281,26 @@ fn validate_program_bindings(
     Ok(())
 }
 /// Family admission that is narrower than the kernel's audited cells.
-fn kernel_family_guard(p: &SpellProgram, node: &kir::Node) -> Result<(), String> {
+fn kernel_family_guard(p: &SpellProgram, node: &kir::Node, chapter: bool) -> Result<(), String> {
+    // CR 608.2d: the optional destroy is offered during a triggered
+    // ability's resolution only.
+    if matches!(node, kir::Node::Optional { .. }) && p.timing != SpellTiming::Instant {
+        return Err("optional destroy requires a triggered program".into());
+    }
     match node.verb() {
+        // CR 120.2b, 714.2b: a chapter ability alone may damage a target
+        // permanent, and only the reviewed chapter damage target.
+        Some(Verb::Damage {
+            to: kir::DamageTo::Ref {
+                who: kir::Ref::Target { slot },
+            },
+            ..
+        }) if p.targets.get(*slot as usize).map(|t| t.domain)
+            == Some(TargetDomain::BattlefieldPermanent)
+            && !(chapter && saga_damage_target(&p.targets[*slot as usize])) =>
+        {
+            return Err("unbound fixed damage target".into());
+        }
         // CR 119.3: life changes are positive, except the fixed zero tail of
         // the complete permanent-grant family.
         Some(Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }) => {
@@ -6183,24 +6308,14 @@ fn kernel_family_guard(p: &SpellProgram, node: &kir::Node) -> Result<(), String>
                 && player.is_you()
                 && amount.as_fixed() == Some(&Quantity::zero())
                 && temporary_permanent_keyword_program(p).is_some();
-            if !zero_tail && amount.as_fixed().is_none_or(|n| *n <= Quantity::zero()) {
+            // CR 107.3: an announced X may be zero; a fixed amount may not.
+            if !zero_tail && amount.as_fixed().is_some_and(|n| *n <= Quantity::zero()) {
                 return Err("life quantity must be positive".into());
             }
         }
         _ => {}
     }
     Ok(())
-}
-impl Instruction {
-    pub fn uses_event_player(&self) -> bool {
-        matches!(
-            self,
-            Self::DrawCards {
-                recipient: Some(LifeRecipient::EventPlayer),
-                ..
-            }
-        )
-    }
 }
 fn has_blocking_creature_target(program: &SpellProgram) -> bool {
     program
@@ -6212,11 +6327,23 @@ fn has_blocking_creature_target(program: &SpellProgram) -> bool {
             .iter()
             .any(|m| has_blocking_creature_target(&m.program))
 }
+/// CR 701.8: a destroy of one announced permanent (the permanent-removal
+/// surface), as distinct from a destroy of one announced creature.
+fn permanent_destroy(program: &SpellProgram, instruction: &Instruction) -> bool {
+    target_destroy_domain(program, instruction) == Some(TargetDomain::BattlefieldPermanent)
+}
+fn target_destroy_domain(
+    program: &SpellProgram,
+    instruction: &Instruction,
+) -> Option<TargetDomain> {
+    let (slot, ..) = instruction.target_destroy()?;
+    program.targets.get(slot as usize).map(|t| t.domain)
+}
 fn has_destroy_permanent(program: &SpellProgram) -> bool {
     program
         .instructions
         .iter()
-        .any(|i| matches!(i, Instruction::DestroyPermanent { .. }))
+        .any(|i| permanent_destroy(program, i))
         || program
             .modes
             .iter()
@@ -6237,7 +6364,10 @@ fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
         .instructions
         .iter()
         .any(|instruction| match instruction {
-            Instruction::ReturnToOwnerHand { target_slot, .. } => program
+            kernel!(Move {
+                what: target_object!(target_slot),
+                to: kir::Destination::OwnerHand
+            }) => program
                 .targets
                 .get(*target_slot as usize)
                 .is_some_and(|target| target.domain == TargetDomain::BattlefieldPermanent),
@@ -6249,18 +6379,24 @@ fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
             .any(|mode| has_permanent_owner_hand(&mode.program))
 }
 fn has_tap(program: &SpellProgram) -> bool {
-    program
-        .instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::TapPermanent { .. }))
-        || program.modes.iter().any(|m| has_tap(&m.program))
+    program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Tap {
+                what: target_object!(_)
+            })
+        )
+    }) || program.modes.iter().any(|m| has_tap(&m.program))
 }
 fn has_untap(program: &SpellProgram) -> bool {
-    program
-        .instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::UntapPermanent { .. }))
-        || program.modes.iter().any(|m| has_untap(&m.program))
+    program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Untap {
+                what: target_object!(_)
+            })
+        )
+    }) || program.modes.iter().any(|m| has_untap(&m.program))
 }
 fn has_damage_quantity_draw(program: &SpellProgram) -> bool {
     program
@@ -6273,18 +6409,14 @@ fn has_damage_quantity_draw(program: &SpellProgram) -> bool {
             .any(|m| has_damage_quantity_draw(&m.program))
 }
 fn has_controller_discard(program: &SpellProgram) -> bool {
-    program.instructions.iter().any(|i| {
-        matches!(
-            i,
-            Instruction::DiscardCards {
-                recipient: None | Some(ActionRecipient::Controller),
-                ..
-            }
-        )
-    }) || program
-        .modes
+    program
+        .instructions
         .iter()
-        .any(|m| has_controller_discard(&m.program))
+        .any(|i| i.controller_discard().is_some())
+        || program
+            .modes
+            .iter()
+            .any(|m| has_controller_discard(&m.program))
 }
 // Intrinsic keyword capability closure is shared by Rust and exported schema.
 fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
@@ -6374,7 +6506,7 @@ fn add_program_requirements_for_source_pump(
         if matches!(program.resolution, SpellResolution::ChooseModes { .. }) {
             set.insert(Capability::FixedTargetModesV1);
         }
-        if akromas_will_program(program) {
+        if commander_choose_both(program) {
             set.insert(Capability::CommanderModalKeywordGrantV1);
         }
         if program.resolution == SpellResolution::OneOrMoreModes {
@@ -6421,11 +6553,10 @@ fn add_program_requirements_for_source_pump(
     }
     if matches!(
         program.instructions.as_slice(),
-        [Instruction::ChangeLifeAnnouncedX {
-            recipient: LifeRecipient::Target { target_slot: 0 },
-            gain: true,
-            source_block: 0
-        }]
+        [kernel!(GainLife {
+            player: target_player!(0),
+            amount: announced_x!()
+        } @ 0)]
     ) {
         set.insert(Capability::AnnouncedXEffectsV1);
     }
@@ -6436,24 +6567,21 @@ fn add_program_requirements_for_source_pump(
         ) {
             set.insert(Capability::CounterStackObjectV1);
         }
-        if matches!(instruction, Instruction::DealDamageAnnouncedX { .. }) {
-            set.insert(Capability::NoncombatDamageV1);
-        }
         if matches!(
             instruction,
             Instruction::OptionalDrawUnlessCasterPays { .. }
         ) {
             set.insert(Capability::OptionalControllerDrawV1);
         }
-        if instruction.uses_event_player() {
-            set.insert(Capability::EventPlayerRecipientV1);
-        }
-        if matches!(instruction, Instruction::CreateCreatureTokens { token, .. }
+        if matches!(instruction, kernel!(CreateTokens { token: kir::TokenSpec::Creature { spec: token }, .. })
             | Instruction::CreateTokensFor { token, .. } if !token.additional_types.is_empty())
         {
             set.insert(Capability::MultiTypeCreatureTokensV1);
         }
-        if let Instruction::CreateCreatureTokens { token, .. } = instruction
+        if let kernel!(CreateTokens {
+            token: kir::TokenSpec::Creature { spec: token },
+            ..
+        }) = instruction
             && token
                 .keywords
                 .iter()
@@ -6480,7 +6608,11 @@ fn add_program_requirements_for_source_pump(
         }
         if let Instruction::GrantKeywords { keywords, .. }
         | Instruction::GrantKeywordsSet { keywords, .. }
-        | Instruction::GrantSourceKeywords { keywords, .. } = instruction
+        | kernel!(ModifyUntil {
+            what: source_object!(),
+            change: kir::Change::AddKeywords { keywords },
+            ..
+        }) = instruction
         {
             for keyword in keywords {
                 if let Some(capability) = temporary_keyword_primitive_capability(*keyword) {
@@ -6493,15 +6625,6 @@ fn add_program_requirements_for_source_pump(
             Instruction::OfferHandCastWithoutManaCost { .. }
         ) {
             set.insert(Capability::ResolutionCastV1);
-        }
-        if matches!(
-            instruction,
-            Instruction::DamageSet {
-                amount: WipeAmount::OtherCastsManaValue,
-                ..
-            }
-        ) {
-            set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
         if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }
         | Instruction::RegisterControllerSpellCastThisTurn { program, .. } = instruction
@@ -6530,9 +6653,6 @@ fn add_program_requirements_for_source_pump(
         }
         if matches!(instruction, Instruction::CounterSpellUnlessPays { .. }) {
             set.insert(Capability::CounterStackObjectV1);
-        }
-        if matches!(instruction, Instruction::DrainOpponents { .. }) {
-            set.extend([Capability::LifeLossV1, Capability::LifeGainV1]);
         }
         if matches!(instruction, Instruction::Hideaway { .. }) {
             set.insert(Capability::RandomBottomV1);
@@ -6586,29 +6706,16 @@ fn add_program_requirements_for_source_pump(
                 ..
             } => Capability::TemporaryCreatureSetKeywordProgramV1,
             Instruction::GrantKeywordsSet { .. } => Capability::BoardWipesV1,
-            Instruction::PumpSet { .. }
-            | Instruction::DamageSet { .. }
-            | Instruction::GainLifeDestroyed { .. }
+            Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }
-            | Instruction::EachPlayerSacrifice { .. }
             | Instruction::LoseLifeDeathController { .. } => Capability::BoardWipesV1,
             Instruction::RegenerateSource { .. } => Capability::SourceRegenerationV1,
-            Instruction::ModifySourcePowerToughness { .. } if temporary_source_pump => {
-                Capability::TemporaryPowerToughnessV1
-            }
-            Instruction::SacrificeDamage { .. }
-            | Instruction::EachOpponentSacrifice { .. }
-            | Instruction::ModifySourcePowerToughness { .. } => Capability::SacrificeV1,
-            Instruction::DestroyPermanent { .. }
-            | Instruction::ExilePermanent { .. }
-            | Instruction::ChangeLifeFromTarget { .. }
+            Instruction::SacrificeDamage { .. } => Capability::SacrificeV1,
+            Instruction::ChangeLifeFromTarget { .. }
             | Instruction::CreateTokensFor { .. }
             | Instruction::DamageTargetController { .. } => Capability::PermanentRemovalV1,
             Instruction::AttachEquipment { .. } | Instruction::ReturnAuraFromGraveyard { .. } => {
                 Capability::AttachmentsV1
-            }
-            Instruction::DestroyTargetCreature { .. } | Instruction::DestroyAllCreatures { .. } => {
-                Capability::DestroyCreatureV1
             }
             Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. } => {
                 Capability::GraveyardBattlefieldReturnV1
@@ -6627,25 +6734,7 @@ fn add_program_requirements_for_source_pump(
                 Capability::BasicLandSearchV1
             }
             Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
-            Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
-                Capability::AnnouncedXEffectsV1
-            }
-            Instruction::DrawAnnouncedX { .. } => Capability::AnnouncedXDrawV1,
-            Instruction::DrawEachPlayer { .. } => Capability::EachPlayerDrawV1,
-            Instruction::DiscardPlayerSet { .. } => Capability::GroupHandDiscardV1,
-            Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
-            Instruction::DiscardTargetPlayerAtRandom { .. } => Capability::RandomPlayerDiscardV1,
             Instruction::LoseGameTargetPlayer { .. } => Capability::TargetedGameLossV1,
-            Instruction::ChangeLifeAnnouncedX { gain: true, .. } => Capability::LifeGainV1,
-            Instruction::ChangeLifeAnnouncedX { gain: false, .. } => Capability::LifeLossV1,
-            Instruction::DrawCards { .. } if targeted_counted_draw_program(program) => {
-                Capability::TargetedCountedDrawV1
-            }
-            Instruction::DrawCards {
-                recipient: Some(_), ..
-            } => Capability::TargetPlayerDrawV1,
-            Instruction::CreateCreatureTokens { .. } => Capability::CreatureTokensV1,
-            Instruction::CreatePredefinedTokens { .. } => Capability::PredefinedArtifactTokensV1,
             Instruction::AddResolutionMana { .. } => Capability::ResolutionManaV1,
             Instruction::ExileLibraryForPlay { .. } => Capability::LibraryPlayWindowV1,
             Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
@@ -6654,8 +6743,6 @@ fn add_program_requirements_for_source_pump(
             Instruction::DistributePlusOneCounters { .. } => Capability::DividedPlusOneCountersV1,
             Instruction::Proliferate { .. } => Capability::ProliferateV1,
             Instruction::SetTargetColor { .. } => Capability::TargetColorSetV1,
-            Instruction::PutPlusOneCounters { .. } => Capability::PlusOneCountersV1,
-            Instruction::GrantSourceKeywords { .. } => Capability::ActivatedSourceKeywordGrantV1,
             Instruction::GrantKeywords { .. } => {
                 if composed_spell::grant(program).is_some() {
                     continue; // The ordinary sequence and keyword primitives supply closure.
@@ -6669,56 +6756,45 @@ fn add_program_requirements_for_source_pump(
             Instruction::GrantCreatureRestriction { .. } => {
                 Capability::TemporaryCombatRestrictionV1
             }
-            Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
-            Instruction::ExileTargetGraveyard { .. } => Capability::EntryGraveyardExileV1,
+            kernel!(Move {
+                what: kir::SetExpr::Matching {
+                    zone: kir::ZoneExpr::Graveyard {
+                        of: target_player!(_)
+                    },
+                    ..
+                },
+                to: kir::Destination::Exile
+            }) => Capability::EntryGraveyardExileV1,
             Instruction::ReturnEntryTargetCreature { .. } => Capability::CreatureEntryReturnV1,
-            Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
-            Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
+            kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::OwnerHand
+            }) => Capability::OwnerHandMoveV1,
+            kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::OwnerLibraryTop
+            }) => Capability::OwnerLibraryTopMoveV1,
             Instruction::MoveTriggeredSuccessor { .. } => {
                 Capability::TriggeredSuccessorLibraryTuckV1
             }
-            Instruction::TargetPlayerSacrificeCreature { .. } => {
-                Capability::TargetPlayerSacrificeCreatureV1
-            }
-            Instruction::SacrificeCreature { .. } => Capability::EventPlayerSacrificeV1,
-            Instruction::DrawCards { .. } | Instruction::DrawCardsIfAdditionalCost { .. } => {
-                Capability::ControllerDrawV1
-            }
-            Instruction::DrawControllerCards { .. } | Instruction::PutHandOnLibrary { .. } => {
-                if ordinary_sequence::program(program)
-                    || controller_counted_draw_program(program)
-                    || controller_counted_draw::standalone_controller_draw(program).is_some()
-                {
-                    Capability::ControllerCountedDrawV1
-                } else if controller_draw_discard_program(program) {
-                    Capability::ControllerDrawDiscardV1
-                } else if hand_return::controller_draw_land_allowance_program(program) {
-                    Capability::ControllerDrawLandAllowanceV1
-                } else {
-                    Capability::ControllerHandReturnV1
-                }
-            }
+            Instruction::DrawCardsIfAdditionalCost { .. } => Capability::ControllerDrawV1,
+            Instruction::PutHandOnLibrary { .. } => counted_hand_capability(program),
             Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
-            Instruction::UntapControllerLands { .. } => Capability::UntapControllerLandsV1,
+            kernel!(Untap {
+                what: kir::SetExpr::Matching { .. }
+            }) => Capability::UntapControllerLandsV1,
             Instruction::OptionalDrawForSoleGreatestEntrant { .. } => Capability::GreatestPowerV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::OptionalDrawUnlessCasterPays { .. } => Capability::CastPayerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
-            Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
-            Instruction::TapPermanent { .. } => Capability::TapPermanentV1,
-            Instruction::DiscardCards {
-                recipient: Some(ActionRecipient::EventPlayer),
-                ..
-            } => Capability::EventPlayerDiscardV1,
-            Instruction::DiscardCards { .. } => {
-                if controller_draw_discard_program(program) {
-                    Capability::ControllerDrawDiscardV1
-                } else {
-                    Capability::ControllerDiscardV1
-                }
-            }
+            kernel!(Untap {
+                what: target_object!(_)
+            }) => Capability::UntapPermanentV1,
+            kernel!(Tap {
+                what: target_object!(_)
+            }) => Capability::TapPermanentV1,
             Instruction::CounterSpellAndMillController { .. } => {
                 Capability::CounterSpellControllerMillV1
             }
@@ -6727,24 +6803,95 @@ fn add_program_requirements_for_source_pump(
             Instruction::CopyControlledCreatureSpell { .. } => {
                 Capability::ControlledCreatureSpellCopyV1
             }
-            Instruction::DealDamage { .. }
-            | Instruction::DealDamageToController { .. }
-            | Instruction::DealDamageToManaActivator { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
-            Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
             Instruction::SelectLibraryCard { .. } => Capability::ControllerLibrarySelectionV1,
             Instruction::ShufflePlayerGraveyard { .. } => Capability::PlayerGraveyardShuffleV1,
             Instruction::OrderLibraryTop { .. } | Instruction::OptionalShuffleLibrary { .. } => {
                 Capability::ControllerLibraryOrderV1
             }
-            Instruction::DrainOpponents { .. } => Capability::OpponentLifeDrainV1,
-            // The kernel walker derives every capability of a kernel node.
+            // The kernel walker derives the capabilities of a kernel node. A
+            // fixed draw by one player is named by its complete program.
             Instruction::Kernel { node, .. } => {
                 set.extend(kir::node_capabilities(node));
+                if let Some((player, count, _)) = instruction.fixed_draw() {
+                    set.insert(fixed_draw_capability(program, player, count));
+                }
+                // CR 613.4c: the source's own pump names its complete
+                // ability: the reviewed temporary pump, else the sacrifice
+                // surface it shares.
+                if let Some((what, ..)) = instruction.pumped()
+                    && *what == SetExpr::source()
+                {
+                    set.insert(if temporary_source_pump {
+                        Capability::TemporaryPowerToughnessV1
+                    } else {
+                        Capability::SacrificeV1
+                    });
+                }
+                // CR 701.9a: the controller's discard names its program.
+                if instruction.controller_discard().is_some() {
+                    set.insert(if controller_draw_discard_program(program) {
+                        Capability::ControllerDrawDiscardV1
+                    } else {
+                        Capability::ControllerDiscardV1
+                    });
+                }
+                // CR 701.8: a target destroy names the surface of its domain.
+                match target_destroy_domain(program, instruction) {
+                    Some(TargetDomain::BattlefieldCreature) => {
+                        set.insert(Capability::DestroyCreatureV1);
+                    }
+                    Some(_) => {
+                        set.insert(Capability::PermanentRemovalV1);
+                    }
+                    None => {}
+                }
                 continue;
             }
         });
+    }
+}
+/// CR 121.2: the reviewed surface a counted controller hand program uses.
+fn counted_hand_capability(program: &SpellProgram) -> Capability {
+    if ordinary_sequence::program(program)
+        || controller_counted_draw_program(program)
+        || controller_counted_draw::standalone_controller_draw(program).is_some()
+    {
+        Capability::ControllerCountedDrawV1
+    } else if controller_draw_discard_program(program) {
+        Capability::ControllerDrawDiscardV1
+    } else if hand_return::controller_draw_land_allowance_program(program) {
+        Capability::ControllerDrawLandAllowanceV1
+    } else {
+        Capability::ControllerHandReturnV1
+    }
+}
+/// CR 121.1-121.2: the reviewed surface of a fixed draw by one player. One
+/// card is the single draw; any other count by the controller is the counted
+/// hand-program draw; any count by an announced or event player is the
+/// player draw, or the standalone targeted counted draw.
+fn fixed_draw_capability(
+    program: &SpellProgram,
+    player: &kir::PlayerExpr,
+    count: &Quantity,
+) -> Capability {
+    if targeted_counted_draw_program(program) {
+        Capability::TargetedCountedDrawV1
+    } else if !player.is_you() {
+        Capability::TargetPlayerDrawV1
+    } else if *count == Quantity::from(1)
+        && !hand_return::controller_hand_return_program(program)
+        && !hand_return::controller_draw_land_allowance_program(program)
+        && !controller_draw_discard_program(program)
+    {
+        // CR 121.1: one card is the canonical single draw. A complete hand
+        // return, land-allowance, or draw-discard spell names its own family;
+        // a draw and life loss of one card is the ordinary single draw (the
+        // shape a trigger such as "draw a card and lose 1 life" also has).
+        Capability::ControllerDrawV1
+    } else {
+        counted_hand_capability(program)
     }
 }
 pub fn basic_land_color(subtype: &str) -> Option<Color> {
@@ -6919,20 +7066,18 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
         }}
     }}});
     let draw = json!({"properties":{"targets":{"maxItems":0}, "instructions":{"minItems":1,"maxItems":1,
-        "items":{"properties":{"op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}}}}}});
+        "items":instruction_schema::single_draw()}}});
     let damage = json!({"properties":{
         "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
             "slot":{"const":0},"domain":{"enum":["any_damage_target","player_or_planeswalker"]},"stage":{"const":"announcement"},
             "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"minLength":1}}}},
-        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-            "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}}}
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_damage(Some(0))}
     }});
     let life = json!({"properties":{"targets":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::kernel_verb("gain_life")}}});
     let pump = json!({"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{
         "slot":{"const":0},"domain":{"const":"battlefield_creature"},"stage":{"const":"announcement"},
         "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"pattern":"^line:(0|[1-9][0-9]*):1$"}}}},
-        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"modify_power_toughness"},
-        "target_slot":{"const":0},"duration":{"const":"until_end_of_turn"}}}}}});
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::any_pump(instruction_schema::target_object(Some(0)))}}});
     let child = json!({"anyOf":[draw,damage,life,pump],"properties":{
         "modes":{"maxItems":0},"timing":{"const":"instant"},
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}
@@ -6989,7 +7134,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "instructions":{"items":{"not":cascade}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}
     }});
     schema["$defs"]["TriggeredAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
-        "if":self_condition,"then":{"anyOf":[ability,creative_technique::demonstrate_trigger_schema()]},
+        "if":self_condition,"then":{"anyOf":[ability,demonstrate::demonstrate_trigger_schema()]},
         "else":{"properties":{"functioning_zone":{"const":"battlefield"},"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}
     }));
     let grant_effect = serde_json::json!({"type":"object","required":["grant_spell_cascade"]});
@@ -7052,7 +7197,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
             "then":{"properties":{"capabilities":{"contains":{"const":Capability::CascadeV1}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CascadeV1}}}}}
         }),
-        serde_json::json!({"if":{"anyOf":[present,creative_technique::reveal_spell_schema(),linked_hideaway::capability_schema()]},
+        serde_json::json!({"if":{"anyOf":[present,demonstrate::reveal_spell_schema(),linked_hideaway::capability_schema()]},
             "then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}
         })
     ]);
@@ -7213,22 +7358,9 @@ pub fn catalog_schema() -> serde_json::Value {
                 "death_filter":{"type":"null"},"intervening_if":{"type":"null"},"functioning_zone":{"const":"battlefield"},
                 "program":{"properties":{"additional_sacrifice":{"type":"null"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},"functioning_zone":{"const":"stack"},
                     "targets":{"maxItems":0},"modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"enum":[null,"controller"]}}}}
+                    "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::single_draw()}
                 }}
             }}
-        }));
-    // ActionRecipient is shared with controller discards, but this new opcode
-    // admits only the frozen damage recipient. Keep schema and Rust aligned.
-    schema["$defs"]["Instruction"]
-        .as_object_mut()
-        .unwrap()
-        .entry("allOf")
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .unwrap()
-        .push(serde_json::json!({
-            "if":{"properties":{"op":{"const":"sacrifice_creature"}},"required":["op"]},
-            "then":{"properties":{"recipient":{"const":"event_player"}}}
         }));
     schema["$defs"]["SpellProgram"]["allOf"] = serde_json::json!([{
         "if":{"required":["modes"],"properties":{"modes":{"minItems":1}}},
@@ -7250,7 +7382,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "targets":{"items":{"properties":{"domain":{"const":"blocking_battlefield_creature"},"filter":{"type":"null"}}}},
-            "instructions":{"minItems":1,"items":{"properties":{"op":{"const":"modify_power_toughness"},"duration":{"const":"until_end_of_turn"}}}}
+            "instructions":{"minItems":1,"items":instruction_schema::any_pump(instruction_schema::target_object(None))}
         }}
     }));
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
@@ -7273,7 +7405,7 @@ pub fn catalog_schema() -> serde_json::Value {
     // independently and recursively without prohibiting old creature programs.
     let permanent_owner_hand = serde_json::json!({
         "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"battlefield_permanent"}}}},
-        "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"return_to_owner_hand"}}}}
+        "instructions":{"contains":instruction_schema::target_move(None, "owner_hand")}
     });
     schema["$defs"]["PermanentOwnerHandFreeProgram"] = serde_json::json!({
         "not":{"required":["targets","instructions"],"properties":permanent_owner_hand},
@@ -7284,7 +7416,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "then":{"anyOf":[{"$ref":ordinary_sequence::SCHEMA},{"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"return_to_owner_hand"},"target_slot":{"const":0}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_move(Some(0), "owner_hand")},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "domain":{"const":"battlefield_permanent"},"filter":{"type":"object","properties":{
                     "types":{"maxItems":0},"non_types":{"enum":[[],["land"]]},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}
@@ -7316,16 +7448,16 @@ pub fn catalog_schema() -> serde_json::Value {
     // A creature tap may compose with the existing mandatory draw-one effect.
     // No other execution context or instruction composition is admitted.
     schema["$defs"]["TapFreeProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"tap_permanent"}}}}},
+        "instructions":{"items":{"not":instruction_schema::target_tap("tap", None)}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}
     }});
-    let tap = serde_json::json!({"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"tap_permanent"}}}}});
+    let tap = serde_json::json!({"instructions":{"contains":instruction_schema::target_tap("tap", None)}});
     schema["$defs"]["OrdinaryTapProgram"] = serde_json::json!({"properties":{
         "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
         "instructions":{"minItems":1,"maxItems":2,"prefixItems":[
-            {"properties":{"op":{"const":"tap_permanent"},"target_slot":{"const":0}}},
-            {"properties":{"op":{"const":"draw_cards"},"recipient":{"type":"null"},"count":{"const":"1"}}}
+            instruction_schema::target_tap("tap", Some(0)),
+            instruction_schema::single_draw()
         ],"items":false},
         "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
             "domain":{"const":"battlefield_creature"},"filter":{"type":"null"}
@@ -7334,7 +7466,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["ActivatedPermanentTapProgram"] = serde_json::json!({"required":["targets","instructions"],"properties":{
         "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
-        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"tap_permanent"},"target_slot":{"const":0}}}},
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_tap("tap", Some(0))},
         "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
             "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
             "filter":{"type":"object","required":["types"],"properties":{
@@ -7398,7 +7530,7 @@ pub fn catalog_schema() -> serde_json::Value {
     // Only source-tap destruction acquires this contextual capability. Other
     // ordinary and sacrifice-cost destruction programs retain their contracts.
     schema["$defs"]["DestroyPermanentFreeProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"destroy_permanent"}}}}},
+        "instructions":{"items":{"not":instruction_schema::any_target_destroy(None)}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/DestroyPermanentFreeProgram"}}}}
     }});
     schema["$defs"]["TapSourceDestroyAbility"] = serde_json::json!({"required":["cost","program"],"properties":{
@@ -7406,10 +7538,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "program":{"required":["targets","instructions"],"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":"destroy_permanent"},"target_slot":{"const":0},
-                "optional":{"const":false},"regeneration_forbidden":{"const":false}
-            }}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_destroy(Some(0), Some(false))},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
                 "filter":{"type":"object","required":["types","tapped"],"properties":{
@@ -7502,7 +7631,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "program":{"required":["targets","instructions"],"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"return_to_owner_hand"},"target_slot":{"const":0}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_move(Some(0), "owner_hand")},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
                 "filter":{"type":"object","properties":{"types":{"maxItems":0},"non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}}
@@ -7542,16 +7671,16 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     // Untap has two disjoint complete contexts; modes and triggers stay excluded.
     schema["$defs"]["UntapFreeProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"untap_permanent"}}}}},
+        "instructions":{"items":{"not":instruction_schema::target_tap("untap", None)}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}}
     }});
-    let untap = serde_json::json!({"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"untap_permanent"}}}}});
+    let untap = serde_json::json!({"instructions":{"contains":instruction_schema::target_tap("untap", None)}});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":untap},
         "then":{"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"untap_permanent"},"target_slot":{"const":0}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_tap("untap", Some(0))},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "domain":{"const":"battlefield_permanent"},
                 "slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},
@@ -7576,7 +7705,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "cost":{"const":"tap_source"},"functioning_zone":{"const":"battlefield"},
         "program":{"required":["instructions","targets"],"properties":{
             "timing":{"const":"instant"},"modes":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"untap_permanent"}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_tap("untap", None)},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "filter":{"type":"object","required":["types"],"properties":{"types":{"const":["creature"]}}}
             }}}
@@ -7676,7 +7805,7 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions","targets"],"properties":{
-            "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"modify_power_toughness"}}}},
+            "instructions":{"contains":instruction_schema::any_pump(instruction_schema::target_object(None))},
             "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"controlled_battlefield_creature"}}}}
         }},
         "then":{"properties":{"instructions":{"$ref":"#/$defs/TemporaryCreatureKeywordInstructions"}}}
@@ -8193,7 +8322,7 @@ pub fn catalog_schema() -> serde_json::Value {
     controlled_phasing::schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
-    creative_technique::extend_schema(&mut schema);
+    demonstrate::extend_schema(&mut schema);
     self_graveyard_shuffle::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
@@ -8693,15 +8822,20 @@ mod tests {
                 d.spell.as_ref().is_some_and(|p| {
                     matches!(
                         p.instructions.first(),
-                        Some(Instruction::CreateCreatureTokens { .. })
+                        Some(kernel!(CreateTokens {
+                            token: kir::TokenSpec::Creature { .. },
+                            ..
+                        }))
                     )
                 })
             })
             .unwrap()
             .clone();
         creator.source_labels = None;
-        if let Instruction::CreateCreatureTokens { token, .. } =
-            &mut creator.spell.as_mut().unwrap().instructions[0]
+        if let kernel!(CreateTokens {
+            token: kir::TokenSpec::Creature { spec: token },
+            ..
+        }) = &mut creator.spell.as_mut().unwrap().instructions[0]
         {
             token.colors.clear();
             token.keywords.clear();
@@ -8781,11 +8915,11 @@ mod tests {
                 functioning_zone: FunctioningZone::Stack,
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
-                instructions: vec![Instruction::DrawCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 0,
-                }],
+                instructions: vec![Instruction::draw(
+                    PlayerExpr::you(Context::Activated),
+                    1.into(),
+                    0,
+                )],
                 targets: vec![],
                 modes: vec![],
                 additional_sacrifice: None,
@@ -8888,11 +9022,11 @@ mod tests {
                 resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
                 targets: vec![],
-                instructions: vec![Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 0,
-                }],
+                instructions: vec![Instruction::draw(
+                    PlayerExpr::you(Context::Triggered),
+                    1.into(),
+                    0,
+                )],
                 modes: vec![],
             },
         }];
@@ -8936,8 +9070,10 @@ mod tests {
         land_entry.provenance.source_sha256 = sha256(land_entry.provenance.source_json.as_bytes());
         land_entry.provenance.ast_sha256 =
             sha256(format!("[{}]", land_entry.provenance.abilities_json).as_bytes());
-        land_entry.triggered[0].program.instructions =
-            vec![Instruction::UntapControllerLands { source_block: 0 }];
+        land_entry.triggered[0].program.instructions = vec![Instruction::untap_lands_you_control(
+            kir::Context::Triggered,
+            0,
+        )];
         land_entry.capabilities = land_entry.requirements();
         definitions.push(land_entry);
         definitions.push(cast_entry);
@@ -9140,7 +9276,7 @@ mod tests {
         definitions.push(repeated_target_modes::witness());
         definitions.push(creature_planeswalker_return::witness());
         definitions.push(controlled_creature_spell_copy::witness());
-        definitions.push(creative_technique::witness());
+        definitions.push(demonstrate::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
@@ -9244,19 +9380,22 @@ mod tests {
         definitions.push(optional);
         let mut discard = damage.clone();
         discard.triggered[0].program.targets.clear();
-        discard.triggered[0].program.instructions = vec![Instruction::DiscardCards {
-            recipient: Some(ActionRecipient::EventPlayer),
-            count: Quantity::from(1),
-            source_block: 0,
-        }];
+        discard.triggered[0].program.instructions = vec![Instruction::discard(
+            kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+            kir::Amount::Fixed {
+                value: Quantity::from(1),
+            },
+            false,
+            0,
+        )];
         discard.capabilities = discard.requirements();
         definitions.push(discard);
         let mut sacrifice = damage.clone();
         sacrifice.triggered[0].program.targets.clear();
-        sacrifice.triggered[0].program.instructions = vec![Instruction::SacrificeCreature {
-            recipient: ActionRecipient::EventPlayer,
-            source_block: 0,
-        }];
+        sacrifice.triggered[0].program.instructions = vec![Instruction::sacrifice_creature(
+            kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+            0,
+        )];
         sacrifice.capabilities = sacrifice.requirements();
         definitions.push(sacrifice);
         let mut filtered = damage.clone();
@@ -9274,11 +9413,14 @@ mod tests {
         definitions.push(filtered);
         let mut controller_discard = damage.clone();
         controller_discard.triggered[0].program.targets.clear();
-        controller_discard.triggered[0].program.instructions = vec![Instruction::DiscardCards {
-            recipient: None,
-            count: Quantity::from(1),
-            source_block: 0,
-        }];
+        controller_discard.triggered[0].program.instructions = vec![Instruction::discard(
+            kir::PlayerExpr::you(kir::Context::Triggered),
+            kir::Amount::Fixed {
+                value: Quantity::from(1),
+            },
+            false,
+            0,
+        )];
         controller_discard.capabilities = controller_discard.requirements();
         definitions.push(controller_discard);
         let mut quantity_draw = damage.clone();
@@ -9334,11 +9476,11 @@ mod tests {
             source_power: DamageSourcePowerPredicate::GreaterThanBase,
         };
         grouped.triggered[0].program.targets.clear();
-        grouped.triggered[0].program.instructions = vec![Instruction::DrawCards {
-            recipient: None,
-            count: Quantity::from(1),
-            source_block: 0,
-        }];
+        grouped.triggered[0].program.instructions = vec![Instruction::draw(
+            PlayerExpr::you(Context::Triggered),
+            Quantity::from(1),
+            0,
+        )];
         grouped.capabilities = grouped.requirements();
         definitions.push(grouped);
         // Kind and recipient each derive the expanded damage capability.
@@ -9437,7 +9579,7 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(unspent_mana::witness(source));
-        definitions.push(library_top_mana::frozen_definition().unwrap());
+        definitions.push(library_top_mana::witness());
         let sweep = definitions
             .iter()
             .find(|d| d.name == "Planar Cleansing")
@@ -9763,15 +9905,18 @@ mod tests {
     }
     #[test]
     fn event_player_discard_has_a_strict_instruction_shape_and_a_separate_binding_domain() {
-        let raw = r#"{"op":"discard_cards","count":"1","source_block":0}"#;
+        let raw = r#"{"op":"kernel","node":{"do":{"verb":"discard","player":{"player":"is","who":{"ref":"controller","role":"spell_controller"}},"amount":{"amount":"fixed","value":"1"}}},"source_block":0}"#;
         let instruction: Instruction = strict_read(raw).unwrap();
         assert_eq!(
             instruction,
-            Instruction::DiscardCards {
-                recipient: None,
-                count: Quantity::from(1),
-                source_block: 0,
-            }
+            Instruction::discard(
+                kir::PlayerExpr::you(kir::Context::Spell),
+                kir::Amount::Fixed {
+                    value: Quantity::from(1)
+                },
+                false,
+                0
+            )
         );
         assert_eq!(serde_json::to_string(&instruction).unwrap(), raw);
         for recipient in [
@@ -9803,11 +9948,14 @@ mod tests {
         ability.death_filter = None;
         ability.program.targets.clear();
         ability.program.modes.clear();
-        ability.program.instructions = vec![Instruction::DiscardCards {
-            recipient: Some(ActionRecipient::EventPlayer),
-            count: Quantity::from(1),
-            source_block: 0,
-        }];
+        ability.program.instructions = vec![Instruction::discard(
+            kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+            kir::Amount::Fixed {
+                value: Quantity::from(1),
+            },
+            false,
+            0,
+        )];
         bound.capabilities = bound.requirements();
         bound.validate().unwrap();
         assert!(
@@ -9843,7 +9991,7 @@ mod tests {
                 unbound
                     .validate()
                     .unwrap_err()
-                    .contains("event-player discard")
+                    .contains("event has no DamagedPlayer")
             );
         }
         let mut spell = bound.clone();
@@ -9854,7 +10002,7 @@ mod tests {
             spell
                 .validate()
                 .unwrap_err()
-                .contains("event-player discard")
+                .contains("event player outside a triggered ability")
         );
         let actions: Catalog = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-action-ir.json"
@@ -9872,7 +10020,7 @@ mod tests {
             activation
                 .validate()
                 .unwrap_err()
-                .contains("event-player discard")
+                .contains("event player outside a triggered ability")
         );
         let mut c = Catalog {
             schema_version: CURRENT_IR_VERSION,
@@ -9922,10 +10070,10 @@ mod tests {
         a.death_filter = None;
         a.program.targets.clear();
         a.program.modes.clear();
-        a.program.instructions = vec![Instruction::SacrificeCreature {
-            recipient: ActionRecipient::EventPlayer,
-            source_block: 0,
-        }];
+        a.program.instructions = vec![Instruction::sacrifice_creature(
+            kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+            0,
+        )];
         bound.capabilities = bound.requirements();
         bound.validate().unwrap();
         assert!(
@@ -9961,7 +10109,7 @@ mod tests {
                 unbound
                     .validate()
                     .unwrap_err()
-                    .contains("bound damage trigger")
+                    .contains("event has no DamagedPlayer")
             );
         }
         let mut spell = bound.clone();
@@ -9972,7 +10120,7 @@ mod tests {
             spell
                 .validate()
                 .unwrap_err()
-                .contains("bound damage trigger")
+                .contains("event player outside a triggered ability")
         );
         let actions: Catalog = serde_json::from_str(include_str!(
             "../../../tests/fixtures/expected-action-ir.json"
@@ -9990,7 +10138,7 @@ mod tests {
             activation
                 .validate()
                 .unwrap_err()
-                .contains("bound damage trigger")
+                .contains("event player outside a triggered ability")
         );
         let mut c = Catalog {
             schema_version: CURRENT_IR_VERSION,
@@ -10035,11 +10183,11 @@ mod tests {
             .unwrap()
             .clone();
         let mut program = observer.activated[0].program.clone();
-        program.instructions = vec![Instruction::DrawCards {
-            recipient: None,
-            count: Quantity::from(1),
-            source_block: 0,
-        }];
+        program.instructions = vec![Instruction::draw(
+            PlayerExpr::you(Context::Activated),
+            Quantity::from(1),
+            0,
+        )];
         let predicate = TypePredicate::All {
             terms: vec![
                 TypePredicate::Type {
@@ -10195,11 +10343,11 @@ mod tests {
             },
             program,
         }];
-        for recipient in [None, Some(ActionRecipient::Controller)] {
+        {
             let mut d = bound.clone();
             for i in &mut d.triggered[0].program.instructions {
-                if let Instruction::DiscardCards { recipient: r, .. } = i {
-                    *r = recipient;
+                if let kernel!(Discard { player, .. }) = i {
+                    *player = kir::PlayerExpr::you(kir::Context::Triggered);
                 }
             }
             d.capabilities = d.requirements();
@@ -10244,8 +10392,8 @@ mod tests {
         }
         let mut event = bound.clone();
         for i in &mut event.triggered[0].program.instructions {
-            if let Instruction::DiscardCards { recipient, .. } = i {
-                *recipient = Some(ActionRecipient::EventPlayer);
+            if let kernel!(Discard { player, .. }) = i {
+                *player = kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer);
             }
         }
         event.capabilities = event.requirements();
@@ -10296,9 +10444,14 @@ mod tests {
     }
     #[test]
     fn damage_quantity_draw_is_strict_bound_and_recursive() {
-        let raw = r#"{"op":"draw_cards","count":"1","source_block":0}"#;
-        let fixed: Instruction = strict_read(raw).unwrap();
-        assert_eq!(serde_json::to_string(&fixed).unwrap(), raw);
+        let fixed = Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), 0);
+        let raw = serde_json::to_string(&fixed).unwrap();
+        assert_eq!(strict_read::<Instruction>(&raw).unwrap(), fixed);
+        // The legacy single-draw spelling no longer decodes.
+        assert!(
+            strict_read::<Instruction>(r#"{"op":"draw_cards","count":"1","source_block":0}"#)
+                .is_err()
+        );
         let opcode = serde_json::json!({"op":"draw_damage_amount","source_block":0});
         let dynamic: Instruction = serde_json::from_value(opcode.clone()).unwrap();
         assert_eq!(dynamic, Instruction::DrawDamageAmount { source_block: 0 });
@@ -10649,11 +10802,11 @@ mod tests {
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
-            instructions: vec![Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Triggered),
+                1.into(),
+                0,
+            )],
             modes: vec![],
         };
         let grouped = TriggeredAbility {
@@ -10736,12 +10889,6 @@ mod tests {
         assert!(serde_json::from_value::<StaticEffect>(serde_json::json!({"opponents_cant_cast_during_controller_turn":{"who":"opponents"}})).is_err());
         let mut d = base.clone();
         d.triggered = vec![grouped.clone()];
-        // Explicit Controller has the same established meaning as omission.
-        if let Instruction::DrawCards { recipient, .. } =
-            &mut d.triggered[0].program.instructions[0]
-        {
-            *recipient = Some(LifeRecipient::Controller);
-        }
         d.capabilities = d.requirements();
         d.validate().unwrap();
         for condition in [
@@ -10789,16 +10936,12 @@ mod tests {
             assert!(invalid.validate().is_err());
         }
         for instruction in [
-            Instruction::DrawCards {
-                recipient: Some(LifeRecipient::EventPlayer),
-                count: 1.into(),
-                source_block: 0,
-            },
-            Instruction::DrawCards {
-                recipient: None,
-                count: 2.into(),
-                source_block: 0,
-            },
+            Instruction::draw(
+                PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+                1.into(),
+                0,
+            ),
+            Instruction::draw(PlayerExpr::you(Context::Triggered), 2.into(), 0),
             Instruction::DrawDamageAmount { source_block: 0 },
             Instruction::OptionalDrawCards { source_block: 0 },
             Instruction::act(
@@ -10822,20 +10965,22 @@ mod tests {
                 },
                 0,
             ),
-            Instruction::DiscardCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            },
-            Instruction::DiscardCards {
-                recipient: Some(ActionRecipient::EventPlayer),
-                count: 1.into(),
-                source_block: 0,
-            },
-            Instruction::SacrificeCreature {
-                recipient: ActionRecipient::EventPlayer,
-                source_block: 0,
-            },
+            Instruction::discard(
+                kir::PlayerExpr::you(kir::Context::Triggered),
+                kir::Amount::Fixed { value: 1.into() },
+                false,
+                0,
+            ),
+            Instruction::discard(
+                kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+                kir::Amount::Fixed { value: 1.into() },
+                false,
+                0,
+            ),
+            Instruction::sacrifice_creature(
+                kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+                0,
+            ),
         ] {
             let mut invalid = d.clone();
             invalid.triggered[0].program.instructions = vec![instruction];
@@ -11018,18 +11163,13 @@ mod tests {
                     tapped: false,
                 })
             }) as fn(&mut SpellProgram),
+            |p| p.instructions[0] = Instruction::move_target(0, kir::Destination::OwnerHand, 0),
             |p| {
-                p.instructions[0] = Instruction::ReturnToOwnerHand {
-                    target_slot: 0,
-                    source_block: 0,
-                }
-            },
-            |p| {
-                p.instructions.push(Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 0,
-                })
+                p.instructions.push(Instruction::draw(
+                    PlayerExpr::you(Context::Spell),
+                    1.into(),
+                    0,
+                ))
             },
             |p| {
                 p.additional_sacrifice = Some(SacrificeFilter {

@@ -43,7 +43,13 @@ fn d2c_complete_sources_and_capability_closure() {
     );
     assert!(matches!(
         arena.triggered[0].program.instructions.as_slice(),
-        [Instruction::DrawCards { .. }, kernel!(LoseLife { .. })]
+        [
+            kernel!(Draw {
+                player: kir::PlayerExpr::Is { .. },
+                amount: fixed!(_)
+            }),
+            kernel!(LoseLife { .. })
+        ]
     ));
     for step in ["upkeep", "draw-step", "end-step"] {
         for whose in ["your", "each-player", "each-opponent"] {
@@ -134,8 +140,8 @@ fn d2c_unsupported_each_opponent_draw_rejects_complete_source_and_ir() {
         .into_iter()
         .find(|d| d.name == "Phyrexian Arena")
         .unwrap();
-    if let Instruction::DrawCards { recipient, .. } = &mut d.triggered[0].program.instructions[0] {
-        *recipient = Some(LifeRecipient::EachOpponent);
+    if let kernel!(Draw { player, .. }) = &mut d.triggered[0].program.instructions[0] {
+        *player = PlayerExpr::EachOpponent;
     }
     d.capabilities = d.requirements();
     assert!(d.validate().is_err());

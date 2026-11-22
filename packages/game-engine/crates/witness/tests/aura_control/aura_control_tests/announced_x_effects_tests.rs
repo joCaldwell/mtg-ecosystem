@@ -52,10 +52,7 @@ fn paid_effects_setup() -> Prepared {
 
     let mut prepared = scenario(["Healing Salve", "Lightning Bolt", "Sign in Blood"], &[]);
     let catalog = Arc::make_mut(&mut prepared.catalog);
-    let damage = Instruction::DealDamageAnnouncedX {
-        target_slot: 0,
-        source_block: 0,
-    };
+    let damage = Instruction::damage_target(0, kir::Amount::announced_x(), 0);
     for (card, colored) in [
         (INVOKE, vec![Color::U, Color::U, Color::R]),
         (RAY, vec![Color::R]),
@@ -90,10 +87,13 @@ fn paid_effects_setup() -> Prepared {
                 }
                 let draw = &mut program.modes[0].program;
                 draw.targets.clear();
-                draw.instructions = vec![Instruction::DrawAnnouncedX {
-                    recipient: LifeRecipient::Controller,
-                    source_block: 0,
-                }];
+                draw.instructions = vec![Instruction::act(
+                    Verb::Draw {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: kir::Amount::announced_x(),
+                    },
+                    0,
+                )];
                 program.modes[1].program.instructions = vec![damage.clone()];
             }
             RAY => {
@@ -102,15 +102,12 @@ fn paid_effects_setup() -> Prepared {
             }
             DRAIN => {
                 program.instructions = vec![
-                    Instruction::MillAnnouncedX {
-                        target_slot: 0,
-                        source_block: 0,
-                    },
-                    Instruction::ChangeLifeAnnouncedX {
-                        recipient: LifeRecipient::Controller,
-                        gain: true,
-                        source_block: 0,
-                    },
+                    Instruction::mill(kir::PlayerExpr::target(0), kir::Amount::announced_x(), 0),
+                    Instruction::announced_x_life(
+                        mtg_contracts::kir::PlayerExpr::you(Context::Spell),
+                        true,
+                        0,
+                    ),
                 ];
             }
             _ => unreachable!(),

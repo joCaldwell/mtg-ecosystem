@@ -552,7 +552,13 @@ impl Game {
                     Instruction::CounterSpellAndMillController { .. },
                     ProposedEvent::Mill { .. }
                 ) | (
-                    Instruction::MillCards { .. } | Instruction::MillAnnouncedX { .. },
+                    kernel!(Mill {
+                        amount: fixed!(_),
+                        ..
+                    }) | kernel!(Mill {
+                        player: target_player!(_),
+                        amount: announced_x!()
+                    }),
                     ProposedEvent::Mill { .. }
                 ) | (Instruction::Surveil { .. }, ProposedEvent::Surveil { .. })
                     | (

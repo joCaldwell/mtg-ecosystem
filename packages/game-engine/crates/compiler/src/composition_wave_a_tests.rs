@@ -62,13 +62,19 @@ fn composition_wave_a_independently_qualifies_permanent_entry() {
     let marauder = lowered(MARAUDER);
     assert!(matches!(
         marauder.triggered[0].program.instructions.as_slice(),
-        [Instruction::EachPlayerSacrifice { .. }]
+        [kernel!(Sacrifice {
+            player: kir::PlayerExpr::EachPlayer,
+            ..
+        })]
     ));
     let d = lowered(PRISM);
     assert_eq!(d.mana_abilities.len(), 1);
     assert!(matches!(
         d.triggered[0].program.instructions.as_slice(),
-        [Instruction::DrawCards { .. }]
+        [kernel!(Draw {
+            player: kir::PlayerExpr::Is { .. },
+            amount: fixed!(_)
+        })]
     ));
     let d = lowered(ARC);
     assert_eq!(
@@ -77,7 +83,13 @@ fn composition_wave_a_independently_qualifies_permanent_entry() {
     );
     assert!(matches!(
         d.triggered[0].program.instructions.as_slice(),
-        [Instruction::DealDamage { target_slot: 0, .. }]
+        [kernel!(Damage {
+            to: kir::DamageTo::Ref {
+                who: kir::Ref::Target { slot: 0 }
+            },
+            amount: fixed!(_),
+            ..
+        })]
     ));
     let mut duplicated = d.clone();
     duplicated.triggered.push(d.triggered[0].clone());
@@ -89,7 +101,10 @@ fn composition_wave_a_independently_qualifies_permanent_entry() {
     assert_eq!(d.activated.len(), 1);
     assert!(matches!(
         d.triggered[0].program.instructions.as_slice(),
-        [Instruction::DestroyPermanent { target_slot: 0, .. }]
+        [kernel!(Destroy {
+            what: target_object!(0),
+            ..
+        })]
     ));
     let forged = tests::changed_source(ARC, |row| {
         let object = format!(

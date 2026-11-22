@@ -465,19 +465,16 @@ impl Game {
         instruction: &'a Instruction,
     ) -> Result<(u32, &'a Quantity, u32, TargetEntity), String> {
         let (slot, amount, block) = match instruction {
-            Instruction::DealDamage {
-                target_slot,
-                amount,
-                source_block,
-            } => (*target_slot, amount, *source_block),
-            Instruction::DealDamageAnnouncedX {
-                target_slot,
-                source_block,
-            } => (
-                *target_slot,
-                spell.x.as_ref().ok_or("missing announced X")?,
-                *source_block,
-            ),
+            kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Target { slot: target_slot } }, amount: fixed!(amount), .. } @ source_block) => {
+                (*target_slot, amount, *source_block)
+            }
+            kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Target { slot: target_slot } }, amount: announced_x!(), .. } @ source_block) => {
+                (
+                    *target_slot,
+                    spell.x.as_ref().ok_or("missing announced X")?,
+                    *source_block,
+                )
+            }
             _ => return Err("expected directed damage instruction".into()),
         };
         let index = slot as usize;
@@ -573,17 +570,9 @@ impl Game {
     pub(super) fn drain_opponents(
         &mut self,
         frame: Resolving,
-        amount: OpponentDrainAmount,
+        amount: Quantity,
         source_block: u32,
     ) -> Result<(), String> {
-        let amount = match amount {
-            OpponentDrainAmount::Fixed { value } => value,
-            OpponentDrainAmount::AnnouncedX => self
-                .entry(frame.stack_id)?
-                .x
-                .clone()
-                .ok_or("missing announced X")?,
-        };
         if amount == Quantity::zero() {
             return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
         }
@@ -624,7 +613,20 @@ impl Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         let (block, proposed, damage) = match instruction {
-            Instruction::DealDamage { .. } | Instruction::DealDamageAnnouncedX { .. } => {
+            kernel!(Damage {
+                to: mtg_contracts::kir::DamageTo::Ref {
+                    who: mtg_contracts::kir::Ref::Target { slot: _ }
+                },
+                amount: fixed!(_),
+                ..
+            })
+            | kernel!(Damage {
+                to: mtg_contracts::kir::DamageTo::Ref {
+                    who: mtg_contracts::kir::Ref::Target { slot: _ }
+                },
+                amount: announced_x!(),
+                ..
+            }) => {
                 let (target_slot, amount, source_block, target) =
                     self.directed_damage_operands(self.entry(frame.stack_id)?, &instruction)?;
                 if *amount == Quantity::zero()
@@ -651,10 +653,8 @@ impl Game {
                     true,
                 )
             }
-            Instruction::DealDamageToManaActivator {
-                amount,
-                source_block,
-            } => {
+            kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::EventPlayer { role: mtg_contracts::kir::EventPlayerRole::ActivatingPlayer } }, amount: fixed!(amount), .. } @ source_block) =>
+            {
                 let player = Self::mana_tap_activator(self.entry(frame.stack_id)?)?;
                 if !self.is_live(player) {
                     return self
@@ -668,10 +668,8 @@ impl Game {
                 };
                 return self.prepare_noncombat_damage(frame, damage, source_block);
             }
-            Instruction::DealDamageToController {
-                amount,
-                source_block,
-            } => {
+            kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Controller { .. } }, amount: fixed!(amount), .. } @ source_block) =>
+            {
                 // CR 109.5/113.7a: use the trigger's frozen controller and
                 // the land's current or last-known source facts.
                 let controller = self.entry(frame.stack_id)?.controller;

@@ -19,10 +19,7 @@ pub(super) fn permanent_owner_hand() -> Definition {
         opponent: false,
         tapped: false,
     });
-    p.instructions = vec![Instruction::ReturnToOwnerHand {
-        target_slot: 0,
-        source_block: 0,
-    }];
+    p.instructions = vec![Instruction::move_target(0, kir::Destination::OwnerHand, 0)];
     d.capabilities = d.requirements();
     d
 }
@@ -150,24 +147,18 @@ fn permanent_owner_hand_rejects_incomplete_or_composed_programs() {
             }
             "target_slot" => p.targets[0].slot = 1,
             "instruction_slot" => {
-                p.instructions[0] = Instruction::ReturnToOwnerHand {
-                    target_slot: 1,
-                    source_block: 0,
-                };
+                p.instructions[0] = Instruction::move_target(1, kir::Destination::OwnerHand, 0);
             }
             "missing_instruction" => p.instructions.clear(),
             "extra_return" => p.instructions.push(p.instructions[0].clone()),
-            "extra_draw" => p.instructions.push(Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1,
-            }),
-            "extra_other_effect" => p.instructions.push(Instruction::DestroyPermanent {
-                target_slot: 0,
-                source_block: 1,
-                optional: false,
-                regeneration_forbidden: false,
-            }),
+            "extra_draw" => p.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                1,
+            )),
+            "extra_other_effect" => p
+                .instructions
+                .push(Instruction::destroy_target(0, false, 1)),
             "cost" => {
                 p.additional_sacrifice = Some(SacrificeFilter {
                     types: vec![CardKind::Artifact],
@@ -270,7 +261,10 @@ fn retained_creature_owner_hand_definition_keeps_existing_capabilities() {
     assert_eq!(p.targets[0].filter, None);
     assert!(matches!(
         p.instructions.as_slice(),
-        [Instruction::ReturnToOwnerHand { target_slot: 0, .. }]
+        [kernel!(Move {
+            what: target_object!(0),
+            to: kir::Destination::OwnerHand
+        })]
     ));
     assert_eq!(d.capabilities, d.requirements());
     assert!(d.capabilities.contains(&Capability::OwnerHandMoveV1));

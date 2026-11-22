@@ -31,11 +31,12 @@ fn discard_spell(catalog: &Catalog) -> Definition {
     spell.name = "Synthetic random discard".into();
     spell.oracle_id = "synthetic-random-discard".into();
     spell.source_labels = None;
-    spell.spell.as_mut().unwrap().instructions = vec![Instruction::DiscardTargetPlayerAtRandom {
-        target_slot: 0,
-        count: RandomDiscardCount::Fixed { value: 2.into() },
-        source_block: 0,
-    }];
+    spell.spell.as_mut().unwrap().instructions = vec![Instruction::discard(
+        kir::PlayerExpr::target(0),
+        kir::Amount::Fixed { value: 2.into() },
+        true,
+        0,
+    )];
     spell.capabilities = spell.requirements();
     spell
 }

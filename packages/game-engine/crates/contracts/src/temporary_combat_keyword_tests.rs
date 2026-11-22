@@ -366,11 +366,11 @@ fn temporary_combat_keyword_json_near_misses_stay_rejected() {
                 match variant {
                     0 => p.targets.clear(),
                     1 => p.targets.push(p.targets[0].clone()),
-                    2 => p.instructions.push(Instruction::DrawCards {
-                        count: 1.into(),
-                        recipient: None,
-                        source_block: 0,
-                    }),
+                    2 => p.instructions.push(Instruction::draw(
+                        PlayerExpr::you(Context::Spell),
+                        1.into(),
+                        0,
+                    )),
                     3 => {
                         let child = p.clone();
                         p.modes.push(SpellMode { program: child });

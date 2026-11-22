@@ -72,21 +72,37 @@ pub fn printed(text: &str) -> Option<(Value, TriggeredAbility)> {
                 additional_sacrifice: None,
                 targets: vec![],
                 modes: vec![],
-                instructions: vec![Instruction::DealDamageToManaActivator {
-                    amount: i64::from(damage).into(),
-                    source_block: 0,
-                }],
+                instructions: vec![Instruction::damage(
+                    kir::DamageTo::Ref {
+                        who: kir::Ref::EventPlayer {
+                            role: kir::EventPlayerRole::ActivatingPlayer,
+                        },
+                    },
+                    kir::Amount::Fixed {
+                        value: i64::from(damage).into(),
+                    },
+                    0,
+                )],
             },
         },
     ))
 }
 
 fn uses(program: &SpellProgram) -> bool {
-    program
-        .instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::DealDamageToManaActivator { .. }))
-        || program.modes.iter().any(|m| uses(&m.program))
+    program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::EventPlayer {
+                        role: kir::EventPlayerRole::ActivatingPlayer
+                    }
+                },
+                amount: fixed!(_),
+                ..
+            })
+        )
+    }) || program.modes.iter().any(|m| uses(&m.program))
 }
 
 pub(super) fn validate(d: &Definition) -> Result<(), String> {
@@ -143,8 +159,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(s: &mut Value) {
     let cap = json!({"contains":{"const":Capability::ManaTapTriggerV1}});
-    let opcode =
-        json!({"required":["op"],"properties":{"op":{"const":"deal_damage_to_mana_activator"}}});
+    let opcode = instruction_schema::activator_damage();
     let trigger = json!({"required":["condition"],"properties":{"condition":{"type":"object","required":["mana_tapped"]}}});
     let free = json!({"$ref":"#/$defs/ManaTapDamageFreeProgram"});
     s["$defs"]["ManaTapDamageFreeProgram"] = json!({"properties":{

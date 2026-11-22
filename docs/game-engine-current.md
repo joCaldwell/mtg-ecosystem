@@ -33,7 +33,9 @@ capture; later control or incarnation changes do not select new recipients.
 Permanent-wide grants reject stat modifiers. Profiles and consumers remain
 separately admitted.
 
-The exact 100-card Ramos profile (`scripts/play-ramos.sh`) completed a seeded
+The exact 100-card Ramos profile (`scripts/play-ramos.sh`, staged by
+`tests/fixtures/ramos/prepare.py` from revision 17 plus registered Archive R4
+rows for the cards revision 17 no longer compiles) completed a seeded
 four-seat headless game and replay; seat rotation, varied pods and hosted client
 qualification remain open; see [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration).
 

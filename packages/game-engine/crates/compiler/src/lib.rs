@@ -64,9 +64,9 @@ mod counter_spell_controller_mill;
 mod counter_spell_controller_mill_tests;
 mod counter_unless_generic;
 pub mod coverage;
-mod creative_technique;
 mod creature_entry_return;
 mod creature_planeswalker_return;
+mod demonstrate;
 mod diagnostics;
 mod distinct_permanent_colors;
 mod divided_plus_one_counters;
@@ -309,7 +309,7 @@ enum Ability {
     #[serde(skip)]
     DividedPlusOneCountersModal,
     #[serde(skip)]
-    CommanderModalKeyword,
+    CommanderModalKeyword(Box<SpellProgram>),
     #[serde(skip)]
     PlayerGraveyardShuffle,
     #[serde(skip)]
@@ -1567,14 +1567,6 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
     }
-    if r.status != "parsed"
-        && archive.manifest_sha256 == library_top_mana::ARCHIVE
-        && r.source_sha256 == library_top_mana::SOURCE
-        && sha256(record.strip_suffix('\n').unwrap_or(record).as_bytes())
-            == library_top_mana::ARCHIVED_ROW
-    {
-        return library_top_mana::frozen_definition().map_err(|e| invalid("reparse", e));
-    }
     if let Some(definition) = greatest_power::lower(&r, archive)? {
         return Ok(definition);
     }
@@ -1668,7 +1660,20 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                 "library-top mana requires its accepted exact archive row",
             ));
         }
-        return library_top_mana::typed_archive_definition(SourceProvenance {
+        // Archive R4: every reference resolves in the closed vocabulary to the
+        // block's controller (CR 109.5), and the resolution covers every
+        // reference and step of the AST. The parser leaves only the look-top
+        // step's event unaccounted (its sole residual, which `covers` reaches
+        // last: the reviewed template has one step in its final block); the
+        // template in `archive_definition` proves that step instead.
+        let resolution =
+            resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;
+        let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
+        resolution
+            .ordinary_antecedents(&printed)
+            .map_err(|e| unsupported("binding", e.reason))?;
+        reviewed_look_top_residual(&resolution, &printed)?;
+        return library_top_mana::archive_definition(SourceProvenance {
             printing_id: source.id,
             source_index: r.source_index,
             source_sha256: r.source_sha256,
@@ -1784,12 +1789,12 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
             Ability::PrintedProtectionFromEverything,
             Ability::SelfGraveyardRevealShuffle,
         ]
-    } else if creative_technique::candidate(&source, &shape) {
-        vec![Ability::Demonstrate, Ability::RevealAndCast]
+    } else if let Some(abilities) = demonstrate::lower(&source, &shape, &result)? {
+        abilities
     } else if let Some(abilities) = hand_cast_cascade::lower(&source, &shape, &result, &binding)? {
         abilities
-    } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
-        vec![Ability::CommanderModalKeyword]
+    } else if let Some(program) = commander_modal_keyword::validate(&shape, &result, &binding)? {
+        vec![Ability::CommanderModalKeyword(Box::new(program))]
     } else if divided_plus_one_counters::validate(&shape, &result, &r)? {
         vec![Ability::DividedPlusOneCountersModal]
     } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
@@ -2932,8 +2937,8 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                     definition.static_abilities.push(a);
                     continue;
                 }
-                if let Ability::CommanderModalKeyword = ability {
-                    program = mtg_contracts::commander_modal_keyword::program().clone();
+                if let Ability::CommanderModalKeyword(lowered) = ability {
+                    program = (**lowered).clone();
                     continue;
                 }
                 if let Ability::DividedPlusOneCountersModal = ability {
@@ -2999,10 +3004,13 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                     continue;
                 }
                 if let Some(count) = &each_player_draw {
-                    program.instructions.push(Instruction::DrawEachPlayer {
-                        count: count.clone(),
-                        source_block: 0,
-                    });
+                    program.instructions.push(Instruction::act(
+                        Verb::Draw {
+                            player: PlayerExpr::EachPlayer,
+                            amount: count.clone(),
+                        },
+                        0,
+                    ));
                     continue;
                 }
                 if let Some(instructions) = draw_land_allowance.take() {
@@ -3022,10 +3030,11 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                     continue;
                 }
                 if let Some(amount) = &drain {
-                    program.instructions.push(Instruction::DrainOpponents {
-                        amount: amount.clone(),
-                        source_block: 0,
-                    });
+                    program.instructions.push(Instruction::drain(
+                        Context::Spell,
+                        amount.clone(),
+                        0,
+                    ));
                     continue;
                 }
                 if announced_x_effects {
@@ -3084,10 +3093,11 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                             "requires complete standalone source",
                         ));
                     }
-                    program.instructions.push(Instruction::DrawControllerCards {
+                    program.instructions.push(Instruction::draw(
+                        PlayerExpr::you(Context::Spell),
                         count,
-                        source_block: 0,
-                    });
+                        0,
+                    ));
                     if let Some(amount) = life_loss {
                         program.instructions.push(Instruction::act(
                             Verb::LoseLife {
@@ -3116,15 +3126,13 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                         ));
                     }
                     program.instructions.extend([
-                        Instruction::DrawControllerCards {
-                            count: draw,
-                            source_block: 0,
-                        },
-                        Instruction::DiscardCards {
-                            recipient: None,
-                            count,
-                            source_block: 0,
-                        },
+                        Instruction::draw(PlayerExpr::you(Context::Spell), draw, 0),
+                        Instruction::discard(
+                            kir::PlayerExpr::you(kir::Context::Spell),
+                            kir::Amount::Fixed { value: count },
+                            false,
+                            0,
+                        ),
                     ]);
                     continue;
                 }
@@ -3155,10 +3163,10 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
             if definition.triggered.len() == 2
                 && !matches!(
                     program.instructions.as_slice(),
-                    [Instruction::DamageSet {
-                        amount: WipeAmount::OtherCastsManaValue,
-                        ..
-                    }]
+                    [damage] if damage.set_damage().is_some_and(|d| matches!(
+                        d.amount,
+                        kir::Amount::OtherCastsManaValue { .. }
+                    ))
                 )
             {
                 return Err(unsupported(
@@ -3206,7 +3214,10 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                 i,
                 Instruction::Scry { .. }
                     | Instruction::Surveil { .. }
-                    | Instruction::MillCards { .. }
+                    | kernel!(Mill {
+                        amount: fixed!(_),
+                        ..
+                    })
             )
         })
     }) {
@@ -3260,8 +3271,15 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                 || matches!(
                     p.instructions.as_slice(),
                     [
-                        Instruction::DrawAnnouncedX { .. },
-                        Instruction::DiscardCards { .. }
+                        kernel!(Draw {
+                            player: kir::PlayerExpr::Is { .. },
+                            amount: announced_x!()
+                        }),
+                        kernel!(Discard {
+                            player: you!() | event_player!(),
+                            amount: fixed!(_),
+                            random: false
+                        })
                     ]
                 )
         })
@@ -3350,7 +3368,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
     definition.capabilities = definition.requirements();
     // The commander choice requires all three source labels at admission.
     // Its shape and binding graph were checked before lowering.
-    if !definition.spell.as_ref().is_some_and(akromas_will_program) {
+    if !definition.spell.as_ref().is_some_and(commander_choose_both) {
         definition
             .validate()
             .map_err(|e| unsupported("definition", e))?;
@@ -3368,7 +3386,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
         controlled_creature_spell_copy::validate_binding(&definition, &shape, &binding)?;
     }
     if definition.capabilities.contains(&Capability::DemonstrateV1) {
-        creative_technique::validate_binding(&definition.oracle_id, &shape, &binding)?;
+        demonstrate::validate_binding(&definition.oracle_id, &shape, &binding)?;
     }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
@@ -3400,7 +3418,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
             .flat_map(|block| block.lines().skip(1))
             .map(str::to_owned)
             .collect();
-        if akromas_will_program(spell) {
+        if commander_choose_both(spell) {
             labels.spell_modes.push(labels.spell_modes.join("\n"));
         }
         if labels.spell_modes.len() != spell.modes.len()
@@ -3640,10 +3658,7 @@ fn append_spell_effects(
             ));
         }
         program.instructions.extend([
-            Instruction::DrawControllerCards {
-                count: draw,
-                source_block: 0,
-            },
+            Instruction::draw(PlayerExpr::you(context), draw, 0),
             Instruction::PutHandOnLibrary {
                 count,
                 source_block: 0,
@@ -4197,10 +4212,11 @@ fn append_spell_effects(
                 Step::CreateReplacement { .. } => {
                     return Err(unsupported("replacement", "unsupported replacement"));
                 }
-                Step::Exile { what } => Instruction::ExilePermanent {
-                    target_slot: bind_permanent_target(program, slots, what)?,
+                Step::Exile { what } => Instruction::move_target(
+                    bind_permanent_target(program, slots, what)?,
+                    kir::Destination::Exile,
                     source_block,
-                },
+                ),
                 Step::Untap { what } => {
                     if what["filter"] != serde_json::json!({"cls":"permanent"})
                         && what["filter"] != serde_json::json!({"types":["creature"]})
@@ -4210,10 +4226,10 @@ fn append_spell_effects(
                             "requires an ordinary permanent or activated creature target",
                         ));
                     }
-                    Instruction::UntapPermanent {
-                        target_slot: bind_permanent_target(program, slots, what)?,
+                    Instruction::untap_target(
+                        bind_permanent_target(program, slots, what)?,
                         source_block,
-                    }
+                    )
                 }
                 Step::Tap { what } => {
                     let target_slot = if what["filter"] == serde_json::json!({"types":["creature"]})
@@ -4231,10 +4247,7 @@ fn append_spell_effects(
                         // the reviewed activated artifact tap program.
                         bind_permanent_target(program, slots, what)?
                     };
-                    Instruction::TapPermanent {
-                        target_slot,
-                        source_block,
-                    }
+                    Instruction::tap_target(target_slot, source_block)
                 }
                 Step::Destroy {
                     what,
@@ -4251,7 +4264,7 @@ fn append_spell_effects(
                         && regeneration_forbidden.is_none()
                         && *what == serde_json::json!({"ref":"all","filter":{"types":["creature"]}})
                     {
-                        Instruction::DestroyAllCreatures { source_block }
+                        Instruction::destroy_all_creatures(source_block)
                     } else if optional.is_none()
                         && regeneration_forbidden.is_none()
                         && what["filter"] == serde_json::json!({"types":["creature"]})
@@ -4259,10 +4272,11 @@ fn append_spell_effects(
                         let t: Target = serde_json::from_value(what.clone()).map_err(|_| {
                             unsupported("effects.destroy", "unsupported destroy target")
                         })?;
-                        Instruction::DestroyTargetCreature {
-                            target_slot: bind_creature_target(program, slots, &t)?,
+                        Instruction::destroy_target(
+                            bind_creature_target(program, slots, &t)?,
+                            false,
                             source_block,
-                        }
+                        )
                     } else {
                         if regeneration_forbidden.is_some() && *regeneration_forbidden != Some(true)
                         {
@@ -4271,11 +4285,25 @@ fn append_spell_effects(
                                 "only cannot-be-regenerated destroy is supported",
                             ));
                         }
-                        Instruction::DestroyPermanent {
-                            target_slot: bind_permanent_target(program, slots, what)?,
-                            optional: optional.unwrap_or(false),
-                            regeneration_forbidden: regeneration_forbidden.unwrap_or(false),
-                            source_block,
+                        let target_slot = bind_permanent_target(program, slots, what)?;
+                        match (
+                            optional.unwrap_or(false),
+                            regeneration_forbidden.unwrap_or(false),
+                        ) {
+                            (false, forbidden) => {
+                                Instruction::destroy_target(target_slot, forbidden, source_block)
+                            }
+                            (true, false) => Instruction::optional_destroy_target(
+                                context,
+                                target_slot,
+                                source_block,
+                            ),
+                            (true, true) => {
+                                return Err(unsupported(
+                                    "regeneration",
+                                    "an optional destroy that forbids regeneration is outside this slice",
+                                ));
+                            }
                         }
                     }
                 }
@@ -4349,11 +4377,12 @@ fn append_spell_effects(
                     who: None,
                 } if count.amount == "fixed" && count.value > 0 => {
                     let token = lower_creature_token(token)?;
-                    Instruction::CreateCreatureTokens {
-                        count: count.value,
-                        token,
+                    Instruction::create_tokens(
+                        context,
+                        count.value,
+                        kir::TokenSpec::Creature { spec: token },
                         source_block,
-                    }
+                    )
                 }
                 Step::PutCounters {
                     on: SourceCounterRecipient::Source(r),
@@ -4372,13 +4401,13 @@ fn append_spell_effects(
                 }
                 Step::PutCounters { on, counter, count } if counter.r#type == "+1/+1" => {
                     let on = match on {
-                        SourceCounterRecipient::Target(t) => CounterRecipient::Target {
-                            target_slot: bind_creature_target(program, slots, t)?,
-                        },
+                        SourceCounterRecipient::Target(t) => {
+                            kir::SetExpr::target(bind_creature_target(program, slots, t)?)
+                        }
                         SourceCounterRecipient::Source(t)
                             if t.reference == "this" && t.noun == "creature" =>
                         {
-                            CounterRecipient::Source
+                            kir::SetExpr::source()
                         }
                         _ => {
                             return Err(unsupported(
@@ -4387,14 +4416,14 @@ fn append_spell_effects(
                             ));
                         }
                     };
-                    Instruction::PutPlusOneCounters {
+                    Instruction::plus_one_counters(
                         on,
-                        amount: fixed_positive(&decode::<Count>(
+                        fixed_positive(&decode::<Count>(
                             &count.to_string(),
                             "effects.counters.count",
                         )?)?,
                         source_block,
-                    }
+                    )
                 }
                 Step::GainAbilities {
                     what,
@@ -4418,25 +4447,24 @@ fn append_spell_effects(
                 } if *what == serde_json::json!({"ref":"this","noun":"creature"})
                     && duration.duration == "end-of-turn" =>
                 {
-                    Instruction::ModifySourcePowerToughness {
-                        power: signed_fixed(power)?,
-                        toughness: signed_fixed(toughness)?,
-                        duration: Duration::UntilEndOfTurn,
+                    Instruction::pump(
+                        kir::SetExpr::source(),
+                        signed_fixed(power)?,
+                        signed_fixed(toughness)?,
                         source_block,
-                    }
+                    )
                 }
                 Step::Pump {
                     what,
                     power,
                     toughness,
                     duration,
-                } if duration.duration == "end-of-turn" => Instruction::ModifyPowerToughness {
-                    target_slot: bind_pump_target(program, slots, what)?,
-                    power: signed_fixed(power)?,
-                    toughness: signed_fixed(toughness)?,
-                    duration: Duration::UntilEndOfTurn,
+                } if duration.duration == "end-of-turn" => Instruction::pump(
+                    kir::SetExpr::target(bind_pump_target(program, slots, what)?),
+                    signed_fixed(power)?,
+                    signed_fixed(toughness)?,
                     source_block,
-                },
+                ),
                 Step::PreventDamage {
                     prevention,
                     duration,
@@ -4486,16 +4514,13 @@ fn append_spell_effects(
                     let DamageDestination::AnyTarget { selection_id } = to else {
                         return Err(unsupported("damage", "unsupported damage destination"));
                     };
-                    Instruction::DealDamage {
-                        target_slot: bind_target(
-                            program,
-                            slots,
-                            selection_id,
-                            TargetDomain::AnyDamageTarget,
-                        )?,
-                        amount: fixed_positive_value(amount)?,
+                    Instruction::damage_target(
+                        bind_target(program, slots, selection_id, TargetDomain::AnyDamageTarget)?,
+                        kir::Amount::Fixed {
+                            value: fixed_positive_value(amount)?,
+                        },
                         source_block,
-                    }
+                    )
                 }
                 Step::GainLife { who, amount, .. } | Step::LoseLife { who, amount }
                     if who.of.is_some() || amount["amount"] == "attribute" =>
@@ -4516,7 +4541,7 @@ fn append_spell_effects(
                     controller_library::surveil_instruction(amount, source_block)?
                 }
                 Step::Mill { who, amount } => {
-                    fixed_mill::instruction(program, slots, who, amount, source_block)?
+                    fixed_mill::instruction(program, slots, who, amount, context, source_block)?
                 }
                 Step::GainLife { who, amount, .. } => Instruction::act(
                     Verb::GainLife {
@@ -4567,10 +4592,10 @@ fn append_spell_effects(
                         .as_deref()
                         .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
                     let count = match &what.count {
-                        DrawAmount::Fixed { value } if *value > 0 => RandomDiscardCount::Fixed {
-                            value: i64::from(*value).into(),
-                        },
-                        DrawAmount::X {} => RandomDiscardCount::AnnouncedX,
+                        DrawAmount::Fixed { value } if *value > 0 => {
+                            Amount::fixed(i64::from(*value))
+                        }
+                        DrawAmount::X {} => Amount::announced_x(),
                         _ => {
                             return Err(unsupported(
                                 "discard.count",
@@ -4578,11 +4603,12 @@ fn append_spell_effects(
                             ));
                         }
                     };
-                    Instruction::DiscardTargetPlayerAtRandom {
-                        target_slot: bind_target(program, slots, id, domain)?,
+                    Instruction::discard(
+                        PlayerExpr::target(bind_target(program, slots, id, domain)?),
                         count,
+                        true,
                         source_block,
-                    }
+                    )
                 }
                 Step::Discard(DiscardStep::Chosen { who, what })
                     if let PlayerBinding::DiscardTarget(domain) = player_binding =>
@@ -4591,11 +4617,14 @@ fn append_spell_effects(
                         .selection_id
                         .as_deref()
                         .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
-                    Instruction::DiscardTargetPlayer {
-                        target_slot: bind_target(program, slots, id, domain)?,
-                        count: fixed_positive(&what.count)?,
+                    Instruction::discard(
+                        PlayerExpr::target(bind_target(program, slots, id, domain)?),
+                        Amount::Fixed {
+                            value: fixed_positive(&what.count)?,
+                        },
+                        false,
                         source_block,
-                    }
+                    )
                 }
                 Step::Discard(DiscardStep::Chosen { who, what })
                     if player_binding == PlayerBinding::DamageRecipient
@@ -4607,15 +4636,16 @@ fn append_spell_effects(
                         && what.filter
                             == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
                 {
-                    Instruction::DiscardCards {
-                        recipient: if who.player == "that-player" {
-                            Some(ActionRecipient::EventPlayer)
+                    Instruction::discard(
+                        if who.player == "that-player" {
+                            PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer)
                         } else {
-                            None
+                            PlayerExpr::you(context)
                         },
-                        count: Quantity::from(1),
+                        Amount::fixed(1),
+                        false,
                         source_block,
-                    }
+                    )
                 }
                 Step::Draw {
                     who,
@@ -4653,31 +4683,24 @@ fn append_spell_effects(
                     amount: DrawAmount::Fixed { value },
                     optional: false,
                 } => {
-                    let recipient = match life_recipient(
-                        program,
-                        slots,
-                        who,
-                        player_binding.event_role().is_some(),
-                    )? {
-                        LifeRecipient::Controller => None,
-                        r => Some(r),
-                    };
+                    let player =
+                        life_player(program, slots, who, context, player_binding.event_role())?;
+                    // CR 121.1: a group of opponents has no audited draw cell.
+                    if player == PlayerExpr::EachOpponent {
+                        return Err(unsupported("definition", "unsupported each-opponent draw"));
+                    }
                     if !(1..=2).contains(value) {
                         return Err(unsupported("effects.draw", "unsupported fixed draw count"));
                     }
                     // CR 121.2: multiple draws are performed one at a time.
                     for _ in 1..*value {
-                        program.instructions.push(Instruction::DrawCards {
-                            recipient: recipient.clone(),
-                            count: Quantity::from(1),
+                        program.instructions.push(Instruction::draw(
+                            player.clone(),
+                            Quantity::from(1),
                             source_block,
-                        });
+                        ));
                     }
-                    Instruction::DrawCards {
-                        recipient,
-                        count: Quantity::from(1),
-                        source_block,
-                    }
+                    Instruction::draw(player, Quantity::from(1), source_block)
                 }
                 Step::Counter { what } if what.reference == "target" && fixed_one(&what.count) => {
                     let domain = match &what.filter {
@@ -4738,10 +4761,7 @@ fn append_spell_effects(
                             .map_err(|_| unsupported("effects.return", "unsupported target"))?;
                         bind_creature_target(program, slots, &t)?
                     };
-                    Instruction::ReturnToOwnerHand {
-                        target_slot,
-                        source_block,
-                    }
+                    Instruction::move_target(target_slot, kir::Destination::OwnerHand, source_block)
                 }
                 Step::MoveZone {
                     what,
@@ -4753,10 +4773,11 @@ fn append_spell_effects(
                 {
                     let t: Target = serde_json::from_value(what.clone())
                         .map_err(|_| unsupported("effects.move", "unsupported target"))?;
-                    Instruction::PutOnTopOwnerLibrary {
-                        target_slot: bind_creature_target(program, slots, &t)?,
+                    Instruction::move_target(
+                        bind_creature_target(program, slots, &t)?,
+                        kir::Destination::OwnerLibraryTop,
                         source_block,
-                    }
+                    )
                 }
                 Step::Sacrifice {
                     who,
@@ -4774,10 +4795,10 @@ fn append_spell_effects(
                             types: vec!["creature".into()],
                         }) =>
                 {
-                    Instruction::SacrificeCreature {
-                        recipient: ActionRecipient::EventPlayer,
+                    Instruction::sacrifice_creature(
+                        PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
                         source_block,
-                    }
+                    )
                 }
                 Step::Sacrifice {
                     who,
@@ -4794,7 +4815,7 @@ fn append_spell_effects(
                             types: vec!["creature".into()],
                         }) =>
                 {
-                    Instruction::EachOpponentSacrifice { source_block }
+                    Instruction::sacrifice_creature(PlayerExpr::EachOpponent, source_block)
                 }
                 Step::Sacrifice {
                     who,
@@ -4820,10 +4841,7 @@ fn append_spell_effects(
                         who.selection_id.as_deref().unwrap_or(""),
                         TargetDomain::OpponentPlayer,
                     )?;
-                    Instruction::TargetPlayerSacrificeCreature {
-                        target_slot,
-                        source_block,
-                    }
+                    Instruction::sacrifice_creature(PlayerExpr::target(target_slot), source_block)
                 }
                 _ => {
                     return Err(unsupported(
@@ -5171,12 +5189,12 @@ fn lower_wipes_step(
         } if (what["ref"] == "all" || what["ref"] == "each")
             && duration.duration == "end-of-turn" =>
         {
-            Instruction::PumpSet {
-                set: lower_object_set(what)?,
-                power: signed_fixed(power)?,
-                toughness: signed_fixed(toughness)?,
+            Instruction::pump(
+                lower_object_set(what)?.kernel(context),
+                signed_fixed(power)?,
+                signed_fixed(toughness)?,
                 source_block,
-            }
+            )
         }
         Step::Damage {
             source: DamageSource::SelfReference {},
@@ -5199,14 +5217,17 @@ fn lower_wipes_step(
                 if r == json!({"player":"each-player"}) && !each_player {
                     each_player = true;
                 } else {
-                    sets.push(lower_object_set(&r)?);
+                    sets.push(lower_object_set(&r)?.kernel(context));
                 }
             }
             let amount = if *amount == json!({"amount":"x"}) {
                 if counted {
-                    WipeAmount::CreatureCount
+                    // CR 608.2h: the number of creatures on the battlefield.
+                    kir::Amount::Count {
+                        set: SetExpr::battlefield(kir::Pred::creatures()),
+                    }
                 } else {
-                    WipeAmount::AnnouncedX
+                    kir::Amount::announced_x()
                 }
             } else {
                 if counted {
@@ -5216,19 +5237,16 @@ fn lower_wipes_step(
                     == json!({"amount":"cast-mana-value-sum","who":{"player":"you"},
                     "during":"this-turn","excluding":{"ref":"this","noun":"spell"}})
                 {
-                    WipeAmount::OtherCastsManaValue
+                    kir::Amount::OtherCastsManaValue {
+                        caster: PlayerExpr::you(context),
+                    }
                 } else {
-                    WipeAmount::Fixed {
+                    kir::Amount::Fixed {
                         value: fixed_positive_value(amount)?,
                     }
                 }
             };
-            Instruction::DamageSet {
-                sets,
-                each_player,
-                amount,
-                source_block,
-            }
+            SetDamage::instruction(sets, each_player, amount, source_block)
         }
         Step::GainLife {
             who,
@@ -5269,7 +5287,7 @@ fn lower_wipes_step(
             && matches!(&what.filter,ObjectFilter::Types(f) if f.types==["creature"])
             && fixed_one(&what.count) =>
         {
-            Instruction::EachPlayerSacrifice { source_block }
+            Instruction::sacrifice_creature(PlayerExpr::EachPlayer, source_block)
         }
         Step::CreateReplacement {
             replacement,
@@ -6723,9 +6741,10 @@ fn lower_trigger(
     {
         program
             .instructions
-            .push(Instruction::UntapControllerLands {
-                source_block: source_block(block)?,
-            });
+            .push(Instruction::untap_lands_you_control(
+                kir::Context::Triggered,
+                source_block(block)?,
+            ));
     } else if let Some(instruction) = controller_library::lower_cast_opponent_damage(
         &condition,
         effects,
@@ -7192,10 +7211,10 @@ fn lower_activation(
         )?;
         if !matches!(
             program.instructions.as_slice(),
-            [Instruction::DestroyPermanent {
-                optional: false,
-                ..
-            }]
+            [kernel!(Destroy {
+                what: target_object!(_),
+                regeneration_forbidden: _
+            })]
         ) {
             return Err(unsupported(
                 "activation",
@@ -7249,16 +7268,18 @@ fn lower_activation(
                     let DamageDestination::AnyTarget { selection_id } = to else {
                         return Err(unsupported("damage", "unsupported damage destination"));
                     };
-                    Instruction::DealDamage {
-                        target_slot: bind_target(
+                    Instruction::damage_target(
+                        bind_target(
                             &mut program,
                             &mut slots,
                             selection_id,
                             TargetDomain::AnyDamageTarget,
                         )?,
-                        amount: fixed_positive_value(amount)?,
+                        kir::Amount::Fixed {
+                            value: fixed_positive_value(amount)?,
+                        },
                         source_block,
-                    }
+                    )
                 }
                 Step::Draw {
                     who,
@@ -7271,11 +7292,11 @@ fn lower_activation(
                     who,
                     amount,
                     optional: false,
-                } if *who == you && amount.fixed_one() => Instruction::DrawCards {
-                    recipient: None,
-                    count: Quantity::from(1),
+                } if *who == you && amount.fixed_one() => Instruction::draw(
+                    PlayerExpr::you(Context::Activated),
+                    Quantity::from(1),
                     source_block,
-                },
+                ),
                 Step::Discard(DiscardStep::Chosen { who, what })
                     if *who == you
                         && what.reference == "filter"
@@ -7283,11 +7304,14 @@ fn lower_activation(
                         && what.filter
                             == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
                 {
-                    Instruction::DiscardCards {
-                        recipient: None,
-                        count: Quantity::from(1),
+                    Instruction::discard(
+                        kir::PlayerExpr::you(kir::Context::Activated),
+                        kir::Amount::Fixed {
+                            value: Quantity::from(1),
+                        },
+                        false,
                         source_block,
-                    }
+                    )
                 }
                 _ => {
                     return Err(unsupported(
@@ -7310,6 +7334,38 @@ fn lower_activation(
         cost,
         program,
     })
+}
+
+/// The one reviewed residual of the look-top mana source: the look-top step
+/// of the mana ability's block, which its typed definition lowers. Every
+/// residual and every unaccounted step must be exactly that one, at that
+/// location; any other, card-level or in any block, rejects the source.
+fn reviewed_look_top_residual(
+    resolution: &resolution::Resolution,
+    printed: &serde_json::Value,
+) -> Result<(), Failure> {
+    const BLOCK: usize = 1;
+    const STEP: &str = "/effects/0/steps/0";
+    const EFFECT: &str = "look-top-may-reveal-for-mana";
+    const REVIEWED: &str = "step:look-top-may-reveal-for-mana";
+    let residuals = resolution.residuals();
+    if residuals != [(Some(BLOCK), REVIEWED)] {
+        let other = residuals
+            .iter()
+            .find(|(_, r)| *r != REVIEWED)
+            .map_or(REVIEWED, |(_, r)| *r);
+        return Err(unsupported("binding", other));
+    }
+    let unaccounted = resolution
+        .unaccounted_steps(printed)
+        .map_err(|e| unsupported("binding", e.reason))?;
+    if unaccounted != [(BLOCK, STEP.to_string(), EFFECT.to_string())] {
+        return Err(unsupported(
+            "binding",
+            "look-top mana source has an unreviewed unaccounted step",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -7713,10 +7769,10 @@ mod tests {
         let pongify = c.definitions.iter().find(|d| d.name == "Pongify").unwrap();
         assert!(matches!(
             pongify.spell.as_ref().unwrap().instructions[0],
-            Instruction::DestroyPermanent {
+            kernel!(Destroy {
                 regeneration_forbidden: true,
                 ..
-            }
+            })
         ));
     }
     #[test]
@@ -7946,8 +8002,10 @@ mod tests {
         }
         for keyword in [KeywordAbility::Hexproof, KeywordAbility::Shroud] {
             let mut token_spell = get("Raise the Alarm").clone();
-            let Instruction::CreateCreatureTokens { token, .. } =
-                &mut token_spell.spell.as_mut().unwrap().instructions[0]
+            let kernel!(CreateTokens {
+                token: kir::TokenSpec::Creature { spec: token },
+                ..
+            }) = &mut token_spell.spell.as_mut().unwrap().instructions[0]
             else {
                 panic!("token program")
             };
@@ -8222,11 +8280,11 @@ mod tests {
                 .as_mut()
                 .unwrap()
                 .instructions
-                .push(Instruction::DrawCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 0,
-                });
+                .push(Instruction::draw(
+                    PlayerExpr::you(Context::Spell),
+                    1.into(),
+                    0,
+                ));
             extra.capabilities = extra.requirements().into_iter().collect();
             assert!(extra.validate().is_err());
             for (pointer, value) in [
@@ -8356,7 +8414,10 @@ mod tests {
         let program = definition.spell.as_ref().unwrap();
         assert!(matches!(
             program.instructions.as_slice(),
-            [Instruction::TargetPlayerSacrificeCreature { target_slot: 0, .. }]
+            [kernel!(Sacrifice {
+                player: target_player!(0),
+                ..
+            })]
         ));
         assert_eq!(program.targets[0].domain, TargetDomain::OpponentPlayer);
         // Synthetic AST negatives: identical qualifications on both actors
@@ -8759,7 +8820,7 @@ mod tests {
         );
         for (i, op) in p.instructions.iter().enumerate() {
             assert!(
-                matches!(op,Instruction::ModifyPowerToughness{target_slot,power,toughness,duration:Duration::UntilEndOfTurn,source_block}
+                matches!(op,kernel!(ModifyUntil { what: target_object!(target_slot), change: kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: kir::Until::EndOfTurn, .. } @ source_block)
                 if *target_slot==i as u32 && *source_block==i as u32 && *power==Quantity::from(1) && *toughness==Quantity::from(1))
             );
         }
@@ -8819,7 +8880,7 @@ mod tests {
             Some(InterveningCondition::ControllerHandEmpty)
         );
         assert!(
-            matches!(b.triggered[0].program.instructions.as_slice(),[Instruction::ModifyPowerToughness{target_slot:0,power,toughness,duration:Duration::UntilEndOfTurn,source_block:0}] if *power==Quantity::from(-3) && *toughness==Quantity::from(-3))
+            matches!(b.triggered[0].program.instructions.as_slice(),[kernel!(ModifyUntil { what: target_object!(0), change: kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: kir::Until::EndOfTurn, .. } @ 0)] if *power==Quantity::from(-3) && *toughness==Quantity::from(-3))
         );
         assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
         for name in ["boros-charm", "lavaborn-muse"] {
@@ -8931,11 +8992,11 @@ mod tests {
             .as_mut()
             .unwrap()
             .instructions
-            .push(Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            });
+            .push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                0,
+            ));
         cases.push(d);
         let mut d = salve.clone();
         d.spell.as_mut().unwrap().modes.truncate(1);
@@ -9204,8 +9265,8 @@ mod tests {
         for (name, power, toughness) in [("Giant Growth", 3, 3), ("Disfigure", -2, -2)] {
             let d = c.definitions.iter().find(|d| d.name == name).unwrap();
             assert!(matches!(d.spell.as_ref().unwrap().instructions.as_slice(),
-                [Instruction::ModifyPowerToughness { power:p,toughness:t,duration:Duration::UntilEndOfTurn,target_slot:0,source_block:0 }]
-                if *p == Quantity::from(power) && *t == Quantity::from(toughness)));
+                [i] if i.pumped().is_some_and(|(what, p, t, block)| *what == kir::SetExpr::target(0)
+                    && block == 0 && *p == Quantity::from(power) && *t == Quantity::from(toughness))));
             assert_eq!(
                 d.spell.as_ref().unwrap().targets[0].domain,
                 TargetDomain::BattlefieldCreature
@@ -9588,13 +9649,12 @@ mod tests {
                     domain: TargetDomain::BlockingBattlefieldCreature,
                     filter: None
                 }],
-                instructions: vec![Instruction::ModifyPowerToughness {
-                    target_slot: 0,
-                    power: 7.into(),
-                    toughness: 7.into(),
-                    duration: Duration::UntilEndOfTurn,
-                    source_block: 0
-                }],
+                instructions: vec![Instruction::pump(
+                    kir::SetExpr::target(0),
+                    7.into(),
+                    7.into(),
+                    0
+                )],
             })
         );
         assert_eq!(
@@ -10096,11 +10156,11 @@ mod tests {
                     timing: SpellTiming::Instant,
                     resolution: SpellResolution::Instructions,
                     targets: vec![],
-                    instructions: vec![Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: 0
-                    }]
+                    instructions: vec![Instruction::draw(
+                        PlayerExpr::you(Context::Triggered),
+                        1.into(),
+                        0
+                    )]
                 }
             }]
         );
@@ -10406,11 +10466,11 @@ mod tests {
         assert_eq!(p.targets[0].selection_id, "line:0:6");
         assert_eq!(
             p.instructions,
-            [Instruction::DealDamage {
-                target_slot: 0,
-                amount: 3.into(),
-                source_block: 0
-            }]
+            [Instruction::damage_target(
+                0,
+                kir::Amount::Fixed { value: 3.into() },
+                0
+            )]
         );
         let sorcerer = get("Prodigal Sorcerer");
         let a = &sorcerer.activated[0];
@@ -10429,11 +10489,11 @@ mod tests {
         assert_eq!(a.program.targets[0].selection_id, "line:0:9");
         assert_eq!(
             a.program.instructions,
-            [Instruction::DealDamage {
-                target_slot: 0,
-                amount: 1.into(),
-                source_block: 0
-            }]
+            [Instruction::damage_target(
+                0,
+                kir::Amount::Fixed { value: 1.into() },
+                0
+            )]
         );
         let soul = get("Soul Feast");
         let p = soul.spell.as_ref().unwrap();
@@ -10483,11 +10543,7 @@ mod tests {
                     },
                     0
                 ),
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 1
-                }
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
             ]
         );
         let nectar = get("Sacred Nectar");
@@ -10631,18 +10687,17 @@ mod tests {
                 d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature
             }) as fn(&mut Definition),
             |d| {
-                d.spell.as_mut().unwrap().instructions[0] = Instruction::DealDamage {
-                    target_slot: 1,
-                    amount: 3.into(),
-                    source_block: 0,
-                }
+                d.spell.as_mut().unwrap().instructions[0] =
+                    Instruction::damage_target(1, kir::Amount::Fixed { value: 3.into() }, 0)
             },
             |d| {
-                d.spell.as_mut().unwrap().instructions[0] = Instruction::DealDamage {
-                    target_slot: 0,
-                    amount: Quantity::zero(),
-                    source_block: 0,
-                }
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::damage_target(
+                    0,
+                    kir::Amount::Fixed {
+                        value: Quantity::zero(),
+                    },
+                    0,
+                )
             },
             |d| {
                 d.capabilities.remove(&Capability::NoncombatDamageV1);
@@ -10724,11 +10779,11 @@ mod tests {
             .as_mut()
             .unwrap()
             .instructions
-            .push(Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1,
-            });
+            .push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                1,
+            ));
         d.capabilities = d.requirements();
         c.validate().unwrap();
         let mut c = embedded_catalog("damage-life").unwrap();
@@ -10737,11 +10792,11 @@ mod tests {
             .iter_mut()
             .find(|d| d.name == "Prodigal Sorcerer")
             .unwrap();
-        d.activated[0].program.instructions = vec![Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0,
-        }];
+        d.activated[0].program.instructions = vec![Instruction::draw(
+            PlayerExpr::you(Context::Activated),
+            1.into(),
+            0,
+        )];
         d.capabilities = d.requirements();
         assert!(c.validate().is_err());
     }
@@ -10797,16 +10852,15 @@ mod tests {
         assert_eq!(
             looter.activated[0].program.instructions,
             [
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: Quantity::from(1),
-                    source_block: 0
-                },
-                Instruction::DiscardCards {
-                    recipient: None,
-                    count: Quantity::from(1),
-                    source_block: 0
-                },
+                Instruction::draw(PlayerExpr::you(Context::Activated), Quantity::from(1), 0),
+                Instruction::discard(
+                    kir::PlayerExpr::you(kir::Context::Activated),
+                    kir::Amount::Fixed {
+                        value: Quantity::from(1)
+                    },
+                    false,
+                    0
+                ),
             ]
         );
         let mage = catalog
@@ -10825,11 +10879,11 @@ mod tests {
         );
         assert_eq!(
             mage.activated[0].program.instructions,
-            [Instruction::DrawCards {
-                recipient: None,
-                count: Quantity::from(1),
-                source_block: 0
-            }]
+            [Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                Quantity::from(1),
+                0
+            )]
         );
         for d in [looter, mage] {
             assert_eq!(
@@ -11052,10 +11106,7 @@ mod tests {
         assert_eq!(spell.targets[0].selection_id, "line:0:1");
         assert_eq!(
             spell.instructions,
-            [Instruction::ReturnToOwnerHand {
-                target_slot: 0,
-                source_block: 0
-            }]
+            [Instruction::move_target(0, kir::Destination::OwnerHand, 0)]
         );
         assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
     }
@@ -11082,10 +11133,10 @@ mod tests {
         );
         assert_eq!(
             program.instructions,
-            [Instruction::TargetPlayerSacrificeCreature {
-                target_slot: 0,
-                source_block: 0
-            }]
+            [Instruction::sacrifice_creature(
+                kir::PlayerExpr::target(0),
+                0
+            )]
         );
         assert!(definition.activated.is_empty());
     }
@@ -11122,8 +11173,8 @@ mod tests {
                     mtg_contracts::CURRENT_IR_VERSION + 1
                 ),
             ),
-            raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
-            raw.replace("\"target_slot\":0", "\"target_slot\":99"),
+            raw.replace("{\"to\":\"owner_hand\"}", "{\"to\":\"execute_text\"}"),
+            raw.replace("\"slot\":0", "\"slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
             raw.replace(
                 "\"functioning_zone\":\"stack\"",
@@ -11340,10 +11391,11 @@ mod tests {
                     filter: None,
                     domain: TargetDomain::BattlefieldCreature
                 }],
-                instructions: vec![Instruction::PutOnTopOwnerLibrary {
-                    target_slot: 0,
-                    source_block: 0
-                }],
+                instructions: vec![Instruction::move_target(
+                    0,
+                    kir::Destination::OwnerLibraryTop,
+                    0
+                )],
             })
         );
         assert_eq!(
@@ -11503,16 +11555,19 @@ mod tests {
                     functioning_zone: FunctioningZone::Stack,
                     targets: vec![],
                     instructions: vec![
-                        Instruction::DrawCards {
-                            recipient: None,
-                            count: Quantity::from(1),
-                            source_block: 0
-                        },
-                        Instruction::DiscardCards {
-                            recipient: None,
-                            count: Quantity::from(1),
-                            source_block: 0
-                        }
+                        Instruction::draw(
+                            PlayerExpr::you(Context::Activated),
+                            Quantity::from(1),
+                            0
+                        ),
+                        Instruction::discard(
+                            kir::PlayerExpr::you(kir::Context::Activated),
+                            kir::Amount::Fixed {
+                                value: Quantity::from(1)
+                            },
+                            false,
+                            0
+                        )
                     ]
                 }
             }]
@@ -11717,11 +11772,11 @@ mod tests {
             |d| d.activated[0].program.functioning_zone = FunctioningZone::Battlefield,
             |d| d.activated[0].program.timing = SpellTiming::MainPhase,
             |d| {
-                d.activated[0].program.instructions = vec![Instruction::DrawCards {
-                    recipient: None,
-                    count: Quantity::from(2),
-                    source_block: 0,
-                }]
+                d.activated[0].program.instructions = vec![Instruction::draw(
+                    PlayerExpr::you(Context::Activated),
+                    Quantity::from(2),
+                    0,
+                )]
             },
             |d| {
                 d.activated[0].program.targets = vec![TargetSpec {
@@ -11734,10 +11789,8 @@ mod tests {
                 }]
             },
             |d| {
-                d.activated[0].program.instructions = vec![Instruction::ReturnToOwnerHand {
-                    target_slot: 0,
-                    source_block: 0,
-                }]
+                d.activated[0].program.instructions =
+                    vec![Instruction::move_target(0, kir::Destination::OwnerHand, 0)]
             },
         ] {
             let mut bad = researcher.clone();
@@ -11760,20 +11813,18 @@ mod tests {
             filter: None,
             domain: TargetDomain::BattlefieldCreature,
         });
-        p.instructions.push(Instruction::ReturnToOwnerHand {
-            target_slot: 1,
-            source_block: 0,
-        });
+        p.instructions
+            .push(Instruction::move_target(1, kir::Destination::OwnerHand, 0));
         mixed.capabilities = mixed.requirements();
         assert!(mixed.validate().is_err());
         let raw = canonical(&catalog).unwrap();
         for bad in [
             raw.replace("\"cost\":\"sacrifice_source\"", "\"cost\":\"tap_source\""),
-            raw.replace("\"count\":\"1\"", "\"count\":\"01\""),
             raw.replace(
-                "\"op\":\"draw_cards\"",
-                "\"optional\":true,\"op\":\"draw_cards\"",
+                "\"amount\":{\"amount\":\"fixed\",\"value\":\"1\"}",
+                "\"amount\":{\"amount\":\"fixed\",\"value\":\"01\"}",
             ),
+            raw.replace("\"verb\":\"draw\"", "\"verb\":\"draw\",\"optional\":true"),
         ] {
             assert!(Catalog::read(&bad).is_err());
         }
@@ -11833,12 +11884,12 @@ mod tests {
                 ),
             ),
             raw.replace(
-                "\"op\":\"put_on_top_owner_library\"",
-                "\"op\":\"put_on_bottom_owner_library\"",
+                "{\"to\":\"owner_library_top\"}",
+                "{\"to\":\"owner_library_bottom\"}",
             ),
             raw.replace(
-                "\"op\":\"put_on_top_owner_library\"",
-                "\"unknown\":true,\"op\":\"put_on_top_owner_library\"",
+                "{\"to\":\"owner_library_top\"}",
+                "{\"to\":\"owner_library_top\",\"unknown\":true}",
             ),
         ] {
             assert!(Catalog::read(&bad).is_err());
@@ -11853,10 +11904,11 @@ mod tests {
                 as fn(&mut Definition),
             |d| d.spell.as_mut().unwrap().resolution = SpellResolution::Permanent,
             |d| {
-                d.spell.as_mut().unwrap().instructions = vec![Instruction::PutOnTopOwnerLibrary {
-                    target_slot: 1,
-                    source_block: 0,
-                }]
+                d.spell.as_mut().unwrap().instructions = vec![Instruction::move_target(
+                    1,
+                    kir::Destination::OwnerLibraryTop,
+                    0,
+                )]
             },
             |d| d.spell.as_mut().unwrap().targets.clear(),
         ] {
@@ -12002,10 +12054,7 @@ mod tests {
                     .as_mut()
                     .unwrap()
                     .instructions
-                    .push(Instruction::ReturnToOwnerHand {
-                        target_slot: 0,
-                        source_block: 0,
-                    });
+                    .push(Instruction::move_target(0, kir::Destination::OwnerHand, 0));
             },
             |d| {
                 d.spell.as_mut().unwrap().targets.push(TargetSpec {
@@ -12291,12 +12340,19 @@ fn hybrid_announcement_requires_the_exact_source_face_and_empty_ability_graph() 
 }
 
 #[test]
-fn frozen_library_top_mana_requires_complete_source_and_reparse() {
+fn library_top_mana_lowers_only_through_the_typed_r4_pipeline() {
+    // The revision-17 row is unparsed: no reparse bypass supplies its AST.
     let header = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
     let row =
         include_str!("../../../tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json");
-    let CompileResult::Lowered { definition } = compile(header, row) else {
-        panic!("expected frozen reparse")
+    assert!(!matches!(
+        compile(header, row),
+        CompileResult::Lowered { .. }
+    ));
+    let r4 = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    let row = include_str!("../../../tests/fixtures/phase1-r4/library-top-mana.json");
+    let CompileResult::Lowered { definition } = compile(r4, row) else {
+        panic!("expected the typed R4 composition")
     };
     definition.validate().unwrap();
     assert_eq!(
@@ -12311,10 +12367,57 @@ fn frozen_library_top_mana_requires_complete_source_and_reparse() {
             source_block: 1
         }]
     );
+    // Any other row, even one changed consistently, is not the accepted row.
+    let changed = tests::changed_source(row, |r| {
+        r["source"]["oracle_text"] = serde_json::json!(
+            r["source"]["oracle_text"]
+                .as_str()
+                .unwrap()
+                .replace("three or more", "four or more")
+        )
+    });
     assert!(!matches!(
-        compile(header, &row.replace("three or more", "four or more")),
+        compile(r4, &changed),
         CompileResult::Lowered { .. }
     ));
+    // Every residual is checked, not only the first: a second residual beside
+    // the reviewed one, at card or block level, or a second unaccounted step,
+    // rejects the source.
+    let record: serde_json::Value = serde_json::from_str(row).unwrap();
+    let printed = record["faces"][0]["result"]["abilities"].clone();
+    let guard = |resolution: &serde_json::Value| {
+        let raw = serde_json::to_string(resolution).unwrap();
+        let sha = sha256(raw.as_bytes());
+        let raw = serde_json::value::RawValue::from_string(raw).unwrap();
+        let resolution = resolution::Resolution::read(Some(&raw), Some(&sha))?;
+        reviewed_look_top_residual(&resolution, &printed)
+    };
+    guard(&record["resolution"]).unwrap();
+    for second in [
+        "/residuals",
+        "/faces/0/blocks/1/residuals",
+        "/faces/0/blocks/0/residuals",
+    ] {
+        let mut extra = record["resolution"].clone();
+        extra
+            .pointer_mut(second)
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("ref:unreviewed"));
+        let error = guard(&extra).unwrap_err();
+        assert_eq!(error.reason, "ref:unreviewed", "{second}");
+    }
+    // The reviewed residual must be the sole unaccounted step at its exact
+    // location: the same residual with the step accounted elsewhere rejects.
+    let mut step = record["resolution"].clone();
+    let only = &mut step["faces"][0]["blocks"][1]["steps"][0];
+    *only = serde_json::json!({"path":only["path"].clone(),"astEffect":only["astEffect"].clone(),
+        "event":only["astEffect"].clone()});
+    assert_eq!(
+        guard(&step).unwrap_err().reason,
+        "look-top mana source has an unreviewed unaccounted step"
+    );
     let mut changed = *definition;
     changed.triggered.clear();
     changed.capabilities = changed.requirements();

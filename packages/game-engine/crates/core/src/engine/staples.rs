@@ -227,47 +227,34 @@ impl Game {
         instruction: &Instruction,
     ) -> Result<PlayerId, String> {
         match instruction {
-            Instruction::DrawEachPlayer { .. } => frame
-                .each_player_draw
-                .as_ref()
-                .and_then(|scope| scope.remaining.first().copied())
-                .ok_or_else(|| "missing current each-player draw seat".into()),
-            Instruction::DrawCards {
-                recipient: Some(LifeRecipient::Target { target_slot }),
-                ..
-            }
-            | Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot },
-                ..
-            } => self
-                .entry(frame.stack_id)?
-                .player_targets
-                .get(*target_slot as usize)
-                .copied()
-                .ok_or_else(|| "missing draw target".into()),
-            Instruction::DrawCards {
-                recipient: Some(LifeRecipient::EventPlayer),
-                ..
-            } => self
-                .entry(frame.stack_id)?
-                .kind
-                .event_player()?
-                .ok_or_else(|| "absent draw event player".into()),
-            Instruction::DrawCards {
-                recipient: Some(LifeRecipient::EachOpponent),
-                ..
-            } => Err("unsupported each-opponent draw".into()),
-            Instruction::DrawCards {
-                recipient: None | Some(LifeRecipient::Controller),
-                ..
-            }
-            | Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Controller,
-                ..
-            }
-            | Instruction::OptionalDrawUnlessCasterPays { .. }
+            kernel!(Draw { player, .. }) => match player {
+                mtg_contracts::kir::PlayerExpr::EachPlayer => frame
+                    .each_player_draw
+                    .as_ref()
+                    .and_then(|scope| scope.remaining.first().copied())
+                    .ok_or_else(|| "missing current each-player draw seat".into()),
+                mtg_contracts::kir::PlayerExpr::Is {
+                    who: mtg_contracts::kir::Ref::Target { slot },
+                } => self
+                    .entry(frame.stack_id)?
+                    .player_targets
+                    .get(*slot as usize)
+                    .copied()
+                    .ok_or_else(|| "missing draw target".into()),
+                mtg_contracts::kir::PlayerExpr::Is {
+                    who: mtg_contracts::kir::Ref::EventPlayer { .. },
+                } => self
+                    .entry(frame.stack_id)?
+                    .kind
+                    .event_player()?
+                    .ok_or_else(|| "absent draw event player".into()),
+                mtg_contracts::kir::PlayerExpr::Is {
+                    who: mtg_contracts::kir::Ref::Controller { .. },
+                } => Ok(self.entry(frame.stack_id)?.controller),
+                _ => Err("unsupported draw recipient".into()),
+            },
+            Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::OptionalDrawCards { .. }
-            | Instruction::DrawControllerCards { .. }
             | Instruction::DrawCardsIfAdditionalCost { .. }
             | Instruction::DrawDamageAmount { .. } => Ok(self.entry(frame.stack_id)?.controller),
             Instruction::OptionalDrawForSoleGreatestEntrant { .. } => frame
@@ -436,10 +423,11 @@ impl Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         match instruction {
-            Instruction::DestroyTargetCreature {
-                target_slot,
-                source_block,
-            } => {
+            // CR 701.8: one announced creature, destroyed as a creature.
+            _ if instruction.target_destroy().is_some() => {
+                let Some((target_slot, _, _, source_block)) = instruction.target_destroy() else {
+                    unreachable!()
+                };
                 let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) == Some(&true)
                     && self.is_battlefield_creature(target)
@@ -456,19 +444,6 @@ impl Game {
                     );
                 }
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-            }
-            Instruction::DestroyAllCreatures { source_block } => {
-                let objects = self.objects_in_set(
-                    &ObjectSet::Creatures,
-                    self.entry(frame.stack_id)?.controller,
-                );
-                self.move_board_objects(
-                    frame,
-                    objects,
-                    wipes::SetMove::Destroy,
-                    source_block,
-                    false,
-                )
             }
             Instruction::ReturnOwnGraveyardCreatureToBattlefield {
                 target_slot,
@@ -1013,17 +988,24 @@ impl Game {
                     target_slot,
                     optional: true,
                     source_block: b,
-                }
-                | Instruction::DestroyPermanent {
-                    target_slot,
-                    optional: true,
-                    source_block: b,
-                    ..
                 },
             ) => {
                 *player == entry.controller
                     && source_block == b
                     && entry.targets.get(*target_slot as usize) == Some(target)
+            }
+            (
+                ResolutionChoice::OptionalEffect {
+                    player,
+                    target,
+                    source_block,
+                },
+                i,
+            ) if i.target_destroy().is_some_and(|(_, optional, ..)| optional) => {
+                let (target_slot, _, _, b) = i.target_destroy().unwrap();
+                *player == entry.controller
+                    && *source_block == b
+                    && entry.targets.get(target_slot as usize) == Some(target)
             }
             (
                 ResolutionChoice::Search {

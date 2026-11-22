@@ -14,14 +14,11 @@ fn program_schema(shape: Shape) -> Value {
         .instructions()
         .into_iter()
         .map(|i| match i {
-            Instruction::DiscardCards { .. } => json!({"properties":{
-                "op":{"const":"discard_cards"},"count":{"const":"1"},"source_block":{"const":0},
-                "recipient":{"enum":[null,"controller"]}
-            }}),
-            Instruction::DrawCards { .. } => json!({"properties":{
-                "op":{"const":"draw_cards"},"count":{"const":"1"},"source_block":{"const":0},
-                "recipient":{"type":"null"}
-            }}),
+            i if i.controller_discard().is_some() => instruction_schema::at(
+                instruction_schema::controller_discard(json!({"const":"1"})),
+                0,
+            ),
+            i if i.single_draw() => instruction_schema::at(instruction_schema::single_draw(), 0),
             i => json!({"const":i}),
         })
         .collect();
@@ -45,15 +42,36 @@ fn program_schema(shape: Shape) -> Value {
 
 pub(crate) fn extend_schema(schema: &mut Value) {
     let free = json!({"$ref":"#/$defs/AnnouncedXDrawFreeProgram"});
+    // CR 107.3: an announced-X draw by one player (each player's X draw is
+    // its own family).
+    let x_draw = json!({"allOf":[
+        instruction_schema::kernel_announced_x(&["draw"]),
+        {"properties":{"node":{"properties":{"do":{"properties":{"player":{"properties":{"player":{"const":"is"}}}}}}}}}
+    ]});
     schema["$defs"]["AnnouncedXDrawFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":[
-            "draw_announced_x","change_life_announced_x","deal_damage_announced_x","mill_announced_x"
-        ]}}}}},
+        "instructions":{"items":{"not":{"anyOf":[
+            instruction_schema::target_mill_x(),
+            instruction_schema::target_damage_x(),
+            x_draw,
+            instruction_schema::kernel_announced_x(&["gain_life","lose_life"])
+        ]}}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
+    // The announced-X damage of these spells is block zero's, to slot zero.
+    let rules = schema["$defs"]["Instruction"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| json!([]));
+    rules.as_array_mut().unwrap().push(json!({
+        "if":instruction_schema::target_damage_x(),
+        "then":{"properties":{"source_block":{"const":0},"node":{"properties":{"do":{"properties":{
+            "to":{"properties":{"who":{"properties":{"slot":{"const":0}}}}}}}}}}}
+    }));
     schema["$defs"]["Instruction"]["allOf"].as_array_mut().unwrap().push(json!({
-        "if":{"properties":{"op":{"enum":["draw_announced_x","change_life_announced_x"]}}},
-        "then":{"properties":{"source_block":{"const":0},"recipient":{"enum":[LifeRecipient::Controller,LifeRecipient::Target{target_slot:0}]}}}
+        "if":x_draw,
+        "then":{"properties":{"source_block":{"const":0},"node":{"properties":{"do":{"properties":{
+            "player":{"enum":[kir::PlayerExpr::you(Context::Spell),kir::PlayerExpr::target(0)]}}}}}}}
     }));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":free}}});
     let mut alternatives = Vec::new();
@@ -119,11 +137,18 @@ pub(crate) fn extend_schema(schema: &mut Value) {
             Capability::AnnouncedXDrawV1,Capability::AnnouncedXEffectsV1
         ]}}}}}}),
     );
-    let x_amount = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
-        "required":["op","amount"],"properties":{"op":{"enum":["damage_set","drain_opponents"]},"amount":{"const":{"amount":"announced_x"}}}
-    }}}}}});
+    let x_amount = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{"anyOf":[
+        instruction_schema::set_damage(json!({"const":kir::Amount::announced_x()})),
+        instruction_schema::kernel_seq_announced_x()
+    ]}}}}}});
     let counted_x = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
-        "required":["op","count"],"properties":{"op":{"enum":["discard_target_player_at_random","draw_each_player"]},"count":{"const":{"amount":"announced_x"}}}
+        "anyOf":[
+            instruction_schema::target_discard_x(),
+            {"allOf":[
+                instruction_schema::kernel_verb_for("draw", &kir::PlayerExpr::EachPlayer),
+                instruction_schema::kernel_announced_x(&["draw"])
+            ]}
+        ]
     }}}}}});
     defs.push(json!({"if":{"anyOf":[has,x_amount,counted_x]},"then":{"required":["x_mana_cost"],"properties":{"x_mana_cost":{"const":true}}},"else":{"properties":{"x_mana_cost":{"const":false}}}}));
 }

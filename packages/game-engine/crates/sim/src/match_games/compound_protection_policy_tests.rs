@@ -227,13 +227,12 @@ fn compound_policy_exact_shape_capability_and_identity_controls() {
                     unreachable!()
                 };
                 p.instructions = vec![
-                    I::ModifyPowerToughness {
-                        target_slot,
-                        power: m.power,
-                        toughness: m.toughness,
-                        duration,
+                    I::pump(
+                        kir::SetExpr::target(target_slot),
+                        m.power,
+                        m.toughness,
                         source_block,
-                    },
+                    ),
                     I::GrantKeywords {
                         target_slot,
                         modifier: None,

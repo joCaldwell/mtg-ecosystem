@@ -139,11 +139,7 @@ mod reactive_tests {
                     resolution: mtg_contracts::SpellResolution::Instructions,
                     functioning_zone: mtg_contracts::FunctioningZone::Stack,
                     targets: vec![],
-                    instructions: vec![mtg_contracts::Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: 2.into(),
-                        source_block: 0
-                    }],
+                    instructions: vec![I::damage_target(0, kir::Amount::fixed(2), 0)],
                     modes: vec![]
                 },
                 &entities
@@ -162,11 +158,7 @@ mod reactive_tests {
                     resolution: mtg_contracts::SpellResolution::Instructions,
                     functioning_zone: mtg_contracts::FunctioningZone::Stack,
                     targets: vec![],
-                    instructions: vec![mtg_contracts::Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: 2.into(),
-                        source_block: 0
-                    }],
+                    instructions: vec![I::damage_target(0, kir::Amount::fixed(2), 0)],
                     modes: vec![]
                 },
                 &entities
@@ -381,8 +373,10 @@ fn names_and_catalog_size_do_not_select_policy_or_wipe_amounts() {
     assert!(s.definition_ready(&v, d));
     let mut changed = d.clone();
     for i in &mut changed.spell.as_mut().unwrap().instructions {
-        if let I::DamageSet { amount, .. } = i {
-            *amount = WipeAmount::Fixed { value: 1.into() };
+        if i.set_damage().is_some()
+            && let kernel!(Damage { amount, .. }) = i
+        {
+            *amount = kir::Amount::fixed(1);
         }
     }
     assert!(
@@ -902,19 +896,8 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
         .unwrap();
     let p = bolt.spell.as_mut().unwrap();
     p.instructions = vec![
-        I::ModifyPowerToughness {
-            target_slot: 0,
-            power: 1.into(),
-            toughness: 1.into(),
-            duration: mtg_contracts::Duration::UntilEndOfTurn,
-            source_block: 0,
-        },
-        I::DestroyPermanent {
-            target_slot: 1,
-            optional: true,
-            regeneration_forbidden: false,
-            source_block: 0,
-        },
+        I::pump(kir::SetExpr::target(0), 1.into(), 1.into(), 0),
+        I::optional_destroy_target(kir::Context::Spell, 1, 0),
     ];
     v.stack.last_mut().unwrap().targets = vec![
         mtg_core::VisibleTarget {
@@ -934,16 +917,8 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
         .unwrap();
     let p = bolt.spell.as_mut().unwrap();
     p.instructions = vec![
-        I::DealDamage {
-            target_slot: 0,
-            amount: 3.into(),
-            source_block: 0,
-        },
-        I::DealDamage {
-            target_slot: 1,
-            amount: 3.into(),
-            source_block: 0,
-        },
+        I::damage_target(0, kir::Amount::fixed(3), 0),
+        I::damage_target(1, kir::Amount::fixed(3), 0),
     ];
     let mut second = p.targets[0].clone();
     second.slot = 1;
@@ -1685,10 +1660,9 @@ mod reactive_tapped_destroy_tests {
             match case {
                 "unrestricted" => p.targets[0].filter.as_mut().unwrap().tapped = false,
                 "optional" => {
-                    let I::DestroyPermanent { optional, .. } = &mut p.instructions[0] else {
-                        panic!("destroy")
-                    };
-                    *optional = true;
+                    let (slot, _, _, block) = p.instructions[0].target_destroy().expect("destroy");
+                    p.instructions[0] =
+                        I::optional_destroy_target(kir::Context::Spell, slot, block);
                 }
                 "modal" => {
                     let child = p.clone();
@@ -1879,10 +1853,10 @@ mod defensive_untap_policy_tests {
                     if case == "unrestricted" {
                         p.targets[0].filter.as_mut().unwrap().tapped = false;
                     } else {
-                        let I::DestroyPermanent { optional, .. } = &mut p.instructions[0] else {
-                            panic!("destroy")
-                        };
-                        *optional = true;
+                        let (slot, _, _, block) =
+                            p.instructions[0].target_destroy().expect("destroy");
+                        p.instructions[0] =
+                            I::optional_destroy_target(kir::Context::Spell, slot, block);
                     }
                 }
                 "ability" => {
@@ -3259,11 +3233,11 @@ fn indestructible_policy_sole_destruction_declines_and_announced_choice_falls_ba
             .as_mut()
             .unwrap()
             .instructions
-            .push(mtg_contracts::Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            });
+            .push(mtg_contracts::Instruction::draw(
+                mtg_contracts::kir::PlayerExpr::you(mtg_contracts::kir::Context::Spell),
+                1.into(),
+                0,
+            ));
         v.objects[0] = wipe_tests::card(&c, protected, 0, Zone::Battlefield);
         assert!(strategy(&c).definition_ready(&v, &compound));
     }

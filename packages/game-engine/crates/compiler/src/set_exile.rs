@@ -122,12 +122,12 @@ fn fixed_set_exile_rejects_changed_zone_unbound_selection_and_erased_ir() {
             match change {
                 "erasure" => ops.clear(),
                 "damage" => {
-                    ops[0] = Instruction::DamageSet {
-                        sets: vec![ObjectSet::GraveyardCards],
-                        each_player: false,
-                        amount: WipeAmount::Fixed { value: 1.into() },
-                        source_block: 0,
-                    }
+                    ops[0] = SetDamage::instruction(
+                        vec![ObjectSet::GraveyardCards.kernel(Context::Spell)],
+                        false,
+                        kir::Amount::fixed(1),
+                        0,
+                    )
                 }
                 _ => {
                     let what = ObjectSet::Creatures.kernel(Context::Spell);

@@ -69,16 +69,11 @@ impl Game {
                         .get(frame.cursor as usize)
                         .ok_or("missing destroy instruction")?;
                     match instruction {
-                        Instruction::DestroyPermanent {
-                            regeneration_forbidden,
-                            ..
-                        }
-                        | kernel!(Destroy {
+                        kernel!(Destroy {
                             regeneration_forbidden,
                             ..
                         }) => *regeneration_forbidden,
-                        Instruction::DestroyTargetCreature { .. }
-                        | Instruction::DestroyAllCreatures { .. } => false,
+                        i if i.target_destroy().is_some() => false,
                         _ => return Err("regeneration requires a destruction producer".into()),
                     }
                 }

@@ -97,11 +97,16 @@ fn slice6c_mana_tap_activator_is_exact_and_untargeted() {
     );
     assert!(t.program.targets.is_empty());
     assert!(matches!(t.program.instructions.as_slice(),
-        [Instruction::DealDamageToManaActivator { amount, .. }] if *amount == Quantity::from(1)));
-    definition.triggered[0].program.instructions[0] = Instruction::DealDamageToController {
-        amount: Quantity::from(1),
-        source_block: 0,
-    };
+        [kernel!(Damage { to: kir::DamageTo::Ref { who: kir::Ref::EventPlayer { role: kir::EventPlayerRole::ActivatingPlayer } }, amount: fixed!(amount), .. })] if *amount == Quantity::from(1)));
+    definition.triggered[0].program.instructions[0] = Instruction::damage(
+        kir::DamageTo::Ref {
+            who: kir::Ref::controller(kir::Context::Triggered),
+        },
+        kir::Amount::Fixed {
+            value: Quantity::from(1),
+        },
+        0,
+    );
     definition.capabilities = definition.requirements();
     assert!(definition.validate().is_err());
     let wrong = crate::tests::changed_source(row, |r| {

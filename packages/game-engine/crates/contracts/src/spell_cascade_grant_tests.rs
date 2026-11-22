@@ -78,11 +78,11 @@ fn static_spell_cascade_grant_canonical_program_zone_and_quantity_fences() {
             4 => program.resolution = SpellResolution::Permanent,
             5 => program.instructions.clear(),
             6 => program.instructions.push(program.instructions[0].clone()),
-            7 => program.instructions.push(Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 7,
-            }),
+            7 => program.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                7,
+            )),
             8 => program
                 .optional_additional_costs
                 .push(OptionalAdditionalManaCost {

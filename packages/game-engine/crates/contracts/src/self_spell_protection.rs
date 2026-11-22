@@ -18,12 +18,10 @@ fn legacy_damage_spell(d: &Definition) -> bool {
                 && p.modes.is_empty()
                 && matches!(
                     p.instructions.as_slice(),
-                    [Instruction::DamageSet {
-                        sets,
-                        each_player: true,
-                        amount: WipeAmount::Fixed { .. },
-                        source_block: 1,
-                    }] if sets == &[ObjectSet::Creatures]
+                    [damage] if damage.set_damage().is_some_and(|d| d.each_player
+                        && d.amount.as_fixed().is_some()
+                        && d.source_block == 1
+                        && d.sets == [&ObjectSet::Creatures.kernel(Context::Spell)])
                 )
         })
 }
@@ -110,12 +108,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || program.targets.as_slice() != [target()]
         || !matches!(
             program.instructions.as_slice(),
-            [Instruction::DestroyPermanent {
-                target_slot: 0,
-                optional: false,
-                regeneration_forbidden: false,
-                source_block: 1,
-            }]
+            [kernel!(Destroy { what: target_object!(0), regeneration_forbidden: false } @ 1)]
         )
         || strict_read::<Value>(&d.provenance.abilities_json)? != source_abilities()
     {
@@ -146,10 +139,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "characteristics":{"properties":{"kind":{"const":"instant"}}},
         "spell":{"type":"object","required":["instructions"],"properties":{
             "targets":{"maxItems":0},"modes":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":"damage_set"},"sets":{"const":["creatures"]},"each_player":{"const":true},
-                "amount":{"properties":{"amount":{"const":"fixed"}}},"source_block":{"const":1}
-            }}}
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at(
+                instruction_schema::set_damage_to(&kir::DamageTo::All { parts: vec![
+                    kir::DamageTo::Objects { set: ObjectSet::Creatures.kernel(Context::Spell) },
+                    kir::DamageTo::Players { players: PlayerExpr::EachPlayer },
+                ] }),
+                1
+            )}
         }}
     }});
     let source = json!({"properties":{"provenance":{"properties":{"source_json":{"allOf":[
@@ -195,11 +191,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
                         "modes":{"maxItems":0},
                         "targets":targets,
-                        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                            "op":{"const":"destroy_permanent"},"target_slot":{"const":0},
-                            "optional":{"const":false},"regeneration_forbidden":{"const":false},
-                            "source_block":{"const":1}
-                        }}}
+                        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at(instruction_schema::target_destroy(Some(0), Some(false)), 1)}
                     }}
                 },
                 "if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
@@ -223,12 +215,7 @@ pub(super) fn witness(mut d: Definition) -> Definition {
     d.provenance.ast_sha256 = sha256(format!("[{}]", d.provenance.abilities_json).as_bytes());
     let p = d.spell.as_mut().unwrap();
     p.targets = vec![target()];
-    p.instructions = vec![Instruction::DestroyPermanent {
-        target_slot: 0,
-        optional: false,
-        regeneration_forbidden: false,
-        source_block: 1,
-    }];
+    p.instructions = vec![Instruction::destroy_target(0, false, 1)];
     d.capabilities = d.requirements();
     d
 }

@@ -596,9 +596,10 @@ fn sacrifice_profile_catalog_decks_policy_and_bounds() {
             .chain(d.triggered.iter().map(|a| &a.program))
         {
             for i in &p.instructions {
-                if let Instruction::CreateCreatureTokens { count, .. }
-                | Instruction::CreateTokensFor { count, .. } = i
-                {
+                if let Some((_, count)) = i.created_tokens() {
+                    assert!(count <= 4);
+                }
+                if let Instruction::CreateTokensFor { count, .. } = i {
                     assert!(*count <= 4);
                 }
             }
@@ -613,7 +614,12 @@ fn sacrifice_profile_catalog_decks_policy_and_bounds() {
     assert!(f.controlled && f.other);
     assert_eq!(f.non_subtypes, ["Spirit"]);
     assert!(
-        matches!(&angel.triggered[0].program.instructions[0],Instruction::CreateCreatureTokens {count:1,token,..} if token.subtypes==["Spirit"])
+        angel.triggered[0].program.instructions[0]
+            .created_tokens()
+            .is_some_and(|(_, count)| count == 1)
+            && angel.triggered[0].program.instructions[0]
+                .creature_token()
+                .is_some_and(|token| token.subtypes == ["Spirit"])
     );
     // Retention, not live allocation, covers historical lifetime token counts.
     const {

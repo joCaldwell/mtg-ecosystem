@@ -19,10 +19,7 @@ pub(super) fn untap() -> Definition {
         opponent: false,
         tapped: false,
     });
-    p.instructions = vec![Instruction::UntapPermanent {
-        target_slot: 0,
-        source_block: 0,
-    }];
+    p.instructions = vec![Instruction::untap_target(0, 0)];
     d.capabilities = d.requirements();
     d
 }
@@ -87,17 +84,12 @@ fn untap_rejects_qualified_targets_and_incomplete_or_composed_programs() {
             "tapped" => p.targets[0].filter.as_mut().unwrap().tapped = true,
             "filter" => p.targets[0].filter = None,
             "domain" => p.targets[0].domain = TargetDomain::BattlefieldCreature,
-            "slot" => {
-                p.instructions = vec![Instruction::UntapPermanent {
-                    target_slot: 1,
-                    source_block: 0,
-                }]
-            }
-            "extra" => p.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            "slot" => p.instructions = vec![Instruction::untap_target(1, 0)],
+            "extra" => p.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                0,
+            )),
             "targets" => p.targets.clear(),
             "cost" => {
                 p.additional_sacrifice = Some(SacrificeFilter {

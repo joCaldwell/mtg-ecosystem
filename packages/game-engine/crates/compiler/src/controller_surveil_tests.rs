@@ -59,11 +59,7 @@ fn controller_surveil_complete_frozen_sources_and_flashback_rejection() {
                     amount: count.into(),
                     source_block: 0
                 },
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 1
-                }
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
             ]
         );
         assert_eq!(

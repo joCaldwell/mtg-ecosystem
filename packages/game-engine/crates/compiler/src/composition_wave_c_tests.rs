@@ -43,7 +43,10 @@ fn composition_wave_c_exact_cast_predicates_preserve_or_and_effects() {
     ));
     assert!(matches!(
         knight.triggered[0].program.instructions.as_slice(),
-        [Instruction::CreateCreatureTokens { .. }]
+        [kernel!(CreateTokens {
+            token: kir::TokenSpec::Creature { .. },
+            ..
+        })]
     ));
 }
 
@@ -65,7 +68,10 @@ fn composition_wave_c_restrictions_preserve_mana_sibling_and_ordered_draw() {
         spell.spell.unwrap().instructions.as_slice(),
         [
             Instruction::GrantCreatureRestriction { .. },
-            Instruction::DrawCards { .. }
+            kernel!(Draw {
+                player: kir::PlayerExpr::Is { .. },
+                amount: fixed!(_)
+            })
         ]
     ));
 }

@@ -174,8 +174,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_target_creature",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -450,11 +461,32 @@
         ],
         "instructions": [
           {
-            "op": "modify_power_toughness",
-            "target_slot": 0,
-            "power": "-5",
-            "toughness": "-5",
-            "duration": "until_end_of_turn",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "modify_until",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "layer": "power_toughness_modify",
+                "change": {
+                  "change": "power_toughness",
+                  "power": {
+                    "amount": "fixed",
+                    "value": "-5"
+                  },
+                  "toughness": {
+                    "amount": "fixed",
+                    "value": "-5"
+                  }
+                },
+                "until": "end_of_turn"
+              }
+            },
             "source_block": 0
           }
         ]
@@ -646,9 +678,20 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
-            "regeneration_forbidden": true,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "regeneration_forbidden": true
+              }
+            },
             "source_block": 0
           }
         ]
@@ -912,9 +955,26 @@
         ],
         "instructions": [
           {
-            "op": "deal_damage",
-            "target_slot": 0,
-            "amount": "3",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "ref",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "3"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -1102,9 +1162,26 @@
         ],
         "instructions": [
           {
-            "op": "deal_damage",
-            "target_slot": 0,
-            "amount": "2",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "ref",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "2"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -1335,9 +1412,26 @@
         ],
         "instructions": [
           {
-            "op": "deal_damage",
-            "target_slot": 0,
-            "amount": "3",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "ref",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "3"
+                }
+              }
+            },
             "source_block": 0
           }
         ]

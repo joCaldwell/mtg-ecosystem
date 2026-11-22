@@ -95,11 +95,7 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
         return false;
     }
     let [
-        Instruction::PutPlusOneCounters {
-            on: CounterRecipient::Target { target_slot: 0 },
-            amount,
-            source_block: 0,
-        },
+        kernel!(PutCounters { on: target_object!(0), counter: kir::CounterKind::PlusOnePlusOne, amount: fixed!(amount) } @ 0),
         tails @ ..,
     ] = p.instructions.as_slice()
     else {
@@ -216,11 +212,11 @@ pub fn archived_program(text: &str, ast: &Value, timing: SpellTiming) -> Option<
             domain: filter.domain(),
             filter: None,
         }],
-        instructions: vec![Instruction::PutPlusOneCounters {
-            on: CounterRecipient::Target { target_slot: 0 },
-            amount: count.into(),
-            source_block: 0,
-        }],
+        instructions: vec![Instruction::plus_one_counters(
+            kir::SetExpr::target(0),
+            count.into(),
+            0,
+        )],
         modes: vec![],
     };
     for step in steps {
@@ -426,9 +422,13 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 }
 
 pub(crate) fn extend_schema(schema: &mut Value) {
-    let counter = json!({"properties":{
-        "op":{"const":"put_plus_one_counters"}, "on":{"const":CounterRecipient::Target{target_slot:0}},
-        "source_block":{"const":0}}});
+    let counter = instruction_schema::at(
+        instruction_schema::plus_one_counters(
+            instruction_schema::target_object(Some(0)),
+            json!({"type":"string"}),
+        ),
+        0,
+    );
     let grant = json!({"properties":{
         "op":{"const":"grant_keywords"}, "target_slot":{"const":0}, "modifier":{"type":"null"},
         "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"}, "duration":{"const":"until_end_of_turn"},

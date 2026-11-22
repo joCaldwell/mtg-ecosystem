@@ -53,7 +53,8 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
     for (i, sentence) in body.strip_suffix('.')?.split(". ").enumerate() {
         let mut steps = Vec::new();
         for (j, part) in sentence.split(" and ").enumerate() {
-            let (operand, instruction) = if let Some(step) = predefined_tokens::printed(part, block)
+            let (operand, instruction) = if let Some(step) =
+                predefined_tokens::printed(part, Context::Triggered, block)
             {
                 step
             } else if let Some(text) = part
@@ -84,11 +85,13 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
                 (
                     json!({"effect":"damage","source":{"ref":"this","noun":"equipment"},
                     "amount":{"amount":"fixed","value":n},"to":{"to":"any-target","selectionId":id}}),
-                    Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: i64::from(n).into(),
-                        source_block: block,
-                    },
+                    Instruction::damage_target(
+                        0,
+                        kir::Amount::Fixed {
+                            value: i64::from(n).into(),
+                        },
+                        block,
+                    ),
                 )
             } else if let Some(n) = part
                 .strip_prefix("you gain ")
@@ -111,20 +114,19 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
             {
                 (
                     json!({"effect":"discard","who":{"player":"that-player"},"what":{"ref":"filter","filter":{"cls":"card"},"count":{"amount":"fixed","value":1}}}),
-                    Instruction::DiscardCards {
-                        recipient: Some(ActionRecipient::EventPlayer),
-                        count: 1.into(),
-                        source_block: block,
-                    },
+                    Instruction::discard(
+                        kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+                        kir::Amount::Fixed { value: 1.into() },
+                        false,
+                        block,
+                    ),
                 )
             } else if part == "you untap all lands you control"
                 || part == "untap all lands you control"
             {
                 (
                     json!({"effect":"untap","what":{"ref":"all","filter":{"types":["land"],"control":"you"}}}),
-                    Instruction::UntapControllerLands {
-                        source_block: block,
-                    },
+                    Instruction::untap_lands_you_control(kir::Context::Triggered, block),
                 )
             } else {
                 let (text, optional) = if let Some(text) = part.strip_prefix("you may draw ") {
@@ -148,17 +150,13 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
                     }
                 } else if n <= 2 {
                     if n == 2 {
-                        instructions.push(Instruction::DrawCards {
-                            recipient: None,
-                            count: 1.into(),
-                            source_block: block,
-                        });
+                        instructions.push(Instruction::draw(
+                            PlayerExpr::you(Context::Triggered),
+                            1.into(),
+                            block,
+                        ));
                     }
-                    Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: block,
-                    }
+                    Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block)
                 } else {
                     return None;
                 };
@@ -258,7 +256,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
                 "program":{"properties":{"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
                     "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["draw_cards","optional_draw_cards","deal_damage","discard_cards","untap_controller_lands","create_predefined_tokens"]}}},instruction_schema::kernel_verb("gain_life")]}}}}
+                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["optional_draw_cards"]}}},instruction_schema::predefined_tokens(),instruction_schema::chosen_discard(),instruction_schema::untap_lands(),instruction_schema::target_damage(None),instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}}}}
             }}}}}},
         "else":{"properties":{"capabilities":{"not":cap}}}
     }));

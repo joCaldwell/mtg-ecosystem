@@ -268,12 +268,7 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
     ));
     assert!(matches!(
         ability.program.instructions.as_slice(),
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            source_block: 1,
-            ..
-        }]
+        [kernel!(Destroy { what: target_object!(0), regeneration_forbidden: _ } @ 1)]
     ));
     assert_eq!(
         ability.program.targets[0].domain,
@@ -307,15 +302,15 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
     assert_eq!(
         pie.spell.as_ref().unwrap().instructions,
         [
-            Instruction::DestroyTargetCreature {
-                target_slot: 0,
-                source_block: 0
-            },
-            Instruction::CreatePredefinedTokens {
-                count: 1,
-                kind: PredefinedToken::Food,
-                source_block: 0
-            }
+            Instruction::destroy_target(0, false, 0),
+            Instruction::create_tokens(
+                kir::Context::Spell,
+                1,
+                kir::TokenSpec::Predefined {
+                    kind: PredefinedToken::Food
+                },
+                0
+            )
         ]
     );
     // A creature's dies trigger on any noncreature permanent.
@@ -551,7 +546,8 @@ fn timing_and_step_tables_lower_sorcery_speed_and_combat_restrictions() {
             "count":{"amount":"fixed","value":1},"selectionId":"line:0:3"}});
     assert!(steps::claims(&step));
     let mut program = SpellProgram::instructions(SpellTiming::Instant);
-    let instruction = steps::lower(&step, &mut program, &mut BTreeMap::new(), 0).unwrap();
+    let instruction =
+        steps::lower(&step, &mut program, &mut BTreeMap::new(), Context::Spell, 0).unwrap();
     assert_eq!(
         instruction,
         Instruction::GrantCreatureRestriction {

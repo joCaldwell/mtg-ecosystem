@@ -137,13 +137,32 @@ verb only to recognise its own programs. A well-scoped node without a cell is
 rejected as unaudited; control nodes are scope-checked but have no cell until
 the resolving frame can resume inside a node.
 
-Audited cells: `gain_life`/`lose_life` for the controller, each opponent, one
-announced player or the event player; `destroy` and `move` (exile, owners'
-hands) over battlefield permanents matching a filter, and exile of every
-graveyard card. Life and board-wide movement exist only as kernel verbs. Every
-other legacy variant is migrated the same way: add its cell and executor, move
-each emitter and guard to the kernel shape, delete the variant, regenerate
-catalogs and compare Foundations and Ramos pod digests.
+Every flat effect is a kernel verb; the audited cells are:
+
+| Verb | Audited operands |
+| --- | --- |
+| `gain_life`, `lose_life` | Controller (fixed or X), each opponent, one announced player (fixed or X), or the caster/active event player; the drain pair is the one audited `seq` |
+| `draw` | Controller, every player, one announced player (fixed or X), or the caster/active event player |
+| `damage` | From the source: one announced target (fixed or X for any target or creature), the controller, a mana ability's activator, or creature sets plus optionally each player (fixed, X, creature count or other casts' mana value) |
+| `destroy`, `move`, `tap`, `untap` | One announced target by domain (destroy; exile, owner's hand, top of owner's library; tap; untap), an optional target destroy, matching battlefield sets, your lands (untap), one player's graveyard or every graveyard (exile) |
+| `mill`, `discard`, `sacrifice` | Controller or one announced player (mill; X for the player); controller, damaged player, announced player (random or X), each player or each opponent (discard); damaged player, target opponent, each player or each opponent sacrifices one creature |
+| `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source or one announced creature |
+| `modify_until` | End-of-turn fixed P/T change of the source, one announced creature or a matching battlefield set; the source's own keyword grant |
+
+The core interpreter routes each cell to the executor whose events, choices,
+effects and recovery facts the legacy variant used, so state and journals are
+unchanged. Board-wide sets evaluate directly via the general battlefield or
+graveyard query.
+Control, linked and multi-step procedures stay legacy variants (optional
+blocks and draws, cascade, hideaway, impulse and library selection, searches,
+scry/surveil, demonstrate, reveal-and-cast, counterspells, copies, bestow and
+attachment returns, damage/sacrifice riders), as do three flat effects whose
+complete forms need new algebra: `AddResolutionMana` (a scaled per-permanent
+count) and `GrantKeywords`/`GrantKeywordsSet` (one effect changing two
+layers). Migrate a variant by adding its cell and route, moving each emitter,
+guard and schema twin to the kernel shape, deleting the variant, regenerating
+catalogs, proving whole-archive IR equal to a converted base and comparing
+Foundations and Ramos pod digests.
 
 ## Compositional lowering
 

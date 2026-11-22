@@ -86,7 +86,15 @@ fn payloads(count: usize) -> Vec<Payload> {
     assert_eq!(program.instructions.len(), 1);
     assert!(matches!(
         program.instructions[0],
-        Instruction::ModifyPowerToughness { .. }
+        kernel!(ModifyUntil {
+            what: target_object!(_),
+            change: mtg_contracts::kir::Change::PowerToughness {
+                power: _,
+                toughness: _
+            },
+            until: mtg_contracts::kir::Until::EndOfTurn,
+            ..
+        })
     ));
     (0..count)
         .map(|index| {
@@ -95,12 +103,15 @@ fn payloads(count: usize) -> Vec<Payload> {
             let power = if k % 2 == 0 { k + 1 } else { -(k + 1) };
             let toughness = 2 * (k + 1) + i64::try_from(partition).unwrap();
             let mut instruction = program.instructions[0].clone();
-            let Instruction::ModifyPowerToughness {
-                target_slot,
-                power: p,
-                toughness: t,
+            let kernel!(ModifyUntil {
+                what: target_object!(target_slot),
+                change: mtg_contracts::kir::Change::PowerToughness {
+                    power: fixed!(p),
+                    toughness: fixed!(t)
+                },
+                until: mtg_contracts::kir::Until::EndOfTurn,
                 ..
-            } = &mut instruction
+            }) = &mut instruction
             else {
                 unreachable!()
             };
@@ -178,12 +189,8 @@ fn fixture() -> (Game, Vec<ObjectId>, ObjectId) {
 fn seed_domain(base: &Game, targets: &[ObjectId], source: ObjectId, rows: &[Payload]) -> Game {
     let mut game = base.fork();
     for (index, payload) in rows.iter().enumerate() {
-        let Instruction::ModifyPowerToughness {
-            power,
-            toughness,
-            source_block,
-            ..
-        } = &payload.instruction
+        let kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =
+            &payload.instruction
         else {
             unreachable!()
         };

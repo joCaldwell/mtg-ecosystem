@@ -33,11 +33,11 @@ pub(super) fn lower(keyword: &SourceKeyword, block: u32) -> Result<ActivatedAbil
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
-            instructions: vec![Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: block,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                block,
+            )],
             modes: vec![],
         },
     })

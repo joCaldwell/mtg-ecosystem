@@ -19,7 +19,6 @@ pub(super) fn split(p: &mut SpellProgram, reverse: bool) {
     let Instruction::GrantKeywords {
         modifier,
         target_slot,
-        duration,
         source_block,
         ..
     } = &mut p.instructions[0]
@@ -27,13 +26,12 @@ pub(super) fn split(p: &mut SpellProgram, reverse: bool) {
         unreachable!()
     };
     let m = modifier.take().unwrap();
-    let pump = Instruction::ModifyPowerToughness {
-        target_slot: *target_slot,
-        power: m.power,
-        toughness: m.toughness,
-        duration: *duration,
-        source_block: *source_block,
-    };
+    let pump = Instruction::pump(
+        kir::SetExpr::target(*target_slot),
+        m.power,
+        m.toughness,
+        *source_block,
+    );
     p.instructions.insert(0, pump);
     if reverse {
         p.instructions.reverse();
@@ -160,11 +158,11 @@ fn compound_indestructible_rejects_structural_near_misses() {
                     SpellMode { program: child },
                 ];
             }
-            19 => p.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            19 => p.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                0,
+            )),
             _ => {
                 p.targets.push(p.targets[0].clone());
                 p.targets[1].slot = 1;

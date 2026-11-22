@@ -33,10 +33,11 @@ fn paid_drain_setup() -> Prepared {
         spell.x_mana_cost = true;
         let program = spell.spell.as_mut().unwrap();
         program.targets.clear();
-        program.instructions = vec![Instruction::DrainOpponents {
-            amount: OpponentDrainAmount::AnnouncedX,
-            source_block: 0,
-        }];
+        program.instructions = vec![Instruction::drain(
+            Context::Spell,
+            mtg_contracts::kir::Amount::announced_x(),
+            0,
+        )];
         spell.capabilities = spell.requirements();
         prepared.config.cards[0].oracle_id = spell.oracle_id.clone();
         catalog.definitions.push(spell);

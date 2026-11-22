@@ -18,11 +18,9 @@ impl Game {
             return Err("random discard requires a seeded match".into());
         }
         let program = self.program_for(self.entry(frame.stack_id)?)?;
-        let Some(Instruction::DiscardTargetPlayerAtRandom {
-            target_slot,
-            count,
-            source_block,
-        }) = program.instructions.get(frame.cursor as usize)
+        let Some(
+            kernel!(Discard { player: target_player!(target_slot), amount: count, random: true } @ source_block),
+        ) = program.instructions.get(frame.cursor as usize)
         else {
             return Err("missing random discard instruction".into());
         };
@@ -46,12 +44,13 @@ impl Game {
             .get(slot)
             .ok_or("missing random discard target")?;
         let count = match count {
-            RandomDiscardCount::Fixed { value } => value,
-            RandomDiscardCount::AnnouncedX => self
+            fixed!(value) => value,
+            announced_x!() => self
                 .entry(frame.stack_id)?
                 .x
                 .as_ref()
                 .ok_or("missing announced X")?,
+            _ => return Err("random discard amount has no audited evaluation".into()),
         };
         if count.is_negative() {
             return Err("negative random discard count".into());

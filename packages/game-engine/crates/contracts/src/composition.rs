@@ -37,65 +37,19 @@ const FAMILY: u8 = 0;
 fn contexts(instruction: &Instruction) -> u8 {
     use Instruction as I;
     match instruction {
-        // CR 121.1-121.2: one card per instruction; larger fixed counts are
-        // emitted as repeated draws or as the sequential controller draw.
-        I::DrawCards {
-            recipient, count, ..
-        } => match recipient {
-            None | Some(LifeRecipient::Controller) | Some(LifeRecipient::Target { .. })
-                if *count == Quantity::from(1) =>
-            {
-                ANY
-            }
-            _ => FAMILY,
-        },
-        I::DrawControllerCards { .. } | I::OptionalDrawCards { .. } => ANY,
+        I::OptionalDrawCards { .. } => ANY,
         // CR 119.3: positive life changes for the controller, each opponent
         // or one announced player.
         I::Kernel { node, .. } => kernel_contexts(node),
-        I::DrainOpponents { amount, .. } => match amount {
-            OpponentDrainAmount::Fixed { .. } => ANY,
-            OpponentDrainAmount::AnnouncedX => FAMILY,
-        },
-        // CR 120.2b: noncombat damage from the invocation's source, using its
-        // last known information if it has left (CR 608.2h).
-        I::DealDamage { .. } => ANY,
-        // CR 701.8, 701.13, 701.26, 400.3: one announced permanent, with its
-        // legality rechecked on resolution (CR 608.2b).
-        I::DestroyPermanent { optional, .. } => {
-            if *optional {
-                FAMILY
-            } else {
-                ANY
-            }
-        }
-        I::ExilePermanent { .. }
-        | I::TapPermanent { .. }
-        | I::UntapPermanent { .. }
-        | I::ReturnToOwnerHand { .. }
-        | I::PutOnTopOwnerLibrary { .. }
-        | I::DestroyTargetCreature { .. } => ANY,
         // Target-derived quantities read the single announced target's
         // captured facts (CR 608.2h); `program` requires that sole target.
         I::ChangeLifeFromTarget { .. } | I::DamageTargetController { .. } => ANY,
         // CR 111.1-111.4, 111.10: recovery re-derives every token from the
         // creating recipe of its source's spell, activated or triggered program.
-        I::CreateCreatureTokens { .. }
-        | I::CreateTokensFor { .. }
-        | I::CreatePredefinedTokens { .. } => ANY,
-        // CR 122.1, 122.6: +1/+1 counters on an announced creature or on the
-        // exact battlefield source.
-        I::PutPlusOneCounters { on, .. } => match on {
-            CounterRecipient::Target { .. } => ANY,
-            CounterRecipient::Source => SOURCE,
-        },
-        // CR 611.2c, 613.4c, 514.2: one captured creature until cleanup.
-        I::ModifyPowerToughness { .. } => ANY,
+        I::CreateTokensFor { .. } => ANY,
         // CR 508.1d, 509.1b: the restriction effect authenticates a spell or
         // an activated ability as its origin.
         I::GrantCreatureRestriction { .. } => SPELL | ACTIVATED,
-        // CR 400.7, 113.7a: these act on the exact battlefield source.
-        I::ModifySourcePowerToughness { .. } => SOURCE,
         // CR 701.19a: the shield authenticates an activated ability.
         I::RegenerateSource { .. } => ACTIVATED,
         // CR 701.22, 701.25, 701.17: the controller's own library prefix.
@@ -105,38 +59,11 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::OptionalShuffleLibrary { .. }
         | I::SelectLibraryCard { .. }
         | I::PutHandOnLibrary { .. } => ANY,
-        I::MillCards { recipient, .. } => match recipient {
-            None | Some(LifeRecipient::Target { .. }) => ANY,
-            _ => FAMILY,
-        },
-        // CR 701.9a: hand choices stay private to each discarding player.
-        I::DiscardCards { recipient, .. } => match recipient {
-            None => ANY,
-            Some(_) => FAMILY,
-        },
-        I::DiscardPlayerSet { .. } | I::DiscardTargetPlayer { .. } => ANY,
         // CR 701.6: the countered object is the announced stack target.
         I::CounterStackObject { .. }
         | I::CounterSpellAndMillController { .. }
         | I::CounterSpellUnlessPays { .. } => ANY,
         // CR 608.2h: non-targeted sets are read when the instruction is performed.
-        I::DestroyAllCreatures { .. }
-        | I::PumpSet { .. }
-        | I::UntapControllerLands { .. } => ANY,
-        I::DamageSet { amount, .. } => match amount {
-            WipeAmount::Fixed { .. } => ANY,
-            WipeAmount::AnnouncedX
-            | WipeAmount::CreatureCount
-            | WipeAmount::OtherCastsManaValue => FAMILY,
-        },
-        I::DrawEachPlayer { count, .. } => match count {
-            DrawEachCount::Fixed { .. } => ANY,
-            DrawEachCount::AnnouncedX => FAMILY,
-        },
-        // CR 701.21a: each named player chooses and sacrifices.
-        I::EachOpponentSacrifice { .. }
-        | I::EachPlayerSacrifice { .. }
-        | I::TargetPlayerSacrificeCreature { .. } => ANY,
         // CR 400.7, 608.2b: an announced graveyard card or player's graveyard.
         I::ReturnOwnGraveyardCreatureToHand { optional, .. }
         | I::ReturnOwnGraveyardCardToHand { optional, .. } => {
@@ -146,7 +73,7 @@ fn contexts(instruction: &Instruction) -> u8 {
                 ANY
             }
         }
-        I::ReturnOwnGraveyardCreatureToBattlefield { .. } | I::ExileTargetGraveyard { .. } => ANY,
+        I::ReturnOwnGraveyardCreatureToBattlefield { .. } => ANY,
         // CR 701.23: the controller searches their own library.
         I::SearchBasicLands { .. }
         | I::SearchBasicLandsSplit { .. }
@@ -187,29 +114,20 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::PutSourcePlusOneCountersForCastColors { .. }
         | I::DistributePlusOneCounters { .. }
         | I::GrantKeywordsSet { .. }
-        | I::GrantSourceKeywords { .. }
         | I::GrantKeywords { .. }
         | I::PreventNextDamage { .. }
         | I::ReturnEntryTargetCreature { .. }
         | I::MoveTriggeredSuccessor { .. }
         | I::LoseGameTargetPlayer { .. }
-        | I::SacrificeCreature { .. }
         | I::DrawCardsIfAdditionalCost { .. }
-        | I::DrawAnnouncedX { .. }
-        | I::DealDamageAnnouncedX { .. }
-        | I::MillAnnouncedX { .. }
-        | I::ChangeLifeAnnouncedX { .. }
         | I::OptionalDrawUnlessCasterPays { .. }
         | I::OptionalDrawForSoleGreatestEntrant { .. }
         | I::DrawDamageAmount { .. }
-        | I::DiscardTargetPlayerAtRandom { .. }
         | I::CopyControlledCreatureSpell { .. }
-        | I::DealDamageToController { .. }
         // Optional blocks, delayed cast registration, mana-tap riders, colour
         // changes, proliferate, recipient searches and transformation each
         // bind a reviewed event, sibling block or second face.
         | I::ChooseOptional { .. }
-        | I::DealDamageToManaActivator { .. }
         | I::Proliferate { .. }
         | I::RegisterControllerSpellCastThisTurn { .. }
         | I::SearchRecipientBasicLand { .. }
@@ -222,16 +140,62 @@ fn contexts(instruction: &Instruction) -> u8 {
 /// the actual context; this row only keeps operands that read a reviewed
 /// family's event data out of composition.
 fn kernel_contexts(node: &kir::Node) -> u8 {
+    // CR 119.3: the opponent drain pair; an announced X binds its family.
+    if let Some(amount) = kir::drain(node) {
+        return if amount.is_announced_x() { FAMILY } else { ANY };
+    }
     match node.verb() {
         // CR 119.3: life changes for the controller, each opponent or one
-        // announced player.
-        Some(Verb::GainLife { player, .. } | Verb::LoseLife { player, .. }) => {
-            if player.is_event_player() {
+        // announced player. An announced X binds its family.
+        Some(Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }) => {
+            if player.is_event_player() || amount.is_announced_x() {
                 FAMILY
             } else {
                 ANY
             }
         }
+        // CR 121.1-121.2: a fixed draw by the controller, or by every player;
+        // one card for an announced player. An announced X, an event player
+        // and the targeted counted draw bind their families.
+        Some(Verb::Draw { player, amount }) => match (player, amount.as_fixed()) {
+            (_, None) => FAMILY,
+            (kir::PlayerExpr::EachPlayer, Some(_)) => ANY,
+            (player, Some(_)) if player.is_you() => ANY,
+            (player, Some(count))
+                if player.target_slot().is_some() && *count == Quantity::from(1) =>
+            {
+                ANY
+            }
+            _ => FAMILY,
+        },
+        // CR 120.2b: noncombat damage to one announced target, using the
+        // source's last known information if it has left (CR 608.2h). An
+        // announced X, the controller of a land's trigger and a mana
+        // ability's activator bind their families; a fixed board-wide amount
+        // is read as the instruction is performed.
+        Some(Verb::Damage { to, amount, .. }) => match to {
+            kir::DamageTo::Ref {
+                who: kir::Ref::Target { .. },
+            } if amount.as_fixed().is_some() => ANY,
+            kir::DamageTo::Ref { .. } => FAMILY,
+            _ if amount.as_fixed().is_some() => ANY,
+            _ => FAMILY,
+        },
+        // CR 701.8, 701.26, 400.3: one announced permanent, with its
+        // legality rechecked on resolution (CR 608.2b). An optional destroy
+        // is a node, not a verb, and binds its family.
+        Some(
+            Verb::Destroy {
+                what: SetExpr::One { .. },
+                ..
+            }
+            | Verb::Move {
+                what: SetExpr::One { .. },
+                ..
+            }
+            | Verb::Tap { .. }
+            | Verb::Untap { .. },
+        ) => ANY,
         // CR 608.2h: a board-wide set is read as the instruction is performed.
         Some(
             Verb::Destroy {
@@ -243,6 +207,42 @@ fn kernel_contexts(node: &kir::Node) -> u8 {
                 ..
             },
         ) => ANY,
+        // CR 111.1-111.4, 111.10: recovery re-derives every token from the
+        // creating recipe of its source's spell, activated or triggered
+        // program.
+        Some(Verb::CreateTokens { .. }) => ANY,
+        // CR 122.1, 122.6: +1/+1 counters on an announced creature, or on the
+        // exact battlefield source (CR 400.7, 113.7a).
+        Some(Verb::PutCounters { on, .. }) => {
+            if *on == SetExpr::source() {
+                SOURCE
+            } else {
+                ANY
+            }
+        }
+        // CR 611.2c, 613.4c, 514.2: one captured creature or a board-wide
+        // set until cleanup; the exact battlefield source (CR 400.7). The
+        // source's keyword grant binds its family.
+        Some(Verb::ModifyUntil {
+            what,
+            change: kir::Change::PowerToughness { .. },
+            ..
+        }) => {
+            if *what == SetExpr::source() {
+                SOURCE
+            } else {
+                ANY
+            }
+        }
+        // CR 701.17a: the controller's or one announced player's own
+        // library. An announced X binds its family.
+        Some(Verb::Mill { amount, .. }) if amount.as_fixed().is_some() => ANY,
+        // CR 701.9a: hand choices stay private to each discarding player.
+        // The damaged player and a random discard bind their families.
+        Some(Verb::Discard { player, random, .. }) if !random && !player.is_event_player() => ANY,
+        // CR 701.21a: each named player chooses and sacrifices. The damaged
+        // player binds its family.
+        Some(Verb::Sacrifice { player, .. }) if !player.is_event_player() => ANY,
         _ => FAMILY,
     }
 }
@@ -863,11 +863,7 @@ mod tests {
         }
     }
     fn damage() -> Instruction {
-        Instruction::DealDamage {
-            target_slot: 0,
-            amount: 1.into(),
-            source_block: 0,
-        }
+        Instruction::damage_target(0, kir::Amount::Fixed { value: 1.into() }, 0)
     }
 
     #[test]
@@ -898,10 +894,13 @@ mod tests {
         // Instruction row: event-bound and announced-X operations stay out.
         for instruction in [
             Instruction::DrawDamageAmount { source_block: 0 },
-            Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Controller,
-                source_block: 0,
-            },
+            Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: kir::Amount::announced_x(),
+                },
+                0,
+            ),
             Instruction::RevealAndCast { source_block: 0 },
         ] {
             let d = with(|d| {
@@ -1073,24 +1072,38 @@ mod tests {
         assert!(!admits_instruction(&regenerate, Context::Spell));
         assert!(admits_instruction(&regenerate, Context::Activated));
         assert!(!admits_instruction(&regenerate, Context::Triggered));
-        let pump = Instruction::ModifySourcePowerToughness {
-            power: 1.into(),
-            toughness: 1.into(),
-            duration: Duration::UntilEndOfTurn,
-            source_block: 0,
-        };
+        let pump = Instruction::pump(kir::SetExpr::source(), 1.into(), 1.into(), 0);
         assert!(!admits_instruction(&pump, Context::Spell));
         assert!(admits_instruction(&pump, Context::Activated));
         assert!(admits_instruction(&pump, Context::Triggered));
-        // CR 121.2: only single draws are portable; larger counts are emitted
-        // as repeated instructions.
-        let draw = |count: i64| Instruction::DrawCards {
-            recipient: None,
-            count: count.into(),
-            source_block: 0,
-        };
-        assert!(admits_instruction(&draw(1), Context::Triggered));
-        assert!(!admits_instruction(&draw(2), Context::Triggered));
+        // CR 121.2: the controller's fixed draws are portable, as the counted
+        // controller draw always was; an announced player's draw is portable
+        // only as a single draw, and an announced X binds its family.
+        let draw = |player, count: i64| Instruction::draw(player, count.into(), 0);
+        let you = PlayerExpr::you(Context::Triggered);
+        assert!(admits_instruction(
+            &draw(you.clone(), 1),
+            Context::Triggered
+        ));
+        assert!(admits_instruction(&draw(you, 2), Context::Triggered));
+        assert!(admits_instruction(
+            &draw(PlayerExpr::target(0), 1),
+            Context::Spell
+        ));
+        assert!(!admits_instruction(
+            &draw(PlayerExpr::target(0), 2),
+            Context::Spell
+        ));
+        assert!(!admits_instruction(
+            &Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::announced_x()
+                },
+                0
+            ),
+            Context::Spell
+        ));
     }
 
     #[test]
@@ -1114,19 +1127,20 @@ mod tests {
         ];
         assert!(super::program(&modal, Context::Spell).is_err());
         let x = program(
-            vec![Instruction::DrainOpponents {
-                amount: OpponentDrainAmount::AnnouncedX,
-                source_block: 0,
-            }],
+            vec![Instruction::drain(
+                Context::Spell,
+                kir::Amount::announced_x(),
+                0,
+            )],
             vec![],
         );
         assert!(super::program(&x, Context::Spell).is_err());
         let unbound = program(
-            vec![Instruction::DealDamage {
-                target_slot: 0,
-                amount: 1.into(),
-                source_block: 0,
-            }],
+            vec![Instruction::damage_target(
+                0,
+                kir::Amount::Fixed { value: 1.into() },
+                0,
+            )],
             vec![],
         );
         assert!(super::program(&unbound, Context::Triggered).is_err());

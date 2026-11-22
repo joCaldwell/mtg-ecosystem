@@ -2,42 +2,30 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-// Use an empty struct variant on input so announced X rejects extra operands.
-impl<'de> Deserialize<'de> for RandomDiscardCount {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
-        enum Count {
-            Fixed { value: Quantity },
-            AnnouncedX {},
-        }
-        Ok(match Count::deserialize(d)? {
-            Count::Fixed { value } => Self::Fixed { value },
-            Count::AnnouncedX {} => Self::AnnouncedX,
-        })
-    }
-}
-
 fn has_discard(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
         matches!(
             i,
-            Instruction::DiscardTargetPlayer { .. }
-                | Instruction::DiscardTargetPlayerAtRandom { .. }
+            kernel!(Discard {
+                player: target_player!(_),
+                amount: fixed!(_),
+                random: false
+            }) | kernel!(Discard {
+                player: target_player!(_),
+                random: true,
+                ..
+            })
         )
     }) || p.modes.iter().any(|m| has_discard(&m.program))
 }
 
 fn player_discard(p: &SpellProgram, domain: TargetDomain) -> bool {
-    matches!(p.instructions.as_slice(), [Instruction::DiscardTargetPlayer {
-        target_slot: 0, count, source_block: 0,
-    }] if *count > Quantity::zero())
+    matches!(p.instructions.as_slice(), [kernel!(Discard { player: target_player!(0), amount: fixed!(count), random: false } @ 0)] if *count > Quantity::zero())
         && matches!(p.targets.as_slice(), [t] if t.domain == domain && t.filter.is_none())
 }
 
 // CR 701.9b: only the explicitly random discard bypasses the player's choice.
 fn random_discard_family(p: &SpellProgram, x_cost: bool) -> bool {
-    use Instruction::{DiscardTargetPlayer, DiscardTargetPlayerAtRandom};
     if p.additional_sacrifice.is_some()
         || !p.modes.is_empty()
         || !matches!(p.targets.as_slice(), [t] if t.filter.is_none()
@@ -46,27 +34,16 @@ fn random_discard_family(p: &SpellProgram, x_cost: bool) -> bool {
         return false;
     }
     match p.instructions.as_slice() {
+        [kernel!(Discard { player: target_player!(0), amount, random: true } @ 0)] => {
+            match amount {
+                fixed!(value) => !x_cost && *value > Quantity::zero(),
+                announced_x!() => x_cost,
+                _ => false,
+            }
+        }
         [
-            DiscardTargetPlayerAtRandom {
-                target_slot: 0,
-                source_block: 0,
-                count,
-            },
-        ] => match count {
-            RandomDiscardCount::Fixed { value } => !x_cost && *value > Quantity::zero(),
-            RandomDiscardCount::AnnouncedX => x_cost,
-        },
-        [
-            DiscardTargetPlayerAtRandom {
-                target_slot: 0,
-                source_block: 0,
-                count: RandomDiscardCount::Fixed { value },
-            },
-            DiscardTargetPlayer {
-                target_slot: 0,
-                source_block: 0,
-                count,
-            },
+            kernel!(Discard { player: target_player!(0), amount: fixed!(value), random: true } @ 0),
+            kernel!(Discard { player: target_player!(0), amount: fixed!(count), random: false } @ 0),
         ] => !x_cost && *value == Quantity::from(1) && *count == Quantity::from(1),
         _ => false,
     }
@@ -75,12 +52,7 @@ fn random_discard_family(p: &SpellProgram, x_cost: bool) -> bool {
 fn enchantment_destroy(p: &SpellProgram) -> bool {
     matches!(
         p.instructions.as_slice(),
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            regeneration_forbidden: false,
-            source_block: 0,
-        }]
+        [kernel!(Destroy { what: target_object!(0), regeneration_forbidden: false } @ 0)]
     ) && matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::BattlefieldPermanent
         && t.filter.as_ref().is_some_and(|f| f.types == [CardKind::Enchantment]
             && f.non_types.is_empty() && f.non_colors.is_empty() && !f.opponent && f.power.is_none() && !f.tapped))
@@ -88,7 +60,7 @@ fn enchantment_destroy(p: &SpellProgram) -> bool {
 
 fn two_draws(p: &SpellProgram) -> bool {
     p.targets.is_empty() && p.instructions.len() == 2 && p.instructions.iter().all(|i|
-        matches!(i, Instruction::DrawCards { recipient: None, count, source_block: 0 } if *count == Quantity::from(1)))
+        matches!(i, kernel!(Draw { player: you!(), amount: fixed!(count) } @ 0) if *count == Quantity::from(1)))
 }
 
 fn discard_family(p: &SpellProgram) -> bool {
@@ -147,10 +119,8 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     use Capability::*;
     use serde_json::{Value, json};
     let free = json!({"$ref":"#/$defs/TargetedDiscardFreeProgram"});
-    let op = "discard_target_player";
-    let random = "discard_target_player_at_random";
     schema["$defs"]["TargetedDiscardFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":{"properties":{"op":{"enum":[op,random]}}}}},
+        "instructions":{"items":{"not":instruction_schema::any_target_discard()}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
     let target = |domain, filter: Value| {
@@ -173,7 +143,7 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     let discard = |domain| {
         program(
             target(domain, json!({"type":"null"})),
-            json!({"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":op}}}}),
+            json!({"minItems":1,"maxItems":1,"items":instruction_schema::target_discard(false)}),
         )
     };
     let destroy = program(
@@ -184,16 +154,11 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
                     "non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}
             }),
         ),
-        json!({"minItems":1,"maxItems":1,"items":{"properties":{
-            "op":{"const":"destroy_permanent"},"target_slot":{"const":0},"source_block":{"const":0},
-            "optional":{"const":false},"regeneration_forbidden":{"const":false}
-        }}}),
+        json!({"minItems":1,"maxItems":1,"items":instruction_schema::at(instruction_schema::target_destroy(Some(0), Some(false)), 0)}),
     );
     let draw = program(
         json!({"maxItems":0}),
-        json!({"minItems":2,"maxItems":2,"items":{"properties":{
-            "op":{"const":"draw_cards"},"count":{"const":"1"},"source_block":{"const":0},"recipient":{"type":"null"}
-        }}}),
+        json!({"minItems":2,"maxItems":2,"items":instruction_schema::at(instruction_schema::single_draw(), 0)}),
     );
     let mode = |shape: Value| json!({"contains":{"properties":{"program":shape}}});
     let modal = json!({"required":["modes"],"properties":{
@@ -203,16 +168,20 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
             "allOf":[mode(discard(TargetDomain::AnyPlayer)),mode(destroy),mode(draw)]}
     }});
     let random_program = |domain, x, followed_by_choice| {
-        let count = if x {
-            json!({"const":RandomDiscardCount::AnnouncedX})
+        let amount = if x {
+            instruction_schema::announced_x()
         } else if followed_by_choice {
-            json!({"const":RandomDiscardCount::Fixed{value:1.into()}})
+            instruction_schema::fixed(json!({"const":"1"}))
         } else {
-            json!({"properties":{"amount":{"const":"fixed"}}})
+            instruction_schema::fixed(json!({"type":"string"}))
         };
-        let mut ops = vec![json!({"properties":{"op":{"const":random},"count":count}})];
+        let mut ops = vec![instruction_schema::discard(
+            instruction_schema::target_player(Some(0)),
+            amount,
+            true,
+        )];
         if followed_by_choice {
-            ops.push(json!({"const":Instruction::DiscardTargetPlayer{target_slot:0,count:1.into(),source_block:0}}));
+            ops.push(json!({"const":Instruction::discard(kir::PlayerExpr::target(0), kir::Amount::Fixed { value: 1.into() }, false, 0)}));
         }
         program(
             target(domain, json!({"type":"null"})),
@@ -316,11 +285,12 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
     let mut d = targeted_counted_draw::witness();
-    d.spell.as_mut().unwrap().instructions = vec![Instruction::DiscardTargetPlayer {
-        target_slot: 0,
-        count: 2.into(),
-        source_block: 0,
-    }];
+    d.spell.as_mut().unwrap().instructions = vec![Instruction::discard(
+        kir::PlayerExpr::target(0),
+        kir::Amount::Fixed { value: 2.into() },
+        false,
+        0,
+    )];
     d.capabilities = d.requirements();
     d
 }
@@ -328,11 +298,12 @@ pub(super) fn witness() -> Definition {
 #[cfg(test)]
 pub(super) fn random_witness() -> Definition {
     let mut d = witness();
-    d.spell.as_mut().unwrap().instructions = vec![Instruction::DiscardTargetPlayerAtRandom {
-        target_slot: 0,
-        count: RandomDiscardCount::Fixed { value: 1.into() },
-        source_block: 0,
-    }];
+    d.spell.as_mut().unwrap().instructions = vec![Instruction::discard(
+        kir::PlayerExpr::target(0),
+        kir::Amount::Fixed { value: 1.into() },
+        true,
+        0,
+    )];
     d.capabilities = d.requirements();
     d
 }
@@ -341,30 +312,25 @@ pub(super) fn random_witness() -> Definition {
 #[test]
 fn random_discard() {
     use Capability::{RandomPlayerDiscardV1, TargetPlayerDiscardV1};
-    let fixed = |n: i64| RandomDiscardCount::Fixed { value: n.into() };
-    let op = |count| Instruction::DiscardTargetPlayerAtRandom {
-        target_slot: 0,
-        count,
-        source_block: 0,
-    };
-    let chosen = |n: i64| Instruction::DiscardTargetPlayer {
-        target_slot: 0,
-        count: n.into(),
-        source_block: 0,
+    let fixed = |n: i64| kir::Amount::fixed(n);
+    let op = |amount| Instruction::discard(kir::PlayerExpr::target(0), amount, true, 0);
+    let chosen = |n: i64| {
+        Instruction::discard(
+            kir::PlayerExpr::target(0),
+            kir::Amount::Fixed { value: n.into() },
+            false,
+            0,
+        )
     };
     for (x, instructions, valid) in [
         (false, vec![op(fixed(2))], true),
-        (true, vec![op(RandomDiscardCount::AnnouncedX)], true),
+        (true, vec![op(kir::Amount::announced_x())], true),
         (false, vec![op(fixed(1)), chosen(1)], true),
         (false, vec![op(fixed(0))], false),
         (false, vec![op(fixed(-1))], false),
         (true, vec![op(fixed(1))], false),
-        (false, vec![op(RandomDiscardCount::AnnouncedX)], false),
-        (
-            true,
-            vec![op(RandomDiscardCount::AnnouncedX), chosen(1)],
-            false,
-        ),
+        (false, vec![op(kir::Amount::announced_x())], false),
+        (true, vec![op(kir::Amount::announced_x()), chosen(1)], false),
         (false, vec![op(fixed(2)), chosen(1)], false),
         (false, vec![op(fixed(1)), chosen(2)], false),
         (false, vec![chosen(1), op(fixed(1))], false),
@@ -401,14 +367,12 @@ fn random_discard() {
     d.capabilities = d.requirements();
     assert!(d.validate().is_err());
 
-    let malformed = serde_json::json!({"amount":"announced_x","value":"1"});
-    assert!(serde_json::from_value::<RandomDiscardCount>(malformed).is_err());
-    for count in [fixed(2), RandomDiscardCount::AnnouncedX] {
+    // The announced X carries no operand besides its reference.
+    let malformed = serde_json::json!({"amount":"var","of":{"ref":"announced_x"},"value":"1"});
+    assert!(serde_json::from_value::<kir::Amount>(malformed).is_err());
+    for count in [fixed(2), kir::Amount::announced_x()] {
         let wire = serde_json::to_value(&count).unwrap();
-        assert_eq!(
-            serde_json::from_value::<RandomDiscardCount>(wire).unwrap(),
-            count
-        );
+        assert_eq!(serde_json::from_value::<kir::Amount>(wire).unwrap(), count);
     }
 }
 
@@ -427,8 +391,11 @@ fn targeted_discard_admits_exact_standalone_and_modal_programs() {
         ("1", true),
         ("9999999999999999999999999", true),
     ] {
-        let Instruction::DiscardTargetPlayer { count, .. } =
-            &mut d.spell.as_mut().unwrap().instructions[0]
+        let kernel!(Discard {
+            player: target_player!(_),
+            amount: fixed!(count),
+            random: false
+        }) = &mut d.spell.as_mut().unwrap().instructions[0]
         else {
             unreachable!()
         };
@@ -451,22 +418,10 @@ fn targeted_discard_admits_exact_standalone_and_modal_programs() {
         opponent: false,
         tapped: false,
     });
-    destroy.instructions = vec![Instruction::DestroyPermanent {
-        target_slot: 0,
-        optional: false,
-        regeneration_forbidden: false,
-        source_block: 0,
-    }];
+    destroy.instructions = vec![Instruction::destroy_target(0, false, 0)];
     let mut draw = discard.clone();
     draw.targets.clear();
-    draw.instructions = vec![
-        Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0
-        };
-        2
-    ];
+    draw.instructions = vec![Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0); 2];
     p.targets.clear();
     p.instructions.clear();
     p.modes = [destroy, draw, discard]
@@ -489,7 +444,7 @@ fn targeted_discard_admits_exact_standalone_and_modal_programs() {
             p.modes[0] = p.modes[2].clone();
         },
         |p| {
-            if let Instruction::DiscardTargetPlayer { source_block, .. } =
+            if let kernel!(Discard { player: target_player!(_), amount: fixed!(_), random: false } @ source_block) =
                 &mut p.modes[2].program.instructions[0]
             {
                 *source_block = 2;

@@ -357,7 +357,8 @@ impl Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         match instruction {
-            Instruction::EachOpponentSacrifice { source_block } => {
+            kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachOpponent, .. } @ source_block) =>
+            {
                 let controller = self.entry(frame.stack_id)?.controller;
                 let remaining = (0..4)
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
@@ -376,9 +377,15 @@ impl Game {
                 Ok(())
             }
             Instruction::SacrificeDamage { .. } => self.start_sacrifice_damage(frame),
-            i @ Instruction::ModifySourcePowerToughness { .. } => {
-                self.execute_effect_instruction(frame, i)
-            }
+            i @ kernel!(ModifyUntil {
+                what: source_object!(),
+                change: mtg_contracts::kir::Change::PowerToughness {
+                    power: _,
+                    toughness: _
+                },
+                until: mtg_contracts::kir::Until::EndOfTurn,
+                ..
+            }) => self.execute_effect_instruction(frame, i),
             _ => Err("not sacrifice instruction".into()),
         }
     }
@@ -503,9 +510,14 @@ impl Game {
                     .program_for(self.entry(frame.stack_id)?)?
                     .instructions
                     .get(frame.cursor as usize);
-                let includes_caster =
-                    matches!(instruction, Some(Instruction::EachPlayerSacrifice { .. }));
-                let valid = matches!(instruction,Some(Instruction::EachOpponentSacrifice {source_block:b} | Instruction::EachPlayerSacrifice {source_block:b}) if b==source_block);
+                let includes_caster = matches!(
+                    instruction,
+                    Some(kernel!(Sacrifice {
+                        player: mtg_contracts::kir::PlayerExpr::EachPlayer,
+                        ..
+                    }))
+                );
+                let valid = matches!(instruction,Some(kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachOpponent, .. } @ b) | kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. } @ b)) if b==source_block);
                 let controller = self.entry(frame.stack_id)?.controller;
                 let all = (0..4)
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))

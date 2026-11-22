@@ -2,14 +2,16 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 pub(crate) fn has_hand_program(p: &SpellProgram) -> bool {
-    p.instructions.iter().any(|i| {
-        matches!(
-            i,
-            Instruction::DrawControllerCards { .. }
-                | Instruction::PutHandOnLibrary { .. }
-                | Instruction::GrantLandPlaysThisTurn { .. }
-        )
-    }) || p.modes.iter().any(|m| has_hand_program(&m.program))
+    controller_draw_discard_program(p)
+        || p.instructions.iter().any(|i| {
+            i.counted_controller_draw().is_some()
+                || matches!(
+                    i,
+                    Instruction::PutHandOnLibrary { .. }
+                        | Instruction::GrantLandPlaysThisTurn { .. }
+                )
+        })
+        || p.modes.iter().any(|m| has_hand_program(&m.program))
 }
 /// Exact counted controller draws followed by an ordered whole-hand return.
 pub fn controller_hand_return_program(p: &SpellProgram) -> bool {
@@ -19,7 +21,7 @@ pub fn controller_hand_return_program(p: &SpellProgram) -> bool {
         && p.targets.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && matches!(p.instructions.as_slice(),[Instruction::DrawControllerCards{count:draw,source_block:0},Instruction::PutHandOnLibrary{count,source_block:0}]if !draw.is_negative()&&!count.is_negative())
+        && matches!(p.instructions.as_slice(),[kernel!(Draw { player: you!(), amount: fixed!(draw) } @ 0),Instruction::PutHandOnLibrary{count,source_block:0}]if !draw.is_negative()&&!count.is_negative())
 }
 pub(crate) fn controller_draw_land_allowance_program(p: &SpellProgram) -> bool {
     p.additional_sacrifice.is_none()
@@ -30,7 +32,7 @@ pub(crate) fn controller_draw_land_allowance_program(p: &SpellProgram) -> bool {
         && p.resolution == SpellResolution::Instructions
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::DrawControllerCards { count: draw, source_block: 0 },
+            [kernel!(Draw { player: you!(), amount: fixed!(draw) } @ 0),
              Instruction::GrantLandPlaysThisTurn { count, source_block: 0 }]
                 if !draw.is_negative() && !count.is_negative()
         )
@@ -76,9 +78,12 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
-    let counted_draw = json!({"required":["op","count","source_block"],"properties":{
-        "op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}
-    }});
+    // CR 121.1-121.2: these programs admit any fixed controller draw, one
+    // card included.
+    let counted_draw = instruction_schema::at(
+        instruction_schema::fixed_controller_draw("^(0|[1-9][0-9]*)$"),
+        0,
+    );
     s["$defs"]["ControllerDrawLandAllowanceProgram"] = json!({"properties":{
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
         "modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},
@@ -88,8 +93,8 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
                 "count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}
             }}],"items":false}
     }});
-    s["$defs"]["ControllerHandReturnProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","count","source_block"],"properties":{"op":{"const":"put_hand_on_library"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}],"items":false}}});
-    s["$defs"]["HandReturnFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":["draw_controller_cards","put_hand_on_library","grant_land_plays_this_turn"]}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}});
+    s["$defs"]["ControllerHandReturnProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[counted_draw.clone(),{"required":["op","count","source_block"],"properties":{"op":{"const":"put_hand_on_library"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}],"items":false}}});
+    s["$defs"]["HandReturnFreeProgram"] = json!({"not":{"$ref":"#/$defs/ControllerDrawDiscardProgram"},"properties":{"instructions":{"items":{"not":{"anyOf":[instruction_schema::any_counted_draw(),{"required":["op"],"properties":{"op":{"enum":["put_hand_on_library","grant_land_plays_this_turn"]}}}]}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}});
     s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/HandReturnFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"},{"$ref":"#/$defs/ControllerDrawLandAllowanceProgram"},{"$ref":"#/$defs/FlashEndStepDrawProgram"},{"$ref":"#/$defs/PaidCountedDrawProgram"},{"$ref":ordinary_sequence::SCHEMA}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/HandReturnFreeProgram"}}}});
     let family = json!({"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"},{"$ref":"#/$defs/ControllerDrawLandAllowanceProgram"},{"$ref":ordinary_sequence::SCHEMA}]});
@@ -101,7 +106,7 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
         {"properties":{"triggered":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}},
         {"$ref":"#/$defs/FlashEndStepDrawDefinition"}
     ]}]}));
-    defs.push(json!({"if":has,"then":{"properties":{"spell":family,"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1]}}}}}}));
+    defs.push(json!({"if":has,"then":{"properties":{"spell":family,"keywords":{"maxItems":0},"static_abilities":{"maxItems":0},"activated":{"maxItems":0},"triggered":{"maxItems":0},"mana_abilities":{"maxItems":0},"x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"characteristics":{"properties":{"kind":{"enum":["instant","sorcery"]},"additional_types":{"maxItems":0},"basic":{"const":false},"legendary":{"const":false},"power":{"type":"null"},"toughness":{"type":"null"}}},"capabilities":{"allOf":[{"contains":{"const":Capability::NormalLayoutV1}}]}}},"else":{"properties":{"capabilities":{"not":{"contains":{"enum":[Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerDrawLandAllowanceV1]}}}}}}));
     defs.push(json!({"if":{"allOf":[has.clone(),{"not":{"properties":{"spell":{"$ref":ordinary_sequence::SCHEMA}}}}]},
         "then":{"properties":{"capabilities":{"items":{"enum":[Capability::NormalLayoutV1,Capability::CastInstantV1,Capability::CastSorceryV1,Capability::ControllerHandReturnV1,Capability::ControllerDrawDiscardV1,Capability::ControllerCountedDrawV1,Capability::ControllerDrawLandAllowanceV1,Capability::LifeLossV1]}}}}}));
     // LifeLoss is an independent required capability only for the exact tail.
@@ -133,17 +138,24 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
         ),
     ] {
         let ordinary = json!({"required":["spell"],"properties":{"spell":{"type":"object","$ref":format!("#/$defs/{program}")}}});
-        let composed_with = |op: &str| {
+        let composed_with = |instruction: serde_json::Value| {
             json!({"required":["spell"],"properties":{"spell":{
-                "$ref":ordinary_sequence::SCHEMA,"properties":{"instructions":{"contains":{"properties":{"op":{"const":op}}}}}
+                "$ref":ordinary_sequence::SCHEMA,"properties":{"instructions":{"contains":instruction}}
             }}})
         };
+        let op = |op: &str| json!({"properties":{"op":{"const":op}}});
+        let counted_flash = json!({"allOf":[
+            {"$ref":"#/$defs/FlashEndStepDrawDefinition"},
+            {"properties":{"triggered":{"contains":{"properties":{"program":{
+                "properties":{"instructions":{"contains":instruction_schema::any_counted_draw()}}
+            }}}}}}
+        ]});
         let family = match cap {
             Capability::ControllerCountedDrawV1 => {
-                json!({"anyOf":[ordinary,composed_with("draw_controller_cards"),{"$ref":"#/$defs/FlashEndStepDrawDefinition"},{"$ref":"#/$defs/PaidCountedDrawDefinition"}]})
+                json!({"anyOf":[ordinary,composed_with(instruction_schema::any_counted_draw()),counted_flash,{"$ref":"#/$defs/PaidCountedDrawDefinition"}]})
             }
             Capability::ControllerDrawLandAllowanceV1 => {
-                json!({"anyOf":[ordinary,composed_with("grant_land_plays_this_turn")]})
+                json!({"anyOf":[ordinary,composed_with(op("grant_land_plays_this_turn"))]})
             }
             _ => ordinary,
         };
@@ -155,10 +167,7 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
 pub(crate) fn witness() -> Definition {
     let mut d = crate::controller_library::witness();
     d.spell.as_mut().unwrap().instructions = vec![
-        Instruction::DrawControllerCards {
-            count: 3.into(),
-            source_block: 0,
-        },
+        Instruction::draw(PlayerExpr::you(Context::Spell), 3.into(), 0),
         Instruction::PutHandOnLibrary {
             count: 2.into(),
             source_block: 0,
@@ -170,6 +179,51 @@ pub(crate) fn witness() -> Definition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // CR 121.1-121.2: a hand return or land allowance after one card is the
+    // same family; Rust validation, capabilities and the exported schema agree.
+    #[test]
+    fn hand_programs_admit_one_drawn_card_in_rust_and_schema() {
+        for tail in [
+            Instruction::PutHandOnLibrary {
+                count: 1.into(),
+                source_block: 0,
+            },
+            Instruction::GrantLandPlaysThisTurn {
+                count: 1.into(),
+                source_block: 0,
+            },
+        ] {
+            let mut d = witness();
+            d.spell.as_mut().unwrap().instructions = vec![
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0),
+                tail.clone(),
+            ];
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            let family = if matches!(tail, Instruction::PutHandOnLibrary { .. }) {
+                Capability::ControllerHandReturnV1
+            } else {
+                Capability::ControllerDrawLandAllowanceV1
+            };
+            let p = d.spell.as_ref().unwrap();
+            assert!(controller_hand_return_program(p) || controller_draw_land_allowance_program(p));
+            assert!(d.capabilities.contains(&family), "{tail:?}");
+            assert!(!d.capabilities.contains(&Capability::ControllerDrawV1));
+        }
+        let schema = catalog_schema();
+        for name in [
+            "ControllerHandReturnProgram",
+            "ControllerDrawLandAllowanceProgram",
+        ] {
+            let first = &schema["$defs"][name]["properties"]["instructions"]["prefixItems"][0];
+            let text = first.to_string();
+            assert!(
+                !text.contains(r#""not":{"const":"1"}"#),
+                "{name} excludes one card"
+            );
+            assert!(text.contains(r#""verb":{"const":"draw"}"#), "{name}");
+        }
+    }
     #[test]
     fn hand_return_complete_count_and_scope() {
         for count in ["0", "2", "999999999999999999999999"] {
@@ -193,8 +247,10 @@ mod tests {
                     1 => p.instructions.swap(0, 1),
                     2 => p.instructions.push(p.instructions[1].clone()),
                     3 => {
-                        if let Instruction::DrawControllerCards { count, .. } =
-                            &mut p.instructions[0]
+                        if let kernel!(Draw {
+                            player: you!(),
+                            amount: fixed!(count)
+                        }) = &mut p.instructions[0]
                         {
                             *count = (-1).into()
                         }

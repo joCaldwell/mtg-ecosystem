@@ -651,15 +651,14 @@ impl Game {
                                 source_block,
                                 ..
                             }
-                            | Instruction::ReturnToOwnerHand {
-                                target_slot,
-                                source_block,
-                            },
+                            | kernel!(Move {
+                                what: target_object!(target_slot),
+                                to: mtg_contracts::kir::Destination::OwnerHand
+                            } @ source_block),
                         ) => (*target_slot, Zone::Hand { owner }, *source_block),
-                        Some(Instruction::PutOnTopOwnerLibrary {
-                            target_slot,
-                            source_block,
-                        }) => (*target_slot, Zone::Library { owner }, *source_block),
+                        Some(
+                            kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerLibraryTop } @ source_block),
+                        ) => (*target_slot, Zone::Library { owner }, *source_block),
                         _ => {
                             return Err(
                                 "snapshot commander instruction continuation invariant".into()
@@ -715,21 +714,11 @@ impl Game {
                             .instructions
                             .get(frame.cursor as usize)
                         {
-                            Some(
-                                Instruction::DrawControllerCards {
-                                    source_block: b, ..
-                                }
-                                | Instruction::DrawEachPlayer {
-                                    source_block: b, ..
-                                },
-                            ) => b == source_block && frame.draw_progress.is_some(),
-                            Some(Instruction::DrawCards {
-                                count,
-                                source_block: b,
-                                ..
-                            }) => {
+                            // CR 121.2: a single draw has no progress; a
+                            // counted draw replaces one of its attempts.
+                            Some(kernel!(Draw { player, amount } @ b)) => {
                                 b == source_block
-                                    && (*count == Quantity::from(1)
+                                    && (mtg_contracts::kir::single_draw(player, amount)
                                         || frame.draw_progress.is_some())
                             }
                             Some(
@@ -742,9 +731,6 @@ impl Game {
                             Some(
                                 Instruction::DrawDamageAmount { source_block: b }
                                 | Instruction::DrawCardsIfAdditionalCost {
-                                    source_block: b, ..
-                                }
-                                | Instruction::DrawAnnouncedX {
                                     source_block: b, ..
                                 },
                             ) => b == source_block && frame.draw_progress.is_some(),

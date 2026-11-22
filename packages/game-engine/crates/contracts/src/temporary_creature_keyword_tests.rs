@@ -324,11 +324,11 @@ fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
                     p.modes.push(SpellMode { program: child });
                 }
                 12 => p.instructions.push(p.instructions.last().unwrap().clone()),
-                13 => p.instructions.push(Instruction::DrawCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 0,
-                }),
+                13 => p.instructions.push(Instruction::draw(
+                    PlayerExpr::you(Context::Spell),
+                    1.into(),
+                    0,
+                )),
                 14 => {
                     let Instruction::GrantKeywords { target_slot, .. } =
                         p.instructions.last_mut().unwrap()
@@ -339,11 +339,7 @@ fn temporary_creature_keyword_family_rejects_complete_program_near_misses() {
                 }
                 15 => p.instructions.insert(
                     0,
-                    Instruction::DrawCards {
-                        count: 1.into(),
-                        recipient: None,
-                        source_block: 0,
-                    },
+                    Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0),
                 ),
                 _ => p.instructions.clear(),
             }
@@ -617,11 +613,11 @@ fn temporary_creature_keyword_family_keeps_controlled_pumps_and_policy_scoped() 
             .as_mut()
             .unwrap()
             .instructions
-            .push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            });
+            .push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                0,
+            ));
         d.capabilities = d.requirements();
         assert!(
             d.validate().is_err(),
@@ -691,7 +687,7 @@ fn temporary_creature_keyword_atomic_modifier_json_and_pure_wire_parity() {
                 compound_indestructible_tests::split(p, reverse);
                 for (instruction, block) in p.instructions.iter_mut().zip(blocks) {
                     match instruction {
-                        Instruction::ModifyPowerToughness { source_block, .. }
+                        kernel!(ModifyUntil { what: target_object!(_), change: kir::Change::PowerToughness { power: _, toughness: _ }, until: kir::Until::EndOfTurn, .. } @ source_block)
                         | Instruction::GrantKeywords { source_block, .. } => *source_block = block,
                         _ => unreachable!(),
                     }

@@ -3,13 +3,21 @@
 use super::*;
 use mtg_contracts::{
     ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
-    KeywordAbility, LifeRecipient, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
-    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount,
-    compound_indestructible_parameters, kernel,
-    kir::{Context, SetExpr},
-    target_player,
+    KeywordAbility, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
+    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, announced_x,
+    compound_indestructible_parameters, fixed, kernel,
+    kir::{self, Context, SetExpr},
+    source_object, target_object, target_player,
 };
 use mtg_core::query::{self, Tri};
+
+/// CR 613.4c: the kernel set and negative toughness of an end-of-turn set
+/// shrink.
+fn set_shrink(i: &I) -> Option<(&SetExpr, &Quantity)> {
+    let what = ObjectSet::pumped(i)?;
+    let (_, _, toughness, _) = i.pumped()?;
+    toughness.is_negative().then_some((what, toughness))
+}
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
 
 fn zero_cost() -> ManaCost {
@@ -43,13 +51,22 @@ fn requires_copy_entry_choice(definition: &Definition) -> bool {
 fn announced_x(instruction: &I) -> bool {
     matches!(
         instruction,
-        I::DamageSet {
-            amount: WipeAmount::AnnouncedX,
+        kernel!(Draw {
+            player: kir::PlayerExpr::Is { .. },
+            amount: announced_x!()
+        }) | kernel!(Damage {
+            amount: announced_x!(),
             ..
-        } | I::DrawAnnouncedX { .. }
-            | I::DealDamageAnnouncedX { .. }
-            | I::MillAnnouncedX { .. }
-            | I::ChangeLifeAnnouncedX { .. }
+        }) | kernel!(Mill {
+            player: target_player!(_),
+            amount: announced_x!()
+        }) | kernel!(GainLife {
+            amount: mtg_contracts::announced_x!(),
+            ..
+        }) | kernel!(LoseLife {
+            amount: mtg_contracts::announced_x!(),
+            ..
+        })
     )
 }
 
@@ -72,7 +89,7 @@ fn blocking_pump_program(p: &SpellProgram) -> bool {
             .all(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
         && !p.instructions.is_empty()
         && p.instructions.iter().all(|i| {
-            matches!(i, I::ModifyPowerToughness {power, toughness, ..}
+            matches!(i, kernel!(ModifyUntil { what: target_object!(_), change: kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: kir::Until::EndOfTurn, .. })
                 if !power.is_negative() && !toughness.is_negative()
                     && (*power > Quantity::zero() || *toughness > Quantity::zero()))
         })
@@ -104,6 +121,24 @@ fn scored_wipe<'a>(p: &SpellProgram, i: &'a I) -> Option<&'a SetExpr> {
         _ => None,
     }
 }
+/// CR 701.8: "destroy all creatures", which the policy has always weighed
+/// as its own program, separately from the scored wipes.
+fn destroys_all_creatures(i: &I) -> bool {
+    matches!(i, kernel!(Destroy {
+        what: SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, filter },
+        regeneration_forbidden: false,
+    }) if *filter == kir::Pred::creatures())
+}
+/// The slot of one announced target the instruction destroys or exiles.
+fn removal_target(i: &I) -> Option<u32> {
+    match i {
+        kernel!(Move {
+            what: target_object!(slot),
+            to: kir::Destination::Exile
+        }) => Some(*slot),
+        i => i.target_destroy().map(|(slot, ..)| slot),
+    }
+}
 fn reactive_program(p: &SpellProgram) -> bool {
     blocking_pump_program(p)
         || p.additional_sacrifice.is_some()
@@ -123,8 +158,7 @@ fn sole_target_destruction(p: &SpellProgram, slot: u32) -> bool {
     p.modes.is_empty()
         && p.targets.len() == 1
         && matches!(p.instructions.as_slice(),
-        [I::DestroyTargetCreature { target_slot, .. } | I::DestroyPermanent { target_slot, .. }]
-            if *target_slot == slot)
+        [i] if i.target_destroy().is_some_and(|(target_slot, ..)| target_slot == slot))
 }
 // Pure protection needs an incremental benefit. Match public semantics rather
 // than a card or profile identity; buff/restriction equipment keeps its policy.
@@ -151,7 +185,7 @@ fn tapped_destroy_program(d: &Definition, p: &SpellProgram) -> bool {
         })
         && !p.instructions.is_empty()
         && p.instructions.iter().all(|i| {
-            matches!(i, I::DestroyPermanent { target_slot, optional: false, .. }
+            matches!(i, kernel!(Destroy { what: target_object!(target_slot), regeneration_forbidden: _ })
                 if p.targets.iter().any(|t| t.slot == *target_slot))
         })
 }
@@ -169,7 +203,9 @@ fn defensive_untap_spell(d: &Definition, p: &SpellProgram) -> bool {
         && p.additional_sacrifice.is_none()
         && matches!(
             p.instructions.as_slice(),
-            [I::UntapPermanent { target_slot: 0, .. }]
+            [kernel!(Untap {
+                what: target_object!(0)
+            })]
         )
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
@@ -192,7 +228,9 @@ fn tap_source_creature_untap(d: &Definition, p: &SpellProgram) -> bool {
         && p.additional_sacrifice.is_none()
         && matches!(
             p.instructions.as_slice(),
-            [I::UntapPermanent { target_slot: 0, .. }]
+            [kernel!(Untap {
+                what: target_object!(0)
+            })]
         )
         && matches!(p.targets.as_slice(), [t] if t.slot == 0
             && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
@@ -247,10 +285,14 @@ fn defensive_protection_spell(d: &Definition, p: &SpellProgram) -> bool {
     temporary_indestructible_spell(d, p) || compound_indestructible_spell(d, p)
 }
 fn contains_untap(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, I::UntapPermanent { .. }))
-        || p.modes.iter().any(|m| contains_untap(&m.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Untap {
+                what: target_object!(_)
+            })
+        )
+    }) || p.modes.iter().any(|m| contains_untap(&m.program))
 }
 fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
     d.characteristics.kind == CardKind::Artifact
@@ -262,7 +304,9 @@ fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
         && matches!(
             p.instructions.as_slice(),
-            [I::TapPermanent { target_slot: 0, .. }]
+            [kernel!(Tap {
+                what: target_object!(0)
+            })]
         )
         && d.activated.iter().any(|a| {
             &a.program == p
@@ -379,33 +423,31 @@ impl Strategy<'_> {
             | I::ReturnOwnGraveyardCardToHand { target_slot, .. }
             | I::PreventNextDamage { target_slot, .. } => *target_slot == slot,
             I::DistributePlusOneCounters { .. } => slot == 0,
-            I::PutPlusOneCounters {
-                on: mtg_contracts::CounterRecipient::Target { target_slot },
+            kernel!(PutCounters {
+                on: target_object!(target_slot),
                 ..
-            } => *target_slot == slot,
-            I::ModifyPowerToughness {
-                target_slot,
-                power,
-                toughness,
+            }) => *target_slot == slot,
+            kernel!(ModifyUntil {
+                what: target_object!(target_slot),
+                change: kir::Change::PowerToughness {
+                    power: fixed!(power),
+                    toughness: fixed!(toughness)
+                },
+                until: kir::Until::EndOfTurn,
                 ..
-            } => *target_slot == slot && !power.is_negative() && !toughness.is_negative(),
+            }) => *target_slot == slot && !power.is_negative() && !toughness.is_negative(),
             kernel!(GainLife {
                 player: target_player!(target_slot),
                 ..
             })
-            | I::DrawCards {
-                recipient: Some(LifeRecipient::Target { target_slot }),
-                ..
-            }
-            | I::DrawAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot },
-                ..
-            }
-            | I::ChangeLifeAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot },
-                gain: true,
-                ..
-            } => *target_slot == slot,
+            | kernel!(Draw {
+                player: target_player!(target_slot),
+                amount: fixed!(_)
+            })
+            | kernel!(Draw {
+                player: target_player!(target_slot),
+                amount: announced_x!()
+            }) => *target_slot == slot,
             _ => false,
         })
     }
@@ -453,10 +495,14 @@ impl Strategy<'_> {
         t: &TargetSpec,
         candidates: Option<&[ObjectHandle]>,
     ) -> Option<ObjectHandle> {
-        if p.instructions
-            .iter()
-            .any(|i| matches!(i, I::UntapPermanent { .. }))
-        {
+        if p.instructions.iter().any(|i| {
+            matches!(
+                i,
+                kernel!(Untap {
+                    what: target_object!(_)
+                })
+            )
+        }) {
             if tap_source_creature_untap(d, p) {
                 return v.objects.iter().filter(|o| {
                     o.controller == v.viewer && o.tapped
@@ -668,25 +714,25 @@ impl Strategy<'_> {
             };
             return match p.instructions.as_slice() {
                 [
-                    I::DestroyTargetCreature { target_slot, .. }
-                    | I::DestroyPermanent {
-                        target_slot,
-                        optional: false,
+                    kernel!(Destroy {
+                        what: target_object!(target_slot),
                         ..
-                    },
+                    }),
                 ] => {
                     target_valid(*target_slot)
                         && s.targets
                             .get(*target_slot as usize)
                             .is_some_and(|t| t.current.as_ref() == Some(&o.handle))
                 }
-                [I::DestroyAllCreatures { .. }] => true,
+                [i] if destroys_all_creatures(i) => true,
                 [
-                    I::DealDamage {
-                        target_slot,
-                        amount,
+                    kernel!(Damage {
+                        to: kir::DamageTo::Ref {
+                            who: kir::Ref::Target { slot: target_slot }
+                        },
+                        amount: fixed!(amount),
                         ..
-                    },
+                    }),
                 ] => {
                     damage_safe
                         && target_valid(*target_slot)
@@ -811,7 +857,8 @@ impl Strategy<'_> {
             return None;
         }
         incoming.instructions.iter().filter_map(|i| {
-            let I::DestroyPermanent { target_slot, .. } = i else { return None };
+            let (target_slot, ..) = i.target_destroy()?;
+            let target_slot = &target_slot;
             let handle = threat.targets.get(*target_slot as usize)?.current.as_ref()?;
             let spec = incoming.targets.get(*target_slot as usize)?;
             let filter = spec.filter.as_ref()?;
@@ -928,11 +975,13 @@ impl Strategy<'_> {
             };
             for i in &p.instructions {
                 match i {
-                    I::DealDamage {
-                        target_slot,
-                        amount,
+                    kernel!(Damage {
+                        to: kir::DamageTo::Ref {
+                            who: kir::Ref::Target { slot: target_slot }
+                        },
+                        amount: fixed!(amount),
                         ..
-                    }
+                    })
                     | I::SacrificeDamage {
                         target_slot: Some(target_slot),
                         amount: SacrificeDamageAmount::Fixed { value: amount },
@@ -945,23 +994,26 @@ impl Strategy<'_> {
                             damage.add(&self.scaled_damage(v, amount));
                         }
                     }
-                    I::DamageSet {
-                        sets,
-                        each_player,
-                        amount,
-                        ..
-                    } => {
+                    i if let Some(set_damage) = i.set_damage() => {
                         let hit = match target {
-                            PlayerTargetEntity::Player { .. } => *each_player,
+                            PlayerTargetEntity::Player { .. } => set_damage.each_player,
                             PlayerTargetEntity::Object { object } => v
                                 .objects
                                 .iter()
                                 .find(|o| &o.handle == object)
-                                .is_some_and(|o| sets.iter().any(|set| self.in_set(v, o, set))),
+                                .is_some_and(|o| {
+                                    set_damage
+                                        .sets
+                                        .iter()
+                                        .any(|set| self.in_kernel_set(v, o, set))
+                                }),
                         };
                         if hit
-                            && let Some(amount) =
-                                self.wipe_amount(v, amount, &s.x.clone().unwrap_or_default())
+                            && let Some(amount) = self.wipe_amount(
+                                v,
+                                set_damage.amount,
+                                &s.x.clone().unwrap_or_default(),
+                            )
                         {
                             damage.add(&self.scaled_damage(v, &amount));
                         }
@@ -1020,18 +1072,17 @@ impl Strategy<'_> {
         v.stack.iter().filter(|s| s.cast_complete).any(|s| {
             self.entry_program(v, s).is_some_and(|(_, p)| {
                 p.instructions.iter().any(|i| match i {
-                    I::DestroyTargetCreature { target_slot, .. }
-                    | I::DestroyPermanent { target_slot, .. }
-                    | I::ExilePermanent { target_slot, .. } => s
+                    i if let Some(target_slot) = removal_target(i) => s
                         .targets
-                        .get(*target_slot as usize)
+                        .get(target_slot as usize)
                         .is_some_and(|t| t.current.as_ref() == Some(&o.handle)),
-                    I::DestroyAllCreatures { .. } => self.in_set(v, o, &ObjectSet::Creatures),
+                    i if destroys_all_creatures(i) => self.in_set(v, o, &ObjectSet::Creatures),
                     i if scored_wipe(p, i).is_some() => {
                         scored_wipe(p, i).is_some_and(|what| self.in_kernel_set(v, o, what))
                     }
-                    I::PumpSet { set, toughness, .. } if toughness.is_negative() => {
-                        self.in_set(v, o, set)
+                    i if set_shrink(i).is_some() => {
+                        let (what, toughness) = set_shrink(i).unwrap();
+                        self.in_kernel_set(v, o, what)
                             && o.characteristics
                                 .as_ref()
                                 .and_then(|c| c.toughness.as_ref())
@@ -1083,12 +1134,10 @@ impl Strategy<'_> {
                         damage >= *n
                     })
         }) || p.instructions.iter().any(|i| match i {
-            I::DestroyTargetCreature { target_slot, .. }
-            | I::DestroyPermanent { target_slot, .. }
-            | I::ExilePermanent { target_slot, .. } => p
+            i if let Some(target_slot) = removal_target(i) => p
                 .targets
                 .iter()
-                .find(|t| t.slot == *target_slot)
+                .find(|t| t.slot == target_slot)
                 .is_some_and(|t| {
                     v.objects.iter().any(|other| {
                         other.controller != v.viewer
@@ -1132,8 +1181,20 @@ impl Strategy<'_> {
         p.instructions
             .iter()
             .find_map(|i| match i {
-                I::DealDamage { amount, .. } => Some(amount.clone()),
-                I::DealDamageAnnouncedX { .. } => v.stack.last()?.x.clone(),
+                kernel!(Damage {
+                    to: kir::DamageTo::Ref {
+                        who: kir::Ref::Target { slot: _ }
+                    },
+                    amount: fixed!(amount),
+                    ..
+                }) => Some(amount.clone()),
+                kernel!(Damage {
+                    to: kir::DamageTo::Ref {
+                        who: kir::Ref::Target { slot: _ }
+                    },
+                    amount: announced_x!(),
+                    ..
+                }) => v.stack.last()?.x.clone(),
                 I::SacrificeDamage {
                     amount: SacrificeDamageAmount::Fixed { value },
                     ..
@@ -1279,46 +1340,41 @@ impl Strategy<'_> {
     fn wipe_amount(
         &self,
         v: &PermittedView,
-        amount: &WipeAmount,
+        amount: &kir::Amount,
         x: &Quantity,
     ) -> Option<Quantity> {
         Some(match amount {
-            WipeAmount::Fixed { value } => value.clone(),
-            WipeAmount::AnnouncedX => x.clone(),
-            WipeAmount::OtherCastsManaValue => return None,
-            WipeAmount::CreatureCount => Quantity::from(
+            kir::Amount::Fixed { value } => value.clone(),
+            kir::Amount::Var {
+                of: kir::Ref::AnnouncedX,
+            } => x.clone(),
+            kir::Amount::Count { set } => Quantity::from(
                 v.objects
                     .iter()
-                    .filter(|o| self.in_set(v, o, &ObjectSet::Creatures))
+                    .filter(|o| self.in_kernel_set(v, o, set))
                     .count() as i64,
             ),
+            _ => return None,
         })
     }
     fn wipe_score(&self, v: &PermittedView, p: &SpellProgram, x: &Quantity) -> Option<Quantity> {
         let mut found = false;
         let mut lost = std::collections::BTreeSet::new();
         let mut wins = false;
-        // The controller role never changes which permanents a set names.
-        let kernel = |set: &ObjectSet| set.kernel(Context::Spell);
         for i in &p.instructions {
             let (sets, damage): (Vec<SetExpr>, _) = match i {
                 i if scored_wipe(p, i).is_some() => {
                     (scored_wipe(p, i).into_iter().cloned().collect(), None)
                 }
-                I::DestroyAllCreatures { .. } => (vec![kernel(&ObjectSet::Creatures)], None),
-                I::PumpSet { set, toughness, .. } if toughness.is_negative() => {
+                i if set_shrink(i).is_some() => {
+                    let (what, toughness) = set_shrink(i).unwrap();
                     let mut q = Quantity::zero();
                     q.subtract(toughness);
-                    (vec![kernel(set)], Some(q))
+                    (vec![what.clone()], Some(q))
                 }
-                I::DamageSet {
-                    sets,
-                    each_player,
-                    amount,
-                    ..
-                } => {
-                    let damage = self.scaled_damage(v, &self.wipe_amount(v, amount, x)?);
-                    if *each_player {
+                i if let Some(set_damage) = i.set_damage() => {
+                    let damage = self.scaled_damage(v, &self.wipe_amount(v, set_damage.amount, x)?);
+                    if set_damage.each_player {
                         if v.players
                             .iter()
                             .any(|r| r.player == v.viewer && r.life <= damage)
@@ -1333,9 +1389,12 @@ impl Strategy<'_> {
                             })
                             .all(|r| r.life <= damage);
                     }
-                    (sets.iter().map(kernel).collect(), Some(damage))
+                    (set_damage.sets.into_iter().cloned().collect(), Some(damage))
                 }
-                I::EachPlayerSacrifice { .. } => {
+                kernel!(Sacrifice {
+                    player: kir::PlayerExpr::EachPlayer,
+                    ..
+                }) => {
                     found = true;
                     for player in &v.live_turn_order {
                         if let Some(o) = v
@@ -1442,10 +1501,15 @@ impl Strategy<'_> {
                 break;
             }
             let score = self.wipe_score(v, p, &x).unwrap_or_else(|| {
-                let caps_draw = p
-                    .instructions
-                    .iter()
-                    .any(|instruction| matches!(instruction, I::DrawAnnouncedX { .. }));
+                let caps_draw = p.instructions.iter().any(|instruction| {
+                    matches!(
+                        instruction,
+                        kernel!(Draw {
+                            player: kir::PlayerExpr::Is { .. },
+                            amount: announced_x!()
+                        })
+                    )
+                });
                 if caps_draw
                     && v.players
                         .iter()
@@ -1495,10 +1559,14 @@ impl Strategy<'_> {
                 _ => ready.next().is_some(),
             };
         }
-        if p.instructions
-            .iter()
-            .any(|i| matches!(i, I::UntapPermanent { .. }))
-            && !defensive_untap_spell(d, p)
+        if p.instructions.iter().any(|i| {
+            matches!(
+                i,
+                kernel!(Untap {
+                    what: target_object!(_)
+                })
+            )
+        }) && !defensive_untap_spell(d, p)
             && !tap_source_creature_untap(d, p)
         {
             return false;
@@ -1838,11 +1906,20 @@ impl Strategy<'_> {
                     .copied()
                     .find(|i| {
                         root.modes.get(*i as usize).is_some_and(|m| {
-                            matches!(m.program.instructions.as_slice(), [I::DealDamage { .. }])
-                                && m.program
-                                    .targets
-                                    .first()
-                                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
+                            matches!(
+                                m.program.instructions.as_slice(),
+                                [kernel!(Damage {
+                                    to: kir::DamageTo::Ref {
+                                        who: kir::Ref::Target { slot: _ }
+                                    },
+                                    amount: fixed!(_),
+                                    ..
+                                })]
+                            ) && m
+                                .program
+                                .targets
+                                .first()
+                                .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
                         })
                     })
                     .unwrap_or(first);
@@ -1909,10 +1986,13 @@ impl Strategy<'_> {
                             develops_mana(i)
                                 || matches!(
                                     i,
-                                    I::CreateCreatureTokens { .. }
-                                        | I::DrawCards { .. }
-                                        | I::DrawControllerCards { .. }
-                                        | I::DistributePlusOneCounters { .. }
+                                    kernel!(CreateTokens {
+                                        token: kir::TokenSpec::Creature { .. },
+                                        ..
+                                    }) | kernel!(Draw {
+                                        player: kir::PlayerExpr::Is { .. },
+                                        amount: fixed!(_)
+                                    }) | I::DistributePlusOneCounters { .. }
                                 )
                         });
                         (!impact, *index)
@@ -1942,65 +2022,70 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let (tap, sac, cost) =
-            match &a.cost {
-                ActivationCost::TapPayLifeSacrificeSource { life } => {
-                    if self.library_count(v) == 0
-                        || !a.program.instructions.iter().any(develops_mana)
-                        || v.players
-                            .iter()
-                            .find(|p| p.player == v.viewer)
-                            .is_none_or(|p| p.life_frozen_until_next_turn || p.life <= *life)
-                    {
-                        return None;
-                    }
-                    (true, true, zero_cost())
-                }
-                ActivationCost::DiscardSource { mana } => {
-                    if self.library_count(v) < 2
-                        || !a.program.instructions.iter().any(|i| {
-                            matches!(i, I::DrawCards { .. } | I::DrawControllerCards { .. })
-                        })
-                    {
-                        return None;
-                    }
-                    (false, false, mana.clone())
-                }
-                ActivationCost::TapSource => (true, false, zero_cost()),
-                ActivationCost::SacrificeSource => (false, true, zero_cost()),
-                ActivationCost::Mana { cost } => (false, false, cost.clone()),
-                ActivationCost::Composite { costs } => {
-                    if costs
-                        .remove_source_plus_one_counters
-                        .as_ref()
-                        .is_some_and(|n| o.plus_one_counters < *n)
-                    {
-                        return None;
-                    }
-                    (
-                        costs.tap,
-                        costs.sacrifice,
-                        costs.mana.clone().unwrap_or_else(zero_cost),
-                    )
-                }
-                ActivationCost::SacrificePermanent {
-                    count,
-                    filter,
-                    mana,
-                } => {
-                    if *count != 1 {
-                        return None;
-                    }
-                    if !self
-                        .sacrifice_objects(v, filter)
+        let (tap, sac, cost) = match &a.cost {
+            ActivationCost::TapPayLifeSacrificeSource { life } => {
+                if self.library_count(v) == 0
+                    || !a.program.instructions.iter().any(develops_mana)
+                    || v.players
                         .iter()
-                        .any(|t| self.sacrifice_worthwhile(v, &a.program, t))
-                    {
-                        return None;
-                    }
-                    (false, false, mana.clone().unwrap_or_else(zero_cost))
+                        .find(|p| p.player == v.viewer)
+                        .is_none_or(|p| p.life_frozen_until_next_turn || p.life <= *life)
+                {
+                    return None;
                 }
-            };
+                (true, true, zero_cost())
+            }
+            ActivationCost::DiscardSource { mana } => {
+                if self.library_count(v) < 2
+                    || !a.program.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            kernel!(Draw {
+                                player: kir::PlayerExpr::Is { .. },
+                                amount: fixed!(_)
+                            })
+                        )
+                    })
+                {
+                    return None;
+                }
+                (false, false, mana.clone())
+            }
+            ActivationCost::TapSource => (true, false, zero_cost()),
+            ActivationCost::SacrificeSource => (false, true, zero_cost()),
+            ActivationCost::Mana { cost } => (false, false, cost.clone()),
+            ActivationCost::Composite { costs } => {
+                if costs
+                    .remove_source_plus_one_counters
+                    .as_ref()
+                    .is_some_and(|n| o.plus_one_counters < *n)
+                {
+                    return None;
+                }
+                (
+                    costs.tap,
+                    costs.sacrifice,
+                    costs.mana.clone().unwrap_or_else(zero_cost),
+                )
+            }
+            ActivationCost::SacrificePermanent {
+                count,
+                filter,
+                mana,
+            } => {
+                if *count != 1 {
+                    return None;
+                }
+                if !self
+                    .sacrifice_objects(v, filter)
+                    .iter()
+                    .any(|t| self.sacrifice_worthwhile(v, &a.program, t))
+                {
+                    return None;
+                }
+                (false, false, mana.clone().unwrap_or_else(zero_cost))
+            }
+        };
         if tap
             && (o.tapped
                 || (d.characteristics.kind == CardKind::Creature
@@ -2009,11 +2094,7 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let draw = a
-            .program
-            .instructions
-            .iter()
-            .any(|i| matches!(i, I::DrawCards { .. }));
+        let draw = a.program.instructions.iter().any(I::uncounted_draw);
         if draw
             && v.players
                 .iter()
@@ -2030,13 +2111,22 @@ impl Strategy<'_> {
         {
             return None;
         }
-        if a.program
-            .instructions
-            .iter()
-            .any(|i| matches!(i, I::ModifySourcePowerToughness { .. }))
-            && !(v.active == Some(v.viewer)
-                && v.turn.step == TurnStep::PrecombatMain
-                && o.attack_ready)
+        if a.program.instructions.iter().any(|i| {
+            matches!(
+                i,
+                kernel!(ModifyUntil {
+                    what: source_object!(),
+                    change: kir::Change::PowerToughness {
+                        power: _,
+                        toughness: _
+                    },
+                    until: kir::Until::EndOfTurn,
+                    ..
+                })
+            )
+        }) && !(v.active == Some(v.viewer)
+            && v.turn.step == TurnStep::PrecombatMain
+            && o.attack_ready)
             && !v
                 .combat
                 .iter()

@@ -1583,7 +1583,7 @@ fn target_row(timed: bool, quantum: u64) -> serde_json::Value {
     assert_eq!(seed_program.instructions.len(), 3);
     for (slot, op) in seed_program.instructions.iter().enumerate() {
         assert!(
-            matches!(op,Instruction::ModifyPowerToughness{target_slot,power,toughness,..}if *target_slot as usize==slot&&*power==1.into()&&*toughness==1.into())
+            matches!(op,kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. })if *target_slot as usize==slot&&*power==1.into()&&*toughness==1.into())
         );
     }
     let mut w = Work::default();

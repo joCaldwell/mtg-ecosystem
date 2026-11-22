@@ -111,12 +111,7 @@ pub fn fixed_creature_activation(
         let subject = if what["ref"] == "self" { "~" } else { subject };
         label = format!("{printed_cost}: {subject} gets {stats} until end of turn.");
         (
-            Instruction::ModifySourcePowerToughness {
-                power,
-                toughness,
-                duration: Duration::UntilEndOfTurn,
-                source_block: block,
-            },
+            Instruction::pump(kir::SetExpr::source(), power, toughness, block),
             json!({"effect":"pump","what":what,"power":ast_power,"toughness":ast_toughness,
                 "duration":{"duration":"end-of-turn"}}),
         )
@@ -151,12 +146,7 @@ pub fn fixed_creature_activation(
         );
         targets.push(spec);
         (
-            Instruction::DestroyPermanent {
-                target_slot: 0,
-                optional: false,
-                regeneration_forbidden: false,
-                source_block: block,
-            },
+            Instruction::destroy_target(0, false, block),
             json!({"effect":"destroy","what":what}),
         )
     } else {
@@ -180,17 +170,30 @@ pub fn fixed_creature_activation(
         targets.push(spec);
         label = format!("{printed_cost}: ~ deals {n} damage to target creature.");
         (
-            Instruction::DealDamage {
-                target_slot: 0,
-                amount: i64::from(n).into(),
-                source_block: block,
-            },
+            Instruction::damage_target(
+                0,
+                kir::Amount::Fixed {
+                    value: i64::from(n).into(),
+                },
+                block,
+            ),
             json!({"effect":"damage","source":{"ref":"self"},"amount":fixed(n),"to":{"to":"object","ref":what}}),
         )
     };
     if (symbols[0] == "0" && symbols.len() != 1)
         || (symbols[0] == "0"
-            && !matches!(instruction, Instruction::ModifySourcePowerToughness { .. }))
+            && !matches!(
+                instruction,
+                kernel!(ModifyUntil {
+                    what: source_object!(),
+                    change: kir::Change::PowerToughness {
+                        power: _,
+                        toughness: _
+                    },
+                    until: kir::Until::EndOfTurn,
+                    ..
+                })
+            ))
     {
         return None;
     }
@@ -262,10 +265,15 @@ pub(super) fn mana_self_pump(a: &ActivatedAbility) -> bool {
     matches!(a.cost, ActivationCost::Mana { .. })
         && matches!(
             a.program.instructions.as_slice(),
-            [Instruction::ModifySourcePowerToughness {
-                duration: Duration::UntilEndOfTurn,
+            [kernel!(ModifyUntil {
+                what: source_object!(),
+                change: kir::Change::PowerToughness {
+                    power: _,
+                    toughness: _
+                },
+                until: kir::Until::EndOfTurn,
                 ..
-            }]
+            })]
         )
 }
 
@@ -298,19 +306,29 @@ pub fn has_fixed_creature_activation(d: &Definition) -> bool {
         matches!(a.cost, ActivationCost::Mana { .. })
             && (mana_self_pump(a)
                 || a.program.instructions.iter().any(|i| {
-                    matches!(
-                        i,
-                        kernel!(GainLife { .. }) | Instruction::DestroyPermanent { .. }
-                    )
+                    matches!(i, kernel!(GainLife { .. }))
+                        || i.target_destroy().is_some_and(|(slot, ..)| {
+                            a.program.targets.get(slot as usize).map(|t| t.domain)
+                                == Some(TargetDomain::BattlefieldPermanent)
+                        })
+                        || matches!(i, kernel!(GainLife { .. }))
                 })
                 || a.program
                     .targets
                     .iter()
                     .any(|t| t.domain == TargetDomain::BattlefieldCreature)
-                    && a.program
-                        .instructions
-                        .iter()
-                        .any(|i| matches!(i, Instruction::DealDamage { .. })))
+                    && a.program.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            kernel!(Damage {
+                                to: kir::DamageTo::Ref {
+                                    who: kir::Ref::Target { slot: _ }
+                                },
+                                amount: fixed!(_),
+                                ..
+                            })
+                        )
+                    }))
     })
 }
 
@@ -462,12 +480,10 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    let damage = json!({"properties":{"op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}});
-    let destroy = json!({"properties":{"op":{"const":"destroy_permanent"},"target_slot":{"const":0},"optional":{"const":false},"regeneration_forbidden":{"const":false}}});
+    let damage = instruction_schema::target_damage(Some(0));
+    let destroy = instruction_schema::target_destroy(Some(0), Some(false));
     let gain = instruction_schema::kernel_verb("gain_life");
-    let pump_op = "modify_source_power_toughness";
-    let pump =
-        json!({"properties":{"op":{"const":pump_op},"duration":{"const":"until_end_of_turn"}}});
+    let pump = instruction_schema::any_pump(instruction_schema::source_object());
     let target = |domain: &str, filter: Value| {
         json!({"minItems":1,"maxItems":1,"items":{"properties":{
             "slot":{"const":0},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"const":domain},
@@ -498,15 +514,14 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "else":{"properties":{"cost":mana}}
     });
     let candidate = json!({"required":["cost","program"],"properties":{"cost":{"required":["mana"],"type":"object"},"program":{"anyOf":[
-        {"properties":{"instructions":{"contains":{"anyOf":[{"properties":{"op":{"enum":["destroy_permanent",pump_op]}}},instruction_schema::kernel_verb("gain_life")]}}}},
-        {"properties":{"instructions":{"contains":{"properties":{"op":{"const":"deal_damage"}}}},"targets":{"contains":{"properties":{"domain":{"const":"battlefield_creature"}}}}}}
+        {"properties":{"instructions":{"contains":{"anyOf":[instruction_schema::any_target_destroy(None),pump.clone(),instruction_schema::kernel_verb("gain_life")]}}}},
+        {"properties":{"instructions":{"contains":instruction_schema::target_damage(None)},"targets":{"contains":{"properties":{"domain":{"const":"battlefield_creature"}}}}}}
     ]}}});
-    let legacy = |op: &str| json!({"properties":{"op":{"const":op}}});
     let printed_effects = [
-        (legacy("deal_damage"), r" deals [1-9][0-9]* damage to target creature\."),
-        (legacy("destroy_permanent"), r"Destroy target artifact or enchantment\."),
+        (instruction_schema::target_damage(None), r" deals [1-9][0-9]* damage to target creature\."),
+        (instruction_schema::any_target_destroy(None), r"Destroy target artifact or enchantment\."),
         (instruction_schema::kernel_verb("gain_life"), r"You gain [1-9][0-9]* life\."),
-        (legacy(pump_op), r" gets [+−-][0-9]+/[+−-][0-9]+ until end of turn\."),
+        (pump.clone(), r" gets [+−-][0-9]+/[+−-][0-9]+ until end of turn\."),
     ].into_iter().map(|(op, printed)| json!({
         "if":{"properties":{"provenance":{"properties":{"source_json":{
             "pattern":format!(r#""oracle_text"\s*:\s*"(?:[^"]*\\n)?(?:\{{[WUBRGC0-9]+\}})+: [^"\\]*?{printed}(?:\\n|")"#)
@@ -523,8 +538,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "type":"object","required":["mana"]
     }}}]});
     let effect_capabilities = [
-        (legacy("deal_damage"),vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
-        (legacy("destroy_permanent"),vec![Capability::PermanentRemovalV1]),
+        (instruction_schema::target_damage(None),vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
+        (instruction_schema::any_target_destroy(None),vec![Capability::PermanentRemovalV1]),
         (instruction_schema::kernel_verb("gain_life"),vec![Capability::LifeGainV1]),
     ].into_iter().map(|(op,caps)|json!({
         "if":{"properties":{"activated":{"contains":{"properties":{"program":{"properties":{

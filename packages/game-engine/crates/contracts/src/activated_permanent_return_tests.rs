@@ -21,10 +21,7 @@ pub(super) fn activated_return() -> Definition {
         opponent: false,
         tapped: false,
     });
-    a.program.instructions = vec![Instruction::ReturnToOwnerHand {
-        target_slot: 0,
-        source_block: 0,
-    }];
+    a.program.instructions = vec![Instruction::move_target(0, kir::Destination::OwnerHand, 0)];
     d.capabilities = d.requirements();
     d
 }
@@ -180,16 +177,14 @@ fn activated_permanent_return_rejects_other_costs_qualifiers_and_compositions() 
             "opponent" => a.program.targets[0].filter.as_mut().unwrap().opponent = true,
             "tapped" => a.program.targets[0].filter.as_mut().unwrap().tapped = true,
             "slot" => {
-                a.program.instructions = vec![Instruction::ReturnToOwnerHand {
-                    target_slot: 1,
-                    source_block: 0,
-                }]
+                a.program.instructions =
+                    vec![Instruction::move_target(1, kir::Destination::OwnerHand, 0)]
             }
-            "draw" => a.program.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            "draw" => a.program.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                0,
+            )),
             "additional" => {
                 a.program.additional_sacrifice = Some(SacrificeFilter {
                     types: vec![CardKind::Creature],

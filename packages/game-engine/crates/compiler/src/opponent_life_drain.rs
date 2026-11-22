@@ -67,7 +67,7 @@ pub(super) fn lower(
     source: &Value,
     result: &ParseResult,
     binding: &Value,
-) -> Result<Option<OpponentDrainAmount>, Failure> {
+) -> Result<Option<kir::Amount>, Failure> {
     let text = source["oracle_text"].as_str().unwrap_or_default();
     let Some(rest) = text.strip_prefix("Each opponent loses ") else {
         return Ok(None);
@@ -83,7 +83,7 @@ pub(super) fn lower(
         .ok_or_else(fail)?;
     let x = literal == "X";
     let (amount, raw_amount) = if x {
-        (OpponentDrainAmount::AnnouncedX, json!({"amount":"x"}))
+        (kir::Amount::announced_x(), json!({"amount":"x"}))
     } else {
         let n = literal
             .parse::<u32>()
@@ -91,9 +91,7 @@ pub(super) fn lower(
             .filter(|n| *n > 0 && n.to_string() == literal)
             .ok_or_else(fail)?;
         (
-            OpponentDrainAmount::Fixed {
-                value: i64::from(n).into(),
-            },
+            kir::Amount::fixed(i64::from(n)),
             json!({"amount":"fixed","value":n}),
         )
     };
@@ -142,13 +140,13 @@ mod tests {
     const ANNOUNCED: &str =
         include_str!("../../../tests/fixtures/phase1-r4/announced-x-opponent-drain.json");
 
-    fn witness(raw: &str, amount: OpponentDrainAmount) {
+    fn witness(raw: &str, amount: kir::Amount) {
         use Capability::*;
         let compiled = compile(MANIFEST, raw);
         let CompileResult::Lowered { definition: d } = compiled else {
             panic!("{compiled:?}")
         };
-        assert_eq!(d.x_mana_cost, amount == OpponentDrainAmount::AnnouncedX);
+        assert_eq!(d.x_mana_cost, amount.is_announced_x());
         assert_eq!(
             d.capabilities,
             BTreeSet::from([
@@ -168,10 +166,7 @@ mod tests {
         );
         assert_eq!(
             p.instructions,
-            [Instruction::DrainOpponents {
-                amount,
-                source_block: 0
-            }]
+            [Instruction::drain(kir::Context::Spell, amount, 0)]
         );
         for case in [
             "loss actor",
@@ -257,8 +252,8 @@ mod tests {
 
     #[test]
     fn opponent_life_drain() {
-        witness(FIXED, OpponentDrainAmount::Fixed { value: 3.into() });
-        witness(ANNOUNCED, OpponentDrainAmount::AnnouncedX);
+        witness(FIXED, kir::Amount::fixed(3));
+        witness(ANNOUNCED, kir::Amount::announced_x());
         // The pre-Pass-2 diagnostic graph (an unsupported-scope hole where the
         // gain measures the loss) is not an alternative to the aggregate.
         let legacy = changed_source(FIXED, |r| {

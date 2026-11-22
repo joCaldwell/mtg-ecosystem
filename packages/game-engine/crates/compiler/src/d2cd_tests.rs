@@ -67,7 +67,7 @@ fn d2cd_archive_programs_and_explicit_whole_card_negatives() {
     }
     // draw two is already a sequence of singleton draws, not a runtime count2.
     assert!(
-        matches!(lower(HELLKITE).triggered[0].program.instructions.as_slice(),[Instruction::DrawCards {count:a,..},Instruction::DrawCards {count:b,..}] if *a==1.into() && *b==1.into())
+        matches!(lower(HELLKITE).triggered[0].program.instructions.as_slice(),[kernel!(Draw { player: kir::PlayerExpr::Is { .. }, amount: fixed!(a) }),kernel!(Draw { player: kir::PlayerExpr::Is { .. }, amount: fixed!(b) })] if *a==1.into() && *b==1.into())
     );
     assert!(matches!(
         lower(REGISAUR).triggered[0].program.instructions.as_slice(),

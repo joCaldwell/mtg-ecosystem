@@ -156,11 +156,11 @@ fn colored_library_search_requires_complete_bound_aggregate() {
         panic!("{result:?}")
     };
     let mut stripped = *definition;
-    stripped.spell.as_mut().unwrap().instructions = vec![Instruction::DrawCards {
-        recipient: None,
-        count: 1.into(),
-        source_block: 0,
-    }];
+    stripped.spell.as_mut().unwrap().instructions = vec![Instruction::draw(
+        PlayerExpr::you(Context::Spell),
+        1.into(),
+        0,
+    )];
     stripped.capabilities = stripped.requirements();
     assert!(stripped.validate().is_err());
     for i in 0..3 {

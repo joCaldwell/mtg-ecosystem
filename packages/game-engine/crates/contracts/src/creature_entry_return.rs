@@ -242,12 +242,7 @@ fn creature_entry_return() {
                 .unwrap()
                 .modes
                 .push(SpellMode { program: p.clone() }),
-            14 => {
-                p.instructions[0] = Instruction::ReturnToOwnerHand {
-                    target_slot: 0,
-                    source_block: 0,
-                }
-            }
+            14 => p.instructions[0] = Instruction::move_target(0, kir::Destination::OwnerHand, 0),
             _ => {
                 d.spell.as_mut().unwrap().additional_sacrifice = Some(SacrificeFilter {
                     types: vec![CardKind::Creature],

@@ -121,12 +121,23 @@ impl Game {
         let Some(group) = &frame.group_discard else {
             return Ok(());
         };
-        let Some(Instruction::DiscardPlayerSet { scope, count, .. }) = self
+        let Some(
+            kernel!(Discard {
+                player,
+                amount: fixed!(count),
+                random: false
+            }),
+        ) = self
             .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
             return Err("group discard instruction invariant".into());
+        };
+        let scope = &match player {
+            mtg_contracts::kir::PlayerExpr::EachPlayer => GroupDiscardScope::EachPlayer,
+            mtg_contracts::kir::PlayerExpr::EachOpponent => GroupDiscardScope::EachOpponent,
+            _ => return Err("group discard instruction invariant".into()),
         };
         let recipients =
             self.group_discard_recipients(self.entry(frame.stack_id)?.controller, scope);

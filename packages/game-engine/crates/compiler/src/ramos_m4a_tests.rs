@@ -85,11 +85,11 @@ fn ramos_m4a_each_instance_retains_exact_shape_and_orphan_cascade_rejects() {
             match mutation {
                 0 => a.functioning_zone = FunctioningZone::Battlefield,
                 1 => a.program.functioning_zone = FunctioningZone::Battlefield,
-                2 => a.program.instructions.push(Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 0,
-                }),
+                2 => a.program.instructions.push(Instruction::draw(
+                    PlayerExpr::you(Context::Triggered),
+                    1.into(),
+                    0,
+                )),
                 3 => a.program.instructions.clear(),
                 4 => a.condition = TriggerCondition::SelfEntersBattlefield,
                 5 => a.program.timing = SpellTiming::MainPhase,

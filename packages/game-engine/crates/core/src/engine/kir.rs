@@ -16,39 +16,8 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{
-    Amount, Context, Destination, Node, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
+    Amount, Destination, Node, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
 };
-
-/// The kernel context of a resolving invocation (CR 113.3).
-fn context(entry: &StackInstance) -> Context {
-    match entry.kind {
-        StackKind::Spell => Context::Spell,
-        StackKind::Activated { .. } => Context::Activated,
-        StackKind::Triggered { .. } => Context::Triggered,
-    }
-}
-
-/// Desugars the not-yet-migrated announced-X life instruction: the same life
-/// verb with the announced X as its amount (CR 107.3).
-pub(super) fn announced_x_life(
-    entry: &StackInstance,
-    recipient: &LifeRecipient,
-    gain: bool,
-) -> Result<Node, String> {
-    let player = match recipient {
-        LifeRecipient::Controller => PlayerExpr::you(context(entry)),
-        LifeRecipient::Target { target_slot } => PlayerExpr::target(*target_slot),
-        _ => return Err("unsupported announced X life recipient".into()),
-    };
-    let amount = Amount::Var {
-        of: Ref::AnnouncedX,
-    };
-    Ok(Node::Do(if gain {
-        Verb::GainLife { player, amount }
-    } else {
-        Verb::LoseLife { player, amount }
-    }))
-}
 
 /// The players a player expression denotes for one resolving invocation.
 enum Players {
@@ -61,12 +30,128 @@ enum Players {
 }
 
 impl Game {
+    /// The target domain of an instruction that destroys one announced
+    /// target, if it is one.
+    pub(super) fn target_destroy_domain(
+        &self,
+        entry: &StackInstance,
+        instruction: &Instruction,
+    ) -> Result<Option<TargetDomain>, String> {
+        let Some((slot, ..)) = instruction.target_destroy() else {
+            return Ok(None);
+        };
+        Ok(self
+            .program_for(entry)?
+            .targets
+            .get(slot as usize)
+            .map(|t| t.domain))
+    }
+
     pub(crate) fn execute_kernel(
         &mut self,
         frame: Resolving,
         node: Node,
         source_block: u32,
     ) -> Result<(), String> {
+        // CR 119.3: the drain pair is the one audited sequence.
+        if let Some(amount) = mtg_contracts::kir::drain(&node) {
+            let amount = self.kernel_amount(&frame, amount)?;
+            return self.drain_opponents(frame, amount, source_block);
+        }
+        // CR 608.2b, 608.2d: a verb on one announced target, and the optional
+        // destroy, keep the executors whose events, outcomes and choices
+        // recovery re-derives: a destroyed creature is destroyed as a
+        // creature (CR 701.8), every other target through the removal path.
+        let one_target = matches!(
+            node,
+            Node::Optional { .. }
+                | Node::Do(
+                    Verb::Destroy {
+                        what: SetExpr::One { .. },
+                        ..
+                    } | Verb::Move {
+                        what: SetExpr::One { .. },
+                        to: Destination::Exile
+                    } | Verb::Tap { .. }
+                        | Verb::Untap {
+                            what: SetExpr::One { .. }
+                        }
+                )
+        );
+        if one_target {
+            let instruction = Instruction::Kernel { node, source_block };
+            let entry = self.entry(frame.stack_id)?;
+            return if self.target_destroy_domain(entry, &instruction)?
+                == Some(TargetDomain::BattlefieldCreature)
+            {
+                self.execute_staples_instruction(frame, instruction)
+            } else {
+                self.execute_removal_instruction(frame, instruction)
+            };
+        }
+        // CR 701.26b, 404.1: untap your lands, or exile one player's graveyard.
+        if matches!(
+            node,
+            Node::Do(
+                Verb::Untap {
+                    what: SetExpr::Matching { .. }
+                } | Verb::Move {
+                    what: SetExpr::Matching {
+                        zone: ZoneExpr::Graveyard { .. },
+                        ..
+                    },
+                    ..
+                }
+            )
+        ) {
+            return self
+                .execute_wipes_instruction(frame, Instruction::Kernel { node, source_block });
+        }
+        // CR 120.2b, 608.2h: damage keeps the directed and board-wide
+        // executors, whose prepared transactions recovery re-derives.
+        if matches!(node, Node::Do(Verb::Damage { .. })) {
+            let instruction = Instruction::Kernel { node, source_block };
+            return if instruction.set_damage().is_some() {
+                self.execute_set_damage(frame)
+            } else {
+                self.execute_damage_life_instruction(frame, instruction)
+            };
+        }
+        // CR 111.1, 122.1: tokens and +1/+1 counters keep the token executor,
+        // whose proposed events and recipe authentication recovery re-derives.
+        if matches!(
+            node,
+            Node::Do(Verb::CreateTokens { .. } | Verb::PutCounters { .. })
+        ) {
+            return self
+                .execute_token_instruction(frame, Instruction::Kernel { node, source_block });
+        }
+        // CR 611.2c, 613.4c, 613.1f: an end-of-turn change keeps the set,
+        // source and target effect executors, whose captured members and
+        // effect origins recovery re-derives.
+        if matches!(node, Node::Do(Verb::ModifyUntil { .. })) {
+            let instruction = Instruction::Kernel { node, source_block };
+            let (set, source) = match instruction.pumped() {
+                Some((SetExpr::Matching { .. }, ..)) => (true, false),
+                Some((what, ..)) => (false, *what == SetExpr::source()),
+                None => (false, false),
+            };
+            return if set {
+                self.execute_wipes_instruction(frame, instruction)
+            } else if source {
+                self.execute_sacrifice_instruction(frame, instruction)
+            } else {
+                self.execute_effect_instruction(frame, instruction)
+            };
+        }
+        // CR 701.17a, 701.9a-b, 701.21a: mill, discard and sacrifice keep
+        // their executors, choices and recovery checks.
+        if matches!(
+            node,
+            Node::Do(Verb::Mill { .. } | Verb::Discard { .. } | Verb::Sacrifice { .. })
+        ) {
+            return self.execute_player_action(frame, Instruction::Kernel { node, source_block });
+        }
         let Node::Do(verb) = node else {
             return Err("kernel control node has no audited executor".into());
         };
@@ -76,6 +161,9 @@ impl Game {
             }
             Verb::LoseLife { player, amount } => {
                 self.kernel_life(frame, false, &player, &amount, source_block)
+            }
+            Verb::Draw { player, amount } => {
+                self.kernel_draw(frame, &player, &amount, source_block)
             }
             // CR 701.8, 400.3, 608.2h: read the set now, then move every
             // member in one simultaneous event.
@@ -110,7 +198,7 @@ impl Game {
 
     /// CR 608.2h, 109.5: the members of a board-wide or graveyard-wide set,
     /// relative to the invocation's controller, in object order.
-    fn kernel_set(
+    pub(super) fn kernel_set(
         &self,
         frame: &Resolving,
         zone: &ZoneExpr,
@@ -169,7 +257,11 @@ impl Game {
         })
     }
 
-    fn kernel_amount(&self, frame: &Resolving, amount: &Amount) -> Result<Quantity, String> {
+    pub(super) fn kernel_amount(
+        &self,
+        frame: &Resolving,
+        amount: &Amount,
+    ) -> Result<Quantity, String> {
         match amount {
             Amount::Fixed { value } => Ok(value.clone()),
             Amount::Var {
@@ -179,8 +271,54 @@ impl Game {
                 .x
                 .clone()
                 .ok_or("missing announced X".into()),
+            // CR 608.2h: the number of matching battlefield objects now.
+            Amount::Count {
+                set: SetExpr::Matching { zone, filter },
+            } if *zone == ZoneExpr::Battlefield => Ok(Quantity::from(
+                self.kernel_set(frame, zone, filter)?.0.len() as i64,
+            )),
+            Amount::OtherCastsManaValue { caster } if caster.is_you() => {
+                self.other_casts_mana_value(self.entry(frame.stack_id)?)
+            }
             _ => Err("kernel amount has no audited evaluation".into()),
         }
+    }
+
+    // CR 121.1-121.2, 608.2b: one card by one player is a single draw whose
+    // only recipient may be an illegal target or an absent event player.
+    // Every other draw is the counted sequence of single draws.
+    fn kernel_draw(
+        &mut self,
+        frame: Resolving,
+        player: &PlayerExpr,
+        amount: &Amount,
+        source_block: u32,
+    ) -> Result<(), String> {
+        if !mtg_contracts::kir::single_draw(player, amount) {
+            return self.draw_multiple(frame);
+        }
+        let skipped = |game: &mut Self, frame| {
+            game.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
+        };
+        let player = match player {
+            PlayerExpr::Is {
+                who: Ref::Target { slot },
+            } => {
+                let slot = *slot as usize;
+                if frame.legal_targets.get(slot) != Some(&true) {
+                    return skipped(self, frame);
+                }
+                *self
+                    .bound_player_target(self.entry(frame.stack_id)?, slot)
+                    .ok_or("missing draw player target")?
+            }
+            other => match self.kernel_players(&frame, other)? {
+                Players::One(player) => player,
+                Players::Nobody => return skipped(self, frame),
+                Players::EachOpponent => return Err("unsupported each-opponent draw".into()),
+            },
+        };
+        self.draw_one(frame, player, source_block)
     }
 
     // CR 119.3, 608.2b-c, 704.4: one life event per instruction, with no

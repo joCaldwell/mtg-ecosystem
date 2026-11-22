@@ -87,15 +87,43 @@
                 "source_block": 0
               },
               {
-                "op": "draw_cards",
-                "recipient": "event_player",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "active_player"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {
-                "op": "draw_cards",
-                "recipient": "event_player",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "active_player"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -184,9 +212,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "recipient": "event_player",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "active_player"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]

@@ -33,8 +33,8 @@ pub(crate) fn witness() -> Definition {
         },
     }];
     d.source_labels = Some(SourceLabels {
-        text: TEXT.into(),
-        blocks: vec!["Demonstrate".into(), SPELL_TEXT.into()],
+        text: text(),
+        blocks: vec!["Demonstrate".into(), REVEAL_AND_CAST.into()],
         triggered: vec![0],
         ..SourceLabels::default()
     });

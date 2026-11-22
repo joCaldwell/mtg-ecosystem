@@ -14,7 +14,7 @@ pub fn hand_discard_draw_activation(a: &ActivatedAbility) -> bool {
         && p.additional_sacrifice.is_none()
         && p.targets.is_empty()
         && p.modes.is_empty()
-        && matches!(p.instructions.as_slice(), [Instruction::DrawCards { recipient: None, count, .. }] if *count == Quantity::from(1))
+        && matches!(p.instructions.as_slice(), [kernel!(Draw { player: you!(), amount: fixed!(count) })] if *count == Quantity::from(1))
 }
 
 // Complete source composition currently qualified for lowering. Neither the
@@ -55,7 +55,7 @@ fn spell_definition(d: &Definition) -> bool {
         && d.triggered.is_empty()
         && d.keywords.is_empty()
         && matches!(d.activated.as_slice(), [a] if hand_discard_draw_activation(a)
-            && matches!(a.program.instructions.as_slice(), [Instruction::DrawCards { source_block: 1, .. }]))
+            && matches!(a.program.instructions.as_slice(), [draw @ kernel!(Draw { .. } @ 1)] if draw.uncounted_draw()))
         && d.spell.as_ref().is_some_and(|p| {
             p.resolution == SpellResolution::Instructions
                 && p.modes.is_empty()
@@ -192,19 +192,7 @@ pub(super) fn schema(s: &mut serde_json::Value) {
                     "instructions": {
                         "minItems": 1,
                         "maxItems": 1,
-                        "items": {
-                            "properties": {
-                                "op": {
-                                    "const": "draw_cards"
-                                },
-                                "count": {
-                                    "const": "1"
-                                },
-                                "recipient": {
-                                    "type": "null"
-                                }
-                            }
-                        }
+                        "items": instruction_schema::single_draw()
                     }
                 }
             }
@@ -286,11 +274,11 @@ pub(crate) fn witness() -> Definition {
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
             modes: vec![],
-            instructions: vec![Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                1,
+            )],
         },
     }];
     d.capabilities = d.requirements();
@@ -352,27 +340,30 @@ mod tests {
                 }
                 4 => d.activated[0].program.instructions.clear(),
                 5 => {
-                    if let Instruction::DrawCards { count, .. } =
-                        &mut d.activated[0].program.instructions[0]
+                    if let kernel!(Draw {
+                        player: kir::PlayerExpr::Is { .. },
+                        amount: fixed!(count)
+                    }) = &mut d.activated[0].program.instructions[0]
                     {
                         *count = 2.into()
                     }
                 }
                 6 => {
-                    if let Instruction::DrawCards { recipient, .. } =
+                    if let kernel!(Draw { player, .. }) =
                         &mut d.activated[0].program.instructions[0]
                     {
-                        *recipient = Some(LifeRecipient::Controller)
+                        *player = kir::PlayerExpr::EachOpponent
                     }
                 }
                 7 => d.activated[0]
                     .program
                     .instructions
-                    .push(Instruction::DiscardCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: 1,
-                    }),
+                    .push(Instruction::discard(
+                        kir::PlayerExpr::you(kir::Context::Activated),
+                        kir::Amount::Fixed { value: 1.into() },
+                        false,
+                        1,
+                    )),
                 8 => d.activated[0].program.functioning_zone = FunctioningZone::Hand,
                 9 => d.static_abilities[0].functioning_zone = FunctioningZone::Hand,
                 10 => d.intrinsic_zone = Some(FunctioningZone::Hand),

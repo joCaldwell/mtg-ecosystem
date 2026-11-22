@@ -57,11 +57,17 @@ fn fixed_mill_complete_sources_cost_order_targets_and_provenance() {
         assert_eq!(p.targets.len(), usize::from(target));
         assert_eq!(
             p.instructions[0],
-            Instruction::MillCards {
-                recipient: target.then_some(LifeRecipient::Target { target_slot: 0 }),
-                count: count.into(),
-                source_block: 0
-            }
+            Instruction::mill(
+                if target {
+                    PlayerExpr::target(0)
+                } else {
+                    PlayerExpr::you(Context::Spell)
+                },
+                Amount::Fixed {
+                    value: count.into()
+                },
+                0
+            )
         );
         assert_eq!(p.instructions.len(), if draw { 2 } else { 1 });
         let mut caps = BTreeSet::from([
@@ -80,11 +86,7 @@ fn fixed_mill_complete_sources_cost_order_targets_and_provenance() {
             caps.insert(Capability::ControllerDrawV1);
             assert_eq!(
                 p.instructions[1],
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 1
-                }
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
             );
         }
         assert_eq!(d.capabilities, caps);

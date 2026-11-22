@@ -423,9 +423,9 @@ fn profile_decks_admission_and_compiled_pool_resource_proof() {
         let mut largest = 0;
         for p in programs {
             for i in &p.instructions {
-                if let Instruction::CreateCreatureTokens { count, .. } = i {
-                    tokens += *count as usize;
-                    largest = largest.max(*count as usize);
+                if let Some(count) = i.creature_token().and(i.created_tokens()).map(|(_, c)| c) {
+                    tokens += count as usize;
+                    largest = largest.max(count as usize);
                 }
             }
         }

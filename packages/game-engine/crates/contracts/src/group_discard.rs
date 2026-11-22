@@ -62,7 +62,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     if !p.targets.is_empty()
         || !p.optional_additional_costs.is_empty()
         || !matches!(p.instructions.as_slice(),
-        [Instruction::DiscardPlayerSet {count, source_block: 0, ..}] if *count > Quantity::zero())
+        [kernel!(Discard { player: kir::PlayerExpr::EachPlayer | kir::PlayerExpr::EachOpponent, amount: fixed!(count), random: false } @ 0)] if *count > Quantity::zero())
     {
         return Err(err());
     }
@@ -71,7 +71,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(schema: &mut Value) {
     use Capability::*;
-    let op = json!({"required":["op"],"properties":{"op":{"const":"discard_player_set"}}});
+    let op = instruction_schema::group_discard();
     let has = json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":op}}});
     let singleton = |item: Value| json!({"minItems":1,"maxItems":1,"items":item});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({
@@ -136,11 +136,12 @@ pub(super) fn extend_schema(schema: &mut Value) {
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
     let mut d = controller_library::witness();
-    d.spell.as_mut().unwrap().instructions = vec![Instruction::DiscardPlayerSet {
-        scope: GroupDiscardScope::EachPlayer,
-        count: 3.into(),
-        source_block: 0,
-    }];
+    d.spell.as_mut().unwrap().instructions = vec![Instruction::discard(
+        kir::PlayerExpr::EachPlayer,
+        kir::Amount::Fixed { value: 3.into() },
+        false,
+        0,
+    )];
     d.capabilities = d.requirements();
     d
 }
@@ -151,11 +152,12 @@ fn group_discard() {
     let spell = witness();
     spell.validate().unwrap();
     assert!(spell.capabilities.contains(&Capability::GroupHandDiscardV1));
-    let op = Instruction::DiscardPlayerSet {
-        scope: GroupDiscardScope::EachOpponent,
-        count: 1.into(),
-        source_block: 0,
-    };
+    let op = Instruction::discard(
+        kir::PlayerExpr::EachOpponent,
+        kir::Amount::Fixed { value: 1.into() },
+        false,
+        0,
+    );
     let mut creature = creature_entry_return::witness();
     creature.triggered[0].program.instructions = vec![op.clone()];
     creature.triggered[0].program.targets.clear();
@@ -195,11 +197,14 @@ fn group_discard() {
     }
     for (count, source_block) in [(0, 0), (-1, 0), (1, 1)] {
         let mut d = spell.clone();
-        d.spell.as_mut().unwrap().instructions = vec![Instruction::DiscardPlayerSet {
-            scope: GroupDiscardScope::EachPlayer,
-            count: count.into(),
+        d.spell.as_mut().unwrap().instructions = vec![Instruction::discard(
+            kir::PlayerExpr::EachPlayer,
+            kir::Amount::Fixed {
+                value: count.into(),
+            },
+            false,
             source_block,
-        }];
+        )];
         assert!(d.validate().is_err());
     }
     let mut wrong = spell;
