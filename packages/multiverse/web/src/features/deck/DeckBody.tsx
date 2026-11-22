@@ -8,7 +8,7 @@
 // pane or to the sheet, so crossing the breakpoint (an iPad rotating) keeps a
 // Brief draft, a half-typed reason and the panel's tab instead of remounting.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { PANEL_QUERY, useMediaQuery } from "../../app/breakpoints.ts";
 import { Dialog, ResizeHandle, tokenPx, useLocalStorage } from "../../ui/index.ts";
@@ -59,6 +59,7 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
   });
   const attach = useCallback((slot: HTMLDivElement | null) => { if (slot) slot.appendChild(host); }, [host]);
   const body = useRef<HTMLDivElement>(null);
+  const pane = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useLocalStorage(PANEL_WIDTH_KEY, decodeWidth, encodeWidth);
   const limits = useMemo(
     () => ({
@@ -69,12 +70,26 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
     }),
     [],
   );
+  const [measured, setMeasured] = useState<{ value: number; max: number } | null>(null);
+  useLayoutEffect(() => {
+    const container = body.current, panel = pane.current;
+    if (!container || !panel) return;
+    const measure = () => {
+      const max = Math.max(limits.min, Math.min(limits.max, container.clientWidth - limits.list));
+      const value = Math.round(panel.getBoundingClientRect().width);
+      setMeasured(previous => previous?.value === value && previous.max === max ? previous : { value, max });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [tablet, limits]);
 
   // The stylesheet holds the same limits, so a stored width from a wider
   // window still fits; this keeps what is stored equal to what is shown.
   const resize = (next: number) => {
-    const room = (body.current?.clientWidth ?? Infinity) - limits.list;
-    setWidth(Math.max(limits.min, Math.min(next, room)));
+    setWidth(Math.max(limits.min, Math.min(next, measured?.max ?? limits.max)));
   };
 
   // Every child keeps its position whichever layout applies, so the list is
@@ -86,19 +101,19 @@ export function DeckBody({ list, panel }: { list: ReactNode; panel: ReactNode })
       style={tablet || width === null ? undefined : ({ "--deck-panel-w": `${width}px` } as CSSProperties)}
     >
       <div className={tablet ? styles.stackedList : styles.listPane}>{list}</div>
-      {!tablet && <div className={styles.panelPane}>
+      {!tablet && <div ref={pane} className={styles.panelPane}>
         <ResizeHandle
           label="Resize the deck panel"
           edge="left"
-          value={width ?? limits.initial}
+          value={measured?.value ?? width ?? limits.initial}
           min={limits.min}
-          max={limits.max}
+          max={measured?.max ?? limits.max}
           onChange={resize}
           onReset={() => setWidth(null)}
         />
         <div ref={attach} className={styles.panelSlot} />
       </div>}
-      {tablet && sheet && <Dialog title={ui.openCard ? "Deck details" : `Deck details · ${panelViewLabel(ui.tab)}`} placement="sheet" onEscape={ui.openCard ? () => ui.openCardPanel(null) : undefined} onClose={() => { setSheet(false); forReason.current = false; if (ui.openCard) ui.openCardPanel(null); }}>
+      {tablet && sheet && <Dialog title={ui.openCard ? "Deck details" : `Deck details · ${panelViewLabel(ui.tab)}`} placement="sheet" onEscape={ui.openCard ? () => ui.openCardPanel(null) : undefined} onClose={() => { setSheet(false); forReason.current = false; ui.openCardPanel(null); }}>
         <div ref={attach} className={styles.sheetPanel} />
       </Dialog>}
       {createPortal(panel, host)}

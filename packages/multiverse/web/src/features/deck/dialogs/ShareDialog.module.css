@@ -10,3 +10,4 @@
   flex: 1 1 var(--share-link-min);
   min-width: 0;
 }
+.status:empty { position: absolute; }

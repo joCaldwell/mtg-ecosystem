@@ -1,6 +1,7 @@
 // A saved engine (spec §6.2): a named combo or plan, with its pieces checked
 // against the list as it is now.
 
+import type { Ref } from "react";
 import type { Engine } from "../../../api/client.ts";
 import { RichText, useCardHover } from "../../../mtg/index.ts";
 import { Box, Button, Chip, Icon, IconButton } from "../../../ui/index.ts";
@@ -9,7 +10,7 @@ import { useDeckUi } from "../DeckUi.tsx";
 import styles from "./EngineCard.module.css";
 
 /** Without onEdit and onRemove it is read-only: a shared deck or the phone view. */
-export function EngineCard({ engine, onEdit, onRemove }: { engine: Pick<Engine, "name" | "description" | "pieces">; onEdit?: () => void; onRemove?: () => void }) {
+export function EngineCard({ engine, editRef, onEdit, onRemove }: { engine: Pick<Engine, "name" | "description" | "pieces">; editRef?: Ref<HTMLButtonElement>; onEdit?: () => void; onRemove?: () => void }) {
   const { state } = useDeckList();
   const ui = useDeckUi();
   const hover = useCardHover();
@@ -21,7 +22,7 @@ export function EngineCard({ engine, onEdit, onRemove }: { engine: Pick<Engine, 
         <h3 className={styles.name}>{engine.name}</h3>
         {missing > 0 ? <Chip tone="warn">{missing} missing</Chip> : <Chip tone="add">complete</Chip>}
         {onEdit && onRemove && <span className={styles.actions}>
-          <Button size="sm" reach disabled={state.deck.category === "archived"} onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>
+          <Button ref={editRef} size="sm" reach disabled={state.deck.category === "archived"} onClick={onEdit} aria-label={`Edit the engine ${engine.name}`}>
             Edit
           </Button>
           <IconButton tone="danger" disabled={state.deck.category === "archived"} onClick={onRemove} label={`Remove ${engine.name}`} size="sm">

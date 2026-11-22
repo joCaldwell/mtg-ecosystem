@@ -6,7 +6,7 @@
 //
 // No sidebar, no focus reporting, no hotkeys. A card opens as a sheet on tap.
 
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import type { CardInfo } from "../../mtg/index.ts";
 import { CardOpenProvider, InlineText, RichText, useCardLookup } from "../../mtg/index.ts";
 import { bracketLabel } from "../../domain/power.ts";
@@ -74,7 +74,6 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
   const view = useView();
   const phone = useIsPhone();
   const { lookup } = useCardLookup();
-  const [named, setNamed] = useState<CardInfo | null>(null);
 
   // Pending proposals (the owner's phone only) are drawn into the list as on
   // desktop; a shared deck has none.
@@ -90,22 +89,25 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
     for (const p of model.list.proposals) for (const i of p.items) if (!cards.has(i.oracle_id)) cards.set(i.oracle_id, { ...i, name: i.card_name });
     return cards;
   }, [model.list]);
-  const open = ui.openCard && !ui.openCard.token ? known.get(ui.openCard.oracleId) ?? null : null;
+  const open = ui.openCard && !ui.openCard.token ? known.get(ui.openCard.oracleId) ?? ui.openCard.info : null;
   const openToken = ui.openCard?.token ? model.tokens.tokens.find((t) => t.oracle_id === ui.openCard!.oracleId) ?? null : null;
-  const close = () => { ui.openCardPanel(null); setNamed(null); };
+  const { openCardPanel } = ui;
+  const close = () => openCardPanel(null);
 
   // A card named in prose ([[Card Name]]) opens the same sheet.
-  const openByName = useCallback((name: string) => {
+  const openByName = useCallback((name: string, invoker: HTMLButtonElement) => {
     const hit = [...known.values()].find((c) => c.name === name);
-    if (hit) return setNamed(hit);
-    void lookup(name).then((card) => card && setNamed(card));
-  }, [known, lookup]);
+    if (hit?.oracle_id) return openCardPanel({ oracleId: hit.oracle_id, name }, invoker);
+    openCardPanel(lookup(name).then(info => info?.oracle_id ? { oracleId: info.oracle_id, name, info } : null), invoker);
+  }, [known, lookup, openCardPanel]);
 
   const { power, price } = model;
   return (
     <CardOpenProvider onOpen={openByName}>
       <DeckViewProvider value={view}>
-        <div className={styles.root} data-owner-deck={!model.viewer || undefined}>
+        <div className={styles.root} data-owner-deck={!model.viewer || undefined} onKeyDown={event => {
+          if (event.key === "Escape" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) ui.cancelCardLookup();
+        }}>
           {header}
           {decisions?.(view)}
           <div className={styles.body}>
@@ -192,8 +194,8 @@ function ReadOnlyBody({ model, header, decisions, listNavigation, useView = useP
               )}
             </aside>
           </div>
-          <Suspense fallback={null}>{(open ?? named) && <CardSheet card={(open ?? named)!} onClose={close} sheet={phone} />}</Suspense>
-          <Suspense fallback={null}>{openToken && !named && <TokenSheet token={openToken} onClose={close} sheet={phone} />}</Suspense>
+          <Suspense fallback={null}>{open && <CardSheet key={open.oracle_id} card={open} onClose={close} sheet={phone} />}</Suspense>
+          <Suspense fallback={null}>{openToken && <TokenSheet token={openToken} onClose={close} sheet={phone} />}</Suspense>
         </div>
       </DeckViewProvider>
     </CardOpenProvider>

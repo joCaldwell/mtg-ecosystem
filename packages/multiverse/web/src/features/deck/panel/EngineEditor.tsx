@@ -1,11 +1,12 @@
 // Adding or changing an engine (spec §6.2). Pieces are cards, so they are found
 // by searching rather than typed as names that might not resolve.
 
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { api, type CardData, type Engine } from "../../../api/client.ts";
 import { ManaCost } from "../../../mtg/index.ts";
 import { Box, Button, ErrorNote, Field, Icon, IconButton, Text, TextArea, TextField } from "../../../ui/index.ts";
 import { useDeck } from "../DeckStore.tsx";
+import { useAttempt } from "../dialogs/useAttempt.ts";
 import styles from "./EngineEditor.module.css";
 
 interface Piece {
@@ -16,7 +17,8 @@ interface Piece {
 const SEARCH_DELAY_MS = 250;
 
 export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: () => void }) {
-  const { deckId, run } = useDeck();
+  const { deckId } = useDeck();
+  const { busy, error, mutate } = useAttempt();
   const [name, setName] = useState(engine?.name ?? "");
   const [description, setDescription] = useState(engine?.description ?? "");
   const [pieces, setPieces] = useState<Piece[]>(engine?.pieces.map((p) => ({ oracle_id: p.oracle_id, name: p.name })) ?? []);
@@ -27,7 +29,8 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
   const current = !!q && response?.key === searchKey;
   const results = current ? response.cards : null;
   const searchError = current ? response.error : null;
-  const [busy, setBusy] = useState(false);
+  const search = useRef<HTMLInputElement>(null);
+  const firstResult = useRef<HTMLButtonElement>(null);
 
   // Debounced and abortable: only the latest query's answer is ever shown.
   useEffect(() => {
@@ -51,6 +54,7 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
   }, [q, deckId]);
 
   function addPiece(card: CardData) {
+    search.current?.focus({ preventScroll: true });
     setPieces((list) => (list.some((p) => p.oracle_id === card.oracle_id) ? list : [...list, { oracle_id: card.oracle_id, name: card.name }]));
     setQuery("");
     setResponse(null);
@@ -59,19 +63,18 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!name.trim() || busy) return;
-    setBusy(true);
-    const result = await run(() =>
+    const result = await mutate(() =>
       api.setEngine(deckId, name.trim(), description, pieces.map((p) => ({ oracle_id: p.oracle_id }))),
     );
-    setBusy(false);
     if (result) onClose();
   }
 
   function onKeyDown(e: KeyboardEvent) {
     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key === "Escape") {
+      e.preventDefault();
       e.stopPropagation();
-      onClose();
+      if (!busy) onClose();
     }
   }
 
@@ -85,10 +88,10 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
           // rename it.
           hint={engine ? "To rename an engine, remove it and add it again." : undefined}
         >
-          <TextField name="name" required pattern={".*\\S.*"} disabled={busy} value={name} onChange={(e) => setName(e.target.value)} readOnly={!!engine} autoFocus={!engine} />
+          <TextField name="name" required pattern={".*\\S.*"} value={name} onChange={(e) => setName(e.target.value)} readOnly={busy || !!engine} autoFocus={!engine} />
         </Field>
         <Field label="Description" hint="What the engine does. Markdown, and [[Card Name]] for a card.">
-          <TextArea name="description" disabled={busy} autosize rows={2} value={description} onChange={(e) => setDescription(e.target.value)} autoFocus={!!engine} />
+          <TextArea name="description" readOnly={busy} autosize rows={2} value={description} onChange={(e) => setDescription(e.target.value)} autoFocus={!!engine} />
         </Field>
 
         <div className={styles.pieces}>
@@ -100,6 +103,7 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
               <span className={styles.pieceName}>{p.name}</span>
               <IconButton
                 size="sm"
+                disabled={busy}
                 label={`Remove ${p.name} from this engine`}
                 onClick={() => setPieces((list) => list.filter((x) => x.oracle_id !== p.oracle_id))}
               >
@@ -108,9 +112,15 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
             </div>
           ))}
           <TextField
-            type="search" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} disabled={busy}
+            ref={search}
+            type="search" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} readOnly={busy}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+              e.preventDefault();
+              firstResult.current?.focus();
+            }}
             placeholder="Search for a card to add"
             aria-label="Search for a card to add as a piece"
           />
@@ -122,9 +132,9 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
           )}
           {results && results.length > 0 && (
             <ul className={styles.results}>
-              {results.map((c) => (
+              {results.map((c, index) => (
                 <li key={c.oracle_id}>
-                  <button type="button" className={styles.result} onClick={() => addPiece(c)}>
+                  <button ref={index === 0 ? firstResult : undefined} type="button" className={styles.result} disabled={busy} onClick={() => addPiece(c)}>
                     <span className={styles.pieceName}>{c.name}</span>
                     <ManaCost cost={c.mana_cost} />
                   </button>
@@ -134,6 +144,7 @@ export function EngineEditor({ engine, onClose }: { engine?: Engine; onClose: ()
           )}
         </div>
 
+        {error && <ErrorNote>{error}</ErrorNote>}
         <div className={styles.actions}>
           <Button onClick={onClose} disabled={busy}>
             Cancel

@@ -31,8 +31,17 @@ export function ManaDistribution({ series }: { series: [ManaSeries, ManaSeries] 
   return <div className={styles.distribution}>
     <div className={styles.donuts}>{series.map(s => <ManaDonut key={s.title} {...s} />)}</div>
     <table className={styles.legend}>
-      <thead><tr><th scope="col"><span className="visually-hidden">Colour</span></th>
-        {series.map(s => <th key={s.title} scope="colgroup" colSpan={2}>{s.title}</th>)}</tr></thead>
+      <caption className="visually-hidden">Mana demand and direct sources by colour</caption>
+      <colgroup span={1} />
+      {series.map(s => <colgroup key={s.title} span={2} />)}
+      <thead>
+        <tr><th rowSpan={2} scope="col"><span className="visually-hidden">Colour</span></th>
+          {series.map(s => <th key={s.title} scope="colgroup" colSpan={2}>{s.title}</th>)}</tr>
+        <tr className={styles.measures}>{series.flatMap(s => [
+          <th key={`${s.title}-count`} scope="col"><span className="visually-hidden">Count</span></th>,
+          <th key={`${s.title}-share`} scope="col"><span className="visually-hidden">Share</span></th>,
+        ])}</tr>
+      </thead>
       <tbody>{STAT_COLOURS.map(({ id, name }) => <tr key={id}>
         <th scope="row"><span className={styles.colour}><i className={styles[id]} aria-hidden="true" />{name}</span></th>
         {series.map(s => {

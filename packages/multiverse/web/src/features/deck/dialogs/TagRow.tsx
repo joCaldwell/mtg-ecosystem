@@ -6,6 +6,8 @@ import styles from "./TagsSection.module.css";
 
 interface Props {
   tag: Tag;
+  nameId: string;
+  busy: boolean;
   /** Resolves false when the server refused, so the typed text stays for fixing. */
   onRename: (tagId: number, name: string) => Promise<boolean>;
   onDelete: (tagId: number) => void;
@@ -13,10 +15,11 @@ interface Props {
   onRevert: () => void;
 }
 
-export function TagRow({ tag, onRename, onDelete, onRevert }: Props) {
+export function TagRow({ tag, nameId, busy, onRename, onDelete, onRevert }: Props) {
   const [name, setName] = useState(tag.name);
   const [confirming, setConfirming] = useState(false);
   const saving = useRef(false);
+  const deleteButton = useRef<HTMLButtonElement>(null);
   useEffect(() => setName(tag.name), [tag.name]);
 
   async function commit() {
@@ -37,7 +40,9 @@ export function TagRow({ tag, onRename, onDelete, onRevert }: Props) {
       e.preventDefault();
       void commit();
     } else if (e.key === "Escape" && name !== tag.name) {
+      e.preventDefault();
       e.stopPropagation();
+      if (saving.current) return;
       setName(tag.name);
       onRevert();
     }
@@ -47,18 +52,24 @@ export function TagRow({ tag, onRename, onDelete, onRevert }: Props) {
     <li className={styles.item}>
       <div className={styles.row}>
         <TextField
+          id={nameId}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => void commit()}
           onKeyDown={onKeyDown}
           aria-label={`Name of the tag ${tag.name}`}
         />
-        <IconButton tone="danger" onClick={() => setConfirming(true)} label={`Delete ${tag.name}`}>
+        <IconButton ref={deleteButton} tone="danger" aria-disabled={busy || undefined} onClick={() => { if (!busy) setConfirming(true); }} label={`Delete ${tag.name}`}>
           <Icon name="trash" />
         </IconButton>
       </div>
       {confirming ? (
-        <ConfirmStrip confirmLabel="Delete tag" onCancel={() => setConfirming(false)} onConfirm={() => onDelete(tag.id)}>
+        <ConfirmStrip
+          busy={busy}
+          confirmLabel="Delete tag"
+          onCancel={() => { setConfirming(false); deleteButton.current?.focus(); }}
+          onConfirm={() => onDelete(tag.id)}
+        >
           Delete the tag <strong>{tag.name}</strong>? It is taken off every card that has it. The cards stay in the
           deck.
         </ConfirmStrip>

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { api, type DeckCard } from "../../../api/client.ts";
 import { Stepper } from "../../../ui/index.ts";
 import { useDeck } from "../DeckStore.tsx";
@@ -13,7 +13,10 @@ const SETTLE_MS = 500;
 export function CopiesControl({ card }: { card: DeckCard }) {
   const { deckId, run } = useDeck();
   const [draft, setDraft] = useState(String(card.quantity));
+  const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
   const latest = useRef({ draft, quantity: card.quantity });
+  const typing = useRef(false);
   const settling = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writing = useRef(false);
   const queued = useRef<number | null>(null);
@@ -33,12 +36,12 @@ export function CopiesControl({ card }: { card: DeckCard }) {
 
   // A live refresh mid-run must not overwrite the number being built.
   useEffect(() => {
-    if (settling.current === null && !writing.current) show(String(card.quantity));
+    if (!typing.current && settling.current === null && !writing.current) show(String(card.quantity));
   }, [card.quantity]);
 
   const parsed = (text: string) => {
     const n = Number(text.trim());
-    return /^\d+$/.test(text.trim()) && n >= 1 ? n : null;
+    return /^\d+$/.test(text.trim()) && Number.isSafeInteger(n) && n >= 1 ? n : null;
   };
 
   // One at a time, newest wins: each write is the absolute number, and a later
@@ -55,13 +58,19 @@ export function CopiesControl({ card }: { card: DeckCard }) {
     }
     writing.current = false;
     queued.current = null;
-    if (!saved) show(String(latest.current.quantity));
+    if (!saved && !typing.current) show(String(latest.current.quantity));
   }
 
   function commit() {
     holdFire();
     const n = parsed(latest.current.draft);
-    if (n === null) return show(String(latest.current.quantity));
+    if (n === null) { setError("Enter a whole number of at least 1."); return; }
+    if (card.copy_limit !== null && n > card.copy_limit && n > latest.current.quantity) {
+      setError(`This card allows at most ${card.copy_limit} ${card.copy_limit === 1 ? "copy" : "copies"}.`);
+      return;
+    }
+    typing.current = false;
+    setError(null);
     show(String(n));
     if (n !== latest.current.quantity || writing.current) void write(n);
   }
@@ -71,12 +80,17 @@ export function CopiesControl({ card }: { card: DeckCard }) {
     settling.current = setTimeout(commit, SETTLE_MS);
   }
 
-  const current = parsed(draft) ?? card.quantity;
+  const proposed = parsed(draft);
+  const ceiling = card.copy_limit === null ? Number.MAX_SAFE_INTEGER : Math.max(card.copy_limit, card.quantity);
+  const current = proposed !== null && proposed <= ceiling ? proposed : card.quantity;
   const atFloor = current <= 1;
-  const atLimit = card.copy_limit !== null && current >= card.copy_limit;
+  const atLimit = current >= ceiling;
 
   function step(delta: 1 | -1) {
-    show(String((parsed(latest.current.draft) ?? latest.current.quantity) + delta));
+    const value = parsed(latest.current.draft);
+    const base = value === null || value > ceiling ? latest.current.quantity : value;
+    setError(null);
+    show(String(base + delta));
     settle();
   }
 
@@ -85,10 +99,12 @@ export function CopiesControl({ card }: { card: DeckCard }) {
     if (settling.current !== null) commit();
   }, []);
 
-  return (
+  return <div className={styles.field}>
     <Stepper
       className={styles.control}
       value={draft}
+      invalid={!!error}
+      aria-describedby={error ? errorId : undefined}
       aria-label={`Copies of ${card.name}`}
       upLabel={`Add a copy of ${card.name}`}
       downLabel={`Remove a copy of ${card.name}`}
@@ -98,6 +114,8 @@ export function CopiesControl({ card }: { card: DeckCard }) {
       onStepDown={() => step(-1)}
       onChange={(e) => {
         holdFire();
+        typing.current = true;
+        setError(null);
         show(e.target.value);
       }}
       onFocus={(e) => e.currentTarget.select()}
@@ -108,13 +126,17 @@ export function CopiesControl({ card }: { card: DeckCard }) {
       }}
       onKeyDown={(e) => {
         if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
-        if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+        if (e.key === "Enter") { e.preventDefault(); commit(); }
         if (e.key === "Escape") {
+          e.preventDefault();
           e.stopPropagation();
           holdFire();
-          show(String(card.quantity));
+          typing.current = false;
+          setError(null);
+          show(String(latest.current.quantity));
         }
       }}
     />
-  );
+    <span id={errorId} role="status" className={error ? styles.error : "visually-hidden"}>{error}</span>
+  </div>;
 }

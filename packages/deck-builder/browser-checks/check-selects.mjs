@@ -243,10 +243,10 @@ try {
       await page.mouse.wheel(0, -120); await settle(page, watch);
     }
     await choose(session, combo('Group the list'), 'type');
-    await choose(session, combo('Order the cards in each group'), 'price');
+    await choose(session, combo('Sort cards in each group'), 'price');
     await capture('toolbar-changed');
     await choose(session, combo('Group the list'), 'slot');
-    await choose(session, combo('Order the cards in each group'), 'curve');
+    await choose(session, combo('Sort cards in each group'), 'curve');
 
     const card = before.cards.find(item => !item.maybe && item.role === 'card');
     const row = page.locator(`[data-deck-list] [data-oracle-id="${card.oracle_id}"]`).first();

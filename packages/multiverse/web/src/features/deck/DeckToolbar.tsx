@@ -32,6 +32,7 @@ export function DeckToolbar() {
             <Icon name="search" size={14} />
             <TextField
               ref={search}
+              data-deck-filter-input
               type="search"
               aria-label="Search this deck"
               placeholder="Find in this deck…"
@@ -70,7 +71,7 @@ export function DeckToolbar() {
             <Select aria-label="Group the list" options={GROUP_OPTIONS} value={ui.groupBy} onChange={value => ui.setGroupBy(value as GroupBy)} />
           </label>
           <label className={styles.choice}><Text size="sm" tone="muted">Sort</Text>
-            <Select aria-label="Order the cards in each group" options={SORT_OPTIONS} value={ui.sortBy} onChange={value => ui.setSortBy(value as SortBy)} />
+            <Select aria-label="Sort cards in each group" options={SORT_OPTIONS} value={ui.sortBy} onChange={value => ui.setSortBy(value as SortBy)} />
           </label>
         </div>
       </div>

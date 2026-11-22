@@ -6,7 +6,7 @@
 .compare tbody th { color: var(--muted); font-weight: 400; }
 .caption { text-align: left; font-size: var(--text-xs); color: var(--faint); padding-bottom: var(--s-4); }
 .form { display: grid; gap: var(--s-6); }
-.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5) var(--s-6); }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5) var(--s-6); min-inline-size: 0; margin: 0; padding: 0; border: 0; }
 .details { font-size: var(--text-sm); }
 .details summary { cursor: pointer; color: var(--text-soft); padding-bottom: var(--s-4); }
 .details a { color: var(--sel); }

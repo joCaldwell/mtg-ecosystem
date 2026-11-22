@@ -36,6 +36,18 @@
   box-shadow: none;
 }
 
+@media (forced-colors: none) {
+  .stepper:has(.input[aria-invalid="true"]) {
+    box-shadow: inset 0 0 0 1px var(--cut);
+  }
+
+  .stepper:has(.input[aria-invalid="true"]:focus) {
+    box-shadow: inset 0 0 0 2px var(--cut);
+  }
+
+  .stepper .input[aria-invalid="true"]:focus-visible { outline: none; }
+}
+
 .arrow {
   display: grid;
   flex: none;

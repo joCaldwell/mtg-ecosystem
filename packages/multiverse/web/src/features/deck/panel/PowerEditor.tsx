@@ -4,6 +4,7 @@ import { api, type Power, type PowerAssessmentInput, type PowerProfile } from ".
 import { emptyPowerProfile } from "../../../domain/power.ts";
 import { Button, Dialog, ErrorNote, Field, Row, Select, Text, TextArea, TextField } from "../../../ui/index.ts";
 import { useDeck } from "../DeckStore.tsx";
+import { useAttempt } from "../dialogs/useAttempt.ts";
 import styles from "./PowerPanel.module.css";
 
 export function PowerEditor({ kind, power, revision, onClose }: {
@@ -11,7 +12,8 @@ export function PowerEditor({ kind, power, revision, onClose }: {
 }) {
   const voice = useVoice();
   const formId = useId();
-  const { deckId, run, error } = useDeck();
+  const { deckId } = useDeck();
+  const { busy, error, mutate } = useAttempt();
   const target = kind === "target";
   const source = target ? power.target : power.assessment;
   const [profile, setProfile] = useState<PowerProfile>(source?.profile ?? emptyPowerProfile());
@@ -22,7 +24,6 @@ export function PowerEditor({ kind, power, revision, onClose }: {
   const [notes, setNotes] = useState(source?.notes ?? "");
   const [evidence, setEvidence] = useState<PowerAssessmentInput["evidence"]>(target ? "list" : power.assessment?.evidence ?? "list");
   const [confidence, setConfidence] = useState<PowerAssessmentInput["confidence"]>(target ? "tentative" : power.assessment?.confidence ?? "tentative");
-  const [busy, setBusy] = useState(false);
   // Capture the list being edited. Live updates must not relabel an old form
   // as an assessment of a new revision; the service rejects stale submissions.
   const [assessedRevision] = useState(revision);
@@ -30,22 +31,21 @@ export function PowerEditor({ kind, power, revision, onClose }: {
   async function save(e: FormEvent) {
     e.preventDefault();
     if (busy) return;
-    setBusy(true);
     const value = { ...profile, win_turn: first || last ? { min: Number(first), max: Number(last) } : null, early_win_turn: early ? Number(early) : null };
-    const result = await run(() => target
+    const result = await mutate(() => target
       ? api.setPowerTarget(deckId, { profile: value, game_changers_max: limit ? Number(limit) : null, notes })
       : api.assessPower(deckId, { profile: value, revision: assessedRevision, evidence, confidence, notes }));
-    setBusy(false);
     if (result) onClose();
   }
   const fields = power.fields;
-  return <Dialog title={target ? "Set the power target" : "Assess the current deck"} width="lg" onClose={onClose} footer={<>
+  return <Dialog title={target ? "Set the power target" : "Assess the current deck"} width="lg" busy={busy} onClose={onClose} footer={<>
+    <span className="visually-hidden" role="status">{busy ? "Saving changes…" : ""}</span>
     <Button onClick={onClose} disabled={busy}>Cancel</Button>
     <Button variant="primary" type="submit" form={formId} disabled={busy}>{busy ? "Saving…" : target ? "Save target" : "Save assessment"}</Button>
   </>}>
     <form id={formId} method="post" onSubmit={save} className={styles.form}>
       <Text as="p" tone="muted">{target ? "Describe the experience you want to build toward. Leave undecided fields unknown." : "Describe the deck as you reviewed it. Leave uncertain fields unknown and explain your evidence."}</Text>
-      <div className={styles.fields}>
+      <fieldset className={styles.fields} disabled={busy}>
         {fields.map(field => <Field key={field.key} label={field.label} hint={field.options.find(o => o.value === profile[field.key])?.hint ?? voice("Unknown until you assess it.", "Unknown until you or an agent assesses it.")}>
           <Select options={[{ value: "", label: "Unknown / undecided" }, ...field.options.map(o => ({ value: o.value, label: o.label }))]} value={profile[field.key] ?? ""} onChange={value => setProfile({ ...profile, [field.key]: value || null })} />
         </Field>)}
@@ -71,9 +71,9 @@ export function PowerEditor({ kind, power, revision, onClose }: {
           <Field label="Evidence"><Select options={[{ value: "list", label: "Reading the list" }, { value: "goldfish", label: "Goldfishing" }, { value: "games", label: "Actual games" }]} value={evidence} onChange={value => setEvidence(value as typeof evidence)} /></Field>
           <Field label="Confidence" hint="Supported means there is evidence for these judgments, not that the bracket is certified."><Select options={[{ value: "tentative", label: "Tentative" }, { value: "supported", label: "Supported by evidence" }]} value={confidence} onChange={value => setConfidence(value as typeof confidence)} /></Field>
         </>}
-      </div>
+      </fieldset>
       <Field label={target ? "Preferences and reasoning" : "Assessment reasoning"} hint={target ? "What matters most to your pod and what tradeoffs you want." : "Explain the win range, key lines, disruption and any observations. Card references use [[Card Name]]."}>
-        <TextArea value={notes} required={!target} maxLength={6000} rows={4} onChange={e => setNotes(e.target.value)} />
+        <TextArea value={notes} required={!target} readOnly={busy} maxLength={6000} rows={4} onChange={e => setNotes(e.target.value)} />
       </Field>
       {error && <ErrorNote>{error}</ErrorNote>}
       {!target && <Text size="sm" tone="faint" as="p">Card edits will flag it for review.</Text>}

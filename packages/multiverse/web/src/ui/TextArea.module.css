@@ -12,8 +12,14 @@
 }
 
 .autosize {
-  overflow: hidden;
   resize: none;
+}
+
+@supports (field-sizing: content) {
+  .autosize {
+    field-sizing: content;
+    min-block-size: calc(var(--textarea-rows) * 1lh + 2 * var(--s-3) + 2px);
+  }
 }
 
 .area::placeholder {

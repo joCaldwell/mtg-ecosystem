@@ -1,6 +1,5 @@
-// One card in the list: a single focusable line (spec §5). Click opens the
-// card in the side panel; Ctrl, Cmd or Shift click selects instead, so a
-// bulk action never needs a mode.
+// One card in the list. Inspection and bulk selection have separate controls;
+// modifier-click and Shift+Space on the card are selection shortcuts.
 
 import type { KeyboardEvent, MouseEvent } from "react";
 import type { CardMark } from "../../../domain/marks.ts";
@@ -45,7 +44,14 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
   // Enter on a focused row opens the card; it must not also reach the screen's
   // own Enter shortcut, which starts a review.
   function onKeyDown(e: KeyboardEvent) {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key === "?") { e.preventDefault(); e.stopPropagation(); inspect(card); }
+    if (selectable && ((e.key === " " && e.shiftKey) || (e.key === "Enter" && (e.ctrlKey || e.metaKey || e.shiftKey)))) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) ui.toggleSelected(card.oracle_id);
+      return;
+    }
     if (e.key === "Enter") e.stopPropagation();
   }
 
@@ -62,7 +68,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
     .filter(Boolean)
     .join(" ");
 
-  return (
+  const row = (
     <button
       type="button"
       className={cls}
@@ -70,6 +76,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       data-oracle-id={card.oracle_id}
       data-filter-match={filterMatch || undefined}
       aria-current={open || undefined}
+      aria-keyshortcuts={selectable ? "Shift+Space" : undefined}
       onClick={onClick}
       onKeyDown={onKeyDown}
       {...hover(card)}
@@ -91,4 +98,17 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       <span className={styles.price}><Price currency={card.currency} cents={card.cents} column /></span>
     </button>
   );
+  if (!selectable) return row;
+  return <div className={styles.item}>
+    <label className={styles.selector}>
+      <input
+        className={styles.selectCheck}
+        type="checkbox"
+        aria-label={`Select ${card.name}`}
+        checked={selected}
+        onChange={() => ui.toggleSelected(card.oracle_id)}
+      />
+    </label>
+    {row}
+  </div>;
 }

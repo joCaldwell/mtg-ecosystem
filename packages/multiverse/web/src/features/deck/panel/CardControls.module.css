@@ -20,7 +20,8 @@
   padding-top: var(--s-6);
   border-top: 1px solid var(--line);
 }
-.copies { display: flex; flex: none; align-items: center; gap: var(--s-3); color: var(--text-soft); }
+.copies { display: flex; flex: none; align-items: center; max-width: 100%; gap: var(--s-3); color: var(--text-soft); }
+.copies:has([aria-invalid="true"]) { align-items: start; }
 .copies > :last-child { color: var(--text); }
 
 .kv dt,

@@ -14,7 +14,9 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [failure, setFailure] = useState("");
   const [savedOnce, setSavedOnce] = useState(false);
+  const [pending, setPending] = useState(0);
   const report = useCallback((next: SaveStatus, message?: string) => {
+    setPending(count => count + (next === "saving" ? 1 : -1));
     setStatus(next);
     setFailure(next === "failed" ? message ?? "" : "");
     if (next === "saved") setSavedOnce(true);
@@ -26,11 +28,12 @@ export function SlotsDialog({ onClose }: { onClose: () => void }) {
         title="Slots and tags"
         width="lg"
         onClose={onClose}
+        busy={pending > 0}
         footer={<>
           <Text role="status" tone={status === "failed" ? "cut" : "muted"} size="sm" className={styles.status}>
-            {status === "saving" ? "Saving…" : status === "failed" ? failure : savedOnce ? "All changes saved" : ""}
+            {pending > 0 ? "Saving…" : status === "failed" ? failure : savedOnce ? "All changes saved" : ""}
           </Text>
-          <Button onClick={onClose}>Close</Button>
+          <Button onClick={onClose} disabled={pending > 0}>Close</Button>
         </>}
       >
         <Stack gap={7}>
