@@ -117,7 +117,7 @@ export function SelectionBar() {
     : [{ id: "none", label: "No tags yet. Add them under Edit slots and tags.", onSelect: () => {}, disabled: true }];
 
   return (
-    <div ref={bar} className={styles.bar} role="group" aria-label="Selected cards" aria-busy={busy}>
+    <div ref={bar} className={styles.bar} role="group" aria-label="Selected cards" aria-busy={busy} data-deck-selection>
       <Text role="status" weight="bold" size="sm">
         {ui.selected.length} selected
       </Text>

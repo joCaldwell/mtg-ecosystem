@@ -1,7 +1,7 @@
-// One card in the list. Inspection and bulk selection have separate controls;
-// modifier-click and Shift+Space on the card are selection shortcuts.
+// Primary activation inspects a card. Right-click, modifier-click and
+// Shift+Space toggle bulk selection.
 
-import type { KeyboardEvent, MouseEvent } from "react";
+import { useRef, type KeyboardEvent, type MouseEvent } from "react";
 import type { CardMark } from "../../../domain/marks.ts";
 import { ManaCost, Price, useCardHover, useCardInspect, type CardInfo } from "../../../mtg/index.ts";
 import { useDeckList } from "../DeckListStore.tsx";
@@ -28,13 +28,13 @@ export interface CardRowProps {
 
 export function CardRow({ card, quantity = 1, change, mark, bold, current, filterMatch, purpose }: CardRowProps) {
   const ui = useDeckUi();
-  const { readOnly } = useDeckList();
+  const { readOnly, state } = useDeckList();
+  const rowRef = useRef<HTMLButtonElement>(null);
   const hover = useCardHover();
   const inspect = useCardInspect();
-  const selected = ui.selected.includes(card.oracle_id);
+  const selectable = change !== "add" && !readOnly && state.deck.category !== "archived";
+  const selected = selectable && ui.selected.includes(card.oracle_id);
   const open = ui.openCard?.oracleId === card.oracle_id;
-  // Proposed adds are not in the deck, and a read-only list has no selection.
-  const selectable = change !== "add" && !readOnly;
 
   function onClick(e: MouseEvent) {
     if (selectable && (e.ctrlKey || e.metaKey || e.shiftKey)) ui.toggleSelected(card.oracle_id);
@@ -70,6 +70,7 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
 
   const row = (
     <button
+      ref={rowRef}
       type="button"
       className={cls}
       data-current={current || undefined}
@@ -78,6 +79,10 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
       aria-current={open || undefined}
       aria-keyshortcuts={selectable ? "Shift+Space" : undefined}
       onClick={onClick}
+      onContextMenu={selectable ? (e) => {
+        e.preventDefault();
+        ui.toggleSelected(card.oracle_id);
+      } : undefined}
       onKeyDown={onKeyDown}
       {...hover(card)}
     >
@@ -100,13 +105,17 @@ export function CardRow({ card, quantity = 1, change, mark, bold, current, filte
   );
   if (!selectable) return row;
   return <div className={styles.item}>
-    <label className={styles.selector}>
+    <label className={styles.selector} data-selection-active={ui.selected.length > 0}>
       <input
         className={styles.selectCheck}
         type="checkbox"
+        data-deck-selection
         aria-label={`Select ${card.name}`}
         checked={selected}
-        onChange={() => ui.toggleSelected(card.oracle_id)}
+        onChange={() => {
+          if (selected && ui.selected.length === 1) rowRef.current?.focus({ preventScroll: true });
+          ui.toggleSelected(card.oracle_id);
+        }}
       />
     </label>
     {row}

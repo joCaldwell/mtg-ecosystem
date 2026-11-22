@@ -6,6 +6,7 @@
 }
 
 .item .row { flex: 1; min-inline-size: 0; inline-size: auto; }
+.item .q:empty { display: none; }
 
 .selector {
   display: grid;
@@ -13,14 +14,17 @@
   flex: none;
   min-inline-size: var(--h-sm);
   min-block-size: var(--h-sm);
+  /* Use part of the column gap without shrinking the checkbox hit area. */
+  margin-inline-start: calc(-1 * var(--s-3));
   cursor: pointer;
   border-radius: var(--r-sm);
 }
 
 .selector:hover { background: var(--hover); }
+.selector[data-selection-active="false"] { visibility: hidden; }
 .selector .selectCheck { min-block-size: 0; margin: 0; accent-color: var(--sel); cursor: inherit; }
 
-@media (pointer: coarse) {
+@media (max-width: 1099px), (pointer: coarse) {
   .selector { min-inline-size: var(--tap); min-block-size: var(--tap); }
 }
 
@@ -104,16 +108,18 @@
   font-weight: 600;
 }
 
+/* Inspection is a neutral surface. The checked box identifies bulk selection
+   even when review uses the row's background for an add or cut. */
+.row.open {
+  background: var(--raised);
+}
+
 .row.selected {
   background: var(--sel-bg);
 }
 
-/* The card open in the panel: the owner's selection cue, a blue leading rule
-   and tint (DESIGN.md, --sel). Review's add and cut rules below replace the
-   rule's colour, and the review cursor's outline is drawn over it. */
-.row.open {
-  border-left-color: var(--sel);
-  background: var(--sel-bg);
+@media (forced-colors: active) {
+  .row.open { border-left-color: Highlight; }
 }
 
 .row.cut {
