@@ -25,27 +25,29 @@ fn admitted_match() -> Prepared {
 // This is the old fork ownership oracle, NOT an alternate rules interpreter.
 fn old_deep_owned_fork(game: &Game) -> Game {
     Game {
-        opening_library_sizes: game.opening_library_sizes,
-        prepared: Arc::new(Prepared {
-            match_config: game.prepared.match_config.clone(),
-            catalog: Arc::clone(&game.prepared.catalog),
-            catalog_digest: game.prepared.catalog_digest.clone(),
-            config: game.prepared.config.clone(),
-            profile_digest: game.prepared.profile_digest.clone(),
-        }),
-        definition_index: Arc::clone(&game.definition_index),
-        state: game.state.clone(),
-        trace: game.trace.clone(),
-        executor: Arc::new(()),
-        state_token: Arc::new(()),
-        in_rule_step: false,
-        catalog_has_land_type_grant: game.catalog_has_land_type_grant,
-        catalog_has_land_reclamation: game.catalog_has_land_reclamation,
-        catalog_has_nonland_color_grant: game.catalog_has_nonland_color_grant,
-        catalog_has_target_color_set: game.catalog_has_target_color_set,
-        catalog_has_mana_tap_observer: game.catalog_has_mana_tap_observer,
-        // The deep fork owns nothing derived: its first publication is complete.
-        published: None,
+        committed: RulesTxn {
+            opening_library_sizes: game.opening_library_sizes,
+            prepared: Arc::new(Prepared {
+                match_config: game.prepared.match_config.clone(),
+                catalog: Arc::clone(&game.prepared.catalog),
+                catalog_digest: game.prepared.catalog_digest.clone(),
+                config: game.prepared.config.clone(),
+                profile_digest: game.prepared.profile_digest.clone(),
+            }),
+            definition_index: Arc::clone(&game.definition_index),
+            state: game.state.clone(),
+            trace: game.trace.clone(),
+            executor: Arc::new(()),
+            state_token: Arc::new(()),
+            in_rule_step: false,
+            catalog_has_land_type_grant: game.catalog_has_land_type_grant,
+            catalog_has_land_reclamation: game.catalog_has_land_reclamation,
+            catalog_has_nonland_color_grant: game.catalog_has_nonland_color_grant,
+            catalog_has_target_color_set: game.catalog_has_target_color_set,
+            catalog_has_mana_tap_observer: game.catalog_has_mana_tap_observer,
+            // The deep fork owns nothing derived: its first publication is complete.
+            published: None,
+        },
     }
 }
 fn complete(game: &Game, mut value: QueryResult) -> QueryValue {

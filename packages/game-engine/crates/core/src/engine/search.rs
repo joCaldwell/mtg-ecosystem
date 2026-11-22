@@ -119,7 +119,7 @@ fn unsupported(s: impl Into<String>) -> SearchRejection {
     SearchRejection::UnsupportedRoot(s.into())
 }
 
-impl Game {
+impl RulesTxn {
     fn remembered_library_cards(
         &self,
         player: PlayerId,

@@ -130,7 +130,7 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
     // never exported as source IR, admitted to a catalog, or made castable.
     d
 }
-impl Game {
+impl RulesTxn {
     pub fn typed_fault(&self) -> Option<&RuleFault> {
         self.state.rules.typed_fault.as_ref()
     }

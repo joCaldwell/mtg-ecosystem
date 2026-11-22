@@ -56,7 +56,7 @@ pub struct VisibleCounterPlacementCandidate {
     pub amount_before: Quantity,
     pub amount_after: Quantity,
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn begin_counter_placement(
         &mut self,
         frame: Resolving,

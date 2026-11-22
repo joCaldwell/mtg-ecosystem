@@ -29,7 +29,7 @@ pub(super) fn destruction_object(e: &ProposedEvent) -> Option<ObjectId> {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn regeneration_members(
         &self,
         group: &EventGroup,

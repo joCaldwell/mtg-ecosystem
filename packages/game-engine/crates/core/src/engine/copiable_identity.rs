@@ -17,7 +17,7 @@ pub struct EntryCopy {
     entry_sequence: u64,
 }
 
-impl Game {
+impl RulesTxn {
     fn entry_copy(&self, object: ObjectId) -> Option<&EntryCopy> {
         self.state
             .rules

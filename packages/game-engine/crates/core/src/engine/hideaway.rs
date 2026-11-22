@@ -36,7 +36,7 @@ pub struct RandomBottom {
     remaining: u32,
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn linked_hideaway_cards(
         &self,
         source: ObjectId,

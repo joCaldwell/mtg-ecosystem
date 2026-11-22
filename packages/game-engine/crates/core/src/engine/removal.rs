@@ -17,7 +17,7 @@ pub struct TargetFacts {
     power: Option<Quantity>,
     mana_value: Quantity,
 }
-impl Game {
+impl RulesTxn {
     fn target_information_frame(&mut self) -> Option<&mut Resolving> {
         let rules = self.rules_mut();
         let mut frame = &mut rules.frame;

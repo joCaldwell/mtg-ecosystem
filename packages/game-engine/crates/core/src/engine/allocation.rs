@@ -25,7 +25,7 @@ pub struct DamageAllocationRecord {
     pub budget_before: Quantity,
     pub budget_after: Quantity,
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn allocation_options(
         &self,
         tx: &DamageTransaction,
@@ -321,7 +321,7 @@ impl Game {
         Ok(result)
     }
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn damage_handle(
         &self,
         viewer: PlayerId,
@@ -359,7 +359,7 @@ impl Game {
             .ok_or_else(|| "foreign/stale damage handle".into())
     }
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn validate_allocation_prefix_group(
         &self,
         tx: &DamageTransaction,

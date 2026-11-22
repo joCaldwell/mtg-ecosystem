@@ -5,7 +5,7 @@ use super::*;
 use mtg_contracts::EffectRecipient;
 
 impl Resolving {
-    pub(super) fn entry_search_player(&self, game: &Game) -> Result<PlayerId, String> {
+    pub(super) fn entry_search_player(&self, game: &RulesTxn) -> Result<PlayerId, String> {
         match self.outcomes.last() {
             Some(InstructionOutcome::OptionalBlock {
                 accepted_by: Some(player),
@@ -15,7 +15,7 @@ impl Resolving {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn optional_recipient(
         &self,
         frame: &Resolving,

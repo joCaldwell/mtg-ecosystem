@@ -199,7 +199,7 @@ fn d2c_source_cast_then_wrong_and_correct_upkeep_ordered_draw_life_all_traces() 
             assert!(matches!(ops[ops.len() - 1], EventOutcome::LifeLost { .. }));
         }
         recover(&g);
-        final_states.push(g.state);
+        final_states.push(g.committed.state);
     }
     assert_eq!(final_states[0], final_states[1]);
     assert_eq!(final_states[1], final_states[2]);

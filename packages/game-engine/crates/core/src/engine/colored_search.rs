@@ -18,7 +18,7 @@ pub struct ColoredCardAssignment {
     pub handle: ObjectHandle,
 }
 
-impl Game {
+impl RulesTxn {
     fn colored_slots<'a>(&'a self, frame: &'a Resolving) -> Result<&'a [Color], String> {
         match self
             .program_for(self.entry(frame.stack_id)?)?

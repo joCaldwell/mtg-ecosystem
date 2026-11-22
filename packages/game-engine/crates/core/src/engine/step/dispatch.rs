@@ -1,7 +1,7 @@
 //! One rule step: the suspended frame selects the routine that advances it.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn step(&mut self) -> Result<(), RuleError> {
         self.check_history_capacity()?;
         self.refresh_removal_target_facts()?;

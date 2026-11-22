@@ -232,7 +232,7 @@ impl DamageRecipient {
         }
     }
 }
-impl Game {
+impl RulesTxn {
     // CR 205.3i, 305.6–7, 611.3 and 613.1d. Preserve printed order and add
     // missing basic subtypes once, independent of the number of granting sources.
     fn add_basic_land_types(c: &mut Characteristics) {
@@ -2675,7 +2675,7 @@ pub enum VisibleEffect {
         origin: VisibleEffectSource,
     },
 }
-impl Game {
+impl RulesTxn {
     /// Returns the live keys it published handles for. They depend on rules
     /// state alone, so one publication reuses them for every viewer.
     pub(crate) fn refresh_effect_handles(&mut self) -> Result<Vec<EffectKey>, String> {
@@ -3197,7 +3197,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     // Copiable identity is immutable within each incarnation. Historical P/T is derived at its
     // capture boundary; independent replay proves those past additive effects.
     pub(crate) fn validate_characteristic_identity(
@@ -3845,7 +3845,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     fn validate_sacrifice_damage_transaction(
         &self,
         tx: &DamageTransaction,

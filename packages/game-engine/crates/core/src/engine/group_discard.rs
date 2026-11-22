@@ -25,7 +25,7 @@ impl GroupDiscardProgress {
     }
 }
 
-impl Game {
+impl RulesTxn {
     fn group_discard_recipients(
         &self,
         controller: PlayerId,

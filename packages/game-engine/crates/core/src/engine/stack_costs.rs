@@ -13,7 +13,7 @@ impl AnnouncementOrigin {
     }
 }
 
-impl Game {
+impl RulesTxn {
     // CR602.2/702.29a: a hand card's owner activates it. A stale battlefield
     // controller never supplies (or removes) permission outside battlefield.
     pub(super) fn hand_activation_source_payable(

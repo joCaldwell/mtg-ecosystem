@@ -1079,7 +1079,7 @@ struct ObjectCore {
     characteristics: Characteristics,
 }
 
-impl Game {
+impl RulesTxn {
     // Keep unresolved sources so the rules layer still decides when to skip
     // or propagate a lookup error.
     fn indexed_static_source(&self, object: &Object) -> bool {

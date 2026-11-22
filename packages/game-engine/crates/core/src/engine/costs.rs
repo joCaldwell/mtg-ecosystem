@@ -48,7 +48,7 @@ pub fn entry_cost_lock_charge(entry: &StackInstance) -> usize {
         .as_ref()
         .map_or(0, stored_history::payload_charge)
 }
-impl Game {
+impl RulesTxn {
     pub(crate) fn cost_lock_charge(&self) -> usize {
         // Every invocation has one owner: its stack entry, or the detached
         // table while a frame still resolves it.

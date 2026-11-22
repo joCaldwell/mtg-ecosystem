@@ -75,7 +75,7 @@ pub fn entry_grant_charge(entry: &StackInstance) -> usize {
             .map_or(0, stored_history::payload_charge),
     }
 }
-impl Game {
+impl RulesTxn {
     pub(crate) fn grant_payload_charge(&self) -> usize {
         let mut charge = 0usize;
         for registration in &self.state.rules.delayed_chapters {

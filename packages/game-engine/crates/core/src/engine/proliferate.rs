@@ -5,7 +5,7 @@ use super::*;
 /// One candidate at a time encodes an arbitrary subset with bounded branching.
 pub(super) type ProliferateChoices = Vec<(ObjectId, bool)>;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn proliferate_eligible(&self, object: ObjectId) -> bool {
         // Every counter kind represented by the current game state is checked.
         // The admitted pool has no player counters.

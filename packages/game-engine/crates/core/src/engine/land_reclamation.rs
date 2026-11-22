@@ -2,7 +2,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn persistent_land_allowances(
         &self,
         player: PlayerId,

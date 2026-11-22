@@ -2,7 +2,7 @@
 //! the stack top and its program, and the retained-history charge.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn history_charge(&self) -> usize {
         // Charge actual retained allocations, independently of trace mode.
         self.state.knowledge.visibility.iter().fold(

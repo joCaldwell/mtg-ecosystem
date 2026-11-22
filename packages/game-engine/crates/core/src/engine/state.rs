@@ -14,7 +14,7 @@ pub use error::RuleError;
 pub use model::*;
 pub use objects::ObjectTable;
 pub use shared::Shared;
-pub use txn::PreEvent;
+pub use txn::{Game, PreEvent};
 
 // Declare each field once. The flat decoder keeps deny_unknown_fields without
 // serde's flatten/unknown-field ambiguity, while the encoder borrows groups.
@@ -23,7 +23,7 @@ macro_rules! state_layout {
      knowledge { $( $(#[$ka:meta])* $k:ident: $kt:ty, )* }
      audit { $( $(#[$aa:meta])* $a:ident: $at:ty, )* }) => {
         /// The rules tables. Every routine reads them through `RulesState`;
-        /// only `Game::rules_mut` hands out exclusive access.
+        /// only `RulesTxn::rules_mut` hands out exclusive access.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
         pub struct RulesTables { $( $(#[$ra])* pub $r: $rt, )* }
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -57,7 +57,7 @@ macro_rules! state_layout {
 }
 /// The rules state of a game. Its tables are private to this module: the rest
 /// of the engine reads them through `Deref` and writes them only through
-/// `Game::rules_mut`, so every write to the rules is explicit and stays
+/// `RulesTxn::rules_mut`, so every write to the rules is explicit and stays
 /// inside the staged copy a transaction commits.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
@@ -82,7 +82,7 @@ impl std::ops::DerefMut for RulesState {
         &mut self.tables
     }
 }
-impl Game {
+impl RulesTxn {
     /// Exclusive access to the rules tables: the single write path.
     pub(in crate::engine) fn rules_mut(&mut self) -> &mut RulesTables {
         &mut self.state.rules.tables

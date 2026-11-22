@@ -3,7 +3,7 @@
 //! every committed transaction.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn validate_state(&self) -> Result<(), RuleError> {
         let rules = &self.state.rules;
         for (depth, frame) in rules
@@ -307,7 +307,7 @@ impl Game {
                 if target_stage && self.mixed_mode_children(top)?.is_some() {
                     // CR 601.2c: the selected modes announce their targets in
                     // printed order, each in the stage casting opens for its
-                    // first target's domain (`Game::spell_announcement_frame`).
+                    // first target's domain (`RulesTxn::spell_announcement_frame`).
                     let next = self.next_mode_target(top)?;
                     let group = next
                         .is_some_and(|p| mtg_contracts::graveyard_shuffle::offered_by(p).is_some());

@@ -3,7 +3,7 @@ use super::*;
 /// Read-only native query access for one host-authorized player.
 ///
 /// Hosts authenticate the caller before constructing this facade. Policies can
-/// receive a session without receiving the authoritative `Game`; queries remain
+/// receive a session without receiving the authoritative `RulesTxn`; queries remain
 /// budgeted, pure, and scoped to the bound viewer, executor, and state epoch.
 ///
 /// `Work` and `ValidatedResponse` remain opaque host objects. A host may resume
@@ -19,11 +19,11 @@ use super::*;
 /// }
 /// ```
 pub struct PlayerSession<'a> {
-    game: &'a Game,
+    game: &'a RulesTxn,
     viewer: PlayerId,
 }
 
-impl Game {
+impl RulesTxn {
     /// Bind query access to a player already authorized by the host.
     /// Invalid player IDs are rejected by the budgeted query entry points.
     pub fn player_session(&self, viewer: PlayerId) -> PlayerSession<'_> {

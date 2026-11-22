@@ -1,7 +1,7 @@
 //! CR121.2/401.4/400.7/608.2c/903.9b: counted draws, then ordered hand return.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-impl Game {
+impl RulesTxn {
     pub(super) fn private_library_choice_candidates(
         &self,
         viewer: PlayerId,

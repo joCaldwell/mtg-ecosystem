@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn has_unspent_mana_converter(&self) -> bool {
         self.prepared.catalog.definitions.iter().any(|d| {
             d.capabilities

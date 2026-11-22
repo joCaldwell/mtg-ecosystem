@@ -25,7 +25,7 @@ impl Decider {
 impl Frame {
     /// The decider at this frame for `game`, whose suspended frame it is.
     /// Every variant is named: a new frame must say who decides at it.
-    pub fn decider(&self, game: &Game) -> Result<Option<Decider>, RuleError> {
+    pub fn decider(&self, game: &RulesTxn) -> Result<Option<Decider>, RuleError> {
         let rules = &game.state.rules;
         if rules.pending.is_some() || !rules.pending_concessions.is_empty() {
             return Ok(None);

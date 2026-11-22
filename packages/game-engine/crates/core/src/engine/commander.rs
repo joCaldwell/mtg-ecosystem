@@ -60,7 +60,7 @@ pub enum CommanderContinuation {
     },
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn previous_commander_choices(&self) -> Vec<(ObjectId, bool)> {
         match &self.state.rules.frame {
             Frame::GraveyardGroup { tx } => tx.prior_choices(self),

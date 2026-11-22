@@ -67,7 +67,7 @@ pub struct TurnState {
     pub lands_played: u32,
 }
 
-impl Game {
+impl RulesTxn {
     pub fn turn(&self) -> &TurnState {
         &self.state.rules.turn
     }

@@ -1,7 +1,7 @@
 //! The pending decision and the validation of a proposed answer.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
     /// The decision `viewer` owes now, if any.
     pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
         Ok(self

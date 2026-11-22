@@ -55,8 +55,8 @@ impl ReferenceAdvance for Game {
             if let Err(reason) = next.refresh_visibility() {
                 return Advance::Fault(reason);
             }
-            self.state = next.state;
-            self.trace = next.trace;
+            self.state = next.committed.state;
+            self.trace = next.committed.trace;
             self.state_token = Arc::new(());
         }
     }

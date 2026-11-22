@@ -254,7 +254,7 @@ impl Published {
     }
 }
 
-impl Game {
+impl RulesTxn {
     /// The reuse path. Returns false, having changed nothing, unless every
     /// viewer's last view still shows the rows of the current rules.
     pub(super) fn republish_rows(&mut self, decider: Option<Decider>) -> Result<bool, String> {

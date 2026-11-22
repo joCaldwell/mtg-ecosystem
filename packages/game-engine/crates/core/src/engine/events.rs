@@ -413,7 +413,7 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
     )
 }
 
-fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
+fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     let (mut reads, mut writes) = match event {
         ProposedEvent::HandReturn {
             player, objects, ..
@@ -773,7 +773,7 @@ fn access(event: &ProposedEvent, game: &Game) -> (BTreeSet<FactKey>, BTreeSet<Fa
 }
 fn collect<'a>(
     group: &'a EventGroup,
-    game: &Game,
+    game: &RulesTxn,
     depth: u32,
     limit: usize,
     out: &mut Vec<&'a ProposedEvent>,
@@ -868,7 +868,7 @@ fn collect<'a>(
     }
     Ok(())
 }
-impl Game {
+impl RulesTxn {
     pub(crate) fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String> {
         let objects = self
             .state
@@ -2152,7 +2152,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     fn conditional_entry(&self, event: &ProposedEvent) -> Option<EntryLandCount> {
         let object = match event {
             ProposedEvent::CascadeLandEntry { object, .. }
@@ -3663,7 +3663,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     // CR 120.3 / 510.2: all sources and recipients are validated against the
     // common pre-state. One typed aggregate owns overlapping recipient writes.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt

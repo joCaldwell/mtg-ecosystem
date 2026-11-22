@@ -1,7 +1,7 @@
 //! Immediate damage from the disjoint mana family and its payment reversal.
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn begin_mana_damage(
         &mut self,
         a: ManaActivation,

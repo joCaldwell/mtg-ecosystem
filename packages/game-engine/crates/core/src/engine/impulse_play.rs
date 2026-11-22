@@ -2,7 +2,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn may_play_exile(&self, player: PlayerId, object: ObjectId) -> bool {
         self.current(object)
             .is_ok_and(|o| o.zone == Zone::Exile && o.hideaway.is_none())

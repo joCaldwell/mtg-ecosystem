@@ -18,7 +18,7 @@ impl LoreChange {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn saga_final_chapter(
         &self,
         object: ObjectId,
@@ -143,7 +143,7 @@ impl DelayedChapterRegistration {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn delayed_chapter_program(
         &self,
         source: ObjectId,

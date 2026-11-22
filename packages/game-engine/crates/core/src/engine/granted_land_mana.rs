@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn granted_land_mana_colors() -> [Color; 5] {
         [Color::W, Color::U, Color::B, Color::R, Color::G]
     }

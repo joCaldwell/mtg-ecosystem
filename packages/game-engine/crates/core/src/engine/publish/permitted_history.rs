@@ -1,5 +1,5 @@
 //! Complete public history values backed only by already permitted immutable
-//! rows. No Game, Knowledge handle map, Prepared, hidden identity or RNG is held.
+//! rows. No RulesTxn, Knowledge handle map, Prepared, hidden identity or RNG is held.
 use super::stored_history::{StoredHistory, StoredPermittedView};
 use super::*;
 

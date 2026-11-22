@@ -77,7 +77,7 @@ impl EntryOrigin {
         )
     }
 
-    pub(super) fn player(&self, game: &Game) -> Result<PlayerId, String> {
+    pub(super) fn player(&self, game: &RulesTxn) -> Result<PlayerId, String> {
         Ok(match self {
             Self::LandPlay { player, .. } => *player,
             Self::Copy { frame, .. } => game.entry(frame.stack_id)?.controller,
@@ -127,7 +127,7 @@ impl PreparedEntryAuthority {
         Ok((self.player, *paid == Some(false)))
     }
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn optional_entry_cost(
         &self,
         object: ObjectId,

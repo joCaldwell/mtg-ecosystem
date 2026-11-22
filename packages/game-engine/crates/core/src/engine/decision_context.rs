@@ -44,7 +44,7 @@ pub struct DecisionContext {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modes: Vec<DecisionMode>,
 }
-impl Game {
+impl RulesTxn {
     pub(crate) fn trigger_source_label(
         &self,
         source: ObjectId,
@@ -353,7 +353,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn effect_decision_context(
         &self,
         viewer: PlayerId,

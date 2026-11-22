@@ -1,7 +1,7 @@
 //! Snapshot encoding, authenticated restore and journal replay.
 use crate::engine::*;
 
-impl Game {
+impl RulesTxn {
     pub fn snapshot(&self) -> Result<String, String> {
         self.snapshot_with_digest().map(|(json, _)| json)
     }
@@ -37,6 +37,8 @@ impl Game {
             state_sha256,
         })
     }
+}
+impl Game {
     pub(crate) fn read_snapshot(prepared: Prepared, json: &str) -> Result<(Self, String), String> {
         Self::admit_decoded_snapshot(prepared, strict_read(json)?)
     }
@@ -47,7 +49,7 @@ impl Game {
         Self::admit_decoded_snapshot(prepared, strict_read_seekable(source)?)
     }
     // Exactly one typed verification body for string and seekable input. No
-    // Game is returned before unchanged identity/hash/invariant checks pass.
+    // RulesTxn is returned before unchanged identity/hash/invariant checks pass.
     pub(in crate::engine) fn admit_decoded_snapshot(
         prepared: Prepared,
         s: Snapshot,
@@ -60,7 +62,7 @@ impl Game {
         {
             return Err("snapshot version/build/catalog/profile/hash mismatch".into());
         }
-        let game = Self {
+        let game = RulesTxn {
             opening_library_sizes: prepared.config.initial_library_sizes(),
             catalog_has_land_type_grant: prepared.has_land_type_grant(),
             catalog_has_land_reclamation: prepared
@@ -71,7 +73,7 @@ impl Game {
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
             catalog_has_target_color_set: prepared.has_target_color_set(),
             catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
-            definition_index: Self::definition_index(&prepared.catalog, &s.state.rules.cards),
+            definition_index: RulesTxn::definition_index(&prepared.catalog, &s.state.rules.cards),
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,
@@ -81,7 +83,7 @@ impl Game {
             published: None,
         };
         game.validate_state()?;
-        Ok((game, s.state_sha256))
+        Ok((Self::from_initial(game), s.state_sha256))
     }
     pub(in crate::engine) fn prove_decoded_snapshot(
         (game, digest): (Self, String),

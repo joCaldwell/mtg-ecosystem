@@ -73,7 +73,7 @@ impl<'a> LandSearch<'a> {
         self.force_tapped
     }
 }
-impl Game {
+impl RulesTxn {
     fn land_search_for<'a>(&'a self, frame: &'a Resolving) -> Option<LandSearch<'a>> {
         LandSearch::instruction(
             self.program_for(self.entry(frame.stack_id).ok()?)

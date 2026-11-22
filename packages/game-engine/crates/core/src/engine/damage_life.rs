@@ -58,7 +58,7 @@ fn update_source_appearances(entries: &mut [effects::PreparedDamage], fact: &Obj
         }
     }
 }
-impl Game {
+impl RulesTxn {
     /// The typed control transition owns this refresh. A changed controller
     /// cannot be excused merely by recomputing or discarding assignment facts.
     pub(super) fn retain_damage_control_facts(&mut self, fact: &ObjectBefore) {

@@ -429,7 +429,7 @@ impl BoundModeSubset {
             .map_err(Clone::clone)
     }
 }
-impl Game {
+impl RulesTxn {
     // Fixed heterogeneous modes announce in printed order. The typed target
     // vectors are the receipt, including a player with zero graveyard cards.
     pub(super) fn mixed_mode_children<'a>(
@@ -662,7 +662,7 @@ impl Game {
         BoundModeSubset::build(self.root_program_for(top)?, indices)
     }
 }
-impl Game {
+impl RulesTxn {
     pub(crate) fn selected_program<'a>(
         &self,
         root: &'a SpellProgram,
@@ -1054,7 +1054,7 @@ impl Game {
         }
     }
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn validate_match_condition(
         &self,
         source: ObjectId,
@@ -1101,7 +1101,7 @@ impl Game {
         }
     }
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn origin_programs<'a>(
         &'a self,
         origin: &EffectOrigin,

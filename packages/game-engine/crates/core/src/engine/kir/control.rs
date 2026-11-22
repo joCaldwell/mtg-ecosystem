@@ -62,7 +62,7 @@ impl Task {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn begin_kernel_control(&mut self, frame: Resolving) -> Result<(), String> {
         let resume = self.save_frame(Frame::Resolve { frame });
         self.install_kernel(Task {

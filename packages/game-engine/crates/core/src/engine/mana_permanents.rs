@@ -179,7 +179,7 @@ pub(super) struct ManaDamageShield {
     after: Quantity,
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn mana_use_key(&self, source: ObjectId) -> ManaAbilityUse {
         ManaAbilityUse {
             source,

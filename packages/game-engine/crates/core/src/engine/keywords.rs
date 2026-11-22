@@ -24,7 +24,7 @@ impl<'a> From<&'a ObjectBefore> for KeywordSource<'a> {
         Self::Historical(o)
     }
 }
-impl Game {
+impl RulesTxn {
     /// Current checks include continuous grants (CR 613.1f); saved
     /// ObjectBefore keywords bind damage LKI to the exact source (702.15c/2e).
     pub(crate) fn has_keyword<'a>(

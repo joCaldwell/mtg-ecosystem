@@ -3,7 +3,7 @@
 use super::*;
 
 pub(super) fn count(
-    game: &Game,
+    game: &RulesTxn,
     before: Option<&PreEventFacts>,
     controller: PlayerId,
 ) -> Result<Quantity, String> {

@@ -20,7 +20,7 @@ pub struct CaptureWork {
     seen_public: BTreeSet<(PlayerId, String)>,
     history_sink: Option<Box<Sha256Sink>>,
 }
-impl Game {
+impl RulesTxn {
     fn classify_search_root(&self, viewer: PlayerId) -> Result<(), SearchRejection> {
         if !(self.prepared.config.mode == Mode::CommanderMatch)
             || self.prepared.match_config.is_none()

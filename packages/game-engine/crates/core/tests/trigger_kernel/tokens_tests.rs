@@ -1787,7 +1787,7 @@ fn history_capacity_fault_rolls_back_the_entire_public_step_in_all_traces() {
         let roundtrip: RuleFault =
             serde_json::from_str(&serde_json::to_string(&fault).unwrap()).unwrap();
         assert_eq!(fault, roundtrip);
-        states.push(g.state);
+        states.push(g.committed.state);
     }
     assert_eq!(states[0], states[1]);
     assert_eq!(states[0], states[2]);

@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn legend_groups(&self) -> Result<Vec<Vec<ObjectId>>, String> {
         let mut by_name: BTreeMap<(PlayerId, String), Vec<ObjectId>> = BTreeMap::new();
         for object in self

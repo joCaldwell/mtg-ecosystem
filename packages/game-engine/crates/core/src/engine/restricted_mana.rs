@@ -52,7 +52,7 @@ pub(super) fn valid_buckets(pool: &[RestrictedMana]) -> bool {
         && pool.windows(2).all(|pair| pair[0].key() < pair[1].key())
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn activation_mana_consumer(&self, source: ObjectId) -> ManaConsumer {
         ManaConsumer::Activation {
             battlefield_creature: self

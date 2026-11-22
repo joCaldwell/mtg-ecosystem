@@ -28,7 +28,7 @@ pub(super) enum PaymentPurpose {
     CastPayerDraw,
 }
 
-impl Game {
+impl RulesTxn {
     fn resolution_payment_terms<'a>(
         &'a self,
         frame: &'a Resolving,

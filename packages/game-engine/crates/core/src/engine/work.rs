@@ -78,11 +78,11 @@ pub struct WorkCache {
     entry_candidates: Option<Vec<ObjectId>>,
 }
 impl WorkCache {
-    fn projection(&mut self, game: &Game) -> &visibility::ProjectionIndex {
+    fn projection(&mut self, game: &RulesTxn) -> &visibility::ProjectionIndex {
         self.projection
             .get_or_insert_with(|| game.projection_index())
     }
-    fn next_object<'a>(&mut self, game: &'a Game) -> Option<&'a Object> {
+    fn next_object<'a>(&mut self, game: &'a RulesTxn) -> Option<&'a Object> {
         use std::ops::Bound::{Excluded, Unbounded};
         let next = match self.last_object {
             None => game.state.rules.objects.first_key_value(),
@@ -98,14 +98,14 @@ impl WorkCache {
         }
         next.map(|(_, object)| object)
     }
-    fn effects(&mut self, game: &Game) -> &[EffectKey] {
+    fn effects(&mut self, game: &RulesTxn) -> &[EffectKey] {
         self.effects.get_or_insert_with(|| game.live_effect_keys())
     }
-    fn triggers(&mut self, game: &Game) -> &[TriggerId] {
+    fn triggers(&mut self, game: &RulesTxn) -> &[TriggerId] {
         self.triggers
             .get_or_insert_with(|| game.trigger_order_ids())
     }
-    fn modes(&mut self, game: &Game) -> Result<Option<&[u32]>, QueryRejection> {
+    fn modes(&mut self, game: &RulesTxn) -> Result<Option<&[u32]>, QueryRejection> {
         if self.modes.is_none() {
             self.modes = Some(
                 match game
@@ -121,7 +121,7 @@ impl WorkCache {
     }
     fn linked_play(
         &mut self,
-        game: &Game,
+        game: &RulesTxn,
         viewer: PlayerId,
     ) -> Result<&[ObjectId], QueryRejection> {
         if self.linked_play.is_none() {
@@ -134,7 +134,7 @@ impl WorkCache {
     }
     fn entry_candidates(
         &mut self,
-        game: &Game,
+        game: &RulesTxn,
         viewer: PlayerId,
     ) -> Result<&[ObjectId], QueryRejection> {
         if self.entry_candidates.is_none() {
@@ -145,11 +145,11 @@ impl WorkCache {
         }
         Ok(self.entry_candidates.as_deref().unwrap_or_default())
     }
-    fn counter_placement(&mut self, game: &Game) -> &[CounterPlacementEffectKey] {
+    fn counter_placement(&mut self, game: &RulesTxn) -> &[CounterPlacementEffectKey] {
         self.counter_placement
             .get_or_insert_with(|| game.counter_placement_candidates())
     }
-    fn damage(&mut self, game: &Game) -> Result<&[DamageEffectCandidate], QueryRejection> {
+    fn damage(&mut self, game: &RulesTxn) -> Result<&[DamageEffectCandidate], QueryRejection> {
         if self.damage.is_none() {
             self.damage = Some(
                 game.damage_effect_group()
@@ -161,7 +161,7 @@ impl WorkCache {
     }
     fn allocation(
         &mut self,
-        game: &Game,
+        game: &RulesTxn,
     ) -> Result<Option<&[DamageAllocationCandidate]>, QueryRejection> {
         if self.allocation.is_none() {
             self.allocation = Some(
@@ -251,7 +251,7 @@ pub struct SavedWork {
     pub data: WorkData,
 }
 
-impl Game {
+impl RulesTxn {
     pub fn observe(&self, viewer: PlayerId, budget: Budget) -> QueryResult {
         self.begin_query(Query::Observe { viewer }, budget)
     }
@@ -1436,7 +1436,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     fn request_extra_units(&self, viewer: PlayerId) -> Result<u64, String> {
         Ok(match self.request_header(viewer)? {
             Some(

@@ -1,6 +1,6 @@
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn remember_public_library_position(&mut self, successor: ObjectId) {
         for knowledge in &mut self.state.knowledge.visibility {
             knowledge.public_tucked_cards.insert(successor);

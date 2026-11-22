@@ -378,7 +378,7 @@ fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
         _ => None,
     }
 }
-impl Game {
+impl RulesTxn {
     fn grouped_damage_member_matches(
         &self,
         condition: &TriggerCondition,
@@ -449,7 +449,7 @@ impl Game {
     pub(crate) fn collect_triggers(
         &mut self,
         cause: &BatchCause,
-        before: &Game,
+        before: &RulesTxn,
         occurrences: &[OccurrenceResult],
     ) -> Result<(), String> {
         for occurrence in occurrences {
@@ -740,7 +740,7 @@ impl Game {
     }
     pub(super) fn collect_trigger_witness(
         &mut self,
-        before: Option<(&Game, &BatchCause)>,
+        before: Option<(&RulesTxn, &BatchCause)>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -762,7 +762,7 @@ impl Game {
     }
     fn collect_trigger_witness_staged(
         &mut self,
-        before: Option<(&Game, &BatchCause)>,
+        before: Option<(&RulesTxn, &BatchCause)>,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     ) -> Result<(), String> {
@@ -1630,7 +1630,7 @@ impl Game {
         self.rules_mut()
             .pending_triggers
             .retain(|t| live.contains(&t.controller));
-        let revalidate = |mut placement: TriggerPlacement, game: &Game| {
+        let revalidate = |mut placement: TriggerPlacement, game: &RulesTxn| {
             placement.remaining.retain(|p| game.is_live(*p));
             placement.order.retain(|id| {
                 game.state
@@ -2408,7 +2408,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     fn bind_trigger_entity_targets(
         &mut self,
         placement: TriggerPlacement,

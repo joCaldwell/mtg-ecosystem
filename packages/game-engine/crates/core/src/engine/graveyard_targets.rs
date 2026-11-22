@@ -14,7 +14,7 @@ impl GraveyardShuffleMoves {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn player_graveyard_card(&self, object: &Object, player: PlayerId) -> bool {
         object.zone == (Zone::Graveyard { owner: player })
             && !self.state.rules.tokens.contains_key(&object.id.card)
@@ -83,7 +83,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn graveyard_legality<'a>(
         &self,
         frame: &'a Resolving,

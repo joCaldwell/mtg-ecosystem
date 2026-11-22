@@ -147,7 +147,7 @@ pub enum ResolutionChoice {
         source_block: u32,
     },
 }
-impl Game {
+impl RulesTxn {
     pub(super) fn opponents(&self, player: PlayerId) -> Vec<PlayerId> {
         self.live_players()
             .into_iter()

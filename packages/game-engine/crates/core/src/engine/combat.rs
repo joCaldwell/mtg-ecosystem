@@ -55,7 +55,7 @@ pub struct CommanderDamageResult {
     pub current: Quantity,
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn combat_decision_player(&self) -> Option<PlayerId> {
         match &self.state.rules.frame {
             Frame::Attackers => self.state.rules.active,

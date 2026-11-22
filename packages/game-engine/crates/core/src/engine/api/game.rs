@@ -10,7 +10,7 @@ pub struct SnapshotWriteInfo {
     pub state_sha256: String,
 }
 testkit_fields! {
-    pub struct Game {
+    pub struct RulesTxn {
         pub(in crate::engine) opening_library_sizes: [u32; 4],
         pub(in crate::engine) catalog_has_land_type_grant: bool,
         pub(in crate::engine) catalog_has_land_reclamation: bool,
@@ -71,8 +71,8 @@ pub enum Advance {
     Fault(String),
     Suspended { required_minimum: u64 },
 }
-impl Game {
-    pub fn new(prepared: Prepared) -> Self {
+impl RulesTxn {
+    pub(in crate::engine) fn new(prepared: Prepared) -> Self {
         let cards: BTreeMap<_, _> = prepared
             .config
             .cards
@@ -237,7 +237,7 @@ impl Game {
             .expect("admitted initial visibility");
         game
     }
-    pub fn fork(&self) -> Self {
+    pub(in crate::engine) fn fork(&self) -> Self {
         Self {
             opening_library_sizes: self.opening_library_sizes,
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,

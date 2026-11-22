@@ -32,7 +32,7 @@ enum Players {
     EachOpponent,
 }
 
-impl Game {
+impl RulesTxn {
     /// The target domain of an instruction that destroys one announced
     /// target, if it is one.
     pub(super) fn target_destroy_domain(

@@ -2,7 +2,7 @@
 //! includes ordinary graveyard movement; Commander SBAs follow spell resolution.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-impl Game {
+impl RulesTxn {
     pub(super) fn validate_surveil_choice(
         &self,
         frame: &Resolving,

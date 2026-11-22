@@ -22,7 +22,7 @@ pub mod visibility;
 
 pub use reuse::Published;
 
-impl Game {
+impl RulesTxn {
     /// Publishes the current rules state to all four viewers.
     pub(crate) fn refresh_visibility(&mut self) -> Result<(), String> {
         #[cfg(debug_assertions)]
@@ -53,7 +53,7 @@ impl Game {
 
     /// The prior state, to be published by the complete projection alone.
     #[cfg(debug_assertions)]
-    fn complete_publication(&self) -> Game {
+    fn complete_publication(&self) -> RulesTxn {
         let mut reference = self.fork();
         reference.published = None;
         reference
@@ -65,7 +65,7 @@ impl Game {
     #[cfg(debug_assertions)]
     fn assert_matches_complete_publication(
         &self,
-        mut reference: Game,
+        mut reference: RulesTxn,
         published: &Result<(), String>,
     ) {
         // The reference publishes nothing incrementally and builds each view

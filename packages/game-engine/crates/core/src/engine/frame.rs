@@ -554,7 +554,7 @@ impl Frame {
     }
 }
 
-impl Game {
+impl RulesTxn {
     /// The single owner of an invocation: its live stack entry, or the
     /// detached entry a frame is still resolving after it left the stack.
     pub(crate) fn entry(&self, id: StackId) -> Result<&StackInstance, RuleError> {
@@ -611,7 +611,7 @@ impl Game {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(in crate::engine) fn saved_frame(&self, link: FrameLink) -> &Frame {
         &self.state.rules.frames[link.0]
     }

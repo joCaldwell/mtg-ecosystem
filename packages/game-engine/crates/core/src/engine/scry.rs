@@ -3,7 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn library_looked(&self, viewer: PlayerId) -> Option<&[ObjectId]> {
         match &self.state.rules.frame {
             Frame::ResolutionChoice {

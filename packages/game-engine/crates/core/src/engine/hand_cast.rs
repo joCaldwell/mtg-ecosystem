@@ -12,7 +12,7 @@ pub struct HandCastPermission {
     child: StackId,
 }
 
-impl Game {
+impl RulesTxn {
     fn validate_hand_cast_issuer(&self, issuer: &StackInstance) -> Result<(), String> {
         let StackKind::Triggered {
             ability: EffectiveTriggerAbility::Intrinsic { .. },

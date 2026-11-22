@@ -50,8 +50,8 @@ impl TraceEvidence {
         }
     }
 }
-impl Game {
-    pub fn with_trace(prepared: Prepared, mode: TraceMode) -> Self {
+impl RulesTxn {
+    pub(in crate::engine) fn with_trace(prepared: Prepared, mode: TraceMode) -> Self {
         let mut game = Self::new(prepared);
         game.trace = TraceEvidence::new(mode);
         game
@@ -115,6 +115,8 @@ impl Game {
         }
         Ok(())
     }
+}
+impl Game {
     pub fn replay_with_trace(
         prepared: Prepared,
         journal: &ReplayJournal,

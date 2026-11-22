@@ -13,7 +13,7 @@ struct SpellAnnouncement {
     completion: CastCompletion,
 }
 
-impl Game {
+impl RulesTxn {
     fn priority_spell_announcement(
         &self,
         player: PlayerId,

@@ -2,7 +2,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-impl Game {
+impl RulesTxn {
     pub(super) fn target_color_target(&self, frame: &Resolving) -> Option<ObjectId> {
         let entry = self.entry(frame.stack_id).ok()?;
         let [target] = entry.targets.as_slice() else {

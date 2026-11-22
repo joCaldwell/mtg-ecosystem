@@ -48,7 +48,7 @@ pub enum CastOwner {
     RevealAndCast(Box<RevealAndCastProgress>),
 }
 impl CastOwner {
-    pub(super) fn permission(&self, game: &Game) -> Result<CastPermission, String> {
+    pub(super) fn permission(&self, game: &RulesTxn) -> Result<CastPermission, String> {
         match self {
             Self::LinkedPlay {
                 progress, object, ..
@@ -67,7 +67,7 @@ impl CastOwner {
 }
 impl CastPermission {
     pub(super) fn from_instruction(
-        game: &Game,
+        game: &RulesTxn,
         frame: &Resolving,
         source_block: u32,
         object: ObjectId,
@@ -119,10 +119,10 @@ pub struct CascadeProgress {
     redirected: Vec<ObjectId>,
 }
 impl CascadeProgress {
-    fn caster(&self, game: &Game) -> Result<PlayerId, String> {
+    fn caster(&self, game: &RulesTxn) -> Result<PlayerId, String> {
         Ok(game.entry(self.frame.stack_id)?.controller)
     }
-    fn permission(&self, game: &Game) -> Result<CastPermission, String> {
+    fn permission(&self, game: &RulesTxn) -> Result<CastPermission, String> {
         if self.stage != CascadeStage::Offer || self.child.is_some() {
             return Err("cascade permission outside its offer".into());
         }
@@ -135,7 +135,7 @@ impl CascadeProgress {
         )
     }
 }
-impl Game {
+impl RulesTxn {
     fn cascade_threshold(&self, frame: &Resolving) -> Result<Quantity, String> {
         let StackKind::Triggered {
             witness: TriggerEventWitness::SpellCast { cast },

@@ -40,7 +40,7 @@ pub(super) fn phyrexian_life(choices: &[HybridPayment]) -> Quantity {
     total
 }
 
-impl Game {
+impl RulesTxn {
     pub(crate) fn can_pay(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
         match self.payment_pool(player, cost) {
             Ok(_) => Ok(true),

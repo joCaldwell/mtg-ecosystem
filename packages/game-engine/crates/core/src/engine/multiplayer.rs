@@ -175,7 +175,7 @@ impl CommanderLedger {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn initialize_commanders(&mut self) -> Result<(), String> {
         for card in self.prepared.config.commanders.clone() {
             let d = self.definition(card)?;
@@ -261,6 +261,8 @@ impl Game {
         };
         Ok(())
     }
+}
+impl Game {
     /// Queued at an explicit boundary; advance applies it before ordinary work.
     /// CR 104.3a, 800.4a/j. Pinned official rules:
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -288,6 +290,8 @@ impl Game {
         self.commit_concession(player, revision)?;
         Ok(())
     }
+}
+impl RulesTxn {
     fn reverse_departure_cast(&mut self, cast: Casting) -> Result<(), String> {
         self.reverse_cast(cast, "departure made casting targets illegal", true)
     }
@@ -662,6 +666,8 @@ impl Game {
         self.rules_mut().losing_players.clear();
         Ok(())
     }
+}
+impl Game {
     pub(crate) fn replay_to(
         prepared: Prepared,
         journal: &ReplayJournal,

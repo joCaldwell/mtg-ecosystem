@@ -82,7 +82,7 @@ impl GroupFinish {
             _ => None,
         }
     }
-    fn complete(self, game: &mut Game, batch: Option<&CommittedBatch>) -> Result<(), String> {
+    fn complete(self, game: &mut RulesTxn, batch: Option<&CommittedBatch>) -> Result<(), String> {
         let occurrences = batch.map_or(&[][..], |b| b.occurrences.as_slice());
         let single = batch.and_then(|b| b.result(&[]));
         match self {
@@ -158,7 +158,7 @@ impl GroupFinish {
 }
 
 impl GraveyardGroup {
-    pub(super) fn payment_stack(&self, game: &Game) -> Option<StackId> {
+    pub(super) fn payment_stack(&self, game: &RulesTxn) -> Option<StackId> {
         let GroupFinish::Payment { resume } = &self.finish else {
             return None;
         };
@@ -176,7 +176,7 @@ impl GraveyardGroup {
         }
     }
 
-    fn candidate(game: &Game, event: &ProposedEvent) -> Result<Option<Member>, String> {
+    fn candidate(game: &RulesTxn, event: &ProposedEvent) -> Result<Option<Member>, String> {
         let object = match event {
             ProposedEvent::DestroyPermanent { object }
             | ProposedEvent::DestroyCreature { object }
@@ -222,7 +222,7 @@ impl GraveyardGroup {
         !self.owed.is_empty() || !self.members.is_empty()
     }
 
-    fn next(&self, game: &Game) -> Option<Request> {
+    fn next(&self, game: &RulesTxn) -> Option<Request> {
         let decision_id = game.state.rules.revision;
         for player in game.apnap_seats() {
             if let Some(m) = self
@@ -266,7 +266,7 @@ impl GraveyardGroup {
         None
     }
 
-    pub(super) fn prior_choices(&self, game: &Game) -> Vec<(ObjectId, bool)> {
+    pub(super) fn prior_choices(&self, game: &RulesTxn) -> Vec<(ObjectId, bool)> {
         game.apnap_seats()
             .flat_map(|owner| {
                 self.members
@@ -300,7 +300,7 @@ impl GraveyardGroup {
             .collect()
     }
 
-    fn randomization(&self, game: &Game) -> Result<Randomization, String> {
+    fn randomization(&self, game: &RulesTxn) -> Result<Randomization, String> {
         let destinations = self.destinations()?;
         let random = game
             .state
@@ -366,7 +366,7 @@ impl GraveyardGroup {
             _ => None,
         }
     }
-    pub(super) fn validate(&self, game: &Game) -> Result<(), String> {
+    pub(super) fn validate(&self, game: &RulesTxn) -> Result<(), String> {
         let leaves = Self::leaves(&self.group)?;
         let limit = game.event_group_limit();
         if self.publishing_shuffle.is_some()
@@ -496,7 +496,7 @@ impl GraveyardGroup {
 
     pub(super) fn authorize(
         &self,
-        game: &Game,
+        game: &RulesTxn,
         cause: &BatchCause,
         group: &EventGroup,
     ) -> Result<Option<BTreeMap<ObjectId, Zone>>, String> {
@@ -544,7 +544,7 @@ impl GraveyardGroup {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn complete_graveyard_group(
         &mut self,
         cause: BatchCause,

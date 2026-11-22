@@ -60,12 +60,12 @@ fn library_members(proposed: &ProposedEvent) -> Option<(PlayerId, &[ObjectId])> 
 }
 
 impl GraveyardReplacement {
-    fn counter_target_left(&self, game: &Game) -> bool {
+    fn counter_target_left(&self, game: &RulesTxn) -> bool {
         matches!(&self.completion, GraveyardCompletion::Counter { target, source, .. }
             if !game.state.rules.stack.iter().any(|entry| entry.id == *target && entry.source == *source))
     }
 
-    fn request(&self, game: &Game) -> Option<Request> {
+    fn request(&self, game: &RulesTxn) -> Option<Request> {
         if !matches!(self.phase, ReplacementPhase::BeforeMovement)
             || !game.is_live(self.owner)
             || self.counter_target_left(game)
@@ -97,7 +97,7 @@ impl GraveyardReplacement {
         }
     }
 
-    fn last_index(&self, game: &Game) -> Result<u32, String> {
+    fn last_index(&self, game: &RulesTxn) -> Result<u32, String> {
         let len = game
             .state
             .rules
@@ -112,7 +112,7 @@ impl GraveyardReplacement {
     }
 }
 
-impl Game {
+impl RulesTxn {
     pub(super) fn has_self_graveyard_replacement(&self, object: ObjectId) -> Result<bool, String> {
         self.current(object)?;
         Ok(self
