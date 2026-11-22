@@ -226,51 +226,45 @@ or about this app.
 
 ## Deck editor and inspection
 
-The toolbar is one aligned working row: raised Add cards catalogue field, separator,
-find, compact tags, Group/Sort. Tablet Add cards gets its own row. `/`, Enter,
-Shift+Enter and Escape remain available; Shift+Enter shortlists and retains results.
-Results stay within the available viewport, and Escape returns to the input.
-Only current query/colour-scope options are actionable. Loading/errors/empty are
-statuses, not listbox options; omit add/maybe hints with no results while retaining
-Escape, syntax and wider-colour search.
+Add cards shares the toolbar with find, tags, Group and Sort; on tablets it gets
+its own row. `/` focuses Add cards, Enter adds, Shift+Enter shortlists and keeps
+results, and Escape returns focus to the input. Fit results within the viewport.
+Only current query/scope results are actionable. Loading, errors and empty results
+are statuses.
 
-Name/tag filters hide nonmatches and empty groups. Show matched/full counts,
-omit filtered group targets/costs and keep global totals/review scope unchanged.
-Active query/count/Clear/Export matches live in a separate context row beneath
-tablet navigation. No matches is one message. Clearing restores scroll, selection
-and open details.
+Filters hide nonmatches and empty groups, showing matched/full counts while
+retaining full totals and review scope. The query, Clear and Export matches
+sit below tablet navigation. Clearing restores scroll, selection and details.
 
-Desktop columns have 300 px minimum with 12 px gaps; tablets 250 px. Add columns at
-wide sizes rather than stretching existing ones. Editor rows are compact single
-lines; shared readers wrap long names. Prices use a fixed right-aligned tabular
-column near mana. Card rows are atomic inline flex boxes across native columns.
+Desktop columns are at least 300 px, tablet columns 250 px, with 12 px gaps.
+Add columns as space permits. Editor rows stay compact; shared readers wrap names.
+Fixed tabular prices sit beside mana. Inline flex rows stay atomic across columns.
 
-Add columns at wide sizes rather than stretching them. Card groups open the list.
-Primary activation opens card details and marks that row with a neutral fill.
+Card groups open the list. Clicking opens card details and marks that row with
+a neutral fill.
 Right-click, modifier-click, Shift+Space and the card details action toggle bulk
-selection on editable deck rows. The first selection reveals checkboxes in a
-reserved gutter and actions below the list without moving the rows. On tablets
-the actions stick to the bottom of the viewport. Maybe rows are whole buttons
-and stay outside bulk selection. `?` inspects.
+selection on editable deck rows. Once a selection is active, touch taps can add
+or remove cards. Selected rows use a blue outline and fill. The details and
+review fills take priority when both states apply. Bulk actions appear below the
+list without moving the rows and stick to the bottom of the viewport on tablets.
+Maybe rows are whole buttons and stay outside bulk selection. Blank space, mana
+and price all open details, and Enter or Space activates the row. Phone rows keep
+full mana and price while allowing names to truncate. Full linked notes appear
+in details. `?` inspects.
 
-Panel navigation stays one line: Review, Brief, Power, Stats, Checks, Memories,
-History. The strip scrolls when text needs more space, and Brief drafts survive
-view changes. Current view uses bright text, 2 px underline and `aria-current`; Review
-shows waiting only as its violet count. Inspection replaces navigation with
-icon-only Back naming the origin, title/status/mana, without duplicate body title
-or divider. Keep the previous view mounted, hidden/inert, preserving drafts,
-DOM, scroll and review cursor. Switching inspected cards retains the first origin.
-In a sheet, Escape returns from inspection first; explicit Close closes the sheet.
-Back has `--h-back` hit size and hover label. The body is a named region.
+The scrolling tab strip shows Review, Brief, Power, Stats, Checks, Memories and
+History. The current tab is bright, underlined and marked `aria-current`.
+Review's violet count shows what is waiting. Inspection replaces the strip with
+Back naming the origin, card title, status and mana. Keep the previous view
+mounted, hidden and inert, retaining drafts, scroll and the review cursor.
+Switching cards keeps the first origin. In a sheet, Escape leaves inspection
+first. Back uses `--h-back`; the body is a named region.
 
-Card facts use two blocks: picture at half-panel up to `--card-image-max` with
-type/price/source beside it, then full-width rules text at a constant measure.
-Short facts may leave space rather than narrowing rules text. The black form well
-aligns a `--card-label-w` label column/right control edge with taller controls;
-separate purpose from place with a hairline, ending with equal Move to maybe/Cut.
-Below 380 px labels stack; at tablet-sheet widths 680 px+ use a sticky picture.
-Read-only and TokenDetail retain the same facts layout. `?`, mana taps and unhandled
-inline card references open CardSheet with named modal/focus-return behavior.
+Type, price and source sit beside the picture, capped at `--card-image-max`.
+Rules text keeps a full-width measure. Labels use `--card-label-w` and
+stack below 380 px. The picture sticks at sheet widths of 680 px and wider.
+Read-only cards and tokens share the layout. `?`, mana taps and unhandled
+references open a named CardSheet that returns focus on close.
 
 Secondary purposes sit immediately below primary slot; do not repeat them on list
 rows. Board offers only Main deck and server-eligible roles while retaining an
