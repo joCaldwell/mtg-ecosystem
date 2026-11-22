@@ -1,12 +1,16 @@
 use super::*;
 
-const SOURCE: &str =
-    include_str!("../../../../../../tests/fixtures/e3570ac7-c593-40e3-bbd6-ec3da6d8158d.json");
+const SOURCE: &str = include_str!("../../../../../../tests/fixtures/phase1-r4/bond-land.json");
+const R4: &str = include_str!("../../../../../../tests/fixtures/archive-manifest-phase1-r4.json");
 
 #[test]
 fn opponent_count_entry_uses_remaining_players_and_replays() {
     let mut catalog = land_catalog();
-    catalog.definitions.push(lower(SOURCE));
+    let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(R4, SOURCE)
+    else {
+        panic!("the exact R4 Training Center row lowers");
+    };
+    catalog.definitions.push(*definition);
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));

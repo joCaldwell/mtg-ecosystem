@@ -5,7 +5,7 @@
 //! the diagnostic reference graph, and instead of counting printed punctuation.
 //! Each check below rejects with the exact residual, role or field it found.
 //!
-//! CR 109.5, 113.7a, 201.5, 601.2c, 608.2c, 608.2h, 700.2 (pinned 2026-09-25).
+//! CR 102.1, 109.5, 113.7a, 201.5, 601.2c, 603.2, 608.2c, 608.2h, 700.2 (pinned 2026-09-25).
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use crate::ast::{
@@ -115,6 +115,16 @@ impl Resolution {
                     && scope.is_none()
                     && controller.is_some()
                     && Some(c.role) != controller
+                {
+                    return Err(leaves());
+                }
+                // CR 603.2: a kernel event player belongs to the block's own
+                // trigger, the one trigger that supplies it.
+                if let Some(ResolvedRef::EventPlayer(e)) = resolved
+                    && let Some((_, trigger)) = kernel_event_player(&e.role)
+                    && (scope.is_some()
+                        || ability["kind"] != "triggered"
+                        || ability["trigger"]["trigger"] != trigger)
                 {
                     return Err(leaves());
                 }
@@ -342,6 +352,19 @@ impl Resolution {
             ));
         }
         Ok(())
+    }
+}
+
+/// CR 102.1, 601.2, 602.2, 603.2: the kernel's event-player roles, each with
+/// the one trigger discriminant whose event supplies it. The parser spells a
+/// role in this vocabulary only for that trigger; any other event player
+/// keeps its trigger's discriminant and is no kernel role.
+pub(super) fn kernel_event_player(role: &str) -> Option<(kir::EventPlayerRole, &'static str)> {
+    match role {
+        "active-player" => Some((kir::EventPlayerRole::ActivePlayer, "phase")),
+        "caster" => Some((kir::EventPlayerRole::Caster, "cast")),
+        "activating-player" => Some((kir::EventPlayerRole::ActivatingPlayer, "activate")),
+        _ => None,
     }
 }
 

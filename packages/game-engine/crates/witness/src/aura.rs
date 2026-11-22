@@ -7,14 +7,21 @@ pub const MIND: &str =
 pub const MAGIC: &str =
     include_str!("../../../tests/fixtures/cd0d7141-46d2-4aa3-bc77-6b3b4513803e.json");
 pub type Row = (&'static str, u8, u8, bool);
+const CURRENT: &str = include_str!("../../../tests/fixtures/archive-manifest-current.json");
 pub fn prepared_with_sources(rows: &[Row], extras: &[&str]) -> Prepared {
+    let extras: Vec<_> = extras.iter().map(|raw| (CURRENT, *raw)).collect();
+    prepared_with_archived_sources(rows, &extras)
+}
+/// As `prepared_with_sources`, each extra row compiled under its own archive
+/// manifest `(manifest, row)`.
+pub fn prepared_with_archived_sources(rows: &[Row], extras: &[(&str, &str)]) -> Prepared {
     let mut catalog = Catalog::read(include_str!(
         "../../../tests/fixtures/expected-wipes-ir.json"
     ))
     .unwrap();
     // Every added definition is compiled in its matching accepted archive
     // context. Never compare provenance from distinct parser/manifest identities.
-    for raw in [
+    for (manifest, raw) in [
         MIND,
         MAGIC,
         include_str!("../../../tests/fixtures/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"),
@@ -22,12 +29,11 @@ pub fn prepared_with_sources(rows: &[Row], extras: &[&str]) -> Prepared {
         include_str!("../../../tests/fixtures/1cb419cc-d8e4-4676-987f-089cebccc374.json"),
     ]
     .into_iter()
+    .map(|raw| (CURRENT, raw))
     .chain(extras.iter().copied())
     {
-        let mtg_compiler::CompileResult::Lowered { definition } = crate::compile(
-            include_str!("../../../tests/fixtures/archive-manifest-current.json"),
-            raw,
-        ) else {
+        let mtg_compiler::CompileResult::Lowered { definition } = crate::compile(manifest, raw)
+        else {
             panic!("complete frozen source must lower")
         };
         if raw == MIND || raw == MAGIC {
