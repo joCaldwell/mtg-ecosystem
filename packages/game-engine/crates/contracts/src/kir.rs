@@ -1550,9 +1550,9 @@ impl Walk<'_, '_> {
         }
         match set {
             SetExpr::Matching {
-                zone: ZoneExpr::Battlefield | ZoneExpr::Graveyards,
+                zone: zone @ (ZoneExpr::Battlefield | ZoneExpr::Graveyards),
                 filter,
-            } => Self::audited_filter(filter),
+            } => Self::audited_filter(zone, filter),
             SetExpr::One {
                 object: Ref::Source | Ref::BoundVar { .. },
             }
@@ -1966,8 +1966,10 @@ impl Walk<'_, '_> {
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
                 unaudited("nested set damage leaves top-level cursor facts")
             }
-            Verb::Draw { player, amount } if player.is_target() && !single_draw(player, amount) => {
-                unaudited("nested counted draw faults on an illegal target")
+            // CR 121.2: counted draws retain attempt progress and finish
+            // with an outcome that must match a top-level draw instruction.
+            Verb::Draw { player, amount } if !single_draw(player, amount) => {
+                unaudited("nested counted draw needs a top-level draw instruction")
             }
             _ => Ok(()),
         }
@@ -2145,7 +2147,7 @@ impl Walk<'_, '_> {
                     },
                 regeneration_forbidden,
             } => {
-                Self::audited_filter(filter)?;
+                Self::audited_filter(&ZoneExpr::Battlefield, filter)?;
                 if *regeneration_forbidden && *filter != Pred::nonland_permanents() {
                     return unaudited("regeneration prohibition for this set");
                 }
@@ -2160,7 +2162,7 @@ impl Walk<'_, '_> {
                         filter,
                     },
                 to: Destination::Exile | Destination::OwnerHand,
-            } => Self::audited_filter(filter),
+            } => Self::audited_filter(&ZoneExpr::Battlefield, filter),
             Verb::Move {
                 what:
                     SetExpr::Matching {
@@ -2308,7 +2310,7 @@ impl Walk<'_, '_> {
                     kind: CardKind::Creature,
                 }) =>
                 {
-                    Self::audited_filter(filter)
+                    Self::audited_filter(&ZoneExpr::Battlefield, filter)
                 }
                 _ => unaudited("pump set"),
             },
@@ -2395,7 +2397,7 @@ impl Walk<'_, '_> {
                             kind: CardKind::Creature,
                         }) =>
                 {
-                    Self::audited_filter(filter)?
+                    Self::audited_filter(&ZoneExpr::Battlefield, filter)?
                 }
                 DamageTo::Players {
                     players: PlayerExpr::EachPlayer,
@@ -2406,11 +2408,16 @@ impl Walk<'_, '_> {
         Ok(())
     }
 
-    /// The atoms the core evaluates for a board-wide set (CR 608.2h). Every
-    /// one reads only the object and the invocation's controller.
-    fn audited_filter(filter: &Pred) -> Result<(), KirError> {
+    /// The atoms the core can evaluate for a set in this zone (CR 608.2h).
+    fn audited_filter(zone: &ZoneExpr, filter: &Pred) -> Result<(), KirError> {
         for atom in &filter.0 {
             match atom {
+                // CR 110.5d, 506.3–4, 109.4: graveyard cards have no
+                // permanent status, combat participation, or controller.
+                Atom::Tapped | Atom::Untapped | Atom::Attacking | Atom::Blocking
+                | Atom::ControlledBy { .. } if *zone != ZoneExpr::Battlefield => {
+                    return unaudited("battlefield predicate outside the battlefield");
+                }
                 Atom::Type { .. }
                 | Atom::NotType { .. }
                 | Atom::AnyType { .. }
@@ -2425,6 +2432,8 @@ impl Walk<'_, '_> {
                 | Atom::Tapped
                 | Atom::Untapped
                 | Atom::Attacking
+                // CR 111.6: tokenhood is identity. Graveyard card sets
+                // already exclude tokens regardless of this predicate.
                 | Atom::Token
                 | Atom::NotToken
                 | Atom::Keyword { .. }
@@ -2442,7 +2451,9 @@ impl Walk<'_, '_> {
                     }
                 }
                 Atom::AnyOf { alternatives } => {
-                    alternatives.iter().try_for_each(Self::audited_filter)?
+                    alternatives
+                        .iter()
+                        .try_for_each(|alternative| Self::audited_filter(zone, alternative))?;
                 }
                 Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } => {
                     return unaudited("set filter atom");
@@ -3392,6 +3403,90 @@ mod tests {
             check(&Node::Seq(vec![optional_destroy]), &env),
             Err(KirError::Unaudited(_))
         ));
+    }
+
+    #[test]
+    fn control_rejects_counted_draw_leaves() {
+        let targets = [TargetSpec::new(0, "line:0:0", TargetDomain::AnyPlayer)];
+        let env = Env {
+            announced_x: true,
+            ..spell(&targets)
+        };
+        let you = PlayerExpr::you(Context::Spell);
+        let target = PlayerExpr::Is {
+            who: Ref::Target { slot: 0 },
+        };
+        for (player, amount) in [
+            (you.clone(), Amount::fixed(0)),
+            (you.clone(), Amount::fixed(2)),
+            (you.clone(), Amount::announced_x()),
+            (target.clone(), Amount::fixed(2)),
+            (PlayerExpr::EachPlayer, Amount::fixed(1)),
+        ] {
+            let leaf = Node::Do(Verb::Draw { player, amount });
+            assert!(check(&leaf, &env).is_ok());
+            assert!(matches!(
+                check(&Node::Seq(vec![leaf]), &env),
+                Err(KirError::Unaudited(reason)) if reason.contains("nested counted draw")
+            ));
+        }
+        for player in [you, target] {
+            let leaf = Node::Do(Verb::Draw {
+                player,
+                amount: Amount::fixed(1),
+            });
+            assert!(check(&Node::Seq(vec![leaf]), &env).is_ok());
+        }
+    }
+
+    #[test]
+    fn graveyard_control_sets_reject_battlefield_predicates() {
+        let you = PlayerExpr::you(Context::Spell);
+        let child = || Box::new(gain(you.clone(), Amount::fixed(1)));
+        for atom in [
+            Atom::Tapped,
+            Atom::Untapped,
+            Atom::Attacking,
+            Atom::Blocking,
+            Atom::ControlledBy {
+                player: you.clone(),
+            },
+        ] {
+            let set = SetExpr::Matching {
+                zone: ZoneExpr::Graveyards,
+                filter: Pred(vec![Atom::AnyOf {
+                    alternatives: vec![Pred::creatures(), Pred(vec![atom.clone()])],
+                }]),
+            };
+            let amount = Amount::Count { set: set.clone() };
+            for node in [
+                Node::If {
+                    condition: Cond::Exists { set: set.clone() },
+                    then: child(),
+                    otherwise: None,
+                },
+                Node::ForEach {
+                    var: 0,
+                    over: Domain::Objects { set: set.clone() },
+                    body: child(),
+                },
+                Node::Seq(vec![gain(you.clone(), amount.clone())]),
+                Node::Choose {
+                    var: 0,
+                    chooser: you.clone(),
+                    from: set,
+                    minimum: amount.clone(),
+                    maximum: amount,
+                    body: child(),
+                },
+            ] {
+                assert!(
+                    matches!(check(&node, &spell(&[])), Err(KirError::Unaudited(reason))
+                        if reason == "battlefield predicate outside the battlefield"),
+                    "{atom:?} in {node:?}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -8368,6 +8368,7 @@ pub fn catalog_schema() -> serde_json::Value {
     each_player_draw::extend_schema(&mut schema);
     group_discard::extend_schema(&mut schema);
     opponent_life_drain::extend_schema(&mut schema);
+    instruction_schema::extend_kernel_control_schema(&mut schema);
     targeted_game_loss::extend_schema(&mut schema);
     composed_spell::extend_schema(&mut schema);
     ordinary_sequence::extend_schema(&mut schema);

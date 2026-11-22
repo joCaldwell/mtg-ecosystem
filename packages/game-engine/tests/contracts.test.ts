@@ -73,6 +73,9 @@ test("exported schema distinguishes a kernel sequence from the standalone drain"
   const baseline = ["normal_layout_v1", "cast_sorcery_v1", "life_loss_v1"];
   spell.capabilities = [...baseline, "sacrifice_v1", "kernel_control_v1"];
   assert.ok(validate(catalog), JSON.stringify(validate.errors));
+  const missing = structuredClone(catalog);
+  missing.definitions[0].capabilities = spell.capabilities.filter((cap: string) => cap !== "kernel_control_v1");
+  assert.equal(validate(missing), false, "a kernel sequence requires kernel_control_v1");
 
   const gain = { do: { verb: "gain_life", player: you("spell_controller"),
     amount: { amount: "var", of: { ref: "step_result", step: 0, role: "amount" } } } };

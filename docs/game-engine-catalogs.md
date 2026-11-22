@@ -139,11 +139,12 @@ is in scope and of the right kind for the context, targets and event; rejects a
 filtered count of a hand or library (CR 400.2); and admits a verb only in an
 audited cell, one the core interpreter (`core/src/engine/kir.rs`) executes and
 recovers. `Definition::kernel_check` runs it for every program; the capability
-walker derives capabilities from verbs, and the published schema branch for a
-kernel node is the plain derived shape. A family schema twin names a kernel
-verb only to recognise its own programs. A well-scoped node without a cell is
-rejected as unaudited. The resolving frame can resume at an audited control
-node, with bindings and progress tied to its address in the admitted program.
+walker derives capabilities from verbs. The published schema uses the derived
+node shape and requires the continuation capability where a program uses it.
+A family schema twin names a kernel verb only to recognise its own programs.
+A well-scoped node without a cell is rejected as unaudited. The resolving
+frame can resume at an audited control node, with bindings and progress tied
+to its address in the admitted program.
 
 Every flat effect is a kernel verb; the audited cells are:
 
@@ -175,7 +176,10 @@ Controls read fixed amounts, announced X and counts of audited sets. Life
 changes, payments and choice bounds require nonnegative amounts. Object sets
 are matching battlefield permanents or cards across graveyards with the
 audited set predicates, single source or announced object identities, a bound
-singleton, or a bound choice pool. Player expressions name the invocation's
+singleton, or a bound choice pool. Tapped and untapped status, combat
+participation and controller filters require the battlefield in these sets
+(CR 110.5d, 506.3–4, 109.4), including in predicate alternatives. Graveyard
+card sets exclude tokens (CR 111.6). Player expressions name the invocation's
 controller, a bound player, the caster or active event player, or a player
 target in a prefix of ordinary player slots. They can also read the recorded
 owner of the source or a singleton iteration object. Player loops and life
@@ -186,7 +190,9 @@ cells.
 
 Every branch and leaf needs its own audited cell. Non-life leaves use the flat
 executor without task bindings, with a single announced target when they read a
-target. Targeted counted draws need a legal-target guard. Token creation and
+target. A nested draw must draw exactly one fixed card for one player. Counted
+draws, including each-player and announced-X draws, require a top-level draw
+instruction for their saved attempts and outcome. Token creation and
 temporary effects need persistent leaf provenance, and set damage retains
 facts tied to the top-level cursor. The specialized drain and optional target
 destroy retain their standalone routes. `Delayed` and `Reflexive` remain

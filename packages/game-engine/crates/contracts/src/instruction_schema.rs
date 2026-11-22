@@ -1,5 +1,5 @@
 use super::{
-    Instruction, PlayerExpr, SetExpr,
+    Capability, Instruction, PlayerExpr, SetExpr,
     kir::{Amount, DamageTo, EventPlayerRole, Ref, StepRole},
 };
 use serde_json::{Value, json};
@@ -492,6 +492,41 @@ pub(crate) fn kernel_drain(amount: Value) -> Value {
     "required":["seq"],"properties":{"seq":{"minItems":2,"maxItems":2,"prefixItems":[
         loss["properties"]["node"],gain["properties"]["node"]
     ]}}}}})
+}
+
+/// Fence programs that use `Node::uses_continuation` with their capability.
+/// The standalone drain and optional target destroy use dedicated executors.
+pub(super) fn extend_kernel_control_schema(schema: &mut Value) {
+    let control_nodes = ["seq", "if", "optional", "for_each", "choose", "unless_pays"]
+        .map(|key| json!({"required": [key]}));
+    let continuation = json!({
+        "required": ["op", "node"],
+        "properties": {
+            "op": {"const": "kernel"},
+            "node": {"anyOf": control_nodes}
+        },
+        "not": {"anyOf": [kernel_drain(json!(true)), optional_target_destroy(None)]}
+    });
+    let name = "KernelControlFreeProgram";
+    let free = json!({"$ref": format!("#/$defs/{name}")});
+    schema["$defs"][name] = json!({"properties": {
+        "instructions": {"items": {"not": continuation, "properties": {"program": free}}},
+        "modes": {"items": {"properties": {"program": free}}}
+    }});
+    let mut free_definition = operation_free_definition(name);
+    free_definition["properties"]["static_abilities"] = json!({"items": {"properties": {
+        "effect": {"properties": {
+            "bestow": {"properties": {"program": free}},
+            "grant_spell_cascade": {"properties": {"program": free}}
+        }}
+    }}});
+    schema["$defs"]["Definition"]["allOf"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({
+            "if": {"not": free_definition},
+            "then": {"properties": {"capabilities": {"contains": {"const": Capability::KernelControlV1}}}}
+        }));
 }
 
 /// Selects one kernel verb of `verbs` whose amount is the announced X
