@@ -166,8 +166,17 @@ Foundations and Ramos pod digests.
 
 ## Compositional lowering
 
-`compiler/src/lib.rs` tries whole-card families first. A record whose shape no
-family supports falls back to `compiler/src/compose.rs`, which repeats the
+The compiler is one pipeline: `ingest/` (hash-bound record, source, parse and
+typed AST mirror), `operands.rs` (total operand lowerers), `rules/` (effect,
+static, trigger and activation lowerers), `shells/` (Saga, modal/transforming
+faces, Bestow, optional costs, linked Hideaway) and `assemble.rs` (definition
+shell and admission), driven block by block by `compose.rs`. `families/` holds
+the residual whole-card families and the legacy diagnostic-graph builders
+(`bindings.rs`, `self_reference.rs`) that pre-R4 frozen fixture rows still need;
+`lib.rs` is only the public API and route. Families are tried first; retire one
+only when a whole-archive differential shows composition lowers its rows with
+equal IR and no fixture catalog row depends on it. A record whose shape no
+family supports falls back to `compose.rs`, which repeats the
 archive integrity checks, decodes the complete AST through the generated
 `mtg-oracle-ast` types and verifies the record's archive R4 resolution
 (`compiler/src/resolution.rs`, contract in the [parser guide](oracle_parser.md#ast-archive)):
