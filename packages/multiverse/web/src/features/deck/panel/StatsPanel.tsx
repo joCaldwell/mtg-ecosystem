@@ -2,7 +2,7 @@
 // arrange the same server-computed values here.
 import { TYPE_GROUPS } from "../../../domain/cards.ts";
 import { lazy, Suspense, type CSSProperties } from "react";
-import { Eyebrow, Loading, Text } from "../../../ui/index.ts";
+import { Loading, Text } from "../../../ui/index.ts";
 import { useDeckList } from "../DeckListStore.tsx";
 import styles from "./StatsPanel.module.css";
 
@@ -12,14 +12,14 @@ const CURVE_BUCKETS = ["0", "1", "2", "3", "4", "5", "6", "7+"];
 const ManaComparison = lazy(() => import("./ManaComparison.tsx").then(module => ({ default: module.ManaComparison })));
 
 export function StatsPanel({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
-  const heading = headingLevel === 2 ? "h2" : "h3";
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   const { state, viewer } = useDeckList();
   const { computed } = state;
   const curveTop = Math.max(1, ...CURVE_BUCKETS.map(bucket => computed.curve[bucket] ?? 0));
   const typeOrder = [...TYPE_GROUPS, "Other"].filter(type => (computed.type_counts[type] ?? 0) > 0);
   return <div className={styles.stats}>
       <section className={styles.section}>
-        <Eyebrow as={heading} className={styles.label}>Deck totals</Eyebrow>
+        <Heading className="visually-hidden">Deck totals</Heading>
         <dl className={styles.totals}>
           <div><dt>Cards</dt><dd>{computed.card_count}<span className={styles.maximum}> / 100</span></dd></div>
           <div><dt>Lands</dt><dd>{computed.land_count}</dd></div>
@@ -29,7 +29,7 @@ export function StatsPanel({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
       </section>
 
       <section className={styles.section}>
-        <Eyebrow as={heading} className={styles.label}>Mana curve</Eyebrow>
+        <Heading className="visually-hidden">Mana curve</Heading>
         <div className={styles.curve} role="img" aria-label={`Mana curve: ${CURVE_BUCKETS.map((b) => `${computed.curve[b] ?? 0} at ${b}`).join(", ")}`}>
           {CURVE_BUCKETS.map((b) => {
             const n = computed.curve[b] ?? 0;
@@ -46,7 +46,7 @@ export function StatsPanel({ headingLevel = 2 }: { headingLevel?: 2 | 3 }) {
       </section>
 
         <section className={styles.section}>
-          <Eyebrow as={heading} className={styles.label}>Card types</Eyebrow>
+          <Heading className="visually-hidden">Card types</Heading>
           {typeOrder.length ? <ul className={styles.types} aria-label="Card-type groups and copy counts">
             {typeOrder.map((t) => (
               <li key={t}>
