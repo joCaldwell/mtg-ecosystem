@@ -1,21 +1,53 @@
-//! CR 400.7j, 608.2c–g, 609.3, 701.20, 701.24, 702.144a and 707.10.
+//! The Demonstrate keyword (CR 702.144a, 707.10) and the reveal-and-cast
+//! effect (CR 400.7j, 608.2c-g, 609.3, 701.20, 701.24), each lowered from its
+//! own printed block. A definition is admitted as the reviewed composition:
+//! a sorcery whose blocks are exactly those two, in that order.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use serde_json::{Value, json};
 
-const SCAN: &str =
+pub const SCAN: &str =
     "Shuffle your library, then reveal cards from the top of it until you reveal a nonland card.";
-const SPELL_TEXT: &str = concat!(
+/// CR 702.144a: the keyword line with its reminder text.
+pub const DEMONSTRATE: &str = "Demonstrate (When you cast this spell, you may copy it. If you do, choose an opponent to also copy it.)";
+/// CR 701.20, 701.24, 608.2c-g: the reveal-and-cast effect line.
+pub const REVEAL_AND_CAST: &str = concat!(
     "Shuffle your library, then reveal cards from the top of it until you reveal a nonland card. ",
     "Exile that card and put the rest on the bottom of your library in a random order. ",
     "You may cast the exiled card without paying its mana cost."
 );
-const TEXT: &str = concat!(
-    "Demonstrate (When you cast this spell, you may copy it. If you do, choose an opponent to also copy it.)\n",
-    "Shuffle your library, then reveal cards from the top of it until you reveal a nonland card. ",
-    "Exile that card and put the rest on the bottom of your library in a random order. ",
-    "You may cast the exiled card without paying its mana cost."
-);
+/// The printed blocks of the reviewed composition, in order.
+fn text() -> String {
+    format!("{DEMONSTRATE}\n{REVEAL_AND_CAST}")
+}
+
+/// The typed AST of the Demonstrate keyword block.
+pub fn demonstrate_block() -> Value {
+    json!({"kind":"keywords","keywords":[{"keyword":"demonstrate"}]})
+}
+
+/// The typed AST of the reveal-and-cast spell block.
+pub fn reveal_and_cast_block() -> Value {
+    abilities()[1].clone()
+}
+
+/// Which reviewed block a printed AST block is, if either.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Block {
+    Demonstrate,
+    RevealAndCast,
+}
+
+/// Classifies one printed block as one of the two reviewed blocks.
+pub fn block(ast: &Value) -> Option<Block> {
+    if *ast == demonstrate_block() {
+        Some(Block::Demonstrate)
+    } else if *ast == reveal_and_cast_block() {
+        Some(Block::RevealAndCast)
+    } else {
+        None
+    }
+}
 const INVALID: &str = "requires the complete targetless demonstrate and reveal-and-cast sorcery";
 const CAPS: [Capability; 8] = [
     Capability::NormalLayoutV1,
@@ -29,6 +61,7 @@ const CAPS: [Capability; 8] = [
 ];
 
 fn abilities() -> Value {
+    // The keyword block, then the spell block.
     let you = json!({"player":"you"});
     let library = json!({"zone":"library","owner":"your"});
     let card = json!({"cls":"card"});
@@ -165,11 +198,11 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         || source["mana_cost"] != c.mana_cost.printed_fixed_cost()
         || source["colors"] != json!(c.colors)
         || source["color_identity"] != json!(c.color_identity)
-        || source["oracle_text"] != TEXT
+        || source["oracle_text"] != text().as_str()
         || strict_read::<Value>(raw_ast)? != abilities()
         || d.source_labels.as_ref().is_some_and(|l| {
-            l.text != TEXT
-                || l.blocks != ["Demonstrate", SPELL_TEXT]
+            l.text != text()
+                || l.blocks != ["Demonstrate", REVEAL_AND_CAST]
                 || l.triggered != [0]
                 || !l.activated.is_empty()
                 || !l.mana.is_empty()
@@ -219,7 +252,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         .push(json!({
             "properties":{"modes":{"items":{"properties":{"program":{"not":reserved}}}}}
         }));
-    let oracle = TEXT
+    let oracle = text()
         .replace('(', r"\(")
         .replace(')', r"\)")
         .replace('.', r"\.")
@@ -251,7 +284,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "x_mana_cost":{"const":false},"intrinsic_zone":{"type":"null"},"keywords":{"maxItems":0},
             "mana_abilities":{"maxItems":0},"activated":{"maxItems":0},"static_abilities":{"maxItems":0},
             "source_labels":{"properties":{
-                "text":{"const":TEXT},"blocks":{"const":["Demonstrate",SPELL_TEXT]},"triggered":{"const":[0]},
+                "text":{"const":text()},"blocks":{"const":["Demonstrate",REVEAL_AND_CAST]},"triggered":{"const":[0]},
                 "activated":{"maxItems":0},"mana":{"maxItems":0},"statics":{"maxItems":0},"spell_modes":{"maxItems":0}
             }},
             "provenance":{"properties":{

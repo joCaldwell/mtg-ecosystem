@@ -344,7 +344,7 @@ mod tests {
             .unwrap()
             .clone();
         let raw =
-            include_str!("../../../tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json")
+            include_str!("../../../tests/fixtures/ramos/fd949f82-fc10-4e37-8aa9-6c7569fe3c55.json")
                 .as_bytes();
         accepted.file_sha256 = Some(sha256(&[header.as_slice(), raw].concat()));
         let (catalog, index, _) = intake(Cursor::new(raw), header.clone(), &accepted).unwrap();

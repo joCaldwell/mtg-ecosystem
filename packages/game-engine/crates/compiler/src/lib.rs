@@ -64,9 +64,9 @@ mod counter_spell_controller_mill;
 mod counter_spell_controller_mill_tests;
 mod counter_unless_generic;
 pub mod coverage;
-mod creative_technique;
 mod creature_entry_return;
 mod creature_planeswalker_return;
+mod demonstrate;
 mod diagnostics;
 mod distinct_permanent_colors;
 mod divided_plus_one_counters;
@@ -309,7 +309,7 @@ enum Ability {
     #[serde(skip)]
     DividedPlusOneCountersModal,
     #[serde(skip)]
-    CommanderModalKeyword,
+    CommanderModalKeyword(Box<SpellProgram>),
     #[serde(skip)]
     PlayerGraveyardShuffle,
     #[serde(skip)]
@@ -1567,14 +1567,6 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
     }
-    if r.status != "parsed"
-        && archive.manifest_sha256 == library_top_mana::ARCHIVE
-        && r.source_sha256 == library_top_mana::SOURCE
-        && sha256(record.strip_suffix('\n').unwrap_or(record).as_bytes())
-            == library_top_mana::ARCHIVED_ROW
-    {
-        return library_top_mana::frozen_definition().map_err(|e| invalid("reparse", e));
-    }
     if let Some(definition) = greatest_power::lower(&r, archive)? {
         return Ok(definition);
     }
@@ -1668,7 +1660,26 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                 "library-top mana requires its accepted exact archive row",
             ));
         }
-        return library_top_mana::typed_archive_definition(SourceProvenance {
+        // Archive R4: every reference resolves in the closed vocabulary to the
+        // block's controller (CR 109.5), and the resolution covers every
+        // reference and step of the AST. The parser leaves only the look-top
+        // step's event unaccounted (its sole residual, which `covers` reaches
+        // last: the reviewed template has one step in its final block); the
+        // template in `archive_definition` proves that step instead.
+        const REVIEWED: &str = "step:look-top-may-reveal-for-mana";
+        let resolution =
+            resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;
+        let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
+        resolution
+            .ordinary_antecedents(&printed)
+            .map_err(|e| unsupported("binding", e.reason))?;
+        for check in [resolution.complete(), resolution.covers(&printed)] {
+            match check {
+                Err(e) if e.reason != REVIEWED => return Err(unsupported("binding", e.reason)),
+                _ => {}
+            }
+        }
+        return library_top_mana::archive_definition(SourceProvenance {
             printing_id: source.id,
             source_index: r.source_index,
             source_sha256: r.source_sha256,
@@ -1784,12 +1795,12 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
             Ability::PrintedProtectionFromEverything,
             Ability::SelfGraveyardRevealShuffle,
         ]
-    } else if creative_technique::candidate(&source, &shape) {
-        vec![Ability::Demonstrate, Ability::RevealAndCast]
+    } else if let Some(abilities) = demonstrate::lower(&source, &shape, &result)? {
+        abilities
     } else if let Some(abilities) = hand_cast_cascade::lower(&source, &shape, &result, &binding)? {
         abilities
-    } else if commander_modal_keyword::validate(&shape, &result, &binding)? {
-        vec![Ability::CommanderModalKeyword]
+    } else if let Some(program) = commander_modal_keyword::validate(&shape, &result, &binding)? {
+        vec![Ability::CommanderModalKeyword(Box::new(program))]
     } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
         vec![Ability::DividedPlusOneCountersModal]
     } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
@@ -2932,8 +2943,8 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                     definition.static_abilities.push(a);
                     continue;
                 }
-                if let Ability::CommanderModalKeyword = ability {
-                    program = mtg_contracts::commander_modal_keyword::program().clone();
+                if let Ability::CommanderModalKeyword(lowered) = ability {
+                    program = (**lowered).clone();
                     continue;
                 }
                 if let Ability::DividedPlusOneCountersModal = ability {
@@ -3355,7 +3366,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
     definition.capabilities = definition.requirements();
     // The commander choice requires all three source labels at admission.
     // Its shape and binding graph were checked before lowering.
-    if !definition.spell.as_ref().is_some_and(akromas_will_program) {
+    if !definition.spell.as_ref().is_some_and(commander_choose_both) {
         definition
             .validate()
             .map_err(|e| unsupported("definition", e))?;
@@ -3373,7 +3384,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
         controlled_creature_spell_copy::validate_binding(&definition, &shape, &binding)?;
     }
     if definition.capabilities.contains(&Capability::DemonstrateV1) {
-        creative_technique::validate_binding(&definition.oracle_id, &shape, &binding)?;
+        demonstrate::validate_binding(&definition.oracle_id, &shape, &binding)?;
     }
     self_spell_protection::validate_binding(&definition, &binding)?;
     cast_entry::validate_binding(&definition, &shape, &binding)?;
@@ -3405,7 +3416,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
             .flat_map(|block| block.lines().skip(1))
             .map(str::to_owned)
             .collect();
-        if akromas_will_program(spell) {
+        if commander_choose_both(spell) {
             labels.spell_modes.push(labels.spell_modes.join("\n"));
         }
         if labels.spell_modes.len() != spell.modes.len()
@@ -12273,12 +12284,19 @@ fn hybrid_announcement_requires_the_exact_source_face_and_empty_ability_graph() 
 }
 
 #[test]
-fn frozen_library_top_mana_requires_complete_source_and_reparse() {
+fn library_top_mana_lowers_only_through_the_typed_r4_pipeline() {
+    // The revision-17 row is unparsed: no reparse bypass supplies its AST.
     let header = include_str!("../../../tests/fixtures/ramos/archive-manifest-current.json");
     let row =
         include_str!("../../../tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json");
-    let CompileResult::Lowered { definition } = compile(header, row) else {
-        panic!("expected frozen reparse")
+    assert!(!matches!(
+        compile(header, row),
+        CompileResult::Lowered { .. }
+    ));
+    let r4 = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    let row = include_str!("../../../tests/fixtures/phase1-r4/library-top-mana.json");
+    let CompileResult::Lowered { definition } = compile(r4, row) else {
+        panic!("expected the typed R4 composition")
     };
     definition.validate().unwrap();
     assert_eq!(
@@ -12293,8 +12311,17 @@ fn frozen_library_top_mana_requires_complete_source_and_reparse() {
             source_block: 1
         }]
     );
+    // Any other row, even one changed consistently, is not the accepted row.
+    let changed = tests::changed_source(row, |r| {
+        r["source"]["oracle_text"] = serde_json::json!(
+            r["source"]["oracle_text"]
+                .as_str()
+                .unwrap()
+                .replace("three or more", "four or more")
+        )
+    });
     assert!(!matches!(
-        compile(header, &row.replace("three or more", "four or more")),
+        compile(r4, &changed),
         CompileResult::Lowered { .. }
     ));
     let mut changed = *definition;

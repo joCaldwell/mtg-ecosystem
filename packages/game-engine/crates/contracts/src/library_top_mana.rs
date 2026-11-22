@@ -3,16 +3,6 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-pub const ARCHIVED_ROW: &str = "13234a94184005a029e34f9b084bfa8df1faa36ce041f8996c999369b74b0775";
-pub const ARCHIVED_BINDING: &str =
-    "5f0cc7147ffbaddb4f4c15ec6ed1a8fa9fe5e11661e7d76b0efc11df0890d254";
-pub const SOURCE: &str = "ef30e9c890e3c92f31f307688bef9808a94381b2f1fc10eccb62a3225e64932d";
-pub const AST: &str = "47fbe83b9eb8cf9ad82b9a1d2e20a1222d81840df0cbdc13f0cd230017554197";
-pub const BINDING: &str = "8c50edda9acb04773896234c7038ee1eadb4c78365a788d0700130e5b505851f";
-const TYPED_BINDING: &str = "5f1c3ead6ab2430907b209c6fd861f12dc954f42c86cb13cfda83415cce06100";
-pub const PARSER: &str = "f2c18417c3f3d0acb40880c0beede8d0a600a87beeec5c0ed52d070f2eb56d21";
-pub const ARCHIVE: &str = "994bc48e8d8791696330f63338bc32ee0bd17c8c7e9901956ebd35c171f9315a";
-
 fn definition(provenance: SourceProvenance) -> Result<Definition, String> {
     let source: serde_json::Value = strict_read(&provenance.source_json)?;
     let field = |key: &str| source[key].as_str().ok_or("missing printed field");
@@ -221,61 +211,48 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
     Ok(true)
 }
 
-pub(super) fn authenticated_reparse(p: &SourceProvenance) -> bool {
-    p.source_sha256 == SOURCE
-        && p.ast_sha256 == AST
-        && p.binding_sha256 == BINDING
-        && p.archive_manifest_sha256 == ARCHIVE
-        && p.parser_sha256 == PARSER
-        && p.source_index == 5753
+/// CR 106.4, 701.20: the composition this module reviews, built from any
+/// accepted archive row whose complete Oracle text and AST have its exact
+/// structure. Archive integrity and the R4 resolution are the compiler's.
+pub fn archive_definition(provenance: SourceProvenance) -> Result<Definition, String> {
+    let d = definition(provenance)?;
+    d.validate()?;
+    Ok(d)
 }
-// The archive identifies the unchanged failed row. The AST and binding are the
-// independent compact JSON subvalues from the complete c38aef79 reparse.
-pub fn frozen_definition() -> Result<Definition, String> {
+
+/// The reviewed Omnath, Locus of All source with the structural AST
+/// template, as a test witness of the composition.
+#[cfg(test)]
+pub(crate) fn witness() -> Definition {
     #[derive(Deserialize)]
     struct Row {
         source: Box<serde_json::value::RawValue>,
     }
     let row: Row = strict_read(include_str!(
         "../../../tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json"
-    ))?;
+    ))
+    .unwrap();
     let abilities =
         include_str!("../../../tests/fixtures/ramos/library-top-mana-abilities.json").trim_end();
     let graph =
         include_str!("../../../tests/fixtures/ramos/library-top-mana-binding.json").trim_end();
-    let provenance = SourceProvenance {
+    let archive = accepted_archives()
+        .unwrap()
+        .into_iter()
+        .find(|a| a.file_sha256.is_some())
+        .unwrap();
+    archive_definition(SourceProvenance {
         printing_id: "33d94ecf-758b-4f68-a7be-6bf3ff1047f4".into(),
         source_index: 5753,
         source_sha256: sha256(row.source.get().as_bytes()),
         ast_sha256: sha256(format!("[{abilities}]").as_bytes()),
         binding_sha256: sha256(graph.as_bytes()),
-        archive_manifest_sha256: ARCHIVE.into(),
-        parser_sha256: PARSER.into(),
+        archive_manifest_sha256: archive.manifest_sha256.clone(),
+        parser_sha256: archive.parser_source_sha256.clone(),
         source_json: row.source.get().into(),
         abilities_json: abilities.into(),
-    };
-    if !authenticated_reparse(&provenance) {
-        return Err("frozen reparse identity mismatch".into());
-    }
-    let d = definition(provenance)?;
-    d.validate()?;
-    Ok(d)
-}
-
-/// Build the already reviewed composition from its complete typed archive row.
-pub fn typed_archive_definition(provenance: SourceProvenance) -> Result<Definition, String> {
-    if provenance.source_index != 5753
-        || provenance.source_sha256 != SOURCE
-        || provenance.ast_sha256 != AST
-        || provenance.binding_sha256 != TYPED_BINDING
-    {
-        return Err(
-            "requires the complete reviewed typed library-top and mana replacement graph".into(),
-        );
-    }
-    let d = definition(provenance)?;
-    d.validate()?;
-    Ok(d)
+    })
+    .unwrap()
 }
 
 pub(super) fn marker_schema() -> serde_json::Value {
@@ -318,7 +295,7 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
 
 #[test]
 fn renamed_library_top_composition_binds_its_printed_quantities_and_characteristics() {
-    let mut p = frozen_definition().unwrap().provenance;
+    let mut p = witness().provenance;
     let mut source: serde_json::Value = strict_read(&p.source_json).unwrap();
     let graph = include_str!("../../../tests/fixtures/ramos/library-top-mana-binding.json")
         .replace("26445dc7-8363-4205-aee8-1cafeb4ba4c0", "synthetic-prism")

@@ -3,7 +3,7 @@ mod builders;
 mod mana_combination;
 pub use mana_combination::{MANA_COMBINATION_COLORS, validate_mana_combination};
 pub mod commander_modal_keyword;
-pub use commander_modal_keyword::akromas_will_program;
+pub use commander_modal_keyword::commander_choose_both;
 mod bestow;
 pub use bestow::{BestowCastPlan, BestowForm, bestow_alternative, canonical_bestow_program};
 mod cascade_land_entry;
@@ -73,7 +73,7 @@ mod cast_mana_value_sweep;
 mod cast_origin;
 mod cast_payer_draw;
 mod controlled_creature_spell_copy;
-mod creative_technique;
+pub mod demonstrate;
 pub use cast_payer_draw::cast_payer_draw_trigger;
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
@@ -3547,7 +3547,7 @@ impl Definition {
         controlled_phasing::validate(self)?;
         counter_unless_generic::validate_definition(self)?;
         controlled_creature_spell_copy::validate_definition(self)?;
-        creative_technique::validate_definition(self)?;
+        demonstrate::validate_definition(self)?;
         self_graveyard_shuffle::validate_definition(self)?;
         library_selection::validate_definition(self)?;
         library_order::validate_definition(self)?;
@@ -3609,7 +3609,7 @@ impl Definition {
                     && (!matches!(
                         self.characteristics.kind,
                         CardKind::Instant | CardKind::Sorcery
-                    ) || !(ordinary_keyword_grant(p) || akromas_will_program(p)))
+                    ) || !(ordinary_keyword_grant(p) || commander_choose_both(p)))
             })
         {
             return Err("unsupported complete temporary keyword definition".into());
@@ -3940,11 +3940,10 @@ impl Definition {
         {
             return Err("invalid identity, characteristics, or capability closure".into());
         }
-        if !(accepted_provenance(
+        if !accepted_provenance(
             &self.provenance.archive_manifest_sha256,
             &self.provenance.parser_sha256,
-        ) || library_top_mana::authenticated_reparse(&self.provenance))
-            || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
+        ) || sha256(self.provenance.source_json.as_bytes()) != self.provenance.source_sha256
             || sha256(format!("[{}]", self.provenance.abilities_json).as_bytes())
                 != self.provenance.ast_sha256
         {
@@ -4504,8 +4503,7 @@ impl Definition {
                     || p.resolution != SpellResolution::Instructions
                     || !p.targets.is_empty()
                     || !p.modes.is_empty()
-                    || !(is_canonical_cascade_program(p)
-                        || creative_technique::is_demonstrate_program(p))
+                    || !(is_canonical_cascade_program(p) || demonstrate::is_demonstrate_program(p))
                 {
                     return Err("unsupported self-cast trigger shape".into());
                 }
@@ -4961,7 +4959,7 @@ impl Definition {
                     return Err("invalid spell functioning zone or empty program".into());
                 }
                 // The closed modal grant was validated as a whole, including its protected child.
-                if !akromas_will_program(p) {
+                if !commander_choose_both(p) {
                     validate_instruction_program(p)?;
                 }
             }
@@ -6363,7 +6361,7 @@ fn add_program_requirements_for_source_pump(
         if matches!(program.resolution, SpellResolution::ChooseModes { .. }) {
             set.insert(Capability::FixedTargetModesV1);
         }
-        if akromas_will_program(program) {
+        if commander_choose_both(program) {
             set.insert(Capability::CommanderModalKeywordGrantV1);
         }
         if program.resolution == SpellResolution::OneOrMoreModes {
@@ -6964,7 +6962,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
         "instructions":{"items":{"not":cascade}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}}
     }});
     schema["$defs"]["TriggeredAbility"].as_object_mut().unwrap().entry("allOf").or_insert_with(|| serde_json::json!([])).as_array_mut().unwrap().push(serde_json::json!({
-        "if":self_condition,"then":{"anyOf":[ability,creative_technique::demonstrate_trigger_schema()]},
+        "if":self_condition,"then":{"anyOf":[ability,demonstrate::demonstrate_trigger_schema()]},
         "else":{"properties":{"functioning_zone":{"const":"battlefield"},"program":{"$ref":"#/$defs/CascadeFreeProgram"}}}
     }));
     let grant_effect = serde_json::json!({"type":"object","required":["grant_spell_cascade"]});
@@ -7027,7 +7025,7 @@ fn cascade_schema(schema: &mut serde_json::Value) {
             "then":{"properties":{"capabilities":{"contains":{"const":Capability::CascadeV1}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::CascadeV1}}}}}
         }),
-        serde_json::json!({"if":{"anyOf":[present,creative_technique::reveal_spell_schema(),linked_hideaway::capability_schema()]},
+        serde_json::json!({"if":{"anyOf":[present,demonstrate::reveal_spell_schema(),linked_hideaway::capability_schema()]},
             "then":{"properties":{"capabilities":{"allOf":yes}}},"else":{"properties":{"capabilities":{"allOf":no}}}
         })
     ]);
@@ -8168,7 +8166,7 @@ pub fn catalog_schema() -> serde_json::Value {
     controlled_phasing::schema(&mut schema);
     counter_unless_generic::extend_schema(&mut schema);
     controlled_creature_spell_copy::extend_schema(&mut schema);
-    creative_technique::extend_schema(&mut schema);
+    demonstrate::extend_schema(&mut schema);
     self_graveyard_shuffle::extend_schema(&mut schema);
     library_selection::extend_schema(&mut schema);
     library_order::extend_schema(&mut schema);
@@ -9115,7 +9113,7 @@ mod tests {
         definitions.push(repeated_target_modes::witness());
         definitions.push(creature_planeswalker_return::witness());
         definitions.push(controlled_creature_spell_copy::witness());
-        definitions.push(creative_technique::witness());
+        definitions.push(demonstrate::witness());
         definitions.push(library_selection::witness());
         definitions.push(library_order::witness());
         definitions.push(hand_return::witness());
@@ -9412,7 +9410,7 @@ mod tests {
             .unwrap()
             .clone();
         definitions.push(unspent_mana::witness(source));
-        definitions.push(library_top_mana::frozen_definition().unwrap());
+        definitions.push(library_top_mana::witness());
         let sweep = definitions
             .iter()
             .find(|d| d.name == "Planar Cleansing")

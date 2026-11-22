@@ -870,7 +870,7 @@ impl Game {
         let Some(root) = definition
             .spell
             .as_ref()
-            .filter(|p| mtg_contracts::akromas_will_program(p))
+            .filter(|p| mtg_contracts::commander_choose_both(p))
         else {
             return false;
         };
@@ -895,7 +895,7 @@ impl Game {
                 .ok()
                 .and_then(|definition| definition.spell.as_ref())
                 .is_some_and(|root| {
-                    mtg_contracts::akromas_will_program(root)
+                    mtg_contracts::commander_choose_both(root)
                         && root
                             .modes
                             .get(mode as usize)
