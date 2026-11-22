@@ -1,4 +1,4 @@
-//! Exercise control below admission until the shared checker opens those cells.
+//! Exercise audited continuations and the interpreter's interactive choice path.
 use super::*;
 use mtg_contracts::kir::{
     Amount, Cond, Context, Domain, Node, Payment, PlayerExpr, Pred, Ref, SetExpr, Verb,
@@ -199,7 +199,40 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
     let Instruction::Kernel { node, .. } = &mut program.instructions[0] else {
         panic!("expected the admitted sacrifice verb")
     };
-    *node = Node::Seq(vec![node.clone(), gain(controller(), Amount::fixed(4))]);
+    let candidates = SetExpr::battlefield(Pred::creatures());
+    let size = Amount::Count {
+        set: candidates.clone(),
+    };
+    *node = Node::Seq(vec![
+        node.clone(),
+        Node::Choose {
+            var: 3,
+            chooser: controller(),
+            from: candidates,
+            minimum: size.clone(),
+            maximum: size,
+            body: Box::new(gain(
+                PlayerExpr::OwnerOf {
+                    object: Ref::Source,
+                },
+                Amount::Count {
+                    set: SetExpr::Pool {
+                        pool: Ref::BoundVar { id: 3 },
+                    },
+                },
+            )),
+        },
+    ]);
+    mtg_contracts::kir::check(
+        node,
+        &mtg_contracts::kir::Env {
+            context: Context::Spell,
+            targets: &program.targets,
+            event: None,
+            announced_x: false,
+        },
+    )
+    .unwrap();
     prepared.catalog_digest = mtg_contracts::digest(catalog).unwrap();
     let mut game = super::formats_tests::cast_edict(prepared.clone());
     let next = game.advance(Budget::unlimited());
@@ -246,13 +279,13 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
         assert!(matches!(outcomes.as_slice(), [
             InstructionOutcome::Sacrificed { player: p, movement: Some(movement) },
             InstructionOutcome::Life { actual: Some(EventOutcome::LifeGained { player: PlayerId(0), amount, .. }) }
-        ] if *p == player && movement.previous == candidates[0] && *amount == Quantity::from(4)));
+        ] if *p == player && movement.previous == candidates[0] && *amount == Quantity::from(2)));
         g.validate_state().unwrap();
         let roundtrip = Game::restore(prepared.clone(), &g.snapshot().unwrap()).unwrap();
         assert_eq!(roundtrip.state_digest().unwrap(), g.state_digest().unwrap());
         assert!(g.state.rules.frames.is_empty());
         let mut expected = before.clone();
-        expected.add(&4.into());
+        expected.add(&2.into());
         assert_eq!(g.state.rules.players[0].life, expected);
         g.validate_state().unwrap();
     }

@@ -142,14 +142,14 @@ recovers. `Definition::kernel_check` runs it for every program; the capability
 walker derives capabilities from verbs, and the published schema branch for a
 kernel node is the plain derived shape. A family schema twin names a kernel
 verb only to recognise its own programs. A well-scoped node without a cell is
-rejected as unaudited; control nodes are scope-checked but have no cell until
-the resolving frame can resume inside a node.
+rejected as unaudited. The resolving frame can resume at an audited control
+node, with bindings and progress tied to its address in the admitted program.
 
 Every flat effect is a kernel verb; the audited cells are:
 
 | Verb | Audited operands |
 | --- | --- |
-| `gain_life`, `lose_life` | Controller (fixed or X), each opponent, one announced player (fixed or X), or the caster/active event player; the drain pair is the one audited `seq` |
+| `gain_life`, `lose_life` | Controller (fixed or X), each opponent, one announced player (fixed or X), or the caster/active event player; the standalone drain pair uses a dedicated executor |
 | `draw` | Controller, every player, one announced player (fixed or X), or the caster/active event player |
 | `damage` | From the source: one announced target (fixed or X for any target or creature), the controller, a mana ability's activator, or creature sets plus optionally each player (fixed, X, creature count or other casts' mana value) |
 | `destroy`, `move`, `tap`, `untap` | One announced target by domain (destroy; exile, owner's hand, top of owner's library; tap; untap), an optional target destroy, matching battlefield sets, your lands (untap), one player's graveyard or every graveyard (exile) |
@@ -161,8 +161,42 @@ The core interpreter routes each cell to the executor whose events, choices,
 effects and recovery facts the legacy variant used, so state and journals are
 unchanged. Board-wide sets evaluate directly via the general battlefield or
 graveyard query.
-Control, linked and multi-step procedures stay legacy variants (optional
-blocks and draws, cascade, hideaway, impulse and library selection, searches,
+
+`Seq` follows written order. `If` supports `Compare`, `Exists`, `CostPaid`,
+`Not` and `All`. `ForEach` binds a player or a singleton object.
+`Optional` and `UnlessPays` take a singleton player expression, and
+`UnlessPays` supports life and generic mana. The continuation skips an optional
+effect with no live chooser and takes the unpaid branch with no live payer.
+`Choose` binds a pool from a matching public set when both bounds force zero
+or the size of that set. Interactive object choice remains unaudited because
+the saved candidates and chooser are not refreshed on departure (CR 800.4a/g).
+
+Controls read fixed amounts, announced X and counts of audited sets. Life
+changes, payments and choice bounds require nonnegative amounts. Object sets
+are matching battlefield permanents or cards across graveyards with the
+audited set predicates, single source or announced object identities, a bound
+singleton, or a bound choice pool. Player expressions name the invocation's
+controller, a bound player, the caster or active event player, or a player
+target in a prefix of ordinary player slots. They can also read the recorded
+owner of the source or a singleton iteration object. Player loops and life
+leaves can read each player or each opponent. Target owners, object controllers
+and life totals can require missing or last-known facts the continuation cannot
+always read. Object stats and cast-history amounts remain outside the control
+cells.
+
+Every branch and leaf needs its own audited cell. Non-life leaves use the flat
+executor without task bindings, with a single announced target when they read a
+target. Targeted counted draws need a legal-target guard. Token creation and
+temporary effects need persistent leaf provenance, and set damage retains
+facts tied to the top-level cursor. The specialized drain and optional target
+destroy retain their standalone routes. `Delayed` and `Reflexive` remain
+unaudited. Control nodes derive capabilities from their leaves, including
+target- and program-sensitive requirements. Continuation-based nodes also
+require `KernelControlV1`, which is outside the reviewed hosting and search
+sets. Catalog family admission still applies.
+
+Other linked and multi-step procedures stay legacy variants (optional blocks
+and draws, cascade, hideaway, impulse and library selection, searches,
 scry/surveil, demonstrate, reveal-and-cast, counterspells, copies, bestow and
 attachment returns, damage/sacrifice riders), as do three flat effects whose
 complete forms need new algebra: `AddResolutionMana` (a scaled per-permanent

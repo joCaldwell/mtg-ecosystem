@@ -513,6 +513,7 @@ pub enum Capability {
     LifeGainV1,
     LifeLossV1,
     OpponentLifeDrainV1,
+    KernelControlV1,
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
@@ -1546,15 +1547,14 @@ impl Instruction {
         let Self::Kernel { node, source_block } = self else {
             return None;
         };
-        let (node, optional) = match node {
-            kir::Node::Optional { chooser, node } if chooser.is_you() => (&**node, true),
-            node => (node, false),
-        };
+        if let Some((_, slot, regeneration_forbidden)) = node.optional_target_destroy() {
+            return Some((slot, true, regeneration_forbidden, *source_block));
+        }
         match node {
             kir::Node::Do(kir::Verb::Destroy {
                 what: target_object!(slot),
                 regeneration_forbidden,
-            }) => Some((*slot, optional, *regeneration_forbidden, *source_block)),
+            }) => Some((*slot, false, *regeneration_forbidden, *source_block)),
             _ => None,
         }
     }
@@ -6284,7 +6284,7 @@ fn validate_program_bindings(
 fn kernel_family_guard(p: &SpellProgram, node: &kir::Node, chapter: bool) -> Result<(), String> {
     // CR 608.2d: the optional destroy is offered during a triggered
     // ability's resolution only.
-    if matches!(node, kir::Node::Optional { .. }) && p.timing != SpellTiming::Instant {
+    if node.optional_target_destroy().is_some() && p.timing != SpellTiming::Instant {
         return Err("optional destroy requires a triggered program".into());
     }
     match node.verb() {
@@ -6814,6 +6814,9 @@ fn add_program_requirements_for_source_pump(
             // fixed draw by one player is named by its complete program.
             Instruction::Kernel { node, .. } => {
                 set.extend(kir::node_capabilities(node));
+                if node.uses_continuation() {
+                    add_nested_kernel_leaf_requirements(set, &program.targets, node);
+                }
                 if let Some((player, count, _)) = instruction.fixed_draw() {
                     set.insert(fixed_draw_capability(program, player, count));
                 }
@@ -6852,6 +6855,55 @@ fn add_program_requirements_for_source_pump(
         });
     }
 }
+
+// The flat program accessors do not see a continuation leaf. Derive the
+// remaining program-sensitive capabilities from that leaf's audited operands.
+fn add_nested_kernel_leaf_requirements(
+    set: &mut BTreeSet<Capability>,
+    targets: &[TargetSpec],
+    node: &kir::Node,
+) {
+    let target_domain = |slot: u32| targets.get(slot as usize).map(|target| target.domain);
+    kir::visit_verbs(node, &mut |verb| {
+        let capability = match verb {
+            Verb::Draw {
+                player: player @ kir::PlayerExpr::Is { .. },
+                amount: fixed!(count),
+            } => {
+                if !player.is_you() {
+                    Capability::TargetPlayerDrawV1
+                } else if *count == Quantity::from(1) {
+                    Capability::ControllerDrawV1
+                } else {
+                    Capability::ControllerCountedDrawV1
+                }
+            }
+            Verb::Discard { player, .. } if player.is_you() => Capability::ControllerDiscardV1,
+            Verb::Destroy {
+                what: target_object!(slot),
+                ..
+            } => match target_domain(*slot) {
+                Some(TargetDomain::BattlefieldCreature) => Capability::DestroyCreatureV1,
+                Some(TargetDomain::BattlefieldPermanent) => Capability::PermanentRemovalV1,
+                _ => return,
+            },
+            Verb::Move {
+                what: target_object!(slot),
+                to: kir::Destination::OwnerHand,
+            } if target_domain(*slot) == Some(TargetDomain::BattlefieldPermanent) => {
+                Capability::PermanentOwnerHandMoveV1
+            }
+            Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }
+                if player.is_target() && amount.is_announced_x() =>
+            {
+                Capability::AnnouncedXEffectsV1
+            }
+            _ => return,
+        };
+        set.insert(capability);
+    });
+}
+
 /// CR 121.2: the reviewed surface a counted controller hand program uses.
 fn counted_hand_capability(program: &SpellProgram) -> Capability {
     if ordinary_sequence::program(program)
@@ -8642,6 +8694,7 @@ mod tests {
             LifeGainV1,
             LifeLossV1,
             OpponentLifeDrainV1,
+            KernelControlV1,
             TriggeredAbilityV1,
             SelfEntersBattlefieldV1,
             OtherCreatureEntersBattlefieldV1,
@@ -9237,6 +9290,7 @@ mod tests {
         definitions.push(targeted_discard::random_witness());
         definitions.push(group_discard::witness());
         definitions.push(opponent_life_drain::witness());
+        definitions.push(opponent_life_drain::sequence_witness());
         definitions.push(
             Catalog::read(include_str!(
                 "../../../tests/fixtures/synthetic-controlled-phasing-ir.json"

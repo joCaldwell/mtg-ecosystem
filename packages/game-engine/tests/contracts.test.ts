@@ -58,6 +58,30 @@ function loadCatalog(name: string) {
   return JSON.parse(fs.readFileSync(report.expected_ir, "utf8"));
 }
 
+test("exported schema distinguishes a kernel sequence from the standalone drain", () => {
+  const validate = new Ajv2020({ strict: false, formats: {
+    uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
+  } }).compile(run("schema"));
+  const catalog = JSON.parse(read("expected-action-ir.json"));
+  const spell = catalog.definitions.find((card: any) => card.name === "Cruel Edict");
+  catalog.definitions = [spell];
+  spell.spell.targets = [];
+  const loss = { do: { verb: "lose_life", player: { player: "each_opponent" },
+    amount: { amount: "fixed", value: "3" } } };
+  const node = { seq: [loss, loss] };
+  spell.spell.instructions = [{ op: "kernel", node, source_block: 0 }];
+  const baseline = ["normal_layout_v1", "cast_sorcery_v1", "life_loss_v1"];
+  spell.capabilities = [...baseline, "sacrifice_v1", "kernel_control_v1"];
+  assert.ok(validate(catalog), JSON.stringify(validate.errors));
+
+  const gain = { do: { verb: "gain_life", player: you("spell_controller"),
+    amount: { amount: "var", of: { ref: "step_result", step: 0, role: "amount" } } } };
+  spell.spell.instructions[0].node = { seq: [loss, gain] };
+  assert.equal(validate(catalog), false);
+  spell.capabilities = [...baseline, "life_gain_v1", "opponent_life_drain_v1"];
+  assert.ok(validate(catalog), JSON.stringify(validate.errors));
+});
+
 test("counter_spell_controller_mill exported schema requires a complete instant", () => {
   const validate = new Ajv2020({ strict: false, formats: {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
