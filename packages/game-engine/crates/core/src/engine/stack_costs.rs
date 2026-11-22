@@ -597,7 +597,7 @@ impl RulesTxn {
             .map(|viewer| {
                 entries
                     .iter()
-                    .map(|target| self.stack_handle_for(PlayerId(viewer), *target))
+                    .map(|target| self.stack_handle_id(PlayerId(viewer), *target).cloned())
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;

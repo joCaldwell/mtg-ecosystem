@@ -125,7 +125,7 @@ pub struct StackInstance {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stack_targets: Vec<StackId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub announced_stack_targets: Vec<Vec<StackHandle>>,
+    pub announced_stack_targets: Vec<Vec<publish::HandleId<b's'>>>,
     #[serde(default, skip_serializing_if = "StackKind::is_spell")]
     pub kind: StackKind,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -95,8 +95,9 @@ pub struct StoredStack {
     tail: Option<Arc<StackNode>>,
     len: usize,
 }
+type StackRow = VisibleStackEntry<super::HandleId<b's'>>;
 struct StackNode {
-    value: VisibleStackEntry,
+    value: StackRow,
     previous: StoredStack,
     bytes: OnceLock<Result<Box<[u8]>, String>>,
 }
@@ -122,7 +123,7 @@ impl StoredStack {
         rows.reverse();
         rows
     }
-    fn from_rows(rows: Vec<VisibleStackEntry>, previous: Option<&Self>) -> Self {
+    fn from_rows(rows: Vec<StackRow>, previous: Option<&Self>) -> Self {
         let old = previous.map(Self::rows).unwrap_or_default();
         let mut stack = Self::default();
         let mut prefix = true;
@@ -149,10 +150,10 @@ impl StoredStack {
         stack
     }
     fn to_public(&self) -> Vec<VisibleStackEntry> {
-        self.rows().into_iter().map(|n| n.value.clone()).collect()
+        self.rows().into_iter().map(|n| n.value.clone().map_handles(|h|StackHandle::from(&h))).collect()
     }
     fn matches_public(&self, rows: &[VisibleStackEntry]) -> bool {
-        self.len == rows.len() && self.rows().iter().zip(rows).all(|(n, r)| n.value == *r)
+        self.len == rows.len() && self.rows().iter().zip(rows).all(|(n, r)| n.value == r.clone().map_handles(|h| super::HandleId::from(&h)))
     }
     fn write_canonical<W: Write>(&self, writer: &mut W) -> Result<(), String> {
         for (i, row) in self.rows().into_iter().enumerate() {
@@ -217,7 +218,7 @@ impl Serialize for StoredStack {
 }
 impl<'de> Deserialize<'de> for StoredStack {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        Vec::<VisibleStackEntry>::deserialize(d).map(|rows| Self::from_rows(rows, None))
+        Vec::<StackRow>::deserialize(d).map(|rows| Self::from_rows(rows, None))
     }
 }
 
@@ -235,7 +236,7 @@ pub struct StoredViewData {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::engine) setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(in crate::engine) effects: Vec<VisibleEffect>,
+    pub(in crate::engine) effects: Vec<VisibleEffect<super::HandleId<b'e'>>>,
     pub(in crate::engine) combat: Vec<VisibleAttacker>,
     pub(in crate::engine) viewer: PlayerId,
     pub(in crate::engine) active: Option<PlayerId>,
@@ -365,7 +366,7 @@ impl From<PermittedView> for StoredPermittedView {
                 known_library_positions,
                 sacrifice_choices,
                 setup,
-                effects,
+                effects: effects.into_iter().map(|e|e.map_handle(|h|super::HandleId::from(&h))).collect(),
                 combat,
                 viewer,
                 active,
@@ -376,7 +377,7 @@ impl From<PermittedView> for StoredPermittedView {
                 priority,
                 players: Arc::new(stored_players),
                 objects: Arc::new(stored_objects),
-                stack: StoredStack::from_rows(stack, None),
+                stack: StoredStack::from_rows(stack.into_iter().map(|row|row.map_handles(|h|super::HandleId::from(&h))).collect(), None),
             },
             segments: OnceLock::new(),
             commanders_bytes: Arc::new(OnceLock::new()),
@@ -390,9 +391,10 @@ impl StoredPermittedView {
     /// exactly the sharing `reuse_previous` gives a converted public view.
     pub(in crate::engine) fn from_rows(
         header: PermittedView,
+        effects: Vec<VisibleEffect<super::HandleId<b'e'>>>,
         players: Vec<VisiblePlayer>,
         objects: Vec<StoredObject>,
-        stack: Vec<VisibleStackEntry>,
+        stack: Vec<StackRow>,
         previous: Option<&Self>,
     ) -> Self {
         let PermittedView {
@@ -400,7 +402,7 @@ impl StoredPermittedView {
             known_library_positions,
             sacrifice_choices,
             setup,
-            effects,
+            effects: _,
             combat,
             viewer,
             active,
@@ -456,7 +458,7 @@ impl StoredPermittedView {
             _ => (Arc::new(commanders), Arc::new(OnceLock::new())),
         };
         let stack = match previous {
-            Some(previous) if previous.data.stack.matches_public(&stack) => {
+            Some(previous) if previous.data.stack.len == stack.len() && previous.data.stack.rows().iter().zip(&stack).all(|(n,r)|n.value == *r) => {
                 previous.data.stack.clone()
             }
             _ => StoredStack::from_rows(stack, previous.map(|p| &p.data.stack)),
@@ -524,7 +526,7 @@ impl StoredPermittedView {
             known_library_positions: known_library_positions.clone(),
             sacrifice_choices: sacrifice_choices.clone(),
             setup: setup.clone(),
-            effects: effects.clone(),
+            effects: effects.iter().cloned().map(|e|e.map_handle(|h|EffectHandle::from(&h))).collect(),
             combat: combat.clone(),
             viewer: *viewer,
             active: *active,
@@ -584,7 +586,7 @@ impl StoredPermittedView {
             && positions == known_library_positions
             && sc == sacrifice_choices
             && s == setup
-            && e == effects
+            && e.len() == effects.len() && e.iter().zip(effects).all(|(stored,public)|*stored == public.clone().map_handle(|h|super::HandleId::from(&h)))
             && c == combat
             && v == viewer
             && a == active
@@ -608,7 +610,7 @@ impl StoredPermittedView {
         self.data.stack = if self.data.stack == previous.data.stack {
             previous.data.stack.clone()
         } else {
-            StoredStack::from_rows(self.data.stack.to_public(), Some(&previous.data.stack))
+            StoredStack::from_rows(self.data.stack.rows().iter().map(|node|node.value.clone()).collect(), Some(&previous.data.stack))
         };
         // Complete ordered typed equality, never a hash or handle-only test.
         // All shared element types are Eq; pointer identity cannot bypass an
