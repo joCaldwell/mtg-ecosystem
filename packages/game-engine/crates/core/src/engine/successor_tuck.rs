@@ -65,10 +65,10 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Library { owner },
-                continuation: Box::new(CommanderContinuation::SpellMove {
+                continuation: CommanderContinuation::SpellMove {
                     frame,
                     source_block,
-                }),
+                },
             };
             return Ok(());
         }

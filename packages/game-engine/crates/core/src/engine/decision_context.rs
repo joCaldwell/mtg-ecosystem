@@ -231,7 +231,7 @@ impl Game {
         }
 
         if let Frame::DamageEffects { transaction } = &self.state.rules.frame
-            && let DamageContinuation::Mana { activation, .. } = transaction.continuation.as_ref()
+            && let DamageContinuation::Mana { activation, .. } = &transaction.continuation
             && activation.player == viewer
         {
             return self

@@ -5,6 +5,17 @@ use crate::engine::*;
 
 impl Game {
     pub(crate) fn validate_state(&self) -> Result<(), RuleError> {
+        let rules = &self.state.rules;
+        for (depth, frame) in rules
+            .frames
+            .iter()
+            .chain(std::iter::once(&rules.frame))
+            .enumerate()
+        {
+            if frame.parent().map(|(link, _)| link.0) != depth.checked_sub(1) {
+                return Err("invalid continuation stack link".into());
+            }
+        }
         self.validate_match_state()?;
         self.validate_phasing_state()?;
         if self.state.rules.players.iter().any(|p| {
@@ -26,12 +37,12 @@ impl Game {
             entry.id != *id
                 || id.0 >= s.rules.next_stack_id
                 || s.rules.stack.iter().any(|stacked| stacked.id == *id)
-                || !s.rules.frame.holds(*id)
+                || !s.rules.frame.holds(&s.rules.frames, *id)
         }) {
             return Err("snapshot detached invocation ownership invariant".into());
         }
         let mut unowned = false;
-        s.rules.frame.for_each_held(&mut |held| {
+        s.rules.frame.for_each_held(&s.rules.frames, &mut |held| {
             if let frame::Held::Invocation { hold: _, id } = held {
                 unowned |= self.entry(id).is_err();
             }
@@ -219,7 +230,7 @@ impl Game {
         // Paid mana damage can retain the resolving instruction even after its
         // payer departs and the activation no longer has a live mana window.
         if let Frame::ResolutionPayment { frame, payment } =
-            spell_cascade_grants::retained_effect_frame(&s.rules.frame)
+            spell_cascade_grants::retained_effect_frame(&self.state.rules.frames, &s.rules.frame)
         {
             self.validate_resolution_payment(frame, payment)?;
         }

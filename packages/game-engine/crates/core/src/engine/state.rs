@@ -195,6 +195,8 @@ state_layout! {
         /// stack (CR 608.2m). Keyed by identity; empty between resolutions.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         detached: BTreeMap<StackId, StackInstance>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        frames: Vec<Frame>,
         frame: Frame,
         pending: Option<AcceptedInput>,
         next_batch_id: u64,

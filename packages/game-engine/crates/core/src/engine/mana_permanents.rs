@@ -85,7 +85,7 @@ pub struct ManaActivation {
     branch: Option<ManaBranch>,
     decision_id: u64,
     pub stage: ManaStage,
-    pub(super) resume: Box<Frame>,
+    pub(super) resume: FrameLink,
     receipts: Vec<ManaActivationUndo>,
     paid: Option<Box<PermanentManaUndo>>,
 }
@@ -267,38 +267,15 @@ impl Game {
         let mut charge = 0usize;
         loop {
             let activation = match frame {
-                Frame::ManaSourceChoice {
-                    player,
-                    source,
-                    scope,
-                    resume,
-                } => {
-                    #[derive(Serialize)]
-                    struct Wrapper<'a> {
-                        stage: &'static str,
-                        player: &'a PlayerId,
-                        source: &'a ObjectId,
-                        scope: &'a ManaSourceScope,
-                        resume: (),
-                    }
-                    charge = charge.saturating_add(
-                        stored_history::payload_charge(&Wrapper {
-                            stage: "mana_source_choice",
-                            player,
-                            source,
-                            scope,
-                            resume: (),
-                        })
-                        .saturating_sub(4),
-                    );
-                    frame = resume;
+                Frame::ManaSourceChoice { resume, .. } => {
+                    charge = charge.saturating_add(stored_history::payload_charge(frame));
+                    frame = self.saved_frame(*resume);
                     continue;
                 }
                 Frame::ManaAbility { activation } => activation,
                 Frame::DamageEffects { transaction }
                 | Frame::DamageAllocation { transaction, .. } => {
-                    let DamageContinuation::Mana { activation, .. } =
-                        transaction.continuation.as_ref()
+                    let DamageContinuation::Mana { activation, .. } = &transaction.continuation
                     else {
                         break;
                     };
@@ -310,7 +287,12 @@ impl Game {
                 // This new root owns the entire suspended resolution and any
                 // nested activation wrappers and receipts. Count their bytes once.
                 Frame::ResolutionPayment { .. } => {
-                    return stored_history::payload_charge(&self.state.rules.frame);
+                    return self.state.rules.frames.iter().fold(
+                        stored_history::payload_charge(&self.state.rules.frame),
+                        |charge, parent| {
+                            charge.saturating_add(stored_history::payload_charge(parent))
+                        },
+                    );
                 }
                 Frame::Mana { cast }
                 | Frame::SpendMana { cast }
@@ -342,7 +324,7 @@ impl Game {
             {
                 charge = charge.saturating_add(stored_history::payload_charge(paid));
             }
-            frame = &activation.resume;
+            frame = self.saved_frame(activation.resume);
         }
         charge
     }
@@ -366,27 +348,25 @@ impl Game {
         })
     }
 
-    pub(super) fn underlying_mana_frame<'a>(&self, frame: &'a Frame) -> &'a Frame {
+    pub(super) fn underlying_mana_frame<'a>(&'a self, frame: &'a Frame) -> &'a Frame {
         let mut f = frame;
         loop {
             f = match f {
                 Frame::GraveyardGroup { tx } => match &tx.finish {
-                    GroupFinish::Payment { resume } => resume,
+                    GroupFinish::Payment { resume } => self.saved_frame(*resume),
                     _ => break,
                 },
-                Frame::ManaAbility { activation } => &activation.resume,
-                Frame::ManaSourceChoice { resume, .. } => resume,
+                Frame::ManaAbility { activation } => self.saved_frame(activation.resume),
+                Frame::ManaSourceChoice { resume, .. } => self.saved_frame(*resume),
                 Frame::DamageEffects { transaction }
-                | Frame::DamageAllocation { transaction, .. } => {
-                    match transaction.continuation.as_ref() {
-                        DamageContinuation::Mana { activation, .. }
-                            if self.mana_damage_resume_available(activation) =>
-                        {
-                            &activation.resume
-                        }
-                        _ => break,
+                | Frame::DamageAllocation { transaction, .. } => match &transaction.continuation {
+                    DamageContinuation::Mana { activation, .. }
+                        if self.mana_damage_resume_available(activation) =>
+                    {
+                        self.saved_frame(activation.resume)
                     }
-                }
+                    _ => break,
+                },
                 _ => break,
             };
         }
@@ -403,13 +383,13 @@ impl Game {
             if *selected == source {
                 return true;
             }
-            f = resume;
+            f = self.saved_frame(*resume);
         }
         while let Frame::ManaAbility { activation } = f {
             if activation.source == source {
                 return true;
             }
-            f = &activation.resume;
+            f = self.saved_frame(activation.resume);
         }
         // Mind Stone cannot tap itself for mana while paying its own tap cost.
         if let Frame::Mana { cast } | Frame::SpendMana { cast } | Frame::Payment { cast } = f
@@ -630,7 +610,7 @@ impl Game {
                             player,
                             source,
                             scope,
-                            resume: Box::new(resume),
+                            resume: self.save_frame(resume),
                         };
                         Ok(())
                     }
@@ -670,7 +650,7 @@ impl Game {
                 player: input.player,
                 source,
                 scope: ManaSourceScope::Mixed,
-                resume: Box::new(resume),
+                resume: self.save_frame(resume),
             };
             Ok(())
         } else if self.is_permanent_mana(source) {
@@ -697,7 +677,7 @@ impl Game {
                 player: input.player,
                 source,
                 scope: ManaSourceScope::Mixed,
-                resume: Box::new(resume),
+                resume: self.save_frame(resume),
             };
             Ok(())
         } else if disjoint_pain_mana_family(self.copiable_definition(source)?) {
@@ -705,7 +685,7 @@ impl Game {
                 player: input.player,
                 source,
                 scope: ManaSourceScope::Disjoint,
-                resume: Box::new(resume),
+                resume: self.save_frame(resume),
             };
             Ok(())
         } else {
@@ -754,7 +734,7 @@ impl Game {
             printed_index,
             filter_input: None,
             stage,
-            resume: Box::new(resume),
+            resume: self.save_frame(resume),
             receipts: vec![],
             paid: None,
         };
@@ -909,7 +889,7 @@ impl Game {
                         self.undo_mana_receipts(a.player, &a.receipts)?;
                         a.receipts.clear();
                     }
-                    self.resume_mana(*a.resume, a.receipts)?;
+                    self.resume_mana(self.saved_frame(a.resume).clone(), a.receipts)?;
                 }
             }
             Response::SpendMana { spending } if a.stage == ManaStage::Spend => {
@@ -1227,7 +1207,7 @@ impl Game {
             tap_triggers: vec![],
             permanent: Some(receipt),
         });
-        self.resume_mana(*a.resume, a.receipts)
+        self.resume_mana(self.saved_frame(a.resume).clone(), a.receipts)
     }
     pub(super) fn resume_mana(
         &mut self,
@@ -1403,7 +1383,7 @@ impl Game {
     }
     pub(super) fn revalidate_mana_departure(&mut self) -> Result<(), String> {
         if let Frame::DamageEffects { transaction } = &mut self.rules_mut().frame
-            && let DamageContinuation::Mana { departed, .. } = transaction.continuation.as_mut()
+            && let DamageContinuation::Mana { departed, .. } = &mut transaction.continuation
         {
             // Let the paid invocation finish before unwinding the suspended
             // payment. Source and recipient departures are handled by damage.
@@ -1447,7 +1427,7 @@ impl Game {
                 self.mana_source_colors(*player, *source, *scope).is_err()
             };
             if invalid && let Frame::ManaSourceChoice { resume, .. } = &self.state.rules.frame {
-                let resume = Frame::clone(resume);
+                let resume = self.saved_frame(*resume).clone();
                 let rules = self.rules_mut();
                 rules.pending = None;
                 rules.frame = resume;
@@ -1455,7 +1435,7 @@ impl Game {
         }
         let mut f = &self.state.rules.frame;
         if let Frame::ManaSourceChoice { resume, .. } = f {
-            f = resume;
+            f = self.saved_frame(*resume);
         }
         let mut invalid = false;
         while let Frame::ManaAbility { activation: a } = f {
@@ -1464,7 +1444,7 @@ impl Game {
                     && self
                         .validate_permanent_mana_costs(a.player, a.source, a.ability_index())
                         .is_err());
-            f = &a.resume;
+            f = self.saved_frame(a.resume);
         }
         if let Frame::Mana { cast } = f {
             invalid |= self.state.rules.stack.last().is_none_or(|top| {
@@ -1473,7 +1453,7 @@ impl Game {
         }
         if invalid {
             if let Frame::ManaSourceChoice { resume, .. } = &self.state.rules.frame {
-                let resume = Frame::clone(resume);
+                let resume = self.saved_frame(*resume).clone();
                 self.rules_mut().frame = resume;
             }
             while let Frame::ManaAbility { activation } = &self.state.rules.frame {
@@ -1492,7 +1472,7 @@ impl Game {
                 if self.is_live(a.player) {
                     self.undo_mana_receipts(a.player, &a.receipts)?;
                 } else {
-                    match a.resume.as_mut() {
+                    match &mut self.rules_mut().frames[a.resume.0] {
                         Frame::Mana { cast } => cast.mana_activations.append(&mut a.receipts),
                         Frame::ManaAbility { activation } => {
                             activation.receipts.append(&mut a.receipts)
@@ -1503,7 +1483,7 @@ impl Game {
                         _ => {}
                     }
                 }
-                self.rules_mut().frame = *a.resume;
+                self.rules_mut().frame = self.saved_frame(a.resume).clone();
             }
             self.rules_mut().pending = None;
         } else if let Frame::ManaAbility { activation } = &self.state.rules.frame
@@ -1535,19 +1515,19 @@ impl Game {
                     .mana_source_colors(*player, *source, *scope)?
                     .is_empty(),
                 _ => self.mana_source_colors(*player, *source, *scope)?.len() < 2,
-            } || !self.mana_resume_player(resume, *player)
+            } || !self.mana_resume_player(self.saved_frame(*resume), *player)
             {
                 return Err("mana source choice snapshot invariant".into());
             }
             sources.insert(*source);
-            f = resume;
+            f = self.saved_frame(*resume);
         }
         while let Frame::ManaAbility { activation: a } = f {
             if !self.is_live(a.player)
                 || !sources.insert(a.source)
                 || a.branch.is_some()
                 || !a.validate_filter_stage(self.copiable_definition(a.source)?)
-                || !self.mana_resume_player(&a.resume, a.player)
+                || !self.mana_resume_player(self.saved_frame(a.resume), a.player)
                 || matches!(a.stage, ManaStage::Color | ManaStage::Combination { .. })
                     != a.paid.is_some()
                 || matches!(&a.stage,ManaStage::Combination{total} if *total<=Quantity::zero() || a.paid.as_ref().and_then(|receipt| receipt.combination_total.as_ref()) != Some(total) || (a.ability.production != ManaProduction::GreatestControlledPowerCombination && a.filter_colors().is_none()))
@@ -1560,7 +1540,7 @@ impl Game {
             {
                 return Err("nested mana snapshot invariant".into());
             }
-            f = &a.resume;
+            f = self.saved_frame(a.resume);
         }
         if matches!(f, Frame::ManaSourceChoice { .. }) {
             return Err("buried mana source choice continuation".into());

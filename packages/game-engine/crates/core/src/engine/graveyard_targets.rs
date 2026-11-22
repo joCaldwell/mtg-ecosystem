@@ -206,13 +206,13 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination,
-                continuation: Box::new(CommanderContinuation::GraveyardShuffle {
+                continuation: CommanderContinuation::GraveyardShuffle {
                     frame,
                     objects,
                     remaining,
                     choices,
                     source_block: block,
-                }),
+                },
             };
             return Ok(());
         }

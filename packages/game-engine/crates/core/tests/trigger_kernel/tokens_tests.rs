@@ -1266,8 +1266,9 @@ fn capacity_release_probe() {
         Some(RuleFault::StackCapacityExceeded { .. })
     ));
     g.state.rules.typed_fault = None;
+    g.state.rules.frames = vec![Frame::Priority];
     g.state.rules.frame = Frame::Stabilize {
-        resume: Box::new(Frame::Priority),
+        resume: FrameLink(0),
         cleanup: false,
         changed: false,
     };
@@ -1495,8 +1496,9 @@ fn ninety_six_simultaneous_deaths_with_four_yargle_payoffs_resolve() {
         triggers > 1024,
         "regression must exceed old ceiling: {triggers}"
     );
+    g.state.rules.frames = vec![Frame::Priority];
     g.state.rules.frame = Frame::Stabilize {
-        resume: Box::new(Frame::Priority),
+        resume: FrameLink(0),
         cleanup: false,
         changed: true,
     };
@@ -1646,8 +1648,9 @@ fn public_history_cascade(tokens: u32) -> (Game, usize, usize, usize) {
     let (deaths, triggers) = wipe_death_payoff_board(&mut g);
     assert_eq!(deaths, tokens as usize + 4);
     assert_eq!(triggers, deaths * 4);
+    g.state.rules.frames = vec![Frame::Priority];
     g.state.rules.frame = Frame::Stabilize {
-        resume: Box::new(Frame::Priority),
+        resume: FrameLink(0),
         cleanup: false,
         changed: true,
     };

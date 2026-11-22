@@ -18,96 +18,105 @@ impl Frame {
     /// anything: no reveal, look, offer, choice list or resolving invocation.
     /// Two such frames differ, for a view, only in whether priority is held.
     /// Every variant is named: a new frame must be classified here.
-    fn shows_nothing(&self) -> bool {
-        match self {
-            Frame::Priority
-            | Frame::Transition
-            | Frame::EnterStep
-            | Frame::CleanupClear
-            | Frame::Damage
-            | Frame::Draw
-            | Frame::Attackers
-            | Frame::Blockers { remaining: _ } => true,
-            Frame::Stabilize {
-                resume,
-                cleanup: _,
-                changed: _,
-            } => resume.shows_nothing(),
-            Frame::GraveyardGroup { tx: _ }
-            | Frame::GraveyardReplacement { transaction: _ }
-            | Frame::PlayHideawayLinked { progress: _ }
-            | Frame::LandEntry {
-                origin: _,
-                objects: _,
-                choices: _,
+    fn shows_nothing<'a>(&'a self, mut frames: &'a [Frame]) -> bool {
+        let mut frame = self;
+        loop {
+            match frame {
+                Frame::Priority
+                | Frame::Transition
+                | Frame::EnterStep
+                | Frame::CleanupClear
+                | Frame::Damage
+                | Frame::Draw
+                | Frame::Attackers
+                | Frame::Blockers { remaining: _ } => return true,
+                Frame::Stabilize {
+                    resume,
+                    cleanup: _,
+                    changed: _,
+                } => {
+                    let Some(parent) = frames.get(resume.0) else {
+                        return false;
+                    };
+                    frame = parent;
+                    frames = &frames[..resume.0];
+                }
+                Frame::GraveyardGroup { tx: _ }
+                | Frame::GraveyardReplacement { transaction: _ }
+                | Frame::PlayHideawayLinked { progress: _ }
+                | Frame::LandEntry {
+                    origin: _,
+                    objects: _,
+                    choices: _,
+                }
+                | Frame::ManaSourceChoice {
+                    player: _,
+                    source: _,
+                    scope: _,
+                    resume: _,
+                }
+                | Frame::RevealAndCast { progress: _ }
+                | Frame::HandCast { frame: _, child: _ }
+                | Frame::Cascade { progress: _ }
+                | Frame::LegendRule {
+                    resume: _,
+                    groups: _,
+                    kept: _,
+                }
+                | Frame::AdditionalCosts { cast: _ }
+                | Frame::AnnounceX { cast: _ }
+                | Frame::HybridCost { cast: _ }
+                | Frame::SacrificeCost { cast: _ }
+                | Frame::ForcedSacrifice {
+                    frame: _,
+                    remaining: _,
+                    choices: _,
+                    source_block: _,
+                }
+                | Frame::ResolutionPayment {
+                    frame: _,
+                    payment: _,
+                }
+                | Frame::OptionalDamage { frame: _ }
+                | Frame::ManaAbility { activation: _ }
+                | Frame::Setup
+                | Frame::DamageAllocation {
+                    transaction: _,
+                    effect: _,
+                }
+                | Frame::Modes { cast: _ }
+                | Frame::CounterPlacement { transaction: _ }
+                | Frame::DamageEffects { transaction: _ }
+                | Frame::TriggerOrder { placement: _ }
+                | Frame::TriggerTargets {
+                    placement: _,
+                    stack_id: _,
+                }
+                | Frame::EntityTargets { cast: _ }
+                | Frame::StackTargets { cast: _ }
+                | Frame::PlayerTargets { cast: _ }
+                | Frame::SpendMana { cast: _ }
+                | Frame::ResolutionChoice {
+                    frame: _,
+                    choice: _,
+                }
+                | Frame::CommanderReturn {
+                    object: _,
+                    destination: _,
+                    continuation: _,
+                }
+                | Frame::DamageChoice { source: _ }
+                | Frame::Discard {
+                    player: _,
+                    count: _,
+                }
+                | Frame::Targets { cast: _ }
+                | Frame::Mana { cast: _ }
+                | Frame::Payment { cast: _ }
+                | Frame::Resolve { frame: _ }
+                | Frame::Fault { reason: _ }
+                | Frame::Finished { winner: _ } => return false,
             }
-            | Frame::ManaSourceChoice {
-                player: _,
-                source: _,
-                scope: _,
-                resume: _,
-            }
-            | Frame::RevealAndCast { progress: _ }
-            | Frame::HandCast { frame: _, child: _ }
-            | Frame::Cascade { progress: _ }
-            | Frame::LegendRule {
-                resume: _,
-                groups: _,
-                kept: _,
-            }
-            | Frame::AdditionalCosts { cast: _ }
-            | Frame::AnnounceX { cast: _ }
-            | Frame::HybridCost { cast: _ }
-            | Frame::SacrificeCost { cast: _ }
-            | Frame::ForcedSacrifice {
-                frame: _,
-                remaining: _,
-                choices: _,
-                source_block: _,
-            }
-            | Frame::ResolutionPayment {
-                frame: _,
-                payment: _,
-            }
-            | Frame::OptionalDamage { frame: _ }
-            | Frame::ManaAbility { activation: _ }
-            | Frame::Setup
-            | Frame::DamageAllocation {
-                transaction: _,
-                effect: _,
-            }
-            | Frame::Modes { cast: _ }
-            | Frame::CounterPlacement { transaction: _ }
-            | Frame::DamageEffects { transaction: _ }
-            | Frame::TriggerOrder { placement: _ }
-            | Frame::TriggerTargets {
-                placement: _,
-                stack_id: _,
-            }
-            | Frame::EntityTargets { cast: _ }
-            | Frame::StackTargets { cast: _ }
-            | Frame::PlayerTargets { cast: _ }
-            | Frame::SpendMana { cast: _ }
-            | Frame::ResolutionChoice {
-                frame: _,
-                choice: _,
-            }
-            | Frame::CommanderReturn {
-                object: _,
-                destination: _,
-                continuation: _,
-            }
-            | Frame::DamageChoice { source: _ }
-            | Frame::Discard {
-                player: _,
-                count: _,
-            }
-            | Frame::Targets { cast: _ }
-            | Frame::Mana { cast: _ }
-            | Frame::Payment { cast: _ }
-            | Frame::Resolve { frame: _ }
-            | Frame::Fault { reason: _ }
-            | Frame::Finished { winner: _ } => false,
         }
     }
 }
@@ -176,6 +185,7 @@ impl Published {
             next_stack_id,
             stack,
             detached,
+            frames,
             frame,
             pending: _,
             next_batch_id: _,
@@ -184,7 +194,7 @@ impl Published {
         let was = &self.rules;
         // Cheapest and most often different first. The large tables compare
         // by shared allocation before they compare by value.
-        (*frame == was.frame || (frame.shows_nothing() && was.frame.shows_nothing()))
+        (frames == &was.frames && *frame == was.frame || (frame.shows_nothing(frames) && was.frame.shows_nothing(&was.frames)))
             && objects.shares_rows(&was.objects)
             && Shared::same(stack, &was.stack)
             && Shared::same(effects, &was.effects)

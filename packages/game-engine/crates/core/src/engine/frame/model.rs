@@ -2,6 +2,11 @@
 //! continue. A frame names invocations by `StackId` and owns none of them.
 use crate::engine::*;
 
+/// Index of the immediate parent in the saved frame stack, bottom first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct FrameLink(pub usize);
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Casting {
@@ -95,7 +100,7 @@ pub enum Frame {
         player: PlayerId,
         source: ObjectId,
         scope: ManaSourceScope,
-        resume: Box<Frame>,
+        resume: FrameLink,
     },
     RevealAndCast {
         progress: Box<RevealAndCastProgress>,
@@ -108,7 +113,7 @@ pub enum Frame {
         progress: Box<CascadeProgress>,
     },
     LegendRule {
-        resume: Box<Frame>,
+        resume: FrameLink,
         groups: Vec<Vec<ObjectId>>,
         kept: Vec<ObjectId>,
     },
@@ -180,7 +185,7 @@ pub enum Frame {
     CommanderReturn {
         object: ObjectId,
         destination: Zone,
-        continuation: Box<CommanderContinuation>,
+        continuation: CommanderContinuation,
     },
     Attackers,
     Blockers {
@@ -196,7 +201,7 @@ pub enum Frame {
     },
     CleanupClear,
     Stabilize {
-        resume: Box<Frame>,
+        resume: FrameLink,
         cleanup: bool,
         changed: bool,
     },

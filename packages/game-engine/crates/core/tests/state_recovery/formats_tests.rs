@@ -21,7 +21,7 @@ const OBSERVATION_PIN: (u32, &str) = (
     "cce100f4c577090ad97b618154bd993f955bc7f8097ca5aab50d1b383861fb62",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    79,
+    80,
     "5a1aeb1a091190b6210d07a5053b4a120717937b48762cbc1c6bbeacf1d9334b",
 );
 const WORK_PIN: (u32, &str) = (
@@ -137,7 +137,7 @@ fn mid_resolution() -> Game {
     )
     .unwrap();
     let mut game = Game::new(prepared);
-    let mut answer = |game: &mut Game, response: Response| {
+    let answer = |game: &mut Game, response: Response| {
         let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
             panic!("expected a decision before {response:?}")
         };

@@ -417,7 +417,10 @@ impl Game {
     }
 
     pub(super) fn replacement_charge(&self) -> usize {
-        let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
+        let frame = spell_cascade_grants::retained_effect_frame(
+            &self.state.rules.frames,
+            &self.state.rules.frame,
+        );
         if matches!(
             frame,
             Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
@@ -429,13 +432,17 @@ impl Game {
     }
 
     pub(super) fn validate_graveyard_replacement(&self) -> Result<(), String> {
-        if let Frame::GraveyardGroup { tx } =
-            spell_cascade_grants::retained_effect_frame(&self.state.rules.frame)
-        {
+        if let Frame::GraveyardGroup { tx } = spell_cascade_grants::retained_effect_frame(
+            &self.state.rules.frames,
+            &self.state.rules.frame,
+        ) {
             return tx.validate(self);
         }
         let Frame::GraveyardReplacement { transaction: tx } =
-            spell_cascade_grants::retained_effect_frame(&self.state.rules.frame)
+            spell_cascade_grants::retained_effect_frame(
+                &self.state.rules.frames,
+                &self.state.rules.frame,
+            )
         else {
             return Ok(());
         };

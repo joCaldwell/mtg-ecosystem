@@ -365,15 +365,14 @@ impl Game {
                 }
             }
             if replaced {
+                let resume = self.save_frame(Frame::SacrificeCost { cast: cast.clone() });
                 self.complete_graveyard_group(
                     BatchCause::Payment {
                         stack_id: stack.id,
                         player: stack.controller,
                     },
                     group,
-                    GroupFinish::Payment {
-                        resume: Box::new(Frame::SacrificeCost { cast: cast.clone() }),
-                    },
+                    GroupFinish::Payment { resume },
                 )?;
                 return Ok(AnnouncementPayment::Deferred);
             }

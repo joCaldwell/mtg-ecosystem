@@ -1774,11 +1774,11 @@ impl Game {
                 self.rules_mut().frame = Frame::CommanderReturn {
                     object,
                     destination: Zone::Hand { owner: player },
-                    continuation: Box::new(CommanderContinuation::ResolutionDraw {
+                    continuation: CommanderContinuation::ResolutionDraw {
                         frame,
                         player,
                         source_block,
-                    }),
+                    },
                 };
                 Ok(())
             } else {

@@ -62,9 +62,10 @@ impl Game {
     /// The typed control transition owns this refresh. A changed controller
     /// cannot be excused merely by recomputing or discarding assignment facts.
     pub(super) fn retain_damage_control_facts(&mut self, fact: &ObjectBefore) {
-        self.rules_mut()
+        let rules = self.rules_mut();
+        rules
             .frame
-            .for_each_held_mut(&mut |held| match held {
+            .for_each_held_mut(&mut rules.frames, &mut |held| match held {
                 frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
                 frame::HeldMut::Invocation { hold: _, id: _ } => {}
             });
@@ -135,10 +136,12 @@ impl Game {
         // holds retains this departure's actual last appearance. The
         // simultaneous event path then replaces appearances with its common
         // prior view. Assigned damage keeps its frozen facts.
-        rules.frame.for_each_held_mut(&mut |held| match held {
-            frame::HeldMut::Invocation { hold: _, id: _ } => {}
-            frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
-        });
+        rules
+            .frame
+            .for_each_held_mut(&mut rules.frames, &mut |held| match held {
+                frame::HeldMut::Invocation { hold: _, id: _ } => {}
+                frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
+            });
     }
     pub(crate) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         if self
@@ -741,7 +744,7 @@ impl Game {
                 self.state
                     .rules
                     .frame
-                    .resolving_invocation()
+                    .resolving_invocation(&self.state.rules.frames)
                     .and_then(|id| self.state.rules.detached.get(&id)),
             )
             .any(|entry| {

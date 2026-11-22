@@ -131,7 +131,7 @@ fn announced(g: &mut Game) {
 /// or the detached entry once it has left the stack.
 fn assert_single_owner(g: &Game) {
     let rules = &g.state.rules;
-    rules.frame.for_each_held(&mut |held| {
+    rules.frame.for_each_held(&rules.frames, &mut |held| {
         if let frame::Held::Invocation { id, .. } = held {
             let stacked = rules.stack.iter().filter(|s| s.id == id).count();
             let detached = usize::from(rules.detached.contains_key(&id));
@@ -144,7 +144,12 @@ fn assert_single_owner(g: &Game) {
             assert_eq!(g.entry(id).unwrap().id, id);
         }
     });
-    assert!(rules.detached.keys().all(|id| rules.frame.holds(*id)));
+    assert!(
+        rules
+            .detached
+            .keys()
+            .all(|id| rules.frame.holds(&rules.frames, *id))
+    );
 }
 
 #[test]
@@ -343,12 +348,12 @@ fn every_cast_frame_suspending_a_hand_cast_owner_names_its_single_owner() {
         vec![
             inner.clone(),
             Frame::Stabilize {
-                resume: Box::new(inner.clone()),
+                resume: FrameLink(0),
                 cleanup: false,
                 changed: false,
             },
             Frame::LegendRule {
-                resume: Box::new(inner.clone()),
+                resume: FrameLink(0),
                 groups: vec![],
                 kept: vec![],
             },
@@ -356,18 +361,20 @@ fn every_cast_frame_suspending_a_hand_cast_owner_names_its_single_owner() {
                 player: PlayerId(0),
                 source,
                 scope: ManaSourceScope::Intrinsic,
-                resume: Box::new(inner.clone()),
+                resume: FrameLink(0),
             },
             Frame::CommanderReturn {
                 object: source,
                 destination: Zone::Command { owner: PlayerId(0) },
-                continuation: Box::new(CommanderContinuation::StateBased { resume: inner }),
+                continuation: CommanderContinuation::StateBased {
+                    resume: FrameLink(0),
+                },
             },
         ]
     };
-    let held = |frame: &Frame| {
+    let held = |frame: &Frame, parents: &[Frame]| {
         let mut ids = vec![];
-        frame.for_each_held(&mut |held| {
+        frame.for_each_held(parents, &mut |held| {
             if let frame::Held::Invocation { hold, id } = held {
                 ids.push((hold, id));
             }
@@ -377,17 +384,23 @@ fn every_cast_frame_suspending_a_hand_cast_owner_names_its_single_owner() {
     let owner = parent(&g).id;
     let mut frames = 0;
     for cast_frame in wrap(&cast) {
-        for frame in nest(cast_frame) {
+        for frame in nest(cast_frame.clone()) {
+            let parents = if frame.parent().is_some() {
+                vec![cast_frame.clone()]
+            } else {
+                vec![]
+            };
             frames += 1;
             // The owner waits beneath its child: suspended, never resolving.
-            let [(hold, id)] = held(&frame).try_into().unwrap();
+            let [(hold, id)] = held(&frame, &parents).try_into().unwrap();
             assert_eq!(hold, frame::Hold::Suspended);
             assert_eq!(id, owner);
-            assert!(frame.holds(owner));
-            assert!(frame.resolving_invocation().is_none());
+            assert!(frame.holds(&parents, owner));
+            assert!(frame.resolving_invocation(&parents).is_none());
             // A departure reaches the one owner. The frame holds no facts
             // that a rule step could write back stale.
             let mut pushed = g.fork();
+            pushed.state.rules.frames = parents;
             pushed.state.rules.frame = frame.clone();
             assert_eq!(parent(&pushed).source_facts.as_ref(), Some(&at_trigger));
             pushed.retain_source_facts(&departing);
@@ -427,5 +440,5 @@ fn every_cast_frame_suspending_a_hand_cast_owner_names_its_single_owner() {
         frame: frame.clone(),
         child: None,
     };
-    assert!(resolving.resolving_invocation() == Some(owner));
+    assert!(resolving.resolving_invocation(&[]) == Some(owner));
 }

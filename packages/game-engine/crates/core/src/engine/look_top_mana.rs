@@ -248,7 +248,7 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand { owner: player },
-                continuation: Box::new(CommanderContinuation::LookTopMana { frame, revealed }),
+                continuation: CommanderContinuation::LookTopMana { frame, revealed },
             };
             return Ok(());
         }

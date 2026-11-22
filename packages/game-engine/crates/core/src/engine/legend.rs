@@ -92,11 +92,16 @@ impl Game {
             resume,
             cleanup,
             changed,
-        } = *resume
+        } = *self.saved_frame(resume)
         else {
             return Err("legend resume".into());
         };
-        self.stabilization_wave_with_legends(*resume, cleanup, changed, Some(kept))
+        self.stabilization_wave_with_legends(
+            self.saved_frame(resume).clone(),
+            cleanup,
+            changed,
+            Some(kept),
+        )
     }
     pub(super) fn validate_legend_state(&self) -> Result<(), String> {
         if let Frame::LegendRule {
@@ -104,7 +109,7 @@ impl Game {
             groups,
             kept,
         } = &self.state.rules.frame
-            && (!matches!(resume.as_ref(), Frame::Stabilize { .. })
+            && (!matches!(self.saved_frame(*resume), Frame::Stabilize { .. })
                 || *groups != self.legend_groups()?
                 || groups.is_empty()
                 || kept.len() > groups.len()

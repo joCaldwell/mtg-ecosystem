@@ -107,7 +107,7 @@ impl Game {
                 self.announced_mana_consumer(self.top()?)
             }
             Frame::GraveyardGroup { tx }
-                if tx.payment_stack().is_some_and(|id| {
+                if tx.payment_stack(self).is_some_and(|id| {
                     self.top()
                         .is_ok_and(|stack| stack.controller == player && stack.id == id)
                 }) =>

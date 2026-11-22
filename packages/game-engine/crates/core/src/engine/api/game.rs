@@ -183,6 +183,7 @@ impl Game {
                 next_stack_id: 0,
                 stack: vec![].into(),
                 detached: BTreeMap::new(),
+                frames: vec![],
                 frame: Frame::Priority,
                 pending: None,
                 next_batch_id: 0,

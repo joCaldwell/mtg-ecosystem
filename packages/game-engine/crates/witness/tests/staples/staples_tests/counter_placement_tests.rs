@@ -852,30 +852,33 @@ fn m4d_retained_cast_history_counter_choice_and_wrapper_accounting() {
             Frame::CommanderReturn {
                 object: ramos,
                 destination: Zone::Graveyard { owner: PlayerId(0) },
-                continuation: Box::new(CommanderContinuation::ResolutionDraw {
+                continuation: CommanderContinuation::ResolutionDraw {
                     frame: resolving.clone(),
                     player: PlayerId(0),
                     source_block: 0,
-                }),
+                },
             },
             Frame::CommanderReturn {
                 object: ramos,
                 destination: Zone::Library { owner: PlayerId(0) },
-                continuation: Box::new(CommanderContinuation::HandReturn {
+                continuation: CommanderContinuation::HandReturn {
                     frame: resolving.clone(),
                     objects: vec![ramos],
                     remaining: vec![ramos],
                     choices: vec![],
                     source_block: 0,
-                }),
+                },
             },
             Frame::Stabilize {
-                resume: Box::new(g.state.rules.frame.clone()),
+                resume: FrameLink(0),
                 cleanup: false,
                 changed: false,
             },
         ] {
             let mut structural = g.fork();
+            if matches!(frame, Frame::Stabilize { .. }) {
+                structural.state.rules.frames = vec![g.state.rules.frame.clone()];
+            }
             structural.state.rules.frame = frame;
             assert_eq!(structural.grant_payload_charge(), expected);
         }

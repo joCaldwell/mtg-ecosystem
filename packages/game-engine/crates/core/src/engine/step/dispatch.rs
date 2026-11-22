@@ -14,6 +14,7 @@ impl Game {
         }
         // An invocation that left the stack stays owned only while the
         // installed frame still resumes it (CR 608.2m).
+        self.retire_returned_frames();
         self.release_detached();
         Ok(())
     }
@@ -175,7 +176,12 @@ impl Game {
                 source,
                 scope,
                 resume,
-            } => self.mana_source_choice_step(player, source, scope, *resume)?,
+            } => self.mana_source_choice_step(
+                player,
+                source,
+                scope,
+                self.saved_frame(resume).clone(),
+            )?,
             Frame::ManaAbility { activation } => self.permanent_mana_step(*activation)?,
             Frame::Payment { cast } => self.payment_step(cast)?,
             Frame::SpendMana { cast } => self.spend_mana_step(cast)?,
@@ -260,10 +266,10 @@ impl Game {
                                     self.rules_mut().frame = Frame::CommanderReturn {
                                         object: target,
                                         destination,
-                                        continuation: Box::new(CommanderContinuation::SpellMove {
+                                        continuation: CommanderContinuation::SpellMove {
                                             frame,
                                             source_block: *source_block,
-                                        }),
+                                        },
                                     };
                                     return Ok(());
                                 }
@@ -305,7 +311,7 @@ impl Game {
                 object,
                 destination,
                 continuation,
-            } => self.answer_commander_return(object, destination, *continuation)?,
+            } => self.answer_commander_return(object, destination, continuation)?,
             frame @ (Frame::Attackers
             | Frame::Blockers { .. }
             | Frame::Damage

@@ -279,7 +279,7 @@ fn typed_fetchland_paid_public_zero_find_and_typed_nonbasic_entry_recover() {
                     g.state
                         .rules
                         .frame
-                        .resolving_invocation()
+                        .resolving_invocation(&g.state.rules.frames)
                         .map(|id| g.entry(id).unwrap()),
                     Some(&invocation),
                     "plain entry retains the activation through its shuffle continuation"
@@ -682,7 +682,7 @@ fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_s
                 g.state
                     .rules
                     .frame
-                    .resolving_invocation()
+                    .resolving_invocation(&g.state.rules.frames)
                     .map(|id| g.entry(id).unwrap()),
                 Some(&invocation)
             );

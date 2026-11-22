@@ -63,6 +63,30 @@ impl Game {
         self.transact(false, |tx| tx.accept_input(input))
     }
 
+    pub(in crate::engine) fn commit_concession(
+        &mut self,
+        player: PlayerId,
+        revision: u64,
+    ) -> Result<(), RuleError> {
+        self.transact(false, |tx| {
+            let next = &mut tx.staged;
+            let input = ExternalInput {
+                after_decisions: u64::try_from(next.state.audit.journal.len())
+                    .map_err(|_| RuleError::resource("input count resource limit"))?,
+                boundary: next.state.rules.rule_steps,
+                player,
+            };
+            let charge = stored_history::payload_charge(&input);
+            next.state.audit.external_inputs.push(input);
+            let rules = next.rules_mut();
+            rules.retained_auxiliary_charge =
+                rules.retained_auxiliary_charge.saturating_add(charge);
+            rules.pending_concessions.push(player);
+            rules.revision = revision;
+            Ok(())
+        })
+    }
+
     fn transact<T>(
         &mut self,
         metered: bool,

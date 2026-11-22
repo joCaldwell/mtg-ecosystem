@@ -64,6 +64,7 @@ impl Game {
     /// A failed step is never a rules outcome: the game keeps its pre-step
     /// state and stops at a fault, typed when a capacity was exhausted.
     pub(in crate::engine) fn enter_fault(&mut self, error: RuleError) -> Advance {
+        self.rules_mut().frames.clear();
         self.rules_mut().typed_fault = error.fault().cloned();
         let reason = String::from(error);
         self.rules_mut().frame = Frame::Fault {

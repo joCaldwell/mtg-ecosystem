@@ -302,7 +302,7 @@ impl Game {
         }
         if let Frame::Stabilize { resume, .. } = &self.state.rules.frame {
             let mut validation = self.fork();
-            validation.rules_mut().frame = *resume.clone();
+            validation.rules_mut().frame = self.saved_frame(*resume).clone();
             return validation.validate_response(player, response);
         }
         if let (Frame::CounterPlacement { .. }, Response::CounterPlacementEffect { effect }) =

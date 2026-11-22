@@ -202,13 +202,13 @@ impl Game {
                 destination: Zone::Hand {
                     owner: self.state.rules.cards[&object.card].owner,
                 },
-                continuation: Box::new(CommanderContinuation::BoardReturn {
+                continuation: CommanderContinuation::BoardReturn {
                     frame,
                     objects,
                     remaining,
                     choices,
                     source_block,
-                }),
+                },
             };
             Ok(())
         } else {

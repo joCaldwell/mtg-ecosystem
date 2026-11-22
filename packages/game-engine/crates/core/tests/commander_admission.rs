@@ -189,10 +189,11 @@ fn commander_snapshot_versions_and_physical_designations_are_validated() {
         v["state"]["objects"]["999"] = rogue_object;
         v["state"]["commanders"]["records"]["999"] =
             v["state"]["commanders"]["records"]["0"].clone();
+        v["state"]["frames"] = serde_json::json!([{"stage":"priority"}]);
         v["state"]["frame"] = serde_json::json!({
             "stage":"commander_return", "object":{"card":999,"incarnation":0},
             "destination":{"zone":"graveyard","owner":0},
-            "continuation":{"continuation":"state_based","resume":{"stage":"priority"}}
+            "continuation":{"continuation":"state_based","resume":0}
         });
     });
 }

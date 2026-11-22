@@ -97,7 +97,7 @@ impl Game {
                 player: input.player,
                 source,
                 scope: ManaSourceScope::Intrinsic,
-                resume: Box::new(resume),
+                resume: self.save_frame(resume),
             };
             Ok(())
         }

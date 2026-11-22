@@ -13,10 +13,10 @@ pub enum GroupFinish {
     },
     Cleanup,
     Payment {
-        resume: Box<Frame>,
+        resume: FrameLink,
     },
     StateBased {
-        resume: Box<Frame>,
+        resume: FrameLink,
         checked: Vec<ObjectId>,
         kept: Vec<ObjectId>,
     },
@@ -95,14 +95,14 @@ impl GroupFinish {
             } => {
                 game.consume_checked_deathtouch(&checked)?;
                 if matches!(game.state.rules.frame, Frame::GraveyardGroup { .. }) {
-                    game.rules_mut().frame = *resume.clone();
+                    game.rules_mut().frame = game.saved_frame(resume).clone();
                 }
                 if let Some(batch) = batch
                     && game.finish_committed_player_losses(batch)?
                 {
                     return Ok(());
                 }
-                game.rules_mut().frame = *resume;
+                game.rules_mut().frame = game.saved_frame(resume).clone();
             }
             Self::Instruction { frame, result } => {
                 let outcome = match result {
@@ -158,11 +158,11 @@ impl GroupFinish {
 }
 
 impl GraveyardGroup {
-    pub(super) fn payment_stack(&self) -> Option<StackId> {
+    pub(super) fn payment_stack(&self, game: &Game) -> Option<StackId> {
         let GroupFinish::Payment { resume } = &self.finish else {
             return None;
         };
-        let Frame::SacrificeCost { cast } = resume.as_ref() else {
+        let Frame::SacrificeCost { cast } = game.saved_frame(*resume) else {
             return None;
         };
         Some(cast.stack_id)
@@ -435,7 +435,7 @@ impl GraveyardGroup {
                 })
             }
             GroupFinish::Payment { resume } => {
-                let Frame::SacrificeCost {cast} = resume.as_ref() else {return Err("invalid retained cost kind".into());};
+                let Frame::SacrificeCost {cast} = game.saved_frame(*resume) else {return Err("invalid retained cost kind".into());};
                 let top = game.top()?;
                 game.check_sacrifice_payment(top,cast)?;
                 top.id == cast.stack_id && top.paid.is_none()
@@ -448,7 +448,7 @@ impl GraveyardGroup {
                         if *owner == game.state.rules.turn_owner && game.zone(*object) == Some(Zone::Hand { owner: *owner }))
                 })
             }
-            GroupFinish::StateBased {resume,checked,..} => self.cause == BatchCause::StateBased && matches!(resume.as_ref(), Frame::Stabilize {changed:true,..}) && checked.windows(2).all(|w| w[0] < w[1]) && leaves.iter().all(|e| matches!(e, ProposedEvent::StateBasedGraveyard {..} | ProposedEvent::Move {destination: Zone::Graveyard {..},..} | ProposedEvent::CeaseToken {..} | ProposedEvent::CeaseSpellCopy {..} | ProposedEvent::Attach {target:None,..} | ProposedEvent::Lose {..})),
+            GroupFinish::StateBased {resume,checked,..} => self.cause == BatchCause::StateBased && matches!(game.saved_frame(*resume), Frame::Stabilize {changed:true,..}) && checked.windows(2).all(|w| w[0] < w[1]) && leaves.iter().all(|e| matches!(e, ProposedEvent::StateBasedGraveyard {..} | ProposedEvent::Move {destination: Zone::Graveyard {..},..} | ProposedEvent::CeaseToken {..} | ProposedEvent::CeaseSpellCopy {..} | ProposedEvent::Attach {target:None,..} | ProposedEvent::Lose {..})),
         };
         if !producing {
             return Err("graveyard wave producer mismatch".into());
@@ -607,11 +607,11 @@ impl Game {
         };
         let mut tx = tx.clone();
         if let GroupFinish::Payment { resume } = &tx.finish {
-            let Frame::SacrificeCost { cast } = resume.as_ref() else {
+            let Frame::SacrificeCost { cast } = self.saved_frame(*resume) else {
                 return Err("invalid replacement cost resume".into());
             };
             if self.top().is_err() || self.top()?.id != cast.stack_id {
-                self.rules_mut().frame = *resume.clone();
+                self.rules_mut().frame = self.saved_frame(*resume).clone();
                 self.rules_mut().pending = None;
                 return Ok(());
             }
@@ -745,7 +745,7 @@ impl Game {
         if let Frame::GraveyardGroup { tx } = &self.state.rules.frame
             && let GroupFinish::Payment { resume } = &tx.finish
         {
-            let Frame::SacrificeCost { cast: retained } = resume.as_ref() else {
+            let Frame::SacrificeCost { cast: retained } = self.saved_frame(*resume) else {
                 return Err("lost sacrifice payment".into());
             };
             if cast != retained {
@@ -908,7 +908,7 @@ impl Game {
                 }
             } else {
                 if let GroupFinish::Payment { resume } = &tx.finish {
-                    let Frame::SacrificeCost { cast } = resume.as_ref() else {
+                    let Frame::SacrificeCost { cast } = self.saved_frame(*resume) else {
                         return Err("lost sacrifice payment continuation".into());
                     };
                     return self.payment_step(cast.clone());

@@ -389,8 +389,9 @@ fn large_match_groups_and_multiple_fresh_commanders_remain_atomic() {
         .unwrap();
     }
     assert_eq!(g.state.rules.commander_returns.len(), 2);
+    g.state.rules.frames = vec![Frame::Priority];
     let resume = Frame::Stabilize {
-        resume: Box::new(Frame::Priority),
+        resume: FrameLink(0),
         cleanup: false,
         changed: false,
     };

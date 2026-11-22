@@ -203,7 +203,7 @@ pub struct DamageTransaction {
     pub entries: Vec<PreparedDamage>,
     pub applications: Vec<DamageApplication>,
     pub cause: BatchCause,
-    pub continuation: Box<DamageContinuation>,
+    pub continuation: DamageContinuation,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
@@ -1115,7 +1115,7 @@ impl Game {
                 entries,
                 applications: vec![],
                 cause,
-                continuation: Box::new(continuation),
+                continuation,
             },
         };
         Ok(())
@@ -1492,7 +1492,7 @@ impl Game {
             let first_trigger = self.state.rules.next_trigger_id;
             let actual =
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
-            match *tx.continuation {
+            match tx.continuation {
                 DamageContinuation::Combat => self.grant_turn_priority()?,
                 DamageContinuation::Mana {
                     activation,
@@ -3459,7 +3459,7 @@ impl Game {
                     .add(&d.original_amount);
             }
         }
-        match (&tx.kind, tx.continuation.as_ref()) {
+        match (&tx.kind, &tx.continuation) {
             (DamageKind::Combat, DamageContinuation::Combat) => {
                 if tx.cause != BatchCause::Combat {
                     return Err("wrong combat damage cause".into());

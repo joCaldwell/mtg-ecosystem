@@ -95,16 +95,16 @@ macro_rules! frame_walk {
                 continuation,
             } = transaction;
             visit($Held::Damage(entries));
-            match & $($mutability)? **continuation {
+            match & $($mutability)? *continuation {
                 DamageContinuation::Combat => {}
                 DamageContinuation::Instruction { frame } => visit($Held::Invocation {
                     hold,
                     id: frame.stack_id,
                 }),
                 DamageContinuation::Mana {
-                    activation,
+                    activation: _,
                     departed: _,
-                } => $walk(& $($mutability)? activation.resume, Hold::Suspended, visit),
+                } => {},
             }
         }
 
@@ -120,12 +120,12 @@ macro_rules! frame_walk {
                         id: frame.stack_id,
                     }),
                     GroupFinish::Cleanup => {}
-                    GroupFinish::Payment { resume } => $walk(resume, Hold::Suspended, visit),
+                    GroupFinish::Payment { resume: _ } => {},
                     GroupFinish::StateBased {
-                        resume,
+                        resume: _,
                         checked: _,
                         kept: _,
-                    } => $walk(resume, hold, visit),
+                    } => {},
                 },
                 Frame::GraveyardReplacement { transaction } => visit($Held::Invocation {
                     hold,
@@ -174,8 +174,8 @@ macro_rules! frame_walk {
                     player: _,
                     source: _,
                     scope: _,
-                    resume,
-                } => $walk(resume, Hold::Suspended, visit),
+                    resume: _,
+                } => {},
                 Frame::RevealAndCast { progress } => visit($Held::Invocation {
                     hold,
                     id: progress.frame.stack_id,
@@ -189,10 +189,10 @@ macro_rules! frame_walk {
                     id: progress.frame.stack_id,
                 }),
                 Frame::LegendRule {
-                    resume,
+                    resume: _,
                     groups: _,
                     kept: _,
-                } => $walk(resume, hold, visit),
+                } => {},
                 Frame::AdditionalCosts { cast }
                 | Frame::AnnounceX { cast }
                 | Frame::HybridCost { cast }
@@ -222,9 +222,7 @@ macro_rules! frame_walk {
                     hold,
                     id: frame.stack_id,
                 }),
-                Frame::ManaAbility { activation } => {
-                    $walk(& $($mutability)? activation.resume, Hold::Suspended, visit)
-                }
+                Frame::ManaAbility { activation: _ } => {}
                 Frame::DamageAllocation {
                     transaction,
                     effect: _,
@@ -234,13 +232,11 @@ macro_rules! frame_walk {
                     hold,
                     id: transaction.frame.stack_id,
                 }),
-                Frame::TriggerOrder { placement } => {
-                    $walk(& $($mutability)? placement.resume, hold, visit)
-                }
+                Frame::TriggerOrder { placement: _ } => {}
                 Frame::TriggerTargets {
-                    placement,
+                    placement: _,
                     stack_id: _,
-                } => $walk(& $($mutability)? placement.resume, hold, visit),
+                } => {},
                 Frame::ResolutionChoice { frame, choice: _ } => visit($Held::Invocation {
                     hold,
                     id: frame.stack_id,
@@ -249,7 +245,7 @@ macro_rules! frame_walk {
                     object: _,
                     destination: _,
                     continuation,
-                } => match & $($mutability)? **continuation {
+                } => match & $($mutability)? *continuation {
                     CommanderContinuation::CascadeBottom { progress } => {
                         visit($Held::Invocation {
                             hold,
@@ -312,18 +308,18 @@ macro_rules! frame_walk {
                         id: frame.stack_id,
                     }),
                     CommanderContinuation::Draw { player: _ } => {}
-                    CommanderContinuation::StateBased { resume } => $walk(resume, hold, visit),
+                    CommanderContinuation::StateBased { resume: _ } => {},
                     CommanderContinuation::StateBasedBatch {
                         remaining: _,
                         choices: _,
-                        resume,
-                    } => $walk(resume, hold, visit),
+                        resume: _,
+                    } => {},
                 },
                 Frame::Stabilize {
-                    resume,
+                    resume: _,
                     cleanup: _,
                     changed: _,
-                } => $walk(resume, hold, visit),
+                } => {},
                 Frame::Resolve { frame } => visit($Held::Invocation {
                     hold,
                     id: frame.stack_id,
@@ -353,22 +349,88 @@ macro_rules! frame_walk {
 frame_walk!(walk, walk_cast, walk_damage, HeldRef);
 frame_walk!(walk_mut, walk_cast_mut, walk_damage_mut, HeldMut, mut);
 
+macro_rules! frame_parent {
+    ($name:ident $(, $mutable:tt)?) => {
+    fn $name(&$($mutable)? self) -> Option<(&$($mutable)? FrameLink, Hold)> {
+        match self {
+            Self::Stabilize { resume, .. } | Self::LegendRule { resume, .. } => {
+                Some((resume, Hold::Resolving))
+            }
+            Self::ManaSourceChoice { resume, .. } => Some((resume, Hold::Suspended)),
+            Self::ManaAbility { activation } => Some((&$($mutable)? activation.resume, Hold::Suspended)),
+            Self::GraveyardGroup { tx } => match &$($mutable)? tx.finish {
+                GroupFinish::StateBased { resume, .. } => Some((resume, Hold::Resolving)),
+                GroupFinish::Payment { resume } => Some((resume, Hold::Suspended)),
+                _ => None,
+            },
+            Self::CommanderReturn {
+                continuation:
+                    CommanderContinuation::StateBased { resume }
+                    | CommanderContinuation::StateBasedBatch { resume, .. },
+                ..
+            } => Some((resume, Hold::Resolving)),
+            Self::TriggerOrder { placement } | Self::TriggerTargets { placement, .. } => {
+                Some((&$($mutable)? placement.resume, Hold::Resolving))
+            }
+            Self::DamageAllocation { transaction, .. } | Self::DamageEffects { transaction } => {
+                match &$($mutable)? transaction.continuation {
+                    DamageContinuation::Mana { activation, .. } => {
+                        Some((&$($mutable)? activation.resume, Hold::Suspended))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    };
+}
 impl Frame {
-    /// Visits every invocation and damage transaction this frame holds,
-    /// outermost first, through every resumed and suspended frame.
-    pub fn for_each_held<'a>(&'a self, visit: &mut dyn FnMut(HeldRef<'a>)) {
-        walk(self, Hold::Resolving, visit)
+    frame_parent!(parent_ref);
+    frame_parent!(parent_mut, mut);
+
+    pub fn parent(&self) -> Option<(FrameLink, Hold)> {
+        self.parent_ref().map(|(link, hold)| (*link, hold))
     }
 
-    pub(super) fn for_each_held_mut<'a>(&'a mut self, visit: &mut dyn FnMut(HeldMut<'a>)) {
-        walk_mut(self, Hold::Resolving, visit)
+    pub fn for_each_held<'a>(&'a self, frames: &'a [Frame], visit: &mut dyn FnMut(HeldRef<'a>)) {
+        let mut frame = self;
+        let mut hold = Hold::Resolving;
+        loop {
+            walk(frame, hold, visit);
+            let Some((parent, kind)) = frame.parent() else {
+                break;
+            };
+            if kind == Hold::Suspended {
+                hold = kind;
+            }
+            frame = &frames[parent.0];
+        }
     }
 
-    /// The invocation this frame is resolving. An owner suspended beneath its
-    /// child announcement or a mana ability is not resolving.
-    pub fn resolving_invocation(&self) -> Option<StackId> {
+    pub(super) fn for_each_held_mut<'a>(
+        &'a mut self,
+        mut frames: &'a mut [Frame],
+        visit: &mut dyn FnMut(HeldMut<'a>),
+    ) {
+        let mut frame = self;
+        let mut hold = Hold::Resolving;
+        loop {
+            let parent = frame.parent();
+            walk_mut(frame, hold, visit);
+            let Some((parent, kind)) = parent else { break };
+            if kind == Hold::Suspended {
+                hold = kind;
+            }
+            let (rest, top) = frames.split_at_mut(parent.0);
+            frame = &mut top[0];
+            frames = rest;
+        }
+    }
+    pub fn resolving_invocation(&self, frames: &[Frame]) -> Option<StackId> {
         let mut resolving = None;
-        self.for_each_held(&mut |held| {
+        self.for_each_held(frames, &mut |held| {
             if let Held::Invocation {
                 hold: Hold::Resolving,
                 id,
@@ -476,9 +538,9 @@ impl Frame {
     }
 
     /// Whether this frame will resume the invocation `id`.
-    pub fn holds(&self, id: StackId) -> bool {
+    pub fn holds(&self, frames: &[Frame], id: StackId) -> bool {
         let mut found = false;
-        self.for_each_held(&mut |held| {
+        self.for_each_held(frames, &mut |held| {
             found |= matches!(held, Held::Invocation { hold: _, id: held } if held == id);
         });
         found
@@ -536,6 +598,53 @@ impl Game {
             return;
         }
         let frame = &rules.frame;
-        rules.detached.retain(|id, _| frame.holds(*id));
+        rules
+            .detached
+            .retain(|id, _| frame.holds(&rules.frames, *id));
+    }
+}
+
+impl Game {
+    pub(in crate::engine) fn saved_frame(&self, link: FrameLink) -> &Frame {
+        &self.state.rules.frames[link.0]
+    }
+    pub(in crate::engine) fn save_frame(&mut self, frame: Frame) -> FrameLink {
+        let frames = &mut self.rules_mut().frames;
+        let link = FrameLink(frames.len());
+        frames.push(frame);
+        link
+    }
+
+    /// Rule routines may still read the installed frame while preparing its
+    /// successor. Drop abandoned branches only once that successor is installed.
+    pub(in crate::engine) fn retire_returned_frames(&mut self) {
+        let rules = self.rules_mut();
+        let Some((top, _)) = rules.frame.parent() else {
+            rules.frames.clear();
+            return;
+        };
+        rules.frames.truncate(top.0 + 1);
+        if rules
+            .frames
+            .iter()
+            .enumerate()
+            .all(|(depth, frame)| frame.parent().map(|(link, _)| link.0) == depth.checked_sub(1))
+        {
+            return;
+        }
+        let mut path = vec![top.0];
+        let mut next = top;
+        while let Some((parent, _)) = rules.frames[next.0].parent() {
+            path.push(parent.0);
+            next = parent;
+        }
+        for (depth, from) in path.iter().rev().copied().enumerate() {
+            rules.frames.swap(depth, from);
+            if let Some((link, _)) = rules.frames[depth].parent_mut() {
+                link.0 = depth - 1;
+            }
+        }
+        rules.frames.truncate(path.len());
+        rules.frame.parent_mut().expect("saved parent").0.0 = path.len() - 1;
     }
 }

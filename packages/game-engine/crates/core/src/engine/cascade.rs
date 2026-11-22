@@ -607,9 +607,9 @@ impl Game {
                         self.rules_mut().frame = Frame::CommanderReturn {
                             object,
                             destination: Zone::Library { owner },
-                            continuation: Box::new(CommanderContinuation::CascadeBottom {
+                            continuation: CommanderContinuation::CascadeBottom {
                                 progress: Box::new(progress),
-                            }),
+                            },
                         };
                         return Ok(());
                     }
@@ -727,17 +727,17 @@ impl Game {
         Ok(())
     }
     pub(crate) fn cascade_charge(&self) -> usize {
-        let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
+        let frame = spell_cascade_grants::retained_effect_frame(
+            &self.state.rules.frames,
+            &self.state.rules.frame,
+        );
         match frame {
             Frame::PlayHideawayLinked { .. }
             | Frame::Cascade { .. }
             | Frame::HandCast { .. }
             | Frame::RevealAndCast { .. } => stored_history::payload_charge(frame),
             Frame::CommanderReturn { continuation, .. }
-                if matches!(
-                    continuation.as_ref(),
-                    CommanderContinuation::CascadeBottom { .. }
-                ) =>
+                if matches!(continuation, CommanderContinuation::CascadeBottom { .. }) =>
             {
                 stored_history::payload_charge(frame)
             }
@@ -822,8 +822,7 @@ impl Game {
                 }
             }
             Frame::CommanderReturn { continuation, .. } => {
-                let CommanderContinuation::CascadeBottom { progress } = continuation.as_ref()
-                else {
+                let CommanderContinuation::CascadeBottom { progress } = continuation else {
                     return Ok(());
                 };
                 (progress.as_ref(), None, false)

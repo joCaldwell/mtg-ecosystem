@@ -32,7 +32,7 @@ enum MatchedCascadeGrant {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerPlacement {
-    pub(super) resume: Box<Frame>,
+    pub(super) resume: FrameLink,
     cleanup: bool,
     changed: bool,
     remaining: Vec<PlayerId>,
@@ -1331,7 +1331,7 @@ impl Game {
         }
         self.rules_mut().frame = Frame::TriggerOrder {
             placement: TriggerPlacement {
-                resume: Box::new(resume),
+                resume: self.save_frame(resume),
                 cleanup,
                 changed,
                 remaining: self.apnap_players(),

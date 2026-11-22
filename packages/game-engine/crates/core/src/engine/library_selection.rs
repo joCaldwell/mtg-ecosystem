@@ -135,13 +135,13 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand { owner: player },
-                continuation: Box::new(CommanderContinuation::LibrarySelect {
+                continuation: CommanderContinuation::LibrarySelect {
                     frame,
                     looked,
                     hand,
                     remainder,
                     source_block,
-                }),
+                },
             };
             return Ok(());
         }

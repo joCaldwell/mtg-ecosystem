@@ -51,12 +51,12 @@ pub enum CommanderContinuation {
         player: PlayerId,
     },
     StateBased {
-        resume: Frame,
+        resume: FrameLink,
     },
     StateBasedBatch {
         remaining: Vec<ObjectId>,
         choices: Vec<(ObjectId, bool)>,
-        resume: Frame,
+        resume: FrameLink,
     },
 }
 
@@ -65,7 +65,7 @@ impl Game {
         match &self.state.rules.frame {
             Frame::GraveyardGroup { tx } => tx.prior_choices(self),
             Frame::GraveyardReplacement { transaction } => transaction.prior_choices(),
-            Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
+            Frame::CommanderReturn { continuation, .. } => match continuation {
                 CommanderContinuation::GraveyardShuffle { choices, .. }
                 | CommanderContinuation::StateBasedBatch { choices, .. }
                 | CommanderContinuation::BoardReturn { choices, .. } => choices.clone(),
@@ -184,11 +184,11 @@ impl Game {
                 self.rules_mut().frame = Frame::CommanderReturn {
                     object,
                     destination: self.current(object)?.zone,
-                    continuation: Box::new(CommanderContinuation::StateBasedBatch {
+                    continuation: CommanderContinuation::StateBasedBatch {
                         remaining: objects,
                         choices: vec![],
-                        resume,
-                    }),
+                        resume: self.save_frame(resume),
+                    },
                 };
                 return Ok(true);
             }
@@ -199,7 +199,9 @@ impl Game {
             self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: self.current(object)?.zone,
-                continuation: Box::new(CommanderContinuation::StateBased { resume }),
+                continuation: CommanderContinuation::StateBased {
+                    resume: self.save_frame(resume),
+                },
             };
             Ok(true)
         } else {
@@ -225,7 +227,7 @@ impl Game {
         self.rules_mut().frame = Frame::CommanderReturn {
             object,
             destination: Zone::Hand { owner: player },
-            continuation: Box::new(CommanderContinuation::Draw { player }),
+            continuation: CommanderContinuation::Draw { player },
         };
         Ok(true)
     }
@@ -410,7 +412,7 @@ impl Game {
             CommanderContinuation::StateBasedBatch {
                 mut remaining,
                 mut choices,
-                mut resume,
+                resume,
             } => {
                 // CR101.4/101.4b and704.3: APNAP choices are public in sequence,
                 // but no commander moves until every applicable owner chose.
@@ -427,11 +429,11 @@ impl Game {
                     self.rules_mut().frame = Frame::CommanderReturn {
                         object,
                         destination: self.current(object)?.zone,
-                        continuation: Box::new(CommanderContinuation::StateBasedBatch {
+                        continuation: CommanderContinuation::StateBasedBatch {
                             remaining,
                             choices,
                             resume,
-                        }),
+                        },
                     };
                 } else {
                     let occurrences = choices
@@ -452,25 +454,28 @@ impl Game {
                             BatchCause::CommanderReturn,
                             EventGroup::Simultaneous { occurrences },
                         )?;
-                        if let Frame::Stabilize { changed, .. } = &mut resume {
+                        if let Frame::Stabilize { changed, .. } =
+                            &mut self.rules_mut().frames[resume.0]
+                        {
                             *changed = true;
                         }
                     }
-                    self.rules_mut().frame = resume;
+                    self.rules_mut().frame = self.saved_frame(resume).clone();
                 }
             }
-            CommanderContinuation::StateBased { mut resume } => {
+            CommanderContinuation::StateBased { resume } => {
                 if present && to_command {
                     self.move_object_for(
                         object,
                         Zone::Command { owner },
                         BatchCause::CommanderReturn,
                     )?;
-                    if let Frame::Stabilize { changed, .. } = &mut resume {
+                    if let Frame::Stabilize { changed, .. } = &mut self.rules_mut().frames[resume.0]
+                    {
                         *changed = true;
                     }
                 }
-                self.rules_mut().frame = resume;
+                self.rules_mut().frame = self.saved_frame(resume).clone();
             }
         }
         Ok(())
@@ -524,7 +529,7 @@ impl Game {
                 return Err("snapshot commander choice designation invariant".into());
             }
             let current = self.current(*object)?;
-            match continuation.as_ref() {
+            match continuation {
                 CommanderContinuation::CascadeBottom { progress } => {
                     self.validate_cascade_commander_choice(progress, *object, *destination)?;
                     if *destination != (Zone::Library { owner })
@@ -772,7 +777,7 @@ impl Game {
                         .collect::<Vec<_>>();
                     if ids.len() > self.state.rules.commanders.records.len()
                         || ids.iter().collect::<BTreeSet<_>>().len() != ids.len()
-                        || !matches!(resume, Frame::Stabilize { .. })
+                        || !matches!(self.saved_frame(*resume), Frame::Stabilize { .. })
                         || current.zone != *destination
                         || !matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
                     {
@@ -806,7 +811,7 @@ impl Game {
                 CommanderContinuation::StateBased { resume } => {
                     if current.zone != *destination
                         || !matches!(destination, Zone::Graveyard { .. } | Zone::Exile)
-                        || !matches!(resume, Frame::Stabilize { .. })
+                        || !matches!(self.saved_frame(*resume), Frame::Stabilize { .. })
                     {
                         return Err("snapshot commander SBA continuation invariant".into());
                     }
