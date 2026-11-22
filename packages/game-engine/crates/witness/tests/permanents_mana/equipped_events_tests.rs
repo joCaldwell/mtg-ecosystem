@@ -44,7 +44,7 @@ fn slice4_equipped_combat_optional_draw_keeps_the_damage_attachment_witness() {
                 let Frame::ResolutionChoice { frame, .. } = &g.state.rules.frame else {
                     panic!("missing choice frame")
                 };
-                let entry = &frame.spell;
+                let entry = g.entry(frame.stack_id).unwrap();
                 assert_eq!(entry.source, equipment);
                 assert!(
                     matches!(&entry.kind,StackKind::Triggered{witness:TriggerEventWitness::Equipped{attachment,occurrence:event},..}

@@ -74,13 +74,12 @@ impl Game {
                 requested,
             }));
         }
-        self.state.rules.retained_auxiliary_charge = self
+        self.rules_mut().retained_auxiliary_charge = self
             .state
             .rules
             .retained_auxiliary_charge
             .saturating_add(charge);
-        self.state
-            .rules
+        self.rules_mut()
             .back_face_objects
             .entry(successor.card)
             .or_default()
@@ -204,13 +203,12 @@ impl Game {
                 requested,
             }));
         }
-        self.state.rules.retained_auxiliary_charge = self
+        self.rules_mut().retained_auxiliary_charge = self
             .state
             .rules
             .retained_auxiliary_charge
             .saturating_add(charge);
-        self.state
-            .rules
+        self.rules_mut()
             .entry_copies
             .entry(entering.card)
             .or_default()

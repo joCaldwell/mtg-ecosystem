@@ -48,13 +48,13 @@ pub enum CastOwner {
     RevealAndCast(Box<RevealAndCastProgress>),
 }
 impl CastOwner {
-    pub(super) fn permission(&self) -> Result<CastPermission, String> {
+    pub(super) fn permission(&self, game: &Game) -> Result<CastPermission, String> {
         match self {
             Self::LinkedPlay {
                 progress, object, ..
-            } => Ok(progress.permission(*object)),
-            Self::Cascade(progress) => progress.permission(),
-            Self::RevealAndCast(progress) => progress.permission(),
+            } => progress.permission(game, *object),
+            Self::Cascade(progress) => progress.permission(game),
+            Self::RevealAndCast(progress) => progress.permission(game),
         }
     }
     pub(super) fn resume(self) -> Frame {
@@ -67,20 +67,21 @@ impl CastOwner {
 }
 impl CastPermission {
     pub(super) fn from_instruction(
+        game: &Game,
         frame: &Resolving,
         source_block: u32,
         object: ObjectId,
         ceiling: Option<Quantity>,
-    ) -> Self {
-        Self {
-            caster: frame.spell.controller,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            caster: game.entry(frame.stack_id)?.controller,
             object,
             owner: frame.stack_id,
             cursor: frame.cursor,
             source_block,
             alternative_cost: AlternativeCost::WithoutManaCost,
             resulting_mana_value_below: ceiling,
-        }
+        })
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,19 +119,20 @@ pub struct CascadeProgress {
     redirected: Vec<ObjectId>,
 }
 impl CascadeProgress {
-    fn caster(&self) -> PlayerId {
-        self.frame.spell.controller
+    fn caster(&self, game: &Game) -> Result<PlayerId, String> {
+        Ok(game.entry(self.frame.stack_id)?.controller)
     }
-    fn permission(&self) -> Result<CastPermission, String> {
+    fn permission(&self, game: &Game) -> Result<CastPermission, String> {
         if self.stage != CascadeStage::Offer || self.child.is_some() {
             return Err("cascade permission outside its offer".into());
         }
-        Ok(CastPermission::from_instruction(
+        CastPermission::from_instruction(
+            game,
             &self.frame,
             self.source_block,
             self.hit.ok_or("cascade offer without hit")?,
             Some(self.threshold.clone()),
-        ))
+        )
     }
 }
 impl Game {
@@ -138,11 +140,13 @@ impl Game {
         let StackKind::Triggered {
             witness: TriggerEventWitness::SpellCast { cast },
             ..
-        } = &frame.spell.kind
+        } = &self.entry(frame.stack_id)?.kind
         else {
             return Err("cascade requires its real self-cast occurrence".into());
         };
-        if cast.spell.object != frame.spell.source || cast.caster != frame.spell.controller {
+        if cast.spell.object != self.entry(frame.stack_id)?.source
+            || cast.caster != self.entry(frame.stack_id)?.controller
+        {
             return Err("cascade self source identity".into());
         }
         // Supported immutable normal faces: current exact stack characteristics
@@ -184,7 +188,7 @@ impl Game {
             commander_cursor: 0,
             redirected: vec![],
         };
-        self.state.rules.frame = Frame::Cascade {
+        self.rules_mut().frame = Frame::Cascade {
             progress: Box::new(progress),
         };
         Ok(())
@@ -317,7 +321,7 @@ impl Game {
             return Ok(None);
         };
         Ok(self
-            .cascade_land_ability(object, progress.caster())?
+            .cascade_land_ability(object, progress.caster(self)?)?
             .map(|ability| EffectKey::Static {
                 source: provider,
                 ability,
@@ -348,7 +352,7 @@ impl Game {
                 .iter()
                 .any(|choice| choice.provider == object.id)
                 && self
-                    .cascade_land_ability(object, progress.caster())?
+                    .cascade_land_ability(object, progress.caster(self)?)?
                     .is_some()
             {
                 for &id in &progress.exiled {
@@ -382,7 +386,7 @@ impl Game {
             .land_choices
             .push(CascadeLandChoice { provider, entered });
         self.next_cascade_offer(&mut progress)?;
-        self.state.rules.frame = Frame::Cascade { progress };
+        self.rules_mut().frame = Frame::Cascade { progress };
         Ok(())
     }
     // The public query walks this cascade's publicly observed scan in order.
@@ -400,7 +404,7 @@ impl Game {
         let Frame::Cascade { progress } = &self.state.rules.frame else {
             return Ok(None);
         };
-        if viewer == progress.caster()
+        if viewer == progress.caster(self)?
             && let Some(&object) = progress.exiled.get(index)
             && self.cascade_exiled_land(object)?
         {
@@ -425,17 +429,17 @@ impl Game {
             return Ok(
                 (!candidates.is_empty()).then_some(Request::CascadeLandEntry {
                     decision_id: self.state.rules.revision,
-                    player: progress.caster(),
+                    player: progress.caster(self)?,
                     candidates,
                 }),
             );
         }
-        Ok((self.is_live(progress.caster())
+        Ok((self.is_live(progress.caster(self)?)
             && progress.stage == CascadeStage::Offer
-            && self.resolution_offer_legal(&progress.permission()?)?)
+            && self.resolution_offer_legal(&progress.permission(self)?)?)
         .then_some(Request::OptionalEffect {
             decision_id: self.state.rules.revision,
-            player: progress.caster(),
+            player: progress.caster(self)?,
         }))
     }
     pub(super) fn validate_cascade_response(
@@ -459,10 +463,11 @@ impl Game {
                 Err("invalid cascade land choice".into())
             };
         }
-        if player != progress.caster() || !matches!(response, Response::OptionalEffect { .. }) {
+        if player != progress.caster(self)? || !matches!(response, Response::OptionalEffect { .. })
+        {
             return Err("cascade offer belongs only to its caster".into());
         }
-        if self.resolution_offer_legal(&progress.permission()?)? {
+        if self.resolution_offer_legal(&progress.permission(self)?)? {
             Ok(())
         } else {
             Err("no legal cascade casting path".into())
@@ -488,8 +493,8 @@ impl Game {
         Ok(())
     }
     pub(super) fn cascade_step(&mut self, mut progress: CascadeProgress) -> Result<(), String> {
-        if !self.is_live(progress.caster()) {
-            return self.finish_ability(&progress.frame.spell, false);
+        if !self.is_live(progress.caster(self)?) {
+            return self.finish_ability(progress.frame.stack_id, false);
         }
         match progress.stage {
             CascadeStage::Scan => {
@@ -497,7 +502,7 @@ impl Game {
                     .state
                     .rules
                     .libraries
-                    .get(&progress.caster())
+                    .get(&progress.caster(self)?)
                     .and_then(|v| v.first())
                     .copied();
                 if let Some(card) = card {
@@ -506,7 +511,7 @@ impl Game {
                         .move_object_for(
                             object,
                             Zone::Exile,
-                            Self::wipe_cause(&progress.frame, progress.source_block),
+                            self.instruction_cause(&progress.frame, progress.source_block)?,
                         )?
                         .successor;
                     progress.exiled.push(successor);
@@ -519,11 +524,11 @@ impl Game {
                 }
             }
             CascadeStage::LandOffer { .. } => {
-                if let Some(input) = self.state.rules.pending.take() {
+                if let Some(input) = self.rules_mut().pending.take() {
                     let Response::CascadeLandEntry { object } = input.response else {
                         return Err("cascade land response shape invariant".into());
                     };
-                    if input.player != progress.caster() {
+                    if input.player != progress.caster(self)? {
                         return Err("cascade land chooser invariant".into());
                     }
                     if let Some(object) = object
@@ -543,14 +548,14 @@ impl Game {
                 return self.resume_cascade_land(Box::new(progress), None);
             }
             CascadeStage::Offer => {
-                let permission = progress.permission()?;
+                let permission = progress.permission(self)?;
                 let legal = self.resolution_offer_legal(&permission)?;
                 // CR608.2g/800.4: an already accepted choice belongs to THIS
                 // offer even if a concession removed its last legal target.
                 // Consume only the exact frame-bound response; an invariant
                 // error rolls the whole step back, retaining unrelated input.
-                if let Some(input) = self.state.rules.pending.take() {
-                    if input.player != progress.caster() {
+                if let Some(input) = self.rules_mut().pending.take() {
+                    if input.player != progress.caster(self)? {
                         return Err("cascade accepted choice caster invariant".into());
                     }
                     let Response::OptionalEffect { perform } = input.response else {
@@ -569,8 +574,7 @@ impl Game {
             CascadeStage::Randomize => {
                 if progress.random_index > 0 {
                     let random = &mut self
-                        .state
-                        .rules
+                        .rules_mut()
                         .match_state
                         .as_mut()
                         .ok_or("missing trusted match randomness for random bottom")?
@@ -600,7 +604,7 @@ impl Game {
                         && self.state.rules.commanders.history(object.card).is_some()
                     {
                         let owner = self.state.rules.cards[&object.card].owner;
-                        self.state.rules.frame = Frame::CommanderReturn {
+                        self.rules_mut().frame = Frame::CommanderReturn {
                             object,
                             destination: Zone::Library { owner },
                             continuation: Box::new(CommanderContinuation::CascadeBottom {
@@ -610,6 +614,7 @@ impl Game {
                         return Ok(());
                     }
                 }
+                let caster = progress.caster(self)?;
                 let children = progress
                     .permutation
                     .iter()
@@ -621,15 +626,13 @@ impl Game {
                     .map(|object| EventGroup::Occurrence {
                         proposed: ProposedEvent::Move {
                             object,
-                            destination: Zone::Library {
-                                owner: progress.caster(),
-                            },
+                            destination: Zone::Library { owner: caster },
                         },
                     })
                     .collect::<Vec<_>>();
                 if !children.is_empty() {
                     self.commit_batch(
-                        Self::wipe_cause(&progress.frame, progress.source_block),
+                        self.instruction_cause(&progress.frame, progress.source_block)?,
                         EventGroup::Ordered { children },
                     )?;
                 }
@@ -638,13 +641,13 @@ impl Game {
             CascadeStage::Finish => {
                 // Keep this exact owned completion visible to the narrow outer
                 // removal guard; child remains paid ABOVE its resolving owner.
-                self.state.rules.frame = Frame::Cascade {
+                self.rules_mut().frame = Frame::Cascade {
                     progress: Box::new(progress.clone()),
                 };
-                return self.finish_ability(&progress.frame.spell, true);
+                return self.finish_ability(progress.frame.stack_id, true);
             }
         }
-        self.state.rules.frame = Frame::Cascade {
+        self.rules_mut().frame = Frame::Cascade {
             progress: Box::new(progress),
         };
         Ok(())
@@ -665,7 +668,7 @@ impl Game {
             || progress.redirected.contains(&object)
             || destination
                 != (Zone::Library {
-                    owner: progress.caster(),
+                    owner: progress.caster(self)?,
                 })
         {
             return Err("cascade commander exact bottom choice invariant".into());
@@ -683,7 +686,7 @@ impl Game {
             self.move_object_for(object, Zone::Command { owner }, BatchCause::CommanderReturn)?;
             progress.redirected.push(object);
         }
-        self.state.rules.frame = Frame::Cascade { progress };
+        self.rules_mut().frame = Frame::Cascade { progress };
         Ok(())
     }
     pub(super) fn resolution_child(&self, owner: StackId) -> Option<StackId> {
@@ -701,24 +704,25 @@ impl Game {
             return Ok(());
         };
         if matches!(progress.stage, CascadeStage::LandOffer { .. })
-            && self.is_live(progress.caster())
+            && self.is_live(progress.caster(self)?)
             && self.cascade_request()?.is_none()
         {
-            self.state.rules.pending = None;
-            return self.resume_cascade_land(progress.clone(), None);
+            let progress = progress.clone();
+            self.rules_mut().pending = None;
+            return self.resume_cascade_land(progress, None);
         }
+        let caster = progress.caster(self)?;
         if progress.stage == CascadeStage::Offer
-            && self.is_live(progress.caster())
+            && self.is_live(caster)
             && self.state.rules.pending.as_ref().is_some_and(|input| {
-                input.player == progress.caster()
-                    && matches!(input.response, Response::OptionalEffect { .. })
+                input.player == caster && matches!(input.response, Response::OptionalEffect { .. })
             })
-            && !self.resolution_offer_legal(&progress.permission()?)?
+            && !self.resolution_offer_legal(&progress.permission(self)?)?
         {
             // The accepted journal entry remains historical. Departure consumes
             // this exact invalidated offer input before exposing/recovering the
             // next boundary, as for the other owned decision continuations.
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }
@@ -806,7 +810,7 @@ impl Game {
                         object,
                         receipt,
                     } => {
-                        if !progress.receipt_matches(receipt, *object) {
+                        if !progress.receipt_matches(self, receipt, *object)? {
                             return Err("snapshot linked announcement receipt".into());
                         }
                         return self.validate_linked_play(progress, Some((permission, *object)));
@@ -826,6 +830,7 @@ impl Game {
             }
             _ => return Ok(()),
         };
+        let caster = progress.caster(self)?;
         self.validate_resolving_owned(
             &progress.frame,
             if announcing {
@@ -834,7 +839,7 @@ impl Game {
                 progress.child
             },
         )?;
-        let program = self.program_for(&progress.frame.spell)?;
+        let program = self.program_for(self.entry(progress.frame.stack_id)?)?;
         if !matches!(program.instructions.get(progress.frame.cursor as usize), Some(Instruction::Cascade { source_block, .. }) if *source_block == progress.source_block)
             || self.cascade_threshold(&progress.frame)? != progress.threshold
             || progress.exiled.len() > capacities::OWNED_LIMIT
@@ -850,7 +855,7 @@ impl Game {
                     .rules
                     .cards
                     .get(&x.card)
-                    .is_none_or(|c| c.owner != progress.caster())
+                    .is_none_or(|c| c.owner != caster)
             })
             || progress.hit.is_some_and(|hit| {
                 progress.exiled.last() != Some(&hit)
@@ -861,7 +866,7 @@ impl Game {
                     && self.cascade_hit(*x, &progress.threshold).unwrap_or(false)
             })
             || (announcing && (progress.stage != CascadeStage::Offer || progress.child.is_some()))
-            || permission.is_some_and(|p| progress.permission().as_ref() != Ok(p))
+            || permission.is_some_and(|p| progress.permission(self).as_ref() != Ok(p))
         {
             return Err("snapshot cascade source/progress invariant".into());
         }
@@ -896,19 +901,18 @@ impl Game {
                     .copiable_definition(land)?
                     .characteristics
                     .has_type(CardKind::Land)
-                || self.is_live(progress.caster())
+                || self.is_live(caster)
                     && self.state.rules.objects.get(&land.card).is_none_or(|o| {
                         o.id.incarnation <= land.incarnation
                             || land.incarnation.checked_add(1) == Some(o.id.incarnation)
-                                && (o.zone != Zone::Battlefield
-                                    || o.default_controller != progress.caster())
+                                && (o.zone != Zone::Battlefield || o.default_controller != caster)
                     })
             {
                 return Err("snapshot cascade entered land invariant".into());
             }
         }
         if let CascadeStage::LandOffer { provider } = progress.stage
-            && self.is_live(progress.caster())
+            && self.is_live(caster)
             && (used_providers.contains(&provider)
                 || self.cascade_land_source(progress)?.is_none()
                 || !progress
@@ -920,7 +924,7 @@ impl Game {
                         .state
                         .rules
                         .libraries
-                        .get(&progress.caster())
+                        .get(&caster)
                         .is_some_and(|l| !l.is_empty()))
         {
             return Err("snapshot cascade land offer source/scan invariant".into());
@@ -944,7 +948,7 @@ impl Game {
                 if entered_lands.contains(x) || announcing && Some(*x) == progress.hit {
                     continue;
                 }
-                if self.is_live(progress.caster()) && self.current(*x)?.zone != Zone::Exile {
+                if self.is_live(caster) && self.current(*x)?.zone != Zone::Exile {
                     return Err("snapshot cascade exact exile invariant".into());
                 }
             }
@@ -982,7 +986,7 @@ impl Game {
             {
                 return Err("snapshot cascade stage cursor invariant".into());
             }
-            if self.is_live(progress.caster()) {
+            if self.is_live(caster) {
                 for object in &progress.remainder {
                     let redirected = progress.redirected.contains(object);
                     if redirected
@@ -1002,13 +1006,9 @@ impl Game {
                         if object.incarnation.checked_add(1) != Some(current.id.incarnation)
                             || current.zone
                                 != if redirected {
-                                    Zone::Command {
-                                        owner: progress.caster(),
-                                    }
+                                    Zone::Command { owner: caster }
                                 } else {
-                                    Zone::Library {
-                                        owner: progress.caster(),
-                                    }
+                                    Zone::Library { owner: caster }
                                 }
                         {
                             return Err("snapshot cascade bottom successor invariant".into());
@@ -1029,14 +1029,14 @@ impl Game {
                         .state
                         .rules
                         .libraries
-                        .get(&progress.caster())
+                        .get(&caster)
                         .is_some_and(|library| library.ends_with(&bottom))
                     {
                         return Err("snapshot cascade bottom order invariant".into());
                     }
                 }
             }
-            if let Some(child) = progress.child.filter(|_| self.is_live(progress.caster())) {
+            if let Some(child) = progress.child.filter(|_| self.is_live(caster)) {
                 let top = self.top()?;
                 if top.id != child
                     || Some(top.source.card) != progress.hit.map(|h| h.card)

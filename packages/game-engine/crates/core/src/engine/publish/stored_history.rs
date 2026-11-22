@@ -28,7 +28,7 @@ impl<T: Clone> Clone for Row<T> {
 #[derive(Clone)]
 pub struct StoredRow<T>(pub Arc<Row<T>>);
 pub type StoredObject = StoredRow<VisibleObject>;
-pub(super) type StoredPlayer = StoredRow<VisiblePlayer>;
+pub(in crate::engine) type StoredPlayer = StoredRow<VisiblePlayer>;
 impl<T: Serialize> StoredRow<T> {
     pub fn new(value: T) -> Self {
         Self(Arc::new(Row {
@@ -228,18 +228,18 @@ pub struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) setup: Option<VisibleSetup>,
+    pub(in crate::engine) setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) effects: Vec<VisibleEffect>,
-    pub(super) combat: Vec<VisibleAttacker>,
-    pub(super) viewer: PlayerId,
-    pub(super) active: Option<PlayerId>,
-    pub(super) turn_owner: PlayerId,
+    pub(in crate::engine) effects: Vec<VisibleEffect>,
+    pub(in crate::engine) combat: Vec<VisibleAttacker>,
+    pub(in crate::engine) viewer: PlayerId,
+    pub(in crate::engine) active: Option<PlayerId>,
+    pub(in crate::engine) turn_owner: PlayerId,
     pub turn: TurnState,
-    pub(super) live_turn_order: Vec<PlayerId>,
+    pub(in crate::engine) live_turn_order: Vec<PlayerId>,
     #[serde(with = "shared_vec")]
     pub commanders: Arc<Vec<VisibleCommander>>,
-    pub(super) priority: Option<PlayerId>,
+    pub(in crate::engine) priority: Option<PlayerId>,
     #[serde(with = "shared_vec")]
     pub players: Arc<Vec<StoredPlayer>>,
     #[serde(with = "shared_vec")]
@@ -250,13 +250,13 @@ pub struct StoredViewData {
 // Keep serde's workspace feature set unchanged (no generic rc feature needed).
 mod shared_vec {
     use super::*;
-    pub(super) fn serialize<T: Serialize, S: Serializer>(
+    pub(in crate::engine) fn serialize<T: Serialize, S: Serializer>(
         value: &Arc<Vec<T>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         value.as_ref().serialize(serializer)
     }
-    pub(super) fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+    pub(in crate::engine) fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Arc<Vec<T>>, D::Error> {
         Vec::<T>::deserialize(deserializer).map(Arc::new)
@@ -379,6 +379,147 @@ impl From<PermittedView> for StoredPermittedView {
     }
 }
 impl StoredPermittedView {
+    /// Builds a view as it is stored, from rows already in view order.
+    /// `header` carries every field that is not a row collection. Each
+    /// collection, and each row, that equals `previous`'s is that allocation:
+    /// exactly the sharing `reuse_previous` gives a converted public view.
+    pub(in crate::engine) fn from_rows(
+        header: PermittedView,
+        players: Vec<VisiblePlayer>,
+        objects: Vec<VisibleObject>,
+        stack: Vec<VisibleStackEntry>,
+        previous: Option<&Self>,
+    ) -> Self {
+        let PermittedView {
+            known_searched_hand,
+            known_library_positions,
+            sacrifice_choices,
+            setup,
+            effects,
+            combat,
+            viewer,
+            active,
+            turn_owner,
+            turn,
+            live_turn_order,
+            commanders,
+            priority,
+            players: _,
+            objects: _,
+            stack: _,
+        } = header;
+        let previous = previous.filter(|previous| previous.viewer == viewer);
+        // Object rows: both lists are ordered by handle.
+        let mut rows = Vec::with_capacity(objects.len());
+        let mut all_shared = previous.is_some_and(|p| p.objects.len() == objects.len());
+        let old_rows = previous.map_or(&[][..], |p| p.objects.as_slice());
+        let mut old = old_rows.iter().peekable();
+        for object in objects {
+            while old
+                .peek()
+                .is_some_and(|row| row.handle.0.as_str() < object.handle.0.as_str())
+            {
+                old.next();
+            }
+            match old.peek() {
+                Some(row) if row.handle == object.handle && row.0.value == object => {
+                    all_shared &=
+                        rows.len() < old_rows.len() && Arc::ptr_eq(&row.0, &old_rows[rows.len()].0);
+                    rows.push((*row).clone());
+                    old.next();
+                }
+                _ => {
+                    all_shared = false;
+                    rows.push(StoredObject::new(object));
+                }
+            }
+        }
+        let objects = match previous {
+            Some(previous) if all_shared => previous.data.objects.clone(),
+            _ => Arc::new(rows),
+        };
+        let players = match previous {
+            Some(previous)
+                if previous.players.len() == players.len()
+                    && previous
+                        .players
+                        .iter()
+                        .zip(&players)
+                        .all(|(old, new)| old.0.value == *new) =>
+            {
+                previous.data.players.clone()
+            }
+            _ => {
+                let mut old = previous
+                    .map(|p| {
+                        p.players
+                            .iter()
+                            .map(|row| (row.player, row))
+                            .collect::<BTreeMap<_, _>>()
+                    })
+                    .unwrap_or_default();
+                let mut stored = Vec::with_capacity(players.len());
+                for player in players {
+                    match old.remove(&player.player) {
+                        Some(row) if row.0.value == player => stored.push(row.clone()),
+                        _ => stored.push(StoredPlayer::new(player)),
+                    }
+                }
+                Arc::new(stored)
+            }
+        };
+        let (commanders, commanders_bytes) = match previous {
+            Some(previous) if *previous.data.commanders == commanders => (
+                previous.data.commanders.clone(),
+                previous.commanders_bytes.clone(),
+            ),
+            _ => (Arc::new(commanders), Arc::new(OnceLock::new())),
+        };
+        let stack = match previous {
+            Some(previous) if previous.data.stack.matches_public(&stack) => {
+                previous.data.stack.clone()
+            }
+            _ => StoredStack::from_rows(stack, previous.map(|p| &p.data.stack)),
+        };
+        Self {
+            data: StoredViewData {
+                known_searched_hand,
+                known_library_positions,
+                sacrifice_choices,
+                setup,
+                effects,
+                combat,
+                viewer,
+                active,
+                turn_owner,
+                turn,
+                live_turn_order,
+                commanders,
+                priority,
+                players,
+                objects,
+                stack,
+            },
+            segments: OnceLock::new(),
+            commanders_bytes,
+        }
+    }
+    /// This view with its priority holder and turn replaced. Every shared
+    /// row collection, and the canonical bytes that follow one, stays shared.
+    pub(in crate::engine) fn with_priority_and_turn(
+        &self,
+        priority: Option<PlayerId>,
+        turn: TurnState,
+    ) -> Self {
+        let mut data = self.data.clone();
+        data.priority = priority;
+        data.turn = turn;
+        Self {
+            data,
+            segments: OnceLock::new(),
+            commanders_bytes: self.commanders_bytes.clone(),
+        }
+    }
     pub fn to_public(&self) -> PermittedView {
         let StoredViewData {
             known_searched_hand,
@@ -417,6 +558,8 @@ impl StoredPermittedView {
             stack: stack.to_public(),
         }
     }
+    /// Whether this stored view equals a public view, row for row.
+    #[cfg(any(debug_assertions, feature = "testkit"))]
     pub fn matches_public(&self, view: &PermittedView) -> bool {
         let PermittedView {
             known_searched_hand,
@@ -485,7 +628,9 @@ impl StoredPermittedView {
         // Complete ordered typed equality, never a hash or handle-only test.
         // All shared element types are Eq; pointer identity cannot bypass an
         // irreflexive PartialEq value. Sharing is ONLY this same-viewer predecessor.
-        if self.data.players.as_ref() == previous.data.players.as_ref() {
+        if Arc::ptr_eq(&self.data.players, &previous.data.players) {
+            // Already shared with the predecessor.
+        } else if self.data.players.as_ref() == previous.data.players.as_ref() {
             self.data.players = previous.data.players.clone();
         } else {
             let mut rows = previous
@@ -501,11 +646,15 @@ impl StoredPermittedView {
                 }
             }
         }
-        if self.data.commanders.as_ref() == previous.data.commanders.as_ref() {
+        if Arc::ptr_eq(&self.data.commanders, &previous.data.commanders)
+            || self.data.commanders.as_ref() == previous.data.commanders.as_ref()
+        {
             self.data.commanders = previous.data.commanders.clone();
             self.commanders_bytes = previous.commanders_bytes.clone();
         }
-        if self.data.objects.as_ref() == previous.data.objects.as_ref() {
+        if Arc::ptr_eq(&self.data.objects, &previous.data.objects) {
+            // Already shared with the predecessor.
+        } else if self.data.objects.as_ref() == previous.data.objects.as_ref() {
             self.data.objects = previous.data.objects.clone();
         } else {
             // Consume each previous handle at most once: malformed duplicate

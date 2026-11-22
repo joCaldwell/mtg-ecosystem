@@ -319,8 +319,8 @@ fn fixed_mill_atomic_rollback_and_authenticated_completed_prefix() {
             };
             let cause = BatchCause::Instruction {
                 stack_id: f.stack_id,
-                source: f.spell.source,
-                player: f.spell.controller,
+                source: g.entry(f.stack_id).unwrap().source,
+                player: g.entry(f.stack_id).unwrap().controller,
                 cursor: 0,
                 source_block: 0,
             };

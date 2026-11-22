@@ -7,7 +7,7 @@ impl Game {
         frame: &Resolving,
     ) -> Result<LibraryRemainder, String> {
         match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -27,13 +27,13 @@ impl Game {
             source_block: expected,
             ..
         }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
             return Err("selection source binding invariant".into());
         };
-        if player != frame.spell.controller
+        if player != self.entry(frame.stack_id)?.controller
             || source_block != *expected
             || amount <= &Quantity::zero()
             || looked.is_empty()
@@ -67,7 +67,7 @@ impl Game {
         amount: Quantity,
         source_block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -89,7 +89,7 @@ impl Game {
                 false,
             );
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::LibrarySelect {
                 player,
@@ -108,7 +108,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_selection_choice(&frame, player, &looked, source_block)?;
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player
                     || !matches!(input.response, Response::LibrarySelect { .. }))
             {
@@ -118,8 +118,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing library selection")?;
@@ -133,7 +132,7 @@ impl Game {
         if let Some(object) = hand.first().copied()
             && self.state.rules.commanders.history(object.card).is_some()
         {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Hand { owner: player },
                 continuation: Box::new(CommanderContinuation::LibrarySelect {
@@ -157,7 +156,7 @@ impl Game {
         source_block: u32,
         to_command: bool,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -167,7 +166,7 @@ impl Game {
             remainder: destination,
             source_block: expected,
         }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
             .cloned()
@@ -264,7 +263,7 @@ impl Game {
             LibraryRemainder::Bottom => {
                 let mut library = tail;
                 library.extend(remainder.iter().map(|o| o.card));
-                self.state.rules.libraries.insert(player, library);
+                self.rules_mut().libraries.insert(player, library);
                 self.remember_library_selection(player, remainder)?;
                 vec![]
             }

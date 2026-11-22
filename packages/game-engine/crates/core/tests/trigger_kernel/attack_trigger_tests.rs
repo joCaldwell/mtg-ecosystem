@@ -608,22 +608,23 @@ fn d2cd_pending_placed_resolving_restore_replay_forgery_and_independent_clone() 
             {
                 let mut s: serde_json::Value =
                     serde_json::from_str(&g.snapshot().unwrap()).unwrap();
+                // The trigger has one owner at every stage: pending, its
+                // stack entry, or the detached entry a frame still resolves.
                 let w = if !g.state.rules.pending_triggers.is_empty() {
                     &mut s["state"]["pending_triggers"][0]["witness"]
                 } else if !g.state.rules.stack.is_empty() {
                     &mut s["state"]["stack"][0]["kind"]["witness"]
                 } else {
-                    &mut s["state"]["frame"]["frame"]["spell"]["kind"]["witness"]
+                    &mut s["state"]["detached"]
+                        .as_object_mut()
+                        .unwrap()
+                        .values_mut()
+                        .next()
+                        .unwrap()["kind"]["witness"]
                 };
                 // Both defenders are legal and the observer matches either.
                 // Structural checks deliberately cannot prove the occurrence.
                 w["defender_player_id"] = 3.into();
-                // A resolving entry may still be the stack top. Forge both
-                // copies coherently so top-binding is not the rejection reason.
-                if matches!(g.state.rules.frame, Frame::Resolve { .. }) {
-                    s["state"]["frame"]["frame"]["spell"]["kind"]["witness"]["defender_player_id"] =
-                        3.into();
-                }
                 s["state_sha256"] = digest(&s["state"]).unwrap().into();
                 let forged: Snapshot = serde_json::from_value(s.clone()).unwrap();
                 let mut structural = g.fork();

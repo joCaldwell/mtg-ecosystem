@@ -111,7 +111,7 @@ impl Game {
             frame: Box::new(frame),
         };
         transaction.current = self.counter_member_index(&transaction);
-        self.state.rules.frame = Frame::CounterPlacement { transaction };
+        self.rules_mut().frame = Frame::CounterPlacement { transaction };
         if self.counter_placement_candidates().is_empty() {
             return self.counter_placement_step();
         }
@@ -119,7 +119,7 @@ impl Game {
     }
 
     fn counter_instruction<'a>(&'a self, frame: &'a Resolving) -> Result<&'a Instruction, String> {
-        self.program_for(&frame.spell)?
+        self.program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
             .ok_or_else(|| "missing counter placement instruction".into())
@@ -155,11 +155,11 @@ impl Game {
                 source_block,
             } => {
                 let object = match on {
-                    CounterRecipient::Source => Some(&frame.spell.source),
+                    CounterRecipient::Source => Some(&self.entry(frame.stack_id)?.source),
                     CounterRecipient::Target { target_slot }
                         if frame.legal_targets.get(*target_slot as usize) == Some(&true) =>
                     {
-                        self.bound_object_target(&frame.spell, *target_slot as usize)
+                        self.bound_object_target(self.entry(frame.stack_id)?, *target_slot as usize)
                     }
                     _ => None,
                 };
@@ -170,14 +170,15 @@ impl Game {
                 source_block
             }
             Instruction::PutSourcePlusOneCountersForCastColors { source_block } => {
-                if !matches!(allocations, [(object, _)] if *object == frame.spell.source) {
+                if !matches!(allocations, [(object, _)] if *object == self.entry(frame.stack_id)?.source)
+                {
                     return Err("cast color counter allocation mismatch".into());
                 }
                 source_block
             }
             _ => return Err("counter placement instruction origin".into()),
         };
-        if frame.stack_id != frame.spell.id || *cause != Self::staple_cause(frame, *block) {
+        if frame.stack_id != frame.stack_id || *cause != self.instruction_cause(frame, *block)? {
             return Err("counter placement cause".into());
         }
         Ok(())
@@ -208,7 +209,7 @@ impl Game {
         };
         let previous = transaction.current;
         let current = self.counter_member_index(transaction);
-        let Frame::CounterPlacement { transaction } = &mut self.state.rules.frame else {
+        let Frame::CounterPlacement { transaction } = &mut self.rules_mut().frame else {
             unreachable!()
         };
         transaction.current = current;
@@ -227,7 +228,7 @@ impl Game {
                     _ => true,
                 })
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }
@@ -383,15 +384,15 @@ impl Game {
         key: &CounterPlacementEffectKey,
     ) -> Result<EventOutcome, String> {
         let application = self.counter_application(self.current_counter_member()?, key)?;
-        self.state.rules.pending = None;
-        let Frame::CounterPlacement { transaction } = &mut self.state.rules.frame else {
+        self.rules_mut().pending = None;
+        let Frame::CounterPlacement { transaction } = &mut self.rules_mut().frame else {
             unreachable!()
         };
         let member = &mut transaction.members[transaction.current];
         member.amount = application.after.clone();
         member.applications.push(application.clone());
         let current = self.counter_member_index(self.counter_transaction()?);
-        let Frame::CounterPlacement { transaction } = &mut self.state.rules.frame else {
+        let Frame::CounterPlacement { transaction } = &mut self.rules_mut().frame else {
             unreachable!()
         };
         transaction.current = current;
@@ -562,7 +563,7 @@ impl Game {
             return Err("counter placement transaction size/cursor".into());
         }
         if let Instruction::Proliferate { source_block } = self.counter_instruction(&tx.frame)? {
-            if tx.cause != Self::staple_cause(&tx.frame, *source_block)
+            if tx.cause != self.instruction_cause(&tx.frame, *source_block)?
                 || tx.members.len() > self.state.rules.cards.len()
                 || !tx
                     .members
@@ -639,12 +640,11 @@ impl Game {
     }
     pub(super) fn counter_placement_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
-        let Frame::CounterPlacement { transaction } = frame else {
+        if !matches!(frame, Frame::CounterPlacement { .. }) {
             return 0;
-        };
-        let spell = &transaction.frame.spell;
+        }
+        // The frame names its invocation; the invocation's owner is charged
+        // for its cost lock and grant payload.
         stored_history::payload_charge(frame)
-            .saturating_sub(costs::entry_cost_lock_charge(spell))
-            .saturating_sub(spell_cascade_grants::entry_grant_charge(spell))
     }
 }

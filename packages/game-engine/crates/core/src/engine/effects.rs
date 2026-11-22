@@ -590,7 +590,7 @@ impl Game {
         let (kind, block) = match instruction {
             Instruction::RegenerateSource { source_block } => {
                 if !self
-                    .current(frame.spell.source)
+                    .current(self.entry(frame.stack_id)?.source)
                     .is_ok_and(|o| o.present_on_battlefield())
                 {
                     return self
@@ -604,7 +604,7 @@ impl Game {
                 source_block,
                 ..
             } => {
-                let target = frame.spell.source;
+                let target = self.entry(frame.stack_id)?.source;
                 if !self.target_is_creature(target) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -622,7 +622,7 @@ impl Game {
                 keywords,
                 source_block,
             } => {
-                let target = frame.spell.source;
+                let target = self.entry(frame.stack_id)?.source;
                 if !self.target_is_creature(target) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -643,13 +643,13 @@ impl Game {
                 source_block,
                 ..
             } => {
-                let target = *frame
-                    .spell
+                let target = *self
+                    .entry(frame.stack_id)?
                     .targets
                     .get(target_slot as usize)
                     .ok_or("missing keyword target")?;
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.scalar_keyword_target_legal(&frame.spell, target)
+                    || !self.scalar_keyword_target_legal(self.entry(frame.stack_id)?, target)
                 {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
@@ -669,7 +669,7 @@ impl Game {
                 source_block,
             } => {
                 let target = *self
-                    .bound_object_target(&frame.spell, target_slot as usize)
+                    .bound_object_target(self.entry(frame.stack_id)?, target_slot as usize)
                     .ok_or("missing combat restriction target")?;
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
                     || !self.target_is_creature(target)
@@ -692,8 +692,8 @@ impl Game {
                 source_block,
                 ..
             } => {
-                let target = *frame
-                    .spell
+                let target = *self
+                    .entry(frame.stack_id)?
                     .targets
                     .get(target_slot as usize)
                     .ok_or("missing modifier target")?;
@@ -736,8 +736,8 @@ impl Game {
                 source_block,
                 ..
             } => {
-                let target = *frame
-                    .spell
+                let target = *self
+                    .entry(frame.stack_id)?
                     .entity_targets
                     .get(target_slot as usize)
                     .ok_or("missing prevention target")?;
@@ -763,12 +763,12 @@ impl Game {
                 let StackKind::Triggered {
                     ability: EffectiveTriggerAbility::Intrinsic { index },
                     ..
-                } = frame.spell.kind
+                } = self.entry(frame.stack_id)?.kind
                 else {
                     return Err("hand cast cascade requires an intrinsic trigger".into());
                 };
-                let source_facts = frame
-                    .spell
+                let source_facts = self
+                    .entry(frame.stack_id)?
                     .source_facts
                     .clone()
                     .ok_or("missing hand cast cascade source facts")?;
@@ -792,10 +792,10 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         let consumes_choice = matches!(kind, ResolvedEffectKind::SetColor { .. });
-        let handles = match &frame.spell.kind {
+        let handles = match &self.entry(frame.stack_id)?.kind {
             StackKind::Activated { source_handles, .. }
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
-            StackKind::Spell => frame.spell.effect_source_handles.clone(),
+            StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
         };
         let target_handles = match &kind {
             ResolvedEffectKind::GrantKeywords { target, .. }
@@ -814,11 +814,11 @@ impl Game {
             target_handles,
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
-                activated_ability: frame.spell.kind.activated_index(),
-                mode: frame.spell.mode,
-                stack_id: frame.spell.id,
-                source: frame.spell.source,
-                controller: frame.spell.controller,
+                activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
+                mode: self.entry(frame.stack_id)?.mode,
+                stack_id: frame.stack_id,
+                source: self.entry(frame.stack_id)?.source,
+                controller: self.entry(frame.stack_id)?.controller,
                 source_handles: handles,
                 cursor: frame.cursor,
                 source_block: block,
@@ -831,15 +831,15 @@ impl Game {
                 effect: Box::new(effect),
             },
             BatchCause::Instruction {
-                stack_id: frame.spell.id,
-                player: frame.spell.controller,
-                source: frame.spell.source,
+                stack_id: frame.stack_id,
+                player: self.entry(frame.stack_id)?.controller,
+                source: self.entry(frame.stack_id)?.source,
                 cursor: frame.cursor,
                 source_block: block,
             },
         )?;
         if consumes_choice {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         self.finish_instruction(
             frame,
@@ -980,8 +980,8 @@ impl Game {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-        self.state.rules.damage_choices.clear();
-        self.state.rules.player_damage_choices.clear();
+        self.rules_mut().damage_choices.clear();
+        self.rules_mut().player_damage_choices.clear();
         self.begin_damage(
             DamageKind::Combat,
             entries,
@@ -996,16 +996,16 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         let cause = BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
+            stack_id: frame.stack_id,
+            player: self.entry(frame.stack_id)?.controller,
+            source: self.entry(frame.stack_id)?.source,
             cursor: frame.cursor,
             source_block: block,
         };
-        let handles = match &frame.spell.kind {
+        let handles = match &self.entry(frame.stack_id)?.kind {
             StackKind::Activated { source_handles, .. }
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
-            StackKind::Spell => frame.spell.effect_source_handles.clone(),
+            StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
         };
         let entries = vec![PreparedDamage {
             source_appearance: None,
@@ -1035,18 +1035,19 @@ impl Game {
         targets: Vec<TargetEntity>,
     ) -> Result<(), String> {
         let cause = BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
+            stack_id: frame.stack_id,
+            player: self.entry(frame.stack_id)?.controller,
+            source: self.entry(frame.stack_id)?.source,
             cursor: frame.cursor,
             source_block: block,
         };
-        let handles = match &frame.spell.kind {
+        let handles = match &self.entry(frame.stack_id)?.kind {
             StackKind::Activated { source_handles, .. }
             | StackKind::Triggered { source_handles, .. } => source_handles.clone(),
-            StackKind::Spell => frame.spell.effect_source_handles.clone(),
+            StackKind::Spell => self.entry(frame.stack_id)?.effect_source_handles.clone(),
         };
-        let source = self.source_facts(&frame.spell)?;
+        let source = self.source_facts(self.entry(frame.stack_id)?)?;
+        let controller = self.entry(frame.stack_id)?.controller;
         let entries = targets
             .into_iter()
             .enumerate()
@@ -1055,7 +1056,7 @@ impl Game {
                 source_handles: handles.clone(),
                 id: DamageId(n as u32),
                 source: source.clone(),
-                controller: frame.spell.controller,
+                controller,
                 recipient: match t {
                     TargetEntity::Player { player } => DamageRecipient::Player { player },
                     TargetEntity::Object { object } => DamageRecipient::Creature { object },
@@ -1111,13 +1112,13 @@ impl Game {
             }
         }
         let id = DamageTransactionId(self.state.rules.next_damage_transaction_id);
-        self.state.rules.next_damage_transaction_id = self
+        self.rules_mut().next_damage_transaction_id = self
             .state
             .rules
             .next_damage_transaction_id
             .checked_add(1)
             .ok_or("damage transaction limit")?;
-        self.state.rules.frame = Frame::DamageEffects {
+        self.rules_mut().frame = Frame::DamageEffects {
             transaction: DamageTransaction {
                 allocation_groups: vec![],
                 id,
@@ -1182,8 +1183,7 @@ impl Game {
         self.is_live(player) && !self.player_protected(player)
     }
     pub(super) fn expire_player_protection(&mut self, player: PlayerId) {
-        self.state
-            .rules
+        self.rules_mut()
             .effects
             .retain(|e| !e.lasts_until_controller_turn() || e.origin.controller != player);
     }
@@ -1468,12 +1468,11 @@ impl Game {
     pub(crate) fn damage_effect_step(&mut self) -> Result<(), String> {
         if let Some((_, _, pairs)) = self.damage_effect_group()? {
             let pair = if self.automatic_pair(&pairs) {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
                 pairs[0].clone()
             } else {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing damage effect choice")?;
@@ -1485,7 +1484,7 @@ impl Game {
             };
             let tx = self.damage_transaction()?.clone();
             if self.needs_allocation(&tx, &pair.effect) {
-                self.state.rules.frame = Frame::DamageAllocation {
+                self.rules_mut().frame = Frame::DamageAllocation {
                     transaction: tx,
                     effect: pair.effect,
                 };
@@ -1540,7 +1539,7 @@ impl Game {
                 _ => false,
             };
             if !valid {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
             }
         }
         Ok(())
@@ -1574,17 +1573,18 @@ impl Game {
                     }
                     _ => return Err("effect outside resolving instruction".into()),
                 };
-                if frame.spell.mode != effect.origin.mode
-                    || frame.spell.kind.activated_index() != effect.origin.activated_ability
-                    || frame.spell.source != effect.origin.source
-                    || frame.spell.id != effect.origin.stack_id
-                    || frame.spell.controller != effect.origin.controller
+                if self.entry(frame.stack_id)?.mode != effect.origin.mode
+                    || self.entry(frame.stack_id)?.kind.activated_index()
+                        != effect.origin.activated_ability
+                    || self.entry(frame.stack_id)?.source != effect.origin.source
+                    || frame.stack_id != effect.origin.stack_id
+                    || self.entry(frame.stack_id)?.controller != effect.origin.controller
                     || frame.cursor != effect.origin.cursor
                 {
                     return Err("unbound continuous effect".into());
                 }
                 let instruction = self
-                    .program_for(&frame.spell)?
+                    .program_for(self.entry(frame.stack_id)?)?
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("effect instruction absent")?;
@@ -1604,9 +1604,9 @@ impl Game {
                             && Some(*target) == self.target_color_target(frame)
                             && self.target_color_pending(frame)? == *color
                             && *source_block == effect.origin.source_block
-                            && frame.spell.kind.activated_index().is_some()
-                            && frame.spell.paid.is_some()
-                            && self.top()? == &frame.spell
+                            && self.entry(frame.stack_id)?.kind.activated_index().is_some()
+                            && self.entry(frame.stack_id)?.paid.is_some()
+                            && self.top()? == self.entry(frame.stack_id)?
                     }
                     (
                         Instruction::ExileLibraryForPlay {
@@ -1633,12 +1633,14 @@ impl Game {
                         ResolvedEffectKind::RegenerationShield,
                     ) => {
                         *source_block == effect.origin.source_block
-                            && frame.spell.kind.activated_index().is_some()
-                            && frame.spell.paid.is_some()
-                            && self.top()? == &frame.spell
-                            && self.current(frame.spell.source)?.present_on_battlefield()
+                            && self.entry(frame.stack_id)?.kind.activated_index().is_some()
+                            && self.entry(frame.stack_id)?.paid.is_some()
+                            && self.top()? == self.entry(frame.stack_id)?
+                            && self
+                                .current(self.entry(frame.stack_id)?.source)?
+                                .present_on_battlefield()
                             && !self.state.rules.effects.iter().any(|active| {
-                                active.origin.stack_id == frame.spell.id
+                                active.origin.stack_id == frame.stack_id
                                     && active.origin.cursor == frame.cursor
                             })
                     }
@@ -1649,7 +1651,7 @@ impl Game {
                         *targets
                             == self.objects_in_set(
                                 &ObjectSet::OpponentNonlandPermanents,
-                                frame.spell.controller,
+                                self.entry(frame.stack_id)?.controller,
                             )
                             && *timestamp == self.state.rules.next_batch_id
                             && *source_block == effect.origin.source_block
@@ -1668,7 +1670,7 @@ impl Game {
                             toughness: t,
                         },
                     ) => {
-                        *targets == self.objects_in_set(set, frame.spell.controller)
+                        *targets == self.objects_in_set(set, self.entry(frame.stack_id)?.controller)
                             && p == power
                             && t == toughness
                             && *source_block == effect.origin.source_block
@@ -1687,12 +1689,14 @@ impl Game {
                             keywords: grants,
                         },
                     ) => {
-                        (effect.origin.mode.is_none() || frame.spell.kind.is_spell())
+                        (effect.origin.mode.is_none()
+                            || self.entry(frame.stack_id)?.kind.is_spell())
                             && self.set_keyword_program_authorized(
                                 &effect.origin,
-                                self.program_for(&frame.spell)?,
+                                self.program_for(self.entry(frame.stack_id)?)?,
                             )
-                            && *targets == self.objects_in_set(set, frame.spell.controller)
+                            && *targets
+                                == self.objects_in_set(set, self.entry(frame.stack_id)?.controller)
                             && modifier == applied_modifier
                             && keywords == grants
                             && *source_block == effect.origin.source_block
@@ -1717,7 +1721,7 @@ impl Game {
                             toughness: t,
                         },
                     ) => {
-                        *target == frame.spell.source
+                        *target == self.entry(frame.stack_id)?.source
                             && self.target_is_creature(*target)
                             && power == p
                             && toughness == t
@@ -1736,7 +1740,7 @@ impl Game {
                     ) => {
                         effect.origin.activated_ability.is_some()
                             && effect.origin.mode.is_none()
-                            && *target == frame.spell.source
+                            && *target == self.entry(frame.stack_id)?.source
                             && self.target_is_creature(*target)
                             && keywords == grants
                             && supported_temporary_keywords(grants)
@@ -1756,9 +1760,13 @@ impl Game {
                             keywords: grants,
                         },
                     ) => {
-                        frame.spell.targets.get(*target_slot as usize) == Some(target)
+                        self.entry(frame.stack_id)?
+                            .targets
+                            .get(*target_slot as usize)
+                            == Some(target)
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
-                            && self.scalar_keyword_target_legal(&frame.spell, *target)
+                            && self
+                                .scalar_keyword_target_legal(self.entry(frame.stack_id)?, *target)
                             && modifier == applied_modifier
                             && keywords == grants
                             && supported_temporary_keywords(grants)
@@ -1777,17 +1785,19 @@ impl Game {
                     ) => {
                         restriction == actual
                             && *source_block == effect.origin.source_block
-                            && frame.spell.mode.is_none()
-                            && (frame.spell.kind.is_spell()
-                                || frame.spell.kind.activated_index().is_some())
-                            && frame.spell.paid.is_some()
-                            && self.top()? == &frame.spell
-                            && self.bound_object_target(&frame.spell, *target_slot as usize)
-                                == Some(target)
+                            && self.entry(frame.stack_id)?.mode.is_none()
+                            && (self.entry(frame.stack_id)?.kind.is_spell()
+                                || self.entry(frame.stack_id)?.kind.activated_index().is_some())
+                            && self.entry(frame.stack_id)?.paid.is_some()
+                            && self.top()? == self.entry(frame.stack_id)?
+                            && self.bound_object_target(
+                                self.entry(frame.stack_id)?,
+                                *target_slot as usize,
+                            ) == Some(target)
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
                             && self.target_is_creature(*target)
                             && !self.state.rules.effects.iter().any(|active| {
-                                active.origin.stack_id == frame.spell.id
+                                active.origin.stack_id == frame.stack_id
                                     && active.origin.cursor == frame.cursor
                             })
                     }
@@ -1805,7 +1815,10 @@ impl Game {
                             toughness: t,
                         },
                     ) => {
-                        frame.spell.targets.get(*target_slot as usize) == Some(target)
+                        self.entry(frame.stack_id)?
+                            .targets
+                            .get(*target_slot as usize)
+                            == Some(target)
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
                             && self.is_battlefield_creature(*target)
                             && power == p
@@ -1817,9 +1830,9 @@ impl Game {
                         ResolvedEffectKind::ProtectControllerUntilNextTurn,
                     ) => {
                         *source_block == effect.origin.source_block
-                            && frame.spell.kind.is_spell()
-                            && frame.spell.paid.is_some()
-                            && self.is_live(frame.spell.controller)
+                            && self.entry(frame.stack_id)?.kind.is_spell()
+                            && self.entry(frame.stack_id)?.paid.is_some()
+                            && self.is_live(self.entry(frame.stack_id)?.controller)
                             && effect.target_handles.is_empty()
                     }
                     (
@@ -1833,7 +1846,7 @@ impl Game {
                         },
                         ResolvedEffectKind::AdditionalLandPlays { count: granted },
                     ) => {
-                        frame.spell.kind.is_spell()
+                        self.entry(frame.stack_id)?.kind.is_spell()
                             && count == granted
                             && *source_block == effect.origin.source_block
                     }
@@ -1844,11 +1857,12 @@ impl Game {
                             source_facts,
                         },
                     ) => {
-                        matches!(frame.spell.kind, StackKind::Triggered {
+                        matches!(self.entry(frame.stack_id)?.kind, StackKind::Triggered {
                             ability: EffectiveTriggerAbility::Intrinsic { index },
                             ..
                         } if index == *triggered_ability_index)
-                            && frame.spell.source_facts.as_ref() == Some(source_facts.as_ref())
+                            && self.entry(frame.stack_id)?.source_facts.as_ref()
+                                == Some(source_facts.as_ref())
                             && *source_block == effect.origin.source_block
                             && self.is_live(effect.origin.controller)
                     }
@@ -1861,7 +1875,10 @@ impl Game {
                         },
                         ResolvedEffectKind::PreventNextDamage { target, remaining },
                     ) => {
-                        frame.spell.entity_targets.get(*target_slot as usize) == Some(target)
+                        self.entry(frame.stack_id)?
+                            .entity_targets
+                            .get(*target_slot as usize)
+                            == Some(target)
                             && frame.legal_targets.get(*target_slot as usize) == Some(&true)
                             && self.entity_legal(*target)
                             && amount == remaining
@@ -1869,13 +1886,14 @@ impl Game {
                     }
                     _ => false,
                 };
-                let valid_handles = match &frame.spell.kind {
+                let valid_handles = match &self.entry(frame.stack_id)?.kind {
                     StackKind::Activated { source_handles, .. }
                     | StackKind::Triggered { source_handles, .. } => {
                         *source_handles == effect.origin.source_handles
                     }
                     StackKind::Spell => {
-                        frame.spell.effect_source_handles == effect.origin.source_handles
+                        self.entry(frame.stack_id)?.effect_source_handles
+                            == effect.origin.source_handles
                     }
                 };
                 let valid_target_handles = match &effect.kind {
@@ -1916,13 +1934,13 @@ impl Game {
                 if !valid || !valid_handles || !valid_target_handles {
                     return Err("invalid continuous effect facts".into());
                 }
-                self.state.rules.next_effect_id = self
+                self.rules_mut().next_effect_id = self
                     .state
                     .rules
                     .next_effect_id
                     .checked_add(1)
                     .ok_or("effect identity limit")?;
-                self.state.rules.effects.push(*effect.clone());
+                self.rules_mut().effects.push(*effect.clone());
                 Ok(EventOutcome::EffectCreated {
                     effect: effect.clone(),
                 })
@@ -1955,8 +1973,7 @@ impl Game {
                     && let Some(after) = &a.budget_after
                 {
                     let e = self
-                        .state
-                        .rules
+                        .rules_mut()
                         .effects
                         .iter_mut()
                         .find(|e| e.id == *id)
@@ -1967,7 +1984,7 @@ impl Game {
                     };
                     *remaining = after.clone();
                 }
-                let Frame::DamageEffects { transaction: tx } = &mut self.state.rules.frame else {
+                let Frame::DamageEffects { transaction: tx } = &mut self.rules_mut().frame else {
                     return Err("missing damage frame".into());
                 };
                 let d = tx
@@ -1989,7 +2006,7 @@ impl Game {
             } => self.apply_damage_allocation(*transaction, effect, allocations),
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
-                self.state.rules.delayed_chapters.clear();
+                self.rules_mut().delayed_chapters.clear();
                 let turn = self.state.rules.turn.number;
                 let owner = self.state.rules.turn_owner;
                 let expired = self
@@ -2008,11 +2025,10 @@ impl Game {
                     .filter(|o| o.marked_damage > Quantity::zero())
                     .map(|o| (o.id, o.marked_damage.clone()))
                     .collect();
-                self.state
-                    .rules
+                self.rules_mut()
                     .effects
                     .retain(|e| e.survives_cleanup(owner, turn));
-                for o in self.state.rules.objects.values_mut() {
+                for o in self.rules_mut().objects.values_mut() {
                     o.marked_damage = Quantity::zero();
                     o.deathtouch_damage = false;
                 }
@@ -2081,12 +2097,11 @@ impl Game {
             let (recipient, previous, current) = if kind == 0 {
                 let player = PlayerId(id as u8);
                 let (before, after) =
-                    self.state.rules.players[player.0 as usize].lose_life(&amount);
+                    self.rules_mut().players[player.0 as usize].lose_life(&amount);
                 (DamageRecipient::Player { player }, before, after)
             } else {
                 let o = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .objects
                     .get_mut(&CardId(id))
                     .ok_or("missing final damage object")?;
@@ -2114,8 +2129,7 @@ impl Game {
                 .and_then(|h| h.combat_damage.get(&recipient))
                 .cloned()
                 .unwrap_or_default();
-            self.state
-                .rules
+            self.rules_mut()
                 .commanders
                 .record_damage(commander, recipient, true, &amount)?;
             let mut current = previous.clone();
@@ -3054,7 +3068,7 @@ impl Game {
         viewer: PlayerId,
         row: &DelayedChapterRegistration,
     ) -> Result<VisibleEffect, String> {
-        let source = row.issuer.source;
+        let source = row.source;
         let announced = row
             .source_handles()?
             .get(viewer.0 as usize)
@@ -3067,7 +3081,7 @@ impl Game {
                     current: self.handle_for(viewer, source).ok(),
                 },
                 oracle_id: self.visible_ability_oracle_id(source)?.into(),
-                controller: row.issuer.controller,
+                controller: row.controller,
             },
             chapter: row.chapter()?,
             expires_in_cleanup_of_turn: row.turn,
@@ -3508,7 +3522,7 @@ impl Game {
             (DamageKind::Noncombat, DamageContinuation::Instruction { frame }) => {
                 self.validate_resolving(frame)?;
                 let instruction = self
-                    .program_for(&frame.spell)?
+                    .program_for(self.entry(frame.stack_id)?)?
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
@@ -3520,8 +3534,10 @@ impl Game {
                     let (target_slot, amount, source_block, recipient) = match instruction {
                         Instruction::DealDamage { .. }
                         | Instruction::DealDamageAnnouncedX { .. } => {
-                            let (slot, amount, block, target) =
-                                self.directed_damage_operands(&frame.spell, instruction)?;
+                            let (slot, amount, block, target) = self.directed_damage_operands(
+                                self.entry(frame.stack_id)?,
+                                instruction,
+                            )?;
                             (Some(slot), amount, block, target)
                         }
                         Instruction::DamageTargetController {
@@ -3544,7 +3560,7 @@ impl Game {
                             amount,
                             *source_block,
                             TargetEntity::Player {
-                                player: Self::mana_tap_activator(&frame.spell)?,
+                                player: Self::mana_tap_activator(self.entry(frame.stack_id)?)?,
                             },
                         ),
                         Instruction::DealDamageToController {
@@ -3555,15 +3571,15 @@ impl Game {
                             amount,
                             *source_block,
                             TargetEntity::Player {
-                                player: frame.spell.controller,
+                                player: self.entry(frame.stack_id)?.controller,
                             },
                         ),
                         _ => return Err("damage continuation not damage instruction".into()),
                     };
                     let expected = BatchCause::Instruction {
-                        stack_id: frame.spell.id,
-                        player: frame.spell.controller,
-                        source: frame.spell.source,
+                        stack_id: frame.stack_id,
+                        player: self.entry(frame.stack_id)?.controller,
+                        source: self.entry(frame.stack_id)?.source,
                         cursor: frame.cursor,
                         source_block,
                     };
@@ -3575,8 +3591,11 @@ impl Game {
                         || target_slot.is_some_and(|slot| {
                             frame.legal_targets.get(slot as usize) != Some(&true)
                         })
-                        || d.controller != frame.spell.controller
-                        || !self.prepared_damage_source_matches(d, self.source_facts(&frame.spell)?)
+                        || d.controller != self.entry(frame.stack_id)?.controller
+                        || !self.prepared_damage_source_matches(
+                            d,
+                            self.source_facts(self.entry(frame.stack_id)?)?,
+                        )
                     {
                         return Err("unbound noncombat damage transaction".into());
                     }
@@ -3853,9 +3872,10 @@ impl Game {
         tx: &DamageTransaction,
         frame: &Resolving,
     ) -> Result<(), String> {
+        let entry = self.entry(frame.stack_id)?;
         let (amount, block, mut targets) = self.sacrifice_damage_spec(frame)?;
         if matches!(
-            self.program_for(&frame.spell)?
+            self.program_for(entry)?
                 .instructions
                 .get(frame.cursor as usize),
             Some(Instruction::SacrificeDamage {
@@ -3882,9 +3902,7 @@ impl Game {
                 })
                 .collect::<BTreeSet<_>>();
             if players.len() != frozen.len()
-                || players
-                    .iter()
-                    .any(|p| p.0 >= 4 || *p == frame.spell.controller)
+                || players.iter().any(|p| p.0 >= 4 || *p == entry.controller)
                 || targets.iter().any(|t| !frozen.contains(t))
             {
                 return Err("invalid frozen opponent damage set".into());
@@ -3892,9 +3910,9 @@ impl Game {
             targets = frozen;
         }
         let expected = BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
+            stack_id: frame.stack_id,
+            player: entry.controller,
+            source: entry.source,
             cursor: frame.cursor,
             source_block: block,
         };
@@ -3903,9 +3921,9 @@ impl Game {
             || tx.entries.iter().zip(&targets).any(|(d, t)| {
                 d.recipient.entity() != *t
                     || d.original_amount != amount
-                    || d.controller != frame.spell.controller
+                    || d.controller != entry.controller
                     || !self
-                        .source_facts(&frame.spell)
+                        .source_facts(entry)
                         .is_ok_and(|f| self.prepared_damage_source_matches(d, f))
             })
         {

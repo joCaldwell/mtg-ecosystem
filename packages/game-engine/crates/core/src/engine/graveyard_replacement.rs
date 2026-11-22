@@ -166,7 +166,7 @@ impl Game {
                 );
             }
         }
-        let actual = self.commit(proposed, Self::staple_cause(&frame, source_block))?;
+        let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
         self.finish_graveyard_effect(frame, source_block, Some(actual), completion)
     }
 
@@ -183,7 +183,7 @@ impl Game {
             return Err("printed graveyard shuffle requires a seeded match".into());
         }
         self.record_event(Event::GraveyardReplacementRevealed {
-            cause: Self::staple_cause(&frame, source_block),
+            cause: self.instruction_cause(&frame, source_block)?,
             objects: revealed.clone(),
         })?;
         let commanders = revealed
@@ -191,7 +191,7 @@ impl Game {
             .copied()
             .filter(|id| self.state.rules.commanders.history(id.card).is_some())
             .collect();
-        self.state.rules.frame = Frame::GraveyardReplacement {
+        self.rules_mut().frame = Frame::GraveyardReplacement {
             transaction: Box::new(GraveyardReplacement {
                 frame,
                 proposed,
@@ -227,7 +227,7 @@ impl Game {
                 mill,
                 ..
             } => {
-                self.state.rules.frame = Frame::Resolve {
+                self.rules_mut().frame = Frame::Resolve {
                     frame: frame.clone(),
                 };
                 self.complete_counter_outcome(frame, source_block, target, controller, mill, actual)
@@ -262,7 +262,7 @@ impl Game {
         let Frame::GraveyardReplacement { transaction: tx } = &self.state.rules.frame else {
             return Ok(None);
         };
-        if *cause != Self::staple_cause(&tx.frame, tx.source_block) {
+        if *cause != self.instruction_cause(&tx.frame, tx.source_block)? {
             return Ok(None);
         }
         let EventGroup::Occurrence { proposed } = group else {
@@ -308,7 +308,7 @@ impl Game {
         mut tx: Box<GraveyardReplacement>,
     ) -> Result<(), String> {
         if !self.is_live(tx.owner) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return match tx.phase {
                 ReplacementPhase::Shuffling { actual, .. } => self.finish_graveyard_effect(
                     tx.frame,
@@ -335,10 +335,10 @@ impl Game {
                 }
             };
         }
-        let cause = Self::staple_cause(&tx.frame, tx.source_block);
+        let cause = self.instruction_cause(&tx.frame, tx.source_block)?;
         match &tx.phase {
             ReplacementPhase::BeforeMovement if tx.counter_target_left(self) => {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
                 tx.phase = ReplacementPhase::Shuffling {
                     actual: None,
                     remaining: tx.revealed.len(),
@@ -347,8 +347,7 @@ impl Game {
             }
             ReplacementPhase::BeforeMovement if tx.choices.len() < tx.commanders.len() => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing printed commander replacement choice")?;
@@ -413,7 +412,7 @@ impl Game {
                 }
             }
         }
-        self.state.rules.frame = Frame::GraveyardReplacement { transaction: tx };
+        self.rules_mut().frame = Frame::GraveyardReplacement { transaction: tx };
         Ok(())
     }
 
@@ -442,7 +441,7 @@ impl Game {
         };
         self.validate_resolving(&tx.frame)?;
         let instruction = self
-            .program_for(&tx.frame.spell)?
+            .program_for(self.entry(tx.frame.stack_id)?)?
             .instructions
             .get(tx.frame.cursor as usize)
             .ok_or("missing replacement-producing instruction")?;
@@ -474,7 +473,11 @@ impl Game {
                     _ => return Err("replacement counter source".into()),
                 };
                 if mill.as_ref() != count
-                    || tx.frame.spell.stack_targets.get(slot as usize) != Some(target)
+                    || self
+                        .entry(tx.frame.stack_id)?
+                        .stack_targets
+                        .get(slot as usize)
+                        != Some(target)
                     || tx.frame.legal_targets.get(slot as usize) != Some(&true)
                 {
                     return Err("counter replacement announcement invariant".into());

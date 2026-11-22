@@ -59,7 +59,7 @@ fn resolving_grant(compound: bool) -> (Game, ResolvedEffect, BatchCause) {
         }
     }
     let frame = found.expect("bounded paid resolving prefix");
-    let program = g.program_for(&frame.spell).unwrap();
+    let program = g.program_for(g.entry(frame.stack_id).unwrap()).unwrap();
     assert_eq!(program.instructions.len(), 1);
     let Instruction::GrantKeywords {
         target_slot: 0,
@@ -96,10 +96,14 @@ fn resolving_grant(compound: bool) -> (Game, ResolvedEffect, BatchCause) {
         origin: EffectOrigin {
             activated_ability: None,
             mode: None,
-            stack_id: frame.spell.id,
-            source: frame.spell.source,
-            controller: frame.spell.controller,
-            source_handles: frame.spell.effect_source_handles.clone(),
+            stack_id: frame.stack_id,
+            source: g.entry(frame.stack_id).unwrap().source,
+            controller: g.entry(frame.stack_id).unwrap().controller,
+            source_handles: g
+                .entry(frame.stack_id)
+                .unwrap()
+                .effect_source_handles
+                .clone(),
             cursor: frame.cursor,
             source_block: 0,
         },
@@ -107,7 +111,7 @@ fn resolving_grant(compound: bool) -> (Game, ResolvedEffect, BatchCause) {
         expires_in_cleanup_of_turn: g.state.rules.turn.number,
         kind,
     };
-    let cause = Game::wipe_cause(&frame, 0);
+    let cause = g.instruction_cause(&frame, 0).unwrap();
     (g, effect, cause)
 }
 
@@ -232,7 +236,11 @@ fn scalar_keyword_kernel_one_effect_all_metadata_and_late_failure_rollback() {
             unreachable!()
         };
         let frame = frame.clone();
-        let instruction = g.program_for(&frame.spell).unwrap().instructions[0].clone();
+        let instruction = g
+            .program_for(g.entry(frame.stack_id).unwrap())
+            .unwrap()
+            .instructions[0]
+            .clone();
         let before = g.state.clone();
         let trace = g.trace.clone();
         let original_recipient = g.object_before(object(&g, 1)).unwrap();

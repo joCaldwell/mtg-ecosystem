@@ -254,7 +254,7 @@ impl Game {
         // Publish the complete layer-2 view before deriving any layer-6 source
         // facts. Its meaning cannot depend on iteration order among objects.
         for (object, _, controller) in &changed {
-            let cached = self.state.rules.objects.get_mut(&object.card).unwrap();
+            let cached = self.rules_mut().objects.get_mut(&object.card).unwrap();
             cached.controller = *controller;
             cached.attack_ready = false;
             self.remove_from_combat(*object);

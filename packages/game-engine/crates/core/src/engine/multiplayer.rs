@@ -188,7 +188,7 @@ impl Game {
                 command_casts: BTreeMap::new(),
                 combat_damage: BTreeMap::new(),
             };
-            self.state.rules.commanders.records.insert(card, history);
+            self.rules_mut().commanders.records.insert(card, history);
         }
         Ok(())
     }
@@ -235,15 +235,15 @@ impl Game {
             .all(|p| self.state.rules.passes.contains(p))
     }
     pub(super) fn begin_resolution(&mut self) -> Result<(), String> {
-        self.state.rules.passes.clear();
+        self.rules_mut().passes.clear();
         if self.state.rules.stack.is_empty() {
-            self.state.rules.frame = Frame::Transition;
+            self.rules_mut().frame = Frame::Transition;
             return Ok(());
         }
         let stack = self.top()?.clone();
         let condition_check = self.check_resolution_condition(&stack)?;
         let legal_targets = self.announced_target_legality(&stack);
-        self.state.rules.frame = Frame::Resolve {
+        self.rules_mut().frame = Frame::Resolve {
             frame: Resolving {
                 group_discard: None,
                 random_discard: None,
@@ -254,7 +254,6 @@ impl Game {
                 target_facts: self.capture_target_facts(&stack, &legal_targets)?,
                 condition_check,
                 stack_id: stack.id,
-                spell: stack,
                 cursor: 0,
                 legal_targets,
                 outcomes: vec![],
@@ -293,12 +292,12 @@ impl Game {
             boundary: next.state.rules.rule_steps,
             player,
         });
-        next.state.rules.retained_auxiliary_charge =
+        next.rules_mut().retained_auxiliary_charge =
             next.state.rules.retained_auxiliary_charge.saturating_add(
                 stored_history::payload_charge(next.state.audit.external_inputs.last().unwrap()),
             );
-        next.state.rules.pending_concessions.push(player);
-        next.state.rules.revision = revision;
+        next.rules_mut().pending_concessions.push(player);
+        next.rules_mut().revision = revision;
         next.refresh_visibility()?;
         self.state = next.state;
         self.trace = next.trace;
@@ -333,14 +332,14 @@ impl Game {
                 .restricted_mana
                 .clone(),
         };
-        self.state.rules.players[player.0 as usize].last_known = Some(last);
+        self.rules_mut().players[player.0 as usize].last_known = Some(last);
         self.expire_player_protection(player);
-        self.state.rules.effects.retain(|effect| {
+        self.rules_mut().effects.retain(|effect| {
             effect.origin.controller != player
                 || !matches!(effect.kind, ResolvedEffectKind::PlayExiled { .. })
         });
-        self.state.rules.players[player.0 as usize].life_frozen_until_next_turn = false;
-        self.state.rules.players[player.0 as usize].status = PlayerStatus::Left;
+        self.rules_mut().players[player.0 as usize].life_frozen_until_next_turn = false;
+        self.rules_mut().players[player.0 as usize].status = PlayerStatus::Left;
         self.record_event(Event::PlayerDeparted { player })?;
         // Owned objects leave, not a graveyard move and not an SBA (800.4a).
         let removed = self
@@ -384,8 +383,7 @@ impl Game {
             })
             .map(|e| e.id)
             .collect::<Vec<_>>();
-        self.state
-            .rules
+        self.rules_mut()
             .control_effects
             .retain(|e| !ended.contains(&e.id));
         for id in ended {
@@ -394,9 +392,10 @@ impl Game {
         self.refresh_controllers(player)?;
         // A departure can remove a legend or change a controller while choices
         // are pending. Recompute the entire SBA wave; no stale keep survives.
-        if let Frame::LegendRule { resume, .. } = self.state.rules.frame.clone() {
-            self.state.rules.pending = None;
-            self.state.rules.frame = *resume;
+        if let Frame::LegendRule { resume, .. } = &self.state.rules.frame {
+            let resume = Frame::clone(resume);
+            self.rules_mut().pending = None;
+            self.rules_mut().frame = resume;
         }
         // CR 800.4a: a surviving owner's spell cast by the departing
         // player has no remaining controller. Its card goes to public exile.
@@ -438,10 +437,14 @@ impl Game {
             })
             .map(|s| s.id)
             .collect::<Vec<_>>();
-        self.state
-            .rules
-            .stack
-            .retain(|s| !lost_stack.contains(&s.id));
+        // CR 608.2m: a started invocation keeps resolving after its entry
+        // leaves the stack. Each lost entry stays owned by the detached table
+        // until the step commits, and after that only while a frame resumes it.
+        for id in &lost_stack {
+            if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == *id) {
+                self.unstack(index)?;
+            }
+        }
         self.revalidate_trigger_departure()?;
         self.revalidate_damage_departure()?;
         self.revalidate_counter_placement_departure()?;
@@ -452,11 +455,11 @@ impl Game {
             })?;
         }
         if self.state.rules.active == Some(player) {
-            self.state.rules.active = None;
+            self.rules_mut().active = None;
         }
         if self.state.rules.priority == player {
             if let Some(next) = self.next_live(player) {
-                self.state.rules.priority = next;
+                self.rules_mut().priority = next;
             } else if !self.state.rules.simultaneous_losses {
                 return Err("no remaining player".into());
             }
@@ -468,45 +471,34 @@ impl Game {
             .as_ref()
             .is_some_and(|p| p.player == player)
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         if matches!(self.state.rules.frame, Frame::Setup) {
             self.revalidate_setup_departure()?;
         }
         let live = self.live_players();
-        self.state.rules.passes.retain(|p| live.contains(p));
+        self.rules_mut().passes.retain(|p| live.contains(p));
         if !self.state.rules.simultaneous_losses && self.finish_if_ended()? {
             return Ok(());
         }
-        self.state
-            .rules
+        self.rules_mut()
             .delayed_chapters
-            .retain(|registration| registration.issuer.controller != player);
+            .retain(|registration| registration.controller != player);
         self.revalidate_graveyard_departure()?;
         self.revalidate_mana_departure()?;
         // CR 608.2m: a started invocation owns its frozen instance and keeps
         // resolving after its source leaves. Only an unfinished casting frame
         // whose own source left is discarded; lower departures cannot replace it.
-        if let Frame::AdditionalCosts { cast }
-        | Frame::HybridCost { cast }
-        | Frame::AnnounceX { cast }
-        | Frame::Modes { cast }
-        | Frame::EntityTargets { cast }
-        | Frame::Targets { cast }
-        | Frame::StackTargets { cast }
-        | Frame::PlayerTargets { cast }
-        | Frame::Mana { cast }
-        | Frame::SacrificeCost { cast }
-        | Frame::SpendMana { cast }
-        | Frame::Payment { cast } = self.state.rules.frame.clone()
+        if let Some(cast) = self.state.rules.frame.announcement()
             && lost_stack.contains(&cast.stack_id)
         {
-            self.state.rules.pending = None;
-            self.state.rules.frame = match cast.completion {
+            let cast = cast.clone();
+            self.rules_mut().pending = None;
+            self.rules_mut().frame = match cast.completion {
                 CastCompletion::Resolution {
                     progress: CastOwner::LinkedPlay { progress, .. },
                     ..
-                } if self.is_live(progress.frame.spell.controller) => {
+                } if self.is_live(self.entry(progress.frame.stack_id)?.controller) => {
                     Frame::PlayHideawayLinked { progress }
                 }
                 _ => Frame::Priority,
@@ -514,7 +506,7 @@ impl Game {
             // The departure removes the unfinished spell, but does not undo
             // legal casting-time mana activations. Those interrupt CR 117.4's
             // consecutive pass round even if their controller has now left.
-            self.state.rules.passes = if cast.mana_activations.is_empty() {
+            self.rules_mut().passes = if cast.mana_activations.is_empty() {
                 cast.prior_passes
                     .into_iter()
                     .filter(|p| live.contains(p))
@@ -523,19 +515,7 @@ impl Game {
                 vec![]
             };
         }
-        if let Frame::AdditionalCosts { cast }
-        | Frame::HybridCost { cast }
-        | Frame::AnnounceX { cast }
-        | Frame::Modes { cast }
-        | Frame::EntityTargets { cast }
-        | Frame::Targets { cast }
-        | Frame::StackTargets { cast }
-        | Frame::PlayerTargets { cast }
-        | Frame::Mana { cast }
-        | Frame::SacrificeCost { cast }
-        | Frame::SpendMana { cast }
-        | Frame::Payment { cast } = self.state.rules.frame.clone()
-        {
+        if let Some(cast) = self.state.rules.frame.announcement().cloned() {
             // CR601.2e/601.6 (also602.2b): proposal legality precedes
             // costs. Bound targets may become illegal during payment; keep
             // their identities and recheck them at resolution under608.2b.
@@ -620,7 +600,7 @@ impl Game {
             .as_ref()
             .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         // Drain boundary-ordered concessions before ordinary rules work:
         // later departures may finish the game or change target legality.
@@ -631,8 +611,9 @@ impl Game {
         {
             self.begin_resolution()?;
         }
-        if let Frame::Resolve { frame } = &mut self.state.rules.frame
-            && frame.spell.player_targets.contains(&player)
+        if let Frame::Resolve { frame } = &self.state.rules.frame
+            && self.entry(frame.stack_id)?.player_targets.contains(&player)
+            && let Frame::Resolve { frame } = &mut self.rules_mut().frame
         {
             frame.random_discard = None;
         }
@@ -647,7 +628,7 @@ impl Game {
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }
-        self.stabilize()
+        Ok(self.stabilize()?)
     }
     /// CR 104.5/800.4a: derive departures from actual loss occurrences. Only
     /// the players marked by the completed batch may leave for these losses.
@@ -675,8 +656,8 @@ impl Game {
         self.finish_if_ended()
     }
     fn apply_simultaneous_losses(&mut self, players: &[PlayerId]) -> Result<(), String> {
-        self.state.rules.simultaneous_losses = true;
-        self.state.rules.losing_players = players.to_vec();
+        self.rules_mut().simultaneous_losses = true;
+        self.rules_mut().losing_players = players.to_vec();
         let mut removed = vec![];
         // 800.4a: every losing owner's objects leave before control grants end.
         // Frozen doomed membership prevents temporary control by another loser.
@@ -684,8 +665,7 @@ impl Game {
             removed.push((*player, self.begin_departure(*player)?));
         }
         let ended=self.state.rules.control_effects.iter().filter(|e|!self.is_live(e.controller) || self.current(e.object).is_err() || matches!(e.source,ControlSource::Static {object} if self.current(object).is_err())).map(|e|e.id).collect::<Vec<_>>();
-        self.state
-            .rules
+        self.rules_mut()
             .control_effects
             .retain(|e| !ended.contains(&e.id));
         for effect_id in ended {
@@ -694,8 +674,8 @@ impl Game {
         for (player, objects) in removed {
             self.finish_departure(player, &objects)?;
         }
-        self.state.rules.simultaneous_losses = false;
-        self.state.rules.losing_players.clear();
+        self.rules_mut().simultaneous_losses = false;
+        self.rules_mut().losing_players.clear();
         Ok(())
     }
     pub(crate) fn replay_to(

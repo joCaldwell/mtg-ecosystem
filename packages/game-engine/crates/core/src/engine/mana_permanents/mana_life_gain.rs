@@ -36,7 +36,7 @@ impl Game {
         player: PlayerId,
         entry: &ManaLifeUndo,
     ) -> Result<(), String> {
-        let life = &mut self.state.rules.players[player.0 as usize].life;
+        let life = &mut self.rules_mut().players[player.0 as usize].life;
         if *life != entry.after || entry.after <= entry.before {
             return Err("mana life gain changed".into());
         }

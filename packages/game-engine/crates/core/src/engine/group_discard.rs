@@ -50,18 +50,19 @@ impl Game {
         if count.is_negative() {
             return Err("negative group discard count".into());
         }
+        let controller = self.entry(frame.stack_id)?.controller;
         let mut group = frame
             .group_discard
             .take()
             .unwrap_or_else(|| GroupDiscardProgress {
-                remaining: self.group_discard_recipients(frame.spell.controller, &scope),
+                remaining: self.group_discard_recipients(controller, &scope),
                 selected: vec![],
             });
         while let Some(&player) = group.remaining.first() {
             let count = self.bounded_hand_count(player, &count);
             if count > 0 {
                 frame.group_discard = Some(group);
-                self.state.rules.frame = Frame::ResolutionChoice {
+                self.rules_mut().frame = Frame::ResolutionChoice {
                     frame,
                     choice: ResolutionChoice::Discard {
                         player,
@@ -86,7 +87,7 @@ impl Game {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
         self.complete_graveyard_group(
-            Self::wipe_cause(&frame, source_block),
+            self.instruction_cause(&frame, source_block)?,
             EventGroup::Simultaneous { occurrences },
             GroupFinish::Instruction {
                 frame,
@@ -96,7 +97,7 @@ impl Game {
     }
 
     pub(super) fn remove_group_discard_recipient(&mut self, departed: PlayerId) {
-        let (frame, chooser_left) = match &mut self.state.rules.frame {
+        let (frame, chooser_left) = match &mut self.rules_mut().frame {
             Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::Discard { player, .. },
@@ -110,7 +111,7 @@ impl Game {
         group.remaining.retain(|&p| p != departed);
         group.selected.retain(|(p, _)| *p != departed);
         if chooser_left {
-            self.state.rules.frame = Frame::Resolve {
+            self.rules_mut().frame = Frame::Resolve {
                 frame: frame.clone(),
             };
         }
@@ -121,13 +122,14 @@ impl Game {
             return Ok(());
         };
         let Some(Instruction::DiscardPlayerSet { scope, count, .. }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
             return Err("group discard instruction invariant".into());
         };
-        let recipients = self.group_discard_recipients(frame.spell.controller, scope);
+        let recipients =
+            self.group_discard_recipients(self.entry(frame.stack_id)?.controller, scope);
         if !matches!(
             self.state.rules.frame,
             Frame::Resolve { .. }

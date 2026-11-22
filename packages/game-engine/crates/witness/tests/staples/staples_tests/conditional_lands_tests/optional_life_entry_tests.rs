@@ -586,7 +586,7 @@ fn optional_entry_paid_spell_source_owner_departure_keeps_the_frozen_root() {
             Frame::LandEntry {
                 origin: EntryOrigin::Search { frame },
                 ..
-            } => frame.spell.source,
+            } => g.entry(frame.stack_id).unwrap().source,
             _ => panic!(),
         };
         Arc::make_mut(&mut g.state.rules.cards)
@@ -703,7 +703,7 @@ fn optional_entry_exact_cause_group_authority_rejects_forgery_and_rolls_back_res
     }
 }
 #[test]
-fn optional_entry_retention_charge_is_exact_full_payload_minus_existing_owners() {
+fn optional_entry_retention_charge_is_the_exact_frame_payload_and_owners_charge_once() {
     let mut g = Game::new(paid_setup(CLAIM, "5", &[POOL, GROUND]));
     let _ = natural_search(&mut g, "Skyshroud Claim", 1);
     select(&mut g, &[POOL, GROUND], false);
@@ -717,14 +717,12 @@ fn optional_entry_retention_charge_is_exact_full_payload_minus_existing_owners()
     };
     let frame = frame.clone();
     let objects = objects.clone();
+    // The frame names its invocation. The invocation's one owner is charged
+    // for its cost lock and grant payload; the frame is charged for the rest.
+    let owner = g.entry(frame.stack_id).unwrap();
+    assert_eq!(g.cost_lock_charge(), costs::entry_cost_lock_charge(owner));
     assert_eq!(
-        spell_cascade_grants::retained_resolving_entry(&g.state.rules.frame),
-        Some(&frame.spell)
-    );
-    let fees = costs::entry_cost_lock_charge(&frame.spell)
-        + spell_cascade_grants::entry_grant_charge(&frame.spell);
-    assert_eq!(
-        g.land_entry_charge() + fees,
+        g.land_entry_charge(),
         stored_history::payload_charge(&g.state.rules.frame)
     );
     let mut previous = g.fork();
@@ -978,18 +976,19 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
     else {
         panic!()
     };
-    let mut root = frame.clone();
+    let root = frame.clone();
     let objects = objects.clone();
     let choices = choices.clone();
-    let fact = g.object_before(root.spell.source).unwrap();
+    let mut owner = g.entry(root.stack_id).unwrap().clone();
+    let fact = g.object_before(owner.source).unwrap();
     let handles = (0..4)
-        .map(|s| g.handle_for(PlayerId(s), root.spell.source).unwrap())
+        .map(|s| g.handle_for(PlayerId(s), owner.source).unwrap())
         .collect::<Vec<_>>();
-    root.spell.cost_lock = None;
-    root.spell.kind = StackKind::Triggered {
+    owner.cost_lock = None;
+    owner.kind = StackKind::Triggered {
         match_condition: None,
         ability: EffectiveTriggerAbility::Granted {
-            grant_source: root.spell.source,
+            grant_source: owner.source,
             static_ability_index: 0,
         },
         grant: Some(CascadeGrantProvenance {
@@ -1017,7 +1016,7 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
             }),
         },
     };
-    let grant = spell_cascade_grants::entry_grant_charge(&root.spell);
+    let grant = spell_cascade_grants::entry_grant_charge(&owner);
     assert!(grant > 0);
     let entry = Frame::LandEntry {
         origin: EntryOrigin::Search { frame: root },
@@ -1027,14 +1026,25 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
     let payload = stored_history::payload_charge(&entry);
     let mut probe = g.fork();
     probe.state.rules.frame = entry.clone();
-    assert_eq!(probe.land_entry_charge() + grant, payload);
+    // The grant payload is charged once, at the invocation's single owner.
+    let before = probe.grant_payload_charge();
+    let id = owner.id;
+    *probe
+        .state
+        .rules
+        .stack
+        .iter_mut()
+        .find(|s| s.id == id)
+        .unwrap() = owner;
+    assert_eq!(probe.grant_payload_charge(), before + grant);
+    assert_eq!(probe.land_entry_charge(), payload);
     let existing = probe.grant_payload_charge();
     probe.state.rules.frame = Frame::CommanderReturn {
         object: objects[0],
         destination: Zone::Graveyard { owner: PlayerId(0) },
         continuation: Box::new(CommanderContinuation::StateBased { resume: entry }),
     };
-    assert_eq!(probe.land_entry_charge() + grant, payload);
+    assert_eq!(probe.land_entry_charge(), payload);
     assert_eq!(probe.grant_payload_charge(), existing);
     assert_eq!(probe.cascade_charge(), 0);
 }

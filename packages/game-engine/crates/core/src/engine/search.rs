@@ -145,7 +145,7 @@ impl Game {
         player: PlayerId,
         action: OwnKnowledgeAction,
     ) -> Result<(), String> {
-        self.state.rules.retained_auxiliary_charge = self
+        self.rules_mut().retained_auxiliary_charge = self
             .state
             .rules
             .retained_auxiliary_charge

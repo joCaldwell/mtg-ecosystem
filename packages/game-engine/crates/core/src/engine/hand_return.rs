@@ -20,7 +20,7 @@ impl Game {
     }
     fn hand_return_instruction(&self, frame: &Resolving) -> Result<(Quantity, u32), String> {
         match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -55,7 +55,7 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         let (_, b) = self.hand_return_instruction(frame)?;
-        if player != frame.spell.controller || b != block {
+        if player != self.entry(frame.stack_id)?.controller || b != block {
             return Err("hand return source binding".into());
         }
         Ok(())
@@ -88,7 +88,7 @@ impl Game {
         count: Quantity,
         block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -99,7 +99,7 @@ impl Game {
         if self.bounded_hand_count(player, &count) == 0 {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::HandReturn {
                 player,
@@ -117,7 +117,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_hand_return_source(&frame, player, block)?;
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player
                     || !matches!(input.response, Response::HandReturn { .. }))
             {
@@ -127,8 +127,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing hand return input")?;
@@ -154,13 +153,13 @@ impl Game {
         choices: Vec<(ObjectId, bool)>,
         block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         if let Some(object) = remaining.first().copied() {
-            self.state.rules.frame = Frame::CommanderReturn {
+            self.rules_mut().frame = Frame::CommanderReturn {
                 object,
                 destination: Zone::Library { owner: player },
                 continuation: Box::new(CommanderContinuation::HandReturn {
@@ -187,9 +186,9 @@ impl Game {
                 command,
             },
             BatchCause::Instruction {
-                stack_id: frame.spell.id,
+                stack_id: frame.stack_id,
                 player,
-                source: frame.spell.source,
+                source: self.entry(frame.stack_id)?.source,
                 cursor: frame.cursor,
                 source_block: block,
             },
@@ -210,7 +209,12 @@ impl Game {
         block: u32,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        self.validate_hand_return(frame, frame.spell.controller, block, objects)?;
+        self.validate_hand_return(
+            frame,
+            self.entry(frame.stack_id)?.controller,
+            block,
+            objects,
+        )?;
         let expected = objects
             .iter()
             .filter(|o| self.state.rules.commanders.history(o.card).is_some())
@@ -289,8 +293,7 @@ impl Game {
             .filter(|m| m.destination == (Zone::Library { owner: player }))
             .map(|m| m.successor)
             .collect::<Vec<_>>();
-        self.state
-            .rules
+        self.rules_mut()
             .libraries
             .insert(player, top.iter().map(|o| o.card).chain(tail).collect());
         self.remember_library_order(player, &top)?;

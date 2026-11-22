@@ -673,9 +673,8 @@ fn d2ce_pending_placed_resolving_recovery_and_coherent_forgery(case: usize) {
         for i in 0..g.state.rules.stack.len() {
             paths.push(format!("/state/stack/{i}/kind/witness"));
         }
-        if matches!(g.state.rules.frame, Frame::Resolve { .. }) {
-            paths.push("/state/frame/frame/spell/kind/witness".into());
-        }
+        // A resolving frame names its invocation; the stack entry above is
+        // its single owner, so there is no second copy to forge coherently.
         if !paths.is_empty() {
             for field in [
                 "kind",

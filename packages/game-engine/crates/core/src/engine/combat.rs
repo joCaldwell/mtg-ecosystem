@@ -288,49 +288,49 @@ impl Game {
     pub(super) fn remove_from_combat(&mut self, object: ObjectId) {
         // CR509.1g/506.4: removing an attacker does not remove its blockers.
         // The links below determine damage recipients (510.1d), not status.
-        self.state.rules.blocking_creatures.remove(&object);
-        self.state.rules.combat.retain(|a| a.attacker != object);
-        for a in &mut self.state.rules.combat {
+        self.rules_mut().blocking_creatures.remove(&object);
+        self.rules_mut().combat.retain(|a| a.attacker != object);
+        for a in &mut self.rules_mut().combat {
             a.blockers.retain(|b| *b != object);
         }
-        self.state.rules.damage_choices.remove(&object);
-        self.state.rules.player_damage_choices.remove(&object);
+        self.rules_mut().damage_choices.remove(&object);
+        self.rules_mut().player_damage_choices.remove(&object);
     }
     pub(crate) fn is_blocking_creature(&self, object: ObjectId) -> bool {
         self.state.rules.blocking_creatures.contains(&object)
             && self.is_battlefield_creature(object)
     }
     pub(super) fn clear_combat(&mut self) {
-        self.state.rules.combat.clear();
-        self.state.rules.blocking_creatures.clear();
-        self.state.rules.first_strike_participants.clear();
-        self.state.rules.damage_choices.clear();
-        self.state.rules.player_damage_choices.clear();
+        self.rules_mut().combat.clear();
+        self.rules_mut().blocking_creatures.clear();
+        self.rules_mut().first_strike_participants.clear();
+        self.rules_mut().damage_choices.clear();
+        self.rules_mut().player_damage_choices.clear();
     }
     pub(super) fn grant_turn_priority(&mut self) -> Result<(), String> {
         if matches!(self.state.rules.frame, Frame::Finished { .. } | Frame::Draw) {
             return Ok(());
         }
-        self.state.rules.priority = self
+        self.rules_mut().priority = self
             .state
             .rules
             .active
             .or_else(|| self.next_live(self.state.rules.turn_owner))
             .ok_or("no priority recipient")?;
-        self.state.rules.frame = Frame::Priority;
-        self.stabilize()
+        self.rules_mut().frame = Frame::Priority;
+        Ok(self.stabilize()?)
     }
     pub(super) fn schedule_stabilization(&mut self, resume: Frame, cleanup: bool) {
-        self.state.rules.frame = Frame::Stabilize {
+        self.rules_mut().frame = Frame::Stabilize {
             resume: Box::new(resume),
             cleanup,
             changed: false,
         };
     }
-    pub(crate) fn combat_step(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+    pub(crate) fn combat_step(&mut self, frame: Frame) -> Result<(), String> {
+        match frame {
             Frame::Attackers => {
-                let input = self.state.rules.pending.take().ok_or("missing attackers")?;
+                let input = self.rules_mut().pending.take().ok_or("missing attackers")?;
                 self.validate_combat_response(input.player, &input.response)?;
                 let Response::Attackers { attacks } = input.response else {
                     return Err("attack response".into());
@@ -342,7 +342,7 @@ impl Game {
                 self.grant_turn_priority()?;
             }
             Frame::Blockers { mut remaining } => {
-                let input = self.state.rules.pending.take().ok_or("missing blockers")?;
+                let input = self.rules_mut().pending.take().ok_or("missing blockers")?;
                 self.validate_combat_response(input.player, &input.response)?;
                 let Response::Blockers { blocks } = input.response else {
                     return Err("block response".into());
@@ -358,20 +358,19 @@ impl Game {
                 if remaining.is_empty() {
                     self.grant_turn_priority()?;
                 } else {
-                    self.state.rules.frame = Frame::Blockers { remaining };
+                    self.rules_mut().frame = Frame::Blockers { remaining };
                 }
             }
             Frame::DamageChoice { source } => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing damage assignment")?;
                 self.validate_combat_response(input.player, &input.response)?;
                 let assignments = match input.response {
                     Response::Damage { assignments } => {
-                        self.state.rules.player_damage_choices.remove(&source);
+                        self.rules_mut().player_damage_choices.remove(&source);
                         assignments
                     }
                     Response::TrampleDamage {
@@ -379,21 +378,20 @@ impl Game {
                         player,
                         amount,
                     } => {
-                        self.state
-                            .rules
+                        self.rules_mut()
                             .player_damage_choices
                             .insert(source, (player, amount));
                         assignments
                     }
                     _ => return Err("damage response".into()),
                 };
-                self.state.rules.damage_choices.insert(source, assignments);
-                self.state.rules.frame = Frame::Damage;
+                self.rules_mut().damage_choices.insert(source, assignments);
+                self.rules_mut().frame = Frame::Damage;
                 self.assign_damage()?;
             }
             Frame::Damage => self.assign_damage()?,
             Frame::Discard { player, .. } => {
-                let input = self.state.rules.pending.take().ok_or("missing discard")?;
+                let input = self.rules_mut().pending.take().ok_or("missing discard")?;
                 self.validate_combat_response(input.player, &input.response)?;
                 let Response::Discard { objects } = input.response else {
                     return Err("discard response".into());
@@ -525,8 +523,8 @@ impl Game {
                             .is_ok()
                         });
                     let Some(choice) = choice else {
-                        self.state.rules.damage_choices.remove(&a.attacker);
-                        self.state.rules.frame = Frame::DamageChoice { source: a.attacker };
+                        self.rules_mut().damage_choices.remove(&a.attacker);
+                        self.rules_mut().frame = Frame::DamageChoice { source: a.attacker };
                         return Ok(());
                     };
                     if let Some((player, amount)) =
@@ -586,8 +584,8 @@ impl Game {
         if !damage.is_empty() {
             return self.prepare_combat_damage(damage);
         }
-        self.state.rules.damage_choices.clear();
-        self.state.rules.player_damage_choices.clear();
+        self.rules_mut().damage_choices.clear();
+        self.rules_mut().player_damage_choices.clear();
         self.grant_turn_priority()
     }
     fn stabilization_wave(
@@ -607,7 +605,7 @@ impl Game {
     ) -> Result<(), String> {
         let groups = self.legend_groups()?;
         if kept.is_none() && !groups.is_empty() {
-            self.state.rules.frame = Frame::LegendRule {
+            self.rules_mut().frame = Frame::LegendRule {
                 resume: Box::new(Frame::Stabilize {
                     resume: Box::new(resume),
                     cleanup,
@@ -723,14 +721,14 @@ impl Game {
                     .values()
                     .all(|o| o.zone != Zone::Battlefield || !o.deathtouch_damage)
             );
-            self.state.rules.frame = if cleanup && changed {
-                self.state.rules.cleanup_repeat = true;
+            self.rules_mut().frame = if cleanup && changed {
+                self.rules_mut().cleanup_repeat = true;
                 Frame::Priority
             } else {
                 resume
             };
             if cleanup && changed && matches!(self.state.rules.frame, Frame::Priority) {
-                self.state.rules.priority = self
+                self.rules_mut().priority = self
                     .state
                     .rules
                     .active
@@ -829,16 +827,16 @@ impl Game {
     pub(super) fn finish_if_ended(&mut self) -> Result<bool, String> {
         match self.live_players().as_slice() {
             [] => {
-                self.state.rules.pending = None;
-                self.state.rules.frame = Frame::Draw;
+                self.rules_mut().pending = None;
+                self.rules_mut().frame = Frame::Draw;
                 self.record_event(Event::GameDrawn)?;
                 Ok(true)
             }
             [winner] => {
                 let winner = *winner;
-                self.state.rules.pending = None;
-                self.state.rules.frame = Frame::Finished { winner };
-                self.state.rules.priority = winner;
+                self.rules_mut().pending = None;
+                self.rules_mut().frame = Frame::Finished { winner };
+                self.rules_mut().priority = winner;
                 self.record_event(Event::GameWon { winner })?;
                 Ok(true)
             }
@@ -846,31 +844,32 @@ impl Game {
         }
     }
     pub(super) fn revalidate_combat_departure(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+        match &self.state.rules.frame {
             Frame::Attackers if self.state.rules.active.is_none() => self.grant_turn_priority()?,
             Frame::Blockers { remaining } => {
                 let remaining = remaining
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .filter(|p| self.is_live(*p))
                     .collect::<Vec<_>>();
                 if remaining.is_empty() {
                     self.grant_turn_priority()?;
                 } else {
-                    self.state.rules.frame = Frame::Blockers { remaining };
+                    self.rules_mut().frame = Frame::Blockers { remaining };
                 }
             }
             Frame::DamageChoice { source }
-                if self.current(source).is_err()
-                    || (self.recipients(source).len() < 2
-                        && (self.recipients(source).is_empty()
-                            || self.trample_player(source).is_none())) =>
+                if self.current(*source).is_err()
+                    || (self.recipients(*source).len() < 2
+                        && (self.recipients(*source).is_empty()
+                            || self.trample_player(*source).is_none())) =>
             {
-                self.state.rules.pending = None;
-                self.state.rules.frame = Frame::Damage;
+                self.rules_mut().pending = None;
+                self.rules_mut().frame = Frame::Damage;
             }
-            Frame::Discard { player, .. } if !self.is_live(player) => {
-                self.state.rules.pending = None;
-                self.state.rules.frame = Frame::CleanupClear;
+            Frame::Discard { player, .. } if !self.is_live(*player) => {
+                self.rules_mut().pending = None;
+                self.rules_mut().frame = Frame::CleanupClear;
             }
             _ => {}
         }
@@ -881,7 +880,7 @@ impl Game {
             .as_ref()
             .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }

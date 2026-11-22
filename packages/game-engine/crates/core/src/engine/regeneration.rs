@@ -64,7 +64,7 @@ impl Game {
             let forbidden = match finish {
                 GroupFinish::Instruction { frame, .. } => {
                     let instruction = self
-                        .program_for(&frame.spell)?
+                        .program_for(self.entry(frame.stack_id)?)?
                         .instructions
                         .get(frame.cursor as usize)
                         .ok_or("missing destroy instruction")?;
@@ -148,8 +148,7 @@ impl Game {
             return Err("missing common-prior regeneration shield".into());
         }
         let o = self
-            .state
-            .rules
+            .rules_mut()
             .objects
             .get_mut(&object.card)
             .ok_or("missing regeneration object")?;
@@ -159,7 +158,7 @@ impl Game {
         // CR 704.5h checks damage since the preceding SBA observation.
         // The SBA wave separately consumes its checked deathtouch windows.
         self.remove_from_combat(object);
-        self.state.rules.effects.retain(|e| e.id != shield);
+        self.rules_mut().effects.retain(|e| e.id != shield);
         Ok(Some(EventOutcome::Regenerated {
             object,
             shield,

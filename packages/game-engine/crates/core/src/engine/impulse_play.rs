@@ -41,14 +41,14 @@ impl Game {
             window,
             source_block,
         }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
             return Err("missing library play instruction".into());
         };
-        let handles = match &frame.spell.kind {
-            StackKind::Spell => &frame.spell.effect_source_handles,
+        let handles = match &self.entry(frame.stack_id)?.kind {
+            StackKind::Spell => &self.entry(frame.stack_id)?.effect_source_handles,
             StackKind::Triggered {
                 ability: EffectiveTriggerAbility::Intrinsic { .. },
                 witness: TriggerEventWitness::LoreAdded { .. },
@@ -57,10 +57,10 @@ impl Game {
             } => source_handles,
             _ => return Err("library play requires a spell or intrinsic chapter".into()),
         };
-        if frame.spell.paid.is_none() || !frame.legal_targets.is_empty() {
+        if self.entry(frame.stack_id)?.paid.is_none() || !frame.legal_targets.is_empty() {
             return Err("library play requires a completed untargeted invocation".into());
         }
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return Ok(None);
         }
@@ -85,9 +85,9 @@ impl Game {
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
                 activated_ability: None,
-                mode: frame.spell.mode,
-                stack_id: frame.spell.id,
-                source: frame.spell.source,
+                mode: self.entry(frame.stack_id)?.mode,
+                stack_id: frame.stack_id,
+                source: self.entry(frame.stack_id)?.source,
                 controller: player,
                 source_handles: handles.clone(),
                 cursor: frame.cursor,
@@ -117,7 +117,7 @@ impl Game {
                 },
             ],
         };
-        Ok(Some((Self::staple_cause(frame, *source_block), group)))
+        Ok(Some((self.instruction_cause(frame, *source_block)?, group)))
     }
 
     pub(super) fn execute_impulse_play(&mut self, frame: Resolving) -> Result<(), String> {
@@ -154,7 +154,7 @@ impl Game {
                 .rules
                 .effects
                 .iter()
-                .any(|e| e.origin.stack_id == frame.spell.id && e.origin.cursor == frame.cursor)
+                .any(|e| e.origin.stack_id == frame.stack_id && e.origin.cursor == frame.cursor)
         {
             return Ok(());
         }

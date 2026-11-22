@@ -109,7 +109,7 @@ impl Game {
         let cast_from = self.current(object)?.zone;
         let source_handles = self.capture_trigger_source_handles(object)?;
         let id = StackId(self.state.rules.next_stack_id);
-        self.state.rules.next_stack_id = self
+        self.rules_mut().next_stack_id = self
             .state
             .rules
             .next_stack_id
@@ -144,7 +144,7 @@ impl Game {
             .program
             .targets
             .is_empty();
-        self.state.rules.stack.push(StackInstance {
+        let entry = StackInstance {
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
@@ -175,7 +175,8 @@ impl Game {
             paid: (!mana && !targeted && !chosen).then_some(total_cost.clone()),
             total_cost,
             cast_from,
-        });
+        };
+        self.rules_mut().stack.push(entry);
         if modal || targeted {
             if cost != ActivationCost::TapSource
                 && !matches!(
@@ -200,7 +201,7 @@ impl Game {
                 mana_activations: vec![],
                 undo_mana: false,
             };
-            self.state.rules.frame = if modal {
+            self.rules_mut().frame = if modal {
                 Frame::Modes { cast }
             } else {
                 match self.copiable_definition(object)?.activated[ability as usize]
@@ -219,7 +220,7 @@ impl Game {
                 }
             };
         } else if mana {
-            self.state.rules.frame = Frame::Mana {
+            self.rules_mut().frame = Frame::Mana {
                 cast: Casting {
                     completion: CastCompletion::Priority,
                     sacrifices: vec![],
@@ -235,7 +236,7 @@ impl Game {
             };
         } else if chosen {
             // CR 602.2b/601.2g-h: no mana opportunity for a cost with no mana.
-            self.state.rules.frame = Frame::SacrificeCost {
+            self.rules_mut().frame = Frame::SacrificeCost {
                 cast: Casting {
                     completion: CastCompletion::Priority,
                     sacrifices: vec![],
@@ -305,10 +306,10 @@ impl Game {
                 player,
                 ability,
             })?;
-            self.state.rules.priority = player;
+            self.rules_mut().priority = player;
             self.stabilize()?;
         }
-        self.state.rules.passes.clear();
+        self.rules_mut().passes.clear();
         Ok(())
     }
     pub(super) fn validate_activated_entry(
@@ -584,8 +585,7 @@ impl Game {
     }
     pub(super) fn bind_stack_targets(&mut self, cast: Casting) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing stack target input")?;
@@ -602,14 +602,13 @@ impl Game {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let top = self
-            .state
-            .rules
+            .rules_mut()
             .stack
             .last_mut()
             .ok_or("missing stack target invocation")?;
         top.stack_targets = entries;
         top.announced_stack_targets = announced;
-        self.state.rules.frame = self.continue_spell_targeting(cast)?;
+        self.rules_mut().frame = self.continue_spell_targeting(cast)?;
         Ok(())
     }
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs
@@ -624,7 +623,7 @@ impl Game {
     ) -> Result<(), String> {
         let slot = target_slot as usize;
         let target = *self
-            .bound_stack_target(&frame.spell, slot)
+            .bound_stack_target(self.entry(frame.stack_id)?, slot)
             .ok_or("missing counter target binding")?;
         if frame.legal_targets.get(slot) != Some(&true) {
             return self
@@ -645,7 +644,7 @@ impl Game {
         // CR 608.2h: the target may leave the stack during the counter event.
         let controller = entry.controller;
         let domain = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .targets
             .get(slot)
             .ok_or("missing counter target domain")?
@@ -678,7 +677,7 @@ impl Game {
                 },
             );
         }
-        let actual = self.commit(proposed, Self::staple_cause(&frame, source_block))?;
+        let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
         self.complete_counter_outcome(
             frame,
             source_block,
@@ -724,7 +723,11 @@ impl Game {
                     },
                 );
             }
-            self.commit_mill(controller, count, Self::staple_cause(&frame, source_block))?;
+            self.commit_mill(
+                controller,
+                count,
+                self.instruction_cause(&frame, source_block)?,
+            )?;
         }
         self.finish_instruction(frame, outcome)
     }

@@ -4,7 +4,9 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HandCastPermission {
-    issuer: Box<StackInstance>,
+    /// The combat-damage trigger that issued this one-use permission. Its
+    /// entry is the single owner of the trigger and of its source's facts.
+    issuer: StackId,
     original: ObjectId,
     caster: PlayerId,
     child: StackId,
@@ -50,8 +52,8 @@ impl Game {
         child: StackId,
     ) -> Result<HandCastPermission, String> {
         self.validate_resolving_owned(frame, None)?;
-        self.validate_hand_cast_issuer(&frame.spell)?;
-        let caster = frame.spell.controller;
+        self.validate_hand_cast_issuer(self.entry(frame.stack_id)?)?;
+        let caster = self.entry(frame.stack_id)?.controller;
         if frame.cursor != 0
             || self.top()?.id != frame.stack_id
             || child.0 != self.state.rules.next_stack_id
@@ -60,7 +62,7 @@ impl Game {
             return Err("invalid one-use hand cast authority".into());
         }
         Ok(HandCastPermission {
-            issuer: Box::new(frame.spell.clone()),
+            issuer: frame.stack_id,
             original,
             caster,
             child,
@@ -71,11 +73,17 @@ impl Game {
         let Some(permission) = &child.hand_cast_permission else {
             return Ok(());
         };
-        self.validate_hand_cast_issuer(&permission.issuer)?;
+        // The issuing trigger is validated while it has an owner. Once it has
+        // finished, only the child's own identity remains to check.
+        if let Ok(issuer) = self.entry(permission.issuer) {
+            self.validate_hand_cast_issuer(issuer)?;
+            if permission.caster != issuer.controller {
+                return Err("hand cast child identity invariant".into());
+            }
+        }
         if !child.kind.is_spell()
             || child.id != permission.child
-            || permission.issuer.id >= child.id
-            || permission.caster != permission.issuer.controller
+            || permission.issuer >= child.id
             || child.controller != permission.caster
             || child.source.card != permission.original.card
             || permission.original.incarnation.checked_add(1) != Some(child.source.incarnation)
@@ -107,8 +115,8 @@ impl Game {
     }
 
     pub(super) fn hand_cast_candidates(&self, frame: &Resolving) -> Result<Vec<ObjectId>, String> {
-        self.validate_hand_cast_issuer(&frame.spell)?;
-        let player = frame.spell.controller;
+        self.validate_hand_cast_issuer(self.entry(frame.stack_id)?)?;
+        let player = self.entry(frame.stack_id)?.controller;
         let mut candidates = vec![];
         if self.is_live(player) && !self.cast_is_prohibited(player)? {
             for object in self.state.rules.objects.values() {
@@ -125,7 +133,7 @@ impl Game {
         for child in &self.state.rules.stack {
             if let Some(permission) = &child.hand_cast_permission {
                 self.validate_hand_cast_child(child)?;
-                if !consumed.insert(permission.issuer.id) {
+                if !consumed.insert(permission.issuer) {
                     return Err("hand casting permission spent twice".into());
                 }
             }
@@ -163,7 +171,7 @@ impl Game {
             _ => return Ok(()),
         };
         self.validate_resolving_owned(frame, child)?;
-        self.validate_hand_cast_issuer(&frame.spell)?;
+        self.validate_hand_cast_issuer(self.entry(frame.stack_id)?)?;
         if frame.cursor != 0 {
             return Err("hand cast trigger cursor".into());
         }
@@ -173,14 +181,9 @@ impl Game {
                 .hand_cast_permission
                 .as_ref()
                 .ok_or("hand cast child permission missing")?;
-            // The permission freezes its issuer. Only a trigger whose source
-            // has since left or phased out can hold newer source facts
-            // (CR 608.2h/113.7a).
-            let departed = !self
-                .current(frame.spell.source)
-                .is_ok_and(|source| source.present_on_battlefield());
-            if !(permission.issuer.as_ref() == &frame.spell
-                || (departed && frame::issued_by(&permission.issuer, &frame.spell)))
+            // The permission names its issuer; the issuing trigger's entry
+            // owns its source's last-known facts (CR 608.2h/113.7a).
+            if permission.issuer != frame.stack_id
                 || top.id != child
                 || top.paid.is_some() == announcing
             {
@@ -198,7 +201,7 @@ impl Game {
         };
         let candidates = self.hand_cast_candidates(frame)?;
         Ok((!candidates.is_empty()).then_some(Request::HandCast {
-            player: frame.spell.controller,
+            player: self.entry(frame.stack_id)?.controller,
             decision_id: self.state.rules.revision,
             candidates,
         }))
@@ -228,7 +231,7 @@ impl Game {
     pub(super) fn revalidate_hand_cast_departure(&mut self) -> Result<(), String> {
         if let Frame::HandCast { frame, child: None } = &self.state.rules.frame
             && let Some(input) = &self.state.rules.pending
-            && input.player == frame.spell.controller
+            && input.player == self.entry(frame.stack_id)?.controller
         {
             let candidates = self.hand_cast_candidates(frame)?;
             let invalid = match input.response {
@@ -237,7 +240,7 @@ impl Game {
                 _ => return Err("unexpected retained hand cast response".into()),
             };
             if invalid {
-                self.state.rules.pending = None;
+                self.rules_mut().pending = None;
             }
         }
         Ok(())
@@ -250,8 +253,8 @@ impl Game {
         self.validate_resolving_owned(&frame, child)?;
         if child.is_none() {
             let candidates = self.hand_cast_candidates(&frame)?;
-            if let Some(input) = self.state.rules.pending.take() {
-                if input.player != frame.spell.controller {
+            if let Some(input) = self.rules_mut().pending.take() {
+                if input.player != self.entry(frame.stack_id)?.controller {
                     return Err("hand cast actor mismatch".into());
                 }
                 match input.response {
@@ -267,6 +270,6 @@ impl Game {
                 return Err("missing hand cast choice".into());
             }
         }
-        self.finish_ability(&frame.spell, true)
+        self.finish_ability(frame.stack_id, true)
     }
 }

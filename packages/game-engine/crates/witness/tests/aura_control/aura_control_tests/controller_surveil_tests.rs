@@ -332,7 +332,7 @@ fn controller_surveil_departed_chooser_and_atomic_late_failure() {
             let cause = BatchCause::Instruction {
                 stack_id: frame.stack_id,
                 player: PlayerId(0),
-                source: frame.spell.source,
+                source: g.entry(frame.stack_id).unwrap().source,
                 cursor: frame.cursor,
                 source_block: 0,
             };

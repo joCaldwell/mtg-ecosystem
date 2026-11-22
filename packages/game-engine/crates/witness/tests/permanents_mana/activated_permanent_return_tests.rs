@@ -506,7 +506,7 @@ fn activated_permanent_return_target_bounce_and_genuine_flash_reentry_never_rebi
             recover(&g);
             resolve_start(&mut g);
             assert!(
-                matches!(&g.state.rules.frame, Frame::Resolve { frame } if frame.spell.id == ability && frame.legal_targets == [false])
+                matches!(&g.state.rules.frame, Frame::Resolve { frame } if frame.stack_id == ability && frame.legal_targets == [false])
             );
             recover(&g);
             finish_to(&mut g, q, 0, None);

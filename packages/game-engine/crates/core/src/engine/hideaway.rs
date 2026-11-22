@@ -63,8 +63,7 @@ impl Game {
         card: ObjectId,
     ) -> Result<HideawayLink, String> {
         let o = self
-            .state
-            .rules
+            .rules_mut()
             .objects
             .get_mut(&card.card)
             .filter(|o| o.id == card && o.zone == Zone::Exile)
@@ -86,15 +85,14 @@ impl Game {
         {
             receipt.lookers[source.controller.0 as usize] = true;
         }
+        // A reversed cast may have been attempted by a player other than the owner.
+        let owner = self.state.rules.cards[&receipt.card.card].owner;
         let o = self
-            .state
-            .rules
+            .rules_mut()
             .objects
             .get_mut(&receipt.card.card)
             .filter(|o| o.id == receipt.card && o.zone == Zone::Exile && o.hideaway.is_none())
             .ok_or("reversal did not restore exact unlinked exile incarnation")?;
-        // A reversed cast may have been attempted by a player other than the owner.
-        let owner = self.state.rules.cards[&receipt.card.card].owner;
         o.controller = owner;
         o.default_controller = owner;
         o.hideaway = Some(Box::new(receipt));
@@ -103,7 +101,7 @@ impl Game {
 
     pub(super) fn grant_hideaway_looks(&mut self, controllers: &BTreeMap<ObjectId, PlayerId>) {
         let live = std::array::from_fn::<_, 4, _>(|seat| self.is_live(PlayerId(seat as u8)));
-        for o in self.state.rules.objects.values_mut() {
+        for o in self.rules_mut().objects.values_mut() {
             if let Some(link) = &mut o.hideaway
                 && let Some(p) = controllers.get(&link.source)
                 && live[p.0 as usize]
@@ -161,11 +159,11 @@ impl Game {
             witness,
             grant: None,
             ..
-        } = &frame.spell.kind
+        } = &self.entry(frame.stack_id)?.kind
         else {
             return Err("hideaway requires its intrinsic entry trigger".into());
         };
-        let source = frame.spell.source;
+        let source = self.entry(frame.stack_id)?.source;
         let ability = self
             .copiable_definition(source)?
             .triggered
@@ -198,7 +196,7 @@ impl Game {
     }
 
     pub(super) fn begin_hideaway(&mut self, frame: Resolving) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -208,7 +206,7 @@ impl Game {
         if looked.is_empty() {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::Hideaway {
                 player,
@@ -227,7 +225,7 @@ impl Game {
         bottom: Option<&RandomBottom>,
     ) -> Result<(), String> {
         let (count, _) = self.hideaway_spec(frame)?;
-        if player != frame.spell.controller
+        if player != self.entry(frame.stack_id)?.controller
             || looked.is_empty()
             || looked.len() > count as usize
             || looked.len() > self.state.rules.cards.len()
@@ -268,15 +266,14 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_hideaway_choice(&frame, player, &looked, bottom.as_ref())?;
         if !self.is_live(player) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let next = match bottom {
             None => {
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing hideaway choice")?;
@@ -298,8 +295,7 @@ impl Game {
             Some(mut bottom) if bottom.remaining > 1 => {
                 // One rejection-sampled Fisher–Yates trial per rules work unit.
                 let random = &mut self
-                    .state
-                    .rules
+                    .rules_mut()
                     .match_state
                     .as_mut()
                     .ok_or("random bottom requires a seeded match")?
@@ -319,7 +315,7 @@ impl Game {
                         selected: bottom.selected,
                         bottom: bottom.order,
                     },
-                    Self::wipe_cause(&frame, block),
+                    self.instruction_cause(&frame, block)?,
                 )?;
                 return self.finish_instruction(
                     frame,
@@ -329,7 +325,7 @@ impl Game {
                 );
             }
         };
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::Hideaway {
                 player,
@@ -362,7 +358,7 @@ impl Game {
         let (_, block) = self.hideaway_spec(frame)?;
         if !self.is_live(*player)
             || bottom.remaining > 1
-            || *cause != Self::wipe_cause(frame, block)
+            || *cause != self.instruction_cause(frame, block)?
             || !matches!(proposed, ProposedEvent::Hideaway { player:p,looked:l,selected,bottom:b } if p == player && l == looked && *selected == bottom.selected && *b == bottom.order)
         {
             return Err("unbound hideaway exile or random bottom".into());
@@ -381,8 +377,8 @@ impl Game {
             return Err("missing hideaway frame".into());
         };
         let (_, source_block) = self.hideaway_spec(frame)?;
-        let source = frame.spell.source;
-        let StackKind::Triggered { source_handles, .. } = &frame.spell.kind else {
+        let source = self.entry(frame.stack_id)?.source;
+        let StackKind::Triggered { source_handles, .. } = &self.entry(frame.stack_id)?.kind else {
             return Err("missing hideaway trigger handles".into());
         };
         let source_handles = source_handles
@@ -411,8 +407,7 @@ impl Game {
         // Movement removed just the selected card, leaving the remaining prefix
         // ahead of the untouched tail. No other card changes zone or incarnation.
         let library = self
-            .state
-            .rules
+            .rules_mut()
             .libraries
             .get_mut(&player)
             .ok_or("missing hideaway library")?;

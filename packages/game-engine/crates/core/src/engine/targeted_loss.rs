@@ -9,25 +9,25 @@ impl Game {
             return Err("targeted loss requires a resolving activation".into());
         };
         self.validate_resolving(frame)?;
-        let program = self.program_for(&frame.spell)?;
-        let [player] = frame.spell.player_targets.as_slice() else {
+        let program = self.program_for(self.entry(frame.stack_id)?)?;
+        let [player] = self.entry(frame.stack_id)?.player_targets.as_slice() else {
             return Err("targeted loss requires one announced player".into());
         };
-        match &frame.spell.kind {
+        match &self.entry(frame.stack_id)?.kind {
             StackKind::Activated {
                 ability: 0,
                 source_handles,
             } => {
-                let definition = self.copiable_definition(frame.spell.source)?;
+                let definition = self.copiable_definition(self.entry(frame.stack_id)?.source)?;
                 if !definition
                     .activated
                     .first()
                     .is_some_and(artifact_loss_activation)
-                    || self.current(frame.spell.source).is_ok()
+                    || self.current(self.entry(frame.stack_id)?.source).is_ok()
                 {
                     return Err("targeted loss requires its paid sacrificed artifact".into());
                 }
-                self.validate_activated_entry(&frame.spell, 0, source_handles)?;
+                self.validate_activated_entry(self.entry(frame.stack_id)?, 0, source_handles)?;
             }
             _ => return Err("unsupported targeted loss invocation".into()),
         };
@@ -43,7 +43,7 @@ impl Game {
         {
             return Err("targeted loss instruction does not authorize departure".into());
         }
-        Ok((Self::wipe_cause(frame, 1), *player))
+        Ok((self.instruction_cause(frame, 1)?, *player))
     }
 
     pub(super) fn resolve_targeted_loss(&mut self, frame: Resolving) -> Result<(), String> {
@@ -53,7 +53,7 @@ impl Game {
             return Err("targeted loss resolving instance changed".into());
         }
         if !self.is_live(player) {
-            return self.finish_ability(&frame.spell, true);
+            return self.finish_ability(frame.stack_id, true);
         }
         let batch = self.commit_batch(
             cause,
@@ -69,6 +69,6 @@ impl Game {
         }
         // A self-targeted activator can leave with the invocation. Completion
         // still uses the frozen resolving instance in that case.
-        self.finish_ability(&frame.spell, true)
+        self.finish_ability(frame.stack_id, true)
     }
 }

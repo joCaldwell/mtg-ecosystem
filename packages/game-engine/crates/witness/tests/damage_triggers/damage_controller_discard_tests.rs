@@ -765,9 +765,9 @@ fn paid_saga_delayed_entry_survives_final_chapter_and_expires_in_cleanup() {
         if !saw_second && registrations.first().is_some_and(|r| r.chapter() == Ok(1)) {
             let mut rogue = g.fork();
             let mut duplicate = registrations[0].clone();
-            let StackId(id) = duplicate.issuer.id;
-            duplicate.issuer.id = StackId(id.saturating_sub(1));
-            assert_ne!(duplicate.issuer.id, registrations[0].issuer.id);
+            let StackId(id) = duplicate.issuer;
+            duplicate.issuer = StackId(id.saturating_sub(1));
+            assert_ne!(duplicate.issuer, registrations[0].issuer);
             rogue.state.rules.delayed_chapters.push(duplicate);
             let err = Game::restore(g.prepared.as_ref().clone(), &rogue.snapshot().unwrap())
                 .err()
@@ -1356,7 +1356,7 @@ fn paid_fixed_saga_showdown_delays_cast_triggers_past_final_sacrifice() {
                 .rules
                 .delayed_chapters
                 .iter()
-                .any(|registration| registration.issuer.source == old_saga)
+                .any(|registration| registration.source == old_saga)
         );
         if turn == 9 {
             assert_eq!(

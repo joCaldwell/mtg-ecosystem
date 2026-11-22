@@ -138,7 +138,6 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
     let frame = Resolving {
         stack_id: spell.id,
         legal_targets: g.announced_target_legality(&spell),
-        spell,
         cursor: 0,
         target_facts: vec![None],
         outcomes: vec![],
@@ -156,10 +155,14 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
         origin: EffectOrigin {
             activated_ability: None,
             mode: None,
-            stack_id: frame.spell.id,
+            stack_id: frame.stack_id,
             source,
             controller: PlayerId(0),
-            source_handles: frame.spell.effect_source_handles.clone(),
+            source_handles: g
+                .entry(frame.stack_id)
+                .unwrap()
+                .effect_source_handles
+                .clone(),
             cursor: 0,
             source_block: 0,
         },
@@ -171,7 +174,7 @@ fn kernel(keywords: &[KeywordAbility], id: u32) -> (Game, ResolvedEffect, BatchC
             keywords: keywords.to_vec(),
         },
     };
-    let cause = Game::wipe_cause(&frame, 0);
+    let cause = g.instruction_cause(&frame, 0).unwrap();
     g.state.rules.frame = Frame::Resolve { frame };
     (g, effect, cause)
 }
@@ -188,7 +191,10 @@ fn frame(g: &Game) -> Resolving {
 }
 fn instruction(g: &Game) -> Instruction {
     let f = frame(g);
-    g.program_for(&f.spell).unwrap().instructions[f.cursor as usize].clone()
+    g.program_for(g.entry(f.stack_id).unwrap())
+        .unwrap()
+        .instructions[f.cursor as usize]
+        .clone()
 }
 fn edit_program(g: &mut Game, edit: impl FnOnce(&mut SpellProgram)) {
     let mut p = g.prepared.as_ref().clone();
@@ -211,7 +217,7 @@ fn edit_program(g: &mut Game, edit: impl FnOnce(&mut SpellProgram)) {
 #[test]
 fn permanent_target_kernel_control_type_zone_incarnation_targetability_and_preflight() {
     let (g, _, _) = kernel(PAIR, 1);
-    let entry = frame(&g).spell;
+    let entry = g.entry(frame(&g).stack_id).unwrap().clone();
     let p = g.program_for(&entry).unwrap();
     assert!(g.has_target_domain(
         p,
@@ -256,7 +262,10 @@ fn permanent_target_kernel_control_type_zone_incarnation_targetability_and_prefl
     assert!(changed.permanent_target_legal(object(&changed, 1), PlayerId(0), &spec));
 }
 fn p_target(g: &Game) -> TargetSpec {
-    g.program_for(&frame(g).spell).unwrap().targets[0].clone()
+    g.program_for(g.entry(frame(g).stack_id).unwrap())
+        .unwrap()
+        .targets[0]
+        .clone()
 }
 
 #[test]
@@ -343,7 +352,7 @@ fn permanent_target_kernel_one_effect_then_separate_frozen_controller_life_and_w
     let before = g.object_before(object(&g, 1)).unwrap();
     g.execute_effect_instruction(frame(&g), instruction(&g))
         .unwrap();
-    assert_eq!(g.state.rules.effects, [effect.clone()]);
+    assert_eq!(*g.state.rules.effects, [effect.clone()]);
     assert_eq!(frame(&g).cursor, 1);
     assert_eq!(g.state.rules.players[0].life, 40.into());
     assert_eq!(
@@ -533,7 +542,7 @@ fn permanent_target_kernel_all_targets_invalid_skips_life_tail() {
             }
         }
         let mut f = frame(&g);
-        f.legal_targets = g.announced_target_legality(&f.spell);
+        f.legal_targets = g.announced_target_legality(g.entry(f.stack_id).unwrap());
         assert_eq!(f.legal_targets, [false]);
         g.state.rules.frame = Frame::Resolve { frame: f };
         g.step().unwrap();
@@ -624,7 +633,7 @@ fn noncreature_damage(
             .unwrap();
     }
     let f = frame(&g);
-    let facts = g.source_facts(&f.spell).unwrap();
+    let facts = g.source_facts(g.entry(f.stack_id).unwrap()).unwrap();
     assert_eq!(facts.zone, Zone::Battlefield);
     assert_eq!(facts.characteristics.kind, CardKind::Enchantment);
     assert_eq!(facts.keywords, keywords);
@@ -816,8 +825,8 @@ fn permanent_target_kernel_normal_target_requests_and_validation_preserve_querie
             origin: AnnouncementOrigin::Spell,
             spending: None,
             spending_restricted: vec![],
-            stack_id: f.spell.id,
-            original_object: f.spell.source,
+            stack_id: g.entry(f.stack_id).unwrap().id,
+            original_object: g.entry(f.stack_id).unwrap().source,
             prior_passes: vec![],
             mana_activations: vec![],
             undo_mana: false,
@@ -861,14 +870,16 @@ fn permanent_target_kernel_optional_tail_and_history_shape_use_existing_expiry()
     let (mut g, effect, _) = kernel(PAIR, 2);
     edit_program(&mut g, |p| p.instructions.truncate(1));
     assert!(
-        temporary_permanent_keyword_program(g.program_for(&frame(&g).spell).unwrap())
-            .unwrap()
-            .controller_life
-            .is_none()
+        temporary_permanent_keyword_program(
+            g.program_for(g.entry(frame(&g).stack_id).unwrap()).unwrap()
+        )
+        .unwrap()
+        .controller_life
+        .is_none()
     );
     g.execute_effect_instruction(frame(&g), instruction(&g))
         .unwrap();
-    assert_eq!(g.state.rules.effects, [effect.clone()]);
+    assert_eq!(*g.state.rules.effects, [effect.clone()]);
     assert_eq!(frame(&g).cursor, 1);
     g.validate_effect_state().unwrap();
     for mutation in 0..7 {

@@ -1,8 +1,9 @@
-//! One exhaustive traversal of every invocation copy a `Frame` holds, and the
-//! lease that reconciles a rule step's private frame copy when it commits.
+//! One exhaustive traversal of every invocation a `Frame` refers to.
 //!
 //! CR 608.2h/113.7a: an ability keeps resolving with its source's last-known
-//! information. The live stack entry owns those facts; a frame holds copies.
+//! information. A frame names its invocations by `StackId` and holds progress
+//! only: the stack entry, or the detached table once the entry has left the
+//! stack, is the single owner of the invocation and of those facts.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 //!
 //! The traversal matches every `Frame`, continuation, completion, owner and
@@ -16,7 +17,12 @@
 //! `spell_cascade_grants.rs` and mana-frame unwrapping in `mana_permanents.rs`.
 use super::*;
 
-/// How a frame holds an invocation copy.
+mod decider;
+mod model;
+pub use decider::Decider;
+pub use model::*;
+
+/// How a frame holds an invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hold {
     /// The frame is resolving this invocation, possibly beneath state-based
@@ -27,25 +33,15 @@ pub enum Hold {
     Suspended,
 }
 
-/// One thing a frame holds: an invocation copy, or the prepared entries of a
-/// damage transaction, which keep source appearances.
-pub enum Held<Invocation, Damage> {
-    Invocation { hold: Hold, entry: Invocation },
+/// One thing a frame holds: an invocation it will resume, or the prepared
+/// entries of a damage transaction, which keep source appearances.
+pub enum Held<Damage> {
+    Invocation { hold: Hold, id: StackId },
     Damage(Damage),
 }
 
-pub(super) type HeldRef<'a> = Held<&'a StackInstance, &'a Vec<effects::PreparedDamage>>;
-pub(super) type HeldMut<'a> = Held<&'a mut StackInstance, &'a mut Vec<effects::PreparedDamage>>;
-
-/// A rule step's obligation to reconcile the frame it leaves behind. The step
-/// dispatches on a private copy; whatever it installs is stale wherever the
-/// step moved an invocation's source. `Game::commit_frame` discharges the
-/// lease, and a failed step discards its staged state instead. The type is
-/// neither `Clone` nor constructible elsewhere, but the compiler only warns
-/// when one is dropped, and direct writes to `rules.frame` remain possible:
-/// the guarantee is the commit in `Game::step`, not this token.
-#[must_use = "commit the lease so the installed frame carries its owners' last-known facts"]
-pub struct FrameLease(());
+pub(super) type HeldRef<'a> = Held<&'a Vec<effects::PreparedDamage>>;
+pub(super) type HeldMut<'a> = Held<&'a mut Vec<effects::PreparedDamage>>;
 
 // The shared and exclusive traversals are one body, so they cannot diverge.
 macro_rules! frame_walk {
@@ -58,7 +54,7 @@ macro_rules! frame_walk {
                 CastCompletion::Priority => {}
                 CastCompletion::HandTrigger { frame } => visit($Held::Invocation {
                     hold: Hold::Suspended,
-                    entry: & $($mutability)? frame.spell,
+                    id: frame.stack_id,
                 }),
                 CastCompletion::Resolution {
                     permission: _,
@@ -70,15 +66,15 @@ macro_rules! frame_walk {
                         receipt: _,
                     } => visit($Held::Invocation {
                         hold: Hold::Suspended,
-                        entry: & $($mutability)? progress.frame.spell,
+                        id: progress.frame.stack_id,
                     }),
                     CastOwner::Cascade(progress) => visit($Held::Invocation {
                         hold: Hold::Suspended,
-                        entry: & $($mutability)? progress.frame.spell,
+                        id: progress.frame.stack_id,
                     }),
                     CastOwner::RevealAndCast(progress) => visit($Held::Invocation {
                         hold: Hold::Suspended,
-                        entry: & $($mutability)? progress.frame.spell,
+                        id: progress.frame.stack_id,
                     }),
                 },
             }
@@ -103,7 +99,7 @@ macro_rules! frame_walk {
                 DamageContinuation::Combat => {}
                 DamageContinuation::Instruction { frame } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? frame.spell,
+                    id: frame.stack_id,
                 }),
                 DamageContinuation::Mana {
                     activation,
@@ -121,7 +117,7 @@ macro_rules! frame_walk {
                 Frame::GraveyardGroup { tx } => match & $($mutability)? tx.finish {
                     GroupFinish::Instruction { frame, result: _ } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? frame.spell,
+                        id: frame.stack_id,
                     }),
                     GroupFinish::Cleanup => {}
                     GroupFinish::Payment { resume } => $walk(resume, Hold::Suspended, visit),
@@ -133,11 +129,11 @@ macro_rules! frame_walk {
                 },
                 Frame::GraveyardReplacement { transaction } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? transaction.frame.spell,
+                    id: transaction.frame.stack_id,
                 }),
                 Frame::PlayHideawayLinked { progress } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? progress.frame.spell,
+                    id: progress.frame.stack_id,
                 }),
                 Frame::LandEntry {
                     origin,
@@ -151,14 +147,14 @@ macro_rules! frame_walk {
                         back_face: _,
                     } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? progress.frame.spell,
+                        id: progress.frame.stack_id,
                     }),
                     EntryOrigin::Copy {
                         frame,
                         selection: _,
                     } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? frame.spell,
+                        id: frame.stack_id,
                     }),
                     EntryOrigin::LandPlay {
                         player: _,
@@ -167,11 +163,11 @@ macro_rules! frame_walk {
                     } => {}
                     EntryOrigin::Search { frame } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? frame.spell,
+                        id: frame.stack_id,
                     }),
                     EntryOrigin::Cascade { progress } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? progress.frame.spell,
+                        id: progress.frame.stack_id,
                     }),
                 },
                 Frame::ManaSourceChoice {
@@ -182,15 +178,15 @@ macro_rules! frame_walk {
                 } => $walk(resume, Hold::Suspended, visit),
                 Frame::RevealAndCast { progress } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? progress.frame.spell,
+                    id: progress.frame.stack_id,
                 }),
                 Frame::HandCast { frame, child: _ } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? frame.spell,
+                    id: frame.stack_id,
                 }),
                 Frame::Cascade { progress } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? progress.frame.spell,
+                    id: progress.frame.stack_id,
                 }),
                 Frame::LegendRule {
                     resume,
@@ -216,15 +212,15 @@ macro_rules! frame_walk {
                     source_block: _,
                 } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? frame.spell,
+                    id: frame.stack_id,
                 }),
                 Frame::ResolutionPayment { frame, payment: _ } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? frame.spell,
+                    id: frame.stack_id,
                 }),
                 Frame::OptionalDamage { frame } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? frame.spell,
+                    id: frame.stack_id,
                 }),
                 Frame::ManaAbility { activation } => {
                     $walk(& $($mutability)? activation.resume, Hold::Suspended, visit)
@@ -236,7 +232,7 @@ macro_rules! frame_walk {
                 Frame::DamageEffects { transaction } => $walk_damage(transaction, hold, visit),
                 Frame::CounterPlacement { transaction } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? transaction.frame.spell,
+                    id: transaction.frame.stack_id,
                 }),
                 Frame::TriggerOrder { placement } => {
                     $walk(& $($mutability)? placement.resume, hold, visit)
@@ -247,7 +243,7 @@ macro_rules! frame_walk {
                 } => $walk(& $($mutability)? placement.resume, hold, visit),
                 Frame::ResolutionChoice { frame, choice: _ } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? frame.spell,
+                    id: frame.stack_id,
                 }),
                 Frame::CommanderReturn {
                     object: _,
@@ -257,7 +253,7 @@ macro_rules! frame_walk {
                     CommanderContinuation::CascadeBottom { progress } => {
                         visit($Held::Invocation {
                             hold,
-                            entry: & $($mutability)? progress.frame.spell,
+                            id: progress.frame.stack_id,
                         })
                     }
                     CommanderContinuation::GraveyardShuffle {
@@ -282,12 +278,12 @@ macro_rules! frame_walk {
                         source_block: _,
                     } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? frame.spell,
+                        id: frame.stack_id,
                     }),
                     CommanderContinuation::LookTopMana { frame, revealed: _ } => {
                         visit($Held::Invocation {
                             hold,
-                            entry: & $($mutability)? frame.spell,
+                            id: frame.stack_id,
                         })
                     }
                     CommanderContinuation::LibrarySelect {
@@ -298,14 +294,14 @@ macro_rules! frame_walk {
                         source_block: _,
                     } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? frame.spell,
+                        id: frame.stack_id,
                     }),
                     CommanderContinuation::SpellMove {
                         frame,
                         source_block: _,
                     } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? frame.spell,
+                        id: frame.stack_id,
                     }),
                     CommanderContinuation::ResolutionDraw {
                         frame,
@@ -313,7 +309,7 @@ macro_rules! frame_walk {
                         source_block: _,
                     } => visit($Held::Invocation {
                         hold,
-                        entry: & $($mutability)? frame.spell,
+                        id: frame.stack_id,
                     }),
                     CommanderContinuation::Draw { player: _ } => {}
                     CommanderContinuation::StateBased { resume } => $walk(resume, hold, visit),
@@ -330,7 +326,7 @@ macro_rules! frame_walk {
                 } => $walk(resume, hold, visit),
                 Frame::Resolve { frame } => visit($Held::Invocation {
                     hold,
-                    entry: & $($mutability)? frame.spell,
+                    id: frame.stack_id,
                 }),
                 // No invocation, damage transaction or resumed frame.
                 Frame::Setup
@@ -358,7 +354,7 @@ frame_walk!(walk, walk_cast, walk_damage, HeldRef);
 frame_walk!(walk_mut, walk_cast_mut, walk_damage_mut, HeldMut, mut);
 
 impl Frame {
-    /// Visits every invocation copy and damage transaction this frame holds,
+    /// Visits every invocation and damage transaction this frame holds,
     /// outermost first, through every resumed and suspended frame.
     pub fn for_each_held<'a>(&'a self, visit: &mut dyn FnMut(HeldRef<'a>)) {
         walk(self, Hold::Resolving, visit)
@@ -370,74 +366,176 @@ impl Frame {
 
     /// The invocation this frame is resolving. An owner suspended beneath its
     /// child announcement or a mana ability is not resolving.
-    pub fn resolving_invocation(&self) -> Option<&StackInstance> {
+    pub fn resolving_invocation(&self) -> Option<StackId> {
         let mut resolving = None;
         self.for_each_held(&mut |held| {
             if let Held::Invocation {
                 hold: Hold::Resolving,
-                entry,
+                id,
             } = held
             {
-                resolving.get_or_insert(entry);
+                resolving.get_or_insert(id);
             }
         });
         resolving
     }
-}
 
-/// Carries the two fields a source departure rewrites from the live owner.
-pub(super) fn carry_last_known(copy: &mut StackInstance, owner: &StackInstance) {
-    if copy.source_facts != owner.source_facts {
-        copy.source_facts.clone_from(&owner.source_facts);
+    /// The announcement this frame is in the middle of, if it is a casting or
+    /// activation stage. Every variant is named.
+    pub fn announcement(&self) -> Option<&Casting> {
+        match self {
+            Frame::AdditionalCosts { cast }
+            | Frame::AnnounceX { cast }
+            | Frame::HybridCost { cast }
+            | Frame::SacrificeCost { cast }
+            | Frame::Modes { cast }
+            | Frame::EntityTargets { cast }
+            | Frame::StackTargets { cast }
+            | Frame::PlayerTargets { cast }
+            | Frame::SpendMana { cast }
+            | Frame::Targets { cast }
+            | Frame::Mana { cast }
+            | Frame::Payment { cast } => Some(cast),
+            Frame::GraveyardGroup { tx: _ }
+            | Frame::GraveyardReplacement { transaction: _ }
+            | Frame::PlayHideawayLinked { progress: _ }
+            | Frame::LandEntry {
+                origin: _,
+                objects: _,
+                choices: _,
+            }
+            | Frame::ManaSourceChoice {
+                player: _,
+                source: _,
+                scope: _,
+                resume: _,
+            }
+            | Frame::RevealAndCast { progress: _ }
+            | Frame::HandCast { frame: _, child: _ }
+            | Frame::Cascade { progress: _ }
+            | Frame::LegendRule {
+                resume: _,
+                groups: _,
+                kept: _,
+            }
+            | Frame::ForcedSacrifice {
+                frame: _,
+                remaining: _,
+                choices: _,
+                source_block: _,
+            }
+            | Frame::ResolutionPayment {
+                frame: _,
+                payment: _,
+            }
+            | Frame::OptionalDamage { frame: _ }
+            | Frame::ManaAbility { activation: _ }
+            | Frame::Setup
+            | Frame::DamageAllocation {
+                transaction: _,
+                effect: _,
+            }
+            | Frame::CounterPlacement { transaction: _ }
+            | Frame::DamageEffects { transaction: _ }
+            | Frame::TriggerOrder { placement: _ }
+            | Frame::TriggerTargets {
+                placement: _,
+                stack_id: _,
+            }
+            | Frame::ResolutionChoice {
+                frame: _,
+                choice: _,
+            }
+            | Frame::CommanderReturn {
+                object: _,
+                destination: _,
+                continuation: _,
+            }
+            | Frame::Attackers
+            | Frame::Blockers { remaining: _ }
+            | Frame::Damage
+            | Frame::DamageChoice { source: _ }
+            | Frame::Discard {
+                player: _,
+                count: _,
+            }
+            | Frame::CleanupClear
+            | Frame::Stabilize {
+                resume: _,
+                cleanup: _,
+                changed: _,
+            }
+            | Frame::Draw
+            | Frame::Priority
+            | Frame::Transition
+            | Frame::EnterStep
+            | Frame::Resolve { frame: _ }
+            | Frame::Fault { reason: _ }
+            | Frame::Finished { winner: _ } => None,
+        }
     }
-    if let (
-        StackKind::Triggered { witness, .. },
-        StackKind::Triggered {
-            witness: current, ..
-        },
-    ) = (&mut copy.kind, &owner.kind)
-        && witness != current
-    {
-        witness.clone_from(current);
-    }
-}
 
-/// True when `issued` is `owner` as it was when a permission was issued:
-/// equal except for the source facts the owner has retained since.
-pub(super) fn issued_by(issued: &StackInstance, owner: &StackInstance) -> bool {
-    if issued == owner {
-        return true;
+    /// Whether this frame will resume the invocation `id`.
+    pub fn holds(&self, id: StackId) -> bool {
+        let mut found = false;
+        self.for_each_held(&mut |held| {
+            found |= matches!(held, Held::Invocation { hold: _, id: held } if held == id);
+        });
+        found
     }
-    let mut then = issued.clone();
-    then.source_facts.clone_from(&owner.source_facts);
-    then == *owner
 }
 
 impl Game {
-    /// Leases the suspended frame to one rule step.
-    pub(crate) fn lease_frame(&self) -> (Frame, FrameLease) {
-        (self.state.rules.frame.clone(), FrameLease(()))
+    /// The single owner of an invocation: its live stack entry, or the
+    /// detached entry a frame is still resolving after it left the stack.
+    pub(crate) fn entry(&self, id: StackId) -> Result<&StackInstance, RuleError> {
+        let rules = &self.state.rules;
+        rules
+            .stack
+            .iter()
+            .rev()
+            .find(|entry| entry.id == id)
+            .or_else(|| rules.detached.get(&id))
+            .ok_or_else(|| "missing invocation owner".into())
     }
 
-    /// Discharges a step's lease on the frame it installed.
-    pub(crate) fn commit_frame(&mut self, lease: FrameLease) {
-        let FrameLease(()) = lease;
-        self.reconcile_frame();
+    /// The batch cause of the instruction a frame is executing.
+    pub(crate) fn instruction_cause(
+        &self,
+        frame: &Resolving,
+        source_block: u32,
+    ) -> Result<BatchCause, RuleError> {
+        let entry = self.entry(frame.stack_id)?;
+        Ok(BatchCause::Instruction {
+            stack_id: frame.stack_id,
+            player: entry.controller,
+            source: entry.source,
+            cursor: frame.cursor,
+            source_block,
+        })
     }
 
-    /// Reconciles the suspended frame with the live stack entries that own
-    /// its invocations, so no stale copy outlives a rule step.
-    pub(super) fn reconcile_frame(&mut self) {
-        let rules = &mut self.state.rules;
-        let stack = &rules.stack;
-        rules.frame.for_each_held_mut(&mut |held| match held {
-            HeldMut::Invocation { hold: _, entry } => {
-                if let Some(owner) = stack.iter().find(|owner| owner.id == entry.id) {
-                    carry_last_known(entry, owner);
-                }
-            }
-            // Source appearances have no second owner; departures write them.
-            HeldMut::Damage(_) => {}
-        });
+    /// Removes the stack entry at `index`. The entry stays owned by the
+    /// detached table until the rule step commits; `release_detached` then
+    /// keeps it only while the installed frame still resumes it (CR 608.2m).
+    pub(crate) fn unstack(&mut self, index: usize) -> Result<StackId, RuleError> {
+        let rules = self.rules_mut();
+        if index >= rules.stack.len() {
+            return Err("missing stack entry".into());
+        }
+        let entry = rules.stack.remove(index);
+        let id = entry.id;
+        rules.detached.insert(id, entry);
+        Ok(id)
+    }
+
+    /// Drops every detached invocation the installed frame no longer resumes.
+    pub(crate) fn release_detached(&mut self) {
+        let rules = self.rules_mut();
+        if rules.detached.is_empty() {
+            return;
+        }
+        let frame = &rules.frame;
+        rules.detached.retain(|id, _| frame.holds(*id));
     }
 }

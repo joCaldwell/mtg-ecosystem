@@ -755,7 +755,7 @@ impl Game {
                 Ok(())
             }
             Err(reason) => {
-                self.state.rules.typed_fault = staged.state.rules.typed_fault;
+                self.rules_mut().typed_fault = staged.state.rules.typed_fault.clone();
                 Err(reason)
             }
         }
@@ -773,8 +773,7 @@ impl Game {
             // independently of costs and the card's later zone.
             let mana_value = self.stack_mana_value(self.top()?)?;
             let row = self
-                .state
-                .rules
+                .rules_mut()
                 .cast_history
                 .get_mut(cast.caster.0 as usize)
                 .ok_or("invalid cast history seat")?;
@@ -1126,29 +1125,24 @@ impl Game {
         }
         if let TriggerEventWitness::SpellCast { cast } = &witness {
             for registration in &self.state.rules.delayed_chapters {
-                let issuer = &registration.issuer;
-                if issuer.controller != cast.caster
+                if registration.controller != cast.caster
                     || registration.turn != cast.history.turn_number
-                    || !self.is_live(issuer.controller)
+                    || !self.is_live(registration.controller)
                 {
                     continue;
                 }
-                let chapter = registration.chapter()?;
-                if self.delayed_chapter(issuer.source, chapter)?.0
+                let chapter = registration.chapter;
+                if self.delayed_chapter(registration.source, chapter)?.0
                     != TriggerCondition::DelayedControllerSpellCast
                 {
                     continue;
                 }
-                let facts = issuer
-                    .source_facts
-                    .clone()
-                    .ok_or("missing delayed source facts")?;
                 matched.push((
                     None,
-                    facts,
+                    registration.source_facts.clone(),
                     EffectiveTriggerAbility::DelayedChapter {
                         chapter,
-                        issuer: issuer.id,
+                        issuer: registration.issuer,
                     },
                     None,
                     TriggerEventWitness::DelayedSpellCast {
@@ -1165,27 +1159,20 @@ impl Game {
         {
             let entrant = self.object_before(entrant)?;
             for registration in &self.state.rules.delayed_chapters {
-                let issuer = &registration.issuer;
-                if issuer.controller != entrant.controller
-                    || !self.is_live(issuer.controller)
-                    || self
-                        .delayed_chapter(issuer.source, registration.chapter()?)?
-                        .0
+                let chapter = registration.chapter;
+                if registration.controller != entrant.controller
+                    || !self.is_live(registration.controller)
+                    || self.delayed_chapter(registration.source, chapter)?.0
                         != TriggerCondition::DelayedControllerCreatureEntry
                 {
                     continue;
                 }
-                let facts = issuer
-                    .source_facts
-                    .clone()
-                    .ok_or("missing delayed source facts")?;
-                let chapter = registration.chapter()?;
                 matched.push((
                     None,
-                    facts,
+                    registration.source_facts.clone(),
                     EffectiveTriggerAbility::DelayedChapter {
                         chapter,
-                        issuer: issuer.id,
+                        issuer: registration.issuer,
                     },
                     None,
                     TriggerEventWitness::DelayedCreatureEntered {
@@ -1227,7 +1214,7 @@ impl Game {
             }
             self.check_stack_capacity(1)?;
             let id = TriggerId(self.state.rules.next_trigger_id);
-            self.state.rules.next_trigger_id = self
+            self.rules_mut().next_trigger_id = self
                 .state
                 .rules
                 .next_trigger_id
@@ -1237,7 +1224,7 @@ impl Game {
             let controller = match &witness {
                 TriggerEventWitness::DelayedCreatureEntered { registration, .. }
                 | TriggerEventWitness::DelayedSpellCast { registration, .. } => {
-                    registration.issuer.controller
+                    registration.controller
                 }
                 _ => source_facts.controller,
             };
@@ -1257,7 +1244,7 @@ impl Game {
                 Some(MatchedCascadeGrant::Temporary(grant)) => Some(grant),
                 None => None,
             };
-            self.state.rules.pending_triggers.push(PendingTrigger {
+            self.rules_mut().pending_triggers.push(PendingTrigger {
                 death_controller,
                 match_condition,
                 id,
@@ -1336,14 +1323,13 @@ impl Game {
             return Ok(false);
         }
         let live = self.live_players();
-        self.state
-            .rules
+        self.rules_mut()
             .pending_triggers
             .retain(|t| live.contains(&t.controller));
         if self.state.rules.pending_triggers.is_empty() {
             return Ok(false);
         }
-        self.state.rules.frame = Frame::TriggerOrder {
+        self.rules_mut().frame = Frame::TriggerOrder {
             placement: TriggerPlacement {
                 resume: Box::new(resume),
                 cleanup,
@@ -1425,7 +1411,7 @@ impl Game {
         })())
     }
     fn finish_trigger_placement(&mut self, placement: TriggerPlacement) -> Result<(), String> {
-        self.state.rules.frame = Frame::Stabilize {
+        self.rules_mut().frame = Frame::Stabilize {
             resume: placement.resume,
             cleanup: placement.cleanup,
             changed: placement.changed,
@@ -1436,8 +1422,8 @@ impl Game {
     // triggers in their chosen bottom-to-top order, active player first.
     // Targets are chosen as each invocation is placed, with no priority or
     // mana window between placements. Then check SBAs/pending triggers again.
-    pub(super) fn trigger_step(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+    pub(super) fn trigger_step(&mut self, frame: Frame) -> Result<(), String> {
+        match frame {
             Frame::TriggerOrder { mut placement } => {
                 if !placement.order.is_empty() {
                     let id = placement.order.remove(0);
@@ -1448,7 +1434,7 @@ impl Game {
                         .iter()
                         .position(|t| t.id == id)
                         .ok_or("missing ordered trigger")?;
-                    let trigger = self.state.rules.pending_triggers.remove(index);
+                    let trigger = self.rules_mut().pending_triggers.remove(index);
                     self.validate_match_condition(
                         trigger.source,
                         trigger.ability,
@@ -1457,11 +1443,11 @@ impl Game {
                         &trigger.witness,
                     )?;
                     if !self.is_live(trigger.controller) {
-                        self.state.rules.frame = Frame::TriggerOrder { placement };
+                        self.rules_mut().frame = Frame::TriggerOrder { placement };
                         return Ok(());
                     }
                     let stack_id = StackId(self.state.rules.next_stack_id);
-                    self.state.rules.next_stack_id = self
+                    self.rules_mut().next_stack_id = self
                         .state
                         .rules
                         .next_stack_id
@@ -1476,7 +1462,7 @@ impl Game {
                         generic: Quantity::zero(),
                         colored: vec![],
                     };
-                    self.state.rules.stack.push(StackInstance {
+                    self.rules_mut().stack.push(StackInstance {
                         hybrid_colors: vec![],
                         cost_lock: None,
                         selected_additional_costs: None,
@@ -1514,9 +1500,9 @@ impl Game {
                         cast_from: trigger.source_facts.zone,
                     });
                     placement.changed |= placement.cleanup;
-                    self.state.rules.passes.clear();
+                    self.rules_mut().passes.clear();
                     if targeted {
-                        self.state.rules.frame = Frame::TriggerTargets {
+                        self.rules_mut().frame = Frame::TriggerTargets {
                             placement,
                             stack_id,
                         };
@@ -1526,12 +1512,11 @@ impl Game {
                             stack_id,
                             player: trigger.controller,
                         })?;
-                        self.state.rules.frame = Frame::TriggerOrder { placement };
+                        self.rules_mut().frame = Frame::TriggerOrder { placement };
                     }
                 } else if self.trigger_request()?.is_some() {
                     let input = self
-                        .state
-                        .rules
+                        .rules_mut()
                         .pending
                         .take()
                         .ok_or("missing trigger ordering input")?;
@@ -1545,7 +1530,7 @@ impl Game {
                         order: order.clone(),
                     })?;
                     placement.order = order;
-                    self.state.rules.frame = Frame::TriggerOrder { placement };
+                    self.rules_mut().frame = Frame::TriggerOrder { placement };
                 } else if placement.remaining.is_empty() {
                     self.finish_trigger_placement(placement)?;
                 } else {
@@ -1555,7 +1540,7 @@ impl Game {
                     } else {
                         placement.order = candidates;
                     }
-                    self.state.rules.frame = Frame::TriggerOrder { placement };
+                    self.rules_mut().frame = Frame::TriggerOrder { placement };
                 }
             }
             Frame::TriggerTargets {
@@ -1563,10 +1548,9 @@ impl Game {
                 stack_id,
             } => {
                 if !self.top_has_target_domain()? {
-                    self.state.rules.pending = None;
+                    self.rules_mut().pending = None;
                     let top = self
-                        .state
-                        .rules
+                        .rules_mut()
                         .stack
                         .pop()
                         .ok_or("missing impossible targeted trigger")?;
@@ -1578,7 +1562,7 @@ impl Game {
                         stack_id,
                         reason: TriggerPlacementFailure::NoLegalTargets,
                     })?;
-                    self.state.rules.frame = Frame::TriggerOrder { placement };
+                    self.rules_mut().frame = Frame::TriggerOrder { placement };
                     return Ok(());
                 }
                 if self.program()?.targets.first().is_some_and(|t| {
@@ -1602,8 +1586,7 @@ impl Game {
                     return self.bind_trigger_entity_targets(placement, stack_id);
                 }
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing trigger target input")?;
@@ -1618,8 +1601,7 @@ impl Game {
                 )
                 .ok_or("missing trigger target validation")??;
                 let top = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .stack
                     .last_mut()
                     .ok_or("missing targeted trigger")?;
@@ -1637,7 +1619,7 @@ impl Game {
                     stack_id,
                     player: controller,
                 })?;
-                self.state.rules.frame = Frame::TriggerOrder { placement };
+                self.rules_mut().frame = Frame::TriggerOrder { placement };
             }
             _ => return Err("trigger placement frame invariant".into()),
         }
@@ -1645,8 +1627,7 @@ impl Game {
     }
     pub(super) fn revalidate_trigger_departure(&mut self) -> Result<(), String> {
         let live = self.live_players();
-        self.state
-            .rules
+        self.rules_mut()
             .pending_triggers
             .retain(|t| live.contains(&t.controller));
         let revalidate = |mut placement: TriggerPlacement, game: &Game| {
@@ -1660,10 +1641,10 @@ impl Game {
             });
             placement
         };
-        match self.state.rules.frame.clone() {
+        match &self.state.rules.frame {
             Frame::TriggerOrder { placement } => {
-                self.state.rules.frame = Frame::TriggerOrder {
-                    placement: revalidate(placement, self),
+                self.rules_mut().frame = Frame::TriggerOrder {
+                    placement: revalidate(placement.clone(), self),
                 };
                 if self
                     .state
@@ -1672,19 +1653,20 @@ impl Game {
                     .as_ref()
                     .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
                 {
-                    self.state.rules.pending = None;
+                    self.rules_mut().pending = None;
                 }
             }
             Frame::TriggerTargets {
                 placement,
                 stack_id,
             } => {
-                let placement = revalidate(placement, self);
+                let stack_id = *stack_id;
+                let placement = revalidate(placement.clone(), self);
                 if !self.state.rules.stack.iter().any(|s| s.id == stack_id) {
-                    self.state.rules.pending = None;
-                    self.state.rules.frame = Frame::TriggerOrder { placement };
+                    self.rules_mut().pending = None;
+                    self.rules_mut().frame = Frame::TriggerOrder { placement };
                 } else {
-                    self.state.rules.frame = Frame::TriggerTargets {
+                    self.rules_mut().frame = Frame::TriggerTargets {
                         placement,
                         stack_id,
                     };
@@ -1695,7 +1677,7 @@ impl Game {
                         .as_ref()
                         .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
                     {
-                        self.state.rules.pending = None;
+                        self.rules_mut().pending = None;
                     }
                 }
             }
@@ -1885,19 +1867,18 @@ impl Game {
 
             TriggerEventWitness::DelayedSpellCast { registration, cast } => {
                 self.validate_delayed_registration(registration)?;
-                let issuer = &registration.issuer;
                 *condition == TriggerCondition::DelayedControllerSpellCast
                     && matches!(ability, EffectiveTriggerAbility::DelayedChapter {chapter, issuer:id}
-                        if id == issuer.id && chapter == registration.chapter()?)
+                        if id == registration.issuer && chapter == registration.chapter)
                     // The registration retains its original facts. The invocation's
                     // same-incarnation LKI can refresh on departure (CR 113.7a).
-                    && facts.object == issuer.source
-                    && registration.source_handles()? == handles
-                    && source == issuer.source
-                    && controller == issuer.controller
+                    && facts.object == registration.source
+                    && registration.source_handles == handles
+                    && source == registration.source
+                    && controller == registration.controller
                     && cast.caster == controller
                     && cast.history.turn_number == registration.turn
-                    && issuer.id < cast.stack_id
+                    && registration.issuer < cast.stack_id
                     && self.valid_cast_facts(cast)?
                     && death_controller.is_none()
             }
@@ -1907,18 +1888,17 @@ impl Game {
                 entrant,
             } => {
                 self.validate_delayed_registration(registration)?;
-                let issuer = &registration.issuer;
                 self.validate_characteristic_identity(
                     entrant.object,
                     entrant.zone,
                     &entrant.characteristics,
                 )?;
                 *condition == TriggerCondition::DelayedControllerCreatureEntry
-                    && matches!(ability,EffectiveTriggerAbility::DelayedChapter {chapter,issuer:id} if id==issuer.id && chapter==registration.chapter()?)
-                    && issuer.source_facts.as_ref() == Some(facts)
-                    && registration.source_handles()? == handles
-                    && source == issuer.source
-                    && controller == issuer.controller
+                    && matches!(ability,EffectiveTriggerAbility::DelayedChapter {chapter,issuer:id} if id==registration.issuer && chapter==registration.chapter)
+                    && registration.source_facts == *facts
+                    && registration.source_handles == handles
+                    && source == registration.source
+                    && controller == registration.controller
                     && self.valid_entry_subject(entrant, movement.as_ref())?
                     && entrant.controller == controller
                     && entrant.zone == Zone::Battlefield
@@ -2251,9 +2231,7 @@ impl Game {
             (
                 TriggerOccurrenceId::Batch(id),
                 TriggerEventWitness::DelayedCreatureEntered { registration, .. },
-            ) => {
-                matches!(&registration.issuer.kind, StackKind::Triggered {event:TriggerOccurrenceId::Batch(origin),..} if origin.batch < id.batch && id.batch < self.state.rules.next_batch_id)
-            }
+            ) => registration.origin.batch < id.batch && id.batch < self.state.rules.next_batch_id,
             (TriggerOccurrenceId::Batch(id), w) => {
                 !matches!(
                     w,
@@ -2437,8 +2415,7 @@ impl Game {
         stack_id: StackId,
     ) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing trigger entity targets")?;
@@ -2460,8 +2437,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let top = self
-            .state
-            .rules
+            .rules_mut()
             .stack
             .last_mut()
             .ok_or("missing triggered invocation")?;
@@ -2480,7 +2456,7 @@ impl Game {
             stack_id,
             player,
         })?;
-        self.state.rules.frame = Frame::TriggerOrder { placement };
+        self.rules_mut().frame = Frame::TriggerOrder { placement };
         Ok(())
     }
     pub(super) fn bind_trigger_object_targets(
@@ -2489,8 +2465,7 @@ impl Game {
         stack_id: StackId,
     ) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing creature-trigger targets")?;
@@ -2507,8 +2482,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let top = self
-            .state
-            .rules
+            .rules_mut()
             .stack
             .last_mut()
             .ok_or("missing targeted creature trigger")?;
@@ -2527,7 +2501,7 @@ impl Game {
             stack_id,
             player,
         })?;
-        self.state.rules.frame = Frame::TriggerOrder { placement };
+        self.rules_mut().frame = Frame::TriggerOrder { placement };
         Ok(())
     }
 }

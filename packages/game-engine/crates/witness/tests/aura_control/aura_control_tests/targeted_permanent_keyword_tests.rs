@@ -959,16 +959,10 @@ fn targeted_permanent_keyword_authenticated_restore_rejects_normalized_grant_and
                 5 => e.origin.source_block = 1,
                 6 => e.origin.source = recipient,
                 7 => {
-                    let Frame::Resolve { frame } = &mut bad.state.rules.frame else {
-                        unreachable!()
-                    };
-                    frame.spell.controller = PlayerId(1);
+                    bad.state.rules.stack.last_mut().unwrap().controller = PlayerId(1);
                 }
                 8 => {
-                    let Frame::Resolve { frame } = &mut bad.state.rules.frame else {
-                        unreachable!()
-                    };
-                    frame.spell.source = object(g, 2);
+                    bad.state.rules.stack.last_mut().unwrap().source = object(g, 2);
                 }
                 _ => bad.state.rules.players[0].life.add(&2.into()),
             }

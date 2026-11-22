@@ -398,7 +398,7 @@ fn run(case: ResponseCase, quantum: u64, mode: TraceMode) -> Game {
     resolve_start(&mut g);
     let legal = !matches!(case, ResponseCase::UntapTarget);
     assert!(
-        matches!(&g.state.rules.frame,Frame::Resolve { frame } if frame.spell.id==ability && frame.legal_targets==[legal])
+        matches!(&g.state.rules.frame,Frame::Resolve { frame } if frame.stack_id==ability && frame.legal_targets==[legal])
     );
     recover(&g);
     finish_to(&mut g, quantum, 0);

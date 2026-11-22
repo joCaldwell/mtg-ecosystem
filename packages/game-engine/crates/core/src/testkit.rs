@@ -5,12 +5,12 @@
 //! `use super::*`, so scenario and witness binaries build outside `--lib`.
 pub use crate::engine::*;
 // Engine modules shadow same-named contracts modules, as inside the engine.
-use crate::engine::{
-    frame::FrameLease, keywords::KeywordSource, object_facts::DerivedObject,
-    payments::AnnouncementPayment, phasing::PhaseSelection, stored_history::StoredPermittedView,
-};
 pub use crate::engine::{
     impulse_play, mana_tap_observer, optional_block, proliferate, resolution_mana, target_color,
+};
+use crate::engine::{
+    keywords::KeywordSource, object_facts::DerivedObject, payments::AnnouncementPayment,
+    phasing::PhaseSelection, stored_history::StoredPermittedView,
 };
 pub use crate::{build_id, formats, query};
 pub use mtg_contracts::kir::{Amount, Context, EventPlayerRole, PlayerExpr, Ref, SetExpr, Verb};
@@ -189,7 +189,6 @@ pub trait GameTestkit {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String>;
-    fn commit_frame(&mut self, lease: FrameLease);
     fn complete_test_mana(&mut self);
     fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String>;
     fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId>;
@@ -301,7 +300,6 @@ pub trait GameTestkit {
     ) -> Result<Vec<KnownLibraryPosition>, String>;
     fn land_entry_charge(&self) -> usize;
     fn land_entry_step(&mut self) -> Result<(), String>;
-    fn lease_frame(&self) -> (Frame, FrameLease);
     fn lethal_requirement(&self, source: ObjectId, blocker: ObjectId) -> Result<Quantity, String>;
     fn library_prefix(&self, player: PlayerId, amount: &Quantity) -> Result<Vec<ObjectId>, String>;
     fn linked_hideaway_cards(&self, source: ObjectId, source_block: u32) -> Vec<ObjectId>;
@@ -581,7 +579,11 @@ pub trait GameTestkit {
     ) -> Result<VisiblePendingTrigger, String>;
     fn visible_player(&self, player: PlayerId) -> Result<VisiblePlayer, String>;
     fn visible_stack(&self, viewer: PlayerId, index: usize) -> Result<VisibleStackEntry, String>;
-    fn wipe_cause(frame: &Resolving, source_block: u32) -> BatchCause;
+    fn instruction_cause(&self, frame: &Resolving, source_block: u32)
+    -> Result<BatchCause, String>;
+    fn entry(&self, id: StackId) -> Result<&StackInstance, String>;
+    fn unstack(&mut self, index: usize) -> Result<StackId, String>;
+    fn release_detached(&mut self);
 }
 impl GameTestkit for Game {
     fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
@@ -689,7 +691,7 @@ impl GameTestkit for Game {
         Game::casting_cost(self, card, caster, from)
     }
     fn check_history_capacity(&mut self) -> Result<(), String> {
-        Game::check_history_capacity(self)
+        Ok(Game::check_history_capacity(self)?)
     }
     fn check_resolution_condition(
         &mut self,
@@ -718,7 +720,8 @@ impl GameTestkit for Game {
         Game::color_layer(self, object)
     }
     fn combat_step(&mut self) -> Result<(), String> {
-        Game::combat_step(self)
+        let frame = Game::working_frame(self);
+        Game::combat_step(self, frame)
     }
     fn commit(
         &mut self,
@@ -733,9 +736,6 @@ impl GameTestkit for Game {
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
         Game::commit_batch(self, cause, group)
-    }
-    fn commit_frame(&mut self, lease: FrameLease) {
-        Game::commit_frame(self, lease)
     }
     fn complete_test_mana(&mut self) {
         Game::complete_test_mana(self)
@@ -775,7 +775,7 @@ impl GameTestkit for Game {
         Game::creatures(self, player, attacking)
     }
     fn current(&self, id: ObjectId) -> Result<&Object, String> {
-        Game::current(self, id)
+        Ok(Game::current(self, id)?)
     }
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
         Game::current_keywords(self, object)
@@ -808,7 +808,7 @@ impl GameTestkit for Game {
         Game::damage_transaction(self)
     }
     fn definition(&self, card: CardId) -> Result<&Definition, String> {
-        Game::definition(self, card)
+        Ok(Game::definition(self, card)?)
     }
     fn derived_characteristics(&self, object: ObjectId) -> Result<Characteristics, String> {
         Game::derived_characteristics(self, object)
@@ -972,9 +972,6 @@ impl GameTestkit for Game {
     fn land_entry_step(&mut self) -> Result<(), String> {
         Game::land_entry_step(self)
     }
-    fn lease_frame(&self) -> (Frame, FrameLease) {
-        Game::lease_frame(self)
-    }
     fn lethal_requirement(&self, source: ObjectId, blocker: ObjectId) -> Result<Quantity, String> {
         Game::lethal_requirement(self, source, blocker)
     }
@@ -1124,10 +1121,10 @@ impl GameTestkit for Game {
         Game::prepare_noncombat_damage(self, frame, damage, block)
     }
     fn program(&self) -> Result<&SpellProgram, String> {
-        Game::program(self)
+        Ok(Game::program(self)?)
     }
     fn program_for<'a>(&'a self, stack: &'a StackInstance) -> Result<&'a SpellProgram, String> {
-        Game::program_for(self, stack)
+        Ok(Game::program_for(self, stack)?)
     }
     fn protected_from(&self, target: ObjectId, source: &Characteristics) -> bool {
         Game::protected_from(self, target, source)
@@ -1268,7 +1265,7 @@ impl GameTestkit for Game {
         Game::stabilization_wave_with_legends(self, resume, cleanup, changed, kept)
     }
     fn stabilize(&mut self) -> Result<(), String> {
-        Game::stabilize(self)
+        Ok(Game::stabilize(self)?)
     }
     fn stack_handle_for(&self, viewer: PlayerId, id: StackId) -> Result<StackHandle, String> {
         Game::stack_handle_for(self, viewer, id)
@@ -1289,7 +1286,7 @@ impl GameTestkit for Game {
         Game::static_modifications(self, target)
     }
     fn step(&mut self) -> Result<(), String> {
-        Game::step(self)
+        Ok(Game::step(self)?)
     }
     fn target_is_creature(&self, object: ObjectId) -> bool {
         Game::target_is_creature(self, object)
@@ -1313,7 +1310,7 @@ impl GameTestkit for Game {
         Game::token_capacity(self)
     }
     fn top(&self) -> Result<&StackInstance, String> {
-        Game::top(self)
+        Ok(Game::top(self)?)
     }
     fn transition_turn_step(&mut self) -> Result<(), String> {
         Game::transition_turn_step(self)
@@ -1444,7 +1441,7 @@ impl GameTestkit for Game {
         Game::validate_response(self, player, response)
     }
     fn validate_state(&self) -> Result<(), String> {
-        Game::validate_state(self)
+        Ok(Game::validate_state(self)?)
     }
     fn validate_tap_life_sacrifice_source(
         &self,
@@ -1503,8 +1500,21 @@ impl GameTestkit for Game {
     fn visible_stack(&self, viewer: PlayerId, index: usize) -> Result<VisibleStackEntry, String> {
         Game::visible_stack(self, viewer, index)
     }
-    fn wipe_cause(frame: &Resolving, source_block: u32) -> BatchCause {
-        Game::wipe_cause(frame, source_block)
+    fn instruction_cause(
+        &self,
+        frame: &Resolving,
+        source_block: u32,
+    ) -> Result<BatchCause, String> {
+        Ok(Game::instruction_cause(self, frame, source_block)?)
+    }
+    fn entry(&self, id: StackId) -> Result<&StackInstance, String> {
+        Ok(Game::entry(self, id)?)
+    }
+    fn unstack(&mut self, index: usize) -> Result<StackId, String> {
+        Ok(Game::unstack(self, index)?)
+    }
+    fn release_detached(&mut self) {
+        Game::release_detached(self)
     }
 }
 

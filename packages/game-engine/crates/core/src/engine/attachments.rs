@@ -461,8 +461,7 @@ impl Game {
         }
         for card in detached {
             let o = self
-                .state
-                .rules
+                .rules_mut()
                 .objects
                 .get_mut(&card)
                 .ok_or("missing bestowed permanent")?;
@@ -533,18 +532,18 @@ impl Game {
             _ => return Err("not an attachment instruction".into()),
         };
         let cause = BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
+            stack_id: frame.stack_id,
+            player: self.entry(frame.stack_id)?.controller,
+            source: self.entry(frame.stack_id)?.source,
             cursor: frame.cursor,
             source_block: block,
         };
         match instruction {
             Instruction::AttachEquipment { target_slot, .. } => {
-                let object = frame.spell.source;
-                let target = frame.spell.targets[target_slot as usize];
+                let object = self.entry(frame.stack_id)?.source;
+                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) == Some(&true)
-                    && self.object_target_legal(&frame.spell, target)
+                    && self.object_target_legal(self.entry(frame.stack_id)?, target)
                     && self
                         .current(object)
                         .is_ok_and(|o| o.present_on_battlefield() && o.attached_to != Some(target))
@@ -561,7 +560,7 @@ impl Game {
             Instruction::ReturnAuraFromGraveyard { .. } => {
                 // CR 400.7d: the trigger finds the new graveyard incarnation,
                 // but cannot find a later incarnation after another zone move.
-                let source = frame.spell.source;
+                let source = self.entry(frame.stack_id)?.source;
                 let incarnation = source
                     .incarnation
                     .checked_add(1)

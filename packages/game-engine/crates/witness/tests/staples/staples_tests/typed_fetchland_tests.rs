@@ -276,7 +276,11 @@ fn typed_fetchland_paid_public_zero_find_and_typed_nonbasic_entry_recover() {
             let _ = g.advance(Budget::new(1));
             if target.is_some() {
                 assert_eq!(
-                    spell_cascade_grants::retained_resolving_entry(&g.state.rules.frame),
+                    g.state
+                        .rules
+                        .frame
+                        .resolving_invocation()
+                        .map(|id| g.entry(id).unwrap()),
                     Some(&invocation),
                     "plain entry retains the activation through its shuffle continuation"
                 );
@@ -347,7 +351,7 @@ fn typed_fetchland_shock_entry_retains_sacrificed_activation_root() {
         else {
             panic!();
         };
-        assert_eq!(frame.spell, invocation);
+        assert_eq!(*g.entry(frame.stack_id).unwrap(), invocation);
         assert!(g.current(source).is_err());
         check(&g);
         public(&mut g, PlayerResponse::OptionalEffect { perform: pay });
@@ -675,7 +679,11 @@ fn typed_fetchland_paid_root_survives_owner_departure_and_controller_departure_s
             ));
             assert!(!g.state.rules.objects.contains_key(&source.card));
             assert_eq!(
-                spell_cascade_grants::retained_resolving_entry(&g.state.rules.frame),
+                g.state
+                    .rules
+                    .frame
+                    .resolving_invocation()
+                    .map(|id| g.entry(id).unwrap()),
                 Some(&invocation)
             );
             let shuffles = observation(&g, 1).view.players[1].library_shuffles;

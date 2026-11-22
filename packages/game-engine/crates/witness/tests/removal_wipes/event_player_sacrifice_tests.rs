@@ -364,7 +364,7 @@ fn event_player_sacrifice_coherent_recipient_forgery_cannot_authorize_recovery()
     recover(&g);
     let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
     let Frame::ResolutionChoice {
-        frame,
+        frame: _,
         choice: ResolutionChoice::Sacrifice { player, .. },
     } = &mut forged.state.rules.frame
     else {
@@ -374,14 +374,13 @@ fn event_player_sacrifice_coherent_recipient_forgery_cannot_authorize_recovery()
     let StackKind::Triggered {
         witness: TriggerEventWitness::DamageDealt { damage, .. },
         ..
-    } = &mut frame.spell.kind
+    } = &mut forged.state.rules.stack.last_mut().unwrap().kind
     else {
         panic!("witness");
     };
     damage.recipient = DamageRecipient::Player {
         player: PlayerId(0),
     };
-    *forged.state.rules.stack.last_mut().unwrap() = frame.spell.clone();
     let mut structural = g.fork();
     structural.state = forged.state.clone();
     structural.validate_trigger_state().unwrap();

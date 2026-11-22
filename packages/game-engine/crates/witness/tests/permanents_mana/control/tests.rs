@@ -886,9 +886,10 @@ fn aura_control_mixed_synthetic_and_simultaneous_attachment_dependencies_reject_
         .unwrap()
         .default_controller = PlayerId(3);
     dependent.state.rules.losing_players.push(PlayerId(3));
+    let controlled = object(&dependent, 2);
     dependent.state.rules.control_effects.push(ControlEffect {
         id: 1,
-        object: object(&dependent, 2),
+        object: controlled,
         controller: PlayerId(1),
         source: ControlSource::Static { object: source },
     });
@@ -1238,6 +1239,7 @@ fn typed_aura_control_kernel_entry_checks_targetability_but_ongoing_attachment_d
             let target = object(&game, target_id);
             game.move_object(source, Zone::Stack).unwrap();
             let source = object(&game, source_id);
+            let turn = game.turn().number;
             game.state.rules.effects.push(ResolvedEffect {
                 target_handles: vec![],
                 id: EffectId(1),
@@ -1251,7 +1253,7 @@ fn typed_aura_control_kernel_entry_checks_targetability_but_ongoing_attachment_d
                     cursor: 0,
                     source_block: 0,
                 },
-                expires_in_cleanup_of_turn: game.turn().number,
+                expires_in_cleanup_of_turn: turn,
                 kind: ResolvedEffectKind::GrantKeywordsSet {
                     targets: vec![target],
                     modifier: None,
@@ -1291,6 +1293,7 @@ fn typed_aura_control_kernel_entry_checks_targetability_but_ongoing_attachment_d
                 game.current(movement.successor).unwrap().attached_to,
                 Some(target)
             );
+            let turn = game.turn().number;
             game.state.rules.effects.push(ResolvedEffect {
                 target_handles: vec![],
                 id: EffectId(2),
@@ -1304,7 +1307,7 @@ fn typed_aura_control_kernel_entry_checks_targetability_but_ongoing_attachment_d
                     cursor: 0,
                     source_block: 0,
                 },
-                expires_in_cleanup_of_turn: game.turn().number,
+                expires_in_cleanup_of_turn: turn,
                 kind: ResolvedEffectKind::GrantKeywordsSet {
                     targets: vec![target],
                     modifier: None,

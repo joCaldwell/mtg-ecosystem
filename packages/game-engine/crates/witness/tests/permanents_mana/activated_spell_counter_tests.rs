@@ -408,7 +408,7 @@ fn run(case: Case, q: u64, mode: TraceMode) -> Game {
     resolution_start(&mut g);
     let legal = !matches!(case, Case::RemoveTarget);
     assert!(
-        matches!(&g.state.rules.frame,Frame::Resolve { frame } if frame.spell.id==ability && frame.legal_targets==[legal])
+        matches!(&g.state.rules.frame,Frame::Resolve { frame } if frame.stack_id==ability && frame.legal_targets==[legal])
     );
     recover(&g);
     finish_to(&mut g, q, 0);

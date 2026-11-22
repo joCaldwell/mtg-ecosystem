@@ -699,8 +699,7 @@ impl Game {
     }
     pub(super) fn bind_mode(&mut self, cast: Casting) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing mode input")?;
@@ -714,8 +713,7 @@ impl Game {
             let selected = self.authorize_mode_subset(input.player, &modes)?;
             let indices = selected.indices.clone();
             let top = self
-                .state
-                .rules
+                .rules_mut()
                 .stack
                 .last_mut()
                 .ok_or("missing modal spell")?;
@@ -732,8 +730,7 @@ impl Game {
             };
             self.validate_mode(input.player, mode)?;
             let top = self
-                .state
-                .rules
+                .rules_mut()
                 .stack
                 .last_mut()
                 .ok_or("missing modal spell")?;
@@ -749,17 +746,17 @@ impl Game {
             })?;
         }
         if cast.origin.is_spell() {
-            self.state.rules.frame = self.spell_announcement_frame(cast)?;
+            self.rules_mut().frame = self.spell_announcement_frame(cast)?;
         } else {
             match self.program()?.targets.first().map(|t| t.domain) {
                 Some(TargetDomain::AnyDamageTarget) => {
-                    self.state.rules.frame = Frame::EntityTargets { cast }
+                    self.rules_mut().frame = Frame::EntityTargets { cast }
                 }
                 Some(TargetDomain::PlayerOrPlaneswalker) => {
-                    self.state.rules.frame = Frame::PlayerTargets { cast }
+                    self.rules_mut().frame = Frame::PlayerTargets { cast }
                 }
                 Some(TargetDomain::BattlefieldCreature) => {
-                    self.state.rules.frame = Frame::Targets { cast }
+                    self.rules_mut().frame = Frame::Targets { cast }
                 }
                 None => self.continue_activation_after_targets(cast, input.decision_id)?,
                 Some(_) => return Err("unsupported activated mode target".into()),
@@ -789,7 +786,7 @@ impl Game {
             && movement.previous == *source
             && movement.successor.card == source.card
             && source.incarnation.checked_add(1) == Some(movement.successor.incarnation)
-            && matches!(&self.state.rules.frame, Frame::Resolve { frame } | Frame::LandEntry { origin: EntryOrigin::Copy { frame, .. }, .. } if frame.stack_id == *stack_id && frame.spell.source == *source)
+            && matches!(&self.state.rules.frame, Frame::Resolve { frame } | Frame::LandEntry { origin: EntryOrigin::Copy { frame, .. }, .. } if frame.stack_id == *stack_id && self.entry(frame.stack_id).is_ok_and(|entry| entry.source == *source))
             && spell.source == *source
             && spell.id == *stack_id
             && spell.controller == *player
@@ -953,7 +950,7 @@ impl Game {
             ..
         } = &self.state.rules.frame
         {
-            self.validate_mode_binding(&frame.spell)?;
+            self.validate_mode_binding(self.entry(frame.stack_id)?)?;
             self.validate_condition_cache(frame)?;
         }
         Ok(())
@@ -991,9 +988,9 @@ impl Game {
         Ok(())
     }
     pub(crate) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
-        let definition = match frame.spell.kind {
+        let definition = match self.entry(frame.stack_id)?.kind {
             StackKind::Triggered { ability, .. } => {
-                Some(self.effective_trigger(frame.spell.source, ability)?)
+                Some(self.effective_trigger(self.entry(frame.stack_id)?.source, ability)?)
             }
             _ => None,
         };
@@ -1002,7 +999,7 @@ impl Game {
             _ => None,
         };
         if expected == Some(&InterveningCondition::SourceCastByController)
-            && !matches!(&frame.spell.kind, StackKind::Triggered { match_condition, .. }
+            && !matches!(&self.entry(frame.stack_id)?.kind, StackKind::Triggered { match_condition, .. }
                 if match_condition == &frame.condition_check)
         {
             return Err("cast-entry resolution lost its match evidence".into());
@@ -1012,8 +1009,8 @@ impl Game {
             (Some(condition), Some(check))
                 if check.validates(
                     condition,
-                    frame.spell.controller,
-                    frame.spell.source,
+                    self.entry(frame.stack_id)?.controller,
+                    self.entry(frame.stack_id)?.source,
                     self.prepared.config.owned_limit() as u32,
                 ) =>
             {

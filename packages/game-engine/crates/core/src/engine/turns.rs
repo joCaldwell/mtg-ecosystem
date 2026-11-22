@@ -182,8 +182,8 @@ impl Game {
                 ],
             },
         )?;
-        self.state.rules.passes.clear();
-        self.stabilize()
+        self.rules_mut().passes.clear();
+        Ok(self.stabilize()?)
     }
     // CR 500.5, 106.4: pools empty at each step/phase ending. CR 500-514:
     // transition and entry work are separate serializable, budgeted frames.
@@ -209,9 +209,9 @@ impl Game {
             BatchCause::TurnProgression,
             EventGroup::Ordered { children },
         )?;
-        self.state.rules.passes.clear();
-        self.state.rules.cleanup_repeat = false;
-        self.state.rules.frame = Frame::EnterStep;
+        self.rules_mut().passes.clear();
+        self.rules_mut().cleanup_repeat = false;
+        self.rules_mut().frame = Frame::EnterStep;
         Ok(())
     }
     pub(crate) fn next_turn_state(&self) -> Result<(TurnState, PlayerId), String> {
@@ -323,7 +323,7 @@ impl Game {
                         EventGroup::Simultaneous { occurrences },
                     )?;
                 }
-                self.state.rules.frame = Frame::Transition;
+                self.rules_mut().frame = Frame::Transition;
                 return Ok(());
             }
             TurnStep::Draw => {
@@ -354,11 +354,11 @@ impl Game {
             }
             TurnStep::BeginningCombat => {
                 self.clear_combat();
-                self.state.rules.combat_declared = false;
+                self.rules_mut().combat_declared = false;
             }
             TurnStep::DeclareAttackers => {
                 if self.state.rules.active.is_some() {
-                    self.state.rules.frame = Frame::Attackers;
+                    self.rules_mut().frame = Frame::Attackers;
                     return Ok(());
                 }
             }
@@ -370,22 +370,22 @@ impl Game {
                     })
                     .collect::<Vec<_>>();
                 if !remaining.is_empty() {
-                    self.state.rules.frame = Frame::Blockers { remaining };
+                    self.rules_mut().frame = Frame::Blockers { remaining };
                     return Ok(());
                 }
             }
             TurnStep::FirstStrikeDamage => {
-                self.state.rules.frame = Frame::Damage;
+                self.rules_mut().frame = Frame::Damage;
                 return Ok(());
             }
             TurnStep::CombatDamage => {
-                self.state.rules.frame = Frame::Damage;
+                self.rules_mut().frame = Frame::Damage;
                 return Ok(());
             }
             TurnStep::EndCombat => {}
             TurnStep::PostcombatMain => {}
             TurnStep::Cleanup => {
-                self.state.rules.frame = if let Some(player) = self.state.rules.active {
+                self.rules_mut().frame = if let Some(player) = self.state.rules.active {
                     let count = self.cleanup_discard_count(player)?;
                     if count > 0 {
                         Frame::Discard { player, count }

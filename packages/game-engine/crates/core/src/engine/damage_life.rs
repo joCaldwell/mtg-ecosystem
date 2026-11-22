@@ -36,6 +36,21 @@ fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
         entry.source_facts = Some(fact.clone());
     }
 }
+/// Whether `update_entry` would write `entry` for this departure.
+fn reads_last_known(entry: &StackInstance, fact: &ObjectBefore) -> bool {
+    (entry.source == fact.object && entry.source_facts.is_some())
+        || matches!(
+            &entry.kind,
+            StackKind::Triggered {
+                witness: TriggerEventWitness::CreatureEnteredWithPower {
+                    entrant,
+                    last_appearance: Some(_),
+                    ..
+                },
+                ..
+            } if entrant.object == fact.object && fact.zone == Zone::Battlefield
+        )
+}
 fn update_source_appearances(entries: &mut [effects::PreparedDamage], fact: &ObjectBefore) {
     for entry in entries {
         if entry.source.object == fact.object {
@@ -47,12 +62,11 @@ impl Game {
     /// The typed control transition owns this refresh. A changed controller
     /// cannot be excused merely by recomputing or discarding assignment facts.
     pub(super) fn retain_damage_control_facts(&mut self, fact: &ObjectBefore) {
-        self.state
-            .rules
+        self.rules_mut()
             .frame
             .for_each_held_mut(&mut |held| match held {
                 frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
-                frame::HeldMut::Invocation { hold: _, entry: _ } => {}
+                frame::HeldMut::Invocation { hold: _, id: _ } => {}
             });
     }
     pub(crate) fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String> {
@@ -91,32 +105,40 @@ impl Game {
         self.retain_source_facts(&fact);
         Ok(())
     }
-    // CR 608.2h/113.7a: the live stack entry, every pending trigger and every
-    // copy the suspended frame holds receive a departure's last-known facts.
-    // A rule step works on its own copy of that frame; `Game::commit_frame`
-    // reconciles whatever the step installs, so no stale copy is written back.
+    // CR 608.2h/113.7a: every pending trigger and every invocation's single
+    // owner (its stack entry, or the detached entry a frame still resolves)
+    // receives a departure's last-known facts. A frame holds no invocation.
     pub(crate) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
-        for trigger in &mut self.state.rules.pending_triggers {
+        let rules = self.rules_mut();
+        for trigger in &mut rules.pending_triggers {
             update_entrant(&mut trigger.witness, fact);
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
             }
         }
-        for entry in &mut self.state.rules.stack {
+        // The stack is shared with the staged copy's origin: write it only
+        // when an entry holds facts of this object.
+        if rules
+            .stack
+            .iter()
+            .any(|entry| reads_last_known(entry, fact))
+        {
+            for entry in rules.stack.iter_mut() {
+                update_entry(entry, fact);
+            }
+        }
+        for entry in rules.detached.values_mut() {
             update_entry(entry, fact);
         }
-        // CR 608.2h/702.2e/702.15c: every invocation copy and every prepared
-        // damage source the frame holds retains this departure's actual last
-        // appearance. The simultaneous event path then replaces appearances
-        // with its common prior view. Assigned damage keeps its frozen facts.
-        self.state
-            .rules
-            .frame
-            .for_each_held_mut(&mut |held| match held {
-                frame::HeldMut::Invocation { hold: _, entry } => update_entry(entry, fact),
-                frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
-            });
+        // CR 608.2h/702.2e/702.15c: every prepared damage source the frame
+        // holds retains this departure's actual last appearance. The
+        // simultaneous event path then replaces appearances with its common
+        // prior view. Assigned damage keeps its frozen facts.
+        rules.frame.for_each_held_mut(&mut |held| match held {
+            frame::HeldMut::Invocation { hold: _, id: _ } => {}
+            frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
+        });
     }
     pub(crate) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         if self
@@ -220,8 +242,7 @@ impl Game {
     }
     pub(super) fn bind_entity_targets(&mut self, cast: Casting) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing entity targets")?;
@@ -243,8 +264,7 @@ impl Game {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let top = self
-            .state
-            .rules
+            .rules_mut()
             .stack
             .last_mut()
             .ok_or("missing targeted invocation")?;
@@ -257,7 +277,7 @@ impl Game {
             }
         }
         if cast.origin.is_spell() {
-            self.state.rules.frame = self.continue_spell_targeting(cast)?;
+            self.rules_mut().frame = self.continue_spell_targeting(cast)?;
         } else {
             self.continue_activation_after_targets(cast, input.decision_id)?;
         }
@@ -277,15 +297,15 @@ impl Game {
                 ActivationCost::SacrificePermanent { mana: None, .. } => {
                     let mut cast = cast;
                     cast.spending = Some(BTreeMap::new());
-                    self.state.rules.frame = Frame::SacrificeCost { cast };
+                    self.rules_mut().frame = Frame::SacrificeCost { cast };
                     return Ok(());
                 }
                 ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
                 ActivationCost::Composite { costs } if costs.mana.is_some() => {
-                    self.state.rules.frame = self.announcement_mana_frame(cast)?;
+                    self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
                 ActivationCost::SacrificeSource => {
@@ -323,8 +343,7 @@ impl Game {
                 ability,
             },
         )?;
-        self.state
-            .rules
+        self.rules_mut()
             .stack
             .last_mut()
             .ok_or("missing activated invocation")?
@@ -335,9 +354,9 @@ impl Game {
             player: entry.controller,
             ability,
         })?;
-        self.state.rules.priority = entry.controller;
-        self.state.rules.frame = Frame::Priority;
-        self.stabilize()
+        self.rules_mut().priority = entry.controller;
+        self.rules_mut().frame = Frame::Priority;
+        Ok(self.stabilize()?)
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
@@ -522,7 +541,7 @@ impl Game {
         gain: bool,
     ) -> Result<Option<CommittedBatch>, String> {
         let occurrences = self
-            .opponents(frame.spell.controller)
+            .opponents(self.entry(frame.stack_id)?.controller)
             .into_iter()
             .map(|player| {
                 if gain {
@@ -542,7 +561,7 @@ impl Game {
             return Ok(None);
         }
         self.commit_batch(
-            Self::staple_cause(frame, source_block),
+            self.instruction_cause(frame, source_block)?,
             EventGroup::Simultaneous { occurrences },
         )
         .map(Some)
@@ -559,9 +578,11 @@ impl Game {
     ) -> Result<(), String> {
         let amount = match amount {
             OpponentDrainAmount::Fixed { value } => value,
-            OpponentDrainAmount::AnnouncedX => {
-                frame.spell.x.clone().ok_or("missing announced X")?
-            }
+            OpponentDrainAmount::AnnouncedX => self
+                .entry(frame.stack_id)?
+                .x
+                .clone()
+                .ok_or("missing announced X")?,
         };
         if amount == Quantity::zero() {
             return self.finish_instruction(frame, InstructionOutcome::Life { actual: None });
@@ -579,7 +600,7 @@ impl Game {
             };
             total.add(amount);
         }
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         let actual = if total > Quantity::zero() && self.is_live(player) {
             Some(self.commit(
                 ProposedEvent::GainLife {
@@ -605,7 +626,7 @@ impl Game {
         let (block, proposed, damage) = match instruction {
             Instruction::DealDamage { .. } | Instruction::DealDamageAnnouncedX { .. } => {
                 let (target_slot, amount, source_block, target) =
-                    self.directed_damage_operands(&frame.spell, &instruction)?;
+                    self.directed_damage_operands(self.entry(frame.stack_id)?, &instruction)?;
                 if *amount == Quantity::zero()
                     || frame.legal_targets.get(target_slot as usize) != Some(&true)
                     || !self.entity_legal(target)
@@ -621,8 +642,8 @@ impl Game {
                     source_block,
                     ProposedEvent::NoncombatDamage {
                         damage: Box::new(NoncombatDamageOccurrence {
-                            source: self.source_facts(&frame.spell)?,
-                            controller: frame.spell.controller,
+                            source: self.source_facts(self.entry(frame.stack_id)?)?,
+                            controller: self.entry(frame.stack_id)?.controller,
                             recipient,
                             amount: amount.clone(),
                         }),
@@ -634,14 +655,14 @@ impl Game {
                 amount,
                 source_block,
             } => {
-                let player = Self::mana_tap_activator(&frame.spell)?;
+                let player = Self::mana_tap_activator(self.entry(frame.stack_id)?)?;
                 if !self.is_live(player) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Damage { actual: None });
                 }
                 let damage = NoncombatDamageOccurrence {
-                    source: self.source_facts(&frame.spell)?,
-                    controller: frame.spell.controller,
+                    source: self.source_facts(self.entry(frame.stack_id)?)?,
+                    controller: self.entry(frame.stack_id)?.controller,
                     recipient: DamageRecipient::Player { player },
                     amount,
                 };
@@ -653,9 +674,9 @@ impl Game {
             } => {
                 // CR 109.5/113.7a: use the trigger's frozen controller and
                 // the land's current or last-known source facts.
-                let controller = frame.spell.controller;
+                let controller = self.entry(frame.stack_id)?.controller;
                 let damage = NoncombatDamageOccurrence {
-                    source: self.source_facts(&frame.spell)?,
+                    source: self.source_facts(self.entry(frame.stack_id)?)?,
                     controller,
                     recipient: DamageRecipient::Player { player: controller },
                     amount,
@@ -670,9 +691,9 @@ impl Game {
         let actual = self.commit(
             proposed,
             BatchCause::Instruction {
-                stack_id: frame.spell.id,
-                player: frame.spell.controller,
-                source: frame.spell.source,
+                stack_id: frame.stack_id,
+                player: self.entry(frame.stack_id)?.controller,
+                source: self.entry(frame.stack_id)?.source,
                 cursor: frame.cursor,
                 source_block: block,
             },
@@ -718,7 +739,13 @@ impl Game {
             .rules
             .stack
             .iter()
-            .chain(self.state.rules.frame.resolving_invocation())
+            .chain(
+                self.state
+                    .rules
+                    .frame
+                    .resolving_invocation()
+                    .and_then(|id| self.state.rules.detached.get(&id)),
+            )
             .any(|entry| {
                 entry.source == damage.source.object
                     && entry.controller == damage.controller
@@ -746,7 +773,7 @@ impl Game {
                 if self.player_protected(player) {
                     return Err("protection requires the damage transaction".into());
                 }
-                self.state.rules.players[player.0 as usize].lose_life(&damage.amount)
+                self.rules_mut().players[player.0 as usize].lose_life(&damage.amount)
             }
             DamageRecipient::Creature { object } => {
                 if !self.is_battlefield_creature(object) {
@@ -756,8 +783,7 @@ impl Game {
                     return Err("protection requires the damage transaction".into());
                 }
                 let o = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .objects
                     .get_mut(&object.card)
                     .ok_or("missing damage object")?;

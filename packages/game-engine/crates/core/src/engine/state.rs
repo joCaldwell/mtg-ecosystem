@@ -3,14 +3,29 @@
 //! recovery hashes. No history is discarded or treated as nonsemantic here.
 use super::*;
 
+mod access;
+mod error;
+mod model;
+mod objects;
+mod shared;
+mod txn;
+mod validate;
+pub use error::RuleError;
+pub use model::*;
+pub use objects::ObjectTable;
+pub use shared::Shared;
+pub use txn::{PreEvent, RulesTxn};
+
 // Declare each field once. The flat decoder keeps deny_unknown_fields without
 // serde's flatten/unknown-field ambiguity, while the encoder borrows groups.
 macro_rules! state_layout {
     (rules { $( $(#[$ra:meta])* $r:ident: $rt:ty, )* }
      knowledge { $( $(#[$ka:meta])* $k:ident: $kt:ty, )* }
      audit { $( $(#[$aa:meta])* $a:ident: $at:ty, )* }) => {
+        /// The rules tables. Every routine reads them through `RulesState`;
+        /// only `Game::rules_mut` hands out exclusive access.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-        pub struct RulesState { $( $(#[$ra])* pub $r: $rt, )* }
+        pub struct RulesTables { $( $(#[$ra])* pub $r: $rt, )* }
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
         pub struct KnowledgeState { $( $(#[$ka])* pub $k: $kt, )* }
         #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -32,7 +47,7 @@ macro_rules! state_layout {
                 }
                 let Flat { $( $r, )* $( $k, )* $( $a, )* } = Flat::deserialize(decoder)?;
                 Ok(Self {
-                    rules: RulesState { $( $r, )* },
+                    rules: RulesState::new(RulesTables { $( $r, )* }),
                     knowledge: KnowledgeState { $( $k, )* },
                     audit: AuditState { $( $a, )* },
                 })
@@ -40,6 +55,40 @@ macro_rules! state_layout {
         }
     };
 }
+/// The rules state of a game. Its tables are private to this module: the rest
+/// of the engine reads them through `Deref` and writes them only through
+/// `Game::rules_mut`, so every write to the rules is explicit and stays
+/// inside the staged copy a transaction commits.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct RulesState {
+    tables: RulesTables,
+}
+impl RulesState {
+    pub fn new(tables: RulesTables) -> Self {
+        Self { tables }
+    }
+}
+impl std::ops::Deref for RulesState {
+    type Target = RulesTables;
+    fn deref(&self) -> &RulesTables {
+        &self.tables
+    }
+}
+// White-box tests build and forge states directly; production code cannot.
+#[cfg(any(test, feature = "testkit"))]
+impl std::ops::DerefMut for RulesState {
+    fn deref_mut(&mut self) -> &mut RulesTables {
+        &mut self.tables
+    }
+}
+impl Game {
+    /// Exclusive access to the rules tables: the single write path.
+    pub(in crate::engine) fn rules_mut(&mut self) -> &mut RulesTables {
+        &mut self.state.rules.tables
+    }
+}
+
 // Private ownership only: staged forks share tables that change only when a
 // token is created. Serialized shape and typed equality remain the map's own.
 mod shared_map {
@@ -89,7 +138,7 @@ state_layout! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_state: Option<MatchState>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        effects: Vec<ResolvedEffect>,
+        effects: Shared<Vec<ResolvedEffect>>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         delayed_chapters: Vec<DelayedChapterRegistration>,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]
@@ -100,7 +149,7 @@ state_layout! {
         pending_triggers: Vec<PendingTrigger>,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]
         next_trigger_id: u64,
-        libraries: BTreeMap<PlayerId, Vec<CardId>>,
+        libraries: Shared<BTreeMap<PlayerId, Vec<CardId>>>,
         combat: Vec<Attacker>,
         combat_declared: bool,
         damage_choices: BTreeMap<ObjectId, Vec<(ObjectId, Quantity)>>,
@@ -122,7 +171,7 @@ state_layout! {
         players: Vec<Player>,
         #[serde(with = "shared_map")]
         cards: Arc<BTreeMap<CardId, Card>>,
-        objects: BTreeMap<CardId, Object>,
+        objects: ObjectTable,
         active: Option<PlayerId>,
         turn_owner: PlayerId,
         turn: TurnState,
@@ -141,14 +190,18 @@ state_layout! {
         priority: PlayerId,
         passes: Vec<PlayerId>,
         next_stack_id: u32,
-        stack: Vec<StackInstance>,
+        stack: Shared<Vec<StackInstance>>,
+        /// Invocations a frame is still resolving after their entry left the
+        /// stack (CR 608.2m). Keyed by identity; empty between resolutions.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        detached: BTreeMap<StackId, StackInstance>,
         frame: Frame,
         pending: Option<AcceptedInput>,
         next_batch_id: u64,
         next_event_sequence: u64,
     }
     knowledge {
-        visibility: Vec<visibility::Knowledge>,
+        visibility: Vec<Shared<visibility::Knowledge>>,
     }
     audit {
         external_inputs: History<ExternalInput>,

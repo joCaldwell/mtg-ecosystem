@@ -76,10 +76,14 @@ fn resolving_set_grant(compound: bool) -> (Game, ResolvedEffect, BatchCause) {
         origin: EffectOrigin {
             activated_ability: None,
             mode: None,
-            stack_id: frame.spell.id,
-            source: frame.spell.source,
-            controller: frame.spell.controller,
-            source_handles: frame.spell.effect_source_handles.clone(),
+            stack_id: frame.stack_id,
+            source: g.entry(frame.stack_id).unwrap().source,
+            controller: g.entry(frame.stack_id).unwrap().controller,
+            source_handles: g
+                .entry(frame.stack_id)
+                .unwrap()
+                .effect_source_handles
+                .clone(),
             cursor: frame.cursor,
             source_block: 0,
         },
@@ -98,7 +102,7 @@ fn resolving_set_grant(compound: bool) -> (Game, ResolvedEffect, BatchCause) {
             }],
         },
     };
-    let cause = Game::wipe_cause(&frame, 0);
+    let cause = g.instruction_cause(&frame, 0).unwrap();
     (g, effect, cause)
 }
 
@@ -323,7 +327,7 @@ fn set_keyword_kernel_compound_execution_creates_all_layers_once_and_rolls_back(
         unreachable!()
     };
     let frame = frame.clone();
-    let program = g.program_for(&frame.spell).unwrap();
+    let program = g.program_for(g.entry(frame.stack_id).unwrap()).unwrap();
     assert_eq!(program.instructions.len(), 1);
     let instruction = program.instructions[0].clone();
     let before = g.state.clone();

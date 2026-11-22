@@ -781,7 +781,7 @@ fn m4d_retained_cast_history_counter_choice_and_wrapper_accounting() {
         for _ in 0..500 {
             if let Frame::Resolve { frame } = &g.state.rules.frame {
                 if matches!(
-                    &frame.spell.kind,
+                    &g.entry(frame.stack_id).unwrap().kind,
                     StackKind::Triggered {
                         witness: TriggerEventWitness::SpellCast { .. },
                         ..
@@ -810,7 +810,7 @@ fn m4d_retained_cast_history_counter_choice_and_wrapper_accounting() {
         assert_eq!(
             g.grant_payload_charge(),
             expected,
-            "retained copy survives counter choice"
+            "the invocation's owner is charged through the counter choice"
         );
         let Frame::CounterPlacement { transaction } = &g.state.rules.frame else {
             panic!()
@@ -819,12 +819,23 @@ fn m4d_retained_cast_history_counter_choice_and_wrapper_accounting() {
         let StackKind::Triggered {
             witness: TriggerEventWitness::SpellCast { cast },
             ..
-        } = &resolving.spell.kind
+        } = &g.entry(resolving.stack_id).unwrap().kind
         else {
             panic!()
         };
+        // The invocation has one owner, so its retained cast facts are
+        // charged exactly once, whichever frame names it.
         let fact_charge = stored_history::payload_charge(&cast.history);
-        assert!(fact_charge > 0 && expected >= fact_charge * 2);
+        assert!(fact_charge > 0 && expected >= fact_charge);
+        assert_eq!(
+            expected,
+            g.state
+                .rules
+                .stack
+                .iter()
+                .map(spell_cascade_grants::entry_grant_charge)
+                .sum::<usize>()
+        );
         check(&g);
         // Structural wrapper controls are not source-admission claims.
         for frame in [

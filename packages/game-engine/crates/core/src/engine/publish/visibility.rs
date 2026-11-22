@@ -5,6 +5,7 @@ pub struct VisibleCommanderReturnChoice {
     pub owner: PlayerId,
     pub to_command: bool,
 }
+use super::stored_history::StoredPermittedView;
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -888,13 +889,13 @@ pub struct ObjectHandles {
 }
 mod shared_entries {
     use super::*;
-    pub(super) fn serialize<S: serde::Serializer>(
+    pub(in crate::engine) fn serialize<S: serde::Serializer>(
         value: &Arc<BTreeMap<String, ObjectId>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         value.as_ref().serialize(serializer)
     }
-    pub(super) fn deserialize<'de, D: serde::Deserializer<'de>>(
+    pub(in crate::engine) fn deserialize<'de, D: serde::Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Arc<BTreeMap<String, ObjectId>>, D::Error> {
         BTreeMap::deserialize(deserializer).map(Arc::new)
@@ -956,13 +957,13 @@ pub struct Knowledge {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) effect_handles: Vec<(EffectKey, EffectHandle)>,
+    pub(in crate::engine) effect_handles: Vec<(EffectKey, EffectHandle)>,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub(super) next_effect_handle: u64,
+    pub(in crate::engine) next_effect_handle: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(super) damage_handles: Vec<((DamageTransactionId, DamageId), DamageHandle)>,
+    pub(in crate::engine) damage_handles: Vec<((DamageTransactionId, DamageId), DamageHandle)>,
     #[serde(default, skip_serializing_if = "is_zero")]
-    pub(super) next_damage_handle: u64,
+    pub(in crate::engine) next_damage_handle: u64,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     trigger_handles: BTreeMap<TriggerId, TriggerHandle>,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -985,7 +986,34 @@ fn scoped(namespace: &Option<String>, handle: String) -> String {
     )
 }
 impl Knowledge {
-    pub(super) fn scoped(&self, handle: String) -> String {
+    /// The key of this viewer's current decision token, if they owe one.
+    pub(in crate::engine) fn decision_key(&self) -> Option<(u64, u8)> {
+        self.decision_key
+    }
+    /// Mints a fresh token when the viewer's decision changes, and retires it
+    /// when they owe none. An unchanged key keeps its token.
+    pub(in crate::engine) fn set_decision_key(
+        &mut self,
+        viewer: usize,
+        key: Option<(u64, u8)>,
+    ) -> Result<(), String> {
+        if key != self.decision_key {
+            self.decision_token = if key.is_some() {
+                let token =
+                    DecisionToken(self.scoped(format!("v{viewer}-d{}", self.next_decision)));
+                self.next_decision = self
+                    .next_decision
+                    .checked_add(1)
+                    .ok_or("decision token resource limit")?;
+                Some(token)
+            } else {
+                None
+            };
+            self.decision_key = key;
+        }
+        Ok(())
+    }
+    pub(in crate::engine) fn scoped(&self, handle: String) -> String {
         self.namespace.as_ref().map_or_else(
             || handle.clone(),
             |namespace| format!("{namespace}:{handle}"),
@@ -1026,18 +1054,18 @@ impl Game {
     }
     /// Object-table-ordered sources for `*_with_sources`, valid only while
     /// the rules state it was read from is unchanged.
-    pub(super) fn static_source_index(&self) -> Vec<CardId> {
+    pub(in crate::engine) fn static_source_index(&self) -> Vec<CardId> {
         self.state
             .rules
             .objects
             .iter()
             .filter(|(_, object)| self.indexed_static_source(object))
-            .map(|(card, _)| *card)
+            .map(|(card, _)| card)
             .collect()
     }
-    pub(super) fn projection_index(&self) -> ProjectionIndex {
+    pub(in crate::engine) fn projection_index(&self) -> ProjectionIndex {
         let mut index = ProjectionIndex::default();
-        for (&card, object) in &self.state.rules.objects {
+        for (card, object) in &self.state.rules.objects {
             match object.zone {
                 Zone::Hand { owner } => {
                     if let Some(count) = index.hand_counts.get_mut(owner.0 as usize) {
@@ -1064,7 +1092,10 @@ impl Game {
         index
     }
 
-    pub(super) fn search_decision_token(&self, player: PlayerId) -> Result<&DecisionToken, String> {
+    pub(in crate::engine) fn search_decision_token(
+        &self,
+        player: PlayerId,
+    ) -> Result<&DecisionToken, String> {
         self.state
             .knowledge
             .visibility
@@ -1320,7 +1351,7 @@ impl Game {
         self.project_player(player, None)
     }
     /// `visible_player` for seats 0..4, with an index of this unchanged state.
-    pub(super) fn visible_player_indexed(
+    pub(in crate::engine) fn visible_player_indexed(
         &self,
         player: PlayerId,
         index: &ProjectionIndex,
@@ -1392,7 +1423,10 @@ impl Game {
             .cloned()
             .ok_or_else(|| "object is not visible to this viewer".into())
     }
-    pub(super) fn visible_ability_oracle_id(&self, object: ObjectId) -> Result<&str, String> {
+    pub(in crate::engine) fn visible_ability_oracle_id(
+        &self,
+        object: ObjectId,
+    ) -> Result<&str, String> {
         let effective = self.copiable_definition(object)?;
         if !effective.oracle_id.starts_with("token:") {
             return Ok(&effective.oracle_id);
@@ -1418,7 +1452,7 @@ impl Game {
             .map(Some)
     }
     /// `visible_object`, with an index of this unchanged state.
-    pub(super) fn visible_object_indexed(
+    pub(in crate::engine) fn visible_object_indexed(
         &self,
         viewer: PlayerId,
         object: &Object,
@@ -2076,11 +2110,13 @@ impl Game {
         }
         if let Frame::HandCast { frame, child: None } = &self.state.rules.frame {
             return Ok(
-                (frame.spell.controller == viewer).then_some(PlayerRequest::HandCast {
-                    token,
-                    player: viewer,
-                    candidates: vec![],
-                }),
+                (self.entry(frame.stack_id)?.controller == viewer).then_some(
+                    PlayerRequest::HandCast {
+                        token,
+                        player: viewer,
+                        candidates: vec![],
+                    },
+                ),
             );
         }
         if let Some(request) = self.resolution_cast_request()? {
@@ -2633,7 +2669,7 @@ impl Game {
             _ => return Err("payment request invariant".into()),
         })
     }
-    pub(super) fn order_view_objects(view: &mut PermittedView) {
+    pub(in crate::engine) fn order_view_objects(view: &mut PermittedView) {
         // A face-down card's position among older exile handles must not
         // disclose the ordering of its physical card ID.
         for player in &mut view.players {
@@ -2648,6 +2684,10 @@ impl Game {
         view.objects.sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
     }
 
+    /// The reference projection of one viewer's view: every row projected in
+    /// table order, then ordered. Debug builds publish it for the complete
+    /// projection that every publication is compared with.
+    #[cfg(debug_assertions)]
     fn permitted_view(
         &self,
         viewer: PlayerId,
@@ -2676,10 +2716,98 @@ impl Game {
         Self::order_view_objects(&mut view);
         Ok(view)
     }
-    pub(crate) fn refresh_visibility(&mut self) -> Result<(), String> {
-        if self.setup_automatic() {
-            return Ok(());
+    /// One viewer's view, built as it is stored. Rows are projected in handle
+    /// order, which is the order a view lists them in, and each row that
+    /// equals the previous view's row shares its allocation. The result
+    /// equals `permitted_view` converted and shared with its predecessor.
+    fn stored_view(
+        &self,
+        viewer: PlayerId,
+        (index, cores): (&ProjectionIndex, &ObjectCores),
+        effects: &[EffectKey],
+        visible: &[&Object],
+    ) -> Result<StoredPermittedView, String> {
+        let mut header = self.blank_view(viewer)?;
+        header.effects = self.visible_effects_from(viewer, effects)?;
+        let mut players = Vec::with_capacity(4);
+        for player in 0..4 {
+            players.push(self.project_player(PlayerId(player), Some(index))?);
         }
+        let knowledge = self
+            .state
+            .knowledge
+            .visibility
+            .get(viewer.0 as usize)
+            .ok_or("invalid viewer")?;
+        // The handle map is ordered by handle and names every visible
+        // object, so walking it yields the rows already in view order.
+        let mut objects = Vec::with_capacity(visible.len());
+        let mut face_down = [false; 4];
+        for id in knowledge.handles.entries.values() {
+            let Ok(position) = visible.binary_search_by_key(&id.card, |object| object.id.card)
+            else {
+                continue;
+            };
+            let object = visible[position];
+            if object.id != *id {
+                continue;
+            }
+            let row = self.project_visible_object(viewer, object, Some(index), Some(cores))?;
+            if row.face_down
+                && let Some(owned) = face_down.get_mut(row.owner.0 as usize)
+            {
+                *owned = true;
+            }
+            objects.push(row);
+        }
+        if objects.len() != visible.len() {
+            return Err("object is not visible to this viewer".into());
+        }
+        // Exile lists keep table order unless a face-down card of that owner
+        // would let its position disclose the order of physical card IDs.
+        for object in visible.iter().filter(|object| object.zone == Zone::Exile) {
+            let owner = self
+                .state
+                .rules
+                .cards
+                .get(&object.id.card)
+                .ok_or("missing object definition")?
+                .owner;
+            players
+                .get_mut(owner.0 as usize)
+                .ok_or("invalid exile owner")?
+                .exile
+                .push(self.handle_for(viewer, object.id)?);
+        }
+        for player in &mut players {
+            if face_down
+                .get(player.player.0 as usize)
+                .is_some_and(|owned| *owned)
+            {
+                player.exile.sort_by(|a, b| a.0.cmp(&b.0));
+            }
+        }
+        let mut stack = Vec::with_capacity(self.state.rules.stack.len());
+        for index in 0..self.state.rules.stack.len() {
+            stack.push(self.visible_stack(viewer, index)?);
+        }
+        Ok(StoredPermittedView::from_rows(
+            header,
+            players,
+            objects,
+            stack,
+            knowledge.history.last(),
+        ))
+    }
+    /// The complete projection: every handle, decision token and view row is
+    /// derived again from the current rules. This is the definition that the
+    /// incremental path in `publish.rs` must equal. `reference` selects the
+    /// plain row-by-row view construction that debug builds compare with.
+    pub(in crate::engine) fn publish_full(
+        &mut self,
+        decider: Option<Decider>,
+        reference: bool,
+    ) -> Result<(), String> {
         let effects = self.refresh_effect_handles()?;
         let projection = self.projection_index();
         let cores = ObjectCores::default();
@@ -2699,6 +2827,7 @@ impl Game {
             .collect();
         let trigger_set: BTreeSet<_> = triggers.iter().copied().collect();
         let ability_set: BTreeSet<_> = abilities.iter().copied().collect();
+        let revision = self.state.rules.revision;
         for v in 0..4 {
             let viewer = PlayerId(v);
             let current = self
@@ -2708,229 +2837,96 @@ impl Game {
                 .values()
                 .filter(|o| self.visible_to(viewer, o))
                 .collect::<Vec<_>>();
-            let looked = self.library_looked(viewer).unwrap_or_default();
+            let looked = self
+                .library_looked(viewer)
+                .map(<[ObjectId]>::to_vec)
+                .unwrap_or_default();
             let ids = current.iter().map(|object| object.id);
             let current_set = ids
                 .clone()
                 .chain(looked.iter().copied())
                 .collect::<BTreeSet<_>>();
-            let mut k = self.state.knowledge.visibility[v as usize].clone();
-            k.handles.retain_objects(&current_set);
-            k.trigger_handles.retain(|id, _| trigger_set.contains(id));
-            for &id in &triggers {
-                if let std::collections::btree_map::Entry::Vacant(entry) =
-                    k.trigger_handles.entry(id)
+            {
+                // Written in place: the table is copied only if a fork
+                // still shares it.
+                let k = &mut *self.state.knowledge.visibility[v as usize];
+                k.handles.retain_objects(&current_set);
+                k.trigger_handles.retain(|id, _| trigger_set.contains(id));
+                for &id in &triggers {
+                    if !k.trigger_handles.contains_key(&id) {
+                        let handle = TriggerHandle(scoped(
+                            &k.namespace,
+                            format!("v{v}-t{}", k.next_trigger_handle),
+                        ));
+                        k.next_trigger_handle = k
+                            .next_trigger_handle
+                            .checked_add(1)
+                            .ok_or("trigger handle limit")?;
+                        k.trigger_handles.insert(id, handle);
+                    }
+                }
+                k.ability_handles.retain(|id, _| ability_set.contains(id));
+                for &id in &abilities {
+                    if !k.ability_handles.contains_key(&id) {
+                        let handle = StackHandle(scoped(
+                            &k.namespace,
+                            format!("v{v}-{}{}", "s", k.next_ability_handle),
+                        ));
+                        k.next_ability_handle = k
+                            .next_ability_handle
+                            .checked_add(1)
+                            .ok_or("ability handle resource limit")?;
+                        k.ability_handles.insert(id, handle);
+                    }
+                }
+                // Allocate from visible rows only; hidden IDs never enter a handle.
+                // Initial/global card order is internal, but hidden rows do not
+                // consume viewer counters. Equal permitted histories retain equal
+                // counters even when hidden cards/IDs differ.
+                let mut known = k.handles.objects();
+                // Newly looked-at cards get handles in the permitted top-to-bottom
+                // order before any other row, irrespective of physical CardId.
+                for id in looked.iter().copied().chain(ids) {
+                    if known.insert(id) {
+                        let handle = k.scoped(format!("v{v}-o{}", k.next_handle));
+                        k.next_handle = k
+                            .next_handle
+                            .checked_add(1)
+                            .ok_or("visibility handle resource limit")?;
+                        k.handles.insert(handle, id);
+                    }
+                }
+                let key = decider
+                    .filter(|decider| decider.player == viewer)
+                    .map(|decider| (revision, decider.kind));
+                k.set_decision_key(v as usize, key)?;
+            }
+            #[cfg(debug_assertions)]
+            if reference {
+                let view =
+                    self.permitted_view(viewer, (&projection, &cores), &effects, &current)?;
+                let history = &mut self.state.knowledge.visibility[v as usize].history;
+                if !history
+                    .last()
+                    .is_some_and(|previous| previous.matches_public(&view))
                 {
-                    let handle = TriggerHandle(scoped(
-                        &k.namespace,
-                        format!("v{v}-t{}", k.next_trigger_handle),
-                    ));
-                    k.next_trigger_handle = k
-                        .next_trigger_handle
-                        .checked_add(1)
-                        .ok_or("trigger handle limit")?;
-                    entry.insert(handle);
+                    history.push_public(view);
                 }
+                continue;
             }
-            k.ability_handles.retain(|id, _| ability_set.contains(id));
-            for &id in &abilities {
-                if let std::collections::btree_map::Entry::Vacant(entry) =
-                    k.ability_handles.entry(id)
-                {
-                    let handle = StackHandle(scoped(
-                        &k.namespace,
-                        format!("v{v}-{}{}", "s", k.next_ability_handle),
-                    ));
-                    k.next_ability_handle = k
-                        .next_ability_handle
-                        .checked_add(1)
-                        .ok_or("ability handle resource limit")?;
-                    entry.insert(handle);
-                }
-            }
-            // Allocate from visible rows only; hidden IDs never enter a handle.
-            // Initial/global card order is internal, but hidden rows do not
-            // consume viewer counters. Equal permitted histories retain equal
-            // counters even when hidden cards/IDs differ.
-            let mut known = k.handles.objects();
-            // Newly looked-at cards get handles in the permitted top-to-bottom
-            // order before any other row, irrespective of physical CardId.
-            for id in looked.iter().copied().chain(ids) {
-                if known.insert(id) {
-                    let handle = k.scoped(format!("v{v}-o{}", k.next_handle));
-                    k.next_handle = k
-                        .next_handle
-                        .checked_add(1)
-                        .ok_or("visibility handle resource limit")?;
-                    k.handles.insert(handle, id);
-                }
-            }
-            let key = if self.state.rules.pending.is_some()
-                || !self.state.rules.pending_concessions.is_empty()
-            {
-                None
-            } else if matches!(
-                self.state.rules.frame,
-                Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
-            ) {
-                self.replacement_request()
-                    .filter(|r| r.player() == viewer)
-                    .map(|_| (self.state.rules.revision, 4))
-            } else if self
-                .damage_allocation_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 14))
-            } else if self
-                .sacrifice_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 17))
-            } else if self
-                .hand_cast_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 45))
-            } else if let Some(request) = self.resolution_cast_request()?
-                && request.player() == viewer
-            {
-                let kind = match request {
-                    Request::CascadeLandEntry { .. } => 23,
-                    Request::PlayHideawayLinked { .. } => 46,
-                    _ => 22,
-                };
-                Some((self.state.rules.revision, kind))
-            } else if self.modes_request()?.is_some_and(|r| r.player() == viewer) {
-                Some((self.state.rules.revision, 13))
-            } else if self
-                .counter_placement_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 22))
-            } else if self
-                .damage_effect_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 12))
-            } else if self
-                .trigger_request()?
-                .is_some_and(|r| r.player() == viewer)
-            {
-                Some((self.state.rules.revision, 11))
-            } else if self
-                .actions_request()?
-                .is_some_and(|request| request.player() == viewer)
-            {
-                Some((self.state.rules.revision, 6))
-            } else if self.combat_decision_player() == Some(viewer) {
-                Some((self.state.rules.revision, 3))
-            } else {
-                match self.state.rules.frame {
-                    Frame::LegendRule { .. }
-                        if self.legend_request()?.is_some_and(|r| r.player() == viewer) =>
-                    {
-                        Some((self.state.rules.revision, 19))
-                    }
-                    Frame::Setup if self.setup_request()?.is_some_and(|r| r.player() == viewer) => {
-                        Some((self.state.rules.revision, 15))
-                    }
-                    Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
-                        if self.top()?.controller == viewer
-                            && self.program()?.targets.first().is_some_and(|t| {
-                                t.domain == TargetDomain::AnyDamageTarget
-                                    || self.program().is_ok_and(|p| {
-                                        mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
-                                    })
-                            }) =>
-                    {
-                        Some((self.state.rules.revision, 10))
-                    }
-                    Frame::StackTargets { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 9))
-                    }
-                    Frame::TriggerTargets { .. }
-                        if self.top()?.controller == viewer && !self.top_has_target_domain()? =>
-                    {
-                        None
-                    }
-                    Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. }
-                        if self.top()?.controller == viewer =>
-                    {
-                        Some((self.state.rules.revision, 7))
-                    }
-                    Frame::LandEntry { .. }
-                        if self
-                            .land_entry_offer()?
-                            .is_some_and(|(player, _, _)| player == viewer) =>
-                    {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::ResolutionPayment { ref payment, .. } if payment.payer == viewer => {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::ManaSourceChoice { player, .. } if player == viewer => {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::ManaAbility { ref activation } if activation.player == viewer => {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::SpendMana { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 8))
-                    }
-                    Frame::CommanderReturn { object, .. }
-                        if self.state.rules.cards[&object.card].owner == viewer =>
-                    {
-                        Some((self.state.rules.revision, 4))
-                    }
-                    Frame::Priority if self.state.rules.priority == viewer => {
-                        Some((self.state.rules.revision, 0))
-                    }
-                    Frame::AdditionalCosts { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 20))
-                    }
-                    Frame::HybridCost { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 51))
-                    }
-                    Frame::AnnounceX { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 18))
-                    }
-                    Frame::Targets { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 1))
-                    }
-                    Frame::Mana { .. } if self.top()?.controller == viewer => {
-                        Some((self.state.rules.revision, 2))
-                    }
-                    _ => None,
-                }
-            };
-            if key != k.decision_key {
-                k.decision_token = if key.is_some() {
-                    let token = DecisionToken(k.scoped(format!("v{v}-d{}", k.next_decision)));
-                    k.next_decision = k
-                        .next_decision
-                        .checked_add(1)
-                        .ok_or("decision token resource limit")?;
-                    Some(token)
-                } else {
-                    None
-                };
-                k.decision_key = key;
-            }
-            self.state.knowledge.visibility[v as usize] = k;
-            let view = self.permitted_view(viewer, (&projection, &cores), &effects, &current)?;
+            #[cfg(not(debug_assertions))]
+            let _ = reference;
+            let view = self.stored_view(viewer, (&projection, &cores), &effects, &current)?;
             let history = &mut self.state.knowledge.visibility[v as usize].history;
-            if !history
-                .last()
-                .is_some_and(|previous| previous.matches_public(&view))
-            {
-                history.push_public(view);
+            if history.last().is_none_or(|previous| *previous != view) {
+                history.push(view);
             }
         }
         Ok(())
     }
     /// Existing permitted handle order only; no raw-object scan or handle minting.
     /// Publication prunes this map when an incarnation ceases to be visible.
-    pub(super) fn next_action_handle(
+    pub(in crate::engine) fn next_action_handle(
         &self,
         viewer: PlayerId,
         after: Option<&ObjectHandle>,

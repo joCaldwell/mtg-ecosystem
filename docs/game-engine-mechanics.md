@@ -35,12 +35,30 @@ footprints; unsupported composition faults. Freeze all loss candidates before
 simultaneous departures/cleanup/adjudication. Restore must prove fault reachability.
 Capacity/budget suspension never invents a win/draw, truncation or partial mutation.
 
-The live stack entry owns an invocation's last-known source facts; a frame holds
-copies (CR 608.2h, 113.7a). `engine/frame.rs` traverses those copies with no
-wildcard arm, so a new frame, continuation or completion variant fails to compile
-until it is classified. A departure updates every copy the suspended frame holds,
-and each rule step then reconciles the frame it installed with its owners. A
-permission freezes its issuer; later last-known facts never rewrite that evidence.
+An invocation has one owner: its stack entry, or `rules.detached` while a frame
+still resolves it after the entry left the stack (CR 608.2h, 608.2m, 113.7a). That
+owner holds the source's last-known facts. A frame names invocations by `StackId`
+and holds progress only, so a rule step has no copy to reconcile.
+`engine/frame.rs` traverses every frame, continuation, completion, owner and
+origin variant with no wildcard arm; a new variant fails to compile there, in
+`Frame::decider` (who decides) and in the publication classifier until it is
+classified. A hand-cast permission names its issuer, and a delayed chapter
+registration is a frozen record of what its issuer fixed.
+
+Rules tables are private to `engine::state`: the engine reads them through
+`RulesState` and writes them only through `Game::rules_mut`. Every change commits
+through `Game::transact`, which stages a copy sharing the tables (objects in
+chunks, stack, libraries, effects and each viewer's knowledge copy on write),
+publishes it, checks the history capacity and replaces the state only if all of
+that succeeded. `state/`, `frame/` and `step/` report `RuleError`
+(invariant, resource, illegal input); public results keep text.
+
+Publication reuses the last view's rows when nothing a row, handle or public table
+derives from has changed, and otherwise projects every row. With
+`debug_assertions`, each publication is also run as a complete row-by-row
+projection of the same prior state and must equal it, including the history
+retention charge, and a transaction that starts from a state satisfying
+`validate_state` must commit one.
 
 `Game::with_trace` selects Off/Compact/Detailed. Diagnostics enter neither semantic
 hashes nor permitted views; `events()` populates only in Detailed, while `trace()`

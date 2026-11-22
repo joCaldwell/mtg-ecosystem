@@ -125,8 +125,9 @@ impl Game {
         // CR 702.103e: the Aura effect ends as resolution starts if its target
         // is illegal. The stack entry keeps the alternative payment as history.
         if let Frame::Resolve { frame } = &self.state.rules.frame
-            && frame.spell.source == object
-            && frame.spell.kind.is_spell()
+            && self
+                .entry(frame.stack_id)
+                .is_ok_and(|entry| entry.source == object && entry.kind.is_spell())
             && frame.legal_targets == [false]
         {
             return false;
@@ -154,7 +155,7 @@ impl Game {
         )
     }
     pub(super) fn announce_resolution_spell(&mut self, progress: CastOwner) -> Result<(), String> {
-        let permission = progress.permission()?;
+        let permission = progress.permission(self)?;
         let legal = match &progress {
             CastOwner::LinkedPlay {
                 progress,
@@ -163,7 +164,7 @@ impl Game {
             } => {
                 self.validate_linked_play(progress, None)?;
                 matches!(&self.state.rules.frame, Frame::PlayHideawayLinked { progress: current } if current == progress)
-                    && progress.receipt_matches(receipt, *object)
+                    && progress.receipt_matches(self, receipt, *object)?
                     && self.current(*object)?.zone == Zone::Exile
                     && self.resolution_spell_proposable(permission.caster, *object)?
             }
@@ -189,7 +190,7 @@ impl Game {
         frame: Box<Resolving>,
         object: ObjectId,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.hand_cast_candidates(&frame)?.contains(&object) {
             return Err("unavailable hand spell".into());
         }
@@ -233,7 +234,7 @@ impl Game {
                 )),
                 _ => None,
             };
-        self.state.rules.next_stack_id = self
+        self.rules_mut().next_stack_id = self
             .state
             .rules
             .next_stack_id
@@ -256,7 +257,7 @@ impl Game {
         if bestow {
             source_facts.characteristics = self.proposed_cast_characteristics(card, true)?;
         }
-        self.state.rules.stack.push(StackInstance {
+        let entry = StackInstance {
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
@@ -285,7 +286,8 @@ impl Game {
             paid: None,
             total_cost,
             cast_from,
-        });
+        };
+        self.rules_mut().stack.push(entry);
         let cast = Casting {
             completion,
             sacrifices: vec![],
@@ -298,8 +300,8 @@ impl Game {
             mana_activations: vec![],
             undo_mana: false,
         };
-        self.state.rules.frame = self.spell_announcement_frame(cast)?;
-        self.state.rules.passes.clear();
+        self.rules_mut().frame = self.spell_announcement_frame(cast)?;
+        self.rules_mut().passes.clear();
         Ok(())
     }
 
@@ -554,27 +556,26 @@ impl Game {
                 EventGroup::Ordered { children },
             )?;
         }
-        self.state.rules.stack.pop();
+        self.rules_mut().stack.pop();
         if cast.origin.is_spell() {
+            let owner = self.state.rules.cards[&cast.original_object.card].owner;
             let o = self
-                .state
-                .rules
+                .rules_mut()
                 .objects
                 .get_mut(&cast.original_object.card)
                 .ok_or("missing reversal object")?;
             o.id = cast.original_object;
             o.zone = stack.cast_from;
-            let owner = self.state.rules.cards[&cast.original_object.card].owner;
             o.controller = owner;
             o.default_controller = owner;
             o.tapped = false;
         }
-        self.state.rules.pending = None;
-        self.state.rules.priority = stack.controller;
+        self.rules_mut().pending = None;
+        self.rules_mut().priority = stack.controller;
         // CR 117.4: keeping a legal mana activation interrupts the old pass
         // round. Undoing all activations restores the pre-attempt live passes.
         let live = self.live_players();
-        self.state.rules.passes = if undo_mana || cast.mana_activations.is_empty() {
+        self.rules_mut().passes = if undo_mana || cast.mana_activations.is_empty() {
             cast.prior_passes
                 .into_iter()
                 .filter(|p| live.contains(p))
@@ -582,7 +583,7 @@ impl Game {
         } else {
             vec![]
         };
-        self.state.rules.frame = match cast.completion {
+        self.rules_mut().frame = match cast.completion {
             CastCompletion::Priority => Frame::Priority,
             CastCompletion::HandTrigger { frame } => Frame::HandCast { frame, child: None },
             CastCompletion::Resolution {

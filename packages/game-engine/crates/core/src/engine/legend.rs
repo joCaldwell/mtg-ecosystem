@@ -61,19 +61,18 @@ impl Game {
             _ => Err("invalid legend-rule keep choice".into()),
         }
     }
-    pub(super) fn legend_step(&mut self) -> Result<(), String> {
+    pub(super) fn legend_step(&mut self, frame: Frame) -> Result<(), String> {
         let Frame::LegendRule {
             resume,
             groups,
             mut kept,
-        } = self.state.rules.frame.clone()
+        } = frame
         else {
             return Err("legend frame".into());
         };
         if kept.len() < groups.len() {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing legend choice")?;
@@ -82,7 +81,7 @@ impl Game {
                 return Err("legend response".into());
             };
             kept.push(keep);
-            self.state.rules.frame = Frame::LegendRule {
+            self.rules_mut().frame = Frame::LegendRule {
                 resume,
                 groups,
                 kept,

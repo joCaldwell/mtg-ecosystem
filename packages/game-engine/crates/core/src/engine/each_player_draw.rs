@@ -54,7 +54,7 @@ impl Game {
                 InstructionOutcome::EachPlayerDrawAttempts { players },
             )
         } else {
-            self.state.rules.frame = Frame::Resolve { frame };
+            self.rules_mut().frame = Frame::Resolve { frame };
             Ok(())
         }
     }

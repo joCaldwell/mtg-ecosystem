@@ -93,7 +93,7 @@ impl Game {
             let receipt = self.activate_selected_intrinsic_mana(input, source, *color)?;
             self.resume_mana(resume, vec![receipt])
         } else {
-            self.state.rules.frame = Frame::ManaSourceChoice {
+            self.rules_mut().frame = Frame::ManaSourceChoice {
                 player: input.player,
                 source,
                 scope: ManaSourceScope::Intrinsic,

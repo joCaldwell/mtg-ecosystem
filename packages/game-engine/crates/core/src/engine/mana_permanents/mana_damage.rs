@@ -175,24 +175,24 @@ impl Game {
             if let frame @ Frame::ResolutionPayment { .. } =
                 spell_cascade_grants::retained_effect_frame(&a.resume)
             {
-                self.state.rules.frame = frame.clone();
+                self.rules_mut().frame = frame.clone();
                 return self.revalidate_resolution_payment_departure();
             }
-            self.state.rules.passes.clear();
+            self.rules_mut().passes.clear();
             if let Frame::Mana { cast } = spell_cascade_grants::retained_effect_frame(&a.resume)
                 && let CastCompletion::Resolution {
                     progress: CastOwner::LinkedPlay { progress, .. },
                     ..
                 } = &cast.completion
-                && self.is_live(progress.frame.spell.controller)
+                && self.is_live(self.entry(progress.frame.stack_id)?.controller)
             {
-                self.state.rules.frame = Frame::PlayHideawayLinked {
+                self.rules_mut().frame = Frame::PlayHideawayLinked {
                     progress: progress.clone(),
                 };
                 return Ok(());
             }
-            self.state.rules.frame = Frame::Priority;
-            return self.stabilize();
+            self.rules_mut().frame = Frame::Priority;
+            return Ok(self.stabilize()?);
         }
         self.finish_mana_ability(a)?;
         if departed {
@@ -217,15 +217,14 @@ impl Game {
                 if self.state.rules.pending_triggers[index].controller != controller {
                     return Err("mana damage trigger changed".into());
                 }
-                self.state.rules.pending_triggers.remove(index);
+                self.rules_mut().pending_triggers.remove(index);
             } else if self.is_live(controller) {
                 return Err("missing pending mana damage trigger".into());
             }
         }
         for shield in damage.shields.iter().rev() {
             let effect = self
-                .state
-                .rules
+                .rules_mut()
                 .effects
                 .iter_mut()
                 .find(|e| e.id == shield.effect)
@@ -243,7 +242,7 @@ impl Game {
         // same player. Reverse this ordered chain without touching departures.
         for entry in damage.life.iter().rev() {
             if self.is_live(entry.player) {
-                let life = &mut self.state.rules.players[entry.player.0 as usize].life;
+                let life = &mut self.rules_mut().players[entry.player.0 as usize].life;
                 if *life != entry.after {
                     return Err("mana damage life changed".into());
                 }

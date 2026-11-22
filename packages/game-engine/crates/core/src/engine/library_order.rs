@@ -13,13 +13,13 @@ impl Game {
             amount,
             source_block,
         }) = self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         else {
             return Err("library order source invariant".into());
         };
-        if player != frame.spell.controller
+        if player != self.entry(frame.stack_id)?.controller
             || *source_block != block
             || amount <= &Quantity::zero()
             || looked.is_empty()
@@ -40,7 +40,7 @@ impl Game {
         amount: Quantity,
         source_block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
@@ -55,7 +55,7 @@ impl Game {
         if looked.is_empty() {
             return self.complete_library_order(frame, amount, looked, vec![], source_block);
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::LibraryOrder {
                 player,
@@ -74,7 +74,7 @@ impl Game {
     ) -> Result<(), String> {
         self.validate_library_order_choice(&frame, player, &looked, source_block)?;
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player
                     || !matches!(input.response, Response::LibraryOrder { .. }))
             {
@@ -84,8 +84,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing library ordering input")?;
@@ -97,7 +96,8 @@ impl Game {
         }
         self.validate_library_partition(player, &looked, &objects, &[])?;
         let Instruction::OrderLibraryTop { amount, .. } =
-            self.program_for(&frame.spell)?.instructions[frame.cursor as usize].clone()
+            self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize]
+                .clone()
         else {
             return Err("library order source".into());
         };
@@ -113,15 +113,15 @@ impl Game {
     ) -> Result<(), String> {
         let actual = self.commit(
             ProposedEvent::OrderLibraryTop {
-                player: frame.spell.controller,
+                player: self.entry(frame.stack_id)?.controller,
                 amount,
                 looked,
                 order,
             },
             BatchCause::Instruction {
-                stack_id: frame.spell.id,
-                player: frame.spell.controller,
-                source: frame.spell.source,
+                stack_id: frame.stack_id,
+                player: self.entry(frame.stack_id)?.controller,
+                source: self.entry(frame.stack_id)?.source,
                 cursor: frame.cursor,
                 source_block,
             },
@@ -156,12 +156,12 @@ impl Game {
         frame: Resolving,
         source_block: u32,
     ) -> Result<(), String> {
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         if !self.is_live(player) {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::OptionalShuffle {
                 player,
@@ -176,13 +176,13 @@ impl Game {
         player: PlayerId,
         source_block: u32,
     ) -> Result<(), String> {
-        if frame.spell.controller != player
-            || !matches!(self.program_for(&frame.spell)?.instructions.get(frame.cursor as usize),Some(Instruction::OptionalShuffleLibrary{source_block:b})if *b==source_block)
+        if self.entry(frame.stack_id)?.controller != player
+            || !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.get(frame.cursor as usize),Some(Instruction::OptionalShuffleLibrary{source_block:b})if *b==source_block)
         {
             return Err("optional shuffle source invariant".into());
         }
         if !self.is_live(player) {
-            if let Some(input) = self.state.rules.pending.take()
+            if let Some(input) = self.rules_mut().pending.take()
                 && (input.player != player
                     || !matches!(input.response, Response::OptionalEffect { .. }))
             {
@@ -192,8 +192,7 @@ impl Game {
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing optional shuffle input")?;
@@ -235,7 +234,7 @@ impl Game {
                 .map_or(0, |l| l.len().saturating_sub(1)),
         )
         .map_err(|_| "shuffle length resource limit")?;
-        self.state.rules.frame = Frame::ResolutionChoice {
+        self.rules_mut().frame = Frame::ResolutionChoice {
             frame,
             choice: ResolutionChoice::Shuffle {
                 player,

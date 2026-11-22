@@ -20,8 +20,8 @@ use mtg_contracts::kir::{
 };
 
 /// The kernel context of a resolving invocation (CR 113.3).
-fn context(frame: &Resolving) -> Context {
-    match frame.spell.kind {
+fn context(entry: &StackInstance) -> Context {
+    match entry.kind {
         StackKind::Spell => Context::Spell,
         StackKind::Activated { .. } => Context::Activated,
         StackKind::Triggered { .. } => Context::Triggered,
@@ -31,12 +31,12 @@ fn context(frame: &Resolving) -> Context {
 /// Desugars the not-yet-migrated announced-X life instruction: the same life
 /// verb with the announced X as its amount (CR 107.3).
 pub(super) fn announced_x_life(
-    frame: &Resolving,
+    entry: &StackInstance,
     recipient: &LifeRecipient,
     gain: bool,
 ) -> Result<Node, String> {
     let player = match recipient {
-        LifeRecipient::Controller => PlayerExpr::you(context(frame)),
+        LifeRecipient::Controller => PlayerExpr::you(context(entry)),
         LifeRecipient::Target { target_slot } => PlayerExpr::target(*target_slot),
         _ => return Err("unsupported announced X life recipient".into()),
     };
@@ -121,7 +121,7 @@ impl Game {
             ZoneExpr::Graveyards => true,
             _ => return Err("kernel set zone has no audited evaluation".into()),
         };
-        let you = frame.spell.controller;
+        let you = self.entry(frame.stack_id)?.controller;
         let objects = self
             .state
             .rules
@@ -140,11 +140,11 @@ impl Game {
         Ok(match player {
             PlayerExpr::Is {
                 who: Ref::Controller { .. },
-            } => Players::One(frame.spell.controller),
+            } => Players::One(self.entry(frame.stack_id)?.controller),
             PlayerExpr::Is {
                 who: Ref::EventPlayer { .. },
-            } => frame
-                .spell
+            } => self
+                .entry(frame.stack_id)?
                 .kind
                 .event_player()?
                 .map_or(Players::Nobody, Players::One),
@@ -156,8 +156,8 @@ impl Game {
                     Players::Nobody
                 } else {
                     Players::One(
-                        *frame
-                            .spell
+                        *self
+                            .entry(frame.stack_id)?
                             .player_targets
                             .get(slot)
                             .ok_or("missing kernel player target")?,
@@ -174,7 +174,11 @@ impl Game {
             Amount::Fixed { value } => Ok(value.clone()),
             Amount::Var {
                 of: Ref::AnnouncedX,
-            } => frame.spell.x.clone().ok_or("missing announced X".into()),
+            } => self
+                .entry(frame.stack_id)?
+                .x
+                .clone()
+                .ok_or("missing announced X".into()),
             _ => Err("kernel amount has no audited evaluation".into()),
         }
     }
@@ -205,11 +209,13 @@ impl Game {
                     && player.is_you()
                     && source_block == 0
                     && frame.cursor == 1
-                    && frame.spell.kind.is_spell()
-                    && self.program_for(&frame.spell).is_ok_and(|program| {
-                        temporary_permanent_keyword_program(program)
-                            .is_some_and(|family| family.controller_life == Some(&amount))
-                    })))
+                    && self.entry(frame.stack_id)?.kind.is_spell()
+                    && self
+                        .program_for(self.entry(frame.stack_id)?)
+                        .is_ok_and(|program| {
+                            temporary_permanent_keyword_program(program)
+                                .is_some_and(|family| family.controller_life == Some(&amount))
+                        })))
         {
             return skipped(self, frame);
         }
@@ -229,7 +235,7 @@ impl Game {
         } else {
             ProposedEvent::LoseLife { player, amount }
         };
-        let actual = self.commit(proposed, Self::staple_cause(&frame, source_block))?;
+        let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
         self.finish_instruction(
             frame,
             InstructionOutcome::Life {

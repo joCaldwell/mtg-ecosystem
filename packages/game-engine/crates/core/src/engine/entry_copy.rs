@@ -64,7 +64,7 @@ impl Game {
         frame: &Resolving,
         source: ObjectId,
     ) -> Result<BatchCause, String> {
-        let spell = &frame.spell;
+        let spell = self.entry(frame.stack_id)?;
         let program = self.program_for(spell)?;
         if frame.condition_check.as_ref().is_some_and(|c| !c.passed()) {
             return Err("failed condition cannot cause entry".into());
@@ -92,7 +92,7 @@ impl Game {
                 && frame.legal_targets.get(*target_slot as usize) == Some(&true)
                 && self.object_target_legal(spell, source) =>
             {
-                Ok(Self::staple_cause(frame, *source_block))
+                Ok(self.instruction_cause(frame, *source_block)?)
             }
             _ => Err("invalid copy entry producer/source".into()),
         }
@@ -118,7 +118,7 @@ impl Game {
         if let Some(target) = selection.attachment {
             let donor = selection.model.ok_or("attachment without copy model")?;
             if !self
-                .entry_aura_targets(donor, frame.spell.controller)?
+                .entry_aura_targets(donor, self.entry(frame.stack_id)?.controller)?
                 .is_some_and(|targets| targets.contains(&target))
             {
                 return Err("illegal copied Aura attachment".into());
@@ -170,7 +170,7 @@ impl Game {
         let [source] = objects.as_slice() else {
             return Err("invalid entry copy group".into());
         };
-        let player = frame.spell.controller;
+        let player = self.entry(frame.stack_id)?.controller;
         let decision_id = self.state.rules.revision;
         if !selection.declined && self.has_entry_copy(selection.model.unwrap_or(*source))? {
             let candidates: Vec<_> = self
@@ -231,8 +231,7 @@ impl Game {
 
     pub(super) fn consume_copy_entry_response(&mut self, request: &Request) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing copy entry choice")?;
@@ -240,7 +239,7 @@ impl Game {
         let Frame::LandEntry {
             origin: EntryOrigin::Copy { selection, .. },
             ..
-        } = &mut self.state.rules.frame
+        } = &mut self.rules_mut().frame
         else {
             return Err("missing copy entry origin".into());
         };
@@ -298,8 +297,8 @@ impl Game {
     ) -> Result<(), String> {
         match batch.cause {
             BatchCause::SpellCompletion { .. } => {
-                self.remove_resolved_entry(&frame.spell)?;
-                self.complete_spell_resolution(&frame.spell, true)
+                self.remove_resolved_entry(frame.stack_id)?;
+                Ok(self.complete_spell_resolution(frame.stack_id, true)?)
             }
             BatchCause::Instruction { .. } => {
                 let movement = match batch.occurrences.last().map(|r| &r.actual) {
@@ -321,10 +320,10 @@ impl Game {
         source: ObjectId,
         selection: &EntryCopySelection,
     ) -> Result<(), String> {
-        if self.current(source).is_err() || !self.is_live(frame.spell.controller) {
-            self.state.rules.pending = None;
-            if frame.spell.source == source {
-                return self.finish_spell(&frame.spell, true);
+        if self.current(source).is_err() || !self.is_live(self.entry(frame.stack_id)?.controller) {
+            self.rules_mut().pending = None;
+            if self.entry(frame.stack_id)?.source == source {
+                return Ok(self.finish_spell(frame.stack_id, true)?);
             }
             return self.finish_instruction(
                 frame.clone(),
@@ -336,7 +335,7 @@ impl Game {
             if let (Some(model), Some(target)) = (selection.model, selection.attachment) {
                 missing_model
                     || !self
-                        .entry_aura_targets(model, frame.spell.controller)?
+                        .entry_aura_targets(model, self.entry(frame.stack_id)?.controller)?
                         .is_some_and(|targets| targets.contains(&target))
             } else {
                 false
@@ -346,7 +345,7 @@ impl Game {
                 origin: EntryOrigin::Copy { selection, .. },
                 choices,
                 ..
-            } = &mut self.state.rules.frame
+            } = &mut self.rules_mut().frame
             else {
                 return Err("missing copy entry origin".into());
             };
@@ -356,7 +355,7 @@ impl Game {
                 selection.attachment = None;
             }
             choices.clear();
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }

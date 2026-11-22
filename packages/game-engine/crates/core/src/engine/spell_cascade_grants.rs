@@ -89,11 +89,9 @@ impl Game {
                 t.grant.as_ref(),
             ));
         }
-        for s in &self.state.rules.stack {
+        let rules = &self.state.rules;
+        for s in rules.stack.iter().chain(rules.detached.values()) {
             charge = charge.saturating_add(entry_grant_charge(s));
-        }
-        if let Some(entry) = retained_resolving_entry(&self.state.rules.frame) {
-            charge = charge.saturating_add(entry_grant_charge(entry));
         }
         for effect in &self.state.rules.effects {
             if matches!(effect.kind, ResolvedEffectKind::GrantHandCastCascade { .. }) {
@@ -366,37 +364,5 @@ pub fn retained_effect_frame(mut frame: &Frame) -> &Frame {
             },
             _ => return frame,
         };
-    }
-}
-pub fn retained_resolving_entry(frame: &Frame) -> Option<&StackInstance> {
-    match retained_effect_frame(frame) {
-        Frame::LandEntry {
-            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
-            ..
-        }
-        | Frame::Resolve { frame }
-        | Frame::ResolutionChoice { frame, .. }
-        | Frame::ForcedSacrifice { frame, .. }
-        | Frame::OptionalDamage { frame } => Some(&frame.spell),
-        Frame::CounterPlacement { transaction } => Some(&transaction.frame.spell),
-        Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-            match transaction.continuation.as_ref() {
-                DamageContinuation::Instruction { frame } => Some(&frame.spell),
-                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
-            }
-        }
-        Frame::CommanderReturn { continuation, .. } => match continuation.as_ref() {
-            CommanderContinuation::GraveyardShuffle { frame, .. }
-            | CommanderContinuation::HandReturn { frame, .. }
-            | CommanderContinuation::LookTopMana { frame, .. }
-            | CommanderContinuation::LibrarySelect { frame, .. }
-            | CommanderContinuation::BoardReturn { frame, .. }
-            | CommanderContinuation::SpellMove { frame, .. }
-            | CommanderContinuation::ResolutionDraw { frame, .. } => Some(&frame.spell),
-            // CascadeBottom is charged in full by cascade_charge.
-            _ => None,
-        },
-        // Cascade and owned child announcements are charged in full, once.
-        _ => None,
     }
 }

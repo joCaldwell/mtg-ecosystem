@@ -14,11 +14,24 @@ pub struct LinkedPlayProgress {
 }
 
 impl LinkedPlayProgress {
-    pub(super) fn receipt_matches(&self, receipt: &HideawayLink, object: ObjectId) -> bool {
-        receipt.matches(self.frame.spell.source, self.hideaway_block, object)
+    pub(super) fn receipt_matches(
+        &self,
+        game: &Game,
+        receipt: &HideawayLink,
+        object: ObjectId,
+    ) -> Result<bool, String> {
+        Ok(receipt.matches(
+            game.entry(self.frame.stack_id)?.source,
+            self.hideaway_block,
+            object,
+        ))
     }
-    pub(super) fn permission(&self, object: ObjectId) -> CastPermission {
-        CastPermission::from_instruction(&self.frame, self.source_block, object, None)
+    pub(super) fn permission(
+        &self,
+        game: &Game,
+        object: ObjectId,
+    ) -> Result<CastPermission, String> {
+        CastPermission::from_instruction(game, &self.frame, self.source_block, object, None)
     }
 
     pub(super) fn complete_cast(&mut self, object: ObjectId, child: StackId) {
@@ -37,7 +50,7 @@ impl Game {
         // Test the condition once, when carrying out the effect, including
         // negative power. Subsequent plays can themselves change the battlefield.
         let mut power = Quantity::zero();
-        for object in self.controlled_creatures(frame.spell.controller) {
+        for object in self.controlled_creatures(self.entry(frame.stack_id)?.controller) {
             power.add(
                 &self
                     .characteristics(object)?
@@ -46,9 +59,9 @@ impl Game {
             );
         }
         if power < minimum_total_power {
-            return self.finish_ability(&frame.spell, true);
+            return self.finish_ability(frame.stack_id, true);
         }
-        self.state.rules.frame = Frame::PlayHideawayLinked {
+        self.rules_mut().frame = Frame::PlayHideawayLinked {
             progress: Box::new(LinkedPlayProgress {
                 frame,
                 hideaway_block,
@@ -102,12 +115,13 @@ impl Game {
         &self,
         progress: &LinkedPlayProgress,
     ) -> Result<Vec<ObjectId>, String> {
-        let player = progress.frame.spell.controller;
+        let player = self.entry(progress.frame.stack_id)?.controller;
         let mut candidates = Vec::new();
         if self.is_live(player) {
-            for object in
-                self.linked_hideaway_cards(progress.frame.spell.source, progress.hideaway_block)
-            {
+            for object in self.linked_hideaway_cards(
+                self.entry(progress.frame.stack_id)?.source,
+                progress.hideaway_block,
+            ) {
                 if self.linked_front_choice_available(player, object)?
                     || self.linked_land_face_playable(player, object, true)?
                 {
@@ -126,7 +140,7 @@ impl Game {
         Ok(
             (!candidates.is_empty()).then_some(Request::PlayHideawayLinked {
                 decision_id: self.state.rules.revision,
-                player: progress.frame.spell.controller,
+                player: self.entry(progress.frame.stack_id)?.controller,
                 candidates,
             }),
         )
@@ -168,8 +182,8 @@ impl Game {
         &mut self,
         progress: Box<LinkedPlayProgress>,
     ) -> Result<(), String> {
-        let player = progress.frame.spell.controller;
-        if let Some(input) = self.state.rules.pending.take() {
+        let player = self.entry(progress.frame.stack_id)?.controller;
+        if let Some(input) = self.rules_mut().pending.take() {
             self.validate_linked_play_response(input.player, &input.response)?;
             let choice = match input.response {
                 Response::PlayHideawayLinked { object } => object.map(|id| (id, false)),
@@ -178,7 +192,7 @@ impl Game {
             };
             if let Some((object, back_face)) = choice {
                 let receipt = self.turn_up_linked_hideaway(
-                    progress.frame.spell.source,
+                    self.entry(progress.frame.stack_id)?.source,
                     progress.hideaway_block,
                     object,
                 )?;
@@ -203,7 +217,7 @@ impl Game {
         } else if self.linked_play_request()?.is_some() {
             return Err("missing linked play decision".into());
         }
-        self.finish_ability(&progress.frame.spell, self.is_live(player))
+        self.finish_ability(progress.frame.stack_id, self.is_live(player))
     }
 
     pub(super) fn revalidate_linked_play_departure(&mut self) -> Result<(), String> {
@@ -213,7 +227,7 @@ impl Game {
                 .validate_linked_play_response(input.player, &input.response)
                 .is_err()
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }
@@ -236,10 +250,12 @@ impl Game {
         announcing: Option<(&CastPermission, ObjectId)>,
     ) -> Result<(), String> {
         let frame = &progress.frame;
-        if !matches!(frame.spell.kind, StackKind::Activated { .. })
-            || frame.cursor != 0
+        if !matches!(
+            self.entry(frame.stack_id)?.kind,
+            StackKind::Activated { .. }
+        ) || frame.cursor != 0
             || !frame.legal_targets.is_empty()
-            || !matches!(self.program_for(&frame.spell)?.instructions.as_slice(),
+            || !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.as_slice(),
                 [Instruction::PlayHideawayLinked { source_block, hideaway_block, .. }]
                 if *source_block == progress.source_block && *hideaway_block == progress.hideaway_block)
             || progress.children.len() > self.state.rules.cards.len()
@@ -261,7 +277,7 @@ impl Game {
             {
                 return Err("snapshot duplicate or invalid linked child".into());
             }
-            if self.is_live(card.owner) && self.is_live(frame.spell.controller) {
+            if self.is_live(card.owner) && self.is_live(self.entry(frame.stack_id)?.controller) {
                 let entry = self
                     .state
                     .rules
@@ -270,7 +286,8 @@ impl Game {
                     .find(|s| s.id == id)
                     .ok_or("missing paid linked child")?;
                 if entry.paid.is_none()
-                    || !self.resulting_permission_matches(&progress.permission(object), entry)?
+                    || !self
+                        .resulting_permission_matches(&progress.permission(self, object)?, entry)?
                 {
                     return Err("snapshot linked paid child".into());
                 }
@@ -278,7 +295,7 @@ impl Game {
             }
         }
         if let Some((permission, object)) = announcing {
-            if !objects.insert(object.card) || *permission != progress.permission(object) {
+            if !objects.insert(object.card) || *permission != progress.permission(self, object)? {
                 return Err("snapshot linked casting permission".into());
             }
             children.push(self.top()?.id);

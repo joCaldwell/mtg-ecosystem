@@ -251,12 +251,14 @@ impl Game {
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
             (Frame::PlayHideawayLinked { progress }, PlayerRequest::PlayHideawayLinked { .. }) => {
-                &progress.frame.spell
+                self.entry(progress.frame.stack_id).ok()?
             }
             (Frame::RevealAndCast { progress }, PlayerRequest::OptionalEffect { .. }) => {
-                &progress.frame.spell
+                self.entry(progress.frame.stack_id).ok()?
             }
-            (Frame::HandCast { frame, .. }, PlayerRequest::HandCast { .. }) => &frame.spell,
+            (Frame::HandCast { frame, .. }, PlayerRequest::HandCast { .. }) => {
+                self.entry(frame.stack_id).ok()?
+            }
             (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
                     .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)
@@ -284,7 +286,7 @@ impl Game {
                 | Frame::OptionalDamage { frame }
                 | Frame::ForcedSacrifice { frame, .. },
                 _,
-            ) => &frame.spell,
+            ) => self.entry(frame.stack_id).ok()?,
             (
                 _,
                 PlayerRequest::HybridCost { .. }
@@ -329,7 +331,7 @@ impl Game {
             | Frame::ResolutionChoice { frame, .. }
             | Frame::OptionalDamage { frame } => {
                 // source_block is a typed instruction provenance index, not text parsing.
-                self.program_for(&frame.spell)
+                self.program_for(self.entry(frame.stack_id).ok()?)
                     .ok()?
                     .instructions
                     .get(frame.cursor as usize)

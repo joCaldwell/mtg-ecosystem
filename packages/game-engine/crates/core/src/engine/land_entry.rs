@@ -77,14 +77,14 @@ impl EntryOrigin {
         )
     }
 
-    pub(super) fn player(&self) -> PlayerId {
-        match self {
+    pub(super) fn player(&self, game: &Game) -> Result<PlayerId, String> {
+        Ok(match self {
             Self::LandPlay { player, .. } => *player,
-            Self::Copy { frame, .. } => frame.spell.controller,
-            Self::Search { frame } => frame.entry_search_player(),
-            Self::Cascade { progress } => progress.frame.spell.controller,
-            Self::LinkedPlay { progress, .. } => progress.frame.spell.controller,
-        }
+            Self::Copy { frame, .. } => game.entry(frame.stack_id)?.controller,
+            Self::Search { frame } => frame.entry_search_player(game)?,
+            Self::Cascade { progress } => game.entry(progress.frame.stack_id)?.controller,
+            Self::LinkedPlay { progress, .. } => game.entry(progress.frame.stack_id)?.controller,
+        })
     }
 }
 
@@ -186,7 +186,7 @@ impl Game {
     }
     fn validate_entry_plan(&self) -> Result<(), String> {
         let (origin, objects, choices) = self.entry_frame()?;
-        let player = origin.player();
+        let player = origin.player(self)?;
         if !self.is_live(player)
             || objects.is_empty()
             || objects.len() > self.state.rules.cards.len()
@@ -209,7 +209,7 @@ impl Game {
                 // Reuse the original special-action legality without granting
                 // priority or consuming its pending boolean on the real state.
                 let mut validation = self.fork();
-                validation.state.rules.frame = Frame::Priority;
+                validation.rules_mut().frame = Frame::Priority;
                 validation.validate_land_face(player, objects[0].card, *back_face)?;
             }
             EntryOrigin::Copy { frame, selection } => {
@@ -229,7 +229,7 @@ impl Game {
                 back_face,
             } => {
                 self.validate_linked_play(progress, None)?;
-                if !progress.receipt_matches(receipt, *object)
+                if !progress.receipt_matches(self, receipt, *object)?
                     || objects != [*object]
                     || !self.linked_land_face_playable(player, *object, *back_face)?
                 {
@@ -296,7 +296,7 @@ impl Game {
         {
             return Ok(false);
         }
-        self.state.rules.frame = Frame::LandEntry {
+        self.rules_mut().frame = Frame::LandEntry {
             origin,
             objects,
             choices: vec![],
@@ -313,13 +313,14 @@ impl Game {
             return Ok(None);
         }
         let (origin, objects, choices) = self.entry_frame()?;
+        let player = origin.player(self)?;
         Ok(self
             .entry_offers(objects)?
             .into_iter()
             .nth(choices.len())
             .map(|(object, ability, cost)| {
                 (
-                    origin.player(),
+                    player,
                     self.entry_copy_model(object).unwrap_or(object),
                     ability,
                     cost,
@@ -366,7 +367,7 @@ impl Game {
         }
         let choice = EntryChoice::from_response(response).ok_or("invalid entry response")?;
         let offers = self.entry_offers(objects)?;
-        if origin.player() != player || choices.len() >= offers.len() {
+        if origin.player(self)? != player || choices.len() >= offers.len() {
             return Err("wrong entry chooser/phase".into());
         }
         let mut proposed = choices.to_vec();
@@ -387,13 +388,13 @@ impl Game {
             }),
             EntryOrigin::Copy { frame, .. } => self.copy_entry_cause(frame, objects[0]),
             EntryOrigin::Search { frame } => {
-                Ok(Self::staple_cause(frame, self.entry_search_block(frame)?))
+                Ok(self.instruction_cause(frame, self.entry_search_block(frame)?)?)
             }
             EntryOrigin::LinkedPlay { progress, .. } => {
-                Ok(Self::wipe_cause(&progress.frame, progress.source_block))
+                Ok(self.instruction_cause(&progress.frame, progress.source_block)?)
             }
             EntryOrigin::Cascade { progress } => {
-                Ok(Self::wipe_cause(&progress.frame, progress.source_block))
+                Ok(self.instruction_cause(&progress.frame, progress.source_block)?)
             }
         }
     }
@@ -403,7 +404,7 @@ impl Game {
         if choices.len() != offers.len() {
             return Err("incomplete entry decisions".into());
         }
-        let player = origin.player();
+        let player = origin.player(self)?;
         let mut children = vec![];
         for ((_, _, cost), choice) in offers.iter().zip(choices) {
             let proposed = match (cost, choice) {
@@ -491,7 +492,7 @@ impl Game {
                 | BatchCause::Instruction { stack_id, .. },
             ) => *stack_id == frame.stack_id,
             (EntryOrigin::Search { frame }, BatchCause::Instruction { stack_id, .. }) => {
-                *stack_id == frame.spell.id
+                *stack_id == frame.stack_id
             }
             (
                 EntryOrigin::LinkedPlay { progress, .. },
@@ -532,7 +533,7 @@ impl Game {
                 origin,
                 EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. }
             ),
-            player: origin.player(),
+            player: origin.player(self)?,
             put_by_effect,
             force_tapped,
             entries,
@@ -552,15 +553,14 @@ impl Game {
         }
         if self.land_entry_offer()?.is_some() {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing entry decision")?;
             self.validate_land_entry_response(input.player, &input.response)?;
             let choice =
                 EntryChoice::from_response(&input.response).ok_or("entry input invariant")?;
-            let Frame::LandEntry { choices, .. } = &mut self.state.rules.frame else {
+            let Frame::LandEntry { choices, .. } = &mut self.rules_mut().frame else {
                 unreachable!()
             };
             choices.push(choice);
@@ -583,12 +583,12 @@ impl Game {
         let batch = self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
         match origin {
             EntryOrigin::LandPlay { .. } => {
-                self.state.rules.frame = Frame::Priority;
-                self.state.rules.passes.clear();
-                self.stabilize()
+                self.rules_mut().frame = Frame::Priority;
+                self.rules_mut().passes.clear();
+                Ok(self.stabilize()?)
             }
             EntryOrigin::LinkedPlay { progress, .. } => {
-                self.state.rules.frame = Frame::PlayHideawayLinked { progress };
+                self.rules_mut().frame = Frame::PlayHideawayLinked { progress };
                 Ok(())
             }
             EntryOrigin::Copy { .. } => unreachable!(),
@@ -598,7 +598,7 @@ impl Game {
     }
     pub(super) fn land_entry_visible_to(&self, viewer: PlayerId, object: ObjectId) -> bool {
         matches!(&self.state.rules.frame, Frame::LandEntry { origin, objects, .. }
-            if origin.player() == viewer && self.is_live(viewer) && objects.contains(&object))
+            if origin.player(self).is_ok_and(|player| player == viewer) && self.is_live(viewer) && objects.contains(&object))
     }
     pub(super) fn validate_land_entry_state(&self) -> Result<(), String> {
         if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
@@ -607,7 +607,7 @@ impl Game {
         let retained = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
         if matches!(retained, Frame::LandEntry { .. }) {
             let mut validation = self.fork();
-            validation.state.rules.frame = retained.clone();
+            validation.rules_mut().frame = retained.clone();
             validation.validate_entry_plan()?;
         }
         Ok(())
@@ -615,26 +615,27 @@ impl Game {
     pub(super) fn revalidate_land_entry_departure(&mut self) -> Result<(), String> {
         let Frame::LandEntry {
             origin, objects, ..
-        } = self.state.rules.frame.clone()
+        } = &self.state.rules.frame
         else {
             return Ok(());
         };
+        let (origin, objects) = (origin.clone(), objects.clone());
         if let EntryOrigin::LinkedPlay {
             progress,
             object,
             receipt,
             back_face,
         } = &origin
-            && (!self.is_live(origin.player())
-                || !self.linked_land_face_playable(origin.player(), *object, *back_face)?)
+            && (!self.is_live(origin.player(self)?)
+                || !self.linked_land_face_playable(origin.player(self)?, *object, *back_face)?)
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             // Entry has not committed. A surviving land returns to its
             // original face-down exile state, preserving all prior lookers.
             if self.current(*object).is_ok_and(|o| o.zone == Zone::Exile) {
                 self.restore_hideaway_link(receipt.clone())?;
             }
-            self.state.rules.frame = Frame::PlayHideawayLinked {
+            self.rules_mut().frame = Frame::PlayHideawayLinked {
                 progress: progress.clone(),
             };
             return Ok(());
@@ -645,16 +646,16 @@ impl Game {
                 return Ok(());
             }
         }
-        if !self.is_live(origin.player()) {
-            self.state.rules.pending = None;
+        if !self.is_live(origin.player(self)?) {
+            self.rules_mut().pending = None;
             return match origin {
                 EntryOrigin::LandPlay { .. } => {
-                    self.state.rules.frame = Frame::Priority;
+                    self.rules_mut().frame = Frame::Priority;
                     Ok(())
                 }
                 EntryOrigin::LinkedPlay { .. } => unreachable!("departed linked land was unwound"),
                 EntryOrigin::Cascade { progress } => {
-                    self.finish_ability(&progress.frame.spell, false)
+                    self.finish_ability(progress.frame.stack_id, false)
                 }
                 EntryOrigin::Copy { .. } => unreachable!(),
                 EntryOrigin::Search { frame } => {
@@ -667,20 +668,20 @@ impl Game {
         } = &origin
         {
             let mut validation = self.fork();
-            validation.state.rules.frame = Frame::Priority;
+            validation.rules_mut().frame = Frame::Priority;
             if validation
                 .validate_land_face(*player, objects[0].card, *back_face)
                 .is_err()
             {
-                self.state.rules.pending = None;
-                self.state.rules.frame = Frame::Priority;
+                self.rules_mut().pending = None;
+                self.rules_mut().frame = Frame::Priority;
                 return Ok(());
             }
         }
         if let EntryOrigin::Cascade { progress } = origin
             && !self.cascade_land_available(&progress, objects[0])?
         {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
             return self.resume_cascade_land(progress, None);
         }
         // A departed SPELL SOURCE OWNER does not cancel a live controller's
@@ -690,7 +691,7 @@ impl Game {
             self.validate_land_entry_response(p.player, &p.response)
                 .is_err()
         }) {
-            self.state.rules.pending = None;
+            self.rules_mut().pending = None;
         }
         Ok(())
     }
@@ -704,21 +705,12 @@ impl Game {
     }
     pub(crate) fn land_entry_charge(&self) -> usize {
         let frame = spell_cascade_grants::retained_effect_frame(&self.state.rules.frame);
-        let Frame::LandEntry { origin, .. } = frame else {
+        if !matches!(frame, Frame::LandEntry { .. }) {
             return 0;
-        };
-        let separately_charged = match origin {
-            EntryOrigin::LandPlay { .. }
-            | EntryOrigin::Cascade { .. }
-            | EntryOrigin::LinkedPlay { .. } => 0,
-            EntryOrigin::Copy { frame, .. } | EntryOrigin::Search { frame } => {
-                costs::entry_cost_lock_charge(&frame.spell)
-                    .saturating_add(spell_cascade_grants::entry_grant_charge(&frame.spell))
-            }
-        };
-        // Charge ALL retained frame bytes (including the otherwise uncharged
-        // Resolving metadata), less ONLY the exact values already charged by the
-        // root cost/grant owners. Keys/envelopes and the root itself remain charged.
-        stored_history::payload_charge(frame).saturating_sub(separately_charged)
+        }
+        // Charge all retained frame bytes, including the otherwise uncharged
+        // Resolving progress. The invocation's owner is charged for its cost
+        // lock and grant payload.
+        stored_history::payload_charge(frame)
     }
 }

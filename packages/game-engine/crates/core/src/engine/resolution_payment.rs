@@ -33,7 +33,7 @@ impl Game {
         frame: &'a Resolving,
     ) -> Result<(PaymentPurpose, &'a Quantity, u32), String> {
         match self
-            .program_for(&frame.spell)?
+            .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(frame.cursor as usize)
         {
@@ -66,8 +66,8 @@ impl Game {
         match purpose {
             PaymentPurpose::Counter { target_slot } => {
                 let slot = target_slot as usize;
-                let target = frame
-                    .spell
+                let target = self
+                    .entry(frame.stack_id)?
                     .stack_targets
                     .get(slot)
                     .ok_or("missing conditional counter target")?;
@@ -82,7 +82,7 @@ impl Game {
                     .find(|s| s.id == *target)
                     .map(|s| s.controller))
             }
-            PaymentPurpose::CastPayerDraw => match &frame.spell.kind {
+            PaymentPurpose::CastPayerDraw => match &self.entry(frame.stack_id)?.kind {
                 StackKind::Triggered {
                     witness: TriggerEventWitness::SpellCast { cast },
                     ..
@@ -115,7 +115,7 @@ impl Game {
             return self.resolve_unpaid(frame, purpose, source_block);
         };
         let generic = generic.clone();
-        self.state.rules.frame = Frame::ResolutionPayment {
+        self.rules_mut().frame = Frame::ResolutionPayment {
             frame,
             payment: ResolutionPayment {
                 purpose,
@@ -182,8 +182,7 @@ impl Game {
         mut payment: ResolutionPayment,
     ) -> Result<(), String> {
         let input = self
-            .state
-            .rules
+            .rules_mut()
             .pending
             .take()
             .ok_or("missing resolution payment input")?;
@@ -220,7 +219,7 @@ impl Game {
                         spending,
                         restricted: vec![],
                     },
-                    Self::staple_cause(&frame, source_block),
+                    self.instruction_cause(&frame, source_block)?,
                 )?;
                 return self.finish_instruction(
                     frame,
@@ -231,7 +230,7 @@ impl Game {
             }
             _ => return Err("resolution payment input invariant".into()),
         }
-        self.state.rules.frame = Frame::ResolutionPayment { frame, payment };
+        self.rules_mut().frame = Frame::ResolutionPayment { frame, payment };
         Ok(())
     }
 
@@ -297,7 +296,7 @@ impl Game {
         let (_, _, source_block) = self.resolution_payment_terms(frame)?;
         let purpose = payment.purpose;
         let frame = frame.clone();
-        self.state.rules.pending = None;
+        self.rules_mut().pending = None;
         self.resolve_unpaid(frame, purpose, source_block)
     }
 }

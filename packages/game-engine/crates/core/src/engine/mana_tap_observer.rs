@@ -93,8 +93,7 @@ impl Game {
                 return Err("mana-tap reversal does not match its pending trigger".into());
             }
         }
-        self.state
-            .rules
+        self.rules_mut()
             .pending_triggers
             .retain(|t| !triggers.contains(&t.id));
         Ok(())

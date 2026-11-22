@@ -21,7 +21,7 @@ impl Game {
         choices: &ProliferateChoices,
     ) -> Option<Request> {
         // CR 701.34a/800.4h: this choice is prescribed by the keyword rule.
-        let controller = frame.spell.controller;
+        let controller = self.entry(frame.stack_id).ok()?.controller;
         let player = if self.is_live(controller) {
             controller
         } else {
@@ -69,8 +69,7 @@ impl Game {
     ) -> Result<(), String> {
         if self.proliferate_request(&frame, &choices).is_some() {
             let input = self
-                .state
-                .rules
+                .rules_mut()
                 .pending
                 .take()
                 .ok_or("missing proliferate choice")?;
@@ -81,7 +80,7 @@ impl Game {
             choices.push((object, include));
         }
         if self.proliferate_request(&frame, &choices).is_some() {
-            self.state.rules.frame = Frame::ResolutionChoice {
+            self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::Proliferate {
                     source_block,
@@ -91,7 +90,7 @@ impl Game {
             return Ok(());
         }
 
-        let cause = Self::staple_cause(&frame, source_block);
+        let cause = self.instruction_cause(&frame, source_block)?;
         let members = choices
             .into_iter()
             .filter(|(object, include)| *include && self.proliferate_eligible(*object))
@@ -117,8 +116,7 @@ impl Game {
         lore: bool,
     ) -> Result<EventOutcome, String> {
         let o = self
-            .state
-            .rules
+            .rules_mut()
             .objects
             .get_mut(&id.card)
             .ok_or("missing proliferate recipient")?;

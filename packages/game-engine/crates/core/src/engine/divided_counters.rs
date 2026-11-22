@@ -85,22 +85,22 @@ impl Game {
         &self,
         frame: &Resolving,
     ) -> Result<Vec<(ObjectId, Quantity)>, String> {
-        let program = self.program_for(&frame.spell)?;
+        let program = self.program_for(self.entry(frame.stack_id)?)?;
         let offer =
             CounterDivision::offered_by(program).ok_or("missing divided counter program")?;
-        if !self.announced_target_count_valid(program, &frame.spell)
-            || frame.legal_targets.len() != frame.spell.targets.len()
+        if !self.announced_target_count_valid(program, self.entry(frame.stack_id)?)
+            || frame.legal_targets.len() != self.entry(frame.stack_id)?.targets.len()
         {
             return Err("divided counter target binding invariant".into());
         }
-        let amount = if frame.spell.targets.len() == 1 {
+        let amount = if self.entry(frame.stack_id)?.targets.len() == 1 {
             offer.count
         } else {
             Quantity::from(1)
         };
         // Target loss never reallocates counters from the announced division.
-        Ok(frame
-            .spell
+        Ok(self
+            .entry(frame.stack_id)?
             .targets
             .iter()
             .zip(&frame.legal_targets)

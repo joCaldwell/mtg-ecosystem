@@ -147,8 +147,7 @@ impl Game {
             group,
         )?;
         let entry = self
-            .state
-            .rules
+            .rules_mut()
             .stack
             .last_mut()
             .ok_or("missing sacrifice invocation")?;
@@ -184,13 +183,12 @@ impl Game {
                     },
                 )
             }),
-            Frame::OptionalDamage { frame } => {
-                self.is_live(frame.spell.controller)
-                    .then_some(Request::OptionalEffect {
-                        decision_id,
-                        player: frame.spell.controller,
-                    })
-            }
+            Frame::OptionalDamage { frame } => self
+                .is_live(self.entry(frame.stack_id)?.controller)
+                .then_some(Request::OptionalEffect {
+                    decision_id,
+                    player: self.entry(frame.stack_id)?.controller,
+                }),
             _ => None,
         })
     }
@@ -224,8 +222,8 @@ impl Game {
             _ => Err("invalid sacrifice continuation response".into()),
         }
     }
-    pub(super) fn sacrifice_step(&mut self) -> Result<(), String> {
-        match self.state.rules.frame.clone() {
+    pub(super) fn sacrifice_step(&mut self, frame: Frame) -> Result<(), String> {
+        match frame {
             Frame::SacrificeCost { mut cast } => {
                 let stack = self.top()?.clone();
                 if self.next_sacrifices(&stack, &cast.sacrifices)?.is_empty() {
@@ -233,8 +231,7 @@ impl Game {
                     return self.reverse_cast(cast, "sacrifice no longer payable", undo);
                 }
                 let input = self
-                    .state
-                    .rules
+                    .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing sacrifice cost input")?;
@@ -245,16 +242,15 @@ impl Game {
                 cast.sacrifices.push(object);
                 let (_, count) = self.invocation_sacrifice(&stack).ok_or("missing cost")?;
                 if u32::try_from(cast.sacrifices.len()) != Ok(count) {
-                    self.state.rules.frame = Frame::SacrificeCost { cast };
+                    self.rules_mut().frame = Frame::SacrificeCost { cast };
                     return Ok(());
                 }
                 self.payment_step(cast)
             }
             Frame::OptionalDamage { frame } => {
-                let perform = if self.is_live(frame.spell.controller) {
+                let perform = if self.is_live(self.entry(frame.stack_id)?.controller) {
                     let input = self
-                        .state
-                        .rules
+                        .rules_mut()
                         .pending
                         .take()
                         .ok_or("missing optional damage input")?;
@@ -281,8 +277,7 @@ impl Game {
                 if let Some(player) = remaining.first().copied() {
                     if self.is_live(player) && !self.controlled_creatures(player).is_empty() {
                         let input = self
-                            .state
-                            .rules
+                            .rules_mut()
                             .pending
                             .take()
                             .ok_or("missing forced sacrifice input")?;
@@ -293,7 +288,7 @@ impl Game {
                         choices.push((player, object));
                     }
                     remaining.remove(0);
-                    self.state.rules.frame = Frame::ForcedSacrifice {
+                    self.rules_mut().frame = Frame::ForcedSacrifice {
                         frame,
                         remaining,
                         choices,
@@ -318,7 +313,7 @@ impl Game {
                         );
                     }
                     self.complete_graveyard_group(
-                        Self::sacrifice_cause(&frame, source_block),
+                        self.instruction_cause(&frame, source_block)?,
                         EventGroup::Simultaneous {
                             occurrences: children,
                         },
@@ -352,18 +347,9 @@ impl Game {
             return self.reverse_cast(cast, "departure made artifact sacrifice unpayable", undo);
         }
         cast.sacrifices.clear();
-        self.state.rules.pending = None;
-        self.state.rules.frame = Frame::SacrificeCost { cast };
+        self.rules_mut().pending = None;
+        self.rules_mut().frame = Frame::SacrificeCost { cast };
         Ok(())
-    }
-    fn sacrifice_cause(frame: &Resolving, source_block: u32) -> BatchCause {
-        BatchCause::Instruction {
-            stack_id: frame.spell.id,
-            player: frame.spell.controller,
-            source: frame.spell.source,
-            cursor: frame.cursor,
-            source_block,
-        }
     }
     pub(super) fn execute_sacrifice_instruction(
         &mut self,
@@ -372,11 +358,12 @@ impl Game {
     ) -> Result<(), String> {
         match instruction {
             Instruction::EachOpponentSacrifice { source_block } => {
+                let controller = self.entry(frame.stack_id)?.controller;
                 let remaining = (0..4)
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
-                    .filter(|p| self.is_live(*p) && *p != frame.spell.controller)
+                    .filter(|p| self.is_live(*p) && *p != controller)
                     .collect();
-                self.state.rules.frame = Frame::ForcedSacrifice {
+                self.rules_mut().frame = Frame::ForcedSacrifice {
                     frame,
                     remaining,
                     choices: vec![],
@@ -385,7 +372,7 @@ impl Game {
                 Ok(())
             }
             Instruction::SacrificeDamage { optional: true, .. } => {
-                self.state.rules.frame = Frame::OptionalDamage { frame };
+                self.rules_mut().frame = Frame::OptionalDamage { frame };
                 Ok(())
             }
             Instruction::SacrificeDamage { .. } => self.start_sacrifice_damage(frame),
@@ -405,15 +392,14 @@ impl Game {
             amount,
             source_block,
             ..
-        } = &self.program_for(&frame.spell)?.instructions[frame.cursor as usize]
+        } = &self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize]
         else {
             return Err("not sacrifice damage".into());
         };
         let amount = match amount {
             SacrificeDamageAmount::Fixed { value } => value.clone(),
             SacrificeDamageAmount::SacrificedPower => std::cmp::max(
-                frame
-                    .spell
+                self.entry(frame.stack_id)?
                     .sacrificed
                     .as_ref()
                     .and_then(|f| f.characteristics.power.clone())
@@ -424,8 +410,8 @@ impl Game {
         let targets = if let Some(slot) = target_slot {
             if frame.legal_targets.get(*slot as usize) == Some(&true) {
                 vec![
-                    *frame
-                        .spell
+                    *self
+                        .entry(frame.stack_id)?
                         .entity_targets
                         .get(*slot as usize)
                         .ok_or("missing sacrifice damage target")?,
@@ -436,10 +422,10 @@ impl Game {
         } else {
             match recipient {
                 Some(LifeRecipient::Controller) => vec![TargetEntity::Player {
-                    player: frame.spell.controller,
+                    player: self.entry(frame.stack_id)?.controller,
                 }],
                 Some(LifeRecipient::EachOpponent) => self
-                    .opponents(frame.spell.controller)
+                    .opponents(self.entry(frame.stack_id)?.controller)
                     .into_iter()
                     .map(|player| TargetEntity::Player { player })
                     .collect(),
@@ -514,15 +500,16 @@ impl Game {
                 source_block,
             } => {
                 let instruction = self
-                    .program_for(&frame.spell)?
+                    .program_for(self.entry(frame.stack_id)?)?
                     .instructions
                     .get(frame.cursor as usize);
                 let includes_caster =
                     matches!(instruction, Some(Instruction::EachPlayerSacrifice { .. }));
                 let valid = matches!(instruction,Some(Instruction::EachOpponentSacrifice {source_block:b} | Instruction::EachPlayerSacrifice {source_block:b}) if b==source_block);
+                let controller = self.entry(frame.stack_id)?.controller;
                 let all = (0..4)
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
-                    .filter(|p| includes_caster || *p != frame.spell.controller)
+                    .filter(|p| includes_caster || *p != controller)
                     .collect::<Vec<_>>();
                 if !valid
                     || remaining.len() > all.len()
@@ -547,7 +534,7 @@ impl Game {
             }
             Frame::OptionalDamage { frame }
                 if !matches!(
-                    self.program_for(&frame.spell)?
+                    self.program_for(self.entry(frame.stack_id)?)?
                         .instructions
                         .get(frame.cursor as usize),
                     Some(Instruction::SacrificeDamage { optional: true, .. })
