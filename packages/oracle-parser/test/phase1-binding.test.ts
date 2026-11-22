@@ -242,14 +242,20 @@ describe("counts and public-zone successor captures", () => {
     assert.notEqual(measured.id, choice.id);
   });
 
-  it("announces bounded ordinary targets without supporting divided distribution", () => {
+  it("announces bounded ordinary targets and a bounded divided distribution", () => {
     const graph = analyze("Put one, two, or three target creature cards from graveyards onto the battlefield under your control.", "Sorcery");
     boundCard(graph);
     const count = graph.nodes.find(node => node.node === "target-count");
     assert.deepEqual([count?.minimum, count?.maximum], [1, 3]);
+    assert.ok(!graph.nodes.some(node => node.node === "target-division"));
     const divided = analyze("Distribute two +1/+1 counters among one or two target creatures.", "Instant");
-    assert.ok(!divided.nodes.some(node => node.node === "target-count"));
-    assert.ok(divided.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"));
+    boundCard(divided);
+    assert.ok(divided.nodes.some(node => node.node === "target-count"));
+    assert.ok(divided.nodes.some(node => node.node === "target-division"));
+    // CR 601.2d: each target receives at least one, so three targets cannot share two.
+    const overdivided = analyze("Distribute two +1/+1 counters among one, two, or three target creatures.", "Instant");
+    assert.ok(!overdivided.nodes.some(node => node.node === "target-division"));
+    assert.ok(overdivided.diagnostics.some(diagnostic => diagnostic.code === "unsupported-number-binding"));
   });
 
   it("uses the actual exile successors in a later permission", () => {

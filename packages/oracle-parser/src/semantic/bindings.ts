@@ -240,6 +240,21 @@ function chosenRange(amount: Amount | undefined): { minimum: number; maximum?: n
       amount.maximum.value >= amount.minimum) return { minimum: amount.minimum, maximum: amount.maximum.value };
 }
 
+/** CR 601.2c-d: "distribute N counters among one or two target creatures".
+ * The target count is announced with the targets and the fixed total is
+ * divided among them at the same time, each target receiving at least one, so
+ * the count can never exceed the total. Any other division (any number of
+ * targets, an X or measured total, an untargeted set, an optional or repeated
+ * instruction) has no announcement scope here and stays unsupported. */
+function announcedDivision(effect: Effect): { total: number } | undefined {
+  if (effect.effect !== "distribute-counters" || effect.optional || effect.forEach || effect.forEachVote || effect.decidedBy) return;
+  const { among, count } = effect;
+  if (among.ref !== "target" || !among.selectionId || among.upTo || among.chosenBy || among.random || among.groupConstraints?.length) return;
+  const range = chosenRange(among.count);
+  if (count.amount !== "fixed" || !range || range.minimum < 1 || range.maximum === undefined || range.maximum > count.value) return;
+  return { total: count.value };
+}
+
 function resolutionCount(effect: Effect, path: string): Context["resolutionCount"] {
   if (effect.forEach || effect.forEachVote || effect.decidedBy) return;
   if (effect.effect === "discard" && !effect.random && effect.who.player === "you" &&
@@ -411,7 +426,8 @@ interface Context {
   targetLegalityQuery?: true;
   interveningIf?: true;
   resolutionCount?: { path: string; operation: ResolutionCountOperation };
-  distributedCount?: boolean;
+  /** Inside a counter division with no announcement scope (CR 601.2d). */
+  unannouncedDivision?: boolean;
   exileResults?: { event: string; result: Candidate; faceDown?: true }[];
   uncertainExileOrigin?: boolean;
   uncertainStackOrigin?: boolean;
@@ -2874,7 +2890,7 @@ class Analyzer {
   }
   boundTargetCount(expression: ObjectRef | PlayerRef, context: Context):
     { minimum: number; maximum?: number; maximumNumber?: string } | undefined {
-    if (context.barrier || context.distributedCount || context.phase !== "resolution") return;
+    if (context.barrier || context.unannouncedDivision || context.phase !== "resolution") return;
     if ("ref" in expression && expression.ref === "target" && expression.selectionId &&
         !expression.chosenBy && !expression.random) {
       if (expression.count.amount === "x" && expression.upTo && context.announcedX)
@@ -6040,8 +6056,9 @@ class Analyzer {
         isDeepStrictEqual(effect.permission.what, { ref: "that", filter: { cls: "card" } })
         ? { path: `${path}/permission/what`, candidate: cardChoice.result, rules: ["400.7j", "608.2c", "608.2d"] } : undefined;
       const grantedExile = this.immediateExilePlay(effect, path, context, precedingEffect);
-      this.walk(effect, path, count || effect.effect === "distribute-counters" || chosenCard || suspension || remainder || sacrificed || grantedExile
-        ? { ...context, resolutionCount: count, distributedCount: effect.effect === "distribute-counters",
+      const unannouncedDivision = effect.effect === "distribute-counters" && !announcedDivision(effect);
+      this.walk(effect, path, count || unannouncedDivision || chosenCard || suspension || remainder || sacrificed || grantedExile
+        ? { ...context, resolutionCount: count, unannouncedDivision,
             boundOperand: chosenCard ?? suspension ?? remainder ?? sacrificed ?? grantedExile } : graveyardReturn);
     }
     // CR 608.2d: "[player] may" is decided while the instruction is applied;
@@ -6160,8 +6177,13 @@ class Analyzer {
       case "play-card":
         objectPaths.push(child(child(path, "instruction"), "what")); playerPaths.push(child(child(path, "instruction"), "who")); break;
       case "prohibit": case "cast-limit": case "loyalty-activation-limit": case "control-player": case "repeat-process": case "end-effect-action": case "legend-rule-exemption": case "player-combat-rule": case "targeting-as-though":
-      case "skip-time": case "set-day-night":
       case "distribute-counters":
+        if (announcedDivision(effect) && this.at(child(path, "among"))?.domain === "object") {
+          objectPaths.push(child(path, "among"));
+          break;
+        }
+      // falls through
+      case "skip-time": case "set-day-night":
       case "exchange-life-totals":
       case "exchange-values": case "exchange-zones": case "choose-random": case "choose-friend-or-foe":
       case "scan-library": case "grant-look-permission": case "self-replacement": case "look-top-may-reveal-for-mana":
@@ -6239,6 +6261,18 @@ class Analyzer {
     const event = this.event(path, context, effect.effect, [...objects, ...players], {
       ...(effect.optional || context.decider ? { optional: true as const, ...(decider ? { decider } : {}) } : {}),
       ...(effect.forEach ? { repeated: "for-each" as const } : {}), ...(context.conditional ? { conditional: true as const } : {}) });
+    const division = effect.effect === "distribute-counters" ? announcedDivision(effect) : undefined;
+    if (division) {
+      // The announced targets are the recipients; the division belongs to the
+      // ability that announces them (CR 601.2d, 602.2b).
+      const announcing = this.result.nodes.find(node => node.id === (context.targetScope ?? context.ability));
+      if (announcing?.node === "ability" && objects.length === 1)
+        this.node({ id: this.id(path, "target-division"), path, node: "target-division", scope: context.ability,
+          chooser: announcing.you, event, targets: objects[0].id, total: division.total, minimumEach: 1,
+          rules: ["601.2c", "601.2d", "602.2b"] });
+      else this.diagnostic("unsupported-number-binding", child(path, "among"),
+        "The division requires its announcing ability and one target selection.", ["601.2d"]);
+    }
     if (effect.effect === "exile" && effect.what.ref === "library-cards" &&
         (effect.what.of?.owner === "each-player" || effect.what.of?.owner === "each-opponent")) {
       const rules = ["400.1", "400.7j", "608.2f", "609.3"];
