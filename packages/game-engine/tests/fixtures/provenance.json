@@ -3304,6 +3304,16 @@
       "binding_sha256": "14a7036e7db242330c86402546c5b484a21e2177b6afd6367ada2f7eb20b5653",
       "archive": "archive-manifest-phase1-r4.json",
       "archive_line": 124
+    },
+    {
+      "file": "phase1-r4/abzan-charm.json",
+      "oracle_id": "4137a22c-f793-4e27-a9b2-72740a6e2121",
+      "record_sha256": "c4928e278408c6fbd431722629153931a67de14a7cbd2889512235a1a8572c67",
+      "source_sha256": "c1652c91379a5515b8df7b628d82ce4c119ec5e751064f1372665bc91bb4a94b",
+      "ast_sha256": "502f352457e440b89f45fd43f415c4c47753cf805cfe16d3800cc56ba7a0b62e",
+      "binding_sha256": "0b114841acd5b70f7533e72409d8b01d859623ce43fd0f2021beed329098f787",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 9810
     }
   ]
 }

@@ -69,6 +69,9 @@ fn paid_repeated_modes_resolve_all_five_printed_effects_and_preserve_duplicate_t
                 entities: vec![TargetEntity::Player { player: seat }],
             },
         );
+        // Each any-target mode announces in its own stage (CR 601.2c); the
+        // partially announced spell is a valid, restorable state.
+        recover(&repeated);
     }
     pay_and_resolve(&mut repeated, 1, vec![]);
     assert_eq!(repeated.state.rules.players[1].life, 30.into());

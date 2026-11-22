@@ -5,9 +5,9 @@ use super::*;
 
 #[test]
 fn divided_plus_one_counters_paid_charm_keeps_frozen_shares() {
-    let charm = include_str!(
-        "../../../../../tests/fixtures/ramos/4137a22c-f793-4e27-a9b2-72740a6e2121.json"
-    );
+    let charm = include_str!("../../../../../tests/fixtures/phase1-r4/abzan-charm.json");
+    let r4 = include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    let current = include_str!("../../../../../tests/fixtures/archive-manifest-current.json");
     let scales = include_str!(
         "../../../../../tests/fixtures/ramos/a1f3da21-af6d-450e-bf0b-985d158418e6.json"
     );
@@ -22,7 +22,7 @@ fn divided_plus_one_counters_paid_charm_keeps_frozen_shares() {
         lands(&mut rows, land, 0, 1);
     }
     lands(&mut rows, "Island", 1, 2);
-    let prepared = prepared_with_sources(&rows, &[charm, scales]);
+    let prepared = prepared_with_archived_sources(&rows, &[(r4, charm), (current, scales)]);
     let mut game = Game::with_trace(prepared.clone(), TraceMode::Detailed);
     let caster = PlayerId(0);
     let first = object(&game, 1);

@@ -910,6 +910,20 @@ impl Game {
             after: random.word_position,
         })
     }
+    /// A shuffle's cursor indexes its player's library while that player is
+    /// live. A departed player's library left the game with them (CR 800.4a),
+    /// and the shuffle step skips their continuation whatever its cursor.
+    fn valid_shuffle_cursor(&self, player: PlayerId, index: u32) -> bool {
+        !self.is_live(player)
+            || (index as usize)
+                < self
+                    .state
+                    .rules
+                    .libraries
+                    .get(&player)
+                    .map_or(1, Vec::len)
+                    .max(1)
+    }
     pub(super) fn valid_staples_choice(
         &self,
         frame: &Resolving,
@@ -1042,14 +1056,7 @@ impl Game {
                     && self
                         .graveyard_legality(frame)
                         .is_ok_and(|(legal, _)| legal.first() == Some(&true))
-                    && (*index as usize)
-                        < self
-                            .state
-                            .rules
-                            .libraries
-                            .get(player)
-                            .map_or(1, Vec::len)
-                            .max(1)
+                    && self.valid_shuffle_cursor(*player, *index)
             }
             (
                 ResolutionChoice::Shuffle {
@@ -1086,14 +1093,7 @@ impl Game {
                             && self.valid_fetched_land_movement(*player, movement)
                             && self.zone(movement.successor) == Some(Zone::Battlefield)
                     })
-                    && (*index as usize)
-                        < self
-                            .state
-                            .rules
-                            .libraries
-                            .get(player)
-                            .map_or(1, Vec::len)
-                            .max(1)
+                    && self.valid_shuffle_cursor(*player, *index)
             }
             (
                 ResolutionChoice::OptionalRecursion {

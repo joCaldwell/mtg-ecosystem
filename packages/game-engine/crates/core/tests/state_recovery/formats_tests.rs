@@ -5,10 +5,11 @@
 //! `Observation` derives `JsonSchema`, so its pin covers the complete schema.
 //! The private `Snapshot` and `SavedWork` envelopes do not (deriving it across
 //! all rules state would add schema code to every core build), so their pins
-//! are a structural shape over representative Foundations instances: every
-//! object key and JSON type reached, with ID-keyed maps folded. That catches
-//! added, removed, renamed or retyped fields on the reached state; payloads of
-//! enum variants a representative never reaches are not covered.
+//! are a structural shape over representative instances (a Foundations pod,
+//! and a game paused inside a resolving spell's choice): every object key and
+//! JSON type reached, with ID-keyed maps folded. That catches added, removed,
+//! renamed or retyped fields on the reached state; payloads of enum variants
+//! a representative never reaches are not covered.
 use crate::*;
 use mtg_contracts::{Catalog, canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -21,7 +22,7 @@ const OBSERVATION_PIN: (u32, &str) = (
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     79,
-    "5458a41199facb6a5337e1048bbba68b7ac79e3a6ed984571b1b9df281d8ee82",
+    "5a1aeb1a091190b6210d07a5053b4a120717937b48762cbc1c6bbeacf1d9334b",
 );
 const WORK_PIN: (u32, &str) = (
     50,
@@ -122,10 +123,75 @@ fn observation_schema_fingerprint_is_pinned_to_observation_version() {
     );
 }
 
+/// A live resolving frame: the Actions scenario's edict has resolved to its
+/// target player's sacrifice choice (CR 608.2), so the snapshot carries the
+/// `ResolutionChoice` around a `Resolving` frame and its invocation's stack
+/// entry. Fixed inputs make it deterministic; restoring it must reproduce it.
+fn mid_resolution() -> Game {
+    let prepared = Prepared::admit(
+        Catalog::read(include_str!(
+            "../../../../tests/fixtures/expected-action-ir.json"
+        ))
+        .unwrap(),
+        ScenarioConfig::actions(),
+    )
+    .unwrap();
+    let mut game = Game::new(prepared);
+    let mut answer = |game: &mut Game, response: Response| {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+            panic!("expected a decision before {response:?}")
+        };
+        game.respond(request.player(), request.decision_id(), response)
+            .unwrap();
+    };
+    answer(&mut game, Response::Cast { card: CardId(4) });
+    answer(
+        &mut game,
+        Response::PlayerTargets {
+            players: vec![PlayerId(1)],
+        },
+    );
+    for land in [2, 3] {
+        let object = game.object_id(CardId(land)).unwrap();
+        answer(&mut game, Response::ActivateMana { object });
+    }
+    answer(&mut game, Response::FinishMana { undo_mana: true });
+    answer(
+        &mut game,
+        Response::SpendMana {
+            spending: BTreeMap::from([
+                (Color::B, Quantity::from(1)),
+                (Color::G, Quantity::from(1)),
+            ]),
+        },
+    );
+    for _ in 0..game.live_players().len() {
+        answer(&mut game, Response::Pass);
+    }
+    let Advance::AwaitingDecision(Request::Sacrifice { player, .. }) =
+        game.advance(Budget::unlimited())
+    else {
+        panic!("the edict resolves to its target player's sacrifice")
+    };
+    assert_eq!(player, PlayerId(1));
+    assert!(matches!(
+        game.state.rules.frame,
+        Frame::ResolutionChoice { .. }
+    ));
+    let restored =
+        Game::restore(game.prepared.as_ref().clone(), &game.snapshot().unwrap()).unwrap();
+    assert_eq!(
+        restored.state_digest().unwrap(),
+        game.state_digest().unwrap()
+    );
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
-        .iter()
+        .into_iter()
+        .chain([mid_resolution()])
         .map(|g| g.snapshot().unwrap())
         .collect::<Vec<_>>();
     for raw in &samples {

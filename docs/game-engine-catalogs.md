@@ -99,7 +99,8 @@ edits. A new production module edits a watched `mod` declaration; a new
 Core wire/persistence versions (`SNAPSHOT_VERSION`, `OBSERVATION_VERSION`,
 `WORK_VERSION` and the search envelopes) have one owner,
 `crates/core/src/formats.rs`. `formats_tests` pins the Observation schema and
-Snapshot/SavedWork shape fingerprints and names the constant to bump. Tests import
+Snapshot/SavedWork shape fingerprints (Snapshot samples include a game paused in
+a resolving spell's choice) and names the constant to bump. Tests import
 the constants; only deliberate historical forgeries keep literal versions.
 
 `python3 scripts/engine-structure-check.py` verifies declared direct dependency
@@ -171,7 +172,8 @@ archive integrity checks, decodes the complete AST through the generated
 (`compiler/src/resolution.rs`, contract in the [parser guide](oracle_parser.md#ast-archive)):
 it must be complete; each reference's closed `Ref` role must be one the shared
 lowerer reads ("you" and implicit payers the block's controller, printed targets
-announced targets, other pronouns targets or results of the block's own steps);
+announced targets, other pronouns targets or results of the block's own steps,
+a kernel event player only under the one trigger that supplies it);
 the step map must be exactly the AST's steps; and each block's span certificate
 must tile its text, give every sentence its own span and print every top-level
 field. Composition never reads the diagnostic graph. Lowering then uses small

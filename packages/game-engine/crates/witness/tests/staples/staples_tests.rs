@@ -1581,6 +1581,10 @@ fn paid_colored_library_search_reveals_distinct_cards_and_shuffles() {
         },
     )
     .unwrap();
+    // The accepted answer awaits its rule step under a later revision; its
+    // handles still name the candidates of the decision it answered.
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
     let _ = request(&mut g);
     let mut concealed = g.fork();
     let hand = concealed

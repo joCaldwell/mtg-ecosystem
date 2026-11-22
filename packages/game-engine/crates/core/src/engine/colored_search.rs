@@ -132,6 +132,27 @@ impl Game {
             .collect())
     }
 
+    /// An answer's handles were minted for the decision it answers: the
+    /// current revision before it is accepted, and the pending input's
+    /// decision once accepting it has advanced the revision. Re-validating an
+    /// accepted answer (a committed state, a restored snapshot) therefore
+    /// reads the same candidates the chooser saw.
+    pub(super) fn validate_colored_answer(
+        &self,
+        frame: &Resolving,
+        player: PlayerId,
+        assignments: &[ColoredCardAssignment],
+    ) -> Result<(), String> {
+        let decision = self
+            .state
+            .rules
+            .pending
+            .as_ref()
+            .map_or(self.state.rules.revision, |input| input.decision_id);
+        self.colored_found(frame, player, assignments, decision)
+            .map(|_| ())
+    }
+
     pub(super) fn valid_colored_reveal(
         &self,
         player: PlayerId,

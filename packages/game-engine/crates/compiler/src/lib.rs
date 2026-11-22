@@ -1801,7 +1801,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
         abilities
     } else if let Some(program) = commander_modal_keyword::validate(&shape, &result, &binding)? {
         vec![Ability::CommanderModalKeyword(Box::new(program))]
-    } else if divided_plus_one_counters::validate(&shape, &result, &binding)? {
+    } else if divided_plus_one_counters::validate(&shape, &result, &r)? {
         vec![Ability::DividedPlusOneCountersModal]
     } else if let Some(ability) = counter_unless_generic::lower(&shape, &result, &binding)? {
         vec![ability]

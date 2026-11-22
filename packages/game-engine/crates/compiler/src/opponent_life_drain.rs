@@ -9,7 +9,7 @@ const BASE: &str = "/faces/0/abilities/0";
 const LOSS: &str = "/faces/0/abilities/0/effects/0/steps/0";
 const GAIN: &str = "/faces/0/abilities/0/effects/1/steps/0";
 
-fn graph<'a>(source: &Value, identity: &'a str, announced_x: bool, typed: bool) -> Bindings<'a> {
+fn graph<'a>(source: &Value, identity: &'a str, announced_x: bool) -> Bindings<'a> {
     const RULES: &[&str] = &["119.3", "608.2c", "608.2f", "608.2h"];
     let mut graph = Bindings::new(identity, source);
     graph.ability(BASE, "spell", "spell-controller");
@@ -53,26 +53,16 @@ fn graph<'a>(source: &Value, identity: &'a str, announced_x: bool, typed: bool) 
         &controller,
         "109.5",
     );
-    if typed {
-        graph.node(
-            &format!("{GAIN}/amount"),
-            "event-aggregate",
-            "event-aggregate",
-            json!({"scope":scope,"event":graph.id(LOSS,"event"),"measure":"life-lost","rules":RULES}),
-        );
-    }
+    graph.node(
+        &format!("{GAIN}/amount"),
+        "event-aggregate",
+        "event-aggregate",
+        json!({"scope":scope,"event":graph.id(LOSS,"event"),"measure":"life-lost","rules":RULES}),
+    );
     graph.event(BASE, GAIN, "gain-life", &controller, false);
     graph.result(GAIN, "quantity", "measured-quantity", None);
     graph
 }
-fn expected_graph(source: &Value, identity: &str, announced_x: bool) -> Value {
-    graph(source, identity, announced_x, false).with_scope_diagnostic(json!({
-        "code":"unsupported-scope","path":format!("{GAIN}/amount"),
-        "message":"An event or history quantity needs its exact measured event(s), participants and period bound; no nearby number substitutes for it.",
-        "rules":["119.3","120.3","608.2h"]
-    }))
-}
-
 pub(super) fn lower(
     source: &Value,
     result: &ParseResult,
@@ -128,20 +118,15 @@ pub(super) fn lower(
         return Err(fail());
     }
     let identity = source["oracle_id"].as_str().ok_or_else(fail)?;
-    if binding["referencesBound"] == true {
-        graph(source, identity, x, true).validate_ordered_with_features(
-            binding,
-            &[json!({"feature":"event-aggregate","path":format!("{GAIN}/amount"),
-                "message":"Sum the actual outcomes of the bound instruction across its participants.",
-                "rules":["119.3","608.2c","608.2f","608.2h"]})],
-            "requires the exact opponent loss and controller gain aggregate graph",
-        )?;
-    } else if *binding != expected_graph(source, identity, x) {
-        return Err(unsupported(
-            "binding",
-            "requires the exact opponent loss and controller gain diagnostic graph",
-        ));
-    }
+    graph(source, identity, x).validate_ordered_with_features(
+        binding,
+        &[
+            json!({"feature":"event-aggregate","path":format!("{GAIN}/amount"),
+            "message":"Sum the actual outcomes of the bound instruction across its participants.",
+            "rules":["119.3","608.2c","608.2f","608.2h"]}),
+        ],
+        "requires the exact opponent loss and controller gain aggregate graph",
+    )?;
     Ok(Some(amount))
 }
 
@@ -150,37 +135,10 @@ mod tests {
     use super::*;
     use crate::tests::changed_source;
 
-    const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest-current.json");
-
-    fn synthetic(x: bool) -> String {
-        changed_source(
-            include_str!("../../../tests/fixtures/lightning-bolt.json"),
-            |r| {
-                let source = &mut r["source"];
-                let (literal, amount, cost) = if x {
-                    ("X", json!({"amount":"x"}), "{X}{R}")
-                } else {
-                    ("1", json!({"amount":"fixed","value":1}), "{R}")
-                };
-                let text = format!(
-                    "Each opponent loses {literal} life. You gain life equal to the life lost this way."
-                );
-                source["oracle_text"] = json!(text);
-                source["mana_cost"] = json!(cost);
-                source["type_line"] = json!("Sorcery");
-                let binding = expected_graph(source, source["oracle_id"].as_str().unwrap(), x);
-                r["binding"] = binding;
-                let result = &mut r["faces"][0]["result"];
-                result["abilities"] = json!([{"kind":"spell","effects":[
-                    {"steps":[{"effect":"lose-life","who":{"player":"each-opponent"},"amount":amount}]},
-                    {"steps":[{"effect":"gain-life","who":{"player":"you"},"amount":{"amount":"event-quantity",
-                        "event":"life-change","change":"lost","scope":"this-way"}}]}
-                ]}]);
-                result["lines"][0]["ability"] = result["abilities"][0].clone();
-                result["lines"][0]["text"] = json!(text);
-            },
-        )
-    }
+    const MANIFEST: &str = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+    const FIXED: &str = include_str!("../../../tests/fixtures/phase1-r4/fixed-opponent-drain.json");
+    const ANNOUNCED: &str =
+        include_str!("../../../tests/fixtures/phase1-r4/announced-x-opponent-drain.json");
 
     fn witness(raw: &str, amount: kir::Amount) {
         use Capability::*;
@@ -224,6 +182,7 @@ mod tests {
             "missing loss result",
             "false binding",
             "diagnostic",
+            "feature",
             "count",
             "reference",
             "type",
@@ -257,10 +216,12 @@ mod tests {
                         .as_array_mut()
                         .unwrap()
                         .retain(|n| !(n["path"] == LOSS && n["node"] == "event-result")),
-                    "false binding" => r["binding"]["referencesBound"] = json!(true),
+                    "false binding" => r["binding"]["referencesBound"] = json!(false),
                     "diagnostic" => {
-                        r["binding"]["diagnostics"][0]["path"] = json!(format!("{LOSS}/amount"))
+                        r["binding"]["diagnostics"] = json!([{"code":"unsupported-scope",
+                        "path":format!("{LOSS}/amount"),"message":"unbound","rules":["608.2h"]}])
                     }
+                    "feature" => r["binding"]["engineFeatures"] = json!([]),
                     "count" => r["binding"]["counts"]["unresolved"] = json!(1),
                     "reference" => r["binding"]["references"][0]["target"] = json!("foreign query"),
                     "type" => {
@@ -291,32 +252,30 @@ mod tests {
 
     #[test]
     fn opponent_life_drain() {
-        witness(&synthetic(false), kir::Amount::fixed(1));
-        witness(&synthetic(true), kir::Amount::announced_x());
-        if let Some(path) = std::env::var_os("MTG_OPPONENT_LIFE_DRAIN_ARCHIVE_PROBE") {
-            // Two unmodified JSONL records, in physical archive order (19469, 30162).
-            let rows = std::fs::read_to_string(path).unwrap();
-            let pins = [
-                (
-                    19469,
-                    "a77306b60e81ef512604cd681331a9cd37ea6d86d89f1ed45915f4aa4e9b5e5c",
-                    kir::Amount::announced_x(),
-                ),
-                (
-                    30162,
-                    "e2482338d88940a4b9094194fc4649922ee90917dd69109ac831526435b047f0",
-                    kir::Amount::fixed(3),
-                ),
-            ];
-            assert_eq!(rows.lines().count(), pins.len());
-            for (raw, (line, hash, amount)) in rows.lines().zip(pins) {
-                assert_eq!(sha256(raw.as_bytes()), hash);
-                assert_eq!(
-                    serde_json::from_str::<Value>(raw).unwrap()["sourceIndex"],
-                    line - 2
-                );
-                witness(raw, amount);
-            }
+        witness(FIXED, kir::Amount::fixed(3));
+        witness(ANNOUNCED, kir::Amount::announced_x());
+        // The pre-Pass-2 diagnostic graph (an unsupported-scope hole where the
+        // gain measures the loss) is not an alternative to the aggregate.
+        let legacy = changed_source(FIXED, |r| {
+            let b = &mut r["binding"];
+            b["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|n| n["node"] != "event-aggregate");
+            b["engineFeatures"] = json!([]);
+            b["diagnostics"] = json!([{"code":"unsupported-scope","path":format!("{GAIN}/amount"),
+                "message":"An event or history quantity needs its exact measured event(s), participants and period bound; no nearby number substitutes for it.",
+                "rules":["119.3","120.3","608.2h"]}]);
+            b["referencesBound"] = json!(false);
+            b["fullyBound"] = json!(false);
+        });
+        assert!(matches!(compile(MANIFEST, &legacy),
+            CompileResult::Unsupported { path, .. } if path.starts_with("binding")));
+        for (raw, line) in [(ANNOUNCED, 19469), (FIXED, 30162)] {
+            assert_eq!(
+                serde_json::from_str::<Value>(raw).unwrap()["sourceIndex"],
+                line - 2
+            );
         }
     }
 }

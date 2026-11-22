@@ -100,3 +100,64 @@ describe("span certificates", () => {
     assert.ok(block.residuals.includes("spans:block has no recorded source tokens"));
   });
 });
+
+describe("kernel event players", () => {
+  const eventPlayers = (block: BlockResolution) => block.refs.flatMap(entry =>
+    "ref" in entry && entry.ref.ref === "event-player" ? [entry.ref.role] : []);
+
+  it("names the player whose step began the active player, whoever's step the trigger names", () => {
+    for (const whose of ["each player's", "each opponent's"]) {
+      const [upkeep] = blocks(`At the beginning of ${whose} upkeep, that player loses 1 life.`, "Enchantment");
+      assert.deepEqual(eventPlayers(upkeep), ["active-player"], JSON.stringify(upkeep.refs));
+      assert.deepEqual(upkeep.residuals, []);
+    }
+  });
+
+  it("names the caster in the kernel vocabulary", () => {
+    const [cast] = blocks("Whenever an opponent casts a spell, that player loses 1 life.", "Enchantment");
+    assert.deepEqual(eventPlayers(cast), ["caster"], JSON.stringify(cast.refs));
+  });
+
+  it("keeps the trigger discriminant for an event player the kernel does not name", () => {
+    const [draws] = blocks("Whenever an opponent draws a card, that player loses 1 life.", "Enchantment");
+    assert.deepEqual(eventPlayers(draws), ["draws"], JSON.stringify(draws.refs));
+  });
+});
+
+describe("announced counter division (CR 601.2c-d)", () => {
+  const charm = "Choose one —\n• Exile target creature with power 3 or greater.\n• You draw two cards and you lose 2 life.\n• Distribute two +1/+1 counters among one or two target creatures.";
+
+  it("binds the chosen target count, the division and its recipients at announcement", () => {
+    const result = parseOracleText(charm, "Fixture Charm", { typeLine: "Instant", layout: "normal", includeSourceProvenance: true });
+    assert.ok(result.ok);
+    const input = { identity: "fixture", source: { name: "Fixture Charm", layout: "normal", type_line: "Instant", mana_cost: "{W}{B}{G}" }, faces: [{ sourceFaceIndex: 0, result }] };
+    const analysis = analyzeCardBindings(input);
+    assert.deepEqual(analysis.diagnostics, []);
+    const step = "/faces/0/abilities/0/effects/0/steps/0/options/2/effects/0/steps/0";
+    const count = analysis.nodes.find(node => node.node === "target-count" && node.path === `${step}/among/count`);
+    assert.ok(count?.node === "target-count");
+    assert.deepEqual({ minimum: count.minimum, maximum: count.maximum }, { minimum: 1, maximum: 2 });
+    const event = analysis.nodes.find(node => node.node === "event" && node.path === step);
+    assert.ok(event?.node === "event" && event.operation === "distribute-counters");
+    const division = analysis.nodes.find(node => node.node === "target-division");
+    assert.ok(division?.node === "target-division", JSON.stringify(analysis.nodes));
+    assert.equal(division.total, 2);
+    assert.equal(division.event, event.id);
+    assert.deepEqual(event.inputs, [division.targets]);
+    const [block] = resolveCard(input, analysis).faces[0].blocks!;
+    assert.deepEqual(block.residuals, []);
+    assert.deepEqual(refs(block)["/effects/0/steps/0/options/2/effects/0/steps/0/among"], { ref: { ref: "target", slot: 1 } });
+    assert.ok(block.steps.some(s => s.path === "/effects/0/steps/0/options/2/effects/0/steps/0" && "event" in s && s.event === "distribute-counters"));
+  });
+
+  it("leaves divisions without an announcement scope unsupported", () => {
+    for (const text of [
+      "Distribute four +1/+1 counters among any number of target creatures.",
+      "Distribute X +1/+1 counters among one or two target creatures.",
+      "Distribute three +1/+1 counters among any number of creatures you control.",
+    ]) {
+      const [block] = blocks(text, "Sorcery", "{X}{G}");
+      assert.ok(block.residuals.includes("step:distribute-counters"), `${text}: ${JSON.stringify(block.residuals)}`);
+    }
+  });
+});
