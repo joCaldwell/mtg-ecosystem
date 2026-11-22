@@ -1076,6 +1076,7 @@ impl Game {
                         ) => true,
                         (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })
                         | (Frame::ForcedSacrifice { .. }, PlayerResponse::ForcedSacrifice { .. })
+                        | (Frame::Kernel { .. }, PlayerResponse::OptionalEffect { .. })
                         | (Frame::OptionalDamage { .. }, PlayerResponse::OptionalEffect { .. }) => {
                             true
                         }

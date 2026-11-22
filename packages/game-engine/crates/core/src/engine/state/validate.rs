@@ -16,6 +16,11 @@ impl Game {
                 return Err("invalid continuation stack link".into());
             }
         }
+        for frame in rules.frames.iter().chain(std::iter::once(&rules.frame)) {
+            if let Frame::Kernel { task } = frame {
+                self.validate_kernel_task(task)?;
+            }
+        }
         self.validate_match_state()?;
         self.validate_phasing_state()?;
         if self.state.rules.players.iter().any(|p| {

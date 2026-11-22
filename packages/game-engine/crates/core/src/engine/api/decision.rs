@@ -14,6 +14,9 @@ impl Game {
         if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
             return Ok(None);
         }
+        if let Frame::Kernel { task } = &self.state.rules.frame {
+            return self.kernel_request(task);
+        }
         if matches!(
             self.state.rules.frame,
             Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
@@ -234,6 +237,9 @@ impl Game {
             } else {
                 Err("invalid graveyard replacement decision".into())
             };
+        }
+        if let Frame::Kernel { task } = &self.state.rules.frame {
+            return self.validate_kernel_response(task, player, response);
         }
         if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
             return self.validate_land_entry_response(player, response);

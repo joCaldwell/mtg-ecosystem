@@ -33,6 +33,7 @@ impl Frame {
         // The controller of the object being announced or placed.
         let top = || -> Result<PlayerId, RuleError> { Ok(game.top()?.controller) };
         Ok(match self {
+            Frame::Kernel { task } => Decider::requested(game.kernel_request(task)?, 47),
             Frame::GraveyardReplacement { transaction: _ } | Frame::GraveyardGroup { tx: _ } => {
                 Decider::requested(game.replacement_request(), 4)
             }

@@ -13,7 +13,7 @@ pub enum ResolutionPaymentStage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResolutionPayment {
-    purpose: PaymentPurpose,
+    pub(super) purpose: PaymentPurpose,
     pub payer: PlayerId,
     cost: ManaCost,
     pub(super) stage: ResolutionPaymentStage,
@@ -22,7 +22,8 @@ pub struct ResolutionPayment {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum PaymentPurpose {
+pub(super) enum PaymentPurpose {
+    Kernel { resume: FrameLink },
     Counter { target_slot: u32 },
     CastPayerDraw,
 }
@@ -64,6 +65,7 @@ impl Game {
         purpose: PaymentPurpose,
     ) -> Result<Option<PlayerId>, String> {
         match purpose {
+            PaymentPurpose::Kernel { resume } => Ok(Some(self.kernel_payment_terms(resume)?.0)),
             PaymentPurpose::Counter { target_slot } => {
                 let slot = target_slot as usize;
                 let target = self
@@ -99,6 +101,7 @@ impl Game {
         source_block: u32,
     ) -> Result<(), String> {
         match purpose {
+            PaymentPurpose::Kernel { resume } => self.finish_kernel_payment(resume, false),
             PaymentPurpose::Counter { target_slot } => {
                 self.resolve_counter_instruction(frame, target_slot, source_block, None)
             }
@@ -129,6 +132,42 @@ impl Game {
             },
         };
         Ok(())
+    }
+
+    pub(super) fn begin_kernel_payment(
+        &mut self,
+        task: kir::Task,
+        payer: PlayerId,
+        generic: Quantity,
+    ) -> Result<(), String> {
+        if generic.is_negative() {
+            return Err("negative kernel mana payment".into());
+        }
+        let frame = self.kernel_root()?.clone();
+        let resume = self.save_frame(Frame::Kernel {
+            task: Box::new(task),
+        });
+        self.rules_mut().frame = Frame::ResolutionPayment {
+            frame,
+            payment: ResolutionPayment {
+                purpose: PaymentPurpose::Kernel { resume },
+                payer,
+                cost: ManaCost {
+                    generic,
+                    colored: vec![],
+                },
+                stage: ResolutionPaymentStage::Offer,
+                receipts: vec![],
+            },
+        };
+        Ok(())
+    }
+
+    fn payment_block(&self, frame: &Resolving, purpose: PaymentPurpose) -> Result<u32, String> {
+        match purpose {
+            PaymentPurpose::Kernel { resume } => Ok(self.kernel_payment_terms(resume)?.1),
+            _ => Ok(self.resolution_payment_terms(frame)?.2),
+        }
     }
 
     pub(super) fn resolution_payment_request(&self, payment: &ResolutionPayment) -> Request {
@@ -187,7 +226,7 @@ impl Game {
             .take()
             .ok_or("missing resolution payment input")?;
         self.validate_resolution_payment_response(&payment, input.player, &input.response)?;
-        let (_, _, source_block) = self.resolution_payment_terms(&frame)?;
+        let source_block = self.payment_block(&frame, payment.purpose)?;
         match input.response {
             Response::OptionalEffect { perform: true } => {
                 payment.stage = ResolutionPaymentStage::Mana
@@ -221,6 +260,9 @@ impl Game {
                     },
                     self.instruction_cause(&frame, source_block)?,
                 )?;
+                if let PaymentPurpose::Kernel { resume } = payment.purpose {
+                    return self.finish_kernel_payment(resume, true);
+                }
                 return self.finish_instruction(
                     frame,
                     InstructionOutcome::Effect {
@@ -240,7 +282,19 @@ impl Game {
         payment: &ResolutionPayment,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        let (purpose, generic, _) = self.resolution_payment_terms(frame)?;
+        let (purpose, generic) = match payment.purpose {
+            PaymentPurpose::Kernel { resume } => {
+                if frame != self.kernel_root()? || payment.cost.generic.is_negative() {
+                    return Err("invalid kernel mana payment".into());
+                }
+                self.kernel_payment_terms(resume)?;
+                (payment.purpose, &payment.cost.generic)
+            }
+            _ => {
+                let (purpose, generic, _) = self.resolution_payment_terms(frame)?;
+                (purpose, generic)
+            }
+        };
         let payer = self.resolution_payer(frame, purpose)?;
         if matches!(purpose, PaymentPurpose::Counter { target_slot } if frame.legal_targets.get(target_slot as usize) != Some(&true))
             || payment.purpose != purpose
@@ -296,7 +350,7 @@ impl Game {
             | Frame::ResolutionPayment { .. } => {}
             _ => return Ok(()),
         }
-        let (_, _, source_block) = self.resolution_payment_terms(frame)?;
+        let source_block = self.payment_block(frame, payment.purpose)?;
         let purpose = payment.purpose;
         let frame = frame.clone();
         self.rules_mut().pending = None;

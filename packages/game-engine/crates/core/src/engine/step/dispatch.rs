@@ -27,6 +27,7 @@ impl Game {
     }
     pub(in crate::engine) fn step_frame(&mut self, frame: Frame) -> Result<(), RuleError> {
         match frame {
+            Frame::Kernel { task } => self.step_kernel_task(*task)?,
             Frame::GraveyardGroup { tx } => self.graveyard_group_step(tx)?,
             Frame::GraveyardReplacement { transaction } => {
                 self.graveyard_replacement_step(transaction)?

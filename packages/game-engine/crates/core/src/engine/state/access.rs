@@ -9,6 +9,7 @@ impl Game {
             self.state
                 .rules
                 .retained_auxiliary_charge
+                .saturating_add(self.kernel_charge())
                 .saturating_add(self.cost_lock_charge())
                 .saturating_add(self.cascade_charge())
                 .saturating_add(self.mana_continuation_charge())

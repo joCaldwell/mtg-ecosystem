@@ -1,0 +1,627 @@
+//! A suspended node names its location in the admitted instruction. Sequences
+//! and iterations save their remaining work on the same stack as rule frames.
+//! No snapshot supplies an executable node.
+use super::*;
+use mtg_contracts::kir::{Cmp, Cond, Domain, Payment};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Binding {
+    Player(PlayerId),
+    Objects(Vec<ObjectId>),
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
+enum Stage {
+    #[default]
+    Run,
+    Optional {
+        chooser: PlayerId,
+    },
+    Life {
+        payer: PlayerId,
+        amount: Quantity,
+    },
+    Choose {
+        chooser: PlayerId,
+        remaining: Vec<ObjectId>,
+        selected: Vec<ObjectId>,
+        minimum: usize,
+        maximum: usize,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Task {
+    pub(in crate::engine) resume: FrameLink,
+    path: Vec<usize>,
+    bindings: BTreeMap<u32, Binding>,
+    stage: Stage,
+}
+
+impl Task {
+    fn child(&self, index: usize) -> Self {
+        let mut path = self.path.clone();
+        path.push(index);
+        Self {
+            path,
+            bindings: self.bindings.clone(),
+            resume: self.resume,
+            stage: Stage::Run,
+        }
+    }
+
+    fn chooser(&self) -> Option<PlayerId> {
+        match self.stage {
+            Stage::Run => None,
+            Stage::Optional { chooser } | Stage::Choose { chooser, .. } => Some(chooser),
+            Stage::Life { payer, .. } => Some(payer),
+        }
+    }
+}
+
+impl Game {
+    pub(super) fn begin_kernel_control(&mut self, frame: Resolving) -> Result<(), String> {
+        let resume = self.save_frame(Frame::Resolve { frame });
+        self.install_kernel(Task {
+            resume,
+            path: Vec::new(),
+            bindings: BTreeMap::new(),
+            stage: Stage::Run,
+        });
+        Ok(())
+    }
+
+    fn install_kernel(&mut self, task: Task) {
+        self.rules_mut().frame = Frame::Kernel {
+            task: Box::new(task),
+        };
+    }
+
+    pub(in crate::engine) fn kernel_root(&self) -> Result<&Resolving, String> {
+        match self.state.rules.frames.first() {
+            Some(Frame::Resolve { frame }) => Ok(frame),
+            _ => Err("missing kernel invocation".into()),
+        }
+    }
+
+    fn node_at(&self, task: &Task) -> Result<(&Node, u32), String> {
+        let frame = self.kernel_root()?;
+        let Some(Instruction::Kernel { node, source_block }) = self
+            .program_for(self.entry(frame.stack_id)?)?
+            .instructions
+            .get(frame.cursor as usize)
+        else {
+            return Err("missing kernel instruction".into());
+        };
+        let mut node = node;
+        for index in &task.path {
+            node = match node {
+                Node::Seq(nodes) => nodes.get(*index),
+                Node::If {
+                    then, otherwise, ..
+                } => match index {
+                    0 => Some(then.as_ref()),
+                    1 => otherwise.as_deref(),
+                    _ => None,
+                },
+                Node::ForEach { body, .. }
+                | Node::Choose { body, .. }
+                | Node::Optional { node: body, .. }
+                | Node::UnlessPays { node: body, .. }
+                    if *index == 0 =>
+                {
+                    Some(body.as_ref())
+                }
+                _ => None,
+            }
+            .ok_or("invalid kernel continuation address")?;
+        }
+        Ok((node, *source_block))
+    }
+
+    fn control_objects(&self, task: &Task, set: &SetExpr) -> Result<Vec<ObjectId>, String> {
+        let frame = self.kernel_root()?;
+        let entry = self.entry(frame.stack_id)?;
+        Ok(match set {
+            SetExpr::Matching { zone, filter } => self.kernel_set(frame, zone, filter)?.0,
+            SetExpr::One {
+                object: Ref::Source,
+            } => vec![entry.source],
+            SetExpr::One {
+                object: Ref::Target { slot },
+            } => {
+                let slot = *slot as usize;
+                if frame.legal_targets.get(slot) == Some(&true) {
+                    self.bound_object_target(entry, slot)
+                        .copied()
+                        .into_iter()
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            }
+            SetExpr::One {
+                object: Ref::BoundVar { id },
+            }
+            | SetExpr::Pool {
+                pool: Ref::BoundVar { id },
+            } => {
+                let Some(Binding::Objects(objects)) = task.bindings.get(id) else {
+                    return Err("missing kernel object binding".into());
+                };
+                objects.clone()
+            }
+            _ => return Err("unsupported kernel object expression".into()),
+        })
+    }
+
+    fn control_players(
+        &self,
+        task: &Task,
+        expression: &PlayerExpr,
+    ) -> Result<Vec<PlayerId>, String> {
+        let frame = self.kernel_root()?;
+        Ok(match expression {
+            PlayerExpr::EachPlayer => self.apnap_players(),
+            PlayerExpr::Is {
+                who: Ref::BoundVar { id },
+            } => {
+                let Some(Binding::Player(p)) = task.bindings.get(id) else {
+                    return Err("missing kernel player binding".into());
+                };
+                vec![*p]
+            }
+            PlayerExpr::OwnerOf { object } | PlayerExpr::ControllerOf { object } => {
+                let objects = self.control_objects(
+                    task,
+                    &SetExpr::One {
+                        object: object.clone(),
+                    },
+                )?;
+                let [id] = objects.as_slice() else {
+                    return Err("kernel reference requires one object".into());
+                };
+                vec![if matches!(expression, PlayerExpr::OwnerOf { .. }) {
+                    self.state
+                        .rules
+                        .cards
+                        .get(&id.card)
+                        .ok_or("missing kernel owner")?
+                        .owner
+                } else {
+                    self.current(*id)?.controller
+                }]
+            }
+            _ => match self.kernel_players(frame, expression)? {
+                Players::Nobody => vec![],
+                Players::One(p) => vec![p],
+                Players::EachOpponent => {
+                    let controller = self.entry(frame.stack_id)?.controller;
+                    self.apnap_seats()
+                        .filter(|p| *p != controller && self.is_live(*p))
+                        .collect()
+                }
+            },
+        })
+    }
+
+    fn chooser(&self, task: &Task, expression: &PlayerExpr) -> Result<Option<PlayerId>, String> {
+        match self.control_players(task, expression)?.as_slice() {
+            [] => Ok(None),
+            [player] => Ok(self.is_live(*player).then_some(*player)),
+            _ => Err("kernel choice requires one player".into()),
+        }
+    }
+
+    fn control_amount(&self, task: &Task, amount: &Amount) -> Result<Quantity, String> {
+        match amount {
+            Amount::LifeOf { player } => Ok(self.state.rules.players[self
+                .chooser(task, player)?
+                .ok_or("missing kernel life subject")?
+                .0 as usize]
+                .life
+                .clone()),
+            Amount::Count { set } => {
+                Ok(Quantity::from(self.control_objects(task, set)?.len() as i64))
+            }
+            _ => self.kernel_amount(self.kernel_root()?, amount),
+        }
+    }
+
+    fn condition(&self, task: &Task, cond: &Cond) -> Result<bool, String> {
+        Ok(match cond {
+            Cond::Compare { left, cmp, right } => {
+                let left = self.control_amount(task, left)?;
+                let right = self.control_amount(task, right)?;
+                match cmp {
+                    Cmp::Exactly => left == right,
+                    Cmp::AtLeast => left >= right,
+                    Cmp::AtMost => left <= right,
+                }
+            }
+            Cond::Exists { set } => !self.control_objects(task, set)?.is_empty(),
+            Cond::CostPaid { identity } => self
+                .entry(self.kernel_root()?.stack_id)?
+                .selected_additional_costs
+                .as_ref()
+                .is_some_and(|paid| paid.contains(identity)),
+            Cond::Not { condition } => !self.condition(task, condition)?,
+            Cond::All { conditions } => {
+                for cond in conditions {
+                    if !self.condition(task, cond)? {
+                        return Ok(false);
+                    }
+                }
+                true
+            }
+        })
+    }
+
+    fn return_kernel(&mut self, resume: FrameLink) -> Result<(), String> {
+        match self.saved_frame(resume).clone() {
+            Frame::Resolve { frame } => {
+                self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
+            }
+            frame @ Frame::Kernel { .. } => {
+                self.rules_mut().frame = frame;
+                Ok(())
+            }
+            _ => Err("invalid kernel return frame".into()),
+        }
+    }
+
+    fn schedule(
+        &mut self,
+        resume: FrameLink,
+        tasks: impl DoubleEndedIterator<Item = Task>,
+    ) -> Result<(), String> {
+        let mut tasks = tasks.rev().peekable();
+        let mut parent = resume;
+        while let Some(mut task) = tasks.next() {
+            task.resume = parent;
+            if tasks.peek().is_none() {
+                self.install_kernel(task);
+                return Ok(());
+            }
+            parent = self.save_frame(Frame::Kernel {
+                task: Box::new(task),
+            });
+        }
+        self.return_kernel(parent)
+    }
+
+    pub(in crate::engine) fn kernel_request(&self, task: &Task) -> Result<Option<Request>, String> {
+        Ok(task
+            .chooser()
+            .filter(|p| self.is_live(*p))
+            .map(|player| Request::OptionalEffect {
+                player,
+                decision_id: self.state.rules.revision,
+            }))
+    }
+
+    pub(in crate::engine) fn validate_kernel_response(
+        &self,
+        task: &Task,
+        player: PlayerId,
+        response: &Response,
+    ) -> Result<(), String> {
+        if task.chooser() == Some(player)
+            && self.is_live(player)
+            && matches!(response, Response::OptionalEffect { .. })
+        {
+            Ok(())
+        } else {
+            Err("invalid kernel choice".into())
+        }
+    }
+
+    pub(in crate::engine) fn kernel_charge(&self) -> usize {
+        let charge = |frame: &Frame| match frame {
+            Frame::Kernel { task } => stored_history::payload_charge(task),
+            _ => 0,
+        };
+        self.state
+            .rules
+            .frames
+            .iter()
+            .fold(charge(&self.state.rules.frame), |sum, f| {
+                sum.saturating_add(charge(f))
+            })
+    }
+
+    pub(in crate::engine) fn validate_kernel_task(&self, task: &Task) -> Result<(), String> {
+        let (node, _) = self.node_at(task)?;
+        self.validate_resolving(self.kernel_root()?)?;
+        if task.chooser().is_some_and(|p| p.0 >= 4) {
+            return Err("invalid kernel chooser".into());
+        }
+        match (&task.stage, node) {
+            (Stage::Run, _)
+            | (Stage::Optional { .. }, Node::Optional { .. })
+            | (
+                Stage::Life { .. },
+                Node::UnlessPays {
+                    payment: Payment::Life { .. },
+                    ..
+                },
+            ) => Ok(()),
+            (
+                Stage::Choose {
+                    remaining,
+                    selected,
+                    minimum,
+                    maximum,
+                    ..
+                },
+                Node::Choose { .. },
+            ) if minimum <= maximum
+                && !remaining.is_empty()
+                && selected.len() < *maximum
+                && selected.len() + remaining.len() > *minimum =>
+            {
+                Ok(())
+            }
+            _ => Err("invalid kernel suspension".into()),
+        }
+    }
+
+    pub(in crate::engine) fn step_kernel_task(&mut self, mut task: Task) -> Result<(), String> {
+        let (node, block) = self.node_at(&task)?;
+        let node = node.clone();
+        if let Some(player) = task.chooser() {
+            let perform = if self.is_live(player) {
+                let input = self
+                    .rules_mut()
+                    .pending
+                    .take()
+                    .ok_or("missing kernel decision")?;
+                self.validate_kernel_response(&task, input.player, &input.response)?;
+                matches!(input.response, Response::OptionalEffect { perform: true })
+            } else {
+                self.rules_mut().pending = None;
+                false
+            };
+            match std::mem::take(&mut task.stage) {
+                Stage::Optional { .. } if perform => self.install_kernel(task.child(0)),
+                Stage::Optional { .. } => return self.return_kernel(task.resume),
+                Stage::Life { amount, .. } if perform => {
+                    if !self.state.rules.players[player.0 as usize].can_pay_life(&amount) {
+                        return Err("unpayable kernel life payment".into());
+                    }
+                    if amount > Quantity::zero() {
+                        self.commit(
+                            ProposedEvent::LoseLife { player, amount },
+                            self.instruction_cause(self.kernel_root()?, block)?,
+                        )?;
+                    }
+                    return self.return_kernel(task.resume);
+                }
+                Stage::Life { .. } => self.install_kernel(task.child(0)),
+                Stage::Choose {
+                    mut remaining,
+                    mut selected,
+                    minimum,
+                    maximum,
+                    ..
+                } => {
+                    let object = remaining.pop().ok_or("missing kernel candidate")?;
+                    if perform {
+                        selected.push(object);
+                    }
+                    let Node::Choose { var, .. } = node else {
+                        return Err("missing choose node".into());
+                    };
+                    self.choose_next(task, var, player, remaining, selected, minimum, maximum)?;
+                }
+                Stage::Run => return Err("unexpected kernel input".into()),
+            }
+            return Ok(());
+        }
+        match &node {
+            Node::Seq(nodes) => {
+                self.schedule(task.resume, (0..nodes.len()).map(|i| task.child(i)))?
+            }
+            Node::If {
+                condition,
+                otherwise,
+                ..
+            } => {
+                if self.condition(&task, condition)? {
+                    self.install_kernel(task.child(0));
+                } else if otherwise.is_some() {
+                    self.install_kernel(task.child(1));
+                } else {
+                    self.return_kernel(task.resume)?;
+                }
+            }
+            Node::Optional { chooser, .. } => {
+                let Some(chooser) = self.chooser(&task, chooser)? else {
+                    return self.return_kernel(task.resume);
+                };
+                task.stage = Stage::Optional { chooser };
+                self.install_kernel(task);
+            }
+            Node::ForEach { var, over, .. } => {
+                let members = match over {
+                    Domain::Players { players } => self
+                        .control_players(&task, players)?
+                        .into_iter()
+                        .map(Binding::Player)
+                        .collect::<Vec<_>>(),
+                    Domain::Objects { set } => self
+                        .control_objects(&task, set)?
+                        .into_iter()
+                        .map(|id| Binding::Objects(vec![id]))
+                        .collect(),
+                };
+                self.schedule(
+                    task.resume,
+                    members.into_iter().map(|member| {
+                        let mut child = task.child(0);
+                        child.bindings.insert(*var, member);
+                        child
+                    }),
+                )?;
+            }
+            Node::Choose {
+                var,
+                chooser,
+                from,
+                minimum,
+                maximum,
+                ..
+            } => {
+                let Some(player) = self.chooser(&task, chooser)? else {
+                    return self.return_kernel(task.resume);
+                };
+                let mut objects = self.control_objects(&task, from)?;
+                let min = self.control_amount(&task, minimum)?;
+                let max = self.control_amount(&task, maximum)?;
+                if min.is_negative() || max < min {
+                    return Err("invalid kernel choice bounds".into());
+                }
+                let bound =
+                    |q: Quantity| (q.to_u32().unwrap_or(u32::MAX) as usize).min(objects.len());
+                let (min, max) = (bound(min), bound(max));
+                objects.reverse();
+                self.choose_next(task, *var, player, objects, vec![], min, max)?;
+            }
+            Node::UnlessPays { payer, payment, .. } => {
+                let Some(player) = self.chooser(&task, payer)? else {
+                    self.install_kernel(task.child(0));
+                    return Ok(());
+                };
+                match payment {
+                    Payment::Life { amount } => {
+                        let amount = self.control_amount(&task, amount)?;
+                        if amount.is_negative() {
+                            return Err("negative kernel life payment".into());
+                        }
+                        if self.state.rules.players[player.0 as usize].can_pay_life(&amount) {
+                            task.stage = Stage::Life {
+                                payer: player,
+                                amount,
+                            };
+                            self.install_kernel(task);
+                        } else {
+                            self.install_kernel(task.child(0));
+                        }
+                    }
+                    Payment::Generic { amount } => {
+                        let amount = self.control_amount(&task, amount)?;
+                        self.begin_kernel_payment(task, player, amount)?;
+                    }
+                }
+            }
+            Node::Do(Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }) => {
+                let amount = self.control_amount(&task, amount)?;
+                if amount > Quantity::zero() {
+                    let occurrences = self
+                        .control_players(&task, player)?
+                        .into_iter()
+                        .filter(|p| self.is_live(*p))
+                        .map(|player| {
+                            if matches!(node, Node::Do(Verb::GainLife { .. })) {
+                                ProposedEvent::GainLife {
+                                    player,
+                                    amount: amount.clone(),
+                                }
+                            } else {
+                                ProposedEvent::LoseLife {
+                                    player,
+                                    amount: amount.clone(),
+                                }
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    if !occurrences.is_empty() {
+                        self.commit_batch(
+                            self.instruction_cause(self.kernel_root()?, block)?,
+                            EventGroup::Simultaneous { occurrences },
+                        )?;
+                    }
+                }
+                self.return_kernel(task.resume)?;
+            }
+            _ => return Err("unsupported nested kernel verb or control".into()),
+        }
+        Ok(())
+    }
+
+    pub(in crate::engine) fn kernel_payment_terms(
+        &self,
+        resume: FrameLink,
+    ) -> Result<(PlayerId, u32), String> {
+        let Frame::Kernel { task } = self.saved_frame(resume) else {
+            return Err("missing kernel payment parent".into());
+        };
+        let (
+            Node::UnlessPays {
+                payer,
+                payment: Payment::Generic { .. },
+                ..
+            },
+            block,
+        ) = self.node_at(task)?
+        else {
+            return Err("invalid kernel payment parent".into());
+        };
+        let players = self.control_players(task, payer)?;
+        let [player] = players.as_slice() else {
+            return Err("invalid kernel payer".into());
+        };
+        Ok((*player, block))
+    }
+
+    pub(in crate::engine) fn finish_kernel_payment(
+        &mut self,
+        resume: FrameLink,
+        paid: bool,
+    ) -> Result<(), String> {
+        let Frame::Kernel { task } = self.saved_frame(resume) else {
+            return Err("invalid kernel payment parent".into());
+        };
+        if paid {
+            return self.return_kernel(task.resume);
+        }
+        self.install_kernel(task.child(0));
+        Ok(())
+    }
+
+    fn choose_next(
+        &mut self,
+        mut task: Task,
+        var: u32,
+        chooser: PlayerId,
+        remaining: Vec<ObjectId>,
+        mut selected: Vec<ObjectId>,
+        minimum: usize,
+        maximum: usize,
+    ) -> Result<(), String> {
+        if remaining.is_empty()
+            || selected.len() == maximum
+            || remaining.len() + selected.len() == minimum
+        {
+            if remaining.len() + selected.len() == minimum {
+                selected.extend(remaining.into_iter().rev());
+            }
+            let mut child = task.child(0);
+            child.bindings.insert(var, Binding::Objects(selected));
+            self.install_kernel(child);
+        } else {
+            task.stage = Stage::Choose {
+                chooser,
+                remaining,
+                selected,
+                minimum,
+                maximum,
+            };
+            self.install_kernel(task);
+        }
+        Ok(())
+    }
+}

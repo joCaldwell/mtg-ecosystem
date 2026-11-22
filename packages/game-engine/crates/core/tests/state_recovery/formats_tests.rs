@@ -127,15 +127,18 @@ fn observation_schema_fingerprint_is_pinned_to_observation_version() {
 /// target player's sacrifice choice (CR 608.2), so the snapshot carries the
 /// `ResolutionChoice` around a `Resolving` frame and its invocation's stack
 /// entry. Fixed inputs make it deterministic; restoring it must reproduce it.
-fn mid_resolution() -> Game {
-    let prepared = Prepared::admit(
+pub(super) fn actions_scenario() -> Prepared {
+    Prepared::admit(
         Catalog::read(include_str!(
             "../../../../tests/fixtures/expected-action-ir.json"
         ))
         .unwrap(),
         ScenarioConfig::actions(),
     )
-    .unwrap();
+    .unwrap()
+}
+
+pub(super) fn cast_edict(prepared: Prepared) -> Game {
     let mut game = Game::new(prepared);
     let answer = |game: &mut Game, response: Response| {
         let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
@@ -168,6 +171,11 @@ fn mid_resolution() -> Game {
     for _ in 0..game.live_players().len() {
         answer(&mut game, Response::Pass);
     }
+    game
+}
+
+fn mid_resolution() -> Game {
+    let mut game = cast_edict(actions_scenario());
     let Advance::AwaitingDecision(Request::Sacrifice { player, .. }) =
         game.advance(Budget::unlimited())
     else {
@@ -191,7 +199,10 @@ fn mid_resolution() -> Game {
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
         .into_iter()
-        .chain([mid_resolution()])
+        .chain([
+            mid_resolution(),
+            super::kernel_control_tests::suspended_control(),
+        ])
         .map(|g| g.snapshot().unwrap())
         .collect::<Vec<_>>();
     for raw in &samples {

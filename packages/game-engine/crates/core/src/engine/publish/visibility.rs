@@ -1933,6 +1933,15 @@ impl Game {
         let Some(token) = token else {
             return Ok(None);
         };
+        if let Frame::Kernel { task } = &self.state.rules.frame {
+            return Ok(self
+                .kernel_request(task)?
+                .filter(|r| r.player() == viewer)
+                .map(|_| PlayerRequest::OptionalEffect {
+                    token,
+                    player: viewer,
+                }));
+        }
         if let Some(Request::GraveyardReplacementOrder {
             player,
             object,

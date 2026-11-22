@@ -114,6 +114,7 @@ macro_rules! frame_walk {
             visit: &mut dyn FnMut($Held<'a>),
         ) {
             match frame {
+                Frame::Kernel { task: _ } => {}
                 Frame::GraveyardGroup { tx } => match & $($mutability)? tx.finish {
                     GroupFinish::Instruction { frame, result: _ } => visit($Held::Invocation {
                         hold,
@@ -353,6 +354,11 @@ macro_rules! frame_parent {
     ($name:ident $(, $mutable:tt)?) => {
     fn $name(&$($mutable)? self) -> Option<(&$($mutable)? FrameLink, Hold)> {
         match self {
+            Self::ResolutionPayment {payment, ..} => match &$($mutable)? payment.purpose {
+                resolution_payment::PaymentPurpose::Kernel {resume} => Some((resume, Hold::Resolving)),
+                _ => None,
+            },
+            Self::Kernel { task } => Some((&$($mutable)? task.resume, Hold::Resolving)),
             Self::Stabilize { resume, .. } | Self::LegendRule { resume, .. } => {
                 Some((resume, Hold::Resolving))
             }
@@ -490,6 +496,7 @@ impl Frame {
                 frame: _,
                 payment: _,
             }
+            | Frame::Kernel { task: _ }
             | Frame::OptionalDamage { frame: _ }
             | Frame::ManaAbility { activation: _ }
             | Frame::Setup

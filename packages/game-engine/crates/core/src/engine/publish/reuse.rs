@@ -41,7 +41,8 @@ impl Frame {
                     frame = parent;
                     frames = &frames[..resume.0];
                 }
-                Frame::GraveyardGroup { tx: _ }
+                Frame::Kernel { task: _ }
+                | Frame::GraveyardGroup { tx: _ }
                 | Frame::GraveyardReplacement { transaction: _ }
                 | Frame::PlayHideawayLinked { progress: _ }
                 | Frame::LandEntry {

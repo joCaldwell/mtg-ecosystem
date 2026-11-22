@@ -8,6 +8,7 @@ use std::{
 mod architecture_transaction_tests;
 mod data_rules_tests;
 mod formats_tests;
+mod kernel_control_tests;
 mod prepared_sharing_tests;
 mod state_ownership_tests;
 mod action_query {
