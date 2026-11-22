@@ -292,11 +292,139 @@ fn build_lowering(
 pub fn build_catalog(path: &Path) -> Result<Catalog, CatalogError> {
     build_with(path, read_file).map(|(_, c)| c)
 }
+/// The committed catalogs whose records predate Archive R4, with the digest
+/// of the reviewed IR each was frozen at. Only these manifests, at exactly
+/// these digests, are admitted from reviewed IR; every other manifest lowers
+/// its source. Converting or retiring them belongs with the legacy
+/// instructions they use.
+const FROZEN_CATALOGS: [(&str, &str); 30] = [
+    (
+        "catalogs/action.json",
+        "e9b8ea572758f162bd1e222f117f0eb216722b1fd2f0355dd87684753d5ed57a",
+    ),
+    (
+        "catalogs/attachments.json",
+        "2195ef4b75526c62478f23cf785592b95fbef7d5ba01d047a317b7a673d2677e",
+    ),
+    (
+        "catalogs/base.json",
+        "883582b8b70838ba12996c6096dd462bdddc0912b138fd7685ff22f931544af5",
+    ),
+    (
+        "catalogs/blocking-matches.json",
+        "c2915a079f7ebd2da99875c4995a2435c0544b828c4384774b27d96749c57837",
+    ),
+    (
+        "catalogs/cards-data-d2b.json",
+        "f7c6e47a74d34068b7b587bb5e622200e5b4c5d6dd12feed7e49c51ce6b97550",
+    ),
+    (
+        "catalogs/cards-data-d2c-b.json",
+        "51bd123044839c04d98ee51e8f50875402fa7389967504f2ddef8812906c7537",
+    ),
+    (
+        "catalogs/cards-data-d2c.json",
+        "e418b40194702759674ffbd3b0fb5d103896d3845453041c8af4541950e9bf7b",
+    ),
+    (
+        "catalogs/cards-data-d2cc.json",
+        "7f2d53af267d8c1dc6a8897f1e987b85d0d7ee03b64269dbedf93ccef2413df0",
+    ),
+    (
+        "catalogs/cards-data-d2cd.json",
+        "133cf118d27e79439c57997d70185b76a2cbfece496b5f6115f4a95644f550b4",
+    ),
+    (
+        "catalogs/choices.json",
+        "4b9e78d29039ebdd0274445d5588204bb1162a94d753a8ab2882b54c6454b9ae",
+    ),
+    (
+        "catalogs/combat-keywords.json",
+        "de47e0fd2eb9c4e8f8b941e98d2040e639531e1f26002f585b5088190b23f093",
+    ),
+    (
+        "catalogs/commander.json",
+        "c8e28c48d4fd69fe964d5433c29d2076879e4ff643ad269b05c5731270be5676",
+    ),
+    (
+        "catalogs/damage-life.json",
+        "24ab3c4b3c54544b2580d86e690a8c765e916e6dfb37c31daea4b7efb78295fb",
+    ),
+    (
+        "catalogs/damage-matches-v2.json",
+        "a5717e657e4d35120d8d29d77ba01a3ebc9d2309c29b2175f03ec4f2271d4e36",
+    ),
+    (
+        "catalogs/damage-matches.json",
+        "ee014c3bf306f38769b64d7694f5ecc39620c8c5dae6dc502bbdf7f034d6bd38",
+    ),
+    (
+        "catalogs/damage.json",
+        "b8e4823dde4f8391cafd20658e5ce4d7064d65a530ef56de969469b296d4f16a",
+    ),
+    (
+        "catalogs/data-admission.json",
+        "1adf65142a145039b0b081876c63ff3f7cf174c5475a4fbba597a5448d27c618",
+    ),
+    (
+        "catalogs/effects.json",
+        "0186e8929c151724d5f8888ce4452ffb11bfc77cb2ed2038717684371093cfe3",
+    ),
+    (
+        "catalogs/four-colors.json",
+        "9f8f9de30aa6acc3573f4da0d1708ac32396860da399c0b0e4464127bee660c1",
+    ),
+    (
+        "catalogs/keywords.json",
+        "61267935101da497e3ad7d2ee66f766fa10f6365b25931b53bca5761e8180d3d",
+    ),
+    (
+        "catalogs/library.json",
+        "60748d421d3d2a5c3a8d85ba10fbb7a24586c3421460b9c6c7fcab4836179748",
+    ),
+    (
+        "catalogs/mana.json",
+        "f1afce474537d9d2690676e922dfbfcb2ce94330b16976c29ab50e3398aed1b5",
+    ),
+    (
+        "catalogs/match.json",
+        "2411c93fd997cfe2128d81b4861474e2aca74ecc331b535a895a1946361203c5",
+    ),
+    (
+        "catalogs/removal.json",
+        "0a1cd2a9372352a54783e2e0a81895f220e83f76cff20b446a7d0832406e1c5f",
+    ),
+    (
+        "catalogs/sacrifice.json",
+        "7eb0ec0e90341b1b56b8a0abbfeacffb55fcac32a4d8c11548291801217ddfbc",
+    ),
+    (
+        "catalogs/stack.json",
+        "f09c91ccbd7bdae7fec91047d727d551bda80f94642710e5cafe4d4942178dfc",
+    ),
+    (
+        "catalogs/staples.json",
+        "d63b01c9a9bdd72142c46b6b4c9b6edd609676cdf63dd205685750453113fd06",
+    ),
+    (
+        "catalogs/tokens.json",
+        "993e11ad4cab8bb3a135ba3a4f80360e931c47040df4ad45fc92e2842d2d2c40",
+    ),
+    (
+        "catalogs/trigger.json",
+        "aa8d94f07f0858d1a21d7690bf7bba9f043aabaf75502e12cd5f1148cbb1e1fb",
+    ),
+    (
+        "catalogs/wipes.json",
+        "a7520bf1d8c2c9e4c4506009f22583571826ef845a2ef116b1e6150b6aeb9cea",
+    ),
+];
+
 /// A committed catalog's reviewed IR. Its records predate Archive R4, which
-/// the compiler now requires, so the definitions are not lowered again: each
-/// must carry exactly the provenance its manifest pins for the same accepted
-/// archive row, and the whole catalog must validate and hash to the committed
-/// digest. Only `build_catalog`/`generate_catalog` lower source.
+/// the compiler requires, so the definitions are not lowered again: each must
+/// be exactly the definition of its manifest's pinned record (oracle, source,
+/// AST, binding and archive identity), and the whole catalog must validate and
+/// hash to the frozen digest. Only `build_catalog`/`generate_catalog` lower.
 pub fn embedded_catalog(name: &str) -> Result<Catalog, CatalogError> {
     validate_embedded_record_groups()?;
     let manifest = Path::new("catalogs").join(format!("{name}.json"));
@@ -308,42 +436,67 @@ pub fn embedded_catalog(name: &str) -> Result<Catalog, CatalogError> {
     admit_reviewed(&manifest, embedded_file, ir, pinned).map(|(_, c)| c)
 }
 
-/// Admit reviewed IR for every row of a manifest, in place of lowering.
+/// Admit a frozen catalog's reviewed IR for every row of its manifest, in
+/// place of lowering. The manifest must be one of `FROZEN_CATALOGS`, byte for
+/// byte the committed manifest, at its frozen digest, with only pre-R4 rows.
 fn admit_reviewed(
     manifest: &Path,
     read: impl Fn(&Path) -> Result<String, String>,
     ir: &str,
     pinned: &str,
 ) -> Result<(CatalogManifest, Catalog), CatalogError> {
+    let name = manifest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("invalid catalog manifest name")?;
+    let key = format!("catalogs/{name}");
+    let frozen = FROZEN_CATALOGS
+        .iter()
+        .find(|(m, digest)| *m == key && *digest == pinned)
+        .ok_or_else(|| format!("{key}: not a frozen reviewed catalog at this digest"))?;
+    if read(manifest)? != embedded_file(Path::new(frozen.0))? {
+        return Err(format!("{key}: manifest differs from the committed frozen manifest").into());
+    }
     let reviewed: Catalog = strict_read(ir)?;
     let (manifest_data, catalog) = build_lowering(manifest, read, &|file, _, raw| {
         let record: serde_json::Value = strict_read(raw)?;
+        if record.get("resolution").is_some_and(|r| !r.is_null()) {
+            return Err(format!("{file}: an Archive R4 row lowers its source").into());
+        }
         let id = record["oracleIdentity"]
             .as_str()
             .ok_or_else(|| format!("{file}: record has no Oracle identity"))?;
-        reviewed
+        let definition = reviewed
             .definitions
             .iter()
             .find(|d| d.oracle_id == id)
-            .cloned()
-            .ok_or_else(|| format!("{file}: no reviewed definition").into())
+            .ok_or_else(|| format!("{file}: no reviewed definition"))?;
+        // The record bytes are pinned to their accepted archive; its own
+        // declared hashes therefore authenticate the definition's sources.
+        let p = &definition.provenance;
+        if record["sourceSha256"] != p.source_sha256.as_str()
+            || record["astSha256"] != p.ast_sha256.as_str()
+            || record["bindingSha256"] != p.binding_sha256.as_str()
+            || sha256(p.source_json.as_bytes()) != p.source_sha256
+            || sha256(format!("[{}]", p.abilities_json).as_bytes()) != p.ast_sha256
+        {
+            return Err(format!("{file}: provenance identity mismatch").into());
+        }
+        Ok(definition.clone())
     })?;
     if catalog.definitions.len() != reviewed.definitions.len()
         || catalog.schema_version != reviewed.schema_version
         || digest(&catalog)? != pinned
         || digest(&reviewed)? != pinned
     {
-        return Err(format!(
-            "{}: reviewed IR does not match its manifest and digest",
-            manifest.display()
-        )
-        .into());
+        return Err(format!("{key}: reviewed IR does not match its manifest and digest").into());
     }
     Ok((manifest_data, catalog))
 }
 
-/// Whether any row of a manifest predates Archive R4 (has no resolution), so
-/// the manifest's catalog can only be its reviewed IR.
+/// Whether every row of a manifest predates Archive R4 (has no resolution).
+/// Such a manifest's catalog can only be frozen reviewed IR; a manifest with
+/// any R4 row lowers every row, so a mixed one rejects at its pre-R4 rows.
 fn predates_r4(
     manifest: &Path,
     read: impl Fn(&Path) -> Result<String, String>,
@@ -352,11 +505,11 @@ fn predates_r4(
     let base = manifest.parent().ok_or("manifest has no parent")?;
     for file in &data.records {
         let record: serde_json::Value = strict_read(&read(&relative(base, file))?)?;
-        if record.get("resolution").is_none_or(|r| r.is_null()) {
-            return Ok(true);
+        if record.get("resolution").is_some_and(|r| !r.is_null()) {
+            return Ok(false);
         }
     }
-    Ok(false)
+    Ok(true)
 }
 
 /// Without --write this is a check, including exact expected JSON bytes.
@@ -819,6 +972,51 @@ mod guard_tests {
         );
         assert!(matches!(result, Err(CatalogError::InvalidData { reason })
             if reason.contains("provenance identity mismatch")));
+    }
+    /// Reviewed IR is admitted only for a committed frozen manifest, byte for
+    /// byte, at its frozen digest, with only pre-R4 rows, and only for the
+    /// exact sources (including the binding) each row pins.
+    #[test]
+    fn reviewed_ir_admission_is_bound_to_frozen_catalogs() {
+        let base = Path::new("catalogs/base.json");
+        let (_, ir, pinned) = fixtures::REVIEWED_IR
+            .iter()
+            .find(|(m, ..)| *m == "catalogs/base.json")
+            .unwrap();
+        assert!(admit_reviewed(base, embedded_file, ir, pinned).is_ok());
+        // An untrusted digest, even one that matches the supplied IR.
+        let mut catalog: Catalog = strict_read(ir).unwrap();
+        catalog.definitions.pop();
+        let other = serde_json::to_string(&catalog).unwrap();
+        assert!(admit_reviewed(base, embedded_file, &other, &digest(&catalog).unwrap()).is_err());
+        // A changed manifest under a frozen name.
+        let shrunk = |p: &Path| -> Result<String, String> {
+            let raw = embedded_file(p)?;
+            if p != base {
+                return Ok(raw);
+            }
+            let mut v: serde_json::Value = strict_read(&raw)?;
+            v["records"].as_array_mut().unwrap().pop();
+            Ok(v.to_string())
+        };
+        assert!(admit_reviewed(base, shrunk, ir, pinned).is_err());
+        // A definition whose binding is not the pinned record's.
+        let mut forged: Catalog = strict_read(ir).unwrap();
+        forged.definitions[0].provenance.binding_sha256 = "0".repeat(64);
+        let forged_ir = serde_json::to_string(&forged).unwrap();
+        assert!(admit_reviewed(base, embedded_file, &forged_ir, pinned).is_err());
+        // An Archive R4 manifest is never admitted from reviewed IR.
+        let r4 = Path::new("catalogs/r4.json");
+        let manifest = serde_json::json!({"schema_version":CURRENT_IR_VERSION,"output_order":"canonical","provenance":"../provenance.json","records":["../phase1-r4/compose-strip-mine.json"],"expected_ir":"unused.json","expected_digest":"unused.sha256"}).to_string();
+        let read = |p: &Path| {
+            if p == r4 {
+                Ok(manifest.clone())
+            } else {
+                embedded_file(p)
+            }
+        };
+        assert!(!predates_r4(r4, read).unwrap());
+        assert!(admit_reviewed(r4, read, ir, pinned).is_err());
     }
     #[test]
     fn malformed_catalog_is_a_serializable_runtime_error() {

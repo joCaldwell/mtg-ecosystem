@@ -4,6 +4,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+mod kernel_set_pump_tests;
 mod nonland_exile_life_tests;
 mod permanent_owner_hand_tests;
 mod removal_tests;

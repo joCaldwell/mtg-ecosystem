@@ -695,3 +695,56 @@ fn rider_blocks_reject_without_claiming_unaccounted_text() {
         CompileResult::Invalid { ref path, .. } if path == "lines"
     ));
 }
+
+/// CR 608.2c, 601.2c: the lowerer binds a pronoun to the nearest earlier
+/// producer of its kind and a printed target to its announced slot. An
+/// archived edge that names another producer, role or slot, or a deleted
+/// edge, rejects instead of being read by shape.
+#[test]
+fn contradictory_or_missing_r4_edges_reject() {
+    assert!(matches!(compile(R4, BAUBLE), CompileResult::Lowered { .. }));
+    let refs = |row: &mut serde_json::Value| -> serde_json::Value {
+        row["resolution"]["faces"][0]["blocks"][0]["refs"].clone()
+    };
+    let edge = |change: &dyn Fn(&mut serde_json::Value)| {
+        changed(BAUBLE, |row| {
+            let mut entries = refs(row);
+            for entry in entries.as_array_mut().unwrap() {
+                if entry["path"] == "/effects/0/steps/1/what" {
+                    change(entry);
+                }
+            }
+            row["resolution"]["faces"][0]["blocks"][0]["refs"] = entries;
+        })
+    };
+    let rejected = |raw: &str| matches!(compile(R4, raw), CompileResult::Unsupported { ref path, .. } if path == "resolution");
+    // A later producer, the wrong role and a step that produces nothing.
+    assert!(rejected(&edge(
+        &|e| e["ref"]["step"] = json!("/effects/0/steps/2/for")
+    )));
+    assert!(rejected(&edge(&|e| e["ref"]["role"] = json!("objects"))));
+    assert!(rejected(&edge(
+        &|e| e["ref"]["step"] = json!("/effects/0/steps/0")
+    )));
+    // A deleted edge leaves the operand unresolved.
+    let deleted = changed(BAUBLE, |row| {
+        let mut entries = refs(row);
+        entries
+            .as_array_mut()
+            .unwrap()
+            .retain(|e| e["path"] != "/effects/0/steps/1/what");
+        row["resolution"]["faces"][0]["blocks"][0]["refs"] = entries;
+    });
+    assert!(rejected(&deleted));
+    // A printed target the resolution assigns another slot.
+    assert!(matches!(compile(R4, SEAL), CompileResult::Lowered { .. }));
+    let slot = changed(SEAL, |row| {
+        row["resolution"]["faces"][0]["blocks"][0]["refs"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .filter(|e| e["ref"]["ref"] == "target")
+            .for_each(|e| e["ref"]["slot"] = json!(1));
+    });
+    assert!(rejected(&slot));
+}

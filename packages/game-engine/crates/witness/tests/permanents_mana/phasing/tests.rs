@@ -1,5 +1,5 @@
 use super::*;
-use mtg_witness::equipped::object;
+use mtg_witness::equipped::{equip, object, prepared};
 
 fn synthetic_game(alternate_spell: Option<&str>) -> Game {
     let mut catalog = Catalog::read(include_str!(
@@ -303,4 +303,140 @@ fn paid_controller_phasing_replays_status_and_normal_untap_with_stable_handles()
     assert_eq!(g.sacrifice_candidates(PlayerId(0), &filter), [land]);
     assert_eq!(g.handle_for(PlayerId(1), land).unwrap(), handle);
     recover(&g);
+}
+
+#[test]
+fn targeted_phasing_changes_only_the_selected_incarnation_and_its_attachments() {
+    let mut game = Game::with_trace(
+        prepared(
+            &[
+                ("Darksteel Plate", false),
+                ("Grizzly Bears", false),
+                ("Forest", false),
+                ("Forest", false),
+            ],
+            false,
+        ),
+        TraceMode::Detailed,
+    );
+    equip(&mut game, 1, 0, 1);
+    let plate = object(&game, 0);
+    let bear = object(&game, 1);
+    let forest = object(&game, 2);
+    let before = game.state.clone();
+    let event = ProposedEvent::PhaseOutTarget { object: bear };
+    assert!(game.commit(event.clone(), BatchCause::Fixture).is_err());
+    assert!(game.apply_occurrence(&event).is_err());
+    assert_eq!(game.state, before);
+
+    let selection = PhaseSelection::Target(bear);
+    let outcome = game.phase_out_permanents(selection).unwrap();
+    assert_eq!(
+        outcome,
+        EventOutcome::PermanentsPhasedOut {
+            controller: PlayerId(0),
+            members: vec![
+                (plate, PhaseReturn::Indirect { attached_to: bear }),
+                (
+                    bear,
+                    PhaseReturn::Direct {
+                        controller_at_phase_out: PlayerId(0)
+                    }
+                ),
+            ],
+        }
+    );
+    assert!(game.current(forest).unwrap().present_on_battlefield());
+    assert!(game.phase_out_permanents(selection).is_err());
+    assert!(
+        game.phase_in_for_next_untap(PlayerId(0))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        game.phase_in_for_next_untap(PlayerId(3)).unwrap(),
+        [plate, bear]
+    );
+    assert!(game.current(bear).unwrap().present_on_battlefield());
+    assert_eq!(game.current(plate).unwrap().attached_to, Some(bear));
+}
+
+#[test]
+fn controlled_phasing_freezes_attachment_identity_and_return_seat_on_live_table() {
+    let mut p = prepared(
+        &[
+            ("Darksteel Plate", false),
+            ("Grizzly Bears", false),
+            ("Forest", false),
+            ("Forest", false),
+        ],
+        false,
+    );
+    p.config.cards[1].owner = PlayerId(2);
+    p.profile_digest = digest(&p.config).unwrap();
+    let mut game = Game::with_trace(p, TraceMode::Detailed);
+    equip(&mut game, 1, 0, 1);
+    let plate = object(&game, 0);
+    let bear = object(&game, 1);
+    let mut schedule = PhasingSchedule::default();
+    let before = game.state.clone();
+    let ids = schedule.phase_out_controlled(&game, PlayerId(0)).unwrap();
+    assert_eq!(ids, (0..4).map(|i| object(&game, i)).collect::<Vec<_>>());
+    assert_eq!(
+        schedule.return_condition(plate),
+        Some(PhaseReturn::Indirect { attached_to: bear })
+    );
+    assert_eq!(
+        schedule.return_condition(bear),
+        Some(PhaseReturn::Direct {
+            controller_at_phase_out: PlayerId(0)
+        })
+    );
+    assert!(
+        schedule
+            .phase_out_controlled(&game, PlayerId(0))
+            .unwrap()
+            .is_empty()
+    );
+    let successor = ObjectId {
+        card: bear.card,
+        incarnation: bear.incarnation + 1,
+    };
+    assert_eq!(schedule.return_condition(successor), None);
+    assert!(
+        schedule
+            .phase_in_at_untap(&game, PlayerId(0))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(schedule.phase_in_at_untap(&game, PlayerId(3)).unwrap(), ids);
+    assert_eq!(game.state, before);
+    assert!(
+        game.commit_batch(
+            BatchCause::Fixture,
+            EventGroup::Occurrence {
+                proposed: ProposedEvent::PhaseOutControlled {
+                    controller: PlayerId(0)
+                }
+            }
+        )
+        .is_err()
+    );
+    game.phase_out_permanents(PhaseSelection::Controlled(PlayerId(0)))
+        .unwrap();
+    assert!(!game.controlled_creatures(PlayerId(0)).contains(&bear));
+    for viewer in (0..4).map(PlayerId) {
+        assert!(
+            game.visible_object(viewer, game.current(bear).unwrap())
+                .unwrap()
+                .unwrap()
+                .phased_out
+        );
+    }
+    assert_eq!(game.zone(bear), Some(Zone::Battlefield));
+    assert!(!game.current(bear).unwrap().present_on_battlefield());
+    assert_eq!(game.current(plate).unwrap().attached_to, Some(bear));
+    game.phase_in_for_next_untap(PlayerId(3)).unwrap();
+    assert!(game.current(bear).unwrap().present_on_battlefield());
+    assert_eq!(game.current(plate).unwrap().attached_to, Some(bear));
 }

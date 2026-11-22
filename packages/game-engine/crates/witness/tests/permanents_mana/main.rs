@@ -21,7 +21,7 @@ mod control {
 }
 mod phasing {
     use super::*;
-
+    pub use mtg_core::testkit::phasing::*;
     mod tests;
 }
 mod targeted_loss {
@@ -29,6 +29,10 @@ mod targeted_loss {
     mod tests;
 }
 mod unspent_mana {
+    use super::*;
+    mod tests;
+}
+mod graveyard_targets {
     use super::*;
     mod tests;
 }

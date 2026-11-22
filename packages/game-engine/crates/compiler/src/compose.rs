@@ -530,6 +530,7 @@ fn compose(
         binding_gate(resolution.complete(), &mut deferred)?;
         binding_gate(resolution.ordinary_antecedents(&printed), &mut deferred)?;
         binding_gate(resolution.covers(&printed), &mut deferred)?;
+        binding_gate(resolution.referenced(&printed), &mut deferred)?;
     }
     let types = type_line::parse_source(&source.type_line, &source.layout)?;
     let kind = types.kind;
@@ -598,6 +599,10 @@ fn compose(
             resolution.spans(block, &result.lines[block].text, &printed[block])?;
         }
         numbers_printed(&result.lines[block].text, raw.get())?;
+        let (activated, triggered) = (definition.activated.len(), definition.triggered.len());
+        // A spell's printed blocks share one program; each announces its own
+        // targets after the earlier blocks' (CR 601.2c).
+        let spell_targets = definition.spell.as_ref().map_or(0, |p| p.targets.len());
         match ability {
             Block::Keywords {
                 ability_word: word,
@@ -708,6 +713,34 @@ fn compose(
                     "ability kind outside the block tables",
                 ));
             }
+        }
+        // CR 601.2c: the block's announced targets are the resolution's
+        // block-relative slots.
+        if let Some(resolution) = &resolution {
+            let (program, first) = if definition.activated.len() > activated {
+                (definition.activated.last().map(|a| &a.program), 0)
+            } else if definition.triggered.len() > triggered {
+                (definition.triggered.last().map(|t| &t.program), 0)
+            } else if spell_kind {
+                (definition.spell.as_ref(), spell_targets)
+            } else {
+                (None, 0)
+            };
+            let first = u32::try_from(first).map_err(|_| invalid("targets", "slot range"))?;
+            let targets: Vec<TargetSpec> = program
+                .map(|p| {
+                    p.targets
+                        .iter()
+                        .chain(p.modes.iter().flat_map(|m| &m.program.targets))
+                        .filter(|t| t.slot >= first)
+                        .map(|t| TargetSpec {
+                            slot: t.slot - first,
+                            ..t.clone()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            resolution.target_slots(block, &printed[block], &targets)?;
         }
     }
     if let Some(found) = deferred {

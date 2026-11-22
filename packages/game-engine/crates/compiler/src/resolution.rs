@@ -155,7 +155,7 @@ impl Resolution {
                         scope.is_none_or(|s| s.starts_with("/effects/"))
                     }
                     (_, Some(ResolvedRef::StepResult(s))) => {
-                        effects_operand && s.step.starts_with("/effects/")
+                        effects_operand && step_producer(block, ability, path, s)
                     }
                     (_, Some(ResolvedRef::BoundVar(v))) => {
                         effects_operand && v.id.starts_with("/effects/")
@@ -169,6 +169,64 @@ impl Resolution {
                 if !ordinary {
                     return Err(leaves());
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// CR 608.2c: every reference operand the AST prints (`{"ref":..}` or
+    /// `{"player":..}`) carries its resolution entry; a deleted entry would
+    /// otherwise leave the lowerer reading the operand by shape alone.
+    pub(super) fn referenced(&self, abilities: &Value) -> Result<(), Failure> {
+        for (index, block) in self.blocks()?.iter().enumerate() {
+            let resolved: BTreeSet<&str> = block.refs.iter().map(entry_path).collect();
+            let mut operands = Vec::new();
+            collect_operands(&abilities[index], String::new(), &mut operands);
+            if let Some(path) = operands.iter().find(|p| !resolved.contains(p.as_str())) {
+                return Err(unsupported(
+                    "resolution",
+                    format!("unresolved reference operand {path}"),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// CR 601.2c, 608.2b: each printed target of block `index` is the slot
+    /// the resolution assigns it, and a pronoun resolved to a target names
+    /// the block's sole announced target, the only one the lowerer binds a
+    /// pronoun to. `targets` are the block's lowered announcements.
+    pub(super) fn target_slots(
+        &self,
+        index: usize,
+        ability: &Value,
+        targets: &[TargetSpec],
+    ) -> Result<(), Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        for entry in &block.refs {
+            let RefEntry::Ref(r) = entry else { continue };
+            let ResolvedRef::Target(t) = &*r.r#ref else {
+                continue;
+            };
+            let expression = ability.pointer(&r.path);
+            let announced = match expression.and_then(|e| e["selectionId"].as_str()) {
+                Some(selection) => targets.iter().find(|s| s.selection_id == selection),
+                None => match targets {
+                    [sole] => Some(sole),
+                    _ => None,
+                },
+            };
+            if announced.is_none_or(|s| i64::from(s.slot) != t.slot) {
+                return Err(unsupported(
+                    "resolution",
+                    format!(
+                        "target reference {} disagrees with the announced slots",
+                        r.path
+                    ),
+                ));
             }
         }
         Ok(())
@@ -532,4 +590,84 @@ pub(super) fn synthetic_canonical(raw: &str, noun: &str) -> String {
     }
     visit(&mut value, "", noun);
     value.to_string()
+}
+
+/// Every operand object that names a reference (`ref`) or a player.
+fn collect_operands(value: &Value, path: String, out: &mut Vec<String>) {
+    match value {
+        Value::Object(object) => {
+            if object.get("ref").is_some_and(Value::is_string)
+                || object.get("player").is_some_and(Value::is_string)
+            {
+                out.push(path.clone());
+            }
+            for (key, child) in object {
+                collect_operands(child, format!("{path}/{key}"), out);
+            }
+        }
+        Value::Array(items) => {
+            for (i, child) in items.iter().enumerate() {
+                collect_operands(child, format!("{path}/{i}"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// CR 608.2c: the step result a pronoun names is the one the shared lowerer
+/// binds it to. A selection is the found card of the nearest earlier search
+/// (`<step>/for`), objects are the nearest earlier look; a remainder is the
+/// rest of the consumer's own simultaneous member pool after an earlier
+/// sibling. Any other producer or role is not one the lowerer reads.
+fn step_producer(
+    block: &BlockResolution,
+    ability: &Value,
+    consumer: &str,
+    result: &crate::ast::ResolvedRefStepResult,
+) -> bool {
+    let order: Vec<&str> = block
+        .steps
+        .iter()
+        .map(|entry| match entry {
+            StepEntry::Event(e) => e.path.as_str(),
+            StepEntry::Scope(s) => s.path.as_str(),
+            StepEntry::Unaccounted(u) => u.path.as_str(),
+        })
+        .collect();
+    // The consumer's own step: the longest step path enclosing the operand.
+    let Some(own) = order
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| consumer.starts_with(&format!("{p}/")))
+        .max_by_key(|(_, p)| p.len())
+        .map(|(i, _)| i)
+    else {
+        return false;
+    };
+    let effect = |i: usize| ability.pointer(order[i]).and_then(|s| s["effect"].as_str());
+    let (step, wanted) = match result.role.as_str() {
+        "selection" => match result.step.strip_suffix("/for") {
+            Some(step) => (step, "search"),
+            None => return false,
+        },
+        "objects" => (result.step.as_str(), "look-at"),
+        "remainder" => {
+            let pos = order[own].rfind("/steps/").map(|i| &order[own][..i]);
+            let earlier_sibling = pos.is_some_and(|parent| {
+                order[..own].iter().any(|p| {
+                    p.strip_prefix(parent)
+                        .and_then(|rest| rest.strip_prefix("/steps/"))
+                        .is_some_and(|rest| !rest.contains('/'))
+                })
+            });
+            return result.step == order[own] && earlier_sibling;
+        }
+        _ => return false,
+    };
+    let Some(producer) = order.iter().position(|p| *p == step) else {
+        return false;
+    };
+    producer < own
+        && effect(producer) == Some(wanted)
+        && (producer + 1..own).all(|i| effect(i) != Some(wanted))
 }

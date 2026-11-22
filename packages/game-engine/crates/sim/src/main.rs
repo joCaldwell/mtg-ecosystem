@@ -1214,6 +1214,8 @@ fn verify_source_catalog(
                 if record["sourceSha256"] != p.source_sha256.as_str()
                     || record["astSha256"] != p.ast_sha256.as_str()
                     || record["bindingSha256"] != p.binding_sha256.as_str()
+                    || sha256(p.source_json.as_bytes()) != p.source_sha256
+                    || sha256(format!("[{}]", p.abilities_json).as_bytes()) != p.ast_sha256
                     || p.archive_manifest_sha256 != archive.manifest_sha256
                 {
                     return Err("retained source and admitted definition disagree".into());

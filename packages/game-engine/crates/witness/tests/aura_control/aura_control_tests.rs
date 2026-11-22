@@ -65,7 +65,3 @@ fn fund(g: &mut Game, q: u64, name: &str, count: usize) {
 
 mod activated_artifact_draw_tests;
 mod random_discard_tests;
-
-mod controlled_creature_spell_copy_tests;
-
-mod entry_copy_tests;

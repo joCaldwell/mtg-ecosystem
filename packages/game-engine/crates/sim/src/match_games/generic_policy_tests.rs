@@ -3266,3 +3266,200 @@ mod shared_query_tests {
         assert!(!s.in_set(&v, &phased, &ObjectSet::Creatures));
     }
 }
+
+// Public payload policy probes, not accepted-input engine games or replay.
+mod blocking_target_policy_tests {
+    use super::*;
+
+    fn fixture() -> (Catalog, PermittedView) {
+        let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
+        let mut v = wipe_tests::view(&c);
+        // Righteousness predates Archive R4: its frozen reviewed definition.
+        let definition = mtg_compiler::catalog::embedded_catalog("blocking-matches")
+            .unwrap()
+            .definition_by_oracle_id("3f6b2f76-0364-415e-a6a2-e9e5bf31b745")
+            .expect("reviewed Righteousness")
+            .clone();
+        c.definitions.push(definition);
+        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+        c.validate().unwrap();
+        v.active = Some(PlayerId(0));
+        v.turn_owner = PlayerId(0);
+        v.priority = Some(v.viewer);
+        v.turn.step = TurnStep::DeclareBlockers;
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana = BTreeMap::from([(Color::W, 1.into())]);
+        let mut own = wipe_tests::card(&c, "Grizzly Bears", v.viewer.0, Zone::Battlefield);
+        own.handle = ObjectHandle("own-blocker".into());
+        own.owner = PlayerId(2); // Benefit follows control, not ownership.
+        let mut other = wipe_tests::card(&c, "Grizzly Bears", 1, Zone::Battlefield);
+        other.handle = ObjectHandle("opposing-blocker".into());
+        let mut attacker = wipe_tests::card(&c, "Grizzly Bears", 0, Zone::Battlefield);
+        attacker.handle = ObjectHandle("attacker".into());
+        v.objects = vec![
+            wipe_tests::card(
+                &c,
+                "Righteousness",
+                v.viewer.0,
+                Zone::Hand { owner: v.viewer },
+            ),
+            own,
+            other,
+            attacker,
+        ];
+        v.combat = vec![mtg_core::VisibleAttacker {
+            attacker: ObjectHandle("attacker".into()),
+            defender: v.viewer,
+            blocked: true,
+            blockers: vec![ObjectHandle("own-blocker".into())],
+        }];
+        (c, v)
+    }
+
+    #[test]
+    fn blocking_pump_policy_reacts_only_before_remaining_combat_damage() {
+        let (c, mut v) = fixture();
+        let cast = PlayerResponse::Cast {
+            card: ObjectHandle("Righteousness".into()),
+        };
+        for step in [TurnStep::DeclareBlockers, TurnStep::FirstStrikeDamage] {
+            v.turn.step = step;
+            let before = canonical(&v).unwrap();
+            assert_eq!(
+                strategy(&c).priority(&observation(v.clone())).unwrap(),
+                cast
+            );
+            assert_eq!(canonical(&v).unwrap(), before);
+        }
+        for step in [
+            TurnStep::DeclareAttackers,
+            TurnStep::CombatDamage,
+            TurnStep::EndCombat,
+            TurnStep::PostcombatMain,
+        ] {
+            v.turn.step = step;
+            assert_eq!(
+                strategy(&c).priority(&observation(v.clone())).unwrap(),
+                PlayerResponse::Pass,
+                "{step:?}"
+            );
+        }
+        // The new recognition is specific to blocking-target pumps; ordinary
+        // Giant Growth does not become a general reactive combat policy.
+        v.turn.step = TurnStep::DeclareBlockers;
+        v.objects[0] = wipe_tests::card(
+            &c,
+            "Giant Growth",
+            v.viewer.0,
+            Zone::Hand { owner: v.viewer },
+        );
+        v.players
+            .iter_mut()
+            .find(|p| p.player == v.viewer)
+            .unwrap()
+            .mana = BTreeMap::from([(Color::G, 1.into())]);
+        assert_eq!(
+            strategy(&c).priority(&observation(v)).unwrap(),
+            PlayerResponse::Pass
+        );
+    }
+
+    #[test]
+    fn blocking_pump_policy_requires_linked_friendly_targetability_and_payment() {
+        let (c, baseline) = fixture();
+        for mutate in [
+            (|v: &mut PermittedView| v.combat.clear()) as fn(&mut PermittedView),
+            |v| v.combat[0].blockers = vec![ObjectHandle("opposing-blocker".into())],
+            |v| v.objects[1].controller = PlayerId(1),
+            |v| v.objects[1].zone = Zone::Graveyard { owner: PlayerId(2) },
+            |v| {
+                v.objects[1]
+                    .keywords
+                    .push(mtg_contracts::KeywordAbility::Shroud)
+            },
+            |v| v.objects[1].characteristics = None,
+            |v| {
+                v.players
+                    .iter_mut()
+                    .find(|p| p.player == v.viewer)
+                    .unwrap()
+                    .mana
+                    .clear()
+            },
+        ] {
+            let mut v = baseline.clone();
+            mutate(&mut v);
+            assert_eq!(
+                strategy(&c).priority(&observation(v)).unwrap(),
+                PlayerResponse::Pass
+            );
+        }
+        let mut v = baseline;
+        v.objects[1]
+            .keywords
+            .push(mtg_contracts::KeywordAbility::Hexproof);
+        assert_eq!(
+            strategy(&c).priority(&observation(v)).unwrap(),
+            PlayerResponse::Cast {
+                card: ObjectHandle("Righteousness".into())
+            }
+        );
+    }
+
+    #[test]
+    fn blocking_pump_policy_trusts_offered_orphans_and_keeps_target_choice_stable() {
+        let (c, mut v) = fixture();
+        v.combat.clear(); // The attacker left; this view cannot prove blocking.
+        let d = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Righteousness")
+            .unwrap();
+        let p = d.spell.as_ref().unwrap();
+        let candidates = vec![
+            ObjectHandle("opposing-blocker".into()),
+            ObjectHandle("own-blocker".into()),
+        ];
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], None),
+            None
+        );
+        assert_eq!(
+            strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&[])),
+            None
+        );
+        v.objects.remove(0);
+        let viewer = v.viewer;
+        stack_spell(&mut v, &c, "Righteousness", viewer.0);
+        for reverse in [false, true] {
+            let mut view = v.clone();
+            let mut offered = candidates.clone();
+            if reverse {
+                view.objects.reverse();
+                offered.reverse();
+            }
+            let mut o = observation(view);
+            o.decision = Some(PlayerRequest::Targets {
+                token: mtg_core::DecisionToken("blocking-payload".into()),
+                player: viewer,
+                occurrences: p.targets.clone(),
+                counter_division: None,
+                candidates: offered,
+            });
+            let before = canonical(&o).unwrap();
+            assert_eq!(
+                strategy(&c).choose(&o).unwrap(),
+                PlayerResponse::Targets {
+                    objects: vec![ObjectHandle("own-blocker".into())]
+                }
+            );
+            assert_eq!(canonical(&o).unwrap(), before);
+        }
+    }
+}
+
+#[path = "combined_type_policy_tests.rs"]
+mod combined_type_policy_tests;
