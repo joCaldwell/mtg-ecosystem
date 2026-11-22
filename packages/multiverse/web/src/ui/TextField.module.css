@@ -25,7 +25,13 @@
 }
 
 @media (forced-colors: none) {
-  .field[type="search"]:focus-visible { outline: none; }
+  .field:focus-visible { outline: none; }
+
+  .field:is(.invalid, :user-invalid):focus-visible {
+    outline: 2px solid var(--cut);
+    outline-offset: -1px;
+    box-shadow: none;
+  }
 }
 
 .field:disabled {
