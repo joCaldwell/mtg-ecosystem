@@ -70,7 +70,10 @@ COPY --from=build /app/packages/game/web/src/session/qualification-public.d.ts .
 COPY packages/game/scripts/check-sdk-runtime.mjs ./packages/game/scripts/check-sdk-runtime.mjs
 COPY packages/deck-builder/scripts/container-entrypoint.sh /usr/local/bin/deck-builder-entrypoint
 COPY packages/deck-builder/scripts/check-runtime.mjs ./packages/deck-builder/scripts/check-runtime.mjs
-RUN node packages/deck-builder/scripts/check-runtime.mjs \
+# Qualified SDK outputs may be owner-only in the source archive. The app
+# imports this public closure after the entrypoint switches to the node user.
+RUN chmod -R a+rX packages/game-server/sdk/dist packages/game-server/sdk/generated \
+    && node packages/deck-builder/scripts/check-runtime.mjs \
     && node packages/deck-builder/scripts/check-runtime.mjs --package packages/multiverse \
     && node packages/deck-builder/scripts/check-runtime.mjs --package packages/game \
     && node packages/game/scripts/check-sdk-runtime.mjs \
