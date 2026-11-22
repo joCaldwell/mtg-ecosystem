@@ -345,7 +345,13 @@ impl BoundModeSubset {
                                 amount: fixed!(_)
                             })
                             | Instruction::ExileTargetGraveyard { target_slot, .. }
-                            | Instruction::DealDamage { target_slot, .. }
+                            | kernel!(Damage {
+                                to: mtg_contracts::kir::DamageTo::Ref {
+                                    who: mtg_contracts::kir::Ref::Target { slot: target_slot }
+                                },
+                                amount: fixed!(_),
+                                ..
+                            })
                             | Instruction::DestroyPermanent { target_slot, .. }
                             | Instruction::PhaseOutTargetPermanent { target_slot, .. }
                             | Instruction::CounterStackObject { target_slot, .. }

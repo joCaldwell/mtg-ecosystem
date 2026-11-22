@@ -106,11 +106,13 @@ pub fn program(name: &str, text: &str, ast: &Value, timing: SpellTiming) -> Opti
                     .filter(|v| *v > 0 && v.to_string() == n)?;
                 (
                     TargetDomain::AnyDamageTarget,
-                    Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: Quantity::from(i64::from(value)),
-                        source_block: 0,
-                    },
+                    Instruction::damage_target(
+                        0,
+                        kir::Amount::Fixed {
+                            value: Quantity::from(i64::from(value)),
+                        },
+                        0,
+                    ),
                     json!({"effect":"damage","source":{"ref":"self"},"amount":fixed(value),"to":{"to":"any-target","selectionId":id}}),
                 )
             }
@@ -168,7 +170,7 @@ pub(super) fn schema(s: &mut Value) {
         ),
         (
             TargetDomain::AnyDamageTarget,
-            "deal_damage",
+            "damage",
             Some(Capability::NoncombatDamageV1),
         ),
         (
@@ -200,6 +202,8 @@ pub(super) fn schema(s: &mut Value) {
         }
         let item = if op == "draw" {
             instruction_schema::at(instruction_schema::target_draw(0, json!({"const":"1"})), 0)
+        } else if op == "damage" {
+            instruction_schema::at(instruction_schema::target_damage(Some(0)), 0)
         } else {
             json!({"properties":operand})
         };

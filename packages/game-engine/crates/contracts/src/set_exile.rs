@@ -127,8 +127,9 @@ fn reserved(p: &SpellProgram) -> bool {
         Instruction::PumpSet { set, .. } | Instruction::GrantKeywordsSet { set, .. } => {
             selected(set)
         }
-        Instruction::DamageSet { sets, .. } => sets.iter().any(selected),
-        _ => false,
+        i => i
+            .set_damage()
+            .is_some_and(|damage| damage.sets.iter().any(|set| kernel_sets.contains(set))),
     }) || p.modes.iter().any(|m| reserved(&m.program))
 }
 

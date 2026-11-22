@@ -80,7 +80,13 @@ fn composition_wave_a_independently_qualifies_permanent_entry() {
     );
     assert!(matches!(
         d.triggered[0].program.instructions.as_slice(),
-        [Instruction::DealDamage { target_slot: 0, .. }]
+        [kernel!(Damage {
+            to: kir::DamageTo::Ref {
+                who: kir::Ref::Target { slot: 0 }
+            },
+            amount: fixed!(_),
+            ..
+        })]
     ));
     let mut duplicated = d.clone();
     duplicated.triggered.push(d.triggered[0].clone());

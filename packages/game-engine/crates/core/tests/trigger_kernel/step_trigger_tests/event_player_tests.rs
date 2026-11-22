@@ -873,11 +873,11 @@ fn synthetic_upkeep_damage_binds_announced_opponent_through_recovery() {
             domain: TargetDomain::OpponentPlayer,
             filter: None,
         }];
-        program.instructions = vec![Instruction::DealDamage {
-            target_slot: 0,
-            amount: 3.into(),
-            source_block: 0,
-        }];
+        program.instructions = vec![Instruction::damage_target(
+            0,
+            mtg_contracts::kir::Amount::Fixed { value: 3.into() },
+            0,
+        )];
     });
     let mut g = Game::new(p);
     for _ in 0..12 {

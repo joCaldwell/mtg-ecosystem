@@ -47,18 +47,20 @@ pub fn program(source: &Value, ast: &Value) -> Option<SpellProgram> {
             domain: TargetDomain::BattlefieldCreature,
             filter: None,
         }],
-        instructions: vec![Instruction::DealDamage {
-            target_slot: 0,
-            amount: Quantity::from(i64::from(amount)),
-            source_block: 0,
-        }],
+        instructions: vec![Instruction::damage_target(
+            0,
+            kir::Amount::Fixed {
+                value: Quantity::from(i64::from(amount)),
+            },
+            0,
+        )],
         modes: vec![],
     })
 }
 
 fn uses(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|instruction| {
-        matches!(instruction, Instruction::DealDamage { target_slot, .. }
+        matches!(instruction, kernel!(Damage { to: kir::DamageTo::Ref { who: kir::Ref::Target { slot: target_slot } }, amount: fixed!(_), .. })
             if p.targets.get(*target_slot as usize)
                 .is_some_and(|t| t.domain == TargetDomain::BattlefieldCreature))
     }) || p.modes.iter().any(|mode| uses(&mode.program))

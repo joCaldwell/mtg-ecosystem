@@ -66,10 +66,7 @@ fn assert_target(p: &SpellProgram, domain: TargetDomain, id: &str) {
 }
 
 fn damage() -> Instruction {
-    Instruction::DealDamageAnnouncedX {
-        target_slot: 0,
-        source_block: 0,
-    }
+    Instruction::damage_target(0, kir::Amount::announced_x(), 0)
 }
 
 fn gain(recipient: LifeRecipient) -> Instruction {

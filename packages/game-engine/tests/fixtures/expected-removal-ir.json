@@ -2815,10 +2815,27 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "amount": "3",
-            "op": "deal_damage",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "3"
+                },
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "ref",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "damage"
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -3915,10 +3932,27 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "amount": "1",
-                "op": "deal_damage",
-                "source_block": 0,
-                "target_slot": 0
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "source": {
+                      "ref": "source"
+                    },
+                    "to": {
+                      "to": "ref",
+                      "who": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "verb": "damage"
+                  }
+                },
+                "op": "kernel",
+                "source_block": 0
               }
             ],
             "resolution": "instructions",

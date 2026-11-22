@@ -341,6 +341,11 @@ pub enum Amount {
     LifeOf {
         player: PlayerExpr,
     },
+    /// CR 202.3, 601.2i: the total mana value of the spells `caster` cast
+    /// this turn other than the resolving spell.
+    OtherCastsManaValue {
+        caster: PlayerExpr,
+    },
 }
 
 impl Amount {
@@ -926,6 +931,12 @@ impl PlayerExpr {
 }
 
 impl Pred {
+    /// "Creatures" (CR 205.2a).
+    pub fn creatures() -> Self {
+        Self(vec![Atom::Type {
+            kind: CardKind::Creature,
+        }])
+    }
     /// "Nonland permanent" (CR 110.1, 205.2a).
     pub fn nonland_permanents() -> Self {
         Self(vec![Atom::NotType {
@@ -1343,7 +1354,9 @@ impl Walk<'_, '_> {
             Amount::StatOf { object, .. } => self
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
-            Amount::LifeOf { player } => self.player(player),
+            Amount::LifeOf { player } | Amount::OtherCastsManaValue { caster: player } => {
+                self.player(player)
+            }
         }
     }
 
@@ -1688,6 +1701,15 @@ impl Walk<'_, '_> {
         }
     }
 
+    /// The event-player roles whose player the life and draw executors read:
+    /// a cast trigger's caster and a step trigger's active player.
+    fn recipient_role(role: EventPlayerRole) -> bool {
+        matches!(
+            role,
+            EventPlayerRole::Caster | EventPlayerRole::ActivePlayer
+        )
+    }
+
     /// A fixed amount of at least `minimum`, or the announced X (CR 107.3).
     /// Returns true for the announced X.
     fn fixed_or_announced_x(amount: &Amount, minimum: i64, what: &str) -> Result<bool, KirError> {
@@ -1726,13 +1748,9 @@ impl Walk<'_, '_> {
                         who: Ref::Controller { .. },
                     } => Ok(()),
                     PlayerExpr::Is {
-                        who: Ref::EventPlayer { .. },
-                    }
-                    | PlayerExpr::EachOpponent
-                        if !announced =>
-                    {
-                        Ok(())
-                    }
+                        who: Ref::EventPlayer { role },
+                    } if !announced && Self::recipient_role(*role) => Ok(()),
+                    PlayerExpr::EachOpponent if !announced => Ok(()),
                     PlayerExpr::Is {
                         who: Ref::Target { .. },
                     } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
@@ -1750,13 +1768,20 @@ impl Walk<'_, '_> {
                     }
                     | PlayerExpr::EachPlayer => Ok(()),
                     PlayerExpr::Is {
-                        who: Ref::EventPlayer { .. },
-                    } if !announced => Ok(()),
+                        who: Ref::EventPlayer { role },
+                    } if !announced && Self::recipient_role(*role) => Ok(()),
                     PlayerExpr::Is {
                         who: Ref::Target { .. },
                     } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
                     _ => unaudited("draw recipient"),
                 }
+            }
+            // CR 120.1-120.3: the resolving object's source deals damage.
+            Verb::Damage { source, to, amount } => {
+                if *source != Ref::Source {
+                    return unaudited("damage source");
+                }
+                self.audit_damage(to, amount)
             }
             // CR 701.8, 608.2h: destroy every battlefield permanent that
             // satisfies the filter as the instruction is performed.
@@ -1796,6 +1821,86 @@ impl Walk<'_, '_> {
             } if filter.0.is_empty() => Ok(()),
             _ => unaudited("verb"),
         }
+    }
+
+    /// CR 120.2b: noncombat damage to one announced recipient, the
+    /// controller or the mana ability's activator, or (CR 608.2h) to every
+    /// creature of a board-wide set and optionally each player.
+    fn audit_damage(&self, to: &DamageTo, amount: &Amount) -> Result<(), KirError> {
+        match to {
+            DamageTo::Ref {
+                who: Ref::Target { slot },
+            } => {
+                let announced = Self::fixed_or_announced_x(amount, 1, "damage amount")?;
+                match (self.domain(*slot)?, announced) {
+                    (TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature, _)
+                    | (
+                        TargetDomain::OpponentPlayer
+                        | TargetDomain::PlayerOrPlaneswalker
+                        | TargetDomain::BattlefieldPermanent,
+                        false,
+                    ) => Ok(()),
+                    _ => unaudited("damage target domain"),
+                }
+            }
+            DamageTo::Ref {
+                who: Ref::Controller { .. },
+            }
+            | DamageTo::Ref {
+                who:
+                    Ref::EventPlayer {
+                        role: EventPlayerRole::ActivatingPlayer,
+                    },
+            } => Self::fixed_at_least(amount, 1, "damage amount"),
+            DamageTo::Ref { .. } => unaudited("damage recipient"),
+            set => {
+                Self::set_damage_parts(set)?;
+                match amount {
+                    Amount::Fixed { .. } => Self::fixed_at_least(amount, 1, "damage amount"),
+                    Amount::Var {
+                        of: Ref::AnnouncedX,
+                    } => Ok(()),
+                    Amount::Count { set } if *set == SetExpr::battlefield(Pred::creatures()) => {
+                        Ok(())
+                    }
+                    Amount::OtherCastsManaValue { caster } if caster.is_you() => Ok(()),
+                    _ => unaudited("set damage amount"),
+                }
+            }
+        }
+    }
+
+    /// The parts of a set damage recipient: creature sets of the battlefield
+    /// and at most one "each player", in that order.
+    fn set_damage_parts(to: &DamageTo) -> Result<(), KirError> {
+        let parts = match to {
+            DamageTo::All { parts } => parts.as_slice(),
+            part => std::slice::from_ref(part),
+        };
+        let mut players = false;
+        for part in parts {
+            match part {
+                DamageTo::Objects {
+                    set:
+                        SetExpr::Matching {
+                            zone: ZoneExpr::Battlefield,
+                            filter,
+                        },
+                } if !players
+                    && filter.0.first()
+                        == Some(&Atom::Type {
+                            kind: CardKind::Creature,
+                        }) =>
+                {
+                    Self::audited_filter(filter)?
+                }
+                DamageTo::Players {
+                    players: PlayerExpr::EachPlayer,
+                } if !players => players = true,
+                _ => return unaudited("set damage recipient"),
+            }
+        }
+        Ok(())
     }
 
     /// The atoms the core evaluates for a board-wide set (CR 608.2h). Every
@@ -1882,6 +1987,23 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
                 out.insert(Capability::AnnouncedXDrawV1);
             }
         }
+        // CR 120.2b: directed noncombat damage; an announced X names its
+        // surface too. Board-wide damage shares the reviewed wipe surface, and
+        // a cast-history amount names the history surface.
+        Verb::Damage { to, amount, .. } => match to {
+            DamageTo::Ref { .. } => {
+                out.insert(Capability::NoncombatDamageV1);
+                if amount.is_announced_x() {
+                    out.insert(Capability::AnnouncedXEffectsV1);
+                }
+            }
+            _ => {
+                out.insert(Capability::BoardWipesV1);
+                if matches!(amount, Amount::OtherCastsManaValue { .. }) {
+                    out.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
+                }
+            }
+        },
         // Board-wide destruction and movement share the reviewed wipe surface.
         Verb::Destroy {
             what: SetExpr::Matching { .. },
@@ -1987,6 +2109,8 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
         TriggerCondition::SpellCast { .. } => &[EventPlayerRole::Caster],
         // CR 500: the player whose step began.
         TriggerCondition::StepBegan { .. } => &[EventPlayerRole::ActivePlayer],
+        // CR 605.1a, 106.12: the player who activated the mana ability.
+        TriggerCondition::ManaTapped { .. } => &[EventPlayerRole::ActivatingPlayer],
         _ => &[],
     }
 }

@@ -1,4 +1,7 @@
-use super::{Instruction, PlayerExpr, SetExpr, kir::Amount};
+use super::{
+    Instruction, PlayerExpr, SetExpr,
+    kir::{Amount, DamageTo, EventPlayerRole, Ref},
+};
 use serde_json::{Value, json};
 
 pub(super) fn forbid_unbound_operation(schema: &mut Value, name: &str, operation: &str) {
@@ -99,6 +102,67 @@ pub(crate) fn target_draw(slot: u32, count: Value) -> Value {
     draw(
         json!({"const":PlayerExpr::target(slot)}),
         fixed(json!({"allOf":[{"type":"string","pattern":COUNT},count]})),
+    )
+}
+
+/// One kernel damage verb whose recipient and amount match these schemas.
+fn damage(to: Value, amount: Value) -> Value {
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
+        "required":["do"],"properties":{"do":{"required":["verb","to","amount"],"properties":{
+            "verb":{"const":"damage"},"to":to,"amount":amount}}}}}})
+}
+
+fn positive() -> Value {
+    fixed(json!({"type":"string","pattern":"^[1-9][0-9]*$"}))
+}
+
+fn target_ref(slot: Option<u32>) -> Value {
+    let slot = slot.map_or(json!({}), |slot| json!({"const":slot}));
+    json!({"required":["to","who"],"properties":{"to":{"const":"ref"},
+        "who":{"required":["ref","slot"],"properties":{"ref":{"const":"target"},"slot":slot}}}})
+}
+
+/// CR 120.2b: a fixed positive amount of damage to an announced target
+/// (`slot`, or any).
+pub(crate) fn target_damage(slot: Option<u32>) -> Value {
+    damage(target_ref(slot), positive())
+}
+
+/// CR 107.3, 120.2b: the announced X as damage to an announced target.
+pub(crate) fn target_damage_x() -> Value {
+    damage(target_ref(None), json!({"const":Amount::announced_x()}))
+}
+
+/// CR 120.2b: fixed damage to the invocation's controller.
+pub(crate) fn controller_damage() -> Value {
+    damage(
+        json!({"required":["to","who"],"properties":{"to":{"const":"ref"},
+            "who":{"required":["ref"],"properties":{"ref":{"const":"controller"}}}}}),
+        positive(),
+    )
+}
+
+/// CR 605.1a: fixed damage to the player who activated the mana ability.
+pub(crate) fn activator_damage() -> Value {
+    damage(
+        json!({"const":DamageTo::Ref{who:Ref::EventPlayer{role:EventPlayerRole::ActivatingPlayer}}}),
+        positive(),
+    )
+}
+
+/// CR 608.2h: board-wide damage whose amount matches `amount`.
+pub(crate) fn set_damage(amount: Value) -> Value {
+    damage(
+        json!({"not":{"required":["to"],"properties":{"to":{"const":"ref"}}}}),
+        amount,
+    )
+}
+
+/// Board-wide damage to exactly `to`, with a fixed amount.
+pub(crate) fn set_damage_to(to: &DamageTo) -> Value {
+    damage(
+        json!({"const":to}),
+        fixed(json!({"type":"string","pattern":COUNT})),
     )
 }
 

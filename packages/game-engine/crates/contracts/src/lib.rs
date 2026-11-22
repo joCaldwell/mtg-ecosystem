@@ -730,18 +730,6 @@ impl ObjectSet {
         SetExpr::battlefield(kir::Pred(atoms))
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
-pub enum WipeAmount {
-    Fixed {
-        value: Quantity,
-    },
-    AnnouncedX,
-    CreatureCount,
-    /// Sum of the controller's other completed casts this turn, at resolution.
-    #[serde(deserialize_with = "cast_mana_value_sweep::empty_amount")]
-    OtherCastsManaValue,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RandomDiscardCount {
@@ -1053,12 +1041,6 @@ pub enum Instruction {
         toughness: Quantity,
         source_block: u32,
     },
-    DamageSet {
-        sets: Vec<ObjectSet>,
-        each_player: bool,
-        amount: WipeAmount,
-        source_block: u32,
-    },
     GainLifeDestroyed {
         source_block: u32,
     },
@@ -1328,12 +1310,6 @@ pub enum Instruction {
         count: Quantity,
         source_block: u32,
     },
-    DealDamageAnnouncedX {
-        #[schemars(range(max = 0))]
-        target_slot: u32,
-        #[schemars(range(max = 0))]
-        source_block: u32,
-    },
     MillAnnouncedX {
         #[schemars(range(max = 0))]
         target_slot: u32,
@@ -1421,24 +1397,39 @@ pub enum Instruction {
         #[schemars(range(max = 0))]
         source_block: u32,
     },
-    /// Noncombat damage from this invocation's physical source (CR 120.2b).
-    DealDamage {
-        target_slot: u32,
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
+}
+/// The parts of a board-wide damage instruction ([`Instruction::set_damage`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SetDamage<'a> {
+    pub sets: Vec<&'a SetExpr>,
+    pub each_player: bool,
+    pub amount: &'a kir::Amount,
+    pub source_block: u32,
+}
+impl SetDamage<'_> {
+    /// The board-wide damage instruction of these parts.
+    pub fn instruction(
+        sets: Vec<SetExpr>,
+        each_player: bool,
+        amount: kir::Amount,
         source_block: u32,
-    },
-    /// Untargeted noncombat damage from the source to the trigger's controller.
-    DealDamageToController {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
-        source_block: u32,
-    },
-    DealDamageToManaActivator {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
-        source_block: u32,
-    },
+    ) -> Instruction {
+        let mut parts: Vec<_> = sets
+            .into_iter()
+            .map(|set| kir::DamageTo::Objects { set })
+            .collect();
+        if each_player {
+            parts.push(kir::DamageTo::Players {
+                players: kir::PlayerExpr::EachPlayer,
+            });
+        }
+        let to = if parts.len() == 1 {
+            parts.pop().unwrap()
+        } else {
+            kir::DamageTo::All { parts }
+        };
+        Instruction::damage(to, amount, source_block)
+    }
 }
 impl Instruction {
     /// One kernel verb as an instruction.
@@ -1492,6 +1483,68 @@ impl Instruction {
         self.fixed_draw()
             .filter(|(player, count, _)| player.is_you() && **count != Quantity::from(1))
             .map(|(_, count, block)| (count, block))
+    }
+    /// CR 120.2b: the resolving object's source deals `amount` damage `to`.
+    pub fn damage(to: kir::DamageTo, amount: kir::Amount, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Damage {
+                source: kir::Ref::Source,
+                to,
+                amount,
+            },
+            source_block,
+        )
+    }
+    /// CR 120.2b: damage to the target of `slot`.
+    pub fn damage_target(slot: u32, amount: kir::Amount, source_block: u32) -> Self {
+        Self::damage(
+            kir::DamageTo::Ref {
+                who: kir::Ref::Target { slot },
+            },
+            amount,
+            source_block,
+        )
+    }
+    /// The slot, amount and block of damage to one announced target.
+    pub fn directed_damage(&self) -> Option<(u32, &kir::Amount, u32)> {
+        match self {
+            kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot },
+                },
+                amount,
+                ..
+            } @ block) => Some((*slot, amount, *block)),
+            _ => None,
+        }
+    }
+    /// CR 608.2h: damage to every member of board-wide creature sets and,
+    /// optionally, each player.
+    pub fn set_damage(&self) -> Option<SetDamage<'_>> {
+        let kernel!(Damage { to, amount, .. } @ source_block) = self else {
+            return None;
+        };
+        let parts = match to {
+            kir::DamageTo::Ref { .. } => return None,
+            kir::DamageTo::All { parts } => parts.as_slice(),
+            part => std::slice::from_ref(part),
+        };
+        let mut damage = SetDamage {
+            sets: vec![],
+            each_player: false,
+            amount,
+            source_block: *source_block,
+        };
+        for part in parts {
+            match part {
+                kir::DamageTo::Objects { set } => damage.sets.push(set),
+                kir::DamageTo::Players {
+                    players: kir::PlayerExpr::EachPlayer,
+                } => damage.each_player = true,
+                _ => return None,
+            }
+        }
+        Some(damage)
     }
     /// CR 107.3, 119.3: `player` gains or loses the announced X.
     pub fn announced_x_life(player: kir::PlayerExpr, gain: bool, source_block: u32) -> Self {
@@ -1566,7 +1619,6 @@ impl Instruction {
             | Self::PhaseOutTargetPermanent { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
-            Self::DamageSet { source_block, .. } => *source_block,
             Self::GainLifeDestroyed { source_block, .. } => *source_block,
             Self::ExileDamagedThisTurn { source_block, .. } => *source_block,
             Self::EachPlayerSacrifice { source_block, .. } => *source_block,
@@ -1615,8 +1667,7 @@ impl Instruction {
             Self::LoseGameTargetPlayer { source_block, .. }
             | Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
-            Self::DealDamageAnnouncedX { source_block, .. }
-            | Self::MillAnnouncedX { source_block, .. } => *source_block,
+            Self::MillAnnouncedX { source_block, .. } => *source_block,
             Self::UntapControllerLands { source_block } => *source_block,
             Self::OptionalDrawForSoleGreatestEntrant { source_block }
             | Self::OptionalDrawCards { source_block, .. }
@@ -1630,9 +1681,6 @@ impl Instruction {
             | Self::CounterSpellUnlessPays { source_block, .. }
             | Self::CounterStackObject { source_block, .. }
             | Self::CopyControlledCreatureSpell { source_block, .. } => *source_block,
-            Self::DealDamage { source_block, .. }
-            | Self::DealDamageToController { source_block, .. }
-            | Self::DealDamageToManaActivator { source_block, .. } => *source_block,
         }
     }
 }
@@ -2013,11 +2061,13 @@ fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
         (
             [target],
             [
-                Instruction::DealDamage {
-                    target_slot: 0,
-                    amount,
+                kernel!(Damage {
+                    to: kir::DamageTo::Ref {
+                        who: kir::Ref::Target { slot: 0 }
+                    },
+                    amount: fixed!(amount),
                     ..
-                },
+                }),
             ],
         ) => {
             target.slot == 0
@@ -3804,10 +3854,10 @@ impl Definition {
                     || p.instructions.iter().any(|i| {
                         matches!(
                             i,
-                            Instruction::DamageSet {
-                                amount: WipeAmount::AnnouncedX,
+                            kernel!(Damage {
+                                amount: announced_x!(),
                                 ..
-                            } | kernel!(Draw {
+                            }) | kernel!(Draw {
                                 player: kir::PlayerExpr::EachPlayer,
                                 amount: announced_x!()
                             }) | Instruction::DiscardTargetPlayerAtRandom {
@@ -4289,8 +4339,13 @@ impl Definition {
                         || p.instructions.iter().any(|instruction| {
                             !matches!(
                                 instruction,
-                                Instruction::DealDamage { .. }
-                                    | Instruction::PreventNextDamage { .. }
+                                kernel!(Damage {
+                                    to: kir::DamageTo::Ref {
+                                        who: kir::Ref::Target { slot: _ }
+                                    },
+                                    amount: fixed!(_),
+                                    ..
+                                }) | Instruction::PreventNextDamage { .. }
                             )
                         })
                 }
@@ -4564,7 +4619,13 @@ impl Definition {
                         instruction,
                         Instruction::LookTopMayRevealForMana { .. }
                             | Instruction::PumpSet { .. }
-                            | Instruction::DealDamage { .. }
+                            | kernel!(Damage {
+                                to: kir::DamageTo::Ref {
+                                    who: kir::Ref::Target { slot: _ }
+                                },
+                                amount: fixed!(_),
+                                ..
+                            })
                             | Instruction::LoseLifeDeathController { .. }
                             | Instruction::SacrificeDamage { .. }
                             | Instruction::EachOpponentSacrifice { .. }
@@ -5407,13 +5468,12 @@ fn validate_instruction_program_with_chapter(
                     ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
                 )
             }
-            Instruction::DamageSet { sets, .. } => sets.iter().any(|set| {
-                matches!(
-                    set,
-                    ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
-                )
+            i => i.set_damage().is_some_and(|damage| {
+                damage
+                    .sets
+                    .iter()
+                    .any(|set| set.filter().is_some_and(kir::Pred::names_you))
             }),
-            _ => false,
         }) || p.modes.iter().any(|m| controller_set(&m.program))
     }
     if p.targets
@@ -5641,22 +5701,6 @@ fn validate_program_bindings(
             | Instruction::OptionalDrawCards { .. }
             | Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::DrawDamageAmount { .. } => None,
-            Instruction::DamageSet {
-                sets,
-                each_player,
-                amount,
-                ..
-            } => {
-                if sets.is_empty() && !each_player {
-                    return Err("empty damage set".into());
-                }
-                if let WipeAmount::Fixed { value } = amount
-                    && value <= &Quantity::zero()
-                {
-                    return Err("invalid set damage".into());
-                }
-                None
-            }
             Instruction::GainLifeDestroyed { .. } => {
                 if !p
                     .instructions
@@ -5678,7 +5722,11 @@ fn validate_program_bindings(
                 None
             }
             Instruction::ExileDamagedThisTurn { .. } => {
-                if !matches!(p.instructions.first(), Some(Instruction::DamageSet { .. })) {
+                if !p
+                    .instructions
+                    .first()
+                    .is_some_and(|i| i.set_damage().is_some())
+                {
                     return Err("damage history requires preceding damage".into());
                 }
                 None
@@ -6028,45 +6076,6 @@ fn validate_program_bindings(
                 }
                 None
             }
-            Instruction::DealDamage {
-                target_slot,
-                amount,
-                ..
-            } => {
-                if *amount <= Quantity::zero() {
-                    return Err("damage quantity must be positive".into());
-                }
-                match p.targets.get(*target_slot as usize).map(|t| t.domain) {
-                    Some(
-                        domain @ (TargetDomain::AnyDamageTarget
-                        | TargetDomain::OpponentPlayer
-                        | TargetDomain::PlayerOrPlaneswalker
-                        | TargetDomain::BattlefieldCreature),
-                    ) => Some((*target_slot, domain)),
-                    Some(TargetDomain::BattlefieldPermanent)
-                        if chapter && saga_damage_target(&p.targets[*target_slot as usize]) =>
-                    {
-                        Some((*target_slot, TargetDomain::BattlefieldPermanent))
-                    }
-                    _ => return Err("unbound fixed damage target".into()),
-                }
-            }
-            Instruction::DealDamageToController { amount, .. }
-            | Instruction::DealDamageToManaActivator { amount, .. } => {
-                if *amount <= Quantity::zero() {
-                    return Err("damage quantity must be positive".into());
-                }
-                None
-            }
-            Instruction::DealDamageAnnouncedX { target_slot, .. } => {
-                let domain = p.targets.get(*target_slot as usize).map(|t| t.domain);
-                match domain {
-                    Some(
-                        d @ (TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature),
-                    ) => Some((*target_slot, d)),
-                    _ => return Err("unbound announced X damage target".into()),
-                }
-            }
             Instruction::MillAnnouncedX { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::AnyPlayer))
             }
@@ -6074,7 +6083,7 @@ fn validate_program_bindings(
             // (see `Definition::kernel_check`). What stays here is the
             // admission each reviewed family still narrows.
             Instruction::Kernel { node, .. } => {
-                kernel_family_guard(p, node)?;
+                kernel_family_guard(p, node, chapter)?;
                 used.extend(kir::target_slots(node));
                 None
             }
@@ -6151,8 +6160,21 @@ fn validate_program_bindings(
     Ok(())
 }
 /// Family admission that is narrower than the kernel's audited cells.
-fn kernel_family_guard(p: &SpellProgram, node: &kir::Node) -> Result<(), String> {
+fn kernel_family_guard(p: &SpellProgram, node: &kir::Node, chapter: bool) -> Result<(), String> {
     match node.verb() {
+        // CR 120.2b, 714.2b: a chapter ability alone may damage a target
+        // permanent, and only the reviewed chapter damage target.
+        Some(Verb::Damage {
+            to: kir::DamageTo::Ref {
+                who: kir::Ref::Target { slot },
+            },
+            ..
+        }) if p.targets.get(*slot as usize).map(|t| t.domain)
+            == Some(TargetDomain::BattlefieldPermanent)
+            && !(chapter && saga_damage_target(&p.targets[*slot as usize])) =>
+        {
+            return Err("unbound fixed damage target".into());
+        }
         // CR 119.3: life changes are positive, except the fixed zero tail of
         // the complete permanent-grant family.
         Some(Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }) => {
@@ -6402,9 +6424,6 @@ fn add_program_requirements_for_source_pump(
         ) {
             set.insert(Capability::CounterStackObjectV1);
         }
-        if matches!(instruction, Instruction::DealDamageAnnouncedX { .. }) {
-            set.insert(Capability::NoncombatDamageV1);
-        }
         if matches!(
             instruction,
             Instruction::OptionalDrawUnlessCasterPays { .. }
@@ -6456,15 +6475,6 @@ fn add_program_requirements_for_source_pump(
             Instruction::OfferHandCastWithoutManaCost { .. }
         ) {
             set.insert(Capability::ResolutionCastV1);
-        }
-        if matches!(
-            instruction,
-            Instruction::DamageSet {
-                amount: WipeAmount::OtherCastsManaValue,
-                ..
-            }
-        ) {
-            set.extend([Capability::CastManaValueSweepV1, Capability::CastHistoryV1]);
         }
         if let Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }
         | Instruction::RegisterControllerSpellCastThisTurn { program, .. } = instruction
@@ -6547,7 +6557,6 @@ fn add_program_requirements_for_source_pump(
             } => Capability::TemporaryCreatureSetKeywordProgramV1,
             Instruction::GrantKeywordsSet { .. } => Capability::BoardWipesV1,
             Instruction::PumpSet { .. }
-            | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }
             | Instruction::EachPlayerSacrifice { .. }
@@ -6587,9 +6596,7 @@ fn add_program_requirements_for_source_pump(
                 Capability::BasicLandSearchV1
             }
             Instruction::FetchBasicLand { .. } => Capability::BasicLandFetchV1,
-            Instruction::DealDamageAnnouncedX { .. } | Instruction::MillAnnouncedX { .. } => {
-                Capability::AnnouncedXEffectsV1
-            }
+            Instruction::MillAnnouncedX { .. } => Capability::AnnouncedXEffectsV1,
             Instruction::DiscardPlayerSet { .. } => Capability::GroupHandDiscardV1,
             Instruction::DiscardTargetPlayer { .. } => Capability::TargetPlayerDiscardV1,
             Instruction::DiscardTargetPlayerAtRandom { .. } => Capability::RandomPlayerDiscardV1,
@@ -6662,9 +6669,6 @@ fn add_program_requirements_for_source_pump(
             Instruction::CopyControlledCreatureSpell { .. } => {
                 Capability::ControlledCreatureSpellCopyV1
             }
-            Instruction::DealDamage { .. }
-            | Instruction::DealDamageToController { .. }
-            | Instruction::DealDamageToManaActivator { .. } => Capability::NoncombatDamageV1,
             Instruction::Scry { .. } => Capability::ControllerScryV1,
             Instruction::Surveil { .. } => Capability::ControllerSurveilV1,
             Instruction::MillCards { .. } => Capability::FixedMillProgramV1,
@@ -6896,8 +6900,7 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
         "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
             "slot":{"const":0},"domain":{"enum":["any_damage_target","player_or_planeswalker"]},"stage":{"const":"announcement"},
             "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"minLength":1}}}},
-        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-            "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}}}
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_damage(Some(0))}
     }});
     let life = json!({"properties":{"targets":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::kernel_verb("gain_life")}}});
     let pump = json!({"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{

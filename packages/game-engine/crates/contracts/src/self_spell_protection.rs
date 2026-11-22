@@ -18,12 +18,10 @@ fn legacy_damage_spell(d: &Definition) -> bool {
                 && p.modes.is_empty()
                 && matches!(
                     p.instructions.as_slice(),
-                    [Instruction::DamageSet {
-                        sets,
-                        each_player: true,
-                        amount: WipeAmount::Fixed { .. },
-                        source_block: 1,
-                    }] if sets == &[ObjectSet::Creatures]
+                    [damage] if damage.set_damage().is_some_and(|d| d.each_player
+                        && d.amount.as_fixed().is_some()
+                        && d.source_block == 1
+                        && d.sets == [&ObjectSet::Creatures.kernel(Context::Spell)])
                 )
         })
 }
@@ -146,10 +144,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "characteristics":{"properties":{"kind":{"const":"instant"}}},
         "spell":{"type":"object","required":["instructions"],"properties":{
             "targets":{"maxItems":0},"modes":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":"damage_set"},"sets":{"const":["creatures"]},"each_player":{"const":true},
-                "amount":{"properties":{"amount":{"const":"fixed"}}},"source_block":{"const":1}
-            }}}
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at(
+                instruction_schema::set_damage_to(&kir::DamageTo::All { parts: vec![
+                    kir::DamageTo::Objects { set: ObjectSet::Creatures.kernel(Context::Spell) },
+                    kir::DamageTo::Players { players: PlayerExpr::EachPlayer },
+                ] }),
+                1
+            )}
         }}
     }});
     let source = json!({"properties":{"provenance":{"properties":{"source_json":{"allOf":[

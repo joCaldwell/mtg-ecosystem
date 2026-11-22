@@ -3526,14 +3526,26 @@ impl Game {
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
-                if matches!(instruction, Instruction::DamageSet { .. }) {
+                if instruction.set_damage().is_some() {
                     self.validate_wipe_damage_transaction(tx, frame)?;
                 } else if matches!(instruction, Instruction::SacrificeDamage { .. }) {
                     self.validate_sacrifice_damage_transaction(tx, frame)?;
                 } else {
                     let (target_slot, amount, source_block, recipient) = match instruction {
-                        Instruction::DealDamage { .. }
-                        | Instruction::DealDamageAnnouncedX { .. } => {
+                        kernel!(Damage {
+                            to: mtg_contracts::kir::DamageTo::Ref {
+                                who: mtg_contracts::kir::Ref::Target { slot: _ }
+                            },
+                            amount: fixed!(_),
+                            ..
+                        })
+                        | kernel!(Damage {
+                            to: mtg_contracts::kir::DamageTo::Ref {
+                                who: mtg_contracts::kir::Ref::Target { slot: _ }
+                            },
+                            amount: announced_x!(),
+                            ..
+                        }) => {
                             let (slot, amount, block, target) = self.directed_damage_operands(
                                 self.entry(frame.stack_id)?,
                                 instruction,
@@ -3552,28 +3564,26 @@ impl Game {
                                 player: self.removal_target_controller(frame, *target_slot)?,
                             },
                         ),
-                        Instruction::DealDamageToManaActivator {
-                            amount,
-                            source_block,
-                        } => (
-                            None,
-                            amount,
-                            *source_block,
-                            TargetEntity::Player {
-                                player: Self::mana_tap_activator(self.entry(frame.stack_id)?)?,
-                            },
-                        ),
-                        Instruction::DealDamageToController {
-                            amount,
-                            source_block,
-                        } => (
-                            None,
-                            amount,
-                            *source_block,
-                            TargetEntity::Player {
-                                player: self.entry(frame.stack_id)?.controller,
-                            },
-                        ),
+                        kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::EventPlayer { role: mtg_contracts::kir::EventPlayerRole::ActivatingPlayer } }, amount: fixed!(amount), .. } @ source_block) => {
+                            (
+                                None,
+                                amount,
+                                *source_block,
+                                TargetEntity::Player {
+                                    player: Self::mana_tap_activator(self.entry(frame.stack_id)?)?,
+                                },
+                            )
+                        }
+                        kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Controller { .. } }, amount: fixed!(amount), .. } @ source_block) => {
+                            (
+                                None,
+                                amount,
+                                *source_block,
+                                TargetEntity::Player {
+                                    player: self.entry(frame.stack_id)?.controller,
+                                },
+                            )
+                        }
                         _ => return Err("damage continuation not damage instruction".into()),
                     };
                     let expected = BatchCause::Instruction {

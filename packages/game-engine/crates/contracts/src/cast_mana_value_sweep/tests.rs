@@ -51,12 +51,15 @@ fn cast_mana_value_sweep() {
             CastManaValueSweepV1
         ])
     );
+    let history = kir::Amount::OtherCastsManaValue {
+        caster: PlayerExpr::you(Context::Spell),
+    };
     assert_eq!(
-        strict_read::<WipeAmount>(r#"{"amount":"other_casts_mana_value"}"#).unwrap(),
-        WipeAmount::OtherCastsManaValue
+        strict_read::<kir::Amount>(&serde_json::to_string(&history).unwrap()).unwrap(),
+        history
     );
     assert!(
-        strict_read::<WipeAmount>(r#"{"amount":"other_casts_mana_value","value":"2"}"#).is_err()
+        strict_read::<kir::Amount>(r#"{"amount":"other_casts_mana_value","value":"2"}"#).is_err()
     );
 
     // These source-backed damage programs cover fixed, announced X and creature count.
@@ -68,19 +71,23 @@ fn cast_mana_value_sweep() {
     for mut old in legacy.definitions {
         let Some(p) = &mut old.spell else { continue };
         let Some(amount) = p.instructions.iter_mut().find_map(|i| match i {
-            Instruction::DamageSet { amount, .. } => Some(amount),
+            kernel!(Damage {
+                to: kir::DamageTo::Objects { .. } | kir::DamageTo::All { .. },
+                amount,
+                ..
+            }) => Some(amount),
             _ => None,
         }) else {
             continue;
         };
         old_amounts.insert(match amount {
-            WipeAmount::Fixed { .. } => "fixed",
-            WipeAmount::CreatureCount => "creature count",
-            WipeAmount::AnnouncedX => "announced X",
-            WipeAmount::OtherCastsManaValue => panic!("historical amount changed"),
+            kir::Amount::Fixed { .. } => "fixed",
+            kir::Amount::Count { .. } => "creature count",
+            kir::Amount::Var { .. } => "announced X",
+            _ => panic!("historical amount changed"),
         });
         assert!(!old.capabilities.contains(&CastManaValueSweepV1));
-        *amount = WipeAmount::OtherCastsManaValue;
+        *amount = history.clone();
         old.capabilities = old.requirements();
         assert!(old.validate().is_err());
     }
@@ -108,20 +115,19 @@ fn cast_mana_value_sweep() {
             p.instructions.clear();
         },
         |d| {
-            let Instruction::DamageSet { sets, .. } =
-                &mut d.spell.as_mut().unwrap().instructions[0]
-            else {
+            let kernel!(Damage { to, .. }) = &mut d.spell.as_mut().unwrap().instructions[0] else {
                 unreachable!()
             };
-            *sets = vec![ObjectSet::Creatures];
+            *to = kir::DamageTo::Objects {
+                set: ObjectSet::Creatures.kernel(Context::Spell),
+            };
         },
         |d| {
-            let Instruction::DamageSet { amount, .. } =
-                &mut d.spell.as_mut().unwrap().instructions[0]
+            let kernel!(Damage { amount, .. }) = &mut d.spell.as_mut().unwrap().instructions[0]
             else {
                 unreachable!()
             };
-            *amount = WipeAmount::Fixed { value: 8.into() };
+            *amount = kir::Amount::fixed(8);
         },
         |d| {
             d.provenance.abilities_json = "[]".into();

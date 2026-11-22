@@ -3157,10 +3157,10 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
             if definition.triggered.len() == 2
                 && !matches!(
                     program.instructions.as_slice(),
-                    [Instruction::DamageSet {
-                        amount: WipeAmount::OtherCastsManaValue,
-                        ..
-                    }]
+                    [damage] if damage.set_damage().is_some_and(|d| matches!(
+                        d.amount,
+                        kir::Amount::OtherCastsManaValue { .. }
+                    ))
                 )
             {
                 return Err(unsupported(
@@ -4488,16 +4488,13 @@ fn append_spell_effects(
                     let DamageDestination::AnyTarget { selection_id } = to else {
                         return Err(unsupported("damage", "unsupported damage destination"));
                     };
-                    Instruction::DealDamage {
-                        target_slot: bind_target(
-                            program,
-                            slots,
-                            selection_id,
-                            TargetDomain::AnyDamageTarget,
-                        )?,
-                        amount: fixed_positive_value(amount)?,
+                    Instruction::damage_target(
+                        bind_target(program, slots, selection_id, TargetDomain::AnyDamageTarget)?,
+                        kir::Amount::Fixed {
+                            value: fixed_positive_value(amount)?,
+                        },
                         source_block,
-                    }
+                    )
                 }
                 Step::GainLife { who, amount, .. } | Step::LoseLife { who, amount }
                     if who.of.is_some() || amount["amount"] == "attribute" =>
@@ -5194,14 +5191,17 @@ fn lower_wipes_step(
                 if r == json!({"player":"each-player"}) && !each_player {
                     each_player = true;
                 } else {
-                    sets.push(lower_object_set(&r)?);
+                    sets.push(lower_object_set(&r)?.kernel(context));
                 }
             }
             let amount = if *amount == json!({"amount":"x"}) {
                 if counted {
-                    WipeAmount::CreatureCount
+                    // CR 608.2h: the number of creatures on the battlefield.
+                    kir::Amount::Count {
+                        set: SetExpr::battlefield(kir::Pred::creatures()),
+                    }
                 } else {
-                    WipeAmount::AnnouncedX
+                    kir::Amount::announced_x()
                 }
             } else {
                 if counted {
@@ -5211,19 +5211,16 @@ fn lower_wipes_step(
                     == json!({"amount":"cast-mana-value-sum","who":{"player":"you"},
                     "during":"this-turn","excluding":{"ref":"this","noun":"spell"}})
                 {
-                    WipeAmount::OtherCastsManaValue
+                    kir::Amount::OtherCastsManaValue {
+                        caster: PlayerExpr::you(context),
+                    }
                 } else {
-                    WipeAmount::Fixed {
+                    kir::Amount::Fixed {
                         value: fixed_positive_value(amount)?,
                     }
                 }
             };
-            Instruction::DamageSet {
-                sets,
-                each_player,
-                amount,
-                source_block,
-            }
+            SetDamage::instruction(sets, each_player, amount, source_block)
         }
         Step::GainLife {
             who,
@@ -7244,16 +7241,18 @@ fn lower_activation(
                     let DamageDestination::AnyTarget { selection_id } = to else {
                         return Err(unsupported("damage", "unsupported damage destination"));
                     };
-                    Instruction::DealDamage {
-                        target_slot: bind_target(
+                    Instruction::damage_target(
+                        bind_target(
                             &mut program,
                             &mut slots,
                             selection_id,
                             TargetDomain::AnyDamageTarget,
                         )?,
-                        amount: fixed_positive_value(amount)?,
+                        kir::Amount::Fixed {
+                            value: fixed_positive_value(amount)?,
+                        },
                         source_block,
-                    }
+                    )
                 }
                 Step::Draw {
                     who,
@@ -10401,11 +10400,11 @@ mod tests {
         assert_eq!(p.targets[0].selection_id, "line:0:6");
         assert_eq!(
             p.instructions,
-            [Instruction::DealDamage {
-                target_slot: 0,
-                amount: 3.into(),
-                source_block: 0
-            }]
+            [Instruction::damage_target(
+                0,
+                kir::Amount::Fixed { value: 3.into() },
+                0
+            )]
         );
         let sorcerer = get("Prodigal Sorcerer");
         let a = &sorcerer.activated[0];
@@ -10424,11 +10423,11 @@ mod tests {
         assert_eq!(a.program.targets[0].selection_id, "line:0:9");
         assert_eq!(
             a.program.instructions,
-            [Instruction::DealDamage {
-                target_slot: 0,
-                amount: 1.into(),
-                source_block: 0
-            }]
+            [Instruction::damage_target(
+                0,
+                kir::Amount::Fixed { value: 1.into() },
+                0
+            )]
         );
         let soul = get("Soul Feast");
         let p = soul.spell.as_ref().unwrap();
@@ -10622,18 +10621,17 @@ mod tests {
                 d.spell.as_mut().unwrap().targets[0].domain = TargetDomain::BattlefieldCreature
             }) as fn(&mut Definition),
             |d| {
-                d.spell.as_mut().unwrap().instructions[0] = Instruction::DealDamage {
-                    target_slot: 1,
-                    amount: 3.into(),
-                    source_block: 0,
-                }
+                d.spell.as_mut().unwrap().instructions[0] =
+                    Instruction::damage_target(1, kir::Amount::Fixed { value: 3.into() }, 0)
             },
             |d| {
-                d.spell.as_mut().unwrap().instructions[0] = Instruction::DealDamage {
-                    target_slot: 0,
-                    amount: Quantity::zero(),
-                    source_block: 0,
-                }
+                d.spell.as_mut().unwrap().instructions[0] = Instruction::damage_target(
+                    0,
+                    kir::Amount::Fixed {
+                        value: Quantity::zero(),
+                    },
+                    0,
+                )
             },
             |d| {
                 d.capabilities.remove(&Capability::NoncombatDamageV1);

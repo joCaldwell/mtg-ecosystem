@@ -4,7 +4,7 @@ use super::*;
 use mtg_contracts::{
     ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
     KeywordAbility, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
-    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount, announced_x,
+    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, announced_x,
     compound_indestructible_parameters, fixed, kernel,
     kir::{self, Context, SetExpr},
     target_player,
@@ -43,14 +43,13 @@ fn requires_copy_entry_choice(definition: &Definition) -> bool {
 fn announced_x(instruction: &I) -> bool {
     matches!(
         instruction,
-        I::DamageSet {
-            amount: WipeAmount::AnnouncedX,
-            ..
-        } | kernel!(Draw {
+        kernel!(Draw {
             player: kir::PlayerExpr::Is { .. },
             amount: announced_x!()
-        }) | I::DealDamageAnnouncedX { .. }
-            | I::MillAnnouncedX { .. }
+        }) | kernel!(Damage {
+            amount: announced_x!(),
+            ..
+        }) | I::MillAnnouncedX { .. }
             | kernel!(GainLife {
                 amount: mtg_contracts::announced_x!(),
                 ..
@@ -686,11 +685,13 @@ impl Strategy<'_> {
                 }
                 [I::DestroyAllCreatures { .. }] => true,
                 [
-                    I::DealDamage {
-                        target_slot,
-                        amount,
+                    kernel!(Damage {
+                        to: kir::DamageTo::Ref {
+                            who: kir::Ref::Target { slot: target_slot }
+                        },
+                        amount: fixed!(amount),
                         ..
-                    },
+                    }),
                 ] => {
                     damage_safe
                         && target_valid(*target_slot)
@@ -932,11 +933,13 @@ impl Strategy<'_> {
             };
             for i in &p.instructions {
                 match i {
-                    I::DealDamage {
-                        target_slot,
-                        amount,
+                    kernel!(Damage {
+                        to: kir::DamageTo::Ref {
+                            who: kir::Ref::Target { slot: target_slot }
+                        },
+                        amount: fixed!(amount),
                         ..
-                    }
+                    })
                     | I::SacrificeDamage {
                         target_slot: Some(target_slot),
                         amount: SacrificeDamageAmount::Fixed { value: amount },
@@ -949,23 +952,26 @@ impl Strategy<'_> {
                             damage.add(&self.scaled_damage(v, amount));
                         }
                     }
-                    I::DamageSet {
-                        sets,
-                        each_player,
-                        amount,
-                        ..
-                    } => {
+                    i if let Some(set_damage) = i.set_damage() => {
                         let hit = match target {
-                            PlayerTargetEntity::Player { .. } => *each_player,
+                            PlayerTargetEntity::Player { .. } => set_damage.each_player,
                             PlayerTargetEntity::Object { object } => v
                                 .objects
                                 .iter()
                                 .find(|o| &o.handle == object)
-                                .is_some_and(|o| sets.iter().any(|set| self.in_set(v, o, set))),
+                                .is_some_and(|o| {
+                                    set_damage
+                                        .sets
+                                        .iter()
+                                        .any(|set| self.in_kernel_set(v, o, set))
+                                }),
                         };
                         if hit
-                            && let Some(amount) =
-                                self.wipe_amount(v, amount, &s.x.clone().unwrap_or_default())
+                            && let Some(amount) = self.wipe_amount(
+                                v,
+                                set_damage.amount,
+                                &s.x.clone().unwrap_or_default(),
+                            )
                         {
                             damage.add(&self.scaled_damage(v, &amount));
                         }
@@ -1136,8 +1142,20 @@ impl Strategy<'_> {
         p.instructions
             .iter()
             .find_map(|i| match i {
-                I::DealDamage { amount, .. } => Some(amount.clone()),
-                I::DealDamageAnnouncedX { .. } => v.stack.last()?.x.clone(),
+                kernel!(Damage {
+                    to: kir::DamageTo::Ref {
+                        who: kir::Ref::Target { slot: _ }
+                    },
+                    amount: fixed!(amount),
+                    ..
+                }) => Some(amount.clone()),
+                kernel!(Damage {
+                    to: kir::DamageTo::Ref {
+                        who: kir::Ref::Target { slot: _ }
+                    },
+                    amount: announced_x!(),
+                    ..
+                }) => v.stack.last()?.x.clone(),
                 I::SacrificeDamage {
                     amount: SacrificeDamageAmount::Fixed { value },
                     ..
@@ -1283,19 +1301,21 @@ impl Strategy<'_> {
     fn wipe_amount(
         &self,
         v: &PermittedView,
-        amount: &WipeAmount,
+        amount: &kir::Amount,
         x: &Quantity,
     ) -> Option<Quantity> {
         Some(match amount {
-            WipeAmount::Fixed { value } => value.clone(),
-            WipeAmount::AnnouncedX => x.clone(),
-            WipeAmount::OtherCastsManaValue => return None,
-            WipeAmount::CreatureCount => Quantity::from(
+            kir::Amount::Fixed { value } => value.clone(),
+            kir::Amount::Var {
+                of: kir::Ref::AnnouncedX,
+            } => x.clone(),
+            kir::Amount::Count { set } => Quantity::from(
                 v.objects
                     .iter()
-                    .filter(|o| self.in_set(v, o, &ObjectSet::Creatures))
+                    .filter(|o| self.in_kernel_set(v, o, set))
                     .count() as i64,
             ),
+            _ => return None,
         })
     }
     fn wipe_score(&self, v: &PermittedView, p: &SpellProgram, x: &Quantity) -> Option<Quantity> {
@@ -1315,14 +1335,9 @@ impl Strategy<'_> {
                     q.subtract(toughness);
                     (vec![kernel(set)], Some(q))
                 }
-                I::DamageSet {
-                    sets,
-                    each_player,
-                    amount,
-                    ..
-                } => {
-                    let damage = self.scaled_damage(v, &self.wipe_amount(v, amount, x)?);
-                    if *each_player {
+                i if let Some(set_damage) = i.set_damage() => {
+                    let damage = self.scaled_damage(v, &self.wipe_amount(v, set_damage.amount, x)?);
+                    if set_damage.each_player {
                         if v.players
                             .iter()
                             .any(|r| r.player == v.viewer && r.life <= damage)
@@ -1337,7 +1352,7 @@ impl Strategy<'_> {
                             })
                             .all(|r| r.life <= damage);
                     }
-                    (sets.iter().map(kernel).collect(), Some(damage))
+                    (set_damage.sets.into_iter().cloned().collect(), Some(damage))
                 }
                 I::EachPlayerSacrifice { .. } => {
                     found = true;
@@ -1847,11 +1862,20 @@ impl Strategy<'_> {
                     .copied()
                     .find(|i| {
                         root.modes.get(*i as usize).is_some_and(|m| {
-                            matches!(m.program.instructions.as_slice(), [I::DealDamage { .. }])
-                                && m.program
-                                    .targets
-                                    .first()
-                                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
+                            matches!(
+                                m.program.instructions.as_slice(),
+                                [kernel!(Damage {
+                                    to: kir::DamageTo::Ref {
+                                        who: kir::Ref::Target { slot: _ }
+                                    },
+                                    amount: fixed!(_),
+                                    ..
+                                })]
+                            ) && m
+                                .program
+                                .targets
+                                .first()
+                                .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
                         })
                     })
                     .unwrap_or(first);

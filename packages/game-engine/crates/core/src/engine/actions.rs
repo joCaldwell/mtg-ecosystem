@@ -1436,7 +1436,6 @@ impl Game {
             | Instruction::PumpSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::GrantKeywordsSet { .. }
-            | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }
             | Instruction::EachPlayerSacrifice { .. }
@@ -1531,12 +1530,6 @@ impl Game {
                 quantity,
                 source_block,
             } => self.produce_resolution_mana(frame, color, quantity, source_block),
-            op @ (Instruction::DealDamage { .. }
-            | Instruction::DealDamageToController { .. }
-            | Instruction::DealDamageToManaActivator { .. }
-            | Instruction::DealDamageAnnouncedX { .. }) => {
-                self.execute_damage_life_instruction(frame, op)
-            }
             Instruction::SacrificeCreature {
                 recipient,
                 source_block,

@@ -3,8 +3,8 @@
 //! 603.2c/10a, 608.2c/h, 611.2c, 614.1a/6, 701.8a, 903.9a/b, 514.2.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::kir::{Destination, SetExpr};
-use mtg_contracts::{ObjectSet, WipeAmount};
+use mtg_contracts::ObjectSet;
+use mtg_contracts::kir::{Amount, Destination, SetExpr};
 
 /// What a board-wide movement does with each member (CR 701.8, 400.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +39,7 @@ impl Game {
         }
         Ok(q)
     }
-    fn other_casts_mana_value(&self, spell: &StackInstance) -> Result<Quantity, String> {
+    pub(super) fn other_casts_mana_value(&self, spell: &StackInstance) -> Result<Quantity, String> {
         // CR 601.2i, 608.2i: this paid spell was cast in the current turn.
         // Cast history also includes spells cast above it, such as cascade casts.
         // This sorcery-only instruction counts the other casts by its caster.
@@ -236,53 +236,51 @@ impl Game {
         }
         Ok(())
     }
+    /// CR 120.2b, 608.2h: the amount, block and recipients of board-wide
+    /// damage, read as the instruction is performed: the union of its
+    /// creature sets in object order, then each live player.
     pub(super) fn wipe_damage_spec(
         &self,
         frame: &Resolving,
     ) -> Result<(Quantity, u32, Vec<TargetEntity>), String> {
-        let Instruction::DamageSet {
-            sets,
-            each_player,
-            amount,
-            source_block,
-        } = &self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize]
-        else {
-            return Err("not set damage".into());
-        };
-        let amount = match amount {
-            WipeAmount::Fixed { value } => value.clone(),
-            WipeAmount::AnnouncedX => self
-                .entry(frame.stack_id)?
-                .x
-                .clone()
-                .ok_or("missing announced X")?,
-            WipeAmount::OtherCastsManaValue => {
-                self.other_casts_mana_value(self.entry(frame.stack_id)?)?
-            }
-            WipeAmount::CreatureCount => Quantity::from(
-                self.objects_in_set(
-                    &ObjectSet::Creatures,
-                    self.entry(frame.stack_id)?.controller,
-                )
-                .len() as i64,
-            ),
-        };
+        let instruction =
+            &self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize];
+        let damage = instruction.set_damage().ok_or("not set damage")?;
+        let amount = self.kernel_amount(frame, damage.amount)?;
         let mut objects = BTreeSet::new();
-        for set in sets {
-            objects.extend(self.objects_in_set(set, self.entry(frame.stack_id)?.controller));
+        for set in &damage.sets {
+            let SetExpr::Matching { zone, filter } = set else {
+                return Err("set damage over a non-matching set".into());
+            };
+            objects.extend(self.kernel_set(frame, zone, filter)?.0);
         }
         let mut targets = objects
             .into_iter()
             .map(|object| TargetEntity::Object { object })
             .collect::<Vec<_>>();
-        if *each_player {
+        if damage.each_player {
             targets.extend(
                 self.live_players()
                     .into_iter()
                     .map(|player| TargetEntity::Player { player }),
             );
         }
-        Ok((amount, *source_block, targets))
+        Ok((amount, damage.source_block, targets))
+    }
+    /// Freezes the recipients and amount, then prepares one simultaneous
+    /// damage event (CR 120.3).
+    pub(super) fn execute_set_damage(&mut self, mut frame: Resolving) -> Result<(), String> {
+        let (amount, block, targets) = self.wipe_damage_spec(&frame)?;
+        frame.set_damage = Some(SetDamageFacts {
+            cursor: frame.cursor,
+            amount: amount.clone(),
+            targets: targets.clone(),
+        });
+        if amount == Quantity::zero() || targets.is_empty() {
+            self.finish_instruction(frame, InstructionOutcome::Damage { actual: None })
+        } else {
+            self.prepare_noncombat_set_damage(frame, amount, block, targets)
+        }
     }
     pub(super) fn anger_targets(&self, frame: &Resolving) -> Vec<ObjectId> {
         frame
@@ -357,7 +355,7 @@ impl Game {
     }
     pub(crate) fn execute_wipes_instruction(
         &mut self,
-        mut frame: Resolving,
+        frame: Resolving,
         i: Instruction,
     ) -> Result<(), String> {
         match i {
@@ -476,19 +474,6 @@ impl Game {
                     source_block,
                 )
             }
-            Instruction::DamageSet { .. } => {
-                let (amount, block, targets) = self.wipe_damage_spec(&frame)?;
-                frame.set_damage = Some(SetDamageFacts {
-                    cursor: frame.cursor,
-                    amount: amount.clone(),
-                    targets: targets.clone(),
-                });
-                if amount == Quantity::zero() || targets.is_empty() {
-                    self.finish_instruction(frame, InstructionOutcome::Damage { actual: None })
-                } else {
-                    self.prepare_noncombat_set_damage(frame, amount, block, targets)
-                }
-            }
             Instruction::GainLifeDestroyed { source_block } => {
                 let count = frame
                     .outcomes
@@ -591,11 +576,11 @@ impl Game {
             .set_damage
             .as_ref()
             .ok_or("missing frozen set damage")?;
-        let Instruction::DamageSet { source_block, .. } =
-            &self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize]
-        else {
-            return Err("not set damage".into());
-        };
+        let source_block = &self.program_for(self.entry(frame.stack_id)?)?.instructions
+            [frame.cursor as usize]
+            .set_damage()
+            .ok_or("not set damage")?
+            .source_block;
         let source = self.source_facts(self.entry(frame.stack_id)?)?;
         let controller = self.entry(frame.stack_id)?.controller;
         if facts.cursor != frame.cursor
@@ -616,10 +601,11 @@ impl Game {
         let Some(f) = &frame.set_damage else {
             return Ok(());
         };
-        let Some(Instruction::DamageSet { amount, .. }) = self
+        let Some(damage) = self
             .program_for(self.entry(frame.stack_id)?)?
             .instructions
             .get(f.cursor as usize)
+            .and_then(Instruction::set_damage)
         else {
             return Err("unbound set damage facts".into());
         };
@@ -636,19 +622,16 @@ impl Game {
                             .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
                 }
             })
-            || match amount {
-                WipeAmount::Fixed { value } => *value != f.amount,
-                WipeAmount::AnnouncedX => self.entry(frame.stack_id)?.x.as_ref() != Some(&f.amount),
-                WipeAmount::OtherCastsManaValue => {
-                    self.other_casts_mana_value(self.entry(frame.stack_id)?)? != f.amount
-                }
-                WipeAmount::CreatureCount => {
+            || match damage.amount {
+                // A count is bounded by every object that could exist.
+                Amount::Count { .. } => {
                     f.amount
                         > Quantity::from(
                             (4 * capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize)
                                 as i64,
                         )
                 }
+                amount => self.kernel_amount(frame, amount)? != f.amount,
             }
         {
             return Err("invalid set damage facts".into());

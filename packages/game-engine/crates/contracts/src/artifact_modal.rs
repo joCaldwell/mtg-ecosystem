@@ -138,11 +138,13 @@ impl BoundArtifactMode {
                 });
                 (
                     json!({"effect":"damage","source":{"ref":"self"},"amount":{"amount":"fixed","value":n},"to":to}),
-                    Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: i64::from(n).into(),
-                        source_block: block,
-                    },
+                    Instruction::damage_target(
+                        0,
+                        kir::Amount::Fixed {
+                            value: i64::from(n).into(),
+                        },
+                        block,
+                    ),
                 )
             } else {
                 let (p, t) = text

@@ -43,7 +43,13 @@ fn slice4_equipment_binds_distinct_sources_and_ordered_steps() {
     assert!(matches!(
         compiled(BLADE).triggered[0].program.instructions.as_slice(),
         [
-            Instruction::DealDamage { target_slot: 0, .. },
+            kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot: 0 }
+                },
+                amount: fixed!(_),
+                ..
+            }),
             kernel!(Draw {
                 player: you!(),
                 amount: fixed!(_)

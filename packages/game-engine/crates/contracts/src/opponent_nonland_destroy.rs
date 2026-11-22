@@ -15,8 +15,9 @@ fn contains_reserved_instruction(program: &SpellProgram) -> bool {
             kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => *what == kernel_set,
             Instruction::PumpSet { set: operand, .. }
             | Instruction::GrantKeywordsSet { set: operand, .. } => operand == &set,
-            Instruction::DamageSet { sets, .. } => sets.contains(&set),
-            _ => false,
+            instruction => instruction
+                .set_damage()
+                .is_some_and(|damage| damage.sets.contains(&&kernel_set)),
         })
         || program
             .modes

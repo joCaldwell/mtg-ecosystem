@@ -41,9 +41,6 @@ fn contexts(instruction: &Instruction) -> u8 {
         // CR 119.3: positive life changes for the controller, each opponent
         // or one announced player.
         I::Kernel { node, .. } => kernel_contexts(node),
-        // CR 120.2b: noncombat damage from the invocation's source, using its
-        // last known information if it has left (CR 608.2h).
-        I::DealDamage { .. } => ANY,
         // CR 701.8, 701.13, 701.26, 400.3: one announced permanent, with its
         // legality rechecked on resolution (CR 608.2b).
         I::DestroyPermanent { optional, .. } => {
@@ -107,12 +104,6 @@ fn contexts(instruction: &Instruction) -> u8 {
         I::DestroyAllCreatures { .. }
         | I::PumpSet { .. }
         | I::UntapControllerLands { .. } => ANY,
-        I::DamageSet { amount, .. } => match amount {
-            WipeAmount::Fixed { .. } => ANY,
-            WipeAmount::AnnouncedX
-            | WipeAmount::CreatureCount
-            | WipeAmount::OtherCastsManaValue => FAMILY,
-        },
         // CR 701.21a: each named player chooses and sacrifices.
         I::EachOpponentSacrifice { .. }
         | I::EachPlayerSacrifice { .. }
@@ -175,19 +166,16 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::LoseGameTargetPlayer { .. }
         | I::SacrificeCreature { .. }
         | I::DrawCardsIfAdditionalCost { .. }
-        | I::DealDamageAnnouncedX { .. }
         | I::MillAnnouncedX { .. }
         | I::OptionalDrawUnlessCasterPays { .. }
         | I::OptionalDrawForSoleGreatestEntrant { .. }
         | I::DrawDamageAmount { .. }
         | I::DiscardTargetPlayerAtRandom { .. }
         | I::CopyControlledCreatureSpell { .. }
-        | I::DealDamageToController { .. }
         // Optional blocks, delayed cast registration, mana-tap riders, colour
         // changes, proliferate, recipient searches and transformation each
         // bind a reviewed event, sibling block or second face.
         | I::ChooseOptional { .. }
-        | I::DealDamageToManaActivator { .. }
         | I::Proliferate { .. }
         | I::RegisterControllerSpellCastThisTurn { .. }
         | I::SearchRecipientBasicLand { .. }
@@ -226,6 +214,19 @@ fn kernel_contexts(node: &kir::Node) -> u8 {
             {
                 ANY
             }
+            _ => FAMILY,
+        },
+        // CR 120.2b: noncombat damage to one announced target, using the
+        // source's last known information if it has left (CR 608.2h). An
+        // announced X, the controller of a land's trigger and a mana
+        // ability's activator bind their families; a fixed board-wide amount
+        // is read as the instruction is performed.
+        Some(Verb::Damage { to, amount, .. }) => match to {
+            kir::DamageTo::Ref {
+                who: kir::Ref::Target { .. },
+            } if amount.as_fixed().is_some() => ANY,
+            kir::DamageTo::Ref { .. } => FAMILY,
+            _ if amount.as_fixed().is_some() => ANY,
             _ => FAMILY,
         },
         // CR 608.2h: a board-wide set is read as the instruction is performed.
@@ -859,11 +860,7 @@ mod tests {
         }
     }
     fn damage() -> Instruction {
-        Instruction::DealDamage {
-            target_slot: 0,
-            amount: 1.into(),
-            source_block: 0,
-        }
+        Instruction::damage_target(0, kir::Amount::Fixed { value: 1.into() }, 0)
     }
 
     #[test]
@@ -1141,11 +1138,11 @@ mod tests {
         );
         assert!(super::program(&x, Context::Spell).is_err());
         let unbound = program(
-            vec![Instruction::DealDamage {
-                target_slot: 0,
-                amount: 1.into(),
-                source_block: 0,
-            }],
+            vec![Instruction::damage_target(
+                0,
+                kir::Amount::Fixed { value: 1.into() },
+                0,
+            )],
             vec![],
         );
         assert!(super::program(&unbound, Context::Triggered).is_err());

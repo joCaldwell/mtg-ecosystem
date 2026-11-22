@@ -558,9 +558,26 @@
         ],
         "instructions": [
           {
-            "op": "deal_damage",
-            "target_slot": 0,
-            "amount": "3",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "ref",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "3"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -699,9 +716,26 @@
             ],
             "instructions": [
               {
-                "op": "deal_damage",
-                "target_slot": 0,
-                "amount": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "damage",
+                    "source": {
+                      "ref": "source"
+                    },
+                    "to": {
+                      "to": "ref",
+                      "who": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]

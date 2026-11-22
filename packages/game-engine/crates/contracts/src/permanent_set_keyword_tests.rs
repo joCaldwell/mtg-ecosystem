@@ -195,12 +195,12 @@ fn permanent_set_keyword_every_other_opcode_and_context_rejects() {
             },
             0,
         ),
-        Instruction::DamageSet {
-            sets: vec![ObjectSet::ControllerPermanents],
-            each_player: false,
-            amount: WipeAmount::Fixed { value: 1.into() },
-            source_block: 0,
-        },
+        SetDamage::instruction(
+            vec![ObjectSet::ControllerPermanents.kernel(Context::Spell)],
+            false,
+            kir::Amount::fixed(1),
+            0,
+        ),
         Instruction::PumpSet {
             set: ObjectSet::ControllerPermanents,
             power: 0.into(),

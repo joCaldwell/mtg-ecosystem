@@ -139,11 +139,7 @@ mod reactive_tests {
                     resolution: mtg_contracts::SpellResolution::Instructions,
                     functioning_zone: mtg_contracts::FunctioningZone::Stack,
                     targets: vec![],
-                    instructions: vec![mtg_contracts::Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: 2.into(),
-                        source_block: 0
-                    }],
+                    instructions: vec![I::damage_target(0, kir::Amount::fixed(2), 0)],
                     modes: vec![]
                 },
                 &entities
@@ -162,11 +158,7 @@ mod reactive_tests {
                     resolution: mtg_contracts::SpellResolution::Instructions,
                     functioning_zone: mtg_contracts::FunctioningZone::Stack,
                     targets: vec![],
-                    instructions: vec![mtg_contracts::Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: 2.into(),
-                        source_block: 0
-                    }],
+                    instructions: vec![I::damage_target(0, kir::Amount::fixed(2), 0)],
                     modes: vec![]
                 },
                 &entities
@@ -381,8 +373,10 @@ fn names_and_catalog_size_do_not_select_policy_or_wipe_amounts() {
     assert!(s.definition_ready(&v, d));
     let mut changed = d.clone();
     for i in &mut changed.spell.as_mut().unwrap().instructions {
-        if let I::DamageSet { amount, .. } = i {
-            *amount = WipeAmount::Fixed { value: 1.into() };
+        if i.set_damage().is_some()
+            && let kernel!(Damage { amount, .. }) = i
+        {
+            *amount = kir::Amount::fixed(1);
         }
     }
     assert!(
@@ -934,16 +928,8 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
         .unwrap();
     let p = bolt.spell.as_mut().unwrap();
     p.instructions = vec![
-        I::DealDamage {
-            target_slot: 0,
-            amount: 3.into(),
-            source_block: 0,
-        },
-        I::DealDamage {
-            target_slot: 1,
-            amount: 3.into(),
-            source_block: 0,
-        },
+        I::damage_target(0, kir::Amount::fixed(3), 0),
+        I::damage_target(1, kir::Amount::fixed(3), 0),
     ];
     let mut second = p.targets[0].clone();
     second.slot = 1;

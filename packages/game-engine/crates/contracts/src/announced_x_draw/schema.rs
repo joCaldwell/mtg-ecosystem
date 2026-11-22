@@ -50,14 +50,19 @@ pub(crate) fn extend_schema(schema: &mut Value) {
     ]});
     schema["$defs"]["AnnouncedXDrawFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":{"anyOf":[
-            {"required":["op"],"properties":{"op":{"enum":[
-                "deal_damage_announced_x","mill_announced_x"
-            ]}}},
+            {"required":["op"],"properties":{"op":{"enum":["mill_announced_x"]}}},
+            instruction_schema::target_damage_x(),
             x_draw,
             instruction_schema::kernel_announced_x(&["gain_life","lose_life"])
         ]}}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
+    // The announced-X damage of these spells is block zero's, to slot zero.
+    schema["$defs"]["Instruction"]["allOf"].as_array_mut().unwrap().push(json!({
+        "if":instruction_schema::target_damage_x(),
+        "then":{"properties":{"source_block":{"const":0},"node":{"properties":{"do":{"properties":{
+            "to":{"properties":{"who":{"properties":{"slot":{"const":0}}}}}}}}}}}
+    }));
     schema["$defs"]["Instruction"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":x_draw,
         "then":{"properties":{"source_block":{"const":0},"node":{"properties":{"do":{"properties":{
@@ -128,7 +133,7 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         ]}}}}}}),
     );
     let x_amount = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{"anyOf":[
-        {"required":["op","amount"],"properties":{"op":{"enum":["damage_set"]},"amount":{"const":{"amount":"announced_x"}}}},
+        instruction_schema::set_damage(json!({"const":kir::Amount::announced_x()})),
         instruction_schema::kernel_seq_announced_x()
     ]}}}}}});
     let counted_x = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{

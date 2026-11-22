@@ -180,11 +180,13 @@ pub fn fixed_creature_activation(
         targets.push(spec);
         label = format!("{printed_cost}: ~ deals {n} damage to target creature.");
         (
-            Instruction::DealDamage {
-                target_slot: 0,
-                amount: i64::from(n).into(),
-                source_block: block,
-            },
+            Instruction::damage_target(
+                0,
+                kir::Amount::Fixed {
+                    value: i64::from(n).into(),
+                },
+                block,
+            ),
             json!({"effect":"damage","source":{"ref":"self"},"amount":fixed(n),"to":{"to":"object","ref":what}}),
         )
     };
@@ -307,10 +309,18 @@ pub fn has_fixed_creature_activation(d: &Definition) -> bool {
                     .targets
                     .iter()
                     .any(|t| t.domain == TargetDomain::BattlefieldCreature)
-                    && a.program
-                        .instructions
-                        .iter()
-                        .any(|i| matches!(i, Instruction::DealDamage { .. })))
+                    && a.program.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            kernel!(Damage {
+                                to: kir::DamageTo::Ref {
+                                    who: kir::Ref::Target { slot: _ }
+                                },
+                                amount: fixed!(_),
+                                ..
+                            })
+                        )
+                    }))
     })
 }
 
@@ -462,7 +472,7 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    let damage = json!({"properties":{"op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}});
+    let damage = instruction_schema::target_damage(Some(0));
     let destroy = json!({"properties":{"op":{"const":"destroy_permanent"},"target_slot":{"const":0},"optional":{"const":false},"regeneration_forbidden":{"const":false}}});
     let gain = instruction_schema::kernel_verb("gain_life");
     let pump_op = "modify_source_power_toughness";
@@ -499,11 +509,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
     });
     let candidate = json!({"required":["cost","program"],"properties":{"cost":{"required":["mana"],"type":"object"},"program":{"anyOf":[
         {"properties":{"instructions":{"contains":{"anyOf":[{"properties":{"op":{"enum":["destroy_permanent",pump_op]}}},instruction_schema::kernel_verb("gain_life")]}}}},
-        {"properties":{"instructions":{"contains":{"properties":{"op":{"const":"deal_damage"}}}},"targets":{"contains":{"properties":{"domain":{"const":"battlefield_creature"}}}}}}
+        {"properties":{"instructions":{"contains":instruction_schema::target_damage(None)},"targets":{"contains":{"properties":{"domain":{"const":"battlefield_creature"}}}}}}
     ]}}});
     let legacy = |op: &str| json!({"properties":{"op":{"const":op}}});
     let printed_effects = [
-        (legacy("deal_damage"), r" deals [1-9][0-9]* damage to target creature\."),
+        (instruction_schema::target_damage(None), r" deals [1-9][0-9]* damage to target creature\."),
         (legacy("destroy_permanent"), r"Destroy target artifact or enchantment\."),
         (instruction_schema::kernel_verb("gain_life"), r"You gain [1-9][0-9]* life\."),
         (legacy(pump_op), r" gets [+−-][0-9]+/[+−-][0-9]+ until end of turn\."),
@@ -523,7 +533,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "type":"object","required":["mana"]
     }}}]});
     let effect_capabilities = [
-        (legacy("deal_damage"),vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
+        (instruction_schema::target_damage(None),vec![Capability::CreatureTargetV1,Capability::NoncombatDamageV1]),
         (legacy("destroy_permanent"),vec![Capability::PermanentRemovalV1]),
         (instruction_schema::kernel_verb("gain_life"),vec![Capability::LifeGainV1]),
     ].into_iter().map(|(op,caps)|json!({

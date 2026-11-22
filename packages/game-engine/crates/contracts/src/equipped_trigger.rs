@@ -84,11 +84,13 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
                 (
                     json!({"effect":"damage","source":{"ref":"this","noun":"equipment"},
                     "amount":{"amount":"fixed","value":n},"to":{"to":"any-target","selectionId":id}}),
-                    Instruction::DealDamage {
-                        target_slot: 0,
-                        amount: i64::from(n).into(),
-                        source_block: block,
-                    },
+                    Instruction::damage_target(
+                        0,
+                        kir::Amount::Fixed {
+                            value: i64::from(n).into(),
+                        },
+                        block,
+                    ),
                 )
             } else if let Some(n) = part
                 .strip_prefix("you gain ")
@@ -254,7 +256,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
                 "program":{"properties":{"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
                     "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["optional_draw_cards","deal_damage","discard_cards","untap_controller_lands","create_predefined_tokens"]}}},instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}}}}
+                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["optional_draw_cards","discard_cards","untap_controller_lands","create_predefined_tokens"]}}},instruction_schema::target_damage(None),instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}}}}
             }}}}}},
         "else":{"properties":{"capabilities":{"not":cap}}}
     }));

@@ -187,10 +187,18 @@ fn validate_fixed_cast_source(d: &Definition) -> Result<(), String> {
                     .targets
                     .iter()
                     .any(|t| t.domain == TargetDomain::OpponentPlayer)
-                    && a.program
-                        .instructions
-                        .iter()
-                        .any(|i| matches!(i, Instruction::DealDamage { .. })))
+                    && a.program.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            kernel!(Damage {
+                                to: kir::DamageTo::Ref {
+                                    who: kir::Ref::Target { slot: _ }
+                                },
+                                amount: fixed!(_),
+                                ..
+                            })
+                        )
+                    }))
         })
         .count();
     let raw = &d.provenance.source_json;
@@ -249,7 +257,7 @@ fn validate_fixed_cast_source(d: &Definition) -> Result<(), String> {
                 let (_, rest) = effect.rsplit_once(" deals ").ok_or_else(fail)?;
                 (
                     color,
-                    matches!(a.program.instructions.as_slice(), [Instruction::DealDamage {amount,source_block,target_slot:0}]
+                    matches!(a.program.instructions.as_slice(), [kernel!(Damage { to: kir::DamageTo::Ref { who: kir::Ref::Target { slot: 0 } }, amount: fixed!(amount), .. } @ source_block)]
                     if *amount == Quantity::from(i64::from(n)) && *source_block == block)
                         && matches!(a.program.targets.as_slice(), [target] if target.slot == 0 && target.domain == TargetDomain::OpponentPlayer && target.selection_id == format!("line:{block}:12"))
                         && a.intervening_if.is_none()
@@ -391,7 +399,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
         "condition":{"enum":cast_scry_conditions().collect::<Vec<_>>()},
         "program":{"required":["targets","instructions"],"properties":{
             "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"opponent_player"}}}},
-            "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"deal_damage"}}}}
+            "instructions":{"contains":instruction_schema::target_damage(None)}
         }}
     }});
     let has_damage =

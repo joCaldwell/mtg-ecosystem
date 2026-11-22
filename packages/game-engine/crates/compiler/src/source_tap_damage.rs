@@ -86,10 +86,15 @@ pub(super) fn lower(
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
-            instructions: vec![Instruction::DealDamageToController {
-                amount: i64::from(amount).into(),
-                source_block: 0,
-            }],
+            instructions: vec![Instruction::damage(
+                kir::DamageTo::Ref {
+                    who: kir::Ref::controller(kir::Context::Triggered),
+                },
+                kir::Amount::Fixed {
+                    value: i64::from(amount).into(),
+                },
+                0,
+            )],
             modes: vec![],
         },
     }))

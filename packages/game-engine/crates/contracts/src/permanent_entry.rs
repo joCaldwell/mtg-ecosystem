@@ -133,11 +133,13 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
             {
                 let id = archived["to"]["selectionId"].as_str()?;
                 let slot = add_target(id, TargetDomain::AnyDamageTarget, None)?;
-                program.instructions.push(Instruction::DealDamage {
-                    target_slot: slot,
-                    amount: i64::from(n).into(),
-                    source_block: block,
-                });
+                program.instructions.push(Instruction::damage_target(
+                    slot,
+                    kir::Amount::Fixed {
+                        value: i64::from(n).into(),
+                    },
+                    block,
+                ));
                 json!({"effect":"damage","source":{"ref":"it"},"amount":fixed(n),"to":{"to":"any-target","selectionId":id}})
             } else {
                 let (types, archive_filter) = match clause.strip_prefix("destroy target ")? {

@@ -20,6 +20,9 @@ const fixtureDir = new URL("fixtures/", import.meta.url);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8");
 const IR_SCHEMA_VERSION = 1;
+// CR 120.2b: a Kernel IR damage verb from the source to target `slot`.
+const damage = (slot: number, value: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"damage",source:{ref:"source"},to:{to:"ref",who:{ref:"target",slot}},amount:{amount:"fixed",value}}},source_block});
 // CR 121.1: a Kernel IR draw of `count` cards by "you" in `role`.
 const draw = (role: string, count: string, source_block: number) => ({op:"kernel",
   node:{do:{verb:"draw",player:{player:"is",who:{ref:"controller",role}},amount:{amount:"fixed",value:count}}},source_block});
@@ -427,11 +430,11 @@ test("damage and life catalog preserves complete sources and target domains", ()
   const bolt=get("Lightning Bolt");
   assert.deepEqual(bolt.characteristics.mana_cost,{generic:"0",colored:["R"]});
   assert.deepEqual(bolt.spell.targets,[{slot:0,selection_id:"line:0:6",chooser:"controller",stage:"announcement",domain:"any_damage_target"}]);
-  assert.deepEqual(bolt.spell.instructions,[{op:"deal_damage",target_slot:0,amount:"3",source_block:0}]);
+  assert.deepEqual(bolt.spell.instructions,[damage(0,"3",0)]);
   const sorcerer=get("Prodigal Sorcerer");
   assert.deepEqual(sorcerer.characteristics.mana_cost,{generic:"2",colored:["U"]});
   assert.equal(sorcerer.characteristics.power,"1"); assert.equal(sorcerer.characteristics.toughness,"1");
-  assert.deepEqual(sorcerer.activated,[{functioning_zone:"battlefield",cost:"tap_source",program:{functioning_zone:"stack",timing:"instant",resolution:"instructions",targets:[{slot:0,selection_id:"line:0:9",chooser:"controller",stage:"announcement",domain:"any_damage_target"}],instructions:[{op:"deal_damage",target_slot:0,amount:"1",source_block:0}]}}]);
+  assert.deepEqual(sorcerer.activated,[{functioning_zone:"battlefield",cost:"tap_source",program:{functioning_zone:"stack",timing:"instant",resolution:"instructions",targets:[{slot:0,selection_id:"line:0:9",chooser:"controller",stage:"announcement",domain:"any_damage_target"}],instructions:[damage(0,"1",0)]}}]);
   const soul=get("Soul Feast");
   assert.deepEqual(soul.characteristics.mana_cost,{generic:"3",colored:["B","B"]});
   assert.equal(soul.spell.targets[0].domain,"any_player");

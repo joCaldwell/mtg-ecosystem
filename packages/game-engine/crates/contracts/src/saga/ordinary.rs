@@ -70,11 +70,13 @@ impl OrdinaryChapter {
 
     pub(super) fn program(&self, source_block: u32) -> SpellProgram {
         let instruction = match *self {
-            Self::DamageOpponentCreature(amount) => Instruction::DealDamage {
-                target_slot: 0,
-                amount: Quantity::from(i64::from(amount)),
+            Self::DamageOpponentCreature(amount) => Instruction::damage_target(
+                0,
+                kir::Amount::Fixed {
+                    value: Quantity::from(i64::from(amount)),
+                },
                 source_block,
-            },
+            ),
             Self::DestroyOpponentArtifact => Instruction::DestroyPermanent {
                 target_slot: 0,
                 optional: false,

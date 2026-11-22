@@ -255,16 +255,18 @@ pub(super) fn lower_cast_opponent_damage(
     let selection = reference["selectionId"]
         .as_str()
         .ok_or_else(|| unsupported("damage.target", "missing bound opponent occurrence"))?;
-    Ok(Some(Instruction::DealDamage {
-        target_slot: bind_target(
+    Ok(Some(Instruction::damage_target(
+        bind_target(
             program,
             &mut BTreeMap::new(),
             selection,
             TargetDomain::OpponentPlayer,
         )?,
-        amount: fixed_positive_value(amount)?,
-        source_block: block,
-    }))
+        kir::Amount::Fixed {
+            value: fixed_positive_value(amount)?,
+        },
+        block,
+    )))
 }
 
 pub(super) fn validate_fixed_cast_effects(
@@ -560,8 +562,13 @@ fn fixed_cast_opponent_damage_proves_actor_selection_event_and_omission() {
                 d.source_labels = None;
             }
             "amount" => {
-                let Instruction::DealDamage { amount, .. } =
-                    &mut d.triggered[0].program.instructions[0]
+                let kernel!(Damage {
+                    to: kir::DamageTo::Ref {
+                        who: kir::Ref::Target { slot: _ }
+                    },
+                    amount: fixed!(amount),
+                    ..
+                }) = &mut d.triggered[0].program.instructions[0]
                 else {
                     panic!()
                 };

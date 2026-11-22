@@ -318,13 +318,44 @@
         "targets": [],
         "instructions": [
           {
-            "op": "damage_set",
-            "sets": [
-              "creatures"
-            ],
-            "each_player": false,
-            "amount": {
-              "amount": "creature_count"
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "objects",
+                  "set": {
+                    "set": "matching",
+                    "zone": {
+                      "zone": "battlefield"
+                    },
+                    "filter": [
+                      {
+                        "atom": "type",
+                        "kind": "creature"
+                      }
+                    ]
+                  }
+                },
+                "amount": {
+                  "amount": "count",
+                  "set": {
+                    "set": "matching",
+                    "zone": {
+                      "zone": "battlefield"
+                    },
+                    "filter": [
+                      {
+                        "atom": "type",
+                        "kind": "creature"
+                      }
+                    ]
+                  }
+                }
+              }
             },
             "source_block": 0
           }
@@ -3069,14 +3100,33 @@
         "targets": [],
         "instructions": [
           {
-            "op": "damage_set",
-            "sets": [
-              "creatures"
-            ],
-            "each_player": false,
-            "amount": {
-              "amount": "fixed",
-              "value": "3"
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "objects",
+                  "set": {
+                    "set": "matching",
+                    "zone": {
+                      "zone": "battlefield"
+                    },
+                    "filter": [
+                      {
+                        "atom": "type",
+                        "kind": "creature"
+                      }
+                    ]
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "3"
+                }
+              }
             },
             "source_block": 0
           },
@@ -3452,9 +3502,26 @@
         ],
         "instructions": [
           {
-            "op": "deal_damage",
-            "target_slot": 0,
-            "amount": "3",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "ref",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "3"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -4728,9 +4795,26 @@
             ],
             "instructions": [
               {
-                "op": "deal_damage",
-                "target_slot": 0,
-                "amount": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "damage",
+                    "source": {
+                      "ref": "source"
+                    },
+                    "to": {
+                      "to": "ref",
+                      "who": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -6353,14 +6437,33 @@
         "targets": [],
         "instructions": [
           {
-            "op": "damage_set",
-            "sets": [
-              "creatures"
-            ],
-            "each_player": false,
-            "amount": {
-              "amount": "fixed",
-              "value": "13"
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "objects",
+                  "set": {
+                    "set": "matching",
+                    "zone": {
+                      "zone": "battlefield"
+                    },
+                    "filter": [
+                      {
+                        "atom": "type",
+                        "kind": "creature"
+                      }
+                    ]
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "13"
+                }
+              }
             },
             "source_block": 1
           }
@@ -8750,13 +8853,50 @@
         "targets": [],
         "instructions": [
           {
-            "op": "damage_set",
-            "sets": [
-              "nonflying_creatures"
-            ],
-            "each_player": true,
-            "amount": {
-              "amount": "announced_x"
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "all",
+                  "parts": [
+                    {
+                      "to": "objects",
+                      "set": {
+                        "set": "matching",
+                        "zone": {
+                          "zone": "battlefield"
+                        },
+                        "filter": [
+                          {
+                            "atom": "type",
+                            "kind": "creature"
+                          },
+                          {
+                            "atom": "not_keyword",
+                            "keyword": "flying"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "to": "players",
+                      "players": {
+                        "player": "each_player"
+                      }
+                    }
+                  ]
+                },
+                "amount": {
+                  "amount": "var",
+                  "of": {
+                    "ref": "announced_x"
+                  }
+                }
+              }
             },
             "source_block": 0
           }
@@ -10860,14 +11000,44 @@
         "targets": [],
         "instructions": [
           {
-            "op": "damage_set",
-            "sets": [
-              "creatures"
-            ],
-            "each_player": true,
-            "amount": {
-              "amount": "fixed",
-              "value": "2"
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "all",
+                  "parts": [
+                    {
+                      "to": "objects",
+                      "set": {
+                        "set": "matching",
+                        "zone": {
+                          "zone": "battlefield"
+                        },
+                        "filter": [
+                          {
+                            "atom": "type",
+                            "kind": "creature"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "to": "players",
+                      "players": {
+                        "player": "each_player"
+                      }
+                    }
+                  ]
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "2"
+                }
+              }
             },
             "source_block": 1
           }
@@ -13029,14 +13199,33 @@
         "targets": [],
         "instructions": [
           {
-            "op": "damage_set",
-            "sets": [
-              "creatures"
-            ],
-            "each_player": false,
-            "amount": {
-              "amount": "fixed",
-              "value": "2"
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "damage",
+                "source": {
+                  "ref": "source"
+                },
+                "to": {
+                  "to": "objects",
+                  "set": {
+                    "set": "matching",
+                    "zone": {
+                      "zone": "battlefield"
+                    },
+                    "filter": [
+                      {
+                        "atom": "type",
+                        "kind": "creature"
+                      }
+                    ]
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "2"
+                }
+              }
             },
             "source_block": 0
           }

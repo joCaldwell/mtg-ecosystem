@@ -163,14 +163,12 @@ fn creature_set_keyword_shapes_and_old_routes_reject() {
             },
             0,
         ),
-        Instruction::DamageSet {
-            sets: vec![ObjectSet::ControllerCreatures],
-            each_player: false,
-            amount: WipeAmount::Fixed {
-                value: Quantity::from(1),
-            },
-            source_block: 0,
-        },
+        SetDamage::instruction(
+            vec![ObjectSet::ControllerCreatures.kernel(Context::Spell)],
+            false,
+            kir::Amount::fixed(1),
+            0,
+        ),
     ] {
         reject(d.clone(), |p| p.instructions = vec![i]);
     }

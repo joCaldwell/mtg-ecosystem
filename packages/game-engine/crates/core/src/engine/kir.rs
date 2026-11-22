@@ -41,6 +41,16 @@ impl Game {
             let amount = self.kernel_amount(&frame, amount)?;
             return self.drain_opponents(frame, amount, source_block);
         }
+        // CR 120.2b, 608.2h: damage keeps the directed and board-wide
+        // executors, whose prepared transactions recovery re-derives.
+        if matches!(node, Node::Do(Verb::Damage { .. })) {
+            let instruction = Instruction::Kernel { node, source_block };
+            return if instruction.set_damage().is_some() {
+                self.execute_set_damage(frame)
+            } else {
+                self.execute_damage_life_instruction(frame, instruction)
+            };
+        }
         let Node::Do(verb) = node else {
             return Err("kernel control node has no audited executor".into());
         };
@@ -87,7 +97,7 @@ impl Game {
 
     /// CR 608.2h, 109.5: the members of a board-wide or graveyard-wide set,
     /// relative to the invocation's controller, in object order.
-    fn kernel_set(
+    pub(super) fn kernel_set(
         &self,
         frame: &Resolving,
         zone: &ZoneExpr,
@@ -160,6 +170,15 @@ impl Game {
                 .x
                 .clone()
                 .ok_or("missing announced X".into()),
+            // CR 608.2h: the number of matching battlefield objects now.
+            Amount::Count {
+                set: SetExpr::Matching { zone, filter },
+            } if *zone == ZoneExpr::Battlefield => Ok(Quantity::from(
+                self.kernel_set(frame, zone, filter)?.0.len() as i64,
+            )),
+            Amount::OtherCastsManaValue { caster } if caster.is_you() => {
+                self.other_casts_mana_value(self.entry(frame.stack_id)?)
+            }
             _ => Err("kernel amount has no audited evaluation".into()),
         }
     }

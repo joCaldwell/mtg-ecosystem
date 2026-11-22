@@ -208,10 +208,7 @@ pub(super) fn instruction(
                 }
                 _ => return Err(fail()),
             };
-            Instruction::DealDamageAnnouncedX {
-                target_slot,
-                source_block,
-            }
+            Instruction::damage_target(target_slot, kir::Amount::announced_x(), source_block)
         }
         Step::Mill { who, .. } => Instruction::MillAnnouncedX {
             target_slot: bind_target(

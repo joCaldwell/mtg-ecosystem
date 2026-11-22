@@ -558,11 +558,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     };
     let damage_program = removal(
         CardKind::Creature,
-        json!({
-            "required":["op","target_slot","amount"],"properties":{
-                "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}
-            }
-        }),
+        instruction_schema::target_damage(Some(0)),
     );
     let destroy_program = removal(
         CardKind::Artifact,
@@ -580,12 +576,15 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let chapter_order: Vec<_> = (1..=4).map(|n| json!({
         "required":["condition"],"properties":{"condition":{"const":{"saga_chapter":{"number":n}}}}
     })).collect();
-    let registration_chapter = |operation| {
+    let registration_chapter = |operation: &str| {
+        let instruction = if operation == "damage" {
+            instruction_schema::target_damage(None)
+        } else {
+            json!({"required":["op"],"properties":{"op":{"const":operation}}})
+        };
         json!({
             "required":["program"],"properties":{"program":{
-                "required":["instructions"],"properties":{"instructions":{"contains":{
-                    "required":["op"],"properties":{"op":{"const":operation}}
-                }}}
+                "required":["instructions"],"properties":{"instructions":{"contains":instruction}}
             }}
         })
     };
@@ -628,13 +627,13 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":DelayedControllerSpellCastV1}}}}}
         },
         {
-            "if":{"properties":{"triggered":{"contains":registration_chapter("deal_damage")}}},
+            "if":{"properties":{"triggered":{"contains":registration_chapter("damage")}}},
             "then":{"properties":{"capabilities":{"contains":{"const":NoncombatDamageV1}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":NoncombatDamageV1}}}}}
         },
         {
             "if":{"properties":{"triggered":{"contains":{"anyOf":[
-                registration_chapter("deal_damage"),registration_chapter("destroy_permanent")
+                registration_chapter("damage"),registration_chapter("destroy_permanent")
             ]}}}},
             "then":{"properties":{"capabilities":{"contains":{"const":PermanentRemovalV1}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":PermanentRemovalV1}}}}}

@@ -18,8 +18,13 @@ pub(super) fn has_x_instruction(p: &SpellProgram) -> bool {
             }) | kernel!(LoseLife {
                 amount: announced_x!(),
                 ..
-            }) | Instruction::DealDamageAnnouncedX { .. }
-                | Instruction::MillAnnouncedX { .. }
+            }) | kernel!(Damage {
+                to: kir::DamageTo::Ref {
+                    who: kir::Ref::Target { slot: _ }
+                },
+                amount: announced_x!(),
+                ..
+            }) | Instruction::MillAnnouncedX { .. }
         )
     }) || p.modes.iter().any(|m| has_x_instruction(&m.program))
 }
@@ -91,10 +96,7 @@ impl Shape {
             let player = recipient.kernel(Context::Spell).expect("spell recipient");
             Instruction::announced_x_life(player, gain, 0)
         };
-        let damage = Instruction::DealDamageAnnouncedX {
-            target_slot: 0,
-            source_block: 0,
-        };
+        let damage = Instruction::damage_target(0, kir::Amount::announced_x(), 0);
         let discard = Instruction::DiscardCards {
             recipient: None,
             count: 1.into(),
@@ -336,10 +338,7 @@ fn announced_x_effects() {
         (
             Shape::DamageGain(TargetDomain::BattlefieldCreature),
             0,
-            Instruction::DealDamageAnnouncedX {
-                target_slot: 0,
-                source_block: 1,
-            },
+            Instruction::damage_target(0, kir::Amount::announced_x(), 1),
         ),
     ] {
         let mut p = shape.program(SpellTiming::MainPhase);

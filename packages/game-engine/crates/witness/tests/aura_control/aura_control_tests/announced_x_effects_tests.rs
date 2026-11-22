@@ -52,10 +52,7 @@ fn paid_effects_setup() -> Prepared {
 
     let mut prepared = scenario(["Healing Salve", "Lightning Bolt", "Sign in Blood"], &[]);
     let catalog = Arc::make_mut(&mut prepared.catalog);
-    let damage = Instruction::DealDamageAnnouncedX {
-        target_slot: 0,
-        source_block: 0,
-    };
+    let damage = Instruction::damage_target(0, kir::Amount::announced_x(), 0);
     for (card, colored) in [
         (INVOKE, vec![Color::U, Color::U, Color::R]),
         (RAY, vec![Color::R]),
