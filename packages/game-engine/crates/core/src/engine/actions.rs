@@ -1431,9 +1431,7 @@ impl Game {
                     },
                 )
             }
-            i @ (Instruction::UntapControllerLands { .. }
-            | Instruction::ExileTargetGraveyard { .. }
-            | Instruction::PumpSet { .. }
+            i @ (Instruction::PumpSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::GainLifeDestroyed { .. }
@@ -1448,10 +1446,6 @@ impl Game {
                 self.execute_sacrifice_instruction(frame, i)
             }
             i @ (Instruction::ReturnEntryTargetCreature { .. }
-            | Instruction::DestroyPermanent { .. }
-            | Instruction::ExilePermanent { .. }
-            | Instruction::UntapPermanent { .. }
-            | Instruction::TapPermanent { .. }
             | Instruction::ChangeLifeFromTarget { .. }
             | Instruction::CreateTokensFor { .. }
             | Instruction::DamageTargetController { .. }) => {
@@ -1461,9 +1455,7 @@ impl Game {
             | Instruction::ReturnAuraFromGraveyard { .. }) => {
                 self.execute_attachment_instruction(frame, i)
             }
-            op @ (Instruction::DestroyTargetCreature { .. }
-            | Instruction::DestroyAllCreatures { .. }
-            | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
+            op @ (Instruction::ReturnOwnGraveyardCreatureToHand { .. }
             | Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. }
             | Instruction::ReturnOwnGraveyardCardToHand { .. }
             | Instruction::SearchRecipientBasicLand { .. }

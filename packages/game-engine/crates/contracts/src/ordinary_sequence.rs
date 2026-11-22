@@ -437,32 +437,18 @@ fn instruction(
                 Destroy => (
                     json!({"effect":"destroy","what":what}),
                     if creature {
-                        Instruction::DestroyTargetCreature {
-                            target_slot: 0,
-                            source_block,
-                        }
+                        Instruction::destroy_target(0, false, source_block)
                     } else {
-                        Instruction::DestroyPermanent {
-                            target_slot: 0,
-                            optional: false,
-                            regeneration_forbidden: false,
-                            source_block,
-                        }
+                        Instruction::destroy_target(0, false, source_block)
                     },
                 ),
                 Exile => (
                     json!({"effect":"exile","what":what}),
-                    Instruction::ExilePermanent {
-                        target_slot: 0,
-                        source_block,
-                    },
+                    Instruction::move_target(0, kir::Destination::Exile, source_block),
                 ),
                 Bounce => (
                     json!({"effect":"return-to-hand","what":what,"to":"owner"}),
-                    Instruction::ReturnToOwnerHand {
-                        target_slot: 0,
-                        source_block,
-                    },
+                    Instruction::move_target(0, kir::Destination::OwnerHand, source_block),
                 ),
                 _ => unreachable!(),
             }
@@ -550,14 +536,18 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
             | Instruction::DiscardCards {
                 recipient: None, ..
             }
-            | Instruction::DestroyTargetCreature { .. }
-            | Instruction::DestroyPermanent {
-                optional: false,
-                regeneration_forbidden: false,
-                ..
-            }
-            | Instruction::ExilePermanent { .. }
-            | Instruction::ReturnToOwnerHand { .. } => {}
+            | kernel!(Destroy {
+                what: target_object!(_),
+                regeneration_forbidden: false
+            })
+            | kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::Exile
+            })
+            | kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::OwnerHand
+            }) => {}
             _ => return false,
         }
     }
@@ -653,9 +643,12 @@ pub(crate) fn extend_schema(schema: &mut Value) {
     let mill_target = json!({"allOf":[op("mill_cards"), {"required":["recipient"],"properties":{
         "recipient":{"const":LifeRecipient::Target { target_slot: 0 }}
     }}]});
-    let creature_move = op("destroy_target_creature");
-    let permanent_move = json!({"required":["op"],"properties":{"op":{"enum":["destroy_permanent","exile_permanent"]}}});
-    let bounce = op("return_to_owner_hand");
+    let creature_move = instruction_schema::target_destroy(None, Some(false));
+    let permanent_move = json!({"anyOf":[
+        instruction_schema::any_target_destroy(None),
+        instruction_schema::target_move(None, "exile")
+    ]});
+    let bounce = instruction_schema::target_move(None, "owner_hand");
     let needs_target = json!({"anyOf":[mill_target,creature_move,permanent_move,bounce]});
     let one_targeted_step = json!({"properties":{"instructions":{"contains":needs_target,"minContains":1,"maxContains":1}}});
     schema["$defs"]["OrdinaryScalarSequence"] = json!({
@@ -667,13 +660,13 @@ pub(crate) fn extend_schema(schema: &mut Value) {
                 "domain":{"enum":["any_player","battlefield_creature","battlefield_permanent"]}}}},
             "instructions":{"minItems":2,"items":{"anyOf":[
                 op("scry"),op("surveil"),{"allOf":[op("mill_cards"),{"properties":{"recipient":{"anyOf":[{"type":"null"},{"const":LifeRecipient::Target { target_slot:0 }}]}}}]},op("grant_land_plays_this_turn"),
-                instruction_schema::any_counted_draw(),op("destroy_target_creature"),
-                op("exile_permanent"),op("return_to_owner_hand"),
+                instruction_schema::any_counted_draw(),
+                instruction_schema::target_move(None, "exile"),instruction_schema::target_move(None, "owner_hand"),
                 instruction_schema::single_draw(),
                 {"allOf":[op("discard_cards"),{"properties":none}]},
                 instruction_schema::kernel_verb("gain_life"),
                 instruction_schema::kernel_verb("lose_life"),
-                {"allOf":[op("destroy_permanent"),{"properties":{"optional":{"const":false},"regeneration_forbidden":{"const":false}}}]}
+                instruction_schema::target_destroy(None, Some(false))
             ]},"anyOf":[{"contains":library},{"prefixItems":[op("discard_cards")],"contains":draw}]
             }
         },

@@ -14,10 +14,7 @@ pub(super) fn tap() -> Definition {
     p.targets[0].domain = TargetDomain::BattlefieldCreature;
     p.targets[0].filter = None;
     p.instructions = vec![
-        Instruction::TapPermanent {
-            target_slot: 0,
-            source_block: 0,
-        },
+        Instruction::tap_target(0, 0),
         Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1),
     ];
     d.capabilities = d.requirements();
@@ -63,21 +60,23 @@ fn tap_requires_its_capability_and_strict_instruction_fields() {
     let mut d = tap();
     d.capabilities.remove(&Capability::TapPermanentV1);
     assert!(d.validate().is_err());
-    let encoded = r#"{"op":"tap_permanent","target_slot":0,"source_block":0}"#;
+    let encoded = serde_json::to_string(&Instruction::tap_target(0, 0)).unwrap();
     assert_eq!(
-        strict_read::<Instruction>(encoded).unwrap(),
-        Instruction::TapPermanent {
-            target_slot: 0,
-            source_block: 0
-        }
+        strict_read::<Instruction>(&encoded).unwrap(),
+        Instruction::tap_target(0, 0)
     );
+    let tap = r#""verb":"tap","what":{"object":{"ref":"target","slot":0},"set":"one"}"#;
     for encoded in [
-        r#"{"op":"tap_permanent","target_slot":0,"source_block":0,"optional":false}"#,
-        r#"{"op":"tap_permanent","target_slot":0}"#,
-        r#"{"op":"tap_permanent","target_slot":null,"source_block":0}"#,
-        r#"{"op":"tap_permanent","target_slot":0,"source_block":"0"}"#,
+        format!(r#"{{"node":{{"do":{{{tap},"optional":false}}}},"op":"kernel","source_block":0}}"#),
+        format!(r#"{{"node":{{"do":{{{tap}}}}},"op":"kernel"}}"#),
+        format!(
+            r#"{{"node":{{"do":{{{}}}}},"op":"kernel","source_block":0}}"#,
+            tap.replace(r#""slot":0"#, r#""slot":null"#)
+        ),
+        format!(r#"{{"node":{{"do":{{{tap}}}}},"op":"kernel","source_block":"0"}}"#),
+        r#"{"op":"tap_permanent","target_slot":0,"source_block":0}"#.to_owned(),
     ] {
-        assert!(strict_read::<Instruction>(encoded).is_err(), "{encoded}");
+        assert!(strict_read::<Instruction>(&encoded).is_err(), "{encoded}");
     }
 }
 
@@ -129,10 +128,7 @@ fn tap_rejects_qualified_or_mismatched_targets_and_additional_costs() {
             }
             "target_slot" => p.targets[0].slot = 1,
             "instruction_slot" => {
-                p.instructions[0] = Instruction::TapPermanent {
-                    target_slot: 1,
-                    source_block: 0,
-                };
+                p.instructions[0] = Instruction::tap_target(1, 0);
             }
             "cost" => {
                 p.additional_sacrifice = Some(SacrificeFilter {
@@ -191,10 +187,7 @@ fn tap_rejects_other_draw_counts_recipients_orders_and_compositions() {
             "draw_first" => p.instructions.swap(0, 1),
             "duplicate_tap" => p.instructions.push(p.instructions[0].clone()),
             "duplicate_draw" => p.instructions.push(p.instructions[1].clone()),
-            "extra_effect" => p.instructions.push(Instruction::UntapPermanent {
-                target_slot: 0,
-                source_block: 2,
-            }),
+            "extra_effect" => p.instructions.push(Instruction::untap_target(0, 2)),
             _ => unreachable!(),
         }
         d.capabilities = d.requirements();

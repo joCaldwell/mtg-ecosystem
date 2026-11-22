@@ -98,7 +98,10 @@ fn composition_wave_a_independently_qualifies_permanent_entry() {
     assert_eq!(d.activated.len(), 1);
     assert!(matches!(
         d.triggered[0].program.instructions.as_slice(),
-        [Instruction::DestroyPermanent { target_slot: 0, .. }]
+        [kernel!(Destroy {
+            what: target_object!(0),
+            ..
+        })]
     ));
     let forged = tests::changed_source(ARC, |row| {
         let object = format!(

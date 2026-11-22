@@ -96,13 +96,7 @@ fn complete_icy_manipulator_preserves_paid_tap_and_union_target() {
         }
     );
     assert_eq!(a.program.timing, SpellTiming::Instant);
-    assert_eq!(
-        a.program.instructions,
-        [Instruction::TapPermanent {
-            target_slot: 0,
-            source_block: 0
-        }]
-    );
+    assert_eq!(a.program.instructions, [Instruction::tap_target(0, 0)]);
     assert_eq!(a.program.targets.len(), 1);
     let target = &a.program.targets[0];
     assert_eq!(target.selection_id, "line:0:5");
@@ -174,7 +168,7 @@ fn activated_tap_source_rejects_unrepresented_targets_and_step_fields() {
             panic!("one activation")
         };
         assert_eq!(tests::sole_target(&ability.program), expected);
-        assert_eq!(tests::ops(&ability.program), ["tap_permanent"]);
+        assert_eq!(tests::ops(&ability.program), ["kernel"]);
     }
     for field in ["optional", "duration", "unknown"] {
         let raw = changed(|a| a["effects"][0]["steps"][0][field] = json!(true));

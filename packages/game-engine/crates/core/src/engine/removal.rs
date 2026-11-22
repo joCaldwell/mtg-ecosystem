@@ -289,15 +289,14 @@ impl Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         let (event, block) = match instruction {
-            Instruction::UntapPermanent {
-                target_slot,
-                source_block,
-            }
-            | Instruction::TapPermanent {
-                target_slot,
-                source_block,
-            } => {
-                let tap = matches!(instruction, Instruction::TapPermanent { .. });
+            kernel!(Untap { what: target_object!(target_slot) } @ source_block)
+            | kernel!(Tap { what: target_object!(target_slot) } @ source_block) => {
+                let tap = matches!(
+                    instruction,
+                    kernel!(Tap {
+                        what: target_object!(_)
+                    })
+                );
                 let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 // CR608.2b checks targeting once as resolution starts. The
                 // instruction still needs that same battlefield incarnation;
@@ -357,15 +356,23 @@ impl Game {
                 }
                 return self.return_target_to_owner_hand(frame, target, source_block);
             }
-            Instruction::DestroyPermanent {
-                target_slot,
-                source_block,
-                ..
-            }
-            | Instruction::ExilePermanent {
-                target_slot,
-                source_block,
-            } => {
+            _ if instruction.target_destroy().is_some()
+                || matches!(
+                    instruction,
+                    kernel!(Move {
+                        what: target_object!(_),
+                        to: mtg_contracts::kir::Destination::Exile
+                    })
+                ) =>
+            {
+                let (target_slot, optional, source_block) =
+                    match (&instruction, instruction.target_destroy()) {
+                        (_, Some((slot, optional, _, block))) => (slot, optional, block),
+                        (kernel!(Move { what: target_object!(slot), .. } @ block), None) => {
+                            (*slot, false, *block)
+                        }
+                        _ => return Err("expected target removal".into()),
+                    };
                 let target = *self
                     .bound_object_target(self.entry(frame.stack_id)?, target_slot as usize)
                     .ok_or("missing removal target")?;
@@ -381,14 +388,17 @@ impl Game {
                     return self
                         .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
                 }
-                if matches!(
-                    instruction,
-                    Instruction::DestroyPermanent { optional: true, .. }
-                ) {
+                if optional {
                     return self.offer_optional_target_effect(frame, target, source_block);
                 }
                 (
-                    if matches!(instruction, Instruction::ExilePermanent { .. }) {
+                    if matches!(
+                        instruction,
+                        kernel!(Move {
+                            what: target_object!(_),
+                            to: mtg_contracts::kir::Destination::Exile
+                        })
+                    ) {
                         ProposedEvent::Move {
                             object: target,
                             destination: Zone::Exile,
@@ -548,7 +558,7 @@ impl Game {
             Some(Instruction::ReturnEntryTargetCreature { optional: true, .. }) => {
                 return self.return_target_to_owner_hand(frame, target, block);
             }
-            Some(Instruction::DestroyPermanent { optional: true, .. }) => {
+            Some(i) if i.target_destroy().is_some_and(|(_, optional, ..)| optional) => {
                 if self.object_target_legal(self.entry(frame.stack_id)?, target) {
                     return self.complete_graveyard_group(
                         self.instruction_cause(&frame, block)?,

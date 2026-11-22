@@ -61,11 +61,7 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
         || d.intrinsic_zone.is_some()
         || !ordinary_tap_program(&ability.program)
         || ability.program.timing != SpellTiming::Instant
-        || ability.program.instructions
-            != [Instruction::TapPermanent {
-                target_slot: 0,
-                source_block: block,
-            }]
+        || ability.program.instructions != [Instruction::tap_target(0, block)]
         || ability.functioning_zone != FunctioningZone::Battlefield
         || cost.generic.is_negative()
         || (cost.generic == Quantity::zero() && cost.colored.is_empty())
@@ -280,10 +276,7 @@ pub(super) fn witness() -> Definition {
                 stage: EvaluationStage::Announcement,
                 selection_id: "line:1:9".into(),
             }],
-            instructions: vec![Instruction::TapPermanent {
-                target_slot: 0,
-                source_block: 1,
-            }],
+            instructions: vec![Instruction::tap_target(0, 1)],
             modes: vec![],
         },
     }];

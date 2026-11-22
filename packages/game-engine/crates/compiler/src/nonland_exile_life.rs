@@ -117,7 +117,7 @@ mod tests {
         let program = forged.spell.as_mut().unwrap();
         assert!(matches!(
             program.instructions.as_slice(),
-            [Instruction::ExilePermanent { target_slot: 0, .. },
+            [kernel!(Move { what: target_object!(0), to: kir::Destination::Exile }),
              kernel!(LoseLife { player: you!(), amount: fixed!(amount) })]
                 if *amount == 5.into()
         ));

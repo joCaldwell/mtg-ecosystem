@@ -8,14 +8,18 @@ const INVALID_FAMILY: &str =
     "nonland exile and life loss require one ordinary spell and its complete source";
 
 fn contains_pair(program: &SpellProgram) -> bool {
-    program
+    program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::Exile
+            })
+        )
+    }) && program
         .instructions
         .iter()
-        .any(|i| matches!(i, Instruction::ExilePermanent { .. }))
-        && program
-            .instructions
-            .iter()
-            .any(|i| matches!(i, kernel!(LoseLife { .. })))
+        .any(|i| matches!(i, kernel!(LoseLife { .. })))
         || program
             .modes
             .iter()
@@ -48,10 +52,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
         return Err(fail());
     };
     let [
-        Instruction::ExilePermanent {
-            target_slot: 0,
-            source_block: 0,
-        },
+        kernel!(Move { what: target_object!(0), to: kir::Destination::Exile } @ 0),
         kernel!(LoseLife { player: you!(), amount: fixed!(amount) } @ 0),
     ] = p.instructions.as_slice()
     else {
@@ -109,10 +110,10 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    let contains_op = |op| json!({"contains":{"required":["op"],"properties":{"op":{"const":op}}}});
+    let exile = instruction_schema::target_move(None, "exile");
     let free = json!({"$ref":"#/$defs/NonlandExileLifeFreeProgram"});
     schema["$defs"]["NonlandExileLifeFreeProgram"] = json!({"properties":{
-        "instructions":{"not":{"allOf":[contains_op("exile_permanent"),{"contains":instruction_schema::kernel_verb("lose_life")}]}},
+        "instructions":{"not":{"allOf":[{"contains":exile},{"contains":instruction_schema::kernel_verb("lose_life")}]}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
     let family = json!({"$ref":"#/$defs/NonlandExileLifeProgram"});
@@ -130,8 +131,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 }}
             }}},
             "instructions":{"minItems":2,"maxItems":2,"prefixItems":[
-                {"properties":{"op":{"const":"exile_permanent"},"target_slot":{"const":0},
-                               "source_block":{"const":0}}},
+                instruction_schema::at(instruction_schema::target_move(Some(0), "exile"), 0),
                 instruction_schema::kernel_verb_at("lose_life", 0)
             ],"items":false}
         }

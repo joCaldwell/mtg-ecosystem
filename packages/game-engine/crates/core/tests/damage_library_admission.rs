@@ -114,10 +114,11 @@ fn new_profiles_reject_structurally_valid_card_or_setup_widening() {
         .iter_mut()
         .find(|d| d.name == "Time Ebb")
         .unwrap();
-    ebb.spell.as_mut().unwrap().instructions = vec![Instruction::ReturnToOwnerHand {
-        target_slot: 0,
-        source_block: 0,
-    }];
+    ebb.spell.as_mut().unwrap().instructions = vec![Instruction::move_target(
+        0,
+        mtg_contracts::kir::Destination::OwnerHand,
+        0,
+    )];
     ebb.capabilities = ebb.requirements();
     changed.validate().unwrap();
     assert!(Prepared::admit(changed, ScenarioConfig::commander_library()).is_err());

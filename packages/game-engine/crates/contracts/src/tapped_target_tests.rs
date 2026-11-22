@@ -79,12 +79,8 @@ fn common_candidate_contract_rejects_distinct_slot_filters() {
     second.slot = 1;
     second.selection_id.push_str("/second");
     p.targets.push(second);
-    p.instructions.push(Instruction::DestroyPermanent {
-        target_slot: 1,
-        optional: false,
-        regeneration_forbidden: false,
-        source_block: 1,
-    });
+    p.instructions
+        .push(Instruction::destroy_target(1, false, 1));
     validate_instruction_program(&p).unwrap();
     p.targets[1].filter.as_mut().unwrap().tapped = true;
     assert_eq!(

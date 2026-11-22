@@ -359,10 +359,8 @@ impl Game {
         i: Instruction,
     ) -> Result<(), String> {
         match i {
-            Instruction::ExileTargetGraveyard {
-                target_slot,
-                source_block,
-            } => {
+            kernel!(Move { what: mtg_contracts::kir::SetExpr::Matching { zone: mtg_contracts::kir::ZoneExpr::Graveyard { of: target_player!(target_slot) }, .. }, to: mtg_contracts::kir::Destination::Exile } @ source_block) =>
+            {
                 // CR 400.7, 603.3d, 608.2b/h: the player was targeted at placement.
                 // Determine the cards from that player's graveyard at resolution.
                 let slot = target_slot as usize;
@@ -391,7 +389,7 @@ impl Game {
                     .collect();
                 self.commit_set_moves(frame, occurrences, SetMove::Exile, source_block)
             }
-            Instruction::UntapControllerLands { source_block } => {
+            kernel!(Untap { what: mtg_contracts::kir::SetExpr::Matching { .. } } @ source_block) => {
                 let mut occurrences = Vec::new();
                 for object in self.state.rules.objects.values() {
                     if object.present_on_battlefield()

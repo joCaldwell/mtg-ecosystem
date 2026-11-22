@@ -50,8 +50,8 @@ fn contains_destroy(p: &SpellProgram) -> bool {
         matches!(
             i,
             kernel!(Destroy {
+                what: SetExpr::Matching { .. },
                 regeneration_forbidden: true,
-                ..
             })
         )
     }) || p.modes.iter().any(|mode| contains_destroy(&mode.program))
@@ -141,8 +141,9 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(schema: &mut Value) {
     let death_sweep = json!({"allOf":[instruction_schema::kernel_verb("destroy"),{"properties":{"node":{
-        "properties":{"do":{"required":["regeneration_forbidden"],"properties":{
-            "regeneration_forbidden":{"const":true}}}}}}}]});
+        "properties":{"do":{"required":["regeneration_forbidden","what"],"properties":{
+            "regeneration_forbidden":{"const":true},
+            "what":{"required":["set"],"properties":{"set":{"const":"matching"}}}}}}}}}]});
 
     let free = json!({"$ref":"#/$defs/SourceDiesNonlandDestroyFreeProgram"});
     schema["$defs"]["SourceDiesNonlandDestroyFreeProgram"] = json!({"properties":{

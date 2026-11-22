@@ -373,8 +373,22 @@
         ],
         "instructions": [
           {
-            "op": "put_on_top_owner_library",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "owner_library_top"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -1031,8 +1045,22 @@
         ],
         "instructions": [
           {
-            "op": "return_to_owner_hand",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "owner_hand"
+                }
+              }
+            },
             "source_block": 0
           }
         ]

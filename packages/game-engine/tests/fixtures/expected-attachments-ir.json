@@ -1643,9 +1643,23 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "put_on_top_owner_library",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "to": {
+                  "to": "owner_library_top"
+                },
+                "verb": "move",
+                "what": {
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  },
+                  "set": "one"
+                }
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -5020,9 +5034,23 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "return_to_owner_hand",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "to": {
+                  "to": "owner_hand"
+                },
+                "verb": "move",
+                "what": {
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  },
+                  "set": "one"
+                }
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -5889,9 +5917,20 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "destroy_target_creature",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  },
+                  "set": "one"
+                }
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -8373,7 +8412,24 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "destroy_all_creatures",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "filter": [
+                    {
+                      "atom": "type",
+                      "kind": "creature"
+                    }
+                  ],
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  }
+                }
+              }
+            },
+            "op": "kernel",
             "source_block": 0
           }
         ],

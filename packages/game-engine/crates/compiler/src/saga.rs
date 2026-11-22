@@ -442,12 +442,7 @@ fn shared_chapter_mana_damage_and_destroy_use_exact_operands() {
     assert!(saga_damage_target(&damage.program.targets[0]));
     assert!(matches!(
         destroy.program.instructions.as_slice(),
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            regeneration_forbidden: false,
-            source_block: 1
-        }]
+        [kernel!(Destroy { what: target_object!(0), regeneration_forbidden: false } @ 1)]
     ));
     assert_eq!(third.program, fourth.program);
     assert_ne!(third.condition, fourth.condition);

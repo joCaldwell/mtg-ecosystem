@@ -104,7 +104,9 @@ pub(super) fn validate_binding(
     let step = format!("{base}/effects/0/steps/0");
     if matches!(
         d.triggered[0].program.instructions.as_slice(),
-        [Instruction::UntapControllerLands { .. }]
+        [kernel!(Untap {
+            what: kir::SetExpr::Matching { .. }
+        })]
     ) {
         let path = format!("{step}/what");
         let what = json!({"ref":"all","filter":{"types":["land"],"control":"you"}});

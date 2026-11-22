@@ -142,11 +142,10 @@ fn phase1_sequences_target_facts_reject_wrong_antecedent_and_unconsumed_source()
         assert!(matches!(
             p.instructions.as_slice(),
             [
-                Instruction::DestroyPermanent {
-                    target_slot: 0,
-                    optional: false,
-                    ..
-                },
+                kernel!(Destroy {
+                    what: target_object!(0),
+                    regeneration_forbidden: _
+                }),
                 Instruction::CreateTokensFor {
                     recipient: EffectRecipient::TargetController { target_slot: 0 },
                     ..

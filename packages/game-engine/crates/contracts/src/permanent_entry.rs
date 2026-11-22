@@ -160,12 +160,9 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
                         power: None,
                     }),
                 )?;
-                program.instructions.push(Instruction::DestroyPermanent {
-                    target_slot: slot,
-                    optional: false,
-                    regeneration_forbidden: false,
-                    source_block: block,
-                });
+                program
+                    .instructions
+                    .push(Instruction::destroy_target(slot, false, block));
                 json!({"effect":"destroy","what":{"ref":"target","filter":archive_filter,"count":fixed(1),"selectionId":id}})
             };
             steps.push(step);

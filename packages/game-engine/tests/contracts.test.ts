@@ -24,6 +24,9 @@ const IR_SCHEMA_VERSION = 1;
 const damage = (slot: number, value: string, source_block: number) => ({op:"kernel",
   node:{do:{verb:"damage",source:{ref:"source"},to:{to:"ref",who:{ref:"target",slot}},amount:{amount:"fixed",value}}},source_block});
 // CR 121.1: a Kernel IR draw of `count` cards by "you" in `role`.
+// CR 400.3: a Kernel IR move of target `slot` to `to`.
+const move = (slot: number, to: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"move",what:{set:"one",object:{ref:"target",slot}},to:{to}}},source_block});
 const draw = (role: string, count: string, source_block: number) => ({op:"kernel",
   node:{do:{verb:"draw",player:{player:"is",who:{ref:"controller",role}},amount:{amount:"fixed",value:count}}},source_block});
 const preflight = process.env.MTG_ENGINE_CONTRACT_PREFLIGHT === "1";
@@ -298,7 +301,7 @@ test("library and damage catalogs retain exact source semantics", () => {
   assert.deepEqual(ebb.spell, {
     timing: "main_phase", resolution: "instructions", functioning_zone: "stack",
     targets: [{ slot: 0, selection_id: "line:0:1", chooser: "controller", stage: "announcement", domain: "battlefield_creature" }],
-    instructions: [{ op: "put_on_top_owner_library", target_slot: 0, source_block: 0 }],
+    instructions: [move(0, "owner_library_top", 0)],
   });
   assert.equal(ebb.capabilities.includes("cast_sorcery_v1"), true);
   assert.equal(ebb.capabilities.includes("owner_library_top_move_v1"), true);
@@ -2121,8 +2124,8 @@ test("headless damage v2 profile compiles all 36 exact sources", () => {
   const catalog=loadCatalog("damage-matches-v2");
   assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,36);
-  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"8fb412eb9ee7bf29ef241f95b01446d1dd9897dcbe5f0de43301dc15ea17cd66");
-  assert.equal(read("catalogs/damage-matches.sha256").trim(),"5cf5be8c40692c197fcc74132abf3e47511bc8bed50e076dc0c479f4e5f548af");
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"4db05b77068d369890a6f633929f16d6c8a012860573982fc0107820b2f35e4d");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"14b45c5fe99f659e0d7be13051f7c28a96d1c04fa502b1d45eaacbaff85ac9fe");
   const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
@@ -2265,7 +2268,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
     }
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
-    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"8fb412eb9ee7bf29ef241f95b01446d1dd9897dcbe5f0de43301dc15ea17cd66");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"4db05b77068d369890a6f633929f16d6c8a012860573982fc0107820b2f35e4d");
     assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}
@@ -2357,7 +2360,7 @@ test("exact-source Righteousness preserves its blocking creature target and boun
       ["noncanonical quantity",(x:any)=>{x.spell.instructions[0].power="07";}],
       ["unsupported duration",(x:any)=>{x.spell.instructions[0].duration="this_turn";}],
       ["empty program",(x:any)=>{x.spell.instructions=[];}],
-      ["non-pump instruction",(x:any)=>{x.spell.instructions=[{op:"return_to_owner_hand",target_slot:0,source_block:0}];}],
+      ["non-pump instruction",(x:any)=>{x.spell.instructions=[move(0,"owner_hand",0)];}],
       ["permanent spell",(x:any)=>{x.spell.resolution="permanent";}],
       ["battlefield program",(x:any)=>{x.spell.functioning_zone="battlefield";}],
       ["creature source",(x:any)=>{x.characteristics.kind="creature";x.characteristics.power="1";x.characteristics.toughness="1";}],

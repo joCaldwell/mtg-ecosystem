@@ -61,10 +61,7 @@ pub(super) fn lower_trigger(
                 domain: TargetDomain::AnyPlayer,
                 filter: None,
             }],
-            instructions: vec![Instruction::ExileTargetGraveyard {
-                target_slot: 0,
-                source_block: 1,
-            }],
+            instructions: vec![Instruction::exile_target_graveyard(0, 1)],
         },
     })
 }

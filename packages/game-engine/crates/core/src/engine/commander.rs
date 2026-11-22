@@ -651,15 +651,14 @@ impl Game {
                                 source_block,
                                 ..
                             }
-                            | Instruction::ReturnToOwnerHand {
-                                target_slot,
-                                source_block,
-                            },
+                            | kernel!(Move {
+                                what: target_object!(target_slot),
+                                to: mtg_contracts::kir::Destination::OwnerHand
+                            } @ source_block),
                         ) => (*target_slot, Zone::Hand { owner }, *source_block),
-                        Some(Instruction::PutOnTopOwnerLibrary {
-                            target_slot,
-                            source_block,
-                        }) => (*target_slot, Zone::Library { owner }, *source_block),
+                        Some(
+                            kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerLibraryTop } @ source_block),
+                        ) => (*target_slot, Zone::Library { owner }, *source_block),
                         _ => {
                             return Err(
                                 "snapshot commander instruction continuation invariant".into()

@@ -83,12 +83,7 @@ fn complete_royal_assassin_preserves_source_tap_and_tapped_creature_destruction(
     assert_eq!(a.cost, ActivationCost::TapSource);
     assert_eq!(
         a.program.instructions,
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            regeneration_forbidden: false,
-            source_block: 0
-        }]
+        [Instruction::destroy_target(0, false, 0)]
     );
     assert_eq!(a.program.targets.len(), 1);
     assert_eq!(
@@ -118,7 +113,7 @@ fn tap_source_destroy_rejects_unrepresented_target_qualifiers() {
         (
             json!({"types":["creature"]}),
             (BattlefieldCreature, vec![], vec![], vec![], false, false),
-            "destroy_target_creature",
+            "kernel",
         ),
         (
             json!({"types":["artifact"],"status":["tapped"]}),
@@ -130,7 +125,7 @@ fn tap_source_destroy_rejects_unrepresented_target_qualifiers() {
                 false,
                 true,
             ),
-            "destroy_permanent",
+            "kernel",
         ),
         (
             json!({"types":["creature"],"status":["tapped"],"control":"opponent"}),
@@ -142,7 +137,7 @@ fn tap_source_destroy_rejects_unrepresented_target_qualifiers() {
                 true,
                 true,
             ),
-            "destroy_permanent",
+            "kernel",
         ),
     ] {
         let raw = changed(|a| a["effects"][0]["steps"][0]["what"]["filter"] = filter);

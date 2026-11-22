@@ -44,10 +44,7 @@ fn scenario() -> Prepared {
     let filter = program.targets[0].filter.as_mut().unwrap();
     filter.non_colors.clear();
     filter.power = Some(CreaturePowerFilter::AtMost { value: 3.into() });
-    program.instructions = vec![Instruction::ExilePermanent {
-        target_slot: 0,
-        source_block: 0,
-    }];
+    program.instructions = vec![Instruction::move_target(0, kir::Destination::Exile, 0)];
     removal.capabilities = removal.requirements();
     pod.config.cards[0].oracle_id = removal.oracle_id.clone();
     catalog

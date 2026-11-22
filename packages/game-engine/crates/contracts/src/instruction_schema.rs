@@ -166,6 +166,82 @@ pub(crate) fn set_damage_to(to: &DamageTo) -> Value {
     )
 }
 
+/// The single object of announced target `slot` (any slot when `None`).
+fn target_object(slot: Option<u32>) -> Value {
+    let slot = slot.map_or(json!({}), |slot| json!({"const":slot}));
+    json!({"required":["set","object"],"properties":{"set":{"const":"one"},
+        "object":{"required":["ref","slot"],"properties":{"ref":{"const":"target"},"slot":slot}}}})
+}
+
+/// One kernel verb `verb` whose further operands match `operands`.
+fn verb_with(verb: &str, operands: Value) -> Value {
+    let mut properties = operands;
+    properties["verb"] = json!({"const":verb});
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
+        "required":["do"],"properties":{"do":{"required":["verb"],"properties":properties}}}}})
+}
+
+/// CR 701.8: a destroy of announced target `slot`, with `regeneration`
+/// constraining its regeneration prohibition when given.
+pub(crate) fn target_destroy(slot: Option<u32>, regeneration: Option<bool>) -> Value {
+    let mut operands = json!({"what":target_object(slot)});
+    if let Some(forbidden) = regeneration {
+        operands["regeneration_forbidden"] = if forbidden {
+            json!({"const":true})
+        } else {
+            json!({"not":{"const":true}})
+        };
+    }
+    verb_with("destroy", operands)
+}
+
+/// CR 608.2d: "you may destroy" announced target `slot`.
+pub(crate) fn optional_target_destroy(slot: Option<u32>) -> Value {
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
+        "required":["optional"],"properties":{"optional":{"required":["node"],"properties":{
+            "node":{"required":["do"],"properties":{"do":{"required":["verb","what"],"properties":{
+                "verb":{"const":"destroy"},"what":target_object(slot)}}}}}}}}}})
+}
+
+/// A destroy of announced target `slot`, mandatory or optional.
+pub(crate) fn any_target_destroy(slot: Option<u32>) -> Value {
+    json!({"anyOf":[target_destroy(slot, None), optional_target_destroy(slot)]})
+}
+
+/// CR 400.3: announced target `slot` to destination `to` (`exile`,
+/// `owner_hand`, `owner_library_top`).
+pub(crate) fn target_move(slot: Option<u32>, to: &str) -> Value {
+    verb_with(
+        "move",
+        json!({"what":target_object(slot),"to":{"required":["to"],"properties":{"to":{"const":to}}}}),
+    )
+}
+
+/// CR 701.26: tap (`tap`) or untap (`untap`) announced target `slot`.
+pub(crate) fn target_tap(verb: &str, slot: Option<u32>) -> Value {
+    verb_with(verb, json!({"what":target_object(slot)}))
+}
+
+/// CR 701.26b: untap the lands you control.
+pub(crate) fn untap_lands() -> Value {
+    verb_with(
+        "untap",
+        json!({"what":{"required":["set"],"properties":{"set":{"const":"matching"}}}}),
+    )
+}
+
+/// CR 404.1: exile the graveyard of announced player `slot`.
+pub(crate) fn exile_target_graveyard(slot: Option<u32>) -> Value {
+    let slot = slot.map_or(json!({}), |slot| json!({"const":slot}));
+    verb_with(
+        "move",
+        json!({"to":{"const":{"to":"exile"}},"what":{"required":["set","zone"],"properties":{
+            "set":{"const":"matching"},"zone":{"required":["zone","of"],"properties":{
+                "zone":{"const":"graveyard"},"of":{"properties":{"who":{"properties":{
+                    "ref":{"const":"target"},"slot":slot}}}}}}}}}),
+    )
+}
+
 /// `schema` at exactly `source_block`.
 pub(crate) fn at(schema: Value, source_block: u32) -> Value {
     json!({"allOf":[schema,{"properties":{"source_block":{"const":source_block}}}]})

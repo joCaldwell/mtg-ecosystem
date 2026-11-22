@@ -46,10 +46,7 @@ pub(super) fn activated_tap() -> Definition {
                     tapped: false,
                 }),
             }],
-            instructions: vec![Instruction::TapPermanent {
-                target_slot: 0,
-                source_block: 0,
-            }],
+            instructions: vec![Instruction::tap_target(0, 0)],
             modes: vec![],
         },
     }];
@@ -231,12 +228,7 @@ fn activated_tap_rejects_other_costs_source_kinds_filters_and_compositions() {
                     subtypes: vec![],
                 })
             }
-            "slot" => {
-                a.program.instructions[0] = Instruction::TapPermanent {
-                    target_slot: 1,
-                    source_block: 0,
-                }
-            }
+            "slot" => a.program.instructions[0] = Instruction::tap_target(1, 0),
             _ => unreachable!(),
         }
         d.capabilities = d.requirements();

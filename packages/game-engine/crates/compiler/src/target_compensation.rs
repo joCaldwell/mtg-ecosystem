@@ -100,16 +100,8 @@ pub(super) fn lower(
     };
     let slot = bind_permanent_target(&mut p, &mut BTreeMap::new(), &what)?;
     p.instructions.push(match verb {
-        "destroy" => Instruction::DestroyPermanent {
-            target_slot: slot,
-            optional: false,
-            regeneration_forbidden: no_regen,
-            source_block: 0,
-        },
-        "exile" => Instruction::ExilePermanent {
-            target_slot: slot,
-            source_block: 0,
-        },
+        "destroy" => Instruction::destroy_target(slot, no_regen, 0),
+        "exile" => Instruction::move_target(slot, kir::Destination::Exile, 0),
         _ => return Err(fail()),
     });
     let mut graph = bindings::Bindings::new(identity, source);

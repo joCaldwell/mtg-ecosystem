@@ -7,7 +7,7 @@ use mtg_contracts::{
     SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, announced_x,
     compound_indestructible_parameters, fixed, kernel,
     kir::{self, Context, SetExpr},
-    target_player,
+    target_object, target_player,
 };
 use mtg_core::query::{self, Tri};
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
@@ -112,6 +112,24 @@ fn scored_wipe<'a>(p: &SpellProgram, i: &'a I) -> Option<&'a SetExpr> {
         _ => None,
     }
 }
+/// CR 701.8: "destroy all creatures", which the policy has always weighed
+/// as its own program, separately from the scored wipes.
+fn destroys_all_creatures(i: &I) -> bool {
+    matches!(i, kernel!(Destroy {
+        what: SetExpr::Matching { zone: kir::ZoneExpr::Battlefield, filter },
+        regeneration_forbidden: false,
+    }) if *filter == kir::Pred::creatures())
+}
+/// The slot of one announced target the instruction destroys or exiles.
+fn removal_target(i: &I) -> Option<u32> {
+    match i {
+        kernel!(Move {
+            what: target_object!(slot),
+            to: kir::Destination::Exile
+        }) => Some(*slot),
+        i => i.target_destroy().map(|(slot, ..)| slot),
+    }
+}
 fn reactive_program(p: &SpellProgram) -> bool {
     blocking_pump_program(p)
         || p.additional_sacrifice.is_some()
@@ -131,8 +149,7 @@ fn sole_target_destruction(p: &SpellProgram, slot: u32) -> bool {
     p.modes.is_empty()
         && p.targets.len() == 1
         && matches!(p.instructions.as_slice(),
-        [I::DestroyTargetCreature { target_slot, .. } | I::DestroyPermanent { target_slot, .. }]
-            if *target_slot == slot)
+        [i] if i.target_destroy().is_some_and(|(target_slot, ..)| target_slot == slot))
 }
 // Pure protection needs an incremental benefit. Match public semantics rather
 // than a card or profile identity; buff/restriction equipment keeps its policy.
@@ -159,7 +176,7 @@ fn tapped_destroy_program(d: &Definition, p: &SpellProgram) -> bool {
         })
         && !p.instructions.is_empty()
         && p.instructions.iter().all(|i| {
-            matches!(i, I::DestroyPermanent { target_slot, optional: false, .. }
+            matches!(i, kernel!(Destroy { what: target_object!(target_slot), regeneration_forbidden: _ })
                 if p.targets.iter().any(|t| t.slot == *target_slot))
         })
 }
@@ -177,7 +194,9 @@ fn defensive_untap_spell(d: &Definition, p: &SpellProgram) -> bool {
         && p.additional_sacrifice.is_none()
         && matches!(
             p.instructions.as_slice(),
-            [I::UntapPermanent { target_slot: 0, .. }]
+            [kernel!(Untap {
+                what: target_object!(0)
+            })]
         )
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
@@ -200,7 +219,9 @@ fn tap_source_creature_untap(d: &Definition, p: &SpellProgram) -> bool {
         && p.additional_sacrifice.is_none()
         && matches!(
             p.instructions.as_slice(),
-            [I::UntapPermanent { target_slot: 0, .. }]
+            [kernel!(Untap {
+                what: target_object!(0)
+            })]
         )
         && matches!(p.targets.as_slice(), [t] if t.slot == 0
             && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
@@ -255,10 +276,14 @@ fn defensive_protection_spell(d: &Definition, p: &SpellProgram) -> bool {
     temporary_indestructible_spell(d, p) || compound_indestructible_spell(d, p)
 }
 fn contains_untap(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, I::UntapPermanent { .. }))
-        || p.modes.iter().any(|m| contains_untap(&m.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Untap {
+                what: target_object!(_)
+            })
+        )
+    }) || p.modes.iter().any(|m| contains_untap(&m.program))
 }
 fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
     d.characteristics.kind == CardKind::Artifact
@@ -270,7 +295,9 @@ fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
         && matches!(
             p.instructions.as_slice(),
-            [I::TapPermanent { target_slot: 0, .. }]
+            [kernel!(Tap {
+                what: target_object!(0)
+            })]
         )
         && d.activated.iter().any(|a| {
             &a.program == p
@@ -456,10 +483,14 @@ impl Strategy<'_> {
         t: &TargetSpec,
         candidates: Option<&[ObjectHandle]>,
     ) -> Option<ObjectHandle> {
-        if p.instructions
-            .iter()
-            .any(|i| matches!(i, I::UntapPermanent { .. }))
-        {
+        if p.instructions.iter().any(|i| {
+            matches!(
+                i,
+                kernel!(Untap {
+                    what: target_object!(_)
+                })
+            )
+        }) {
             if tap_source_creature_untap(d, p) {
                 return v.objects.iter().filter(|o| {
                     o.controller == v.viewer && o.tapped
@@ -671,19 +702,17 @@ impl Strategy<'_> {
             };
             return match p.instructions.as_slice() {
                 [
-                    I::DestroyTargetCreature { target_slot, .. }
-                    | I::DestroyPermanent {
-                        target_slot,
-                        optional: false,
+                    kernel!(Destroy {
+                        what: target_object!(target_slot),
                         ..
-                    },
+                    }),
                 ] => {
                     target_valid(*target_slot)
                         && s.targets
                             .get(*target_slot as usize)
                             .is_some_and(|t| t.current.as_ref() == Some(&o.handle))
                 }
-                [I::DestroyAllCreatures { .. }] => true,
+                [i] if destroys_all_creatures(i) => true,
                 [
                     kernel!(Damage {
                         to: kir::DamageTo::Ref {
@@ -816,7 +845,8 @@ impl Strategy<'_> {
             return None;
         }
         incoming.instructions.iter().filter_map(|i| {
-            let I::DestroyPermanent { target_slot, .. } = i else { return None };
+            let (target_slot, ..) = i.target_destroy()?;
+            let target_slot = &target_slot;
             let handle = threat.targets.get(*target_slot as usize)?.current.as_ref()?;
             let spec = incoming.targets.get(*target_slot as usize)?;
             let filter = spec.filter.as_ref()?;
@@ -1030,13 +1060,11 @@ impl Strategy<'_> {
         v.stack.iter().filter(|s| s.cast_complete).any(|s| {
             self.entry_program(v, s).is_some_and(|(_, p)| {
                 p.instructions.iter().any(|i| match i {
-                    I::DestroyTargetCreature { target_slot, .. }
-                    | I::DestroyPermanent { target_slot, .. }
-                    | I::ExilePermanent { target_slot, .. } => s
+                    i if let Some(target_slot) = removal_target(i) => s
                         .targets
-                        .get(*target_slot as usize)
+                        .get(target_slot as usize)
                         .is_some_and(|t| t.current.as_ref() == Some(&o.handle)),
-                    I::DestroyAllCreatures { .. } => self.in_set(v, o, &ObjectSet::Creatures),
+                    i if destroys_all_creatures(i) => self.in_set(v, o, &ObjectSet::Creatures),
                     i if scored_wipe(p, i).is_some() => {
                         scored_wipe(p, i).is_some_and(|what| self.in_kernel_set(v, o, what))
                     }
@@ -1093,12 +1121,10 @@ impl Strategy<'_> {
                         damage >= *n
                     })
         }) || p.instructions.iter().any(|i| match i {
-            I::DestroyTargetCreature { target_slot, .. }
-            | I::DestroyPermanent { target_slot, .. }
-            | I::ExilePermanent { target_slot, .. } => p
+            i if let Some(target_slot) = removal_target(i) => p
                 .targets
                 .iter()
-                .find(|t| t.slot == *target_slot)
+                .find(|t| t.slot == target_slot)
                 .is_some_and(|t| {
                     v.objects.iter().any(|other| {
                         other.controller != v.viewer
@@ -1329,7 +1355,6 @@ impl Strategy<'_> {
                 i if scored_wipe(p, i).is_some() => {
                     (scored_wipe(p, i).into_iter().cloned().collect(), None)
                 }
-                I::DestroyAllCreatures { .. } => (vec![kernel(&ObjectSet::Creatures)], None),
                 I::PumpSet { set, toughness, .. } if toughness.is_negative() => {
                     let mut q = Quantity::zero();
                     q.subtract(toughness);
@@ -1519,10 +1544,14 @@ impl Strategy<'_> {
                 _ => ready.next().is_some(),
             };
         }
-        if p.instructions
-            .iter()
-            .any(|i| matches!(i, I::UntapPermanent { .. }))
-            && !defensive_untap_spell(d, p)
+        if p.instructions.iter().any(|i| {
+            matches!(
+                i,
+                kernel!(Untap {
+                    what: target_object!(_)
+                })
+            )
+        }) && !defensive_untap_spell(d, p)
             && !tap_source_creature_untap(d, p)
         {
             return false;

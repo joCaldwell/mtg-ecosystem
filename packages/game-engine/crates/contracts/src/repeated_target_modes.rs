@@ -69,10 +69,7 @@ pub fn program(name: &str, text: &str, ast: &Value, timing: SpellTiming) -> Opti
             ),
             "Exile target player's graveyard." => (
                 TargetDomain::AnyPlayer,
-                Instruction::ExileTargetGraveyard {
-                    target_slot: 0,
-                    source_block: 0,
-                },
+                Instruction::exile_target_graveyard(0, 0),
                 json!({"effect":"exile","what":{"ref":"zone-cards","zone":"graveyard","owner":player}}),
             ),
             "Destroy target artifact or enchantment." => {
@@ -86,12 +83,7 @@ pub fn program(name: &str, text: &str, ast: &Value, timing: SpellTiming) -> Opti
                 });
                 (
                     TargetDomain::BattlefieldPermanent,
-                    Instruction::DestroyPermanent {
-                        target_slot: 0,
-                        source_block: 0,
-                        optional: false,
-                        regeneration_forbidden: false,
-                    },
+                    Instruction::destroy_target(0, false, 0),
                     json!({"effect":"destroy","what":target(id,json!({"allOf":[{"anyOf":[{"types":["artifact"]},{"types":["enchantment"]}]}]}))}),
                 )
             }
@@ -165,7 +157,7 @@ pub(super) fn schema(s: &mut Value) {
         (TargetDomain::AnyPlayer, "draw", None),
         (
             TargetDomain::AnyPlayer,
-            "exile_target_graveyard",
+            "exile_graveyard",
             Some(Capability::EntryGraveyardExileV1),
         ),
         (
@@ -173,29 +165,21 @@ pub(super) fn schema(s: &mut Value) {
             "damage",
             Some(Capability::NoncombatDamageV1),
         ),
-        (
-            TargetDomain::BattlefieldPermanent,
-            "destroy_permanent",
-            None,
-        ),
+        (TargetDomain::BattlefieldPermanent, "destroy", None),
     ];
     let mut children = vec![];
     for (domain, op, required) in variants {
-        let mut operand =
+        let operand =
             json!({"op":{"const":op},"source_block":{"const":0},"target_slot":{"const":0}});
         let mut filter = json!({"type":"null"});
         match op {
-            "phase_out_target_permanent" | "destroy_permanent" => {
-                let types = if op == "destroy_permanent" {
+            "phase_out_target_permanent" | "destroy" => {
+                let types = if op == "destroy" {
                     vec![CardKind::Artifact, CardKind::Enchantment]
                 } else {
                     vec![]
                 };
                 filter = json!({"const":PermanentFilter{types,non_types:vec![],non_colors:vec![],opponent:false,power:None,tapped:false}});
-                if op == "destroy_permanent" {
-                    operand["optional"] = json!({"const":false});
-                    operand["regeneration_forbidden"] = json!({"const":false});
-                }
             }
             "draw" => {}
             _ => {}
@@ -204,6 +188,10 @@ pub(super) fn schema(s: &mut Value) {
             instruction_schema::at(instruction_schema::target_draw(0, json!({"const":"1"})), 0)
         } else if op == "damage" {
             instruction_schema::at(instruction_schema::target_damage(Some(0)), 0)
+        } else if op == "exile_graveyard" {
+            instruction_schema::at(instruction_schema::exile_target_graveyard(Some(0)), 0)
+        } else if op == "destroy" {
+            instruction_schema::at(instruction_schema::target_destroy(Some(0), Some(false)), 0)
         } else {
             json!({"properties":operand})
         };

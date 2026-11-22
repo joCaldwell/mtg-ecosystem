@@ -23,10 +23,7 @@ fn prepared(already_tapped: bool) -> Prepared {
     assert!(matches!(
         definition.spell.as_ref().unwrap().instructions.as_slice(),
         [
-            Instruction::TapPermanent {
-                target_slot: 0,
-                source_block: 0
-            },
+            kernel!(Tap { what: target_object!(0) } @ 0),
             kernel!(Draw { player: you!(), amount: fixed!(count) } @ 1)
         ] if *count == Quantity::from(1)
     ));

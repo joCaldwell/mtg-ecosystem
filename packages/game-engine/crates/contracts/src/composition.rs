@@ -41,21 +41,6 @@ fn contexts(instruction: &Instruction) -> u8 {
         // CR 119.3: positive life changes for the controller, each opponent
         // or one announced player.
         I::Kernel { node, .. } => kernel_contexts(node),
-        // CR 701.8, 701.13, 701.26, 400.3: one announced permanent, with its
-        // legality rechecked on resolution (CR 608.2b).
-        I::DestroyPermanent { optional, .. } => {
-            if *optional {
-                FAMILY
-            } else {
-                ANY
-            }
-        }
-        I::ExilePermanent { .. }
-        | I::TapPermanent { .. }
-        | I::UntapPermanent { .. }
-        | I::ReturnToOwnerHand { .. }
-        | I::PutOnTopOwnerLibrary { .. }
-        | I::DestroyTargetCreature { .. } => ANY,
         // Target-derived quantities read the single announced target's
         // captured facts (CR 608.2h); `program` requires that sole target.
         I::ChangeLifeFromTarget { .. } | I::DamageTargetController { .. } => ANY,
@@ -101,9 +86,7 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::CounterSpellAndMillController { .. }
         | I::CounterSpellUnlessPays { .. } => ANY,
         // CR 608.2h: non-targeted sets are read when the instruction is performed.
-        I::DestroyAllCreatures { .. }
-        | I::PumpSet { .. }
-        | I::UntapControllerLands { .. } => ANY,
+        I::PumpSet { .. } => ANY,
         // CR 701.21a: each named player chooses and sacrifices.
         I::EachOpponentSacrifice { .. }
         | I::EachPlayerSacrifice { .. }
@@ -117,7 +100,7 @@ fn contexts(instruction: &Instruction) -> u8 {
                 ANY
             }
         }
-        I::ReturnOwnGraveyardCreatureToBattlefield { .. } | I::ExileTargetGraveyard { .. } => ANY,
+        I::ReturnOwnGraveyardCreatureToBattlefield { .. } => ANY,
         // CR 701.23: the controller searches their own library.
         I::SearchBasicLands { .. }
         | I::SearchBasicLandsSplit { .. }
@@ -229,6 +212,21 @@ fn kernel_contexts(node: &kir::Node) -> u8 {
             _ if amount.as_fixed().is_some() => ANY,
             _ => FAMILY,
         },
+        // CR 701.8, 701.26, 400.3: one announced permanent, with its
+        // legality rechecked on resolution (CR 608.2b). An optional destroy
+        // is a node, not a verb, and binds its family.
+        Some(
+            Verb::Destroy {
+                what: SetExpr::One { .. },
+                ..
+            }
+            | Verb::Move {
+                what: SetExpr::One { .. },
+                ..
+            }
+            | Verb::Tap { .. }
+            | Verb::Untap { .. },
+        ) => ANY,
         // CR 608.2h: a board-wide set is read as the instruction is performed.
         Some(
             Verb::Destroy {

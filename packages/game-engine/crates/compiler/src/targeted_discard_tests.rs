@@ -110,12 +110,7 @@ fn modal_witness(d: &Definition) {
     );
     assert_eq!(
         destroy.program.instructions,
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            regeneration_forbidden: false,
-            source_block: 0
-        }]
+        [Instruction::destroy_target(0, false, 0)]
     );
     assert!(draw.program.targets.is_empty());
     assert_eq!(

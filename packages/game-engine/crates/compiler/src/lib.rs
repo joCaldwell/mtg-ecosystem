@@ -4210,10 +4210,11 @@ fn append_spell_effects(
                 Step::CreateReplacement { .. } => {
                     return Err(unsupported("replacement", "unsupported replacement"));
                 }
-                Step::Exile { what } => Instruction::ExilePermanent {
-                    target_slot: bind_permanent_target(program, slots, what)?,
+                Step::Exile { what } => Instruction::move_target(
+                    bind_permanent_target(program, slots, what)?,
+                    kir::Destination::Exile,
                     source_block,
-                },
+                ),
                 Step::Untap { what } => {
                     if what["filter"] != serde_json::json!({"cls":"permanent"})
                         && what["filter"] != serde_json::json!({"types":["creature"]})
@@ -4223,10 +4224,10 @@ fn append_spell_effects(
                             "requires an ordinary permanent or activated creature target",
                         ));
                     }
-                    Instruction::UntapPermanent {
-                        target_slot: bind_permanent_target(program, slots, what)?,
+                    Instruction::untap_target(
+                        bind_permanent_target(program, slots, what)?,
                         source_block,
-                    }
+                    )
                 }
                 Step::Tap { what } => {
                     let target_slot = if what["filter"] == serde_json::json!({"types":["creature"]})
@@ -4244,10 +4245,7 @@ fn append_spell_effects(
                         // the reviewed activated artifact tap program.
                         bind_permanent_target(program, slots, what)?
                     };
-                    Instruction::TapPermanent {
-                        target_slot,
-                        source_block,
-                    }
+                    Instruction::tap_target(target_slot, source_block)
                 }
                 Step::Destroy {
                     what,
@@ -4264,7 +4262,7 @@ fn append_spell_effects(
                         && regeneration_forbidden.is_none()
                         && *what == serde_json::json!({"ref":"all","filter":{"types":["creature"]}})
                     {
-                        Instruction::DestroyAllCreatures { source_block }
+                        Instruction::destroy_all_creatures(source_block)
                     } else if optional.is_none()
                         && regeneration_forbidden.is_none()
                         && what["filter"] == serde_json::json!({"types":["creature"]})
@@ -4272,10 +4270,11 @@ fn append_spell_effects(
                         let t: Target = serde_json::from_value(what.clone()).map_err(|_| {
                             unsupported("effects.destroy", "unsupported destroy target")
                         })?;
-                        Instruction::DestroyTargetCreature {
-                            target_slot: bind_creature_target(program, slots, &t)?,
+                        Instruction::destroy_target(
+                            bind_creature_target(program, slots, &t)?,
+                            false,
                             source_block,
-                        }
+                        )
                     } else {
                         if regeneration_forbidden.is_some() && *regeneration_forbidden != Some(true)
                         {
@@ -4284,11 +4283,25 @@ fn append_spell_effects(
                                 "only cannot-be-regenerated destroy is supported",
                             ));
                         }
-                        Instruction::DestroyPermanent {
-                            target_slot: bind_permanent_target(program, slots, what)?,
-                            optional: optional.unwrap_or(false),
-                            regeneration_forbidden: regeneration_forbidden.unwrap_or(false),
-                            source_block,
+                        let target_slot = bind_permanent_target(program, slots, what)?;
+                        match (
+                            optional.unwrap_or(false),
+                            regeneration_forbidden.unwrap_or(false),
+                        ) {
+                            (false, forbidden) => {
+                                Instruction::destroy_target(target_slot, forbidden, source_block)
+                            }
+                            (true, false) => Instruction::optional_destroy_target(
+                                context,
+                                target_slot,
+                                source_block,
+                            ),
+                            (true, true) => {
+                                return Err(unsupported(
+                                    "regeneration",
+                                    "an optional destroy that forbids regeneration is outside this slice",
+                                ));
+                            }
                         }
                     }
                 }
@@ -4741,10 +4754,7 @@ fn append_spell_effects(
                             .map_err(|_| unsupported("effects.return", "unsupported target"))?;
                         bind_creature_target(program, slots, &t)?
                     };
-                    Instruction::ReturnToOwnerHand {
-                        target_slot,
-                        source_block,
-                    }
+                    Instruction::move_target(target_slot, kir::Destination::OwnerHand, source_block)
                 }
                 Step::MoveZone {
                     what,
@@ -4756,10 +4766,11 @@ fn append_spell_effects(
                 {
                     let t: Target = serde_json::from_value(what.clone())
                         .map_err(|_| unsupported("effects.move", "unsupported target"))?;
-                    Instruction::PutOnTopOwnerLibrary {
-                        target_slot: bind_creature_target(program, slots, &t)?,
+                    Instruction::move_target(
+                        bind_creature_target(program, slots, &t)?,
+                        kir::Destination::OwnerLibraryTop,
                         source_block,
-                    }
+                    )
                 }
                 Step::Sacrifice {
                     who,
@@ -6726,9 +6737,10 @@ fn lower_trigger(
     {
         program
             .instructions
-            .push(Instruction::UntapControllerLands {
-                source_block: source_block(block)?,
-            });
+            .push(Instruction::untap_lands_you_control(
+                kir::Context::Triggered,
+                source_block(block)?,
+            ));
     } else if let Some(instruction) = controller_library::lower_cast_opponent_damage(
         &condition,
         effects,
@@ -7195,10 +7207,10 @@ fn lower_activation(
         )?;
         if !matches!(
             program.instructions.as_slice(),
-            [Instruction::DestroyPermanent {
-                optional: false,
-                ..
-            }]
+            [kernel!(Destroy {
+                what: target_object!(_),
+                regeneration_forbidden: _
+            })]
         ) {
             return Err(unsupported(
                 "activation",
@@ -7718,10 +7730,10 @@ mod tests {
         let pongify = c.definitions.iter().find(|d| d.name == "Pongify").unwrap();
         assert!(matches!(
             pongify.spell.as_ref().unwrap().instructions[0],
-            Instruction::DestroyPermanent {
+            kernel!(Destroy {
                 regeneration_forbidden: true,
                 ..
-            }
+            })
         ));
     }
     #[test]
@@ -11048,10 +11060,7 @@ mod tests {
         assert_eq!(spell.targets[0].selection_id, "line:0:1");
         assert_eq!(
             spell.instructions,
-            [Instruction::ReturnToOwnerHand {
-                target_slot: 0,
-                source_block: 0
-            }]
+            [Instruction::move_target(0, kir::Destination::OwnerHand, 0)]
         );
         assert_eq!(Catalog::read(&canonical(&c).unwrap()).unwrap(), c);
     }
@@ -11118,8 +11127,8 @@ mod tests {
                     mtg_contracts::CURRENT_IR_VERSION + 1
                 ),
             ),
-            raw.replace("\"op\":\"return_to_owner_hand\"", "\"op\":\"execute_text\""),
-            raw.replace("\"target_slot\":0", "\"target_slot\":99"),
+            raw.replace("{\"to\":\"owner_hand\"}", "{\"to\":\"execute_text\"}"),
+            raw.replace("\"slot\":0", "\"slot\":99"),
             raw.replace("\"source_block\":0", "\"unknown\":true,\"source_block\":0"),
             raw.replace(
                 "\"functioning_zone\":\"stack\"",
@@ -11336,10 +11345,11 @@ mod tests {
                     filter: None,
                     domain: TargetDomain::BattlefieldCreature
                 }],
-                instructions: vec![Instruction::PutOnTopOwnerLibrary {
-                    target_slot: 0,
-                    source_block: 0
-                }],
+                instructions: vec![Instruction::move_target(
+                    0,
+                    kir::Destination::OwnerLibraryTop,
+                    0
+                )],
             })
         );
         assert_eq!(
@@ -11730,10 +11740,8 @@ mod tests {
                 }]
             },
             |d| {
-                d.activated[0].program.instructions = vec![Instruction::ReturnToOwnerHand {
-                    target_slot: 0,
-                    source_block: 0,
-                }]
+                d.activated[0].program.instructions =
+                    vec![Instruction::move_target(0, kir::Destination::OwnerHand, 0)]
             },
         ] {
             let mut bad = researcher.clone();
@@ -11756,10 +11764,8 @@ mod tests {
             filter: None,
             domain: TargetDomain::BattlefieldCreature,
         });
-        p.instructions.push(Instruction::ReturnToOwnerHand {
-            target_slot: 1,
-            source_block: 0,
-        });
+        p.instructions
+            .push(Instruction::move_target(1, kir::Destination::OwnerHand, 0));
         mixed.capabilities = mixed.requirements();
         assert!(mixed.validate().is_err());
         let raw = canonical(&catalog).unwrap();
@@ -11826,12 +11832,12 @@ mod tests {
                 ),
             ),
             raw.replace(
-                "\"op\":\"put_on_top_owner_library\"",
-                "\"op\":\"put_on_bottom_owner_library\"",
+                "{\"to\":\"owner_library_top\"}",
+                "{\"to\":\"owner_library_bottom\"}",
             ),
             raw.replace(
-                "\"op\":\"put_on_top_owner_library\"",
-                "\"unknown\":true,\"op\":\"put_on_top_owner_library\"",
+                "{\"to\":\"owner_library_top\"}",
+                "{\"to\":\"owner_library_top\",\"unknown\":true}",
             ),
         ] {
             assert!(Catalog::read(&bad).is_err());
@@ -11846,10 +11852,11 @@ mod tests {
                 as fn(&mut Definition),
             |d| d.spell.as_mut().unwrap().resolution = SpellResolution::Permanent,
             |d| {
-                d.spell.as_mut().unwrap().instructions = vec![Instruction::PutOnTopOwnerLibrary {
-                    target_slot: 1,
-                    source_block: 0,
-                }]
+                d.spell.as_mut().unwrap().instructions = vec![Instruction::move_target(
+                    1,
+                    kir::Destination::OwnerLibraryTop,
+                    0,
+                )]
             },
             |d| d.spell.as_mut().unwrap().targets.clear(),
         ] {
@@ -11995,10 +12002,7 @@ mod tests {
                     .as_mut()
                     .unwrap()
                     .instructions
-                    .push(Instruction::ReturnToOwnerHand {
-                        target_slot: 0,
-                        source_block: 0,
-                    });
+                    .push(Instruction::move_target(0, kir::Destination::OwnerHand, 0));
             },
             |d| {
                 d.spell.as_mut().unwrap().targets.push(TargetSpec {

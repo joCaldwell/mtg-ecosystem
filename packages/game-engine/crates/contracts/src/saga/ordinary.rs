@@ -77,12 +77,7 @@ impl OrdinaryChapter {
                 },
                 source_block,
             ),
-            Self::DestroyOpponentArtifact => Instruction::DestroyPermanent {
-                target_slot: 0,
-                optional: false,
-                regeneration_forbidden: false,
-                source_block,
-            },
+            Self::DestroyOpponentArtifact => Instruction::destroy_target(0, false, source_block),
             Self::FixedMana { color, count } => Instruction::AddResolutionMana {
                 color,
                 quantity: ManaResolutionQuantity::Fixed {

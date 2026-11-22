@@ -1617,9 +1617,23 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "return_to_owner_hand",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "to": {
+                  "to": "owner_hand"
+                },
+                "verb": "move",
+                "what": {
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  },
+                  "set": "one"
+                }
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -1758,9 +1772,20 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "destroy_target_creature",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  },
+                  "set": "one"
+                }
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",

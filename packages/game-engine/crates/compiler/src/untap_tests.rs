@@ -97,10 +97,7 @@ fn complete_burst_source_preserves_provenance_and_unqualified_permanent_target()
                     tapped: false
                 }),
             }],
-            instructions: vec![Instruction::UntapPermanent {
-                target_slot: 0,
-                source_block: 0
-            }],
+            instructions: vec![Instruction::untap_target(0, 0)],
         })
     );
     assert_eq!(
@@ -153,7 +150,7 @@ fn untap_source_rejects_all_unrepresented_target_and_step_fields() {
             false
         )
     );
-    assert_eq!(tests::ops(spell), ["untap_permanent"]);
+    assert_eq!(tests::ops(spell), ["kernel"]);
     for filter in [
         Value::Null,
         json!({}),
@@ -281,6 +278,6 @@ fn untap_behind_a_tap_cost_or_entry_trigger_is_an_ordinary_composed_ability() {
                 false
             )
         );
-        assert_eq!(tests::ops(program), ["untap_permanent"]);
+        assert_eq!(tests::ops(program), ["kernel"]);
     }
 }

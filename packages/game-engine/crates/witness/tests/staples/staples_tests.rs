@@ -1161,8 +1161,14 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::ModifyPowerToughness { .. }
                     | Instruction::PreventCombatDamage { .. }
                     | Instruction::PreventNextDamage { .. }
-                    | Instruction::ReturnToOwnerHand { .. }
-                    | Instruction::PutOnTopOwnerLibrary { .. }
+                    | kernel!(Move {
+                        what: target_object!(_),
+                        to: kir::Destination::OwnerHand
+                    })
+                    | kernel!(Move {
+                        what: target_object!(_),
+                        to: kir::Destination::OwnerLibraryTop
+                    })
                     | Instruction::TargetPlayerSacrificeCreature { .. }
                     | Instruction::DrawCardsIfAdditionalCost { .. }
                     | kernel!(Draw {
@@ -1180,8 +1186,7 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     })
                     | kernel!(GainLife { .. })
                     | kernel!(LoseLife { .. })
-                    | Instruction::DestroyTargetCreature { .. }
-                    | Instruction::DestroyAllCreatures { .. }
+                    | kernel!(Destroy { .. })
                     | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                     | Instruction::OrderLibraryTop { .. }
                     | Instruction::OptionalShuffleLibrary { .. }
@@ -1313,8 +1318,14 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                             );
                             recursion_cards.push(d.name.as_str());
                         }
-                        Instruction::ReturnToOwnerHand { .. }
-                        | Instruction::PutOnTopOwnerLibrary { .. } => {
+                        kernel!(Move {
+                            what: target_object!(_),
+                            to: kir::Destination::OwnerHand
+                        })
+                        | kernel!(Move {
+                            what: target_object!(_),
+                            to: kir::Destination::OwnerLibraryTop
+                        }) => {
                             panic!("new repeat-entry route in admitted colors: {}", d.name)
                         }
                         _ => {}

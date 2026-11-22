@@ -86,10 +86,7 @@ fn setup() -> Prepared {
             spec.domain = TargetDomain::AnyPlayer;
             spec.filter = None;
             spec.selection_id = "line:1:6".into();
-            trigger.program.instructions = vec![Instruction::ExileTargetGraveyard {
-                target_slot: 0,
-                source_block: 1,
-            }];
+            trigger.program.instructions = vec![Instruction::exile_target_graveyard(0, 1)];
             let land = catalog
                 .definitions
                 .iter_mut()

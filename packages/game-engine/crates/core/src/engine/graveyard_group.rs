@@ -417,16 +417,16 @@ impl GraveyardGroup {
                 let entry = game.entry(frame.stack_id)?;
                 let i = game.program_for(entry)?.instructions.get(frame.cursor as usize).ok_or("missing retained instruction")?;
                 let kind = match result {
-                    GroupResult::Effect => matches!(i, Instruction::DestroyTargetCreature {..} | Instruction::DiscardPlayerSet {..} | Instruction::EachPlayerSacrifice {..} | Instruction::EachOpponentSacrifice {..}),
-                    GroupResult::ActualEffect => matches!(i, Instruction::DestroyPermanent {..}),
-                    GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}) | Instruction::DestroyAllCreatures {..}),
+                    GroupResult::Effect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldCreature) || matches!(i, Instruction::DiscardPlayerSet {..} | Instruction::EachPlayerSacrifice {..} | Instruction::EachOpponentSacrifice {..}),
+                    GroupResult::ActualEffect => game.target_destroy_domain(entry, i)? == Some(TargetDomain::BattlefieldPermanent),
+                    GroupResult::DestroySet => matches!(i, kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..})),
                     GroupResult::Discard {..} => matches!(i, Instruction::DiscardCards {..} | Instruction::DiscardTargetPlayer {..} | Instruction::DiscardTargetPlayerAtRandom {..}),
                     GroupResult::Sacrifice {..} => matches!(i, Instruction::SacrificeCreature {..} | Instruction::TargetPlayerSacrificeCreature {..}),
                 };
                 kind && self.cause == game.instruction_cause(frame,i.source_block())? && leaves.iter().all(|e| match (i,e) {
-                    (Instruction::DestroyPermanent {target_slot,..},ProposedEvent::DestroyPermanent {object}) => game.bound_object_target(entry,*target_slot as usize) == Some(object) && frame.legal_targets.get(*target_slot as usize) == Some(&true),
-                    (Instruction::DestroyTargetCreature {target_slot,..},ProposedEvent::DestroyCreature {object}) => entry.targets.get(*target_slot as usize) == Some(object) && frame.legal_targets.get(*target_slot as usize) == Some(&true),
-                    (kernel!(Destroy {..})|Instruction::DestroyAllCreatures {..},ProposedEvent::DestroyPermanent {..}) => true,
+                    (i,ProposedEvent::DestroyPermanent {object}) if i.target_destroy().is_some() => i.target_destroy().is_some_and(|(slot,..)| game.bound_object_target(entry,slot as usize) == Some(object) && frame.legal_targets.get(slot as usize) == Some(&true)),
+                    (i,ProposedEvent::DestroyCreature {object}) if i.target_destroy().is_some() => i.target_destroy().is_some_and(|(slot,..)| entry.targets.get(slot as usize) == Some(object) && frame.legal_targets.get(slot as usize) == Some(&true)),
+                    (kernel!(Destroy {what: mtg_contracts::kir::SetExpr::Matching {..}, ..}),ProposedEvent::DestroyPermanent {..}) => true,
                     (Instruction::DiscardPlayerSet {..},ProposedEvent::DiscardCard {..}) => true,
                     (_,ProposedEvent::DiscardCard {player,..}) => matches!(result, GroupResult::Discard {player:p} if p == player),
                     (Instruction::EachOpponentSacrifice {..}|Instruction::EachPlayerSacrifice {..},ProposedEvent::Sacrifice {..}) => true,

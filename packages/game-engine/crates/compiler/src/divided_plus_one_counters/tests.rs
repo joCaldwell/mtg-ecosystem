@@ -40,10 +40,7 @@ fn check(raw: &str) -> Box<Definition> {
     );
     assert_eq!(
         exile.program.instructions,
-        [Instruction::ExilePermanent {
-            target_slot: 0,
-            source_block: 0
-        }]
+        [Instruction::move_target(0, kir::Destination::Exile, 0)]
     );
     assert!(draw_loss.program.targets.is_empty());
     let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0);

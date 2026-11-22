@@ -1074,26 +1074,6 @@ pub enum Instruction {
         duration: Duration,
         source_block: u32,
     },
-    DestroyPermanent {
-        target_slot: u32,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        optional: bool,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        regeneration_forbidden: bool,
-        source_block: u32,
-    },
-    ExilePermanent {
-        target_slot: u32,
-        source_block: u32,
-    },
-    UntapPermanent {
-        target_slot: u32,
-        source_block: u32,
-    },
-    TapPermanent {
-        target_slot: u32,
-        source_block: u32,
-    },
     ChangeLifeFromTarget {
         recipient: EffectRecipient,
         amount: TargetAmount,
@@ -1116,13 +1096,6 @@ pub enum Instruction {
         source_block: u32,
     },
     ReturnAuraFromGraveyard {
-        source_block: u32,
-    },
-    DestroyTargetCreature {
-        target_slot: u32,
-        source_block: u32,
-    },
-    DestroyAllCreatures {
         source_block: u32,
     },
     ReturnOwnGraveyardCreatureToBattlefield {
@@ -1265,27 +1238,15 @@ pub enum Instruction {
         duration: Duration,
         source_block: u32,
     },
-    ExileTargetGraveyard {
-        target_slot: u32,
-        source_block: u32,
-    },
     ReturnEntryTargetCreature {
         target_slot: u32,
         optional: bool,
-        source_block: u32,
-    },
-    ReturnToOwnerHand {
-        target_slot: u32,
         source_block: u32,
     },
     MoveTriggeredSuccessor {
         expected_zone: TriggerSuccessorZone,
         destination: TriggerSuccessorZone,
         position: LibraryPosition,
-        source_block: u32,
-    },
-    PutOnTopOwnerLibrary {
-        target_slot: u32,
         source_block: u32,
     },
     LoseGameTargetPlayer {
@@ -1321,9 +1282,6 @@ pub enum Instruction {
         #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
         generic: Quantity,
         #[schemars(range(max = 0))]
-        source_block: u32,
-    },
-    UntapControllerLands {
         source_block: u32,
     },
     /// CR 603.5/608.2d: the controller chooses at resolution whether to draw
@@ -1484,6 +1442,105 @@ impl Instruction {
             .filter(|(player, count, _)| player.is_you() && **count != Quantity::from(1))
             .map(|(_, count, block)| (count, block))
     }
+    /// CR 701.8: destroy the target of `slot` (CR 701.19c when
+    /// `regeneration_forbidden`).
+    pub fn destroy_target(slot: u32, regeneration_forbidden: bool, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Destroy {
+                what: kir::SetExpr::target(slot),
+                regeneration_forbidden,
+            },
+            source_block,
+        )
+    }
+    /// CR 608.2d: "you may destroy" the target of `slot`.
+    pub fn optional_destroy_target(context: kir::Context, slot: u32, source_block: u32) -> Self {
+        Self::Kernel {
+            node: kir::Node::Optional {
+                chooser: kir::PlayerExpr::you(context),
+                node: Box::new(kir::Node::Do(kir::Verb::Destroy {
+                    what: kir::SetExpr::target(slot),
+                    regeneration_forbidden: false,
+                })),
+            },
+            source_block,
+        }
+    }
+    /// The slot, optionality, regeneration prohibition and block of a destroy
+    /// of one announced target.
+    pub fn target_destroy(&self) -> Option<(u32, bool, bool, u32)> {
+        let Self::Kernel { node, source_block } = self else {
+            return None;
+        };
+        let (node, optional) = match node {
+            kir::Node::Optional { chooser, node } if chooser.is_you() => (&**node, true),
+            node => (node, false),
+        };
+        match node {
+            kir::Node::Do(kir::Verb::Destroy {
+                what: target_object!(slot),
+                regeneration_forbidden,
+            }) => Some((*slot, optional, *regeneration_forbidden, *source_block)),
+            _ => None,
+        }
+    }
+    /// CR 400.3: move the target of `slot` to `to`.
+    pub fn move_target(slot: u32, to: kir::Destination, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Move {
+                what: kir::SetExpr::target(slot),
+                to,
+            },
+            source_block,
+        )
+    }
+    /// CR 701.26a: tap the target of `slot`.
+    pub fn tap_target(slot: u32, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Tap {
+                what: kir::SetExpr::target(slot),
+            },
+            source_block,
+        )
+    }
+    /// CR 701.26b: untap the target of `slot`.
+    pub fn untap_target(slot: u32, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Untap {
+                what: kir::SetExpr::target(slot),
+            },
+            source_block,
+        )
+    }
+    /// CR 701.26b: untap every land "you" in `context` control.
+    pub fn untap_lands_you_control(context: kir::Context, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Untap {
+                what: kir::SetExpr::lands_you_control(context),
+            },
+            source_block,
+        )
+    }
+    /// CR 404.1: exile the graveyard of the target player of `slot`.
+    pub fn exile_target_graveyard(slot: u32, source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Move {
+                what: kir::SetExpr::graveyard_of(kir::PlayerExpr::target(slot)),
+                to: kir::Destination::Exile,
+            },
+            source_block,
+        )
+    }
+    /// CR 701.8: destroy every creature.
+    pub fn destroy_all_creatures(source_block: u32) -> Self {
+        Self::act(
+            kir::Verb::Destroy {
+                what: kir::SetExpr::battlefield(kir::Pred::creatures()),
+                regeneration_forbidden: false,
+            },
+            source_block,
+        )
+    }
     /// CR 120.2b: the resolving object's source deals `amount` damage `to`.
     pub fn damage(to: kir::DamageTo, amount: kir::Amount, source_block: u32) -> Self {
         Self::act(
@@ -1627,17 +1684,11 @@ impl Instruction {
             Self::EachOpponentSacrifice { source_block, .. } => *source_block,
             Self::ModifySourcePowerToughness { source_block, .. }
             | Self::RegenerateSource { source_block } => *source_block,
-            Self::DestroyPermanent { source_block, .. } => *source_block,
-            Self::ExilePermanent { source_block, .. } => *source_block,
-            Self::UntapPermanent { source_block, .. } => *source_block,
-            Self::TapPermanent { source_block, .. } => *source_block,
             Self::ChangeLifeFromTarget { source_block, .. } => *source_block,
             Self::CreateTokensFor { source_block, .. } => *source_block,
             Self::DamageTargetController { source_block, .. } => *source_block,
             Self::AttachEquipment { source_block, .. } => *source_block,
             Self::ReturnAuraFromGraveyard { source_block, .. } => *source_block,
-            Self::DestroyTargetCreature { source_block, .. } => *source_block,
-            Self::DestroyAllCreatures { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCreatureToBattlefield { source_block, .. }
             | Self::ReturnOwnGraveyardCreatureToHand { source_block, .. } => *source_block,
             Self::ReturnOwnGraveyardCardToHand { source_block, .. } => *source_block,
@@ -1659,16 +1710,12 @@ impl Instruction {
             | Self::ModifyPowerToughness { source_block, .. } => *source_block,
             Self::PreventCombatDamage { source_block, .. } => *source_block,
             Self::PreventNextDamage { source_block, .. } => *source_block,
-            Self::ExileTargetGraveyard { source_block, .. }
-            | Self::ReturnEntryTargetCreature { source_block, .. }
-            | Self::ReturnToOwnerHand { source_block, .. } => *source_block,
-            Self::MoveTriggeredSuccessor { source_block, .. }
-            | Self::PutOnTopOwnerLibrary { source_block, .. } => *source_block,
+            Self::ReturnEntryTargetCreature { source_block, .. } => *source_block,
+            Self::MoveTriggeredSuccessor { source_block, .. } => *source_block,
             Self::LoseGameTargetPlayer { source_block, .. }
             | Self::TargetPlayerSacrificeCreature { source_block, .. } => *source_block,
             Self::SacrificeCreature { source_block, .. } => *source_block,
             Self::MillAnnouncedX { source_block, .. } => *source_block,
-            Self::UntapControllerLands { source_block } => *source_block,
             Self::OptionalDrawForSoleGreatestEntrant { source_block }
             | Self::OptionalDrawCards { source_block, .. }
             | Self::OptionalDrawUnlessCasterPays { source_block, .. } => *source_block,
@@ -4278,10 +4325,10 @@ impl Definition {
                             && costs.mana.is_some()
                             && matches!(
                                 ability.program.instructions.as_slice(),
-                                [Instruction::DestroyPermanent {
-                                    optional: false,
-                                    ..
-                                }]
+                                [kernel!(Destroy {
+                                    what: target_object!(_),
+                                    regeneration_forbidden: _
+                                })]
                             )))
                 {
                     return Err(
@@ -4323,10 +4370,10 @@ impl Definition {
                 } else if matches!(ability.cost, ActivationCost::Composite { .. })
                     && matches!(
                         p.instructions.as_slice(),
-                        [Instruction::DestroyPermanent {
-                            optional: false,
-                            ..
-                        }]
+                        [kernel!(Destroy {
+                            what: target_object!(_),
+                            regeneration_forbidden: _
+                        })]
                     )
                 {
                     p.targets.len() != 1
@@ -4542,9 +4589,7 @@ impl Definition {
             {
                 return Err("triggered sacrifice requires its exact entering source and one creature per player".into());
             }
-            if p.instructions
-                .iter()
-                .any(|i| matches!(i, Instruction::DestroyPermanent { .. }))
+            if p.instructions.iter().any(|i| permanent_destroy(p, i))
                 && ability.condition != TriggerCondition::SelfEntersBattlefield
                 && !matches!(
                     ability.condition,
@@ -4563,13 +4608,13 @@ impl Definition {
                     | TriggerCondition::CreatureAttacked { .. }
                     | TriggerCondition::DamageDealt { .. }
             ) && p.instructions.iter().any(|i| {
-                matches!(
-                    i,
-                    Instruction::DestroyPermanent { optional: true, .. }
-                        | Instruction::ReturnOwnGraveyardCreatureToHand { optional: true, .. }
-                        | Instruction::SacrificeDamage { optional: true, .. }
-                        | Instruction::LoseLifeDeathController { .. }
-                )
+                i.target_destroy().is_some_and(|(_, optional, ..)| optional)
+                    || matches!(
+                        i,
+                        Instruction::ReturnOwnGraveyardCreatureToHand { optional: true, .. }
+                            | Instruction::SacrificeDamage { optional: true, .. }
+                            | Instruction::LoseLifeDeathController { .. }
+                    )
             }) {
                 return Err(
                     "step/cast/attack/damage triggers require mandatory programs without death-event recipients"
@@ -4630,10 +4675,25 @@ impl Definition {
                             | Instruction::EachPlayerSacrifice { .. }
                             | Instruction::ReturnOwnGraveyardCreatureToHand { .. }
                             | Instruction::ReturnOwnGraveyardCardToHand { .. }
-                            | Instruction::ExileTargetGraveyard { .. }
+                            | kernel!(Move {
+                                what: kir::SetExpr::Matching {
+                                    zone: kir::ZoneExpr::Graveyard {
+                                        of: target_player!(_)
+                                    },
+                                    ..
+                                },
+                                to: kir::Destination::Exile
+                            })
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DiscardPlayerSet { .. }
-                            | Instruction::DestroyPermanent { .. }
+                            | kernel!(Destroy {
+                                what: target_object!(_),
+                                ..
+                            })
+                            | Instruction::Kernel {
+                                node: kir::Node::Optional { .. },
+                                ..
+                            }
                             | kernel!(Destroy {
                                 regeneration_forbidden: true,
                                 ..
@@ -4647,7 +4707,9 @@ impl Definition {
                                 player: kir::PlayerExpr::Is { .. },
                                 amount: fixed!(_)
                             })
-                            | Instruction::UntapControllerLands { .. }
+                            | kernel!(Untap {
+                                what: kir::SetExpr::Matching { .. }
+                            })
                             | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
                             | Instruction::OptionalDrawCards { .. }
                             | Instruction::ChooseOptional { .. }
@@ -4986,7 +5048,9 @@ fn ordinary_tap_program(p: &SpellProgram) -> bool {
         && p.targets[0].filter.is_none()
         && matches!(
             p.instructions.first(),
-            Some(Instruction::TapPermanent { target_slot: 0, .. })
+            Some(kernel!(Tap {
+                what: target_object!(0)
+            }))
         )
         && (p.instructions.len() == 1
             || (p.instructions.len() == 2
@@ -5000,7 +5064,9 @@ fn activated_permanent_tap_program(p: &SpellProgram) -> bool {
         && p.resolution == SpellResolution::Instructions
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::TapPermanent { target_slot: 0, .. }]
+            [kernel!(Tap {
+                what: target_object!(0)
+            })]
         )
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
@@ -5033,7 +5099,9 @@ fn untap_program(p: &SpellProgram, types: &[CardKind]) -> bool {
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::UntapPermanent { target_slot: 0, .. }]
+            [kernel!(Untap {
+                what: target_object!(0)
+            })]
         )
         && matches!(p.targets.as_slice(), [t] if t.slot == 0
             && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
@@ -5064,12 +5132,10 @@ fn tap_source_destroy_ability(a: &ActivatedAbility) -> bool {
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::DestroyPermanent {
-                target_slot: 0,
-                optional: false,
-                regeneration_forbidden: false,
-                ..
-            }]
+            [kernel!(Destroy {
+                what: target_object!(0),
+                regeneration_forbidden: false
+            })]
         )
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
@@ -5114,7 +5180,10 @@ fn activated_permanent_owner_hand_ability(a: &ActivatedAbility) -> bool {
         && p.modes.is_empty()
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::ReturnToOwnerHand { target_slot: 0, .. }]
+            [kernel!(Move {
+                what: target_object!(0),
+                to: kir::Destination::OwnerHand
+            })]
         )
         && p.targets.len() == 1
         && p.targets[0].domain == TargetDomain::BattlefieldPermanent
@@ -5522,7 +5591,10 @@ fn validate_instruction_program_with_chapter(
             })
             || !matches!(
                 p.instructions.as_slice(),
-                [Instruction::ReturnToOwnerHand { target_slot: 0, .. }]
+                [kernel!(Move {
+                    what: target_object!(0),
+                    to: kir::Destination::OwnerHand
+                })]
             ))
     {
         return Err("permanent owner-hand movement requires one unqualified or nonland permanent target and one instruction".into());
@@ -5694,7 +5766,9 @@ fn validate_program_bindings(
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
-            | Instruction::UntapControllerLands { .. }
+            | kernel!(Untap {
+                what: kir::SetExpr::Matching { .. }
+            })
             | Instruction::OptionalDrawForSoleGreatestEntrant { .. }
             | Instruction::OptionalDrawCards { .. }
             | Instruction::OptionalDrawUnlessCasterPays { .. }
@@ -5707,11 +5781,10 @@ fn validate_program_bindings(
                     .any(|i| {
                         matches!(
                             i,
-                            Instruction::DestroyAllCreatures { .. }
-                                | kernel!(Destroy {
-                                    what: SetExpr::Matching { .. },
-                                    ..
-                                })
+                            kernel!(Destroy {
+                                what: SetExpr::Matching { .. },
+                                ..
+                            })
                         )
                     })
                 {
@@ -5764,24 +5837,23 @@ fn validate_program_bindings(
             Instruction::EachOpponentSacrifice { .. }
             | Instruction::ModifySourcePowerToughness { .. }
             | Instruction::RegenerateSource { .. } => None,
-            Instruction::DestroyPermanent {
-                target_slot,
-                optional,
-                ..
-            } => {
-                if *optional && p.timing != SpellTiming::Instant {
-                    return Err("optional destroy requires a triggered program".into());
-                }
-                Some((*target_slot, TargetDomain::BattlefieldPermanent))
-            }
-            Instruction::ExileTargetGraveyard { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::AnyPlayer))
-            }
+            kernel!(Move {
+                what: kir::SetExpr::Matching {
+                    zone: kir::ZoneExpr::Graveyard {
+                        of: target_player!(target_slot)
+                    },
+                    ..
+                },
+                to: kir::Destination::Exile
+            }) => Some((*target_slot, TargetDomain::AnyPlayer)),
             Instruction::ReturnEntryTargetCreature { target_slot, .. }
-            | Instruction::ExilePermanent { target_slot, .. }
-            | Instruction::UntapPermanent { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldPermanent))
-            }
+            | kernel!(Move {
+                what: target_object!(target_slot),
+                to: kir::Destination::Exile
+            })
+            | kernel!(Untap {
+                what: target_object!(target_slot)
+            }) => Some((*target_slot, TargetDomain::BattlefieldPermanent)),
             Instruction::PhaseOutTargetPermanent { target_slot, .. } => Some((
                 *target_slot,
                 if composed_spell::program(p) {
@@ -5790,7 +5862,9 @@ fn validate_program_bindings(
                     TargetDomain::BattlefieldPermanent
                 },
             )),
-            Instruction::TapPermanent { target_slot, .. } => {
+            kernel!(Tap {
+                what: target_object!(target_slot)
+            }) => {
                 let domain = p
                     .targets
                     .get(*target_slot as usize)
@@ -5863,10 +5937,6 @@ fn validate_program_bindings(
                 Some((*target_slot, TargetDomain::ControlledBattlefieldCreature))
             }
             Instruction::ReturnAuraFromGraveyard { .. } => None,
-            Instruction::DestroyTargetCreature { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldCreature))
-            }
-            Instruction::DestroyAllCreatures { .. } => None,
             Instruction::ReturnOwnGraveyardCreatureToBattlefield { target_slot, .. }
             | Instruction::ReturnOwnGraveyardCreatureToHand { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::OwnGraveyardCreatureCard))
@@ -6014,7 +6084,10 @@ fn validate_program_bindings(
                 Some((*target_slot, TargetDomain::AnyDamageTarget))
             }
             Instruction::PreventCombatDamage { .. } => None,
-            Instruction::ReturnToOwnerHand { target_slot, .. } => {
+            kernel!(Move {
+                what: target_object!(target_slot),
+                to: kir::Destination::OwnerHand
+            }) => {
                 let domain = p
                     .targets
                     .get(*target_slot as usize)
@@ -6031,9 +6104,10 @@ fn validate_program_bindings(
                 Some((*target_slot, domain))
             }
             Instruction::MoveTriggeredSuccessor { .. } => None,
-            Instruction::PutOnTopOwnerLibrary { target_slot, .. } => {
-                Some((*target_slot, TargetDomain::BattlefieldCreature))
-            }
+            kernel!(Move {
+                what: target_object!(target_slot),
+                to: kir::Destination::OwnerLibraryTop
+            }) => Some((*target_slot, TargetDomain::BattlefieldCreature)),
             Instruction::SacrificeCreature { recipient, .. } => {
                 if *recipient != ActionRecipient::EventPlayer {
                     return Err("controller sacrifice is outside supported action semantics".into());
@@ -6159,6 +6233,11 @@ fn validate_program_bindings(
 }
 /// Family admission that is narrower than the kernel's audited cells.
 fn kernel_family_guard(p: &SpellProgram, node: &kir::Node, chapter: bool) -> Result<(), String> {
+    // CR 608.2d: the optional destroy is offered during a triggered
+    // ability's resolution only.
+    if matches!(node, kir::Node::Optional { .. }) && p.timing != SpellTiming::Instant {
+        return Err("optional destroy requires a triggered program".into());
+    }
     match node.verb() {
         // CR 120.2b, 714.2b: a chapter ability alone may damage a target
         // permanent, and only the reviewed chapter damage target.
@@ -6199,11 +6278,23 @@ fn has_blocking_creature_target(program: &SpellProgram) -> bool {
             .iter()
             .any(|m| has_blocking_creature_target(&m.program))
 }
+/// CR 701.8: a destroy of one announced permanent (the permanent-removal
+/// surface), as distinct from a destroy of one announced creature.
+fn permanent_destroy(program: &SpellProgram, instruction: &Instruction) -> bool {
+    target_destroy_domain(program, instruction) == Some(TargetDomain::BattlefieldPermanent)
+}
+fn target_destroy_domain(
+    program: &SpellProgram,
+    instruction: &Instruction,
+) -> Option<TargetDomain> {
+    let (slot, ..) = instruction.target_destroy()?;
+    program.targets.get(slot as usize).map(|t| t.domain)
+}
 fn has_destroy_permanent(program: &SpellProgram) -> bool {
     program
         .instructions
         .iter()
-        .any(|i| matches!(i, Instruction::DestroyPermanent { .. }))
+        .any(|i| permanent_destroy(program, i))
         || program
             .modes
             .iter()
@@ -6224,7 +6315,10 @@ fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
         .instructions
         .iter()
         .any(|instruction| match instruction {
-            Instruction::ReturnToOwnerHand { target_slot, .. } => program
+            kernel!(Move {
+                what: target_object!(target_slot),
+                to: kir::Destination::OwnerHand
+            }) => program
                 .targets
                 .get(*target_slot as usize)
                 .is_some_and(|target| target.domain == TargetDomain::BattlefieldPermanent),
@@ -6236,18 +6330,24 @@ fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
             .any(|mode| has_permanent_owner_hand(&mode.program))
 }
 fn has_tap(program: &SpellProgram) -> bool {
-    program
-        .instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::TapPermanent { .. }))
-        || program.modes.iter().any(|m| has_tap(&m.program))
+    program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Tap {
+                what: target_object!(_)
+            })
+        )
+    }) || program.modes.iter().any(|m| has_tap(&m.program))
 }
 fn has_untap(program: &SpellProgram) -> bool {
-    program
-        .instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::UntapPermanent { .. }))
-        || program.modes.iter().any(|m| has_untap(&m.program))
+    program.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Untap {
+                what: target_object!(_)
+            })
+        )
+    }) || program.modes.iter().any(|m| has_untap(&m.program))
 }
 fn has_damage_quantity_draw(program: &SpellProgram) -> bool {
     program
@@ -6566,16 +6666,11 @@ fn add_program_requirements_for_source_pump(
             Instruction::SacrificeDamage { .. }
             | Instruction::EachOpponentSacrifice { .. }
             | Instruction::ModifySourcePowerToughness { .. } => Capability::SacrificeV1,
-            Instruction::DestroyPermanent { .. }
-            | Instruction::ExilePermanent { .. }
-            | Instruction::ChangeLifeFromTarget { .. }
+            Instruction::ChangeLifeFromTarget { .. }
             | Instruction::CreateTokensFor { .. }
             | Instruction::DamageTargetController { .. } => Capability::PermanentRemovalV1,
             Instruction::AttachEquipment { .. } | Instruction::ReturnAuraFromGraveyard { .. } => {
                 Capability::AttachmentsV1
-            }
-            Instruction::DestroyTargetCreature { .. } | Instruction::DestroyAllCreatures { .. } => {
-                Capability::DestroyCreatureV1
             }
             Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. } => {
                 Capability::GraveyardBattlefieldReturnV1
@@ -6627,10 +6722,24 @@ fn add_program_requirements_for_source_pump(
             Instruction::ModifyPowerToughness { .. } => Capability::TemporaryPowerToughnessV1,
             Instruction::PreventCombatDamage { .. } => Capability::CombatDamagePreventionV1,
             Instruction::PreventNextDamage { .. } => Capability::DamageBudgetPreventionV1,
-            Instruction::ExileTargetGraveyard { .. } => Capability::EntryGraveyardExileV1,
+            kernel!(Move {
+                what: kir::SetExpr::Matching {
+                    zone: kir::ZoneExpr::Graveyard {
+                        of: target_player!(_)
+                    },
+                    ..
+                },
+                to: kir::Destination::Exile
+            }) => Capability::EntryGraveyardExileV1,
             Instruction::ReturnEntryTargetCreature { .. } => Capability::CreatureEntryReturnV1,
-            Instruction::ReturnToOwnerHand { .. } => Capability::OwnerHandMoveV1,
-            Instruction::PutOnTopOwnerLibrary { .. } => Capability::OwnerLibraryTopMoveV1,
+            kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::OwnerHand
+            }) => Capability::OwnerHandMoveV1,
+            kernel!(Move {
+                what: target_object!(_),
+                to: kir::Destination::OwnerLibraryTop
+            }) => Capability::OwnerLibraryTopMoveV1,
             Instruction::MoveTriggeredSuccessor { .. } => {
                 Capability::TriggeredSuccessorLibraryTuckV1
             }
@@ -6641,13 +6750,19 @@ fn add_program_requirements_for_source_pump(
             Instruction::DrawCardsIfAdditionalCost { .. } => Capability::ControllerDrawV1,
             Instruction::PutHandOnLibrary { .. } => counted_hand_capability(program),
             Instruction::GrantLandPlaysThisTurn { .. } => Capability::ControllerDrawLandAllowanceV1,
-            Instruction::UntapControllerLands { .. } => Capability::UntapControllerLandsV1,
+            kernel!(Untap {
+                what: kir::SetExpr::Matching { .. }
+            }) => Capability::UntapControllerLandsV1,
             Instruction::OptionalDrawForSoleGreatestEntrant { .. } => Capability::GreatestPowerV1,
             Instruction::OptionalDrawCards { .. } => Capability::OptionalControllerDrawV1,
             Instruction::OptionalDrawUnlessCasterPays { .. } => Capability::CastPayerDrawV1,
             Instruction::DrawDamageAmount { .. } => Capability::DamageQuantityDrawV1,
-            Instruction::UntapPermanent { .. } => Capability::UntapPermanentV1,
-            Instruction::TapPermanent { .. } => Capability::TapPermanentV1,
+            kernel!(Untap {
+                what: target_object!(_)
+            }) => Capability::UntapPermanentV1,
+            kernel!(Tap {
+                what: target_object!(_)
+            }) => Capability::TapPermanentV1,
             Instruction::DiscardCards {
                 recipient: Some(ActionRecipient::EventPlayer),
                 ..
@@ -6681,6 +6796,16 @@ fn add_program_requirements_for_source_pump(
                 set.extend(kir::node_capabilities(node));
                 if let Some((player, count, _)) = instruction.fixed_draw() {
                     set.insert(fixed_draw_capability(program, player, count));
+                }
+                // CR 701.8: a target destroy names the surface of its domain.
+                match target_destroy_domain(program, instruction) {
+                    Some(TargetDomain::BattlefieldCreature) => {
+                        set.insert(Capability::DestroyCreatureV1);
+                    }
+                    Some(_) => {
+                        set.insert(Capability::PermanentRemovalV1);
+                    }
+                    None => {}
                 }
                 continue;
             }
@@ -7246,7 +7371,7 @@ pub fn catalog_schema() -> serde_json::Value {
     // independently and recursively without prohibiting old creature programs.
     let permanent_owner_hand = serde_json::json!({
         "targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"battlefield_permanent"}}}},
-        "instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"return_to_owner_hand"}}}}
+        "instructions":{"contains":instruction_schema::target_move(None, "owner_hand")}
     });
     schema["$defs"]["PermanentOwnerHandFreeProgram"] = serde_json::json!({
         "not":{"required":["targets","instructions"],"properties":permanent_owner_hand},
@@ -7257,7 +7382,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "then":{"anyOf":[{"$ref":ordinary_sequence::SCHEMA},{"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"return_to_owner_hand"},"target_slot":{"const":0}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_move(Some(0), "owner_hand")},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "domain":{"const":"battlefield_permanent"},"filter":{"type":"object","properties":{
                     "types":{"maxItems":0},"non_types":{"enum":[[],["land"]]},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}
@@ -7289,15 +7414,15 @@ pub fn catalog_schema() -> serde_json::Value {
     // A creature tap may compose with the existing mandatory draw-one effect.
     // No other execution context or instruction composition is admitted.
     schema["$defs"]["TapFreeProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"tap_permanent"}}}}},
+        "instructions":{"items":{"not":instruction_schema::target_tap("tap", None)}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/TapFreeProgram"}}}}
     }});
-    let tap = serde_json::json!({"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"tap_permanent"}}}}});
+    let tap = serde_json::json!({"instructions":{"contains":instruction_schema::target_tap("tap", None)}});
     schema["$defs"]["OrdinaryTapProgram"] = serde_json::json!({"properties":{
         "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
         "instructions":{"minItems":1,"maxItems":2,"prefixItems":[
-            {"properties":{"op":{"const":"tap_permanent"},"target_slot":{"const":0}}},
+            instruction_schema::target_tap("tap", Some(0)),
             instruction_schema::single_draw()
         ],"items":false},
         "targets":{"minItems":1,"maxItems":1,"items":{"properties":{
@@ -7307,7 +7432,7 @@ pub fn catalog_schema() -> serde_json::Value {
     schema["$defs"]["ActivatedPermanentTapProgram"] = serde_json::json!({"required":["targets","instructions"],"properties":{
         "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
-        "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"tap_permanent"},"target_slot":{"const":0}}}},
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_tap("tap", Some(0))},
         "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
             "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
             "filter":{"type":"object","required":["types"],"properties":{
@@ -7371,7 +7496,7 @@ pub fn catalog_schema() -> serde_json::Value {
     // Only source-tap destruction acquires this contextual capability. Other
     // ordinary and sacrifice-cost destruction programs retain their contracts.
     schema["$defs"]["DestroyPermanentFreeProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"destroy_permanent"}}}}},
+        "instructions":{"items":{"not":instruction_schema::any_target_destroy(None)}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/DestroyPermanentFreeProgram"}}}}
     }});
     schema["$defs"]["TapSourceDestroyAbility"] = serde_json::json!({"required":["cost","program"],"properties":{
@@ -7379,10 +7504,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "program":{"required":["targets","instructions"],"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":"destroy_permanent"},"target_slot":{"const":0},
-                "optional":{"const":false},"regeneration_forbidden":{"const":false}
-            }}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_destroy(Some(0), Some(false))},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
                 "filter":{"type":"object","required":["types","tapped"],"properties":{
@@ -7475,7 +7597,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "program":{"required":["targets","instructions"],"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"return_to_owner_hand"},"target_slot":{"const":0}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_move(Some(0), "owner_hand")},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "slot":{"const":0},"domain":{"const":"battlefield_permanent"},
                 "filter":{"type":"object","properties":{"types":{"maxItems":0},"non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}}
@@ -7515,16 +7637,16 @@ pub fn catalog_schema() -> serde_json::Value {
     }));
     // Untap has two disjoint complete contexts; modes and triggers stay excluded.
     schema["$defs"]["UntapFreeProgram"] = serde_json::json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"untap_permanent"}}}}},
+        "instructions":{"items":{"not":instruction_schema::target_tap("untap", None)}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/UntapFreeProgram"}}}}
     }});
-    let untap = serde_json::json!({"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"untap_permanent"}}}}});
+    let untap = serde_json::json!({"instructions":{"contains":instruction_schema::target_tap("untap", None)}});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(serde_json::json!({
         "if":{"required":["instructions"],"properties":untap},
         "then":{"properties":{
             "additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"untap_permanent"},"target_slot":{"const":0}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_tap("untap", Some(0))},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "domain":{"const":"battlefield_permanent"},
                 "slot":{"const":0},"selection_id":{"minLength":1},"chooser":{"const":"controller"},"stage":{"const":"announcement"},
@@ -7549,7 +7671,7 @@ pub fn catalog_schema() -> serde_json::Value {
         "cost":{"const":"tap_source"},"functioning_zone":{"const":"battlefield"},
         "program":{"required":["instructions","targets"],"properties":{
             "timing":{"const":"instant"},"modes":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{"op":{"const":"untap_permanent"}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::target_tap("untap", None)},
             "targets":{"minItems":1,"maxItems":1,"items":{"required":["filter"],"properties":{
                 "filter":{"type":"object","required":["types"],"properties":{"types":{"const":["creature"]}}}
             }}}
@@ -8909,8 +9031,10 @@ mod tests {
         land_entry.provenance.source_sha256 = sha256(land_entry.provenance.source_json.as_bytes());
         land_entry.provenance.ast_sha256 =
             sha256(format!("[{}]", land_entry.provenance.abilities_json).as_bytes());
-        land_entry.triggered[0].program.instructions =
-            vec![Instruction::UntapControllerLands { source_block: 0 }];
+        land_entry.triggered[0].program.instructions = vec![Instruction::untap_lands_you_control(
+            kir::Context::Triggered,
+            0,
+        )];
         land_entry.capabilities = land_entry.requirements();
         definitions.push(land_entry);
         definitions.push(cast_entry);
@@ -10986,12 +11110,7 @@ mod tests {
                     tapped: false,
                 })
             }) as fn(&mut SpellProgram),
-            |p| {
-                p.instructions[0] = Instruction::ReturnToOwnerHand {
-                    target_slot: 0,
-                    source_block: 0,
-                }
-            },
+            |p| p.instructions[0] = Instruction::move_target(0, kir::Destination::OwnerHand, 0),
             |p| {
                 p.instructions.push(Instruction::draw(
                     PlayerExpr::you(Context::Spell),

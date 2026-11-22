@@ -423,10 +423,11 @@ impl Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         match instruction {
-            Instruction::DestroyTargetCreature {
-                target_slot,
-                source_block,
-            } => {
+            // CR 701.8: one announced creature, destroyed as a creature.
+            _ if instruction.target_destroy().is_some() => {
+                let Some((target_slot, _, _, source_block)) = instruction.target_destroy() else {
+                    unreachable!()
+                };
                 let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
                 if frame.legal_targets.get(target_slot as usize) == Some(&true)
                     && self.is_battlefield_creature(target)
@@ -443,19 +444,6 @@ impl Game {
                     );
                 }
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-            }
-            Instruction::DestroyAllCreatures { source_block } => {
-                let objects = self.objects_in_set(
-                    &ObjectSet::Creatures,
-                    self.entry(frame.stack_id)?.controller,
-                );
-                self.move_board_objects(
-                    frame,
-                    objects,
-                    wipes::SetMove::Destroy,
-                    source_block,
-                    false,
-                )
             }
             Instruction::ReturnOwnGraveyardCreatureToBattlefield {
                 target_slot,
@@ -986,17 +974,24 @@ impl Game {
                     target_slot,
                     optional: true,
                     source_block: b,
-                }
-                | Instruction::DestroyPermanent {
-                    target_slot,
-                    optional: true,
-                    source_block: b,
-                    ..
                 },
             ) => {
                 *player == entry.controller
                     && source_block == b
                     && entry.targets.get(*target_slot as usize) == Some(target)
+            }
+            (
+                ResolutionChoice::OptionalEffect {
+                    player,
+                    target,
+                    source_block,
+                },
+                i,
+            ) if i.target_destroy().is_some_and(|(_, optional, ..)| optional) => {
+                let (target_slot, _, _, b) = i.target_destroy().unwrap();
+                *player == entry.controller
+                    && *source_block == b
+                    && entry.targets.get(target_slot as usize) == Some(target)
             }
             (
                 ResolutionChoice::Search {

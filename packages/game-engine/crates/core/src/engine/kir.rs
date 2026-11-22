@@ -30,6 +30,23 @@ enum Players {
 }
 
 impl Game {
+    /// The target domain of an instruction that destroys one announced
+    /// target, if it is one.
+    pub(super) fn target_destroy_domain(
+        &self,
+        entry: &StackInstance,
+        instruction: &Instruction,
+    ) -> Result<Option<TargetDomain>, String> {
+        let Some((slot, ..)) = instruction.target_destroy() else {
+            return Ok(None);
+        };
+        Ok(self
+            .program_for(entry)?
+            .targets
+            .get(slot as usize)
+            .map(|t| t.domain))
+    }
+
     pub(crate) fn execute_kernel(
         &mut self,
         frame: Resolving,
@@ -40,6 +57,55 @@ impl Game {
         if let Some(amount) = mtg_contracts::kir::drain(&node) {
             let amount = self.kernel_amount(&frame, amount)?;
             return self.drain_opponents(frame, amount, source_block);
+        }
+        // CR 608.2b, 608.2d: a verb on one announced target, and the optional
+        // destroy, keep the executors whose events, outcomes and choices
+        // recovery re-derives: a destroyed creature is destroyed as a
+        // creature (CR 701.8), every other target through the removal path.
+        let one_target = matches!(
+            node,
+            Node::Optional { .. }
+                | Node::Do(
+                    Verb::Destroy {
+                        what: SetExpr::One { .. },
+                        ..
+                    } | Verb::Move {
+                        what: SetExpr::One { .. },
+                        to: Destination::Exile
+                    } | Verb::Tap { .. }
+                        | Verb::Untap {
+                            what: SetExpr::One { .. }
+                        }
+                )
+        );
+        if one_target {
+            let instruction = Instruction::Kernel { node, source_block };
+            let entry = self.entry(frame.stack_id)?;
+            return if self.target_destroy_domain(entry, &instruction)?
+                == Some(TargetDomain::BattlefieldCreature)
+            {
+                self.execute_staples_instruction(frame, instruction)
+            } else {
+                self.execute_removal_instruction(frame, instruction)
+            };
+        }
+        // CR 701.26b, 404.1: untap your lands, or exile one player's graveyard.
+        if matches!(
+            node,
+            Node::Do(
+                Verb::Untap {
+                    what: SetExpr::Matching { .. }
+                } | Verb::Move {
+                    what: SetExpr::Matching {
+                        zone: ZoneExpr::Graveyard { .. },
+                        ..
+                    },
+                    ..
+                }
+            )
+        ) {
+            return self
+                .execute_wipes_instruction(frame, Instruction::Kernel { node, source_block });
         }
         // CR 120.2b, 608.2h: damage keeps the directed and board-wide
         // executors, whose prepared transactions recovery re-derives.

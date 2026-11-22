@@ -174,8 +174,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_target_creature",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -646,9 +657,20 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
-            "regeneration_forbidden": true,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "regeneration_forbidden": true
+              }
+            },
             "source_block": 0
           }
         ]

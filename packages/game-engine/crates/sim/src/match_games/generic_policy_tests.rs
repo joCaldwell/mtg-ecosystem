@@ -903,12 +903,7 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
             duration: mtg_contracts::Duration::UntilEndOfTurn,
             source_block: 0,
         },
-        I::DestroyPermanent {
-            target_slot: 1,
-            optional: true,
-            regeneration_forbidden: false,
-            source_block: 0,
-        },
+        I::optional_destroy_target(kir::Context::Spell, 1, 0),
     ];
     v.stack.last_mut().unwrap().targets = vec![
         mtg_core::VisibleTarget {
@@ -1671,10 +1666,9 @@ mod reactive_tapped_destroy_tests {
             match case {
                 "unrestricted" => p.targets[0].filter.as_mut().unwrap().tapped = false,
                 "optional" => {
-                    let I::DestroyPermanent { optional, .. } = &mut p.instructions[0] else {
-                        panic!("destroy")
-                    };
-                    *optional = true;
+                    let (slot, _, _, block) = p.instructions[0].target_destroy().expect("destroy");
+                    p.instructions[0] =
+                        I::optional_destroy_target(kir::Context::Spell, slot, block);
                 }
                 "modal" => {
                     let child = p.clone();
@@ -1865,10 +1859,10 @@ mod defensive_untap_policy_tests {
                     if case == "unrestricted" {
                         p.targets[0].filter.as_mut().unwrap().tapped = false;
                     } else {
-                        let I::DestroyPermanent { optional, .. } = &mut p.instructions[0] else {
-                            panic!("destroy")
-                        };
-                        *optional = true;
+                        let (slot, _, _, block) =
+                            p.instructions[0].target_destroy().expect("destroy");
+                        p.instructions[0] =
+                            I::optional_destroy_target(kir::Context::Spell, slot, block);
                     }
                 }
                 "ability" => {

@@ -268,12 +268,7 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
     ));
     assert!(matches!(
         ability.program.instructions.as_slice(),
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            source_block: 1,
-            ..
-        }]
+        [kernel!(Destroy { what: target_object!(0), regeneration_forbidden: _ } @ 1)]
     ));
     assert_eq!(
         ability.program.targets[0].domain,
@@ -307,10 +302,7 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
     assert_eq!(
         pie.spell.as_ref().unwrap().instructions,
         [
-            Instruction::DestroyTargetCreature {
-                target_slot: 0,
-                source_block: 0
-            },
+            Instruction::destroy_target(0, false, 0),
             Instruction::CreatePredefinedTokens {
                 count: 1,
                 kind: PredefinedToken::Food,

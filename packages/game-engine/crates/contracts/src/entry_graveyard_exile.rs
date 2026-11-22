@@ -52,10 +52,7 @@ fn trigger() -> TriggeredAbility {
                 domain: TargetDomain::AnyPlayer,
                 filter: None,
             }],
-            instructions: vec![Instruction::ExileTargetGraveyard {
-                target_slot: 0,
-                source_block: 1,
-            }],
+            instructions: vec![Instruction::exile_target_graveyard(0, 1)],
         },
     }
 }
@@ -200,14 +197,14 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(schema: &mut Value) {
     use Capability::*;
-    let op = json!({"required":["op"],"properties":{"op":{"const":"exile_target_graveyard"}}});
+    let op = json!(instruction_schema::exile_target_graveyard(None));
     let has_op = json!({"type":"object","required":["instructions"],"properties":{"instructions":{"contains":op}}});
     let singleton = |item: Value| json!({"minItems":1,"maxItems":1,"items":item});
     let child = |block: u32, selection: Value| {
         json!({"properties":{
             "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
             "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-            "instructions":singleton(json!({"const":{"op":"exile_target_graveyard","target_slot":0,"source_block":block}})),
+            "instructions":singleton(json!({"const":Instruction::exile_target_graveyard(0, block)})),
             "targets":singleton(json!({"properties":{"slot":{"const":0},"selection_id":selection,
                 "chooser":{"const":"controller"},"stage":{"const":"announcement"},"domain":{"const":"any_player"},"filter":{"type":"null"}}}))
         }})
@@ -337,12 +334,7 @@ fn entry_graveyard_exile() {
             match mutation {
                 0 => p.targets[0].domain = TargetDomain::OpponentPlayer,
                 1 => p.targets[0].selection_id = "line:2:6".into(),
-                2 => {
-                    p.instructions = vec![Instruction::ExileTargetGraveyard {
-                        target_slot: 0,
-                        source_block: 0,
-                    }]
-                }
+                2 => p.instructions = vec![Instruction::exile_target_graveyard(0, 0)],
                 3 => p.instructions.push(p.instructions[0].clone()),
                 4 => p.modes.push(SpellMode { program: p.clone() }),
                 5 => d.triggered[0].condition = TriggerCondition::SelfDies,

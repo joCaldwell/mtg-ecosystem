@@ -143,9 +143,30 @@
             ],
             "instructions": [
               {
-                "op": "destroy_permanent",
-                "target_slot": 0,
-                "optional": true,
+                "op": "kernel",
+                "node": {
+                  "optional": {
+                    "chooser": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "node": {
+                      "do": {
+                        "verb": "destroy",
+                        "what": {
+                          "set": "one",
+                          "object": {
+                            "ref": "target",
+                            "slot": 0
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -230,9 +251,20 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
-            "regeneration_forbidden": true,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "regeneration_forbidden": true
+              }
+            },
             "source_block": 0
           },
           {
@@ -899,8 +931,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_target_creature",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 1
           }
         ]
@@ -2062,8 +2105,22 @@
         ],
         "instructions": [
           {
-            "op": "exile_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "exile"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -2213,8 +2270,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -2498,8 +2566,22 @@
         ],
         "instructions": [
           {
-            "op": "put_on_top_owner_library",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "owner_library_top"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -4344,8 +4426,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -4439,8 +4532,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -5846,8 +5950,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -6271,8 +6386,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -6567,8 +6693,19 @@
             ],
             "instructions": [
               {
-                "op": "destroy_permanent",
-                "target_slot": 0,
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "destroy",
+                    "what": {
+                      "set": "one",
+                      "object": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -7230,8 +7367,22 @@
         ],
         "instructions": [
           {
-            "op": "return_to_owner_hand",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "owner_hand"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -7312,8 +7463,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -8397,8 +8559,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_target_creature",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -8619,8 +8792,19 @@
             ],
             "instructions": [
               {
-                "op": "destroy_permanent",
-                "target_slot": 0,
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "destroy",
+                    "what": {
+                      "set": "one",
+                      "object": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -9742,8 +9926,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -10240,8 +10435,22 @@
         ],
         "instructions": [
           {
-            "op": "exile_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "exile"
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -10322,7 +10531,24 @@
         "targets": [],
         "instructions": [
           {
-            "op": "destroy_all_creatures",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  },
+                  "filter": [
+                    {
+                      "atom": "type",
+                      "kind": "creature"
+                    }
+                  ]
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -11125,8 +11351,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -12298,7 +12535,24 @@
         "targets": [],
         "instructions": [
           {
-            "op": "destroy_all_creatures",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "matching",
+                  "zone": {
+                    "zone": "battlefield"
+                  },
+                  "filter": [
+                    {
+                      "atom": "type",
+                      "kind": "creature"
+                    }
+                  ]
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -12968,8 +13222,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -14250,8 +14515,19 @@
         ],
         "instructions": [
           {
-            "op": "destroy_permanent",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "destroy",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                }
+              }
+            },
             "source_block": 0
           },
           {

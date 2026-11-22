@@ -14,24 +14,12 @@ pub(super) fn lower(
     let printed = source["oracle_text"].as_str().unwrap_or_default();
     let (operation, threshold_text, instruction) =
         if let Some(text) = printed.strip_prefix("Destroy target creature with power ") {
-            (
-                "destroy",
-                text,
-                Instruction::DestroyPermanent {
-                    source_block: 0,
-                    target_slot: 0,
-                    optional: false,
-                    regeneration_forbidden: false,
-                },
-            )
+            ("destroy", text, Instruction::destroy_target(0, false, 0))
         } else if let Some(text) = printed.strip_prefix("Exile target creature with power ") {
             (
                 "exile",
                 text,
-                Instruction::ExilePermanent {
-                    source_block: 0,
-                    target_slot: 0,
-                },
+                Instruction::move_target(0, kir::Destination::Exile, 0),
             )
         } else {
             return Ok(None);
@@ -211,17 +199,9 @@ mod tests {
             }]
         );
         let instruction = if exile {
-            Instruction::ExilePermanent {
-                target_slot: 0,
-                source_block: 0,
-            }
+            Instruction::move_target(0, kir::Destination::Exile, 0)
         } else {
-            Instruction::DestroyPermanent {
-                target_slot: 0,
-                source_block: 0,
-                optional: false,
-                regeneration_forbidden: false,
-            }
+            Instruction::destroy_target(0, false, 0)
         };
         assert_eq!(p.instructions, [instruction]);
         definition

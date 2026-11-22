@@ -141,10 +141,7 @@ fn entry_graveyard_exile() {
         );
         assert_eq!(
             t.program.instructions,
-            [Instruction::ExileTargetGraveyard {
-                target_slot: 0,
-                source_block: 1
-            }]
+            [Instruction::exile_target_graveyard(0, 1)]
         );
         if land {
             assert_eq!(d.static_abilities[0].effect, StaticEffect::EntersTapped);

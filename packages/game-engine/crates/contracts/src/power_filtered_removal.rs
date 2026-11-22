@@ -79,15 +79,10 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
                 && !f.opponent && !f.tapped && f.power.is_some()))
         || !matches!(
             p.instructions.as_slice(),
-            [Instruction::DestroyPermanent {
-                source_block: 0,
-                target_slot: 0,
-                optional: false,
-                regeneration_forbidden: false
-            } | Instruction::ExilePermanent {
-                source_block: 0,
-                target_slot: 0
-            }]
+            [
+                kernel!(Destroy { what: target_object!(0), regeneration_forbidden: false } @ 0)
+                    | kernel!(Move { what: target_object!(0), to: kir::Destination::Exile } @ 0)
+            ]
         )
     {
         return Err(INVALID.into());
@@ -120,10 +115,10 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "filter":{"allOf":[filter],"properties":{"types":{"const":["creature"]},"non_types":{"maxItems":0},
                     "non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}}
             }}},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"enum":["destroy_permanent","exile_permanent"]},"source_block":{"const":0},
-                "target_slot":{"const":0},"optional":{"const":false},"regeneration_forbidden":{"const":false}
-            }}}
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at(json!({"anyOf":[
+                instruction_schema::target_destroy(Some(0), Some(false)),
+                instruction_schema::target_move(Some(0), "exile")
+            ]}), 0)}
         }}]}
     }));
     let closure = |timing, cast| {
@@ -227,10 +222,7 @@ fn power_filtered_removal_shape_and_capability_closure() {
     p.targets[0].filter.as_mut().unwrap().power = Some(CreaturePowerFilter::AtMost {
         value: "-123456789012345678901".parse().unwrap(),
     });
-    p.instructions[0] = Instruction::ExilePermanent {
-        target_slot: 0,
-        source_block: 0,
-    };
+    p.instructions[0] = Instruction::move_target(0, kir::Destination::Exile, 0);
     sorcery.capabilities = sorcery.requirements();
     sorcery.validate().unwrap();
     assert_eq!(
@@ -282,34 +274,20 @@ fn power_filtered_removal_shape_and_capability_closure() {
         |p| p.targets[0].domain = TargetDomain::StackSpell,
         |p| p.targets.push(p.targets[0].clone()),
         |p| p.instructions.push(p.instructions[0].clone()),
+        |p| p.instructions[0] = Instruction::move_target(0, kir::Destination::Exile, 1),
+        |p| p.instructions[0] = Instruction::move_target(1, kir::Destination::Exile, 0),
+        |p| p.instructions[0] = Instruction::tap_target(0, 0),
         |p| {
-            p.instructions[0] = Instruction::ExilePermanent {
-                source_block: 1,
-                target_slot: 0,
+            if let Some((slot, _, _, block)) = p.instructions[0].target_destroy() {
+                p.instructions[0] =
+                    Instruction::optional_destroy_target(Context::Spell, slot, block);
             }
         },
         |p| {
-            p.instructions[0] = Instruction::ExilePermanent {
-                source_block: 0,
-                target_slot: 1,
-            }
-        },
-        |p| {
-            p.instructions[0] = Instruction::TapPermanent {
-                source_block: 0,
-                target_slot: 0,
-            }
-        },
-        |p| {
-            if let Instruction::DestroyPermanent { optional, .. } = &mut p.instructions[0] {
-                *optional = true;
-            }
-        },
-        |p| {
-            if let Instruction::DestroyPermanent {
+            if let kernel!(Destroy {
                 regeneration_forbidden,
                 ..
-            } = &mut p.instructions[0]
+            }) = &mut p.instructions[0]
             {
                 *regeneration_forbidden = true;
             }

@@ -122,10 +122,7 @@ fn complete_regress_and_disperse_preserve_permanent_predicate_owner_destination_
                         tapped: false
                     })
                 }],
-                instructions: vec![Instruction::ReturnToOwnerHand {
-                    target_slot: 0,
-                    source_block: 0
-                }],
+                instructions: vec![Instruction::move_target(0, kir::Destination::OwnerHand, 0)],
             })
         );
         assert_eq!(
@@ -217,7 +214,7 @@ fn permanent_bounce_rejects_unrepresented_selector_filter_and_destination_terms(
         let spell = d.spell.as_ref().unwrap();
         assert_eq!(spell.timing, SpellTiming::Instant);
         assert_eq!(tests::sole_target(spell), expected);
-        assert_eq!(tests::ops(spell), ["return_to_owner_hand"]);
+        assert_eq!(tests::ops(spell), ["kernel"]);
     }
     for filter in [
         json!({"cls":"permanent","owner":"you"}),
@@ -323,7 +320,7 @@ fn permanent_bounce_rejects_extra_effects_and_nonordinary_program_contexts() {
                     false
                 )
             );
-            assert_eq!(tests::ops(&ability.program), ["return_to_owner_hand"]);
+            assert_eq!(tests::ops(&ability.program), ["kernel"]);
             assert!(d.triggered.is_empty() && d.static_abilities.is_empty());
             continue;
         }

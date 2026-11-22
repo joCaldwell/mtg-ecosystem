@@ -63,7 +63,9 @@ fn slice4_equipment_binds_distinct_sources_and_ordered_steps() {
                 recipient: Some(ActionRecipient::EventPlayer),
                 ..
             },
-            Instruction::UntapControllerLands { .. }
+            kernel!(Untap {
+                what: kir::SetExpr::Matching { .. }
+            })
         ]
     ));
     let d = compiled(CLAMP);

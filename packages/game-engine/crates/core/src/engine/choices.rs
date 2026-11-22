@@ -344,7 +344,15 @@ impl BoundModeSubset {
                                 player: target_player!(target_slot),
                                 amount: fixed!(_)
                             })
-                            | Instruction::ExileTargetGraveyard { target_slot, .. }
+                            | kernel!(Move {
+                                what: mtg_contracts::kir::SetExpr::Matching {
+                                    zone: mtg_contracts::kir::ZoneExpr::Graveyard {
+                                        of: target_player!(target_slot)
+                                    },
+                                    ..
+                                },
+                                to: mtg_contracts::kir::Destination::Exile
+                            })
                             | kernel!(Damage {
                                 to: mtg_contracts::kir::DamageTo::Ref {
                                     who: mtg_contracts::kir::Ref::Target { slot: target_slot }
@@ -352,10 +360,16 @@ impl BoundModeSubset {
                                 amount: fixed!(_),
                                 ..
                             })
-                            | Instruction::DestroyPermanent { target_slot, .. }
+                            | kernel!(Destroy {
+                                what: target_object!(target_slot),
+                                ..
+                            })
                             | Instruction::PhaseOutTargetPermanent { target_slot, .. }
                             | Instruction::CounterStackObject { target_slot, .. }
-                            | Instruction::ReturnToOwnerHand { target_slot, .. }
+                            | kernel!(Move {
+                                what: target_object!(target_slot),
+                                to: mtg_contracts::kir::Destination::OwnerHand
+                            })
                             | Instruction::PutPlusOneCounters {
                                 on: mtg_contracts::CounterRecipient::Target { target_slot },
                                 ..
@@ -364,6 +378,20 @@ impl BoundModeSubset {
                         ) if *target_slot == 0 && target.slot == 0 => {
                             *target_slot = offset;
                         }
+                        // CR 608.2d: "you may destroy" the mode's one target.
+                        (
+                            Instruction::Kernel {
+                                node: mtg_contracts::kir::Node::Optional { node, .. },
+                                ..
+                            },
+                            [target],
+                        ) if target.slot == 0 => match &mut **node {
+                            mtg_contracts::kir::Node::Do(mtg_contracts::kir::Verb::Destroy {
+                                what: target_object!(target_slot),
+                                ..
+                            }) if *target_slot == 0 => *target_slot = offset,
+                            _ => return Err("unsupported targeted mode effect".into()),
+                        },
                         _ => return Err("unsupported targeted mode effect".into()),
                     }
                     for (local, target) in child.targets.iter().enumerate() {

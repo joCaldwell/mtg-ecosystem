@@ -7,12 +7,12 @@ export function assertUntapSchema(validate: (value: any) => unknown, catalog: an
   assert.ok(source);
   base.definitions = [source];
   source.spell.targets[0].filter = { types: [], non_types: [], non_colors: [], opponent: false };
-  source.spell.instructions = [{ op: "untap_permanent", target_slot: 0, source_block: 0 }];
+  source.spell.instructions = [{ op: "kernel", node: { do: { verb: "untap", what: { set: "one", object: { ref: "target", slot: 0 } } } }, source_block: 0 }];
   source.capabilities.push("untap_permanent_v1");
   assert.equal(validate(base), true, "complete ordinary untap shape");
   const changes: ((d: any) => void)[] = [
     d => { d.capabilities = d.capabilities.filter((c: string) => c !== "untap_permanent_v1"); },
-    d => { d.spell.instructions[0].target_slot = 1; },
+    d => { d.spell.instructions[0].node.do.what.object.slot = 1; },
     d => { d.spell.instructions.push(structuredClone(d.spell.instructions[0])); },
     d => { d.spell.targets[0].filter.types = ["creature"]; },
     d => { d.spell.targets[0].filter.tapped = true; },

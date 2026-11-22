@@ -112,8 +112,22 @@
         ],
         "instructions": [
           {
-            "op": "return_to_owner_hand",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "move",
+                "what": {
+                  "set": "one",
+                  "object": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "to": {
+                  "to": "owner_hand"
+                }
+              }
+            },
             "source_block": 0
           }
         ]

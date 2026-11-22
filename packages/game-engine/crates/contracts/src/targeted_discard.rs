@@ -75,12 +75,7 @@ fn random_discard_family(p: &SpellProgram, x_cost: bool) -> bool {
 fn enchantment_destroy(p: &SpellProgram) -> bool {
     matches!(
         p.instructions.as_slice(),
-        [Instruction::DestroyPermanent {
-            target_slot: 0,
-            optional: false,
-            regeneration_forbidden: false,
-            source_block: 0,
-        }]
+        [kernel!(Destroy { what: target_object!(0), regeneration_forbidden: false } @ 0)]
     ) && matches!(p.targets.as_slice(), [t] if t.domain == TargetDomain::BattlefieldPermanent
         && t.filter.as_ref().is_some_and(|f| f.types == [CardKind::Enchantment]
             && f.non_types.is_empty() && f.non_colors.is_empty() && !f.opponent && f.power.is_none() && !f.tapped))
@@ -184,10 +179,7 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
                     "non_types":{"maxItems":0},"non_colors":{"maxItems":0},"opponent":{"const":false},"tapped":{"const":false}}
             }),
         ),
-        json!({"minItems":1,"maxItems":1,"items":{"properties":{
-            "op":{"const":"destroy_permanent"},"target_slot":{"const":0},"source_block":{"const":0},
-            "optional":{"const":false},"regeneration_forbidden":{"const":false}
-        }}}),
+        json!({"minItems":1,"maxItems":1,"items":instruction_schema::at(instruction_schema::target_destroy(Some(0), Some(false)), 0)}),
     );
     let draw = program(
         json!({"maxItems":0}),
@@ -449,12 +441,7 @@ fn targeted_discard_admits_exact_standalone_and_modal_programs() {
         opponent: false,
         tapped: false,
     });
-    destroy.instructions = vec![Instruction::DestroyPermanent {
-        target_slot: 0,
-        optional: false,
-        regeneration_forbidden: false,
-        source_block: 0,
-    }];
+    destroy.instructions = vec![Instruction::destroy_target(0, false, 0)];
     let mut draw = discard.clone();
     draw.targets.clear();
     draw.instructions = vec![Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0); 2];

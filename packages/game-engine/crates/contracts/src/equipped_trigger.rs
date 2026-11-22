@@ -124,9 +124,7 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
             {
                 (
                     json!({"effect":"untap","what":{"ref":"all","filter":{"types":["land"],"control":"you"}}}),
-                    Instruction::UntapControllerLands {
-                        source_block: block,
-                    },
+                    Instruction::untap_lands_you_control(kir::Context::Triggered, block),
                 )
             } else {
                 let (text, optional) = if let Some(text) = part.strip_prefix("you may draw ") {
@@ -256,7 +254,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
                 "program":{"properties":{"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
                     "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["optional_draw_cards","discard_cards","untap_controller_lands","create_predefined_tokens"]}}},instruction_schema::target_damage(None),instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}}}}
+                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["optional_draw_cards","discard_cards","create_predefined_tokens"]}}},instruction_schema::untap_lands(),instruction_schema::target_damage(None),instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}}}}
             }}}}}},
         "else":{"properties":{"capabilities":{"not":cap}}}
     }));

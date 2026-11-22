@@ -220,10 +220,11 @@ fn forest_intrinsic_is_derived_and_partial_multiblock_legality_keeps_other_block
     second.slot = 1;
     second.selection_id = "synthetic:second".into();
     program.targets.push(second);
-    program.instructions.push(Instruction::ReturnToOwnerHand {
-        target_slot: 1,
-        source_block: 1,
-    });
+    program.instructions.push(Instruction::move_target(
+        1,
+        mtg_contracts::kir::Destination::OwnerHand,
+        1,
+    ));
     p.catalog = Arc::new(c);
     let mut game = Game::new(p);
     cast(&mut game);
@@ -311,10 +312,11 @@ fn synthetic_multiple_blocks_have_one_target_check_and_stack_frame() {
         .find(|d| d.oracle_id == SPELL)
         .unwrap();
     let program = d.spell.as_mut().unwrap();
-    program.instructions.push(Instruction::ReturnToOwnerHand {
-        target_slot: 0,
-        source_block: 1,
-    });
+    program.instructions.push(Instruction::move_target(
+        0,
+        mtg_contracts::kir::Destination::OwnerHand,
+        1,
+    ));
     // Test-only interpreter fixture. No public admission bypass is provided.
     p.catalog = Arc::new(c);
     let mut game = Game::new(p);

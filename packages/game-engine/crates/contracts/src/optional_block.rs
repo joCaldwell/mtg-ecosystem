@@ -45,10 +45,7 @@ pub fn exile_search_spec(text: &str, kind: CardKind) -> Option<(Value, SpellProg
             }),
         }],
         instructions: vec![
-            Instruction::ExilePermanent {
-                target_slot: 0,
-                source_block: 0,
-            },
+            Instruction::move_target(0, kir::Destination::Exile, 0),
             Instruction::ChooseOptional {
                 chooser: recipient.clone(),
                 following: 1,

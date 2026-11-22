@@ -37,10 +37,7 @@ pub fn divided_plus_one_counters_modal_program() -> SpellProgram {
                 power: Some(CreaturePowerFilter::AtLeast { value: 3.into() }),
             }),
         )],
-        vec![Instruction::ExilePermanent {
-            target_slot: 0,
-            source_block: 0,
-        }],
+        vec![Instruction::move_target(0, kir::Destination::Exile, 0)],
     );
     let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0);
     let draw_loss = program(
@@ -186,14 +183,7 @@ fn divided_plus_one_counters_closed_definition_and_capabilities() {
             p.modes[0].program.targets[0].filter.as_mut().unwrap().power =
                 Some(CreaturePowerFilter::AtLeast { value: 4.into() })
         },
-        |p| {
-            p.modes[0].program.instructions[0] = Instruction::DestroyPermanent {
-                source_block: 0,
-                target_slot: 0,
-                optional: false,
-                regeneration_forbidden: false,
-            }
-        },
+        |p| p.modes[0].program.instructions[0] = Instruction::destroy_target(0, false, 0),
         |p| p.modes[1].program.instructions.swap(0, 2),
         |p| {
             p.modes[1].program.instructions.remove(0);

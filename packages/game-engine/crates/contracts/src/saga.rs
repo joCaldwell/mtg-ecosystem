@@ -562,12 +562,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     );
     let destroy_program = removal(
         CardKind::Artifact,
-        json!({
-            "required":["op","target_slot"],"properties":{
-                "op":{"const":"destroy_permanent"},"target_slot":{"const":0},"optional":{"const":false},
-            "regeneration_forbidden":{"const":false}
-            }
-        }),
+        instruction_schema::target_destroy(Some(0), Some(false)),
     );
     let chapter_programs = json!({"oneOf":[
         {"properties":{"targets":{"maxItems":0},"instructions":programs}},
@@ -579,6 +574,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let registration_chapter = |operation: &str| {
         let instruction = if operation == "damage" {
             instruction_schema::target_damage(None)
+        } else if operation == "destroy" {
+            instruction_schema::any_target_destroy(None)
         } else {
             json!({"required":["op"],"properties":{"op":{"const":operation}}})
         };
@@ -633,7 +630,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         },
         {
             "if":{"properties":{"triggered":{"contains":{"anyOf":[
-                registration_chapter("damage"),registration_chapter("destroy_permanent")
+                registration_chapter("damage"),registration_chapter("destroy")
             ]}}}},
             "then":{"properties":{"capabilities":{"contains":{"const":PermanentRemovalV1}}}},
             "else":{"properties":{"capabilities":{"not":{"contains":{"const":PermanentRemovalV1}}}}}

@@ -118,7 +118,7 @@ fn run_tap(seed: [u8; 32], quantum: u64) -> Game {
         }
     );
     assert!(
-        matches!(source.spell.as_ref().unwrap().instructions.as_slice(), [mtg_contracts::Instruction::TapPermanent { target_slot: 0, .. }, draw] if draw.fixed_draw().is_some_and(|(player, count, _)| player.is_you() && *count == Quantity::from(1)))
+        matches!(source.spell.as_ref().unwrap().instructions.as_slice(), [mtg_contracts::kernel!(Tap { what: mtg_contracts::target_object!(0) }), draw] if draw.fixed_draw().is_some_and(|(player, count, _)| player.is_you() && *count == Quantity::from(1)))
     );
     let (prepared, mut game) = tap_setup(&c, seed, quantum);
     assert!(

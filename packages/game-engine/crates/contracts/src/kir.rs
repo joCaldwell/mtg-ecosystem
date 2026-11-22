@@ -37,6 +37,15 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// An internally tagged unit variant carries no operands. Serde's default
+/// unit visitor ignores extra fields; the IR rejects them.
+fn no_operands<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<(), D::Error> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct NoOperands {}
+    NoOperands::deserialize(deserializer).map(|_| ())
+}
+
 // ---------------------------------------------------------------------------
 // References
 // ---------------------------------------------------------------------------
@@ -124,6 +133,7 @@ pub enum StepRole {
 pub enum Ref {
     /// CR 201.5, 400.7, 113.7a: the exact incarnation the ability is printed
     /// on, or its last known information once it has left.
+    #[serde(deserialize_with = "no_operands")]
     Source,
     Controller {
         role: ControllerRole,
@@ -133,6 +143,7 @@ pub enum Ref {
         slot: u32,
     },
     /// CR 301.5, 303.4: the permanent the source is attached to.
+    #[serde(deserialize_with = "no_operands")]
     AttachedTo,
     EventObject {
         role: EventObjectRole,
@@ -143,6 +154,7 @@ pub enum Ref {
     /// CR 614.12: the permanent a replacement effect is modifying as it
     /// enters. Never the source: a copy effect's source enters as something
     /// else, and the entering object is what the effect reads.
+    #[serde(deserialize_with = "no_operands")]
     EnteringObject,
     StepResult {
         step: u32,
@@ -157,6 +169,7 @@ pub enum Ref {
         id: u32,
     },
     /// CR 107.3, 601.2b: the value announced for X.
+    #[serde(deserialize_with = "no_operands")]
     AnnouncedX,
 }
 
@@ -175,8 +188,10 @@ pub enum PlayerExpr {
     OwnerOf { object: Ref },
     /// CR 102.2-102.3: each opponent of the invocation's controller, in APNAP
     /// order (CR 101.4).
+    #[serde(deserialize_with = "no_operands")]
     EachOpponent,
     /// Each player, in APNAP order.
+    #[serde(deserialize_with = "no_operands")]
     EachPlayer,
 }
 
@@ -211,9 +226,13 @@ pub enum Atom {
     NotSubtype {
         subtype: String,
     },
+    #[serde(deserialize_with = "no_operands")]
     Legendary,
+    #[serde(deserialize_with = "no_operands")]
     NotLegendary,
+    #[serde(deserialize_with = "no_operands")]
     Basic,
+    #[serde(deserialize_with = "no_operands")]
     NotBasic,
     Color {
         color: Color,
@@ -228,12 +247,18 @@ pub enum Atom {
     OwnedBy {
         player: PlayerExpr,
     },
+    #[serde(deserialize_with = "no_operands")]
     Tapped,
+    #[serde(deserialize_with = "no_operands")]
     Untapped,
     /// CR 506.4: an attacking creature.
+    #[serde(deserialize_with = "no_operands")]
     Attacking,
+    #[serde(deserialize_with = "no_operands")]
     Blocking,
+    #[serde(deserialize_with = "no_operands")]
     Token,
+    #[serde(deserialize_with = "no_operands")]
     NotToken,
     Keyword {
         keyword: KeywordAbility,
@@ -273,8 +298,10 @@ pub struct Pred(pub Vec<Atom>);
 #[serde(tag = "zone", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ZoneExpr {
     /// CR 110.1, 702.26b: phased-in permanents.
+    #[serde(deserialize_with = "no_operands")]
     Battlefield,
     /// Every graveyard (CR 404).
+    #[serde(deserialize_with = "no_operands")]
     Graveyards,
     Graveyard {
         of: PlayerExpr,
@@ -285,7 +312,9 @@ pub enum ZoneExpr {
     Library {
         of: PlayerExpr,
     },
+    #[serde(deserialize_with = "no_operands")]
     Exile,
+    #[serde(deserialize_with = "no_operands")]
     Stack,
 }
 
@@ -403,11 +432,16 @@ pub enum DamageTo {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "to", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Destination {
+    #[serde(deserialize_with = "no_operands")]
     Exile,
     /// CR 400.3: an object goes to its owner's hand, library or graveyard.
+    #[serde(deserialize_with = "no_operands")]
     OwnerHand,
+    #[serde(deserialize_with = "no_operands")]
     OwnerLibraryTop,
+    #[serde(deserialize_with = "no_operands")]
     OwnerLibraryBottom,
+    #[serde(deserialize_with = "no_operands")]
     OwnerGraveyard,
     Battlefield {
         controller: PlayerExpr,
@@ -420,7 +454,9 @@ pub enum Destination {
 #[serde(tag = "counter", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CounterKind {
     /// CR 122.1a.
+    #[serde(deserialize_with = "no_operands")]
     PlusOnePlusOne,
+    #[serde(deserialize_with = "no_operands")]
     MinusOneMinusOne,
     Named {
         name: String,
@@ -532,10 +568,12 @@ pub struct SearchSpec {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "at", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DelayedEvent {
+    #[serde(deserialize_with = "no_operands")]
     NextEndStep,
     NextUpkeep {
         of: PlayerExpr,
     },
+    #[serde(deserialize_with = "no_operands")]
     EndOfCombat,
     /// An ordinary event pattern, watched until `until` (CR 603.7c).
     Event {
@@ -931,6 +969,17 @@ impl PlayerExpr {
 }
 
 impl Pred {
+    /// "Lands you control" (CR 205.2a, 109.5).
+    pub fn lands_you_control(context: Context) -> Self {
+        Self(vec![
+            Atom::Type {
+                kind: CardKind::Land,
+            },
+            Atom::ControlledBy {
+                player: PlayerExpr::you(context),
+            },
+        ])
+    }
     /// "Creatures" (CR 205.2a).
     pub fn creatures() -> Self {
         Self(vec![Atom::Type {
@@ -954,6 +1003,17 @@ impl Pred {
 }
 
 impl SetExpr {
+    /// CR 701.26b: the lands "you" in `context` control, on the battlefield.
+    pub fn lands_you_control(context: Context) -> Self {
+        Self::battlefield(Pred::lands_you_control(context))
+    }
+    /// Every card in one player's graveyard (CR 404.1).
+    pub fn graveyard_of(player: PlayerExpr) -> Self {
+        Self::Matching {
+            zone: ZoneExpr::Graveyard { of: player },
+            filter: Pred::default(),
+        }
+    }
     /// Every card in every graveyard (CR 404).
     pub fn graveyards() -> Self {
         Self::Matching {
@@ -1612,6 +1672,28 @@ impl Walk<'_, '_> {
             }
             Node::Optional { chooser, node } => {
                 self.player(chooser)?;
+                // CR 608.2d: "you may destroy target permanent", a choice the
+                // resolving frame offers at this instruction's cursor.
+                if let Node::Do(
+                    verb @ Verb::Destroy {
+                        what:
+                            SetExpr::One {
+                                object: Ref::Target { slot },
+                            },
+                        regeneration_forbidden: false,
+                    },
+                ) = &**node
+                    && chooser.is_you()
+                {
+                    self.operands(verb)?;
+                    if !self.scan {
+                        if self.domain(*slot)? != TargetDomain::BattlefieldPermanent {
+                            return unaudited("optional destroy target domain");
+                        }
+                        verb_capabilities(verb, &mut self.out.capabilities);
+                    }
+                    return Ok(());
+                }
                 self.nested_unaudited(node)?;
                 missing_cell!(self, "optional node")
             }
@@ -1783,6 +1865,75 @@ impl Walk<'_, '_> {
                 }
                 self.audit_damage(to, amount)
             }
+            // CR 701.8, 608.2b: destroy one announced permanent or creature.
+            // CR 701.19c: forbidding regeneration is audited for a permanent.
+            Verb::Destroy {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+                regeneration_forbidden,
+            } => match self.domain(*slot)? {
+                TargetDomain::BattlefieldPermanent => Ok(()),
+                TargetDomain::BattlefieldCreature if !regeneration_forbidden => Ok(()),
+                _ => unaudited("destroy target domain"),
+            },
+            // CR 400.3, 400.7, 608.2b: one announced permanent to exile, its
+            // owner's hand or the top of its owner's library.
+            Verb::Move {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+                to,
+            } => match (to, self.domain(*slot)?) {
+                (Destination::Exile, TargetDomain::BattlefieldPermanent)
+                | (
+                    Destination::OwnerHand,
+                    TargetDomain::BattlefieldPermanent
+                    | TargetDomain::BattlefieldCreature
+                    | TargetDomain::CreatureOrPlaneswalker,
+                )
+                | (Destination::OwnerLibraryTop, TargetDomain::BattlefieldCreature) => Ok(()),
+                _ => unaudited("move target destination"),
+            },
+            // CR 701.26a-b, 608.2b: tap or untap one announced permanent.
+            Verb::Tap {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+            } => match self.domain(*slot)? {
+                TargetDomain::BattlefieldPermanent | TargetDomain::BattlefieldCreature => Ok(()),
+                _ => unaudited("tap target domain"),
+            },
+            Verb::Untap {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+            } => match self.domain(*slot)? {
+                TargetDomain::BattlefieldPermanent => Ok(()),
+                _ => unaudited("untap target domain"),
+            },
+            // CR 701.26b, 608.2h: untap every land you control.
+            Verb::Untap { what } if *what == SetExpr::lands_you_control(self.env.context) => Ok(()),
+            // CR 404.1, 400.3: exile every card in one announced player's
+            // graveyard.
+            Verb::Move {
+                what:
+                    SetExpr::Matching {
+                        zone:
+                            ZoneExpr::Graveyard {
+                                of:
+                                    PlayerExpr::Is {
+                                        who: Ref::Target { slot },
+                                    },
+                            },
+                        filter,
+                    },
+                to: Destination::Exile,
+            } if filter.0.is_empty() && self.domain(*slot)? == TargetDomain::AnyPlayer => Ok(()),
             // CR 701.8, 608.2h: destroy every battlefield permanent that
             // satisfies the filter as the instruction is performed.
             // CR 701.19c: forbidding regeneration is audited for the nonland
@@ -2004,7 +2155,26 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
                 }
             }
         },
-        // Board-wide destruction and movement share the reviewed wipe surface.
+        // CR 701.8: destroying every creature names the reviewed creature
+        // destruction surface; every other board-wide destruction and
+        // movement shares the reviewed wipe surface.
+        Verb::Destroy {
+            what: SetExpr::Matching { zone, filter },
+            ..
+        } if *zone == ZoneExpr::Battlefield && *filter == Pred::creatures() => {
+            out.insert(Capability::DestroyCreatureV1);
+        }
+        // CR 404.1: exiling one announced player's graveyard.
+        Verb::Move {
+            what:
+                SetExpr::Matching {
+                    zone: ZoneExpr::Graveyard { .. },
+                    ..
+                },
+            ..
+        } => {
+            out.insert(Capability::EntryGraveyardExileV1);
+        }
         Verb::Destroy {
             what: SetExpr::Matching { .. },
             ..
@@ -2014,6 +2184,34 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
             ..
         } => {
             out.insert(Capability::BoardWipesV1);
+        }
+        // One announced permanent: each verb and destination names its
+        // reviewed surface. A target destroy's surface depends on its target
+        // domain and is named with the program (`Definition::requirements`).
+        Verb::Move {
+            what: SetExpr::One { .. },
+            to,
+        } => {
+            out.insert(match to {
+                Destination::OwnerHand => Capability::OwnerHandMoveV1,
+                Destination::OwnerLibraryTop => Capability::OwnerLibraryTopMoveV1,
+                _ => Capability::PermanentRemovalV1,
+            });
+        }
+        Verb::Tap {
+            what: SetExpr::One { .. },
+        } => {
+            out.insert(Capability::TapPermanentV1);
+        }
+        Verb::Untap {
+            what: SetExpr::One { .. },
+        } => {
+            out.insert(Capability::UntapPermanentV1);
+        }
+        Verb::Untap {
+            what: SetExpr::Matching { .. },
+        } => {
+            out.insert(Capability::UntapControllerLandsV1);
         }
         _ => {}
     }
@@ -2635,9 +2833,20 @@ mod tests {
         };
         let moved = |what, to| Node::Do(Verb::Move { what, to });
         let env = spell(&[]);
+        // CR 701.8: destroying every creature names the creature
+        // destruction surface; every other board-wide set, the wipe surface.
         let requirements = check(&destroy(creatures.clone(), false), &env).unwrap();
         assert_eq!(
             requirements.capabilities,
+            BTreeSet::from([Capability::DestroyCreatureV1])
+        );
+        let artifacts = Pred(vec![Atom::Type {
+            kind: CardKind::Artifact,
+        }]);
+        assert_eq!(
+            check(&destroy(artifacts, false), &env)
+                .unwrap()
+                .capabilities,
             BTreeSet::from([Capability::BoardWipesV1])
         );
         for to in [Destination::Exile, Destination::OwnerHand] {
@@ -2764,6 +2973,43 @@ mod tests {
         assert_eq!(
             caps(&nested),
             BTreeSet::from([Capability::LifeGainV1, Capability::LifeLossV1])
+        );
+    }
+
+    #[test]
+    fn unit_operands_reject_unknown_fields() {
+        // A unit operand's only field is its tag.
+        assert!(serde_json::from_value::<Destination>(serde_json::json!({"to":"exile"})).is_ok());
+        assert!(
+            serde_json::from_value::<Destination>(serde_json::json!({"to":"exile","x":1})).is_err()
+        );
+        assert!(serde_json::from_value::<Ref>(serde_json::json!({"ref":"source","x":1})).is_err());
+        assert!(
+            serde_json::from_value::<PlayerExpr>(
+                serde_json::json!({"player":"each_opponent","x":1})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ZoneExpr>(serde_json::json!({"zone":"battlefield","x":1}))
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<Atom>(serde_json::json!({"atom":"tapped","x":1})).is_err()
+        );
+        assert!(
+            serde_json::from_value::<CounterKind>(
+                serde_json::json!({"counter":"plus_one_plus_one","x":1})
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<DelayedEvent>(serde_json::json!({"at":"next_end_step","x":1}))
+                .is_err()
+        );
+        assert_eq!(
+            serde_json::from_value::<Ref>(serde_json::json!({"ref":"announced_x"})).unwrap(),
+            Ref::AnnouncedX
         );
     }
 

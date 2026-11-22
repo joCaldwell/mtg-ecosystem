@@ -642,10 +642,9 @@ fn paid_omnath_first_main_looks_reveals_and_puts_titanic_ultimatum_in_hand() {
         (
             CardId(0),
             "Omnath, Locus of All",
-            include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
-            include_str!(
-                "../../../../tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json"
-            ),
+            // The typed R4 row: no reparse supplies the revision-17 AST.
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!("../../../../tests/fixtures/phase1-r4/library-top-mana.json"),
         ),
         (
             top,
