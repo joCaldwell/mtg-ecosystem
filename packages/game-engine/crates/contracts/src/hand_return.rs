@@ -75,7 +75,12 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
-    let counted_draw = instruction_schema::at(instruction_schema::any_counted_draw(), 0);
+    // CR 121.1-121.2: these programs admit any fixed controller draw, one
+    // card included.
+    let counted_draw = instruction_schema::at(
+        instruction_schema::fixed_controller_draw("^(0|[1-9][0-9]*)$"),
+        0,
+    );
     s["$defs"]["ControllerDrawLandAllowanceProgram"] = json!({"properties":{
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
         "modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},
@@ -165,6 +170,51 @@ pub(crate) fn witness() -> Definition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // CR 121.1-121.2: a hand return or land allowance after one card is the
+    // same family; Rust validation, capabilities and the exported schema agree.
+    #[test]
+    fn hand_programs_admit_one_drawn_card_in_rust_and_schema() {
+        for tail in [
+            Instruction::PutHandOnLibrary {
+                count: 1.into(),
+                source_block: 0,
+            },
+            Instruction::GrantLandPlaysThisTurn {
+                count: 1.into(),
+                source_block: 0,
+            },
+        ] {
+            let mut d = witness();
+            d.spell.as_mut().unwrap().instructions = vec![
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0),
+                tail.clone(),
+            ];
+            d.capabilities = d.requirements();
+            d.validate().unwrap();
+            let family = if matches!(tail, Instruction::PutHandOnLibrary { .. }) {
+                Capability::ControllerHandReturnV1
+            } else {
+                Capability::ControllerDrawLandAllowanceV1
+            };
+            let p = d.spell.as_ref().unwrap();
+            assert!(controller_hand_return_program(p) || controller_draw_land_allowance_program(p));
+            assert!(d.capabilities.contains(&family), "{tail:?}");
+            assert!(!d.capabilities.contains(&Capability::ControllerDrawV1));
+        }
+        let schema = catalog_schema();
+        for name in [
+            "ControllerHandReturnProgram",
+            "ControllerDrawLandAllowanceProgram",
+        ] {
+            let first = &schema["$defs"][name]["properties"]["instructions"]["prefixItems"][0];
+            let text = first.to_string();
+            assert!(
+                !text.contains(r#""not":{"const":"1"}"#),
+                "{name} excludes one card"
+            );
+            assert!(text.contains(r#""verb":{"const":"draw"}"#), "{name}");
+        }
+    }
     #[test]
     fn hand_return_complete_count_and_scope() {
         for count in ["0", "2", "999999999999999999999999"] {

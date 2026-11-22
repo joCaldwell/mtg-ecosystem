@@ -1,8 +1,14 @@
 """Stage revision 17 with one production catalog build (run under the Cargo lock).
 
-Usage: python3 prepare.py BINARY NEW_OUTPUT [AUTHORIZED_REPARSE.catalog.json ...]
+Usage: python3 prepare.py BINARY NEW_OUTPUT [--r4 ARCHIVE.jsonl] [AUTHORIZED_REPARSE.catalog.json ...]
 NEW_OUTPUT must be under this checkout's generated directory. Each optional
 singleton manifest supplies the registered record and its provenance row.
+With --r4, the R4_CARDS rows come from the accepted bulk Archive R4 file: the
+whole file, its header and each registered row are verified, and each row must
+carry its frozen card's exact source. A card is taken from exactly one origin;
+nothing falls back to a frozen revision-17 row the current compiler rejects.
+The stage is self-contained: `BINARY catalog build <stage>/catalogs/ramos.json`
+rebuilds it from its own records.
 """
 import argparse
 import ctypes
@@ -20,6 +26,21 @@ GENERATED = HERE.parents[4] / "generated"
 
 
 TARGET_SHA256 = "639e62900042296f1bbcbc200c76aeb3bcfe761ec40d43489b3bf19a2d5612e5"
+R4_MANIFEST = "archive-manifest-phase1-r4.json"
+# Frozen cards whose revision-17 rows the current compiler rejects: each is
+# compiled from its accepted Archive R4 row instead.
+R4_CARDS = {
+    "0623c51a-e829-413f-a3a0-817c0902821e": "Call Forth the Tempest",
+    "23695bc2-86d3-4d78-b374-9e83c4cc9cc4": "Averna, the Chaos Bloom",
+    "26445dc7-8363-4205-aee8-1cafeb4ba4c0": "Omnath, Locus of All",
+    "2d7e00b6-12f0-4b03-82a6-50e3d1b5395e": "Progenitus",
+    "4137a22c-f793-4e27-a9b2-72740a6e2121": "Abzan Charm",
+    "7cb9e29f-835f-4155-a2a5-4b778866c773": "Mosswort Bridge",
+    "9efe8aff-9a7d-4397-b5fd-c1a0fad7c15f": "Yidris, Maelstrom Wielder",
+    "c336b735-3e6b-471e-be7a-84d7402ae2f5": "Creative Technique",
+    "cf127842-5fb1-44df-8d91-8cc0f48c559a": "Sakashima's Protege",
+    "ece44a82-dcf0-4439-bdd9-a09c99a6f159": "Double Major",
+}
 
 
 def publish(stage, output):
@@ -72,6 +93,44 @@ def replacements(paths, frozen):
     return selected
 
 
+def r4_rows(archive, frozen, keys):
+    """Registered rows of the accepted bulk Archive R4 file, by oracle id.
+
+    The whole file must match the accepted origin's file digest and its first
+    line the registered header, so every row is bound to its line. Each
+    selected row must be registered by digest and carry the frozen card's
+    exact source and source digest."""
+    origin, = [o for o in read(FIXTURES / "accepted-archives.json") if o["manifest_file"] == R4_MANIFEST]
+    header = (FIXTURES / R4_MANIFEST).read_bytes()
+    data = archive.read_bytes()
+    if sha(data) != origin["file_sha256"] or sha(header.rstrip()) != origin["manifest_sha256"]:
+        raise ValueError("bulk R4 archive or header differs from the accepted origin")
+    lines = data.splitlines(keepends=True)
+    if lines[0] != header:
+        raise ValueError("bulk R4 archive header differs from the registered manifest")
+    selected = {}
+    for number, raw in enumerate(lines[1:], 2):
+        if not any(f'"oracleIdentity":"{key}"'.encode() in raw for key in keys):
+            continue
+        value = json.loads(raw)
+        key = value["oracleIdentity"]
+        if key not in keys:
+            continue
+        digest = sha(raw.rstrip())
+        if (key in selected or digest not in origin["record_sha256"]
+                or value["source"] != read(HERE / frozen[key]["file"])["source"]
+                or value["sourceSha256"] != frozen[key]["source_sha256"]):
+            raise ValueError(f"unregistered, duplicate or inexact R4 row for {key}")
+        row = {"file": frozen[key]["file"], "oracle_id": key, "record_sha256": digest,
+               "source_sha256": value["sourceSha256"], "ast_sha256": value["astSha256"],
+               "binding_sha256": value["bindingSha256"], "archive": R4_MANIFEST,
+               "archive_line": number}
+        selected[key] = raw, row, origin, header
+    if set(selected) != set(keys):
+        raise ValueError(f"bulk R4 archive lacks {sorted(set(keys) - set(selected))}")
+    return selected
+
+
 def profile(target):
     cards = target["cards"]
     names = {c["name"]: c["oracle_id"] for c in cards}
@@ -106,7 +165,7 @@ def profile(target):
                 decks=decks, commanders=[d["commander"] for d in decks], hosted=False, search=False)
 
 
-def prepare(binary, output, paths):
+def prepare(binary, output, paths, r4=None):
     if not __debug__:
         raise ValueError("frozen audit requires Python assertions")
     raw_manifest = (HERE / "revision-17.manifest.json").read_bytes()
@@ -125,6 +184,11 @@ def prepare(binary, output, paths):
         raise ValueError("expected 85 frozen IDs and a new generated output directory")
     prepared_profile = profile(target)
     swaps = replacements(paths, frozen)
+    if r4 is not None:
+        bulk = r4_rows(r4, frozen, set(R4_CARDS))
+        if set(bulk) & set(swaps):
+            raise ValueError("a card has both a reparse manifest and an R4 row")
+        swaps.update(bulk)
     provenance = read(HERE / "provenance.json")
     origins = {o["manifest_file"]: o for o in read(HERE / "accepted-archives.json")}
     original = {r["oracle_id"]: r for r in provenance["records"]}
@@ -175,6 +239,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("binary", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--r4", type=Path, help="accepted bulk Archive R4 file for R4_CARDS")
     parser.add_argument("reparse", nargs="*", type=Path)
     args = parser.parse_args()
-    prepare(args.binary.resolve(), args.output.parent.resolve() / args.output.name, args.reparse)
+    prepare(args.binary.resolve(), args.output.parent.resolve() / args.output.name, args.reparse,
+            args.r4.resolve() if args.r4 else None)

@@ -1666,19 +1666,13 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
         // step's event unaccounted (its sole residual, which `covers` reaches
         // last: the reviewed template has one step in its final block); the
         // template in `archive_definition` proves that step instead.
-        const REVIEWED: &str = "step:look-top-may-reveal-for-mana";
         let resolution =
             resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;
         let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
         resolution
             .ordinary_antecedents(&printed)
             .map_err(|e| unsupported("binding", e.reason))?;
-        for check in [resolution.complete(), resolution.covers(&printed)] {
-            match check {
-                Err(e) if e.reason != REVIEWED => return Err(unsupported("binding", e.reason)),
-                _ => {}
-            }
-        }
+        reviewed_look_top_residual(&resolution, &printed)?;
         return library_top_mana::archive_definition(SourceProvenance {
             printing_id: source.id,
             source_index: r.source_index,
@@ -7342,6 +7336,38 @@ fn lower_activation(
     })
 }
 
+/// The one reviewed residual of the look-top mana source: the look-top step
+/// of the mana ability's block, which its typed definition lowers. Every
+/// residual and every unaccounted step must be exactly that one, at that
+/// location; any other, card-level or in any block, rejects the source.
+fn reviewed_look_top_residual(
+    resolution: &resolution::Resolution,
+    printed: &serde_json::Value,
+) -> Result<(), Failure> {
+    const BLOCK: usize = 1;
+    const STEP: &str = "/effects/0/steps/0";
+    const EFFECT: &str = "look-top-may-reveal-for-mana";
+    const REVIEWED: &str = "step:look-top-may-reveal-for-mana";
+    let residuals = resolution.residuals();
+    if residuals != [(Some(BLOCK), REVIEWED)] {
+        let other = residuals
+            .iter()
+            .find(|(_, r)| *r != REVIEWED)
+            .map_or(REVIEWED, |(_, r)| *r);
+        return Err(unsupported("binding", other));
+    }
+    let unaccounted = resolution
+        .unaccounted_steps(printed)
+        .map_err(|e| unsupported("binding", e.reason))?;
+    if unaccounted != [(BLOCK, STEP.to_string(), EFFECT.to_string())] {
+        return Err(unsupported(
+            "binding",
+            "look-top mana source has an unreviewed unaccounted step",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -12354,6 +12380,44 @@ fn library_top_mana_lowers_only_through_the_typed_r4_pipeline() {
         compile(r4, &changed),
         CompileResult::Lowered { .. }
     ));
+    // Every residual is checked, not only the first: a second residual beside
+    // the reviewed one, at card or block level, or a second unaccounted step,
+    // rejects the source.
+    let record: serde_json::Value = serde_json::from_str(row).unwrap();
+    let printed = record["faces"][0]["result"]["abilities"].clone();
+    let guard = |resolution: &serde_json::Value| {
+        let raw = serde_json::to_string(resolution).unwrap();
+        let sha = sha256(raw.as_bytes());
+        let raw = serde_json::value::RawValue::from_string(raw).unwrap();
+        let resolution = resolution::Resolution::read(Some(&raw), Some(&sha))?;
+        reviewed_look_top_residual(&resolution, &printed)
+    };
+    guard(&record["resolution"]).unwrap();
+    for second in [
+        "/residuals",
+        "/faces/0/blocks/1/residuals",
+        "/faces/0/blocks/0/residuals",
+    ] {
+        let mut extra = record["resolution"].clone();
+        extra
+            .pointer_mut(second)
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("ref:unreviewed"));
+        let error = guard(&extra).unwrap_err();
+        assert_eq!(error.reason, "ref:unreviewed", "{second}");
+    }
+    // The reviewed residual must be the sole unaccounted step at its exact
+    // location: the same residual with the step accounted elsewhere rejects.
+    let mut step = record["resolution"].clone();
+    let only = &mut step["faces"][0]["blocks"][1]["steps"][0];
+    *only = serde_json::json!({"path":only["path"].clone(),"astEffect":only["astEffect"].clone(),
+        "event":only["astEffect"].clone()});
+    assert_eq!(
+        guard(&step).unwrap_err().reason,
+        "look-top mana source has an unreviewed unaccounted step"
+    );
     let mut changed = *definition;
     changed.triggered.clear();
     changed.capabilities = changed.requirements();

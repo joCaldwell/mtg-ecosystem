@@ -180,6 +180,33 @@ impl Resolution {
     /// each under its own AST discriminant. A clause removed, added or
     /// changed after resolution leaves a dangling or missing entry.
     pub(super) fn covers(&self, abilities: &Value) -> Result<(), Failure> {
+        match self.unaccounted_steps(abilities)?.first() {
+            Some((_, _, effect)) => Err(unsupported("resolution", format!("step:{effect}"))),
+            None => Ok(()),
+        }
+    }
+
+    /// Every residual, card-level first (block `None`), then each block's in
+    /// printed order. `complete` reports only the first.
+    pub(super) fn residuals(&self) -> Vec<(Option<usize>, &str)> {
+        let card = self.card.residuals.iter().map(|r| (None, r.as_str()));
+        let blocks = self.card.faces.iter().flat_map(|f| {
+            f.blocks
+                .iter()
+                .flatten()
+                .enumerate()
+                .flat_map(|(index, b)| b.residuals.iter().map(move |r| (Some(index), r.as_str())))
+        });
+        card.chain(blocks).collect()
+    }
+
+    /// The structural checks of `covers`, returning every unaccounted step as
+    /// (block, path, effect) instead of rejecting at the first one.
+    pub(super) fn unaccounted_steps(
+        &self,
+        abilities: &Value,
+    ) -> Result<Vec<(usize, String, String)>, Failure> {
+        let mut unaccounted = Vec::new();
         let blocks = self.blocks()?;
         let printed = abilities
             .as_array()
@@ -190,7 +217,7 @@ impl Resolution {
                 "resolution does not cover the AST blocks",
             ));
         }
-        for (ability, block) in printed.iter().zip(blocks) {
+        for (index, (ability, block)) in printed.iter().zip(blocks).enumerate() {
             let mismatch = |what: &str, path: &str| {
                 unsupported(
                     "resolution",
@@ -227,11 +254,11 @@ impl Resolution {
                     return Err(mismatch("step", path));
                 }
                 if !accounted {
-                    return Err(unsupported("resolution", format!("step:{effect}")));
+                    unaccounted.push((index, path.clone(), effect.to_string()));
                 }
             }
         }
-        Ok(())
+        Ok(unaccounted)
     }
 
     /// CR 201.5: an archived `{"ref":"self"}` resolved to this exact source

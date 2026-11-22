@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# Run from the desired committed engine revision with eight registered singleton
-# reparse catalog manifests. The detached checkout, seed-zero match and verified
-# replay stay under the printed evidence directory, including on failure.
+# Run from the desired committed engine revision with the accepted bulk Archive
+# R4 file, which supplies the registered rows of the cards the current compiler
+# no longer reads from revision 17 (prepare.py R4_CARDS), and any registered
+# singleton reparse catalog manifests. The detached checkout, seed-zero match
+# and verified replay stay under the printed evidence directory, including on
+# failure.
 set -euo pipefail
-if [[ $# != 10 ]]; then
-    echo "Usage: $0 COMPILER SHA256 MANIFEST1 ... MANIFEST8" >&2
+if [[ $# -lt 3 ]]; then
+    echo "Usage: $0 COMPILER SHA256 R4_ARCHIVE [MANIFEST ...]" >&2
     exit 2
 fi
 root=$(git rev-parse --show-toplevel)
 binary=$(realpath -e "$1")
 expected=$2
-shift 2
+r4=$(realpath -e "$3")
+shift 3
 manifests=()
 for manifest in "$@"; do manifests+=("$(realpath -e "$manifest")"); done
 cd "$root"
@@ -28,7 +32,7 @@ exec 9>"$lock"
 flock -x 9
 fixtures=packages/game-engine/tests/fixtures
 stage=$PWD/generated/stage
-python3 -B "$fixtures/ramos/prepare.py" "$binary" "$stage" "${manifests[@]}"
+python3 -B "$fixtures/ramos/prepare.py" "$binary" "$stage" --r4 "$r4" "${manifests[@]}"
 "$binary" catalog build "$stage/catalogs/ramos.json"
 # Install only new files, with the existing policy checked byte for byte.
 for policy in "$stage"/commander-banned-*.json; do cmp "$policy" "$fixtures/${policy##*/}"; done

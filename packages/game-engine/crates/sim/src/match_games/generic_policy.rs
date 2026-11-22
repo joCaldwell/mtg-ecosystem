@@ -11,15 +11,12 @@ use mtg_contracts::{
 };
 use mtg_core::query::{self, Tri};
 
-/// CR 613.4c: the closed set and negative toughness of an end-of-turn set
+/// CR 613.4c: the kernel set and negative toughness of an end-of-turn set
 /// shrink.
-fn set_shrink(i: &I) -> Option<(ObjectSet, &Quantity)> {
+fn set_shrink(i: &I) -> Option<(&SetExpr, &Quantity)> {
     let what = ObjectSet::pumped(i)?;
     let (_, _, toughness, _) = i.pumped()?;
-    toughness
-        .is_negative()
-        .then(|| ObjectSet::from_kernel(what).map(|set| (set, toughness)))
-        .flatten()
+    toughness.is_negative().then_some((what, toughness))
 }
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
 
@@ -1084,8 +1081,8 @@ impl Strategy<'_> {
                         scored_wipe(p, i).is_some_and(|what| self.in_kernel_set(v, o, what))
                     }
                     i if set_shrink(i).is_some() => {
-                        let (set, toughness) = set_shrink(i).unwrap();
-                        self.in_set(v, o, &set)
+                        let (what, toughness) = set_shrink(i).unwrap();
+                        self.in_kernel_set(v, o, what)
                             && o.characteristics
                                 .as_ref()
                                 .and_then(|c| c.toughness.as_ref())
@@ -1364,18 +1361,16 @@ impl Strategy<'_> {
         let mut found = false;
         let mut lost = std::collections::BTreeSet::new();
         let mut wins = false;
-        // The controller role never changes which permanents a set names.
-        let kernel = |set: &ObjectSet| set.kernel(Context::Spell);
         for i in &p.instructions {
             let (sets, damage): (Vec<SetExpr>, _) = match i {
                 i if scored_wipe(p, i).is_some() => {
                     (scored_wipe(p, i).into_iter().cloned().collect(), None)
                 }
                 i if set_shrink(i).is_some() => {
-                    let (set, toughness) = set_shrink(i).unwrap();
+                    let (what, toughness) = set_shrink(i).unwrap();
                     let mut q = Quantity::zero();
                     q.subtract(toughness);
-                    (vec![kernel(&set)], Some(q))
+                    (vec![what.clone()], Some(q))
                 }
                 i if let Some(set_damage) = i.set_damage() => {
                     let damage = self.scaled_damage(v, &self.wipe_amount(v, set_damage.amount, x)?);

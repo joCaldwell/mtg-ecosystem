@@ -265,6 +265,12 @@ pub(crate) fn counted_draw(pattern: &str) -> Value {
     )
 }
 
+/// CR 121.1-121.2: the controller draws a fixed count matching `pattern`,
+/// one card included.
+pub(crate) fn fixed_controller_draw(pattern: &str) -> Value {
+    draw(you(), fixed(json!({"type":"string","pattern":pattern})))
+}
+
 /// `counted_draw` for any count.
 pub(crate) fn any_counted_draw() -> Value {
     counted_draw(COUNT)

@@ -6,6 +6,7 @@ use std::{
 };
 mod artifact_sacrifice_source_tests;
 mod event_player_sacrifice_tests;
+mod kernel_set_pump_tests;
 mod keyword_removal_wipe_tests;
 mod nonland_exile_life_tests;
 mod opponent_nonland_destroy_tests;

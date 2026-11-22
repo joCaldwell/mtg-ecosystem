@@ -584,7 +584,7 @@ test("effects catalog preserves signed modifiers and complete prevention/replace
   const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n: number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
 
   for (const mutate of [
-    (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].power="-0";},
+    (c: any)=>{c.definitions.find((d: any)=>d.name==="Giant Growth").spell.instructions[0].node.do.change.power.value="-0";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Disfigure").spell.instructions[0].toughness=-2;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].duration="this_turn";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Fog").spell.instructions[0].to=[];},
@@ -2370,8 +2370,8 @@ test("exact-source Righteousness preserves its blocking creature target and boun
       ["extra target filter",(x:any)=>{x.spell.targets[0].filter={types:["creature"],non_types:[],non_colors:[],opponent:false};}],
       ["missing blocking capability",(x:any)=>{x.capabilities=x.capabilities.filter((cap:string)=>cap!=="blocking_creature_target_v1");}],
       ["mixed target domains",(x:any)=>{x.spell.targets.push({...x.spell.targets[0],slot:1,selection_id:"line:0:1",domain:"battlefield_creature"});}],
-      ["noncanonical quantity",(x:any)=>{x.spell.instructions[0].power="07";}],
-      ["unsupported duration",(x:any)=>{x.spell.instructions[0].duration="this_turn";}],
+      ["noncanonical quantity",(x:any)=>{x.spell.instructions[0].node.do.change.power.value="07";}],
+      ["unsupported duration",(x:any)=>{x.spell.instructions[0].node.do.until="this_turn";}],
       ["empty program",(x:any)=>{x.spell.instructions=[];}],
       ["non-pump instruction",(x:any)=>{x.spell.instructions=[move(0,"owner_hand",0)];}],
       ["permanent spell",(x:any)=>{x.spell.resolution="permanent";}],

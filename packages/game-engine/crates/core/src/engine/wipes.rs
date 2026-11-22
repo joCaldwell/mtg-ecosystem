@@ -432,9 +432,12 @@ impl Game {
                 let (what, power, toughness, source_block) =
                     i.pumped().ok_or("pump set instruction invariant")?;
                 let (power, toughness) = (power.clone(), toughness.clone());
-                let set = mtg_contracts::ObjectSet::from_kernel(what)
-                    .ok_or("kernel pump set has no audited closed set")?;
-                let targets = self.objects_in_set(&set, self.entry(frame.stack_id)?.controller);
+                // CR 608.2h: the audited battlefield set, read as the effect
+                // is created, through the same reader destroy and move use.
+                let mtg_contracts::kir::SetExpr::Matching { zone, filter } = what else {
+                    return Err("pump set instruction invariant".into());
+                };
+                let (targets, _) = self.kernel_set(&frame, zone, filter)?;
                 self.create_set_effect(
                     frame,
                     ResolvedEffectKind::PumpSet {

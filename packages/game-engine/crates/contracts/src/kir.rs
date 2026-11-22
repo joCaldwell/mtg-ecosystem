@@ -2102,10 +2102,19 @@ impl Walk<'_, '_> {
                     | TargetDomain::ControlledBattlefieldCreature => Ok(()),
                     _ => unaudited("pump target domain"),
                 },
+                // CR 613.4c: a P/T change applies to creatures; the set is
+                // read through the general battlefield query and recovered as
+                // a creature-only capture.
                 SetExpr::Matching {
                     zone: ZoneExpr::Battlefield,
                     filter,
-                } => Self::audited_filter(filter),
+                } if filter.0.first()
+                    == Some(&Atom::Type {
+                        kind: CardKind::Creature,
+                    }) =>
+                {
+                    Self::audited_filter(filter)
+                }
                 _ => unaudited("pump set"),
             },
             // CR 611.2c, 613.1f, 514.2: the exact source gains keywords until

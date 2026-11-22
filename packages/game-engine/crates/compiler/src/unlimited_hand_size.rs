@@ -152,7 +152,7 @@ fn validate_end_step_draw(
         return Err(shape_error());
     };
     let Some((count, source_block)) = (match ability.program.instructions.as_slice() {
-        [draw] => draw.counted_controller_draw(),
+        [draw] => draw.fixed_controller_draw(),
         _ => None,
     }) else {
         return Err(shape_error());
@@ -488,6 +488,41 @@ fn flash_end_step_draw() {
                 Quantity::from(i64::from(count)),
                 2
             )]
+        );
+    }
+    // CR 121.1: "draw a card" is the canonical single draw. The complete
+    // source check admits it like any other positive count.
+    for (count, printed) in [(1, "a card"), (7, "seven cards")] {
+        let ability = lower_end_step_draw(&phase("your"), &[draw(count, false)], None, 1).unwrap();
+        let mut definition = crate::catalog::embedded_catalog("base")
+            .unwrap()
+            .definitions
+            .remove(0);
+        definition.characteristics.legendary = true;
+        definition.characteristics.additional_types.clear();
+        definition.activated.clear();
+        definition.triggered = vec![ability];
+        let labels = SourceLabels {
+            text: String::new(),
+            blocks: vec![
+                "Flash".into(),
+                format!("At the beginning of your end step, draw {printed}."),
+            ],
+            activated: vec![],
+            triggered: vec![1],
+            mana: vec![],
+            statics: vec![],
+            spell_modes: vec![],
+        };
+        let abilities = vec![
+            json!({"kind":"keyword"}),
+            json!({"kind":"triggered","trigger":{"trigger":"phase","phase":"end-step","whose":"your"},
+                "effects":[{"steps":[{"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":count}}]}]}),
+        ];
+        assert_eq!(
+            validate_end_step_draw(&definition, &labels, &abilities).unwrap(),
+            1,
+            "{printed}"
         );
     }
     assert!(lower_end_step_draw(&phase("each-opponent"), &[draw(7, false)], None, 1).is_err());

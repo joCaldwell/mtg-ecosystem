@@ -693,28 +693,6 @@ pub enum ObjectSet {
     NonflyingCreatures,
 }
 impl ObjectSet {
-    pub const ALL: [Self; 12] = [
-        Self::ControllerCreatures,
-        Self::ControllerPermanents,
-        Self::Creatures,
-        Self::NonlandPermanents,
-        Self::OpponentNonlandPermanents,
-        Self::Enchantments,
-        Self::Artifacts,
-        Self::GraveyardCards,
-        Self::AttackingCreatures,
-        Self::OpponentCreatures,
-        Self::FlyingCreatures,
-        Self::NonflyingCreatures,
-    ];
-    /// The closed set a kernel set denotes, if it is one ([`Self::kernel`]
-    /// is injective in every context).
-    pub fn from_kernel(what: &SetExpr) -> Option<Self> {
-        Self::ALL.into_iter().find(|set| set.denotes(what))
-    }
-    /// The kernel set this closed set denotes for "you" in `context`. Kernel
-    /// verbs take a general filter; the instructions that still carry an
-    /// `ObjectSet` name one of these.
     /// True when `what` is this set's kernel set in some context: "you" is
     /// the spell's or the ability's controller (CR 109.5).
     pub fn denotes(&self, what: &SetExpr) -> bool {
@@ -729,6 +707,9 @@ impl ObjectSet {
             .map(|(what, ..)| what)
             .filter(|what| matches!(what, SetExpr::Matching { .. }))
     }
+    /// The kernel set this closed set denotes for "you" in `context`. Kernel
+    /// verbs take a general filter; the instructions that still carry an
+    /// `ObjectSet` name one of these.
     pub fn kernel(&self, context: Context) -> SetExpr {
         use kir::Atom;
         let kind = |kind| Atom::Type { kind };
@@ -1370,6 +1351,14 @@ impl Instruction {
     pub fn uncounted_draw(&self) -> bool {
         self.fixed_draw()
             .is_some_and(|(player, count, _)| !player.is_you() || *count == Quantity::from(1))
+    }
+    /// Any fixed draw by the controller, one card included (CR 121.1-121.2).
+    /// `Draw(you, Fixed(1))` is the one canonical single draw; families that
+    /// also admit counts above one read it through this accessor.
+    pub fn fixed_controller_draw(&self) -> Option<(&Quantity, u32)> {
+        self.fixed_draw()
+            .filter(|(player, ..)| player.is_you())
+            .map(|(_, count, block)| (count, block))
     }
     /// A fixed controller draw of any count other than one: the counted
     /// controller draw of the hand-program families (CR 121.2).
@@ -6891,7 +6880,14 @@ fn fixed_draw_capability(
         Capability::TargetedCountedDrawV1
     } else if !player.is_you() {
         Capability::TargetPlayerDrawV1
-    } else if *count == Quantity::from(1) {
+    } else if *count == Quantity::from(1)
+        && !hand_return::controller_hand_return_program(program)
+        && !hand_return::controller_draw_land_allowance_program(program)
+    {
+        // CR 121.1: one card is the canonical single draw. A complete hand
+        // return or land-allowance program names its own family; a draw and
+        // life loss of one card is the ordinary single draw (the shape a
+        // trigger such as "draw a card and lose 1 life" also has).
         Capability::ControllerDrawV1
     } else {
         counted_hand_capability(program)

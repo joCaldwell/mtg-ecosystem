@@ -1653,18 +1653,16 @@ impl Game {
                             power: p,
                             toughness: t,
                         },
-                    ) if mtg_contracts::ObjectSet::pumped(i).is_some() => {
-                        i.pumped()
-                            .is_some_and(|(what, power, toughness, source_block)| {
-                                mtg_contracts::ObjectSet::from_kernel(what).is_some_and(|set| {
-                                    self.entry(frame.stack_id).is_ok_and(|entry| {
-                                        *targets == self.objects_in_set(&set, entry.controller)
-                                    })
-                                }) && p == power
-                                    && t == toughness
-                                    && source_block == effect.origin.source_block
-                            })
-                    }
+                    ) if mtg_contracts::ObjectSet::pumped(i).is_some() => i.pumped().is_some_and(
+                        |(what, power, toughness, source_block)| {
+                            matches!(what, mtg_contracts::kir::SetExpr::Matching { zone, filter }
+                                    if self.kernel_set(frame, zone, filter)
+                                        .is_ok_and(|(members, _)| *targets == members))
+                                && p == power
+                                && t == toughness
+                                && source_block == effect.origin.source_block
+                        },
+                    ),
                     (
                         Instruction::GrantKeywordsSet {
                             set,
