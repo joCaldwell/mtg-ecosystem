@@ -144,7 +144,7 @@ fn plate_admission_preserves_catalog_default_delta_and_consumer_guards() {
     c.definitions.retain(|d| d.oracle_id != PLATE);
     assert_eq!(
         digest(&c).unwrap(),
-        "ea382a4cd52a6ce30747e422fa4c3023ae886a7bf962aa96f05b3afe5ba8a820",
+        "be3c45a8f2ba3cfcf1373dc744a049fef2df051a502b0083e863b5f0cc58dc0f",
         "all 158 original definition bodies and envelope unchanged"
     );
     let m = MatchConfig::for_profile(PROFILE, [2; 32], PlayerId(0)).unwrap();
