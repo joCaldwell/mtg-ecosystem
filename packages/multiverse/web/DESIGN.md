@@ -316,7 +316,8 @@ units, totals and normalized denominators. Multicolour sources overlap; these ar
 not available mana, adequacy or casting odds. Show both donuts in one row above
 an exact shared colour table, even at minimum panel width; mono is a full ring,
 empty explicitly zero. Keep any-colour/flexible/non-coloured/other-face and
-incomplete coverage separate in details. Labels need no hover and stay readable.
+incomplete coverage separate in details. Section headings are visually hidden.
+Metric and chart labels need no hover.
 
 Scryfall-related Tokens/emblems close the deck list after maybes in its columns.
 Each row shows name, P/T/type without redundant Token prefix, real colour pips
