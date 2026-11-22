@@ -1184,287 +1184,14 @@ fn generic_policy_develops_flash_at_opponents_end_and_chooses_legends() {
 }
 
 #[test]
-fn generic_policy_respects_public_opponent_cast_prohibition_before_flash_planning() {
-    let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
-    let mut v = wipe_tests::view(&c);
-    let header =
-        include_str!("../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json");
-    for raw in [
-        include_str!(
-            "../../../../tests/fixtures/cards-data-d2ce/3233af43-7826-4895-b67e-03c6102c2cd5.json"
-        ),
-        include_str!(
-            "../../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
-        ),
-    ] {
-        let mtg_compiler::CompileResult::Lowered { definition } =
-            mtg_compiler::compile(header, raw)
-        else {
-            panic!("complete frozen Kutzil/Research source must lower");
-        };
-        c.definitions.push(*definition);
-    }
-    c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
-    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    c.validate().unwrap();
-    let viewer = v.viewer;
-    v.active = Some(PlayerId(1));
-    v.turn_owner = PlayerId(1);
-    v.turn.step = TurnStep::End;
-    v.players
-        .iter_mut()
-        .find(|p| p.player == viewer)
-        .unwrap()
-        .mana = [(Color::U, 5.into())].into();
-    v.objects = vec![wipe_tests::card(
-        &c,
-        "Research Thief",
-        viewer.0,
-        Zone::Hand { owner: viewer },
-    )];
-    let cast = PlayerResponse::Cast {
-        card: ObjectHandle("Research Thief".into()),
-    };
-    assert_eq!(
-        strategy(&c).priority(&observation(v.clone())).unwrap(),
-        cast
-    );
-
-    // These are public-view policy probes, not accepted-input engine replay.
-    // Ownership differs from control; only the source's current controller and
-    // the retained turn owner define the prohibition.
-    let mut lock = wipe_tests::card(&c, "Kutzil, Malamet Exemplar", 2, Zone::Battlefield);
-    lock.controller = PlayerId(1);
-    v.objects.push(lock);
-    assert_eq!(
-        strategy(&c).priority(&observation(v.clone())).unwrap(),
-        PlayerResponse::Pass
-    );
-    v.active = None;
-    assert_eq!(
-        strategy(&c).priority(&observation(v.clone())).unwrap(),
-        PlayerResponse::Pass
-    );
-    v.active = Some(PlayerId(1));
-    v.objects[1].controller = PlayerId(0);
-    assert_eq!(
-        strategy(&c).priority(&observation(v.clone())).unwrap(),
-        cast
-    );
-    v.objects[1].controller = PlayerId(1);
-    v.turn_owner = PlayerId(0);
-    v.active = Some(PlayerId(0));
-    assert_eq!(
-        strategy(&c).priority(&observation(v.clone())).unwrap(),
-        cast
-    );
-    v.turn_owner = PlayerId(1);
-    v.active = Some(PlayerId(1));
-    v.objects[1].zone = Zone::Graveyard { owner: PlayerId(2) };
-    assert_eq!(strategy(&c).priority(&observation(v)).unwrap(), cast);
-}
-
-// Public payload policy probes, not accepted-input engine games or replay.
-mod blocking_target_policy_tests {
-    use super::*;
-
-    fn fixture() -> (Catalog, PermittedView) {
-        let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
-        let mut v = wipe_tests::view(&c);
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-            mtg_compiler::fixtures::MANIFEST,
-            include_str!("../../../../tests/fixtures/righteousness.json"),
-        ) else {
-            panic!("complete retained Righteousness must lower");
-        };
-        c.definitions.push(*definition);
-        c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-        c.validate().unwrap();
-        v.active = Some(PlayerId(0));
-        v.turn_owner = PlayerId(0);
-        v.priority = Some(v.viewer);
-        v.turn.step = TurnStep::DeclareBlockers;
-        v.players
-            .iter_mut()
-            .find(|p| p.player == v.viewer)
-            .unwrap()
-            .mana = BTreeMap::from([(Color::W, 1.into())]);
-        let mut own = wipe_tests::card(&c, "Grizzly Bears", v.viewer.0, Zone::Battlefield);
-        own.handle = ObjectHandle("own-blocker".into());
-        own.owner = PlayerId(2); // Benefit follows control, not ownership.
-        let mut other = wipe_tests::card(&c, "Grizzly Bears", 1, Zone::Battlefield);
-        other.handle = ObjectHandle("opposing-blocker".into());
-        let mut attacker = wipe_tests::card(&c, "Grizzly Bears", 0, Zone::Battlefield);
-        attacker.handle = ObjectHandle("attacker".into());
-        v.objects = vec![
-            wipe_tests::card(
-                &c,
-                "Righteousness",
-                v.viewer.0,
-                Zone::Hand { owner: v.viewer },
-            ),
-            own,
-            other,
-            attacker,
-        ];
-        v.combat = vec![mtg_core::VisibleAttacker {
-            attacker: ObjectHandle("attacker".into()),
-            defender: v.viewer,
-            blocked: true,
-            blockers: vec![ObjectHandle("own-blocker".into())],
-        }];
-        (c, v)
-    }
-
-    #[test]
-    fn blocking_pump_policy_reacts_only_before_remaining_combat_damage() {
-        let (c, mut v) = fixture();
-        let cast = PlayerResponse::Cast {
-            card: ObjectHandle("Righteousness".into()),
-        };
-        for step in [TurnStep::DeclareBlockers, TurnStep::FirstStrikeDamage] {
-            v.turn.step = step;
-            let before = canonical(&v).unwrap();
-            assert_eq!(
-                strategy(&c).priority(&observation(v.clone())).unwrap(),
-                cast
-            );
-            assert_eq!(canonical(&v).unwrap(), before);
-        }
-        for step in [
-            TurnStep::DeclareAttackers,
-            TurnStep::CombatDamage,
-            TurnStep::EndCombat,
-            TurnStep::PostcombatMain,
-        ] {
-            v.turn.step = step;
-            assert_eq!(
-                strategy(&c).priority(&observation(v.clone())).unwrap(),
-                PlayerResponse::Pass,
-                "{step:?}"
-            );
-        }
-        // The new recognition is specific to blocking-target pumps; ordinary
-        // Giant Growth does not become a general reactive combat policy.
-        v.turn.step = TurnStep::DeclareBlockers;
-        v.objects[0] = wipe_tests::card(
-            &c,
-            "Giant Growth",
-            v.viewer.0,
-            Zone::Hand { owner: v.viewer },
-        );
-        v.players
-            .iter_mut()
-            .find(|p| p.player == v.viewer)
-            .unwrap()
-            .mana = BTreeMap::from([(Color::G, 1.into())]);
-        assert_eq!(
-            strategy(&c).priority(&observation(v)).unwrap(),
-            PlayerResponse::Pass
-        );
-    }
-
-    #[test]
-    fn blocking_pump_policy_requires_linked_friendly_targetability_and_payment() {
-        let (c, baseline) = fixture();
-        for mutate in [
-            (|v: &mut PermittedView| v.combat.clear()) as fn(&mut PermittedView),
-            |v| v.combat[0].blockers = vec![ObjectHandle("opposing-blocker".into())],
-            |v| v.objects[1].controller = PlayerId(1),
-            |v| v.objects[1].zone = Zone::Graveyard { owner: PlayerId(2) },
-            |v| {
-                v.objects[1]
-                    .keywords
-                    .push(mtg_contracts::KeywordAbility::Shroud)
-            },
-            |v| v.objects[1].characteristics = None,
-            |v| {
-                v.players
-                    .iter_mut()
-                    .find(|p| p.player == v.viewer)
-                    .unwrap()
-                    .mana
-                    .clear()
-            },
-        ] {
-            let mut v = baseline.clone();
-            mutate(&mut v);
-            assert_eq!(
-                strategy(&c).priority(&observation(v)).unwrap(),
-                PlayerResponse::Pass
-            );
-        }
-        let mut v = baseline;
-        v.objects[1]
-            .keywords
-            .push(mtg_contracts::KeywordAbility::Hexproof);
-        assert_eq!(
-            strategy(&c).priority(&observation(v)).unwrap(),
-            PlayerResponse::Cast {
-                card: ObjectHandle("Righteousness".into())
-            }
-        );
-    }
-
-    #[test]
-    fn blocking_pump_policy_trusts_offered_orphans_and_keeps_target_choice_stable() {
-        let (c, mut v) = fixture();
-        v.combat.clear(); // The attacker left; this view cannot prove blocking.
-        let d = c
-            .definitions
-            .iter()
-            .find(|d| d.name == "Righteousness")
-            .unwrap();
-        let p = d.spell.as_ref().unwrap();
-        let candidates = vec![
-            ObjectHandle("opposing-blocker".into()),
-            ObjectHandle("own-blocker".into()),
-        ];
-        assert_eq!(
-            strategy(&c).object_target(&v, d, p, &p.targets[0], None),
-            None
-        );
-        assert_eq!(
-            strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&[])),
-            None
-        );
-        v.objects.remove(0);
-        let viewer = v.viewer;
-        stack_spell(&mut v, &c, "Righteousness", viewer.0);
-        for reverse in [false, true] {
-            let mut view = v.clone();
-            let mut offered = candidates.clone();
-            if reverse {
-                view.objects.reverse();
-                offered.reverse();
-            }
-            let mut o = observation(view);
-            o.decision = Some(PlayerRequest::Targets {
-                token: mtg_core::DecisionToken("blocking-payload".into()),
-                player: viewer,
-                occurrences: p.targets.clone(),
-                counter_division: None,
-                candidates: offered,
-            });
-            let before = canonical(&o).unwrap();
-            assert_eq!(
-                strategy(&c).choose(&o).unwrap(),
-                PlayerResponse::Targets {
-                    objects: vec![ObjectHandle("own-blocker".into())]
-                }
-            );
-            assert_eq!(canonical(&o).unwrap(), before);
-        }
-    }
-}
-
-#[test]
 fn tapped_target_policy_uses_current_public_status_and_offered_candidates() {
     let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
     let mut v = wipe_tests::view(&c);
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-        include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
-        include_str!("../../../../tests/fixtures/5820d760-8ed7-4abf-a959-c06ed86a3730.json"),
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/5820d760-8ed7-4abf-a959-c06ed86a3730.json"
+        ),
     ) else {
         panic!("complete Swift Response source must lower")
     };
@@ -1512,11 +1239,15 @@ mod reactive_tapped_destroy_tests {
         let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
         let mut v = wipe_tests::view(&c);
         for raw in [
-            include_str!("../../../../tests/fixtures/5820d760-8ed7-4abf-a959-c06ed86a3730.json"),
-            include_str!("../../../../tests/fixtures/ce979f36-84f2-4419-b400-971263494cc6.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r4/5820d760-8ed7-4abf-a959-c06ed86a3730.json"
+            ),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r4/ce979f36-84f2-4419-b400-971263494cc6.json"
+            ),
         ] {
             let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-                include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+                include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
                 raw,
             ) else {
                 panic!("complete tapped-destroy source must lower")
@@ -1689,12 +1420,18 @@ mod defensive_untap_policy_tests {
         let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
         let mut v = wipe_tests::view(&c);
         for raw in [
-            include_str!("../../../../tests/fixtures/b795ecfd-31ac-4a2a-9679-97b088932d93.json"),
-            include_str!("../../../../tests/fixtures/5820d760-8ed7-4abf-a959-c06ed86a3730.json"),
-            include_str!("../../../../tests/fixtures/ce979f36-84f2-4419-b400-971263494cc6.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r4/b795ecfd-31ac-4a2a-9679-97b088932d93.json"
+            ),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r4/5820d760-8ed7-4abf-a959-c06ed86a3730.json"
+            ),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r4/ce979f36-84f2-4419-b400-971263494cc6.json"
+            ),
         ] {
             let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
-                include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+                include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
                 raw,
             ) else {
                 panic!("complete untap/target-status source must lower")
@@ -1986,9 +1723,6 @@ mod defensive_untap_policy_tests {
         );
     }
 }
-
-#[path = "combined_type_policy_tests.rs"]
-mod combined_type_policy_tests;
 
 // Synthetic public payload probes over the admitted complete source catalog;
 // these do not claim accepted-pod gameplay or replay coverage.

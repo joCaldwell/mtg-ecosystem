@@ -1,5 +1,5 @@
-use mtg_compiler::{CompileResult, compile, fixtures};
-use mtg_contracts::{Catalog, canonical, sha256, strict_read};
+use mtg_compiler::fixtures;
+use mtg_contracts::{Catalog, accepted_manifest, canonical, sha256, strict_read};
 use mtg_core::{
     Advance, Budget, CardId, Game, ObjectId, Observation, PlayerId, Prepared, QueryResult,
     QueryValue, ReplayJournal, Response, ScenarioConfig, SearchContext, SnapshotVerifier,
@@ -1149,9 +1149,9 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
     report["draw_failure"] = draw_report;
     Ok((bundle, report))
 }
-/// Source compilation and runtime admission remain separate proofs. Each
-/// explicitly selected pool retains its reviewed definitions when the compiler
-/// gains support for another paired source. Schema numbers never select pools.
+/// Each explicitly selected pool binds its reviewed definitions to the
+/// retained source records and declares every retained record it does not
+/// admit. Schema numbers never select pools.
 fn verify_source_catalog(
     pool: &str,
     manifest: &str,
@@ -1197,47 +1197,42 @@ fn verify_source_catalog(
         ),
         _ => return Err("unknown source coverage pool".into()),
     };
-    let (mut definitions, mut lowered_unadmitted, mut unsupported) = (vec![], vec![], vec![]);
+    // The retained records predate Archive R4, so they are not lowered again:
+    // each admitted definition must carry exactly its retained record's
+    // identity, and every other record must be one this pool declares
+    // unadmitted or unsupported.
+    let archive = accepted_manifest(manifest)?;
+    let (mut definitions, mut retained) = (vec![], vec![]);
     for record in records {
-        match compile(manifest, record) {
-            CompileResult::Lowered { definition } => {
-                if catalog
-                    .definitions
-                    .iter()
-                    .any(|d| d.oracle_id == definition.oracle_id)
+        let record: serde_json::Value = strict_read(record)?;
+        let identity = record["oracleIdentity"]
+            .as_str()
+            .ok_or("missing retained source identity")?;
+        match catalog.definitions.iter().find(|d| d.oracle_id == identity) {
+            Some(definition) => {
+                let p = &definition.provenance;
+                if record["sourceSha256"] != p.source_sha256.as_str()
+                    || record["astSha256"] != p.ast_sha256.as_str()
+                    || record["bindingSha256"] != p.binding_sha256.as_str()
+                    || p.archive_manifest_sha256 != archive.manifest_sha256
                 {
-                    definitions.push(*definition);
-                } else if unadmitted.contains(&definition.oracle_id.as_str()) {
-                    lowered_unadmitted.push(definition.oracle_id);
-                } else {
-                    return Err("unexpected lowered-but-unadmitted retained source".into());
+                    return Err("retained source and admitted definition disagree".into());
                 }
+                definitions.push(definition.clone());
             }
-            CompileResult::Unsupported { .. } => {
-                let record: serde_json::Value = strict_read(record)?;
-                let identity = record["oracleIdentity"]
-                    .as_str()
-                    .ok_or("missing unsupported source identity")?;
-                if !negative.contains(&identity) {
-                    return Err("unexpected unsupported retained source".into());
-                }
-                unsupported.push(identity.to_string());
-            }
-            CompileResult::Invalid { .. } => return Err("invalid retained source".into()),
+            None => retained.push(identity.to_string()),
         }
     }
     definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    lowered_unadmitted.sort();
-    unsupported.sort();
-    let mut expected_unadmitted = unadmitted.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    expected_unadmitted.sort();
-    let mut expected_unsupported = negative.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-    expected_unsupported.sort();
-    if definitions != catalog.definitions
-        || lowered_unadmitted != expected_unadmitted
-        || unsupported != expected_unsupported
-    {
-        return Err("retained source compilation/admission coverage mismatch".into());
+    retained.sort();
+    let mut expected = unadmitted
+        .iter()
+        .chain(negative)
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    expected.sort();
+    if definitions != catalog.definitions || retained != expected {
+        return Err("retained source admission coverage mismatch".into());
     }
     Ok(())
 }
@@ -1904,14 +1899,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 canonical(&search_context(&game, viewer, args[2].clone())?)?
             );
         }
-        Some("report") if args.len() == 1 => {
-            for (name, r) in fixtures::RECORDS {
-                println!(
-                    "{}",
-                    serde_json::json!({"fixture":name,"result":compile(fixtures::MANIFEST,r)})
-                );
-            }
-        }
         Some("demo") if args.len() == 1 || (args.len() == 3 && args[1] == "--bundle") => {
             let (bundle, report) = demo()?;
             let bytes = canonical(&bundle)?;
@@ -1981,18 +1968,10 @@ mod tests {
         assert!(read_bundle_metadata(std::io::Cursor::new(truncated)).is_err());
     }
     #[test]
-    fn source_coverage_distinguishes_complete_lowering_from_catalog_admission() {
+    fn source_coverage_binds_reviewed_definitions_to_retained_records() {
         fn records(values: &[(&str, &str)]) -> Vec<String> {
             values.iter().map(|(_, s)| (*s).into()).collect()
         }
-        assert!(matches!(
-            compile(fixtures::MANIFEST, fixtures::RECORDS[5].1),
-            CompileResult::Lowered { .. }
-        ));
-        assert!(matches!(
-            compile(fixtures::MANIFEST, fixtures::ACTION_RECORDS[11].1),
-            CompileResult::Lowered { .. }
-        ));
         for (pool, catalog, source) in [
             (
                 "base",
@@ -2060,6 +2039,9 @@ mod tests {
             let mut duplicate = source.clone();
             duplicate.push(source[0].clone());
             assert!(verify_source_catalog(pool, fixtures::MANIFEST, &catalog, &duplicate).is_err());
+            let mut forged = catalog.clone();
+            forged.definitions[0].provenance.source_sha256 = "0".repeat(64);
+            assert!(verify_source_catalog(pool, fixtures::MANIFEST, &forged, &source).is_err());
         }
     }
 
@@ -2307,18 +2289,13 @@ mod tests {
         assert!(
             verify_bundle(&json.replace("\"bundle_version\":20", "\"bundle_version\":21")).is_err()
         );
-        // Mutating unconsumed metadata preserves lowering/admission class; only
-        // exact source-byte binding can reject an unadmitted source mutation.
+        // Only exact source-byte binding rejects a mutated retained record.
         for ((actual, expected), index) in bundle_record_sets(&bundle)
             .into_iter()
             .zip([5, 5, 5, 5, 11, 11, 11, 25, 34, 38, 40])
         {
             exact_source_records(actual, expected).unwrap();
             let raw = &actual[index];
-            let was_lowered = matches!(
-                compile(fixtures::MANIFEST, raw),
-                CompileResult::Lowered { .. }
-            );
             let mut record: serde_json::Value = serde_json::from_str(raw).unwrap();
             record["source"]["artist"] = serde_json::json!("unconsumed source metadata witness");
             record["sourceSha256"] =
@@ -2334,17 +2311,6 @@ mod tests {
             )
             .into();
             let changed = canonical(&record).unwrap();
-            assert_eq!(
-                matches!(
-                    compile(fixtures::MANIFEST, &changed),
-                    CompileResult::Lowered { .. }
-                ),
-                was_lowered
-            );
-            assert!(matches!(
-                compile(fixtures::MANIFEST, &changed),
-                CompileResult::Lowered { .. } | CompileResult::Unsupported { .. }
-            ));
             let mut corrupt = actual.to_vec();
             corrupt[index] = changed;
             assert!(exact_source_records(&corrupt, expected).is_err());
