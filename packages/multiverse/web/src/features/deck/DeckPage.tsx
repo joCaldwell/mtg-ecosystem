@@ -18,6 +18,7 @@ import { DeckToolbar } from "./DeckToolbar.tsx";
 import { DeckFilterSummary } from "./DeckFilterSummary.tsx";
 import { DeckUiProvider, useDeckUi } from "./DeckUi.tsx";
 import { DeckList } from "./list/DeckList.tsx";
+import { DeckListEditorEffects } from "./list/DeckListEditorEffects.ts";
 import { SelectionBar } from "./list/SelectionBar.tsx";
 import { DeckPanel } from "./panel/DeckPanel.tsx";
 import { ProposalBanner } from "./ProposalBanner.tsx";
@@ -183,7 +184,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
                 <>
                   <DeckFilterSummary />
                   {state.deck.category !== "archived" && <SelectionBar />}
-                  <DeckList view={view} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
+                  <DeckList view={view} EditorEffects={DeckListEditorEffects} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
                 </>
               }
               panel={<DeckPanel view={view} review={review} />}

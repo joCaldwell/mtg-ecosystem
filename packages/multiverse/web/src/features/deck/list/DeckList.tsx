@@ -6,7 +6,7 @@
 // and maybe cards that do not match, and the tokens no matching card makes;
 // totals elsewhere keep describing the whole deck.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useMemo, useRef, type ComponentType, type ReactNode } from "react";
 import type { ProposalItem } from "../../../api/client.ts";
 import { matchCount, noMatchesLine } from "../../../domain/deckSearch.ts";
 import { costOf } from "../../../domain/price.ts";
@@ -14,6 +14,7 @@ import { EmptyState, Text } from "../../../ui/index.ts";
 import { useDeckList } from "../DeckListStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
 import type { DeckViewModel } from "../useDeckView.ts";
+import type { DeckListEditorEffectsProps } from "./DeckListEditorEffects.ts";
 import { GroupHeader } from "./GroupHeader.tsx";
 import { GroupBlock } from "./GroupBlock.tsx";
 import { MARK_LABEL, Mark, type MarkKind } from "./Mark.tsx";
@@ -27,7 +28,11 @@ const LEGEND: MarkKind[] = ["memory", "decision"];
 const NONE = new Set<string>();
 const NO_ADDS = new Map<string, ProposalItem[]>();
 
-export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyAction?: ReactNode }) {
+export function DeckList({ view, emptyAction, EditorEffects }: {
+  view: DeckViewModel;
+  emptyAction?: ReactNode;
+  EditorEffects?: ComponentType<DeckListEditorEffectsProps>;
+}) {
   const { state, readOnly, viewer } = useDeckList();
   const ui = useDeckUi();
   const scroll = useRef<HTMLDivElement>(null);
@@ -45,44 +50,6 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   const unit = reviewing && units.length ? units[Math.min(ui.cursor, units.length - 1)] : null;
   const current = unit ? new Set(unit.items.map((i) => i.oracle_id)) : NONE;
   const cuts = reviewing ? overlay.cuts : undefined;
-
-  // J and K move the cursor; keep the decision it lands on in view. A
-  // read-only list (the phone view) has no keyboard review, and scrolling
-  // there would carry the reader past the decisions drawn above the list.
-  // Only a change of decision scrolls, never an unrelated re-render.
-  const unitKey = unit?.key;
-  useEffect(() => {
-    if (!unitKey || readOnly) return;
-    scrollToReviewCard(scroll.current, unit?.items[0]?.oracle_id);
-  }, [unitKey, readOnly]);
-
-  // Where the unfiltered list was scrolled, kept up to date only while no
-  // filter is active, so clearing one returns the owner to it. The desktop
-  // list scrolls itself; below 1100 px the window scrolls it.
-  const unfiltered = useRef({ list: 0, window: 0, header: 0 });
-  const filtering = useRef(false);
-  useEffect(() => {
-    const list = scroll.current;
-    if (!list || readOnly) return;
-    const page = list.closest<HTMLElement>("[data-deck-page]");
-    const remember = () => { if (!filtering.current) unfiltered.current = { list: list.scrollTop, window: scrollY, header: page?.scrollTop ?? 0 }; };
-    remember();
-    page?.addEventListener("scroll", remember, { passive: true });
-    list.addEventListener("scroll", remember, { passive: true });
-    addEventListener("scroll", remember, { passive: true });
-    return () => { page?.removeEventListener("scroll", remember); list.removeEventListener("scroll", remember); removeEventListener("scroll", remember); };
-  }, [readOnly]);
-
-  // Each filter change shows its results from the top; clearing the filter
-  // restores the unfiltered position. Focus stays in the find box. Layout
-  // effects, so the restore lands before the browser paints the full list.
-  useLayoutEffect(() => {
-    const was = filtering.current;
-    filtering.current = matches.active;
-    if (readOnly) return;
-    if (matches.active) revealFilterResults(scroll.current);
-    else if (was) restoreScroll(scroll.current, unfiltered.current);
-  }, [matches.active, ui.searchTerm, ui.tagIds, ui.tagMatch, ui.tagInverted, readOnly]);
 
   // The legend names only the markers drawn on the rows now in the list.
   const legend = useMemo(() => {
@@ -102,7 +69,7 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   const nothingToShow = state.cards.length === 0 && !(reviewing && overlay.addsByGroup.size > 0);
   const nothingMatches = !!filter && matchCount(filter) === 0;
 
-  return (
+  return <>
     <div
       ref={scroll}
       data-deck-list={!readOnly ? "true" : undefined}
@@ -195,80 +162,6 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
         </p>}
       </div>
     </div>
-  );
-}
-
-/** Show a filter's results from their start: the desktop list scrolls back
- *  to its top; below 1100 px, where the window scrolls, the list's top is
- *  brought up under the sticky filter row if it has gone above it. */
-export function revealFilterResults(list: HTMLElement | null): void {
-  if (!list) return;
-  list.scrollTop = 0;
-  list.dispatchEvent(new Event("deck-workspace-reveal"));
-  const offset = parseFloat(getComputedStyle(list).scrollMarginTop) || 0;
-  if (list.getBoundingClientRect().top < offset) list.scrollIntoView({ block: "start", inline: "nearest" });
-}
-
-/** Return to where the unfiltered list was. */
-export function restoreScroll(list: HTMLElement | null, to: { list: number; window: number; header?: number }): void {
-  if (!list) return;
-  const page = list.closest<HTMLElement>("[data-deck-page]");
-  if (page && to.header !== undefined) page.scrollTop = to.header;
-  list.scrollTop = to.list;
-  if (scrollY !== to.window) scrollTo({ top: to.window, behavior: "instant" });
-}
-
-interface Span { top: number; bottom: number }
-
-/** How far to scroll so a decision's rows sit inside `view` with `gap` (one
- *  row) clear above and below, so their group's context and the next row
- *  show too. All of them when they fit together with that clearance,
- *  otherwise the named row (or the first). Rows already clear stay put;
- *  anything that has to move is centred. */
-export function reviewRevealDelta(view: Span, rows: Span[], named: Span | undefined, gap: number): number {
-  if (!rows.length) return 0;
-  const top = Math.min(...rows.map(r => r.top));
-  const bottom = Math.max(...rows.map(r => r.bottom));
-  const target = bottom - top + 2 * gap <= view.bottom - view.top ? { top, bottom } : named ?? rows.find(r => r.top === top)!;
-  if (target.top - gap >= view.top && target.bottom + gap <= view.bottom) return 0;
-  return Math.round((target.top + target.bottom) / 2 - (view.top + view.bottom) / 2);
-}
-
-/** Reveal a decision's rows (reviewRevealDelta). A swap's add and cut often
- *  sit in different groups. */
-export function scrollToReviewCard(list: HTMLElement | null, oracleId: string | undefined): void {
-  const rows = Array.from(list?.querySelectorAll<HTMLElement>('[data-current="true"]') ?? [])
-    .filter(row => row.getClientRects().length > 0);
-  if (list && rows.length) revealRows(list, rows, rows.find(row => row.dataset.oracleId === oracleId));
-}
-
-/** Bring one card's row in the editable list into view, the same way, and
- *  focus it, so closing its details returns there. Nothing happens when a
- *  filter hides it. */
-export function revealCardRow(root: ParentNode, oracleId: string): void {
-  const list = root.querySelector<HTMLElement>("[data-deck-list]");
-  const row = list?.querySelector<HTMLElement>(`[data-oracle-id="${CSS.escape(oracleId)}"]`);
-  if (!list || !row || !row.getClientRects().length) return;
-  revealRows(list, [row], row);
-  (row.matches("button") ? row : row.querySelector("button"))?.focus({ preventScroll: true });
-}
-
-/** Scroll whichever holds the rows: the desktop list pane, or below 1100 px
- *  the window, under its sticky bars (the rows' scroll margin). */
-function revealRows(list: HTMLElement, rows: HTMLElement[], named: HTMLElement | undefined): void {
-  // Explicit reveals may need the whole viewport immediately. Measure after
-  // the fold so centring uses the final viewport rather than the old hero.
-  list.dispatchEvent(new Event("deck-workspace-reveal"));
-  const boxes = rows.map(row => row.getBoundingClientRect());
-  const namedBox = named ? boxes[rows.indexOf(named)] : undefined;
-  const style = getComputedStyle(list);
-  if (style.overflowY === "auto" || style.overflowY === "scroll") {
-    const box = list.getBoundingClientRect();
-    const view = { top: box.top + (parseFloat(style.scrollPaddingTop) || 0), bottom: box.top + list.clientHeight };
-    list.scrollTop += reviewRevealDelta(view, boxes, namedBox, boxes[0].height);
-  } else {
-    const view = { top: parseFloat(getComputedStyle(rows[0]).scrollMarginTop) || 0, bottom: innerHeight };
-    const delta = reviewRevealDelta(view, boxes, namedBox, boxes[0].height);
-    if (delta) scrollBy({ top: delta, behavior: "instant" });
-  }
+    {EditorEffects && <EditorEffects scroll={scroll} unit={unit} filterActive={matches.active} />}
+  </>;
 }

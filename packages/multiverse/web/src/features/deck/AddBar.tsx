@@ -12,7 +12,7 @@ import { AddBarResult } from "./AddBarResult.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
 import { useSharedDeckView } from "./DeckViewContext.ts";
-import { revealCardRow } from "./list/DeckList.tsx";
+import { revealCardRow } from "./list/DeckListEditorEffects.ts";
 import styles from "./AddBar.module.css";
 
 const DEBOUNCE_MS = 150;
