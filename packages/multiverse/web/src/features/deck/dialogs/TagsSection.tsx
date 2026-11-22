@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { api } from "../../../api/client.ts";
 import { Button, ErrorNote, Row, Stack, Text, TextField } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
 import { TagRow } from "./TagRow.tsx";
+import { restoreFocusAfterRemoval } from "./ConfirmStrip.tsx";
 import { useAttempt } from "./useAttempt.ts";
 import styles from "./TagsSection.module.css";
 
@@ -12,13 +13,22 @@ export function TagsSection() {
   const { tags } = useDeckState();
   const { error, setError, busy, mutate } = useAttempt();
   const [name, setName] = useState("");
+  const groupId = useId();
+  const addField = useRef<HTMLInputElement>(null);
+  const nameId = (id: number) => `${groupId}-tag-${id}`;
 
   async function rename(tagId: number, next: string) {
     return (await mutate(() => api.renameTag(deckId, tagId, next))) != null;
   }
 
   async function remove(tagId: number) {
-    await mutate(() => api.deleteTag(deckId, tagId));
+    if (busy) return;
+    const from = document.activeElement;
+    const index = tags.findIndex(tag => tag.id === tagId);
+    const next = tags[index + 1] ?? tags[index - 1];
+    if (await mutate(() => api.deleteTag(deckId, tagId))) {
+      restoreFocusAfterRemoval(from, () => (next && document.getElementById(nameId(next.id))) || addField.current);
+    }
   }
 
   async function add(e: FormEvent) {
@@ -34,7 +44,7 @@ export function TagsSection() {
       {tags.length ? (
         <ul className={styles.list}>
           {tags.map((tag) => (
-            <TagRow key={tag.id} tag={tag} onRename={rename} onDelete={remove} onRevert={() => setError(null)} />
+            <TagRow key={tag.id} tag={tag} nameId={nameId(tag.id)} busy={busy} onRename={rename} onDelete={remove} onRevert={() => setError(null)} />
           ))}
         </ul>
       ) : (
@@ -44,7 +54,7 @@ export function TagsSection() {
       )}
       <form method="post" onSubmit={add}>
         <Row>
-          <TextField name="name" required pattern={".*\\S.*"} disabled={busy} value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a tag" aria-label="Name of the new tag" />
+          <TextField ref={addField} name="name" required pattern={".*\\S.*"} disabled={busy} value={name} onChange={(e) => setName(e.target.value)} placeholder="Add a tag" aria-label="Name of the new tag" />
           <Button size="sm" variant="primary" type="submit" disabled={busy}>
             Add
           </Button>

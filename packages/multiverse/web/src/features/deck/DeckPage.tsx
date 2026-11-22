@@ -87,12 +87,12 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   // or not it is in the deck.
   const { openCardPanel } = ui;
   const openByName = useCallback(
-    (name: string) => {
+    (name: string, invoker: HTMLButtonElement) => {
       const known =
         state.cards.find((c) => c.name === name) ??
         state.proposals.flatMap((p) => p.items).find((i) => i.card_name === name);
-      if (known) return openCardPanel({ oracleId: known.oracle_id, name });
-      void lookup(name).then((card) => card?.oracle_id && openCardPanel({ oracleId: card.oracle_id, name }));
+      if (known) return openCardPanel({ oracleId: known.oracle_id, name }, invoker);
+      openCardPanel(lookup(name).then(card => card?.oracle_id ? { oracleId: card.oracle_id, name } : null), invoker);
     },
     [state.cards, state.proposals, lookup, openCardPanel],
   );
@@ -143,6 +143,7 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
   useHotkeys({
     // Escape backs out one layer at a time, innermost first.
     escape: () => {
+      ui.cancelCardLookup();
       if (confirmingAll) setConfirmingAll(false);
       else if (ui.openCard) ui.openCardPanel(null);
       else if (ui.rejecting) ui.setRejecting(null);
@@ -181,8 +182,8 @@ function DeckScreen({ startInReview }: { startInReview: boolean }) {
               list={
                 <>
                   <DeckFilterSummary />
-                  <DeckList view={view} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
                   {state.deck.category !== "archived" && <SelectionBar />}
+                  <DeckList view={view} emptyAction={state.deck.category === "archived" ? undefined : <><p>Search above to add cards, or bring a list.</p><Button onClick={() => ui.openDialog("import")} aria-haspopup="dialog">Import a list</Button></>} />
                 </>
               }
               panel={<DeckPanel view={view} review={review} />}

@@ -4,8 +4,12 @@ import styles from "./ManaFaceTable.module.css";
 
 type Face = DeckState["computed"]["mana"]["first_face"];
 const COLOURS = [["W", "White"], ["U", "Blue"], ["B", "Black"], ["R", "Red"], ["G", "Green"]] as const;
-export function ManaFaceTable({ face }: { face: Face }) {
+export function ManaFaceTable({ face, caption }: { face: Face; caption: string }) {
   return <table className={styles.table}>
+    <caption className="visually-hidden">{caption}</caption>
+    <colgroup span={1} />
+    <colgroup span={1} />
+    <colgroup span={2} />
     <thead><tr><th rowSpan={2} scope="col">Colour</th><th rowSpan={2} scope="col">Fixed cost<br />symbols</th><th colSpan={2} scope="colgroup">Recognized source copies</th></tr>
       <tr><th scope="col">Lands</th><th scope="col">Other permanents</th></tr></thead>
     <tbody>{COLOURS.map(([color, label]) => <tr key={color}>

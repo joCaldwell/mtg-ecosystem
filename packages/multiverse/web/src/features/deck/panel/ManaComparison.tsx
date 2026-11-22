@@ -71,7 +71,7 @@ export function ManaComparison({ mana, headingLevel = 2 }: { mana: Mana; heading
     {!distributions.sources.total && (face.sources.land.any_color_copies + face.sources.nonland.any_color_copies > 0) && <Text tone="muted" size="sm">Any-colour sources are listed under Source coverage.</Text>}
     <details className={styles.details}>
       <summary>Exact colour counts</summary>
-      <ManaFaceTable face={face} />
+      <ManaFaceTable face={face} caption="Exact colour counts for first faces" />
     </details>
     <details className={styles.details}>
       <summary>Other cost symbols</summary>
@@ -81,7 +81,7 @@ export function ManaComparison({ mana, headingLevel = 2 }: { mana: Mana; heading
       <summary>Other printed faces · {coverage.other_face_copies} {coverage.other_face_copies === 1 ? "copy" : "copies"}</summary>
       <Stack gap={4}>
         <Text size="sm" tone="muted">Separate from the first face; not simultaneous resources.</Text>
-        <ManaFaceTable face={mana.other_faces} />
+        <ManaFaceTable face={mana.other_faces} caption="Exact colour counts for other printed faces" />
         {separateSources(mana.other_faces)}
         {otherCosts(mana.other_faces)}
       </Stack>

@@ -12,7 +12,7 @@ const before=(await api('/api/decks/2')).state,[a,b]=before.cards.filter(c=>!c.m
 const browser=await chromium.launch({args:BROWSER_ARGS}),results=[];
 try{for(const width of opt('width')?[Number(opt('width'))]:baseline?[1440]:[1280,1440,1920,2560]){
  const context=await newContext(browser,{origin,vp:VIEWPORTS[width],user:1,frozenNow:'2026-10-20T17:00:00Z',notes:{blocked:new Set(),imageFailures:new Set()}}),page=await context.newPage(),watch=watchPage(page);
- await page.goto(origin+'/deck/2');await settle(page,watch);const input=page.getByRole('combobox',{name:'Add a card or search',exact:true});
+ await page.goto(origin+'/deck/2');await settle(page,watch);const input=page.getByRole('combobox',{name:baseline?/^(Add a card or search|Add cards)$/: 'Add cards',exact:true});
  await input.fill(a.name);const firstOption=page.getByRole('option').filter({has:page.getByText(a.name,{exact:true})});await firstOption.waitFor();
  let release,requestedResolve;const held=new Promise(r=>{release=r;}),requested=new Promise(r=>{requestedResolve=r;});
  await page.route('**/api/search?**',async route=>{requestedResolve();await held;await route.continue();},{times:1});

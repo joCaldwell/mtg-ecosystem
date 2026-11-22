@@ -5,6 +5,9 @@
   min-width: 0;
 }
 
+.pages { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
+.pages [aria-disabled="true"] { opacity: 0.5; cursor: default; }
+
 .all {
   justify-self: start;
   color: var(--sel);

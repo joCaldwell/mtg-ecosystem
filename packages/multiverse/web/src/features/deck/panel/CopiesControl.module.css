@@ -1,1 +1,3 @@
 .control { --stepper-input-w: var(--card-copies-input-w); width: max-content; }
+.field { display: grid; gap: var(--s-2); min-width: 0; }
+.error { color: var(--cut); font-size: var(--text-sm); }

@@ -103,7 +103,14 @@ export function DeckList({ view, emptyAction }: { view: DeckViewModel; emptyActi
   const nothingMatches = !!filter && matchCount(filter) === 0;
 
   return (
-    <div ref={scroll} data-deck-list={!readOnly ? "true" : undefined} className={readOnly ? styles.flow : styles.scroll}>
+    <div
+      ref={scroll}
+      data-deck-list={!readOnly ? "true" : undefined}
+      role={readOnly ? undefined : "region"}
+      aria-label={readOnly ? undefined : "Deck list"}
+      tabIndex={readOnly ? undefined : -1}
+      className={readOnly ? styles.flow : styles.scroll}
+    >
       <div data-deck-list-content className={styles.content}>
         {nothingToShow ? (
           <EmptyState title="No cards yet">

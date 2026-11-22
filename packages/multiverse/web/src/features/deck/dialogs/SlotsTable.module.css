@@ -13,6 +13,13 @@
   text-align: right;
 }
 
+.targetError {
+  display: block;
+  max-width: 10ch;
+  margin-top: var(--s-1);
+  white-space: normal;
+}
+
 .count {
   width: 140px;
 }

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { SlotDelta } from "../../../api/client.ts";
 import { Icon, IconButton, Text, TextField } from "../../../ui/index.ts";
 import { ConfirmStrip } from "./ConfirmStrip.tsx";
-import { parseTarget, TARGET_ERROR, targetText } from "./targets.ts";
+import { SlotTargetField } from "./SlotTargetField.tsx";
+import { parseTargets, targetText } from "./targets.ts";
 import styles from "./SlotsTable.module.css";
 
 export interface SlotPatch {
@@ -13,19 +14,26 @@ export interface SlotPatch {
 
 interface Props {
   slot: SlotDelta;
+  nameId: string;
+  busy: boolean;
   /** Resolves false when the server refused, so the typed text stays for fixing. */
   onSave: (slotId: number, patch: SlotPatch) => Promise<boolean>;
-  onInvalid: (message: string) => void;
+  onValidation: (message: string) => void;
   /** An edit that was refused and then taken back leaves no error behind. */
   onRevert: () => void;
   onDelete: (slotId: number) => void;
 }
 
-export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) {
+export function SlotRow({ slot, nameId, busy, onSave, onValidation, onRevert, onDelete }: Props) {
   const [name, setName] = useState(slot.name);
   const [min, setMin] = useState(targetText(slot.target_min));
   const [max, setMax] = useState(targetText(slot.target_max));
   const [confirming, setConfirming] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const minField = useRef<HTMLInputElement>(null);
+  const maxField = useRef<HTMLInputElement>(null);
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const targets = parseTargets(min, max);
 
   // Follow the server: after a save, or when an agent changes the slot.
   useEffect(() => setName(slot.name), [slot.name]);
@@ -35,15 +43,22 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
   // Enter and then blur both commit; the second must not repeat the request.
   const saving = useRef(false);
 
-  async function commit() {
+  async function commit(focusError = false) {
     if (saving.current) return;
     const patch: SlotPatch = {};
     if (name.trim() !== slot.name) patch.name = name.trim();
-    const lo = parseTarget(min);
-    const hi = parseTarget(max);
-    if (!lo.ok || !hi.ok) return onInvalid(TARGET_ERROR);
-    if (lo.value !== slot.target_min) patch.target_min = lo.value;
-    if (hi.value !== slot.target_max) patch.target_max = hi.value;
+    if (!targets.ok) {
+      setChecked(true);
+      if (focusError) requestAnimationFrame(() => (targets.minError ? minField : maxField).current?.focus());
+      else if (!checked) {
+        onValidation(targets.minError
+          ? `Minimum for ${slot.name}. ${targets.minError}`
+          : `Maximum for ${slot.name}. ${targets.maxError}`);
+      }
+      return;
+    }
+    if (targets.min !== slot.target_min) patch.target_min = targets.min;
+    if (targets.max !== slot.target_max) patch.target_max = targets.max;
     if (Object.keys(patch).length === 0) return revert();
     saving.current = true;
     try {
@@ -54,6 +69,8 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
   }
 
   function revert() {
+    setChecked(false);
+    onValidation("");
     setName(slot.name);
     setMin(targetText(slot.target_min));
     setMax(targetText(slot.target_max));
@@ -62,14 +79,25 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
   const dirty =
     name !== slot.name || min !== targetText(slot.target_min) || max !== targetText(slot.target_max);
 
+  function editTargets(nextMin: string, nextMax: string) {
+    setMin(nextMin);
+    setMax(nextMax);
+    if (checked && parseTargets(nextMin, nextMax).ok) {
+      setChecked(false);
+      onValidation("");
+    }
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
     if (e.key === "Enter") {
       e.preventDefault();
-      void commit();
+      void commit(true);
     } else if (e.key === "Escape" && dirty) {
       // Undo the edit first; a second Escape closes the dialog.
+      e.preventDefault();
       e.stopPropagation();
+      if (saving.current) return;
       revert();
       onRevert();
     }
@@ -80,6 +108,7 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
       <tr>
         <td>
           <TextField
+            id={nameId}
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={() => void commit()}
@@ -88,24 +117,22 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
           />
         </td>
         <td>
-          <TextField
-            className={styles.num}
-            inputMode="numeric"
+          <SlotTargetField
+            inputRef={minField}
+            error={checked && !targets.ok ? targets.minError : undefined}
             value={min}
-            placeholder="none"
-            onChange={(e) => setMin(e.target.value)}
+            onChange={(e) => editTargets(e.target.value, max)}
             onBlur={() => void commit()}
             onKeyDown={onKeyDown}
             aria-label={`Minimum for ${slot.name}`}
           />
         </td>
         <td>
-          <TextField
-            className={styles.num}
-            inputMode="numeric"
+          <SlotTargetField
+            inputRef={maxField}
+            error={checked && !targets.ok ? targets.maxError : undefined}
             value={max}
-            placeholder="none"
-            onChange={(e) => setMax(e.target.value)}
+            onChange={(e) => editTargets(min, e.target.value)}
             onBlur={() => void commit()}
             onKeyDown={onKeyDown}
             aria-label={`Maximum for ${slot.name}`}
@@ -127,7 +154,7 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
           ) : null}
         </td>
         <td className={styles.actions}>
-          <IconButton tone="danger" onClick={() => setConfirming(true)} label={`Delete ${slot.name}`}>
+          <IconButton ref={deleteButton} tone="danger" aria-disabled={busy || undefined} onClick={() => { if (!busy) setConfirming(true); }} label={`Delete ${slot.name}`}>
             <Icon name="trash" />
           </IconButton>
         </td>
@@ -137,7 +164,8 @@ export function SlotRow({ slot, onSave, onInvalid, onRevert, onDelete }: Props) 
           <td colSpan={5} className={styles.confirm}>
             <ConfirmStrip
               confirmLabel="Delete slot"
-              onCancel={() => setConfirming(false)}
+              busy={busy}
+              onCancel={() => { setConfirming(false); deleteButton.current?.focus(); }}
               onConfirm={() => onDelete(slot.slot_id)}
             >
               Delete the slot <strong>{slot.name}</strong>?{" "}

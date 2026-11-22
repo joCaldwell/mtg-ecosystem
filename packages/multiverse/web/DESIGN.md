@@ -228,6 +228,7 @@ or about this app.
 The toolbar is one aligned working row: raised Add cards catalogue field, separator,
 find, compact tags, Group/Sort. Tablet Add cards gets its own row. `/`, Enter,
 Shift+Enter and Escape remain available; Shift+Enter shortlists and retains results.
+Results stay within the available viewport, and Escape returns to the input.
 Only current query/colour-scope options are actionable. Loading/errors/empty are
 statuses, not listbox options; omit add/maybe hints with no results while retaining
 Escape, syntax and wider-colour search.
@@ -236,7 +237,8 @@ Name/tag filters hide nonmatches and empty groups. Show matched/full counts,
 omit filtered group targets/costs and keep global totals/review scope unchanged.
 Active query/count/Clear/Export matches live in a separate context row beneath
 tablet navigation. No matches is one message. Clearing restores scroll, selection
-and open details. Main-list modifier selection remains separate from maybe rows.
+and open details. Main deck rows have a selection checkbox and support Shift+Space.
+Bulk actions stay by the list header.
 
 Desktop columns have 300 px minimum with 12 px gaps; tablets 250 px. Add columns at
 wide sizes rather than stretching existing ones. Editor rows are compact single
@@ -248,7 +250,8 @@ name. Full linked notes live in details, not grid tracks. Maybe cards do not joi
 bulk actions requiring main membership; stored purposes remain intact.
 
 Panel navigation stays one line: Review, Brief, Power, Stats, Checks, Memories,
-History. Current view uses bright text, 2 px underline and `aria-current`; Review
+History. The strip scrolls when text needs more space, and Brief drafts survive
+view changes. Current view uses bright text, 2 px underline and `aria-current`; Review
 shows waiting only as its violet count. Inspection replaces navigation with
 icon-only Back naming the origin, title/status/mana, without duplicate body title
 or divider. Keep the previous view mounted, hidden/inert, preserving drafts,

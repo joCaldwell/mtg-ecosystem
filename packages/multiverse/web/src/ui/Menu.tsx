@@ -72,8 +72,12 @@ export function Menu({ label, icon, ariaLabel, items, variant = "default", size 
   }
 
   function onTriggerKeyDown(e: KeyboardEvent) {
-    if (e.key === "Escape" && open) { e.stopPropagation(); return; }
     if (e.defaultPrevented || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+    if (e.key === "Escape" && open) { e.stopPropagation(); return; }
+    if (e.key === "Tab" && open) {
+      setOpen(false);
+      return;
+    }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
     const direction = e.key === "ArrowUp" ? "last" : "first";

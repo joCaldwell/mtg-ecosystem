@@ -1,9 +1,11 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 import { api } from "../../../api/client.ts";
-import { Button, EmptyState, ErrorNote, Table, TextField } from "../../../ui/index.ts";
+import { Button, EmptyState, ErrorNote, Table, Text, TextField } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
+import { restoreFocusAfterRemoval } from "./ConfirmStrip.tsx";
 import { SlotRow, type SlotPatch } from "./SlotRow.tsx";
-import { parseTarget, TARGET_ERROR } from "./targets.ts";
+import { SlotTargetField } from "./SlotTargetField.tsx";
+import { parseTargets } from "./targets.ts";
 import { useAttempt } from "./useAttempt.ts";
 import styles from "./SlotsTable.module.css";
 
@@ -16,6 +18,13 @@ export function SlotsTable() {
   const [name, setName] = useState("");
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
+  const [checked, setChecked] = useState(false);
+  const [validationStatus, setValidationStatus] = useState("");
+  const addField = useRef<HTMLInputElement>(null);
+  const minField = useRef<HTMLInputElement>(null);
+  const maxField = useRef<HTMLInputElement>(null);
+  const nameId = (id: number) => `${formId}-slot-${id}`;
+  const targets = parseTargets(min, max);
 
   async function save(slotId: number, patch: SlotPatch): Promise<boolean> {
     const result = await mutate(() =>
@@ -25,24 +34,35 @@ export function SlotsTable() {
   }
 
   async function remove(slotId: number) {
-    await mutate(() => api.deleteSlot(deckId, slotId));
+    if (busy) return;
+    const from = document.activeElement;
+    const slots = computed.slot_deltas;
+    const index = slots.findIndex(slot => slot.slot_id === slotId);
+    const next = slots[index + 1] ?? slots[index - 1];
+    if (await mutate(() => api.deleteSlot(deckId, slotId))) {
+      restoreFocusAfterRemoval(from, () => (next && document.getElementById(nameId(next.slot_id))) || addField.current);
+    }
   }
 
   async function add(e: FormEvent) {
     e.preventDefault();
     if (busy || !name.trim()) return;
-    const lo = parseTarget(min);
-    const hi = parseTarget(max);
-    if (!lo.ok || !hi.ok) return setError(TARGET_ERROR);
-    const result = await mutate(() => api.createSlot(deckId, name.trim(), lo.value, hi.value));
+    if (!targets.ok) {
+      setChecked(true);
+      requestAnimationFrame(() => (targets.minError ? minField : maxField).current?.focus());
+      return;
+    }
+    const result = await mutate(() => api.createSlot(deckId, name.trim(), targets.min, targets.max));
     if (!result) return;
     setName("");
     setMin("");
     setMax("");
+    setChecked(false);
   }
 
   return (
     <>
+      <Text role="status" className="visually-hidden">{validationStatus}</Text>
       {error ? <ErrorNote>{error}</ErrorNote> : null}
       <Table className={styles.table}>
         <thead>
@@ -61,11 +81,21 @@ export function SlotsTable() {
         </thead>
         <tbody>
           {computed.slot_deltas.map((slot) => (
-            <SlotRow key={slot.slot_id} slot={slot} onSave={save} onInvalid={setError} onRevert={() => setError(null)} onDelete={remove} />
+            <SlotRow
+              key={slot.slot_id}
+              slot={slot}
+              nameId={nameId(slot.slot_id)}
+              busy={busy}
+              onSave={save}
+              onValidation={setValidationStatus}
+              onRevert={() => setError(null)}
+              onDelete={remove}
+            />
           ))}
           <tr className={styles.addRow}>
             <td>
               <TextField
+                ref={addField}
                 form={formId}
                 name="name"
                 required
@@ -78,23 +108,23 @@ export function SlotsTable() {
               />
             </td>
             <td>
-              <TextField
+              <SlotTargetField
                 form={formId}
-                className={styles.num}
-                inputMode="numeric"
+                inputRef={minField}
+                error={checked && !targets.ok ? targets.minError : undefined}
+                readOnly={busy}
                 value={min}
-                placeholder="none"
                 onChange={(e) => setMin(e.target.value)}
                 aria-label="Minimum for the new slot"
               />
             </td>
             <td>
-              <TextField
+              <SlotTargetField
                 form={formId}
-                className={styles.num}
-                inputMode="numeric"
+                inputRef={maxField}
+                error={checked && !targets.ok ? targets.maxError : undefined}
+                readOnly={busy}
                 value={max}
-                placeholder="none"
                 onChange={(e) => setMax(e.target.value)}
                 aria-label="Maximum for the new slot"
               />

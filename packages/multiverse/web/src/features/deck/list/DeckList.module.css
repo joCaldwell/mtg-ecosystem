@@ -12,10 +12,7 @@
   padding: var(--s-6);
 }
 
-/* Reserve bulk-action clearance only while those controls are present. */
-.scroll:has(+ [role="toolbar"]) {
-  padding-bottom: calc(var(--s-8) * 2);
-}
+.scroll:focus-visible { outline-offset: -2px; }
 
 /* Read-only: part of a page that scrolls as a whole (ReadOnlyDeck). */
 .flow {
@@ -126,12 +123,11 @@
    minimum gives even an empty deck enough native range to yield its hero. */
 @media not all and (max-width: 1099px) {
   .scroll { overflow-anchor: none; scrollbar-gutter: stable; }
-  .scroll, .scroll:has(+ [role="toolbar"]) { padding-bottom: 0; }
+  .scroll { padding-bottom: 0; }
   .scroll > .content {
     display: flow-root;
     padding-bottom: var(--s-6);
     min-height: calc(100% + var(--deck-fold-room, 0px));
     transform: translateY(var(--deck-fold, 0px));
   }
-  .scroll:has(+ [role="toolbar"]) > .content { padding-bottom: calc(var(--s-8) * 2); }
 }

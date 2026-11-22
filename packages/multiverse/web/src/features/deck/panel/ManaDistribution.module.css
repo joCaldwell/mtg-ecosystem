@@ -19,6 +19,7 @@
 .legend { width: 100%; border-collapse: collapse; font-size: var(--text-md); }
 .legend th, .legend td { padding: var(--s-2) var(--s-2); }
 .legend thead th { color: var(--text-soft); font-weight: 500; text-align: right; padding-bottom: var(--s-3); border-bottom: 1px solid var(--line); }
+.legend .measures th { padding: 0; border: 0; }
 .legend tbody th { text-align: left; font-weight: 400; }
 .legend tbody tr:first-child > * { padding-top: var(--s-3); }
 .colour { display: inline-flex; align-items: center; gap: var(--s-3); }

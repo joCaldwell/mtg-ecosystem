@@ -120,7 +120,7 @@ try {
       if (width >= 1280) assert.equal(layout.columns, 2, 'two 300px columns fit at 1280 and 1440 with the default panel');
       if (width < 1100) {
         assert(await page.locator('[data-deck-list] button[data-oracle-id]').first().evaluate(el => el.getBoundingClientRect().height >= 44), 'tablet card rows are 44px with a fine pointer');
-        assert(await page.getByRole('combobox', { name: 'Add a card or search' }).evaluate(el => el.getBoundingClientRect().height >= 44), 'tablet add input is 44px');
+        assert(await page.getByRole('combobox', { name: 'Add cards' }).evaluate(el => el.getBoundingClientRect().height >= 44), 'tablet add input is 44px');
         const before = await page.evaluate(() => scrollY);
         await page.mouse.move(width / 2, 800);
         await page.mouse.wheel(0, 700);
@@ -196,7 +196,7 @@ try {
         const candidate = candidates.find(c => !state.cards.some(owned => owned.oracle_id === c.oracle_id));
         assert(candidate, 'search supplies a card absent from this deck');
         await page.goto(origin + `/deck/${deck.id}`);
-        const add = page.getByRole('combobox', { name: 'Add a card or search' });
+        const add = page.getByRole('combobox', { name: 'Add cards' });
         await add.fill(candidate.name);
         await page.getByRole('option').filter({ hasText: candidate.name }).first().waitFor();
         await add.press('Shift+Enter');

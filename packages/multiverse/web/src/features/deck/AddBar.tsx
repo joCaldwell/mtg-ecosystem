@@ -3,11 +3,11 @@
 // added from the list. Nothing is guessed; "No card matches" is the answer
 // to a name that is not a card.
 
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { api, type CardData } from "../../api/client.ts";
 import { annotateResults, type AnnotatedResult } from "../../domain/search.ts";
 import { ColorIdentity } from "../../mtg/index.ts";
-import { Button, Checkbox, ErrorNote, Icon, Kbd, Text, useHotkeys, useToast } from "../../ui/index.ts";
+import { Button, Checkbox, ErrorNote, Icon, Kbd, placeNear, Text, tokenPx, useHotkeys, useToast } from "../../ui/index.ts";
 import { AddBarResult } from "./AddBarResult.tsx";
 import { useDeck, useDeckState } from "./DeckStore.tsx";
 import { useDeckUi } from "./DeckUi.tsx";
@@ -36,10 +36,15 @@ export function AddBar() {
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const drop = useRef<HTMLDivElement>(null);
   const resultList = useRef<HTMLDivElement>(null);
   const adding = useRef(false);
+  const interaction = useRef(0);
   const [pending, setPending] = useState(false);
   const listId = useId();
+  const anchorName = `--add-bar-${listId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const nativePopover = typeof HTMLElement !== "undefined" && Object.hasOwn(HTMLElement.prototype, "popover");
+  const anchored = nativePopover && typeof CSS !== "undefined" && CSS.supports("position-area: block-end") && CSS.supports("position-try-order: most-block-size");
 
   const q = query.trim();
   const hasCommander = state.cards.some((c) => c.role === "commander");
@@ -82,28 +87,32 @@ export function AddBar() {
     };
   }, [q, deckId, everyColour, identityScope]);
 
-  // Click outside closes it. The dropdown lives inside `box`, so a click on a
-  // row or the footer is not outside.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+  function close() {
+    interaction.current++;
+    setOpen(false);
+  }
 
-  // Scrolling the list closes it too, so it never covers the rows (or the
-  // proposal banner) being looked at. Only the list's own scroller counts,
-  // or the window where that scrolls the list (under 1100 px); the field
-  // keeps its text and focus, so typing or an arrow key brings it back.
+  function setColourScope(on: boolean) {
+    interaction.current++;
+    setEveryColour(on);
+    input.current?.focus({ preventScroll: true });
+  }
+
+  // Keep the dropdown in the field's DOM order for Tab, including without
+  // the Popover API. Pointer and focus departures dismiss the surface.
   useEffect(() => {
-    if (!open) return;
-    const onScroll = (e: Event) => {
-      if (e.target === document || (e.target instanceof Element && e.target.matches("[data-deck-list]"))) setOpen(false);
+    const anchor = box.current;
+    if (!open || !anchor) return;
+    const onDown = (e: PointerEvent) => {
+      if (!anchor.contains(e.target as Node)) close();
     };
-    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
-    return () => document.removeEventListener("scroll", onScroll, { capture: true });
+    const observer = new IntersectionObserver(([entry]) => { if (!entry.isIntersecting) close(); });
+    observer.observe(anchor);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("pointerdown", onDown);
+    };
   }, [open]);
 
   useHotkeys({
@@ -125,6 +134,39 @@ export function AddBar() {
   // wider search as a button, in place of the footer's checkbox.
   const offerEveryColour = limited && !loading && !error && results !== null && rows.length === 0;
 
+  useLayoutEffect(() => {
+    const source = box.current;
+    const panel = drop.current;
+    if (!shown || !source || !panel) return;
+    if (nativePopover) panel.showPopover();
+    const hide = () => { if (nativePopover && panel.matches(":popover-open")) panel.hidePopover(); };
+    if (anchored) return hide;
+
+    const gap = tokenPx("--s-2");
+    const margin = tokenPx("--s-4");
+    const minimum = tokenPx("--add-drop-min-w");
+    const place = () => {
+      const rect = source.getBoundingClientRect();
+      panel.style.width = `${Math.max(rect.width, minimum)}px`;
+      const room = Math.max(rect.top, innerHeight - rect.bottom) - gap - margin;
+      panel.style.maxHeight = `${Math.max(0, room)}px`;
+      const { left, top } = placeNear(rect, panel.getBoundingClientRect(), { gap, margin });
+      Object.assign(panel.style, { left: `${left}px`, top: `${top}px`, visibility: "visible" });
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(source);
+    observer.observe(panel);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+      hide();
+    };
+  }, [shown, anchored, nativePopover]);
+
   // Keep the highlighted row in view as the arrows move through a long list.
   // Only the results scroll: scrollIntoView could also move the window,
   // which would close the results.
@@ -143,12 +185,14 @@ export function AddBar() {
     // Already here: the useful thing is to look at it, not to add a copy.
     if (r.inDeck || r.onMaybe) {
       ui.openCardPanel({ oracleId: card.oracle_id, name: card.name });
-      setOpen(false);
+      close();
       return;
     }
     if (adding.current) return;
     adding.current = true;
     setPending(true);
+    const started = interaction.current;
+    const invoker = document.activeElement;
     const result = await run(() => api.addCard(deckId, card.oracle_id, how));
     adding.current = false;
     setPending(false);
@@ -178,7 +222,8 @@ export function AddBar() {
     });
     // Keep shortlist results and their updated membership marks ready for the
     // next card. Selecting the query lets typing replace it immediately.
-    input.current?.focus();
+    if (started !== interaction.current || invoker !== document.activeElement || !box.current?.contains(invoker)) return;
+    input.current?.focus({ preventScroll: true });
     if (how.maybe) {
       input.current?.select();
       setOpen(true);
@@ -187,21 +232,15 @@ export function AddBar() {
     setQuery("");
     setResponse(null);
     setIndex(0);
-    setOpen(false);
+    close();
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
-    if (e.key === "Escape") {
-      // This field's Escape is its own; the screen's would also clear the selection.
-      e.stopPropagation();
-      setOpen(false);
-      input.current?.blur();
-      return;
-    }
     if (rows.length === 0) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
+      interaction.current++;
       setOpen(true);
       const step = e.key === "ArrowDown" ? 1 : -1;
       setIndex((highlighted + step + rows.length) % rows.length);
@@ -215,7 +254,19 @@ export function AddBar() {
     // Focus leaving for anything outside the bar closes the results. A press
     // inside them keeps focus in the field (below), and the colour checkbox
     // is inside, so neither counts.
-    <div ref={box} className={styles.wrap} onBlur={(e) => { if (!box.current?.contains(e.relatedTarget as Node | null)) setOpen(false); }}>
+    <div
+      ref={box}
+      className={styles.wrap}
+      style={anchored ? { anchorName } : undefined}
+      onBlur={(e) => { if (!box.current?.contains(e.relatedTarget as Node | null)) close(); }}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+        e.preventDefault(); // Keep native popover and screen cancellation out of this field.
+        e.stopPropagation();
+        input.current?.focus({ preventScroll: true });
+        close();
+      }}
+    >
       <label className={styles.bar}>
         <span className={styles.addLabel}><Icon name="plus" size={14} /> Add cards</span>
         <input
@@ -229,12 +280,13 @@ export function AddBar() {
           enterKeyHint="search"
           spellCheck={false}
           role="combobox"
-          aria-label="Add a card or search"
+          aria-label="Add cards"
           aria-expanded={shown && rows.length > 0}
           aria-controls={shown && rows.length > 0 ? listId : undefined}
           aria-autocomplete="list"
           aria-activedescendant={shown && rows.length ? `${listId}-${highlighted}` : undefined}
           onChange={(e) => {
+            interaction.current++;
             setQuery(e.target.value);
             setOpen(true);
           }}
@@ -246,8 +298,15 @@ export function AddBar() {
 
       {shown && (
         // Pressing inside must not pull focus out of the input.
-        <div className={styles.drop} onMouseDown={(e) => { if (e.target instanceof Element && e.target.closest('[role="option"]')) e.preventDefault(); }}>
-          <div ref={resultList} id={listId} role={rows.length > 0 ? "listbox" : undefined} aria-label={rows.length > 0 ? "Card search results" : undefined} className={styles.results}>
+        <div
+          ref={drop}
+          popover={nativePopover ? "manual" : undefined}
+          data-anchored={anchored || undefined}
+          style={anchored ? { positionAnchor: anchorName } : undefined}
+          className={styles.drop}
+          onMouseDown={(e) => { if (e.target instanceof Element && e.target.closest('[role="option"]')) e.preventDefault(); }}
+        >
+          <div ref={resultList} id={listId} tabIndex={-1} role={rows.length > 0 ? "listbox" : undefined} aria-label={rows.length > 0 ? "Card search results" : undefined} className={styles.results}>
             {loading ? (
               <Text role="status" tone="muted" as="div" className={styles.none}>Searching…</Text>
             ) : error ? (
@@ -258,7 +317,7 @@ export function AddBar() {
                   {limited ? "No cards match this search in the deck's colours." : "No cards match this search."}
                 </Text>
                 {offerEveryColour && (
-                  <Button size="sm" onClick={() => { setEveryColour(true); input.current?.focus(); }}>
+                  <Button size="sm" onClick={() => setColourScope(true)}>
                     Search every colour
                   </Button>
                 )}
@@ -286,10 +345,10 @@ export function AddBar() {
                 <Button size="sm" onClick={() => void add(rows[highlighted])}>View card</Button>
               ) : (
                 <>
-                  <Button size="sm" disabled={pending} onClick={() => void add(rows[highlighted])}>Add</Button>
-                  <Button size="sm" disabled={pending} kbd="⇧↵" onClick={() => void add(rows[highlighted], { maybe: true })}>Add to maybe</Button>
+                  <Button size="sm" aria-disabled={pending} onClick={() => void add(rows[highlighted])}>Add</Button>
+                  <Button size="sm" aria-disabled={pending} kbd="⇧↵" onClick={() => void add(rows[highlighted], { maybe: true })}>Add to maybe</Button>
                   {!hasCommander && !!rows[highlighted].card.is_commander && (
-                    <Button size="sm" disabled={pending} onClick={() => void add(rows[highlighted], { role: "commander" })}>Add as commander</Button>
+                    <Button size="sm" aria-disabled={pending} onClick={() => void add(rows[highlighted], { role: "commander" })}>Add as commander</Button>
                   )}
                 </>
               )}
@@ -317,10 +376,7 @@ export function AddBar() {
                   {!offerEveryColour && (
                     <Checkbox
                       checked={everyColour}
-                      onChange={(on) => {
-                        setEveryColour(on);
-                        input.current?.focus();
-                      }}
+                      onChange={setColourScope}
                       label="Search every colour"
                     />
                   )}

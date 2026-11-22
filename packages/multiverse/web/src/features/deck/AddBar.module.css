@@ -52,21 +52,41 @@
 /* Over the list, anchored to the input. It is transient: Escape or a click
    elsewhere puts the list back. */
 .drop {
-  position: absolute;
-  top: calc(100% + var(--s-2));
-  left: 0;
+  position: fixed;
+  inset: auto;
+  margin: 0;
   z-index: var(--z-pop);
-  width: 100%;
-  min-width: var(--add-drop-min-w);
+  display: flex;
+  flex-direction: column;
+  max-inline-size: calc(100vw - 2 * var(--s-4));
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
   background: var(--raised);
   box-shadow: var(--shadow-pop);
 }
 
+.drop[popover]:not(:popover-open) { display: none; }
+.drop:not([data-anchored]) { visibility: hidden; }
+
+@supports (position-area: block-end) and (position-try-order: most-block-size) {
+  .drop[data-anchored] {
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    position-try-order: most-block-size;
+    inline-size: max(var(--add-drop-min-w), anchor-size(width));
+    max-block-size: calc(100% - var(--s-4));
+    margin-block: var(--s-2);
+  }
+}
+
 .results {
-  max-height: 420px;
+  flex: 1 1 auto;
+  min-block-size: var(--tap);
+  max-block-size: 420px;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: var(--s-2);
 }
 
@@ -81,11 +101,11 @@
 /* One compact line: the keys, then the colour scope. */
 .foot {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--s-2) var(--s-5);
-  white-space: nowrap;
   padding: var(--s-3) var(--s-4);
   border-top: 1px solid var(--line);
   color: var(--faint);
@@ -95,6 +115,7 @@
 .hints,
 .limit {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--s-4);
 }
@@ -109,11 +130,14 @@
 
 .actions {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   gap: var(--s-2);
   padding: var(--s-3) var(--s-4);
   border-top: 1px solid var(--line);
 }
+
+.actions button[aria-disabled="true"] { opacity: 0.5; cursor: progress; }
 
 @media (forced-colors: active) {
   .bar:focus-within { outline: 2px solid Highlight; outline-offset: 2px; }

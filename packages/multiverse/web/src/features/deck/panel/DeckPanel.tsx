@@ -1,5 +1,5 @@
 // One explicit destination drives the header, content region and shared sheet.
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Badge } from "../../../ui/index.ts";
 import { useDeckState } from "../DeckStore.tsx";
 import { useDeckUi } from "../DeckUi.tsx";
@@ -21,7 +21,9 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
   const ui = useDeckUi();
   const state = useDeckState();
   const pending = view.units.length;
+  const [briefVisited, setBriefVisited] = useState(ui.tab === "brief");
   const panel = useRef<HTMLElement>(null);
+  const navigation = useRef<HTMLElement>(null);
   const links = useRef(new Map<string, HTMLButtonElement>());
   const back = useRef<HTMLButtonElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -29,6 +31,22 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
   const deckScroll = useRef(0);
   const previous = useRef({ tab: ui.tab, card: null as string | null });
   const openId = ui.openCard?.oracleId ?? null;
+  useEffect(() => { if (ui.tab === "brief") setBriefVisited(true); }, [ui.tab]);
+  useLayoutEffect(() => {
+    const strip = navigation.current;
+    const current = links.current.get(ui.tab);
+    if (!strip || !current) return;
+    const reveal = () => {
+      const visible = strip.getBoundingClientRect();
+      const selected = current.getBoundingClientRect();
+      if (selected.left < visible.left) strip.scrollLeft += selected.left - visible.left;
+      else if (selected.right > visible.right) strip.scrollLeft += selected.right - visible.right;
+    };
+    reveal();
+    const observer = new ResizeObserver(reveal);
+    observer.observe(strip);
+    return () => observer.disconnect();
+  }, [ui.tab, openId]);
   useLayoutEffect(() => {
     const before = previous.current;
     const active = document.activeElement;
@@ -58,15 +76,16 @@ export function DeckPanel({ view, review }: { view: DeckViewModel; review: Revie
     }
   }}>
     {!ui.openCard && <div className={styles.navigation}>
-      <nav className={styles.links} aria-label="Deck panel views">
+      <nav ref={navigation} className={styles.links} aria-label="Deck panel views">
         {PANEL_VIEWS.map(item => <button key={item.id} type="button" ref={node => { if (node) links.current.set(item.id, node); else links.current.delete(item.id); }} aria-current={ui.tab === item.id ? "true" : undefined} onClick={() => ui.setTab(item.id)}>
           {item.label}{item.id === "review" && pending > 0 && <Badge className={styles.count} tone="agent">{pending}</Badge>}
         </button>)}
       </nav>
     </div>}
     <div ref={body} className={styles.body} role="region" aria-label={panelViewLabel(ui.tab)} tabIndex={0} hidden={!!ui.openCard} inert={!!ui.openCard} data-panel-body={ui.openCard ? undefined : true} onScroll={() => { if (!ui.openCard && body.current) deckScroll.current = body.current.scrollTop; }}>
+      {(briefVisited || ui.tab === "brief") && <div className={styles.retained} hidden={ui.tab !== "brief"} inert={ui.tab !== "brief"}><BriefPanel /></div>}
       {ui.tab === "review" ? <ReviewPanel view={view} review={review} />
-        : ui.tab === "brief" ? <BriefPanel />
+        : ui.tab === "brief" ? null
         : ui.tab === "power" ? <PowerPanel />
         : ui.tab === "stats" ? <StatsPanel />
         : ui.tab === "checks" ? <ChecksPanel checks={state.checks} />
