@@ -129,7 +129,7 @@ testkit_fields! {
         pub(super) controller: PlayerId,
         /// The source's facts when the chapter ability issued the registration.
         pub(super) source_facts: ObjectBefore,
-        pub(super) source_handles: Vec<ObjectHandle>,
+        pub(super) source_handles: Vec<publish::StoredObjectHandle>,
         pub(super) turn: u64,
     }
 }
@@ -138,7 +138,7 @@ impl DelayedChapterRegistration {
     pub(crate) fn chapter(&self) -> Result<u32, String> {
         Ok(self.chapter)
     }
-    pub(super) fn source_handles(&self) -> Result<&[ObjectHandle], String> {
+    pub(super) fn source_handles(&self) -> Result<&[publish::StoredObjectHandle], String> {
         Ok(&self.source_handles)
     }
 }

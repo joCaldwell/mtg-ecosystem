@@ -983,7 +983,7 @@ fn optional_entry_synthetic_nonempty_grant_history_and_commander_wrapper_charge_
     let mut owner = g.entry(root.stack_id).unwrap().clone();
     let fact = g.object_before(owner.source).unwrap();
     let handles = (0..4)
-        .map(|s| g.handle_for(PlayerId(s), owner.source).unwrap())
+        .map(|s| g.stored_handle_for(PlayerId(s), owner.source).unwrap())
         .collect::<Vec<_>>();
     owner.cost_lock = None;
     owner.kind = StackKind::Triggered {

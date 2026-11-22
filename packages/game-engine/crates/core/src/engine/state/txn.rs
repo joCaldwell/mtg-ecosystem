@@ -142,8 +142,10 @@ impl Game {
         // A transaction preserves the state invariant. A state that did not
         // satisfy it beforehand (a white-box test's synthetic board) proves
         // nothing either way.
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, any(test, feature = "testkit")))]
         let valid_before = self.validate_state().is_ok();
+        #[cfg(all(debug_assertions, not(any(test, feature = "testkit"))))]
+        let valid_before = true;
         let mut staged = self.committed.fork();
         let outcome = change(&mut staged).and_then(|value| {
             staged.refresh_visibility()?;

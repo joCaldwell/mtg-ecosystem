@@ -115,13 +115,13 @@ pub struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_subset: Option<choices::BoundModeSubset>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub effect_source_handles: Vec<ObjectHandle>,
+    pub effect_source_handles: Vec<publish::StoredObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_facts: Option<ObjectBefore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entity_targets: Vec<TargetEntity>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub announced_entity_targets: Vec<Vec<Option<ObjectHandle>>>,
+    pub announced_entity_targets: Vec<Vec<Option<publish::StoredObjectHandle>>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stack_targets: Vec<StackId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -134,7 +134,7 @@ pub struct StackInstance {
     pub source: ObjectId,
     pub controller: PlayerId,
     pub targets: Vec<ObjectId>,
-    pub announced_targets: Vec<Vec<ObjectHandle>>,
+    pub announced_targets: Vec<Vec<publish::StoredObjectHandle>>,
     pub paid: Option<ManaCost>,
     pub total_cost: ManaCost,
     pub cast_from: Zone,

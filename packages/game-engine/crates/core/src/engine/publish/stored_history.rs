@@ -33,7 +33,7 @@ impl From<VisibleObject> for StoredObject {
         Self::new(object.map_handles(|h| super::HandleId::from(&h)))
     }
 }
-pub(in crate::engine) type StoredPlayer = StoredRow<VisiblePlayer>;
+pub(in crate::engine) type StoredPlayer = StoredRow<VisiblePlayer<super::StoredObjectHandle>>;
 impl<T: Serialize> StoredRow<T> {
     pub fn new(value: T) -> Self {
         Self(Arc::new(Row {
@@ -95,7 +95,8 @@ pub struct StoredStack {
     tail: Option<Arc<StackNode>>,
     len: usize,
 }
-type StackRow = VisibleStackEntry<super::HandleId<b's'>>;
+type StackRow =
+    VisibleStackEntry<super::HandleId<b's'>, super::StoredObjectHandle, super::HandleId<b'e'>>;
 struct StackNode {
     value: StackRow,
     previous: StoredStack,
@@ -240,12 +241,13 @@ pub struct StoredViewData {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
+    sacrifice_choices: Vec<(PlayerId, super::StoredObjectHandle)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::engine) setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(in crate::engine) effects: Vec<VisibleEffect<super::HandleId<b'e'>>>,
-    pub(in crate::engine) combat: Vec<VisibleAttacker>,
+    pub(in crate::engine) effects:
+        Vec<VisibleEffect<super::HandleId<b'e'>, super::StoredObjectHandle>>,
+    pub(in crate::engine) combat: Vec<VisibleAttacker<super::StoredObjectHandle>>,
     pub(in crate::engine) viewer: PlayerId,
     pub(in crate::engine) active: Option<PlayerId>,
     pub(in crate::engine) turn_owner: PlayerId,
@@ -366,19 +368,22 @@ impl From<PermittedView> for StoredPermittedView {
         }
         let mut stored_players = Vec::with_capacity(players.len());
         for player in players {
-            stored_players.push(StoredPlayer::new(player));
+            stored_players.push(StoredPlayer::new(player.convert()));
         }
         Self {
             data: StoredViewData {
                 known_searched_hand,
                 known_library_positions,
-                sacrifice_choices,
+                sacrifice_choices: sacrifice_choices
+                    .iter()
+                    .map(|(p, h)| (*p, h.into()))
+                    .collect(),
                 setup,
                 effects: effects
                     .into_iter()
                     .map(|e| e.map_handle(|h| super::HandleId::from(&h)))
                     .collect(),
-                combat,
+                combat: combat.into_iter().map(|a| a.convert()).collect(),
                 viewer,
                 active,
                 turn_owner,
@@ -407,9 +412,9 @@ impl StoredPermittedView {
     /// collection, and each row, that equals `previous`'s is that allocation:
     /// exactly the sharing `reuse_previous` gives a converted public view.
     pub(in crate::engine) fn from_rows(
-        header: PermittedView,
-        effects: Vec<VisibleEffect<super::HandleId<b'e'>>>,
-        players: Vec<VisiblePlayer>,
+        header: PermittedView<super::StoredObjectHandle>,
+        effects: Vec<VisibleEffect<super::HandleId<b'e'>, super::StoredObjectHandle>>,
+        players: Vec<VisiblePlayer<super::StoredObjectHandle>>,
         objects: Vec<StoredObject>,
         stack: Vec<StackRow>,
         previous: Option<&Self>,
@@ -550,14 +555,17 @@ impl StoredPermittedView {
         PermittedView {
             known_searched_hand: known_searched_hand.clone(),
             known_library_positions: known_library_positions.clone(),
-            sacrifice_choices: sacrifice_choices.clone(),
+            sacrifice_choices: sacrifice_choices
+                .iter()
+                .map(|(p, h)| (*p, h.into()))
+                .collect(),
             setup: setup.clone(),
             effects: effects
                 .iter()
                 .cloned()
                 .map(|e| e.map_handle(|h| EffectHandle::from(&h)))
                 .collect(),
-            combat: combat.clone(),
+            combat: combat.iter().cloned().map(|a| a.convert()).collect(),
             viewer: *viewer,
             active: *active,
             turn_owner: *turn_owner,
@@ -565,7 +573,10 @@ impl StoredPermittedView {
             live_turn_order: live_turn_order.clone(),
             commanders: commanders.as_ref().clone(),
             priority: *priority,
-            players: players.iter().map(|r| r.0.value.clone()).collect(),
+            players: players
+                .iter()
+                .map(|r| r.0.value.clone().convert())
+                .collect(),
             objects: objects
                 .iter()
                 .map(|r| r.0.value.clone().map_handles(|h| ObjectHandle::from(&h)))
@@ -614,13 +625,19 @@ impl StoredPermittedView {
         } = &self.data;
         searched == known_searched_hand
             && positions == known_library_positions
-            && sc == sacrifice_choices
+            && sc
+                .iter()
+                .map(|(p, h)| (*p, ObjectHandle::from(h)))
+                .eq(sacrifice_choices.iter().cloned())
             && s == setup
             && e.len() == effects.len()
             && e.iter().zip(effects).all(|(stored, public)| {
                 *stored == public.clone().map_handle(|h| super::HandleId::from(&h))
             })
-            && c == combat
+            && c.iter()
+                .cloned()
+                .map(|a| a.convert())
+                .eq(combat.iter().cloned())
             && v == viewer
             && a == active
             && o == turn_owner
@@ -629,7 +646,9 @@ impl StoredPermittedView {
             && d.as_ref() == commanders
             && p == priority
             && u.len() == players.len()
-            && u.iter().zip(players).all(|(r, p)| r.0.value == *p)
+            && u.iter()
+                .zip(players)
+                .all(|(r, p)| r.0.value == p.clone().convert())
             && k.matches_public(stack)
             && r.len() == objects.len()
             && r.iter()

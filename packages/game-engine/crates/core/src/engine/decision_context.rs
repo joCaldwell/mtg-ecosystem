@@ -178,7 +178,7 @@ impl RulesTxn {
                         .as_ref()?
                         .source_handles
                         .get(viewer.0 as usize)
-                        .cloned(),
+                        .map(ObjectHandle::from),
                     ability: Some(index),
                     text: self.trigger_source_label(entry.source, ability)?.into(),
                 });

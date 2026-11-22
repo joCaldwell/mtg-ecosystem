@@ -36,7 +36,7 @@ pub enum EffectiveTriggerAbility {
 #[serde(deny_unknown_fields)]
 pub struct CascadeGrantProvenance {
     pub source_facts: ObjectBefore,
-    pub source_handles: Vec<ObjectHandle>,
+    pub source_handles: Vec<publish::StoredObjectHandle>,
 }
 fn trigger_grant_charge(
     ability: EffectiveTriggerAbility,
@@ -295,7 +295,7 @@ impl RulesTxn {
         &self,
         source: ObjectId,
         fact: &ObjectBefore,
-        handles: &[ObjectHandle],
+        handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
         if fact.object != source
             || fact.zone != Zone::Battlefield

@@ -409,7 +409,7 @@ fn m4c_normalized_grant_keys_omissions_duplicates_swaps_and_controller_forgeries
             5 => {
                 let object = g.object_id(backup).unwrap();
                 let handles = (0..4)
-                    .map(|v| g.handle_for(PlayerId(v), object).unwrap())
+                    .map(|v| g.stored_handle_for(PlayerId(v), object).unwrap())
                     .collect();
                 let StackKind::Triggered {
                     ability,

@@ -416,7 +416,7 @@ fn timing_ownership_and_rehashed_stack_metadata_reject_without_changing_state() 
             0 => s.state.rules.stack.swap(0, 1),
             1 => s.state.rules.stack[0].paid = None,
             2 => s.state.rules.stack[1].id = s.state.rules.stack[0].id,
-            3 => s.state.rules.stack[0].announced_targets[0][0] = ObjectHandle("forged".into()),
+            3 => s.state.rules.stack[0].announced_targets[0][0] = "forged".into(),
             _ => {
                 if let Frame::Targets { cast } = &mut s.state.rules.frame {
                     cast.prior_passes.push(PlayerId(3));

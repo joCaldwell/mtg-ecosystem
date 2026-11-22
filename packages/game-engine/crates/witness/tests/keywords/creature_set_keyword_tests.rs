@@ -894,7 +894,7 @@ fn creature_set_keyword_queries_atomic_target_rejection_forgery_and_complete_cre
             // replay, rather than local membership or state-hash checks, to fail.
             let forged_targets = vec![object(g, 2)];
             let forged_handles: Vec<_> = (0..4)
-                .map(|v| g.handle_for(PlayerId(v), forged_targets[0]).unwrap())
+                .map(|v| g.stored_handle_for(PlayerId(v), forged_targets[0]).unwrap())
                 .collect();
             let mut coherent: Snapshot = strict_read(&good).unwrap();
             for effect in &mut coherent.state.rules.effects {

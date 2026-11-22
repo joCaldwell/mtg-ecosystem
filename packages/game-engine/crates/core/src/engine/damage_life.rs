@@ -259,9 +259,10 @@ impl RulesTxn {
                     .iter()
                     .map(|target| match target {
                         TargetEntity::Player { .. } => Ok(None),
-                        TargetEntity::Object { object } => {
-                            self.handle_for(PlayerId(viewer), *object).map(Some)
-                        }
+                        TargetEntity::Object { object } => self
+                            .object_handle_id(PlayerId(viewer), *object)
+                            .cloned()
+                            .map(Some),
                     })
                     .collect::<Result<Vec<_>, String>>()
             })

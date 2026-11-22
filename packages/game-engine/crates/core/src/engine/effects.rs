@@ -42,14 +42,14 @@ pub struct EffectOrigin {
     pub stack_id: StackId,
     pub source: ObjectId,
     pub controller: PlayerId,
-    pub source_handles: Vec<ObjectHandle>,
+    pub source_handles: Vec<publish::StoredObjectHandle>,
     pub cursor: u32,
     pub source_block: u32,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResolvedEffect {
-    pub target_handles: Vec<ObjectHandle>,
+    pub target_handles: Vec<publish::StoredObjectHandle>,
     pub id: EffectId,
     pub origin: EffectOrigin,
     pub expires_in_cleanup_of_turn: u64,
@@ -156,7 +156,7 @@ pub enum ResolvedEffectKind {
 pub struct PreparedDamage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_appearance: Option<Box<ObjectBefore>>,
-    pub source_handles: Vec<ObjectHandle>,
+    pub source_handles: Vec<publish::StoredObjectHandle>,
     pub id: DamageId,
     pub source: ObjectBefore,
     pub controller: PlayerId,
@@ -1882,7 +1882,7 @@ impl RulesTxn {
                         effect.target_handles.len() == targets.len() * 4
                             && targets.iter().enumerate().all(|(i, o)| {
                                 (0..4).all(|v| {
-                                    self.handle_for(PlayerId(v), *o).as_ref()
+                                    self.object_handle_id(PlayerId(v), *o)
                                         == Ok(&effect.target_handles[i * 4 + v as usize])
                                 })
                             })
@@ -1893,7 +1893,7 @@ impl RulesTxn {
                     | ResolvedEffectKind::SetColor { target, .. } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
-                                self.handle_for(PlayerId(v), *target).as_ref()
+                                self.object_handle_id(PlayerId(v), *target)
                                     == Ok(&effect.target_handles[v as usize])
                             })
                     }
@@ -1903,7 +1903,7 @@ impl RulesTxn {
                     } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
-                                self.handle_for(PlayerId(v), *object).as_ref()
+                                self.object_handle_id(PlayerId(v), *object)
                                     == Ok(&effect.target_handles[v as usize])
                             })
                     }
@@ -2555,28 +2555,53 @@ pub struct VisibleDamageEffectCandidate {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct VisibleEffectSource {
-    pub source: VisibleTarget,
+#[schemars(rename = "VisibleEffectSource")]
+#[serde(bound(deserialize = "O: Deserialize<'de>"))]
+pub struct VisibleEffectSource<O = ObjectHandle> {
+    pub source: VisibleTarget<O>,
     pub oracle_id: String,
     pub controller: PlayerId,
 }
+impl<O> VisibleEffectSource<O> {
+    fn convert<T: for<'a> From<&'a O>>(self) -> VisibleEffectSource<T> {
+        VisibleEffectSource {
+            source: self.source.convert(),
+            oracle_id: self.oracle_id,
+            controller: self.controller,
+        }
+    }
+}
 // Declare each effect once. Stored rows keep the issued integer while the
 // public projection exposes its viewer-scoped text.
+macro_rules! effect_field {
+    ($value:ident) => {
+        $value
+    };
+    ($value:ident, nested) => {
+        $value.convert()
+    };
+    ($value:ident, targets) => {
+        $value.into_iter().map(|row| row.convert()).collect()
+    };
+    ($value:ident, handles) => {
+        $value.iter().map(P::from).collect()
+    };
+}
 macro_rules! visible_effects {
     ($( $variant:ident $(($handle:ident))? {
-        $( $(#[$attr:meta])* $field:ident: $ty:ty, )*
+        $( $(#[$attr:meta])* $field:ident: $ty:ty $(=> $conversion:ident)?, )*
     }, )*) => {
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
         #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
         #[schemars(rename = "VisibleEffect")]
-        pub enum VisibleEffect<H = EffectHandle> {
+        pub enum VisibleEffect<H = EffectHandle, O = ObjectHandle> {
             $( $variant { $( $handle: H, )? $( $(#[$attr])* $field: $ty, )* }, )*
         }
-        impl<H> VisibleEffect<H> {
-            pub(in crate::engine) fn map_handle<T>(self, convert: impl FnOnce(H) -> T) -> VisibleEffect<T> {
+        impl<H,O> VisibleEffect<H,O> {
+            pub(in crate::engine) fn map_handle<T, P: for<'a> From<&'a O>>(self, convert: impl FnOnce(H) -> T) -> VisibleEffect<T,P> {
                 match self {
                     $( Self::$variant { $( $handle, )? $( $field, )* } =>
-                        VisibleEffect::$variant { $( $handle: convert($handle), )? $( $field, )* }, )*
+                        VisibleEffect::$variant { $( $handle: convert($handle), )? $( $field: effect_field!($field $(, $conversion)?), )* }, )*
                 }
             }
         }
@@ -2585,98 +2610,98 @@ macro_rules! visible_effects {
 
 visible_effects! {
     RegenerationShield(handle) {
-        origin: VisibleEffectSource,
+        origin: VisibleEffectSource<O> => nested,
         expires_in_cleanup_of_turn: u64,
     },
     DelayedChapter {
-        origin: VisibleEffectSource,
+        origin: VisibleEffectSource<O> => nested,
         chapter: u32,
         expires_in_cleanup_of_turn: u64,
     },
     ProtectControllerUntilNextTurn(handle) {
-        origin: VisibleEffectSource,
+        origin: VisibleEffectSource<O> => nested,
     },
     RemoveIndestructibleSet(handle) {
-        origin: VisibleEffectSource,
-        targets: Vec<VisibleTarget>,
+        origin: VisibleEffectSource<O> => nested,
+        targets: Vec<VisibleTarget<O>> => targets,
         expires_in_cleanup_of_turn: u64,
     },
     GrantKeywordsSet(handle) {
-        origin: VisibleEffectSource,
-        targets: Vec<VisibleTarget>,
+        origin: VisibleEffectSource<O> => nested,
+        targets: Vec<VisibleTarget<O>> => targets,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
     PumpSet(handle) {
-        origin: VisibleEffectSource,
-        targets: Vec<VisibleTarget>,
+        origin: VisibleEffectSource<O> => nested,
+        targets: Vec<VisibleTarget<O>> => targets,
         power: Quantity,
         toughness: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
     ExileDamaged(handle) {
-        origin: VisibleEffectSource,
-        targets: Vec<VisibleTarget>,
+        origin: VisibleEffectSource<O> => nested,
+        targets: Vec<VisibleTarget<O>> => targets,
         expires_in_cleanup_of_turn: u64,
     },
     GrantKeywords(handle) {
-        origin: VisibleEffectSource,
-        target: VisibleTarget,
+        origin: VisibleEffectSource<O> => nested,
+        target: VisibleTarget<O> => nested,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
     SetColor(handle) {
-        origin: VisibleEffectSource,
-        target: VisibleTarget,
+        origin: VisibleEffectSource<O> => nested,
+        target: VisibleTarget<O> => nested,
         color: Color,
         expires_in_cleanup_of_turn: u64,
     },
     CombatRestriction(handle) {
-        origin: VisibleEffectSource,
-        target: VisibleTarget,
+        origin: VisibleEffectSource<O> => nested,
+        target: VisibleTarget<O> => nested,
         restriction: CreatureRestriction,
         expires_in_cleanup_of_turn: u64,
     },
     ModifyPowerToughness(handle) {
-        origin: VisibleEffectSource,
-        target: VisibleTarget,
+        origin: VisibleEffectSource<O> => nested,
+        target: VisibleTarget<O> => nested,
         power: Quantity,
         toughness: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
     PreventCombatDamage(handle) {
-        origin: VisibleEffectSource,
+        origin: VisibleEffectSource<O> => nested,
         expires_in_cleanup_of_turn: u64,
     },
     AdditionalLandPlays(handle) {
-        origin: VisibleEffectSource,
+        origin: VisibleEffectSource<O> => nested,
         count: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
     PlayExiled(handle) {
-        origin: VisibleEffectSource,
-        cards: Vec<ObjectHandle>,
+        origin: VisibleEffectSource<O> => nested,
+        cards: Vec<O> => handles,
         window: mtg_contracts::PlayWindow,
     },
     GrantHandCastCascade(handle) {
-        origin: VisibleEffectSource,
+        origin: VisibleEffectSource<O> => nested,
         expires_in_cleanup_of_turn: u64,
     },
     PreventNextDamage(handle) {
-        origin: VisibleEffectSource,
-        target: VisibleEntityTarget,
+        origin: VisibleEffectSource<O> => nested,
+        target: VisibleEntityTarget<O> => nested,
         remaining: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
     DoubleDamageToPermanentOrPlayer(handle) {
-        origin: VisibleEffectSource,
+        origin: VisibleEffectSource<O> => nested,
     },
     DoubleControllerCreatureDamageToPermanentOrPlayer(handle) {
-        origin: VisibleEffectSource,
+        origin: VisibleEffectSource<O> => nested,
     },
 }
 impl RulesTxn {
@@ -2754,7 +2779,7 @@ impl RulesTxn {
         self.effect_handle_id(viewer, key).map(EffectHandle::from)
     }
 
-    fn effect_handle_id(
+    pub(super) fn effect_handle_id(
         &self,
         viewer: PlayerId,
         key: &EffectKey,
@@ -2771,18 +2796,18 @@ impl RulesTxn {
             })
             .ok_or_else(|| "unknown visible effect".into())
     }
-    fn effect_origin_view(
+    fn effect_origin_view<O: for<'a> From<&'a publish::StoredObjectHandle>>(
         &self,
         viewer: PlayerId,
         key: &EffectKey,
-    ) -> Result<VisibleEffectSource, String> {
+    ) -> Result<VisibleEffectSource<O>, String> {
         let (source, controller, announced) = match key {
             EffectKey::Static { source, .. }
             | EffectKey::IntrinsicProtectionFromEverything { source }
             | EffectKey::IntrinsicProtectionFromColor { source, .. } => (
                 *source,
                 self.current(*source)?.controller,
-                self.handle_for(viewer, *source)?,
+                self.object_handle_id(viewer, *source).map(O::from)?,
             ),
             EffectKey::Resolved { id } => {
                 let e = self
@@ -2799,14 +2824,14 @@ impl RulesTxn {
                         .source_handles
                         .get(viewer.0 as usize)
                         .ok_or("missing effect source reference")?
-                        .clone(),
+                        .into(),
                 )
             }
         };
         Ok(VisibleEffectSource {
             source: VisibleTarget {
                 announced,
-                current: self.handle_for(viewer, source).ok(),
+                current: self.object_handle_id(viewer, source).map(O::from).ok(),
             },
             oracle_id: if matches!(key, EffectKey::IntrinsicProtectionFromColor { .. }) {
                 self.visible_ability_oracle_id(source)?.into()
@@ -2830,11 +2855,14 @@ impl RulesTxn {
         self.project_effect(viewer, key)
     }
 
-    fn project_effect<H: for<'a> From<&'a publish::HandleId<b'e'>>>(
+    fn project_effect<
+        H: for<'a> From<&'a publish::HandleId<b'e'>>,
+        O: for<'a> From<&'a publish::StoredObjectHandle>,
+    >(
         &self,
         viewer: PlayerId,
         key: &EffectKey,
-    ) -> Result<VisibleEffect<H>, String> {
+    ) -> Result<VisibleEffect<H, O>, String> {
         let handle = H::from(self.effect_handle_id(viewer, key)?);
         let origin = self.effect_origin_view(viewer, key)?;
         let EffectKey::Resolved { id } = key else {
@@ -2867,17 +2895,17 @@ impl RulesTxn {
             .iter()
             .find(|e| e.id == *id)
             .ok_or("missing effect row")?;
-        let target_view = |object| -> Result<VisibleTarget, String> {
+        let target_view = |object| -> Result<VisibleTarget<O>, String> {
             Ok(VisibleTarget {
                 announced: e
                     .target_handles
                     .get(viewer.0 as usize)
                     .ok_or("missing historical effect target")?
-                    .clone(),
-                current: self.handle_for(viewer, object).ok(),
+                    .into(),
+                current: self.object_handle_id(viewer, object).map(O::from).ok(),
             })
         };
-        let set_views = |targets: &[ObjectId]| -> Result<Vec<VisibleTarget>, String> {
+        let set_views = |targets: &[ObjectId]| -> Result<Vec<VisibleTarget<O>>, String> {
             targets
                 .iter()
                 .enumerate()
@@ -2887,8 +2915,8 @@ impl RulesTxn {
                             .target_handles
                             .get(i * 4 + viewer.0 as usize)
                             .ok_or("missing set historical handle")?
-                            .clone(),
-                        current: self.handle_for(viewer, *o).ok(),
+                            .into(),
+                        current: self.object_handle_id(viewer, *o).map(O::from).ok(),
                     })
                 })
                 .collect()
@@ -3003,7 +3031,7 @@ impl RulesTxn {
                         self.current(**object)
                             .is_ok_and(|o| o.zone == Zone::Exile && o.hideaway.is_none())
                     })
-                    .map(|object| self.handle_for(viewer, *object))
+                    .map(|object| self.object_handle_id(viewer, *object).map(O::from))
                     .collect::<Result<_, _>>()?,
                 window: *window,
             },
@@ -3037,11 +3065,14 @@ impl RulesTxn {
         self.visible_effects_from(viewer, &self.live_effect_keys())
     }
     /// `keys` are `live_effect_keys()` of this unchanged rules state.
-    pub(super) fn visible_effects_from<H: for<'a> From<&'a publish::HandleId<b'e'>>>(
+    pub(super) fn visible_effects_from<
+        H: for<'a> From<&'a publish::HandleId<b'e'>>,
+        O: for<'a> From<&'a publish::StoredObjectHandle>,
+    >(
         &self,
         viewer: PlayerId,
         keys: &[EffectKey],
-    ) -> Result<Vec<VisibleEffect<H>>, String> {
+    ) -> Result<Vec<VisibleEffect<H, O>>, String> {
         let mut effects = keys
             .iter()
             .map(|key| self.project_effect(viewer, key))
@@ -3051,22 +3082,22 @@ impl RulesTxn {
         }
         Ok(effects)
     }
-    pub(super) fn visible_delayed_chapter<H>(
+    pub(super) fn visible_delayed_chapter<H, O: for<'a> From<&'a publish::StoredObjectHandle>>(
         &self,
         viewer: PlayerId,
         row: &DelayedChapterRegistration,
-    ) -> Result<VisibleEffect<H>, String> {
+    ) -> Result<VisibleEffect<H, O>, String> {
         let source = row.source;
         let announced = row
             .source_handles()?
             .get(viewer.0 as usize)
             .ok_or("missing delayed source reference")?
-            .clone();
+            .into();
         Ok(VisibleEffect::DelayedChapter {
             origin: VisibleEffectSource {
                 source: VisibleTarget {
                     announced,
-                    current: self.handle_for(viewer, source).ok(),
+                    current: self.object_handle_id(viewer, source).map(O::from).ok(),
                 },
                 oracle_id: self.visible_ability_oracle_id(source)?.into(),
                 controller: row.controller,
@@ -3166,7 +3197,7 @@ impl RulesTxn {
                     .source_handles
                     .get(viewer.0 as usize)
                     .ok_or("missing damage source reference")?
-                    .clone(),
+                    .into(),
                 current: self.handle_for(viewer, d.source.object).ok(),
             },
             damage_oracle_id: self

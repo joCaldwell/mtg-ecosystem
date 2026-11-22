@@ -127,7 +127,7 @@ impl RulesTxn {
                     .map(|v| {
                         objects
                             .iter()
-                            .map(|object| self.handle_for(PlayerId(v), *object))
+                            .map(|object| self.object_handle_id(PlayerId(v), *object).cloned())
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, _>>()?;

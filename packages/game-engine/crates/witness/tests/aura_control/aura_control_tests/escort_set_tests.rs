@@ -216,7 +216,7 @@ fn escort_set_paid_source_capture_resolution_incarnations_removal_cleanup_replay
         let mut handles = Vec::new();
         for id in &forged {
             for viewer in 0..4 {
-                handles.push(g.handle_for(PlayerId(viewer), *id).unwrap());
+                handles.push(g.stored_handle_for(PlayerId(viewer), *id).unwrap());
             }
         }
         let e = &mut bad.state.rules.effects[0];

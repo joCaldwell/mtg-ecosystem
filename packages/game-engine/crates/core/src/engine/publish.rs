@@ -3,10 +3,9 @@
 //! A publication updates every viewer's handles and decision token, projects
 //! the permitted view and appends it to that viewer's history when it differs
 //! from the last one. The complete projection (`publish_full`, in
-//! `visibility.rs`) is the definition. This module adds the coarse
-//! incremental path: when nothing a view row, handle or public table is
-//! derived from has changed since the last publication, the last view's rows
-//! are reused and only the priority and turn fields are refreshed.
+//! `visibility.rs`) is the definition. The incremental path reuses
+//! unchanged viewer rows and projects dirty object chunks against the
+//! committed layer epoch.
 //!
 //! In builds with `debug_assertions`, every publication is also run as a
 //! complete projection of the same prior state and the two results must be
@@ -15,6 +14,7 @@ use super::*;
 
 mod handles;
 pub(in crate::engine) use handles::HandleId;
+pub type StoredObjectHandle = HandleId<b'o'>;
 pub mod permitted_history;
 mod reuse;
 pub mod stored_history;

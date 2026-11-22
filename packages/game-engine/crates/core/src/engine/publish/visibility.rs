@@ -24,18 +24,21 @@ pub struct StackHandle(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "VisibleAbility")]
-#[serde(bound(deserialize = "H: Deserialize<'de>"))]
-pub struct VisibleAbility<H = StackHandle> {
+#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>"))]
+pub struct VisibleAbility<H = StackHandle, O = ObjectHandle> {
     pub handle: H,
-    pub source: VisibleTarget,
+    pub source: VisibleTarget<O>,
     pub oracle_id: String,
     pub ability: u32,
 }
-impl<H> VisibleAbility<H> {
-    pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleAbility<T> {
+impl<H, O> VisibleAbility<H, O> {
+    pub(super) fn map_handles<T, P: for<'a> From<&'a O>>(
+        self,
+        mut convert: impl FnMut(H) -> T,
+    ) -> VisibleAbility<T, P> {
         VisibleAbility {
             handle: convert(self.handle),
-            source: self.source,
+            source: self.source.convert(),
             oracle_id: self.oracle_id,
             ability: self.ability,
         }
@@ -48,7 +51,9 @@ pub struct TriggerHandle(pub String);
 /// Public origin uses only already captured public/historical handles.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
-pub enum VisibleTriggerAbility {
+#[schemars(rename = "VisibleTriggerAbility")]
+#[serde(bound(deserialize = "O: Deserialize<'de>, E: Deserialize<'de>"))]
+pub enum VisibleTriggerAbility<O = ObjectHandle, E = EffectHandle> {
     DelayedChapter {
         chapter: u32,
     },
@@ -56,35 +61,68 @@ pub enum VisibleTriggerAbility {
         index: u32,
     },
     Granted {
-        source: VisibleTarget,
+        source: VisibleTarget<O>,
         oracle_id: String,
         static_ability_index: u32,
     },
     TemporaryGrant {
-        source: VisibleTarget,
+        source: VisibleTarget<O>,
         oracle_id: String,
         triggered_ability_index: u32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        effect: Option<EffectHandle>,
+        effect: Option<E>,
     },
+}
+impl<O, E> VisibleTriggerAbility<O, E> {
+    fn convert<T: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
+        self,
+    ) -> VisibleTriggerAbility<T, F> {
+        match self {
+            Self::DelayedChapter { chapter } => VisibleTriggerAbility::DelayedChapter { chapter },
+            Self::Intrinsic { index } => VisibleTriggerAbility::Intrinsic { index },
+            Self::Granted {
+                source,
+                oracle_id,
+                static_ability_index,
+            } => VisibleTriggerAbility::Granted {
+                source: source.convert(),
+                oracle_id,
+                static_ability_index,
+            },
+            Self::TemporaryGrant {
+                source,
+                oracle_id,
+                triggered_ability_index,
+                effect,
+            } => VisibleTriggerAbility::TemporaryGrant {
+                source: source.convert(),
+                oracle_id,
+                triggered_ability_index,
+                effect: effect.as_ref().map(F::from),
+            },
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "VisibleTriggered")]
-#[serde(bound(deserialize = "H: Deserialize<'de>"))]
-pub struct VisibleTriggered<H = StackHandle> {
+#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>, E: Deserialize<'de>"))]
+pub struct VisibleTriggered<H = StackHandle, O = ObjectHandle, E = EffectHandle> {
     pub handle: H,
-    pub source: VisibleTarget,
+    pub source: VisibleTarget<O>,
     pub oracle_id: String,
-    pub ability: VisibleTriggerAbility,
+    pub ability: VisibleTriggerAbility<O, E>,
 }
-impl<H> VisibleTriggered<H> {
-    pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleTriggered<T> {
+impl<H, O, E> VisibleTriggered<H, O, E> {
+    pub(super) fn map_handles<T, P: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
+        self,
+        mut convert: impl FnMut(H) -> T,
+    ) -> VisibleTriggered<T, P, F> {
         VisibleTriggered {
             handle: convert(self.handle),
-            source: self.source,
+            source: self.source.convert(),
             oracle_id: self.oracle_id,
-            ability: self.ability,
+            ability: self.ability.convert(),
         }
     }
 }
@@ -107,12 +145,14 @@ fn is_zero(value: &u64) -> bool {
 pub struct DecisionToken(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct VisiblePlayer {
+#[schemars(rename = "VisiblePlayer")]
+#[serde(bound(deserialize = "O: Deserialize<'de>"))]
+pub struct VisiblePlayer<O = ObjectHandle> {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub life_frozen_until_next_turn: bool,
     /// Public viewer handles, grouped by physical owner (CR406.1–3).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub exile: Vec<ObjectHandle>,
+    pub exile: Vec<O>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub library_shuffles: u64,
     pub player: PlayerId,
@@ -123,6 +163,22 @@ pub struct VisiblePlayer {
     pub restricted_mana: Vec<RestrictedMana>,
     pub hand_count: u32,
     pub library_count: u32,
+}
+impl<O> VisiblePlayer<O> {
+    pub(in crate::engine) fn convert<T: for<'a> From<&'a O>>(self) -> VisiblePlayer<T> {
+        VisiblePlayer {
+            life_frozen_until_next_turn: self.life_frozen_until_next_turn,
+            exile: self.exile.iter().map(T::from).collect(),
+            library_shuffles: self.library_shuffles,
+            player: self.player,
+            status: self.status,
+            life: self.life,
+            mana: self.mana,
+            restricted_mana: self.restricted_mana,
+            hand_count: self.hand_count,
+            library_count: self.library_count,
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -214,9 +270,19 @@ pub struct VisibleCommander {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct VisibleTarget {
-    pub announced: ObjectHandle,
-    pub current: Option<ObjectHandle>,
+#[schemars(rename = "VisibleTarget")]
+#[serde(bound(deserialize = "O: Deserialize<'de>"))]
+pub struct VisibleTarget<O = ObjectHandle> {
+    pub announced: O,
+    pub current: Option<O>,
+}
+impl<O> VisibleTarget<O> {
+    pub(in crate::engine) fn convert<T: for<'a> From<&'a O>>(self) -> VisibleTarget<T> {
+        VisibleTarget {
+            announced: T::from(&self.announced),
+            current: self.current.as_ref().map(T::from),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -243,15 +309,27 @@ pub enum PlayerTargetEntity {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "entity", rename_all = "snake_case", deny_unknown_fields)]
-pub enum VisibleEntityTarget {
+#[schemars(rename = "VisibleEntityTarget")]
+#[serde(bound(deserialize = "O: Deserialize<'de>"))]
+pub enum VisibleEntityTarget<O = ObjectHandle> {
     Player { player: PlayerId },
-    Object { object: VisibleTarget },
+    Object { object: VisibleTarget<O> },
+}
+impl<O> VisibleEntityTarget<O> {
+    pub(in crate::engine) fn convert<T: for<'a> From<&'a O>>(self) -> VisibleEntityTarget<T> {
+        match self {
+            Self::Player { player } => VisibleEntityTarget::Player { player },
+            Self::Object { object } => VisibleEntityTarget::Object {
+                object: object.convert(),
+            },
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "VisibleStackEntry")]
-#[serde(bound(deserialize = "H: Deserialize<'de>"))]
-pub struct VisibleStackEntry<H = StackHandle> {
+#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>, E: Deserialize<'de>"))]
+pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle> {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub bestowed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -267,26 +345,29 @@ pub struct VisibleStackEntry<H = StackHandle> {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selected_modes: Vec<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub triggered: Option<VisibleTriggered<H>>,
+    pub triggered: Option<VisibleTriggered<H, O, E>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub entity_targets: Vec<VisibleEntityTarget>,
+    pub entity_targets: Vec<VisibleEntityTarget<O>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handle: Option<H>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stack_targets: Vec<VisibleStackTarget<H>>,
-    pub spell: Option<ObjectHandle>,
+    pub spell: Option<O>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ability: Option<VisibleAbility<H>>,
+    pub ability: Option<VisibleAbility<H, O>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub player_targets: Vec<PlayerId>,
     pub controller: PlayerId,
     pub cast_complete: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub spell_copy: bool,
-    pub targets: Vec<VisibleTarget>,
+    pub targets: Vec<VisibleTarget<O>>,
 }
-impl<H> VisibleStackEntry<H> {
-    pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleStackEntry<T> {
+impl<H, O, E> VisibleStackEntry<H, O, E> {
+    pub(super) fn map_handles<T, P: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
+        self,
+        mut convert: impl FnMut(H) -> T,
+    ) -> VisibleStackEntry<T, P, F> {
         VisibleStackEntry {
             bestowed: self.bestowed,
             selected_additional_costs: self.selected_additional_costs,
@@ -296,31 +377,47 @@ impl<H> VisibleStackEntry<H> {
             mode: self.mode,
             selected_modes: self.selected_modes,
             triggered: self.triggered.map(|row| row.map_handles(&mut convert)),
-            entity_targets: self.entity_targets,
+            entity_targets: self
+                .entity_targets
+                .into_iter()
+                .map(|t| t.convert())
+                .collect(),
             handle: self.handle.map(&mut convert),
             stack_targets: self
                 .stack_targets
                 .into_iter()
                 .map(|row| row.map_handles(&mut convert))
                 .collect(),
-            spell: self.spell,
+            spell: self.spell.as_ref().map(P::from),
             ability: self.ability.map(|row| row.map_handles(&mut convert)),
             player_targets: self.player_targets,
             controller: self.controller,
             cast_complete: self.cast_complete,
             spell_copy: self.spell_copy,
-            targets: self.targets,
+            targets: self.targets.into_iter().map(|t| t.convert()).collect(),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct VisibleAttacker {
-    pub attacker: ObjectHandle,
+#[schemars(rename = "VisibleAttacker")]
+#[serde(bound(deserialize = "O: Deserialize<'de>"))]
+pub struct VisibleAttacker<O = ObjectHandle> {
+    pub attacker: O,
     pub defender: PlayerId,
     pub blocked: bool,
-    pub blockers: Vec<ObjectHandle>,
+    pub blockers: Vec<O>,
+}
+impl<O> VisibleAttacker<O> {
+    pub(in crate::engine) fn convert<T: for<'a> From<&'a O>>(self) -> VisibleAttacker<T> {
+        VisibleAttacker {
+            attacker: T::from(&self.attacker),
+            defender: self.defender,
+            blocked: self.blocked,
+            blockers: self.blockers.iter().map(T::from).collect(),
+        }
+    }
 }
 /// A remembered public tuck. Position is one-based; memory gives no object
 /// handle or authority to inspect or target a card in a hidden library.
@@ -333,18 +430,20 @@ pub struct KnownLibraryPosition {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct PermittedView {
+#[schemars(rename = "PermittedView")]
+#[serde(bound(deserialize = "O: Deserialize<'de>"))]
+pub struct PermittedView<O = ObjectHandle> {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_searched_hand: Vec<(PlayerId, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub known_library_positions: Vec<KnownLibraryPosition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub sacrifice_choices: Vec<(PlayerId, ObjectHandle)>,
+    pub sacrifice_choices: Vec<(PlayerId, O)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup: Option<VisibleSetup>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<VisibleEffect>,
-    pub combat: Vec<VisibleAttacker>,
+    pub combat: Vec<VisibleAttacker<O>>,
     pub viewer: PlayerId,
     pub active: Option<PlayerId>,
     pub turn_owner: PlayerId,
@@ -1299,7 +1398,7 @@ impl RulesTxn {
     pub(crate) fn capture_trigger_source_handles(
         &mut self,
         object: ObjectId,
-    ) -> Result<Vec<ObjectHandle>, String> {
+    ) -> Result<Vec<publish::StoredObjectHandle>, String> {
         let mut handles = vec![];
         for viewer in 0..4 {
             let k = &mut self.state.knowledge.visibility[viewer];
@@ -1314,7 +1413,7 @@ impl RulesTxn {
                 k.handles.insert(handle.clone(), object);
                 handle
             };
-            handles.push(ObjectHandle(handle.to_string()));
+            handles.push(handle);
         }
         Ok(handles)
     }
@@ -1364,7 +1463,7 @@ impl RulesTxn {
                     .source_handles
                     .get(viewer.0 as usize)
                     .ok_or("missing trigger source reference")?
-                    .clone(),
+                    .into(),
                 current: self.handle_for(viewer, trigger.source).ok(),
             },
             oracle_id: self.visible_ability_oracle_id(trigger.source)?.into(),
@@ -1376,12 +1475,15 @@ impl RulesTxn {
         })
     }
 
-    fn visible_trigger_ability(
+    fn visible_trigger_ability<
+        O: for<'a> From<&'a HandleId<b'o'>>,
+        E: for<'a> From<&'a HandleId<b'e'>>,
+    >(
         &self,
         viewer: PlayerId,
         ability: EffectiveTriggerAbility,
         grant: Option<&CascadeGrantProvenance>,
-    ) -> Result<VisibleTriggerAbility, String> {
+    ) -> Result<VisibleTriggerAbility<O, E>, String> {
         let grant_source = match ability {
             EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
                 return Ok(VisibleTriggerAbility::DelayedChapter { chapter });
@@ -1398,8 +1500,11 @@ impl RulesTxn {
                 .source_handles
                 .get(viewer.0 as usize)
                 .ok_or("missing grant source handle")?
-                .clone(),
-            current: self.handle_for(viewer, grant_source).ok(),
+                .into(),
+            current: self
+                .object_handle_id(viewer, grant_source)
+                .ok()
+                .map(O::from),
         };
         let oracle_id = self
             .state
@@ -1427,8 +1532,9 @@ impl RulesTxn {
                 oracle_id,
                 triggered_ability_index,
                 effect: self
-                    .effect_handle(viewer, &EffectKey::Resolved { id: effect })
-                    .ok(),
+                    .effect_handle_id(viewer, &EffectKey::Resolved { id: effect })
+                    .ok()
+                    .map(E::from),
             },
             EffectiveTriggerAbility::Intrinsic { .. }
             | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
@@ -1559,11 +1665,11 @@ impl RulesTxn {
         self.project_player(player, Some(index))
     }
 
-    fn project_player(
+    fn project_player<O>(
         &self,
         player: PlayerId,
         index: Option<&ProjectionIndex>,
-    ) -> Result<VisiblePlayer, String> {
+    ) -> Result<VisiblePlayer<O>, String> {
         let p = self
             .state
             .rules
@@ -1610,7 +1716,11 @@ impl RulesTxn {
             library_count: checked_count(library_count)?,
         })
     }
-    fn object_handle_id(&self, viewer: PlayerId, id: ObjectId) -> Result<&HandleId<b'o'>, String> {
+    pub(crate) fn object_handle_id(
+        &self,
+        viewer: PlayerId,
+        id: ObjectId,
+    ) -> Result<&HandleId<b'o'>, String> {
         self.state
             .knowledge
             .visibility
@@ -1881,11 +1991,15 @@ impl RulesTxn {
         self.project_stack_entry(viewer, index)
     }
 
-    fn project_stack_entry<H: for<'a> From<&'a HandleId<b's'>>>(
+    fn project_stack_entry<
+        H: for<'a> From<&'a HandleId<b's'>>,
+        O: for<'a> From<&'a HandleId<b'o'>>,
+        E: for<'a> From<&'a HandleId<b'e'>>,
+    >(
         &self,
         viewer: PlayerId,
         index: usize,
-    ) -> Result<VisibleStackEntry<H>, String> {
+    ) -> Result<VisibleStackEntry<H, O, E>, String> {
         let instance = self
             .state
             .rules
@@ -1905,13 +2019,20 @@ impl RulesTxn {
                     announced: announced
                         .get(slot)
                         .ok_or("missing announced target handle")?
-                        .clone(),
-                    current: self.handle_for(viewer, *target).ok(),
+                        .into(),
+                    current: self.object_handle_id(viewer, *target).map(O::from).ok(),
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
         let (spell, ability, triggered) = match &instance.kind {
-            StackKind::Spell => (Some(self.handle_for(viewer, instance.source)?), None, None),
+            StackKind::Spell => (
+                Some(
+                    self.object_handle_id(viewer, instance.source)
+                        .map(O::from)?,
+                ),
+                None,
+                None,
+            ),
             StackKind::Triggered {
                 ability,
                 grant,
@@ -1926,8 +2047,11 @@ impl RulesTxn {
                         announced: source_handles
                             .get(viewer.0 as usize)
                             .ok_or("missing triggered source reference")?
-                            .clone(),
-                        current: self.handle_for(viewer, instance.source).ok(),
+                            .into(),
+                        current: self
+                            .object_handle_id(viewer, instance.source)
+                            .map(O::from)
+                            .ok(),
                     },
                     oracle_id: self.visible_ability_oracle_id(instance.source)?.into(),
                     ability: self.visible_trigger_ability(viewer, *ability, grant.as_ref())?,
@@ -1944,8 +2068,11 @@ impl RulesTxn {
                         announced: source_handles
                             .get(viewer.0 as usize)
                             .ok_or("missing announced ability source")?
-                            .clone(),
-                        current: self.handle_for(viewer, instance.source).ok(),
+                            .into(),
+                        current: self
+                            .object_handle_id(viewer, instance.source)
+                            .map(O::from)
+                            .ok(),
                     },
                     oracle_id: self.visible_ability_oracle_id(instance.source)?.into(),
                     ability: *ability,
@@ -1984,9 +2111,10 @@ impl RulesTxn {
                             .announced_entity_targets
                             .get(viewer.0 as usize)
                             .and_then(|row| row.get(slot))
-                            .and_then(Clone::clone)
-                            .ok_or("missing entity announcement")?,
-                        current: self.handle_for(viewer, *object).ok(),
+                            .and_then(Option::as_ref)
+                            .ok_or("missing entity announcement")?
+                            .into(),
+                        current: self.object_handle_id(viewer, *object).map(O::from).ok(),
                     },
                 }),
             })
@@ -2021,6 +2149,12 @@ impl RulesTxn {
         })
     }
     pub(crate) fn blank_view(&self, viewer: PlayerId) -> Result<PermittedView, String> {
+        self.view_header(viewer)
+    }
+    fn view_header<O: for<'a> From<&'a HandleId<b'o'>>>(
+        &self,
+        viewer: PlayerId,
+    ) -> Result<PermittedView<O>, String> {
         if viewer.0 >= 4 {
             return Err("invalid viewer".into());
         }
@@ -2033,7 +2167,7 @@ impl RulesTxn {
                 choices
                     .iter()
                     .filter(|(p, o)| self.is_live(*p) && self.current(*o).is_ok())
-                    .map(|(p, o)| Ok((*p, self.handle_for(viewer, *o)?)))
+                    .map(|(p, o)| Ok((*p, self.object_handle_id(viewer, *o).map(O::from)?)))
                     .collect::<Result<_, String>>()?
             } else {
                 vec![]
@@ -2047,13 +2181,13 @@ impl RulesTxn {
                 .iter()
                 .map(|a| {
                     Ok(VisibleAttacker {
-                        attacker: self.handle_for(viewer, a.attacker)?,
+                        attacker: self.object_handle_id(viewer, a.attacker).map(O::from)?,
                         defender: a.defender,
                         blocked: a.blocked,
                         blockers: a
                             .blockers
                             .iter()
-                            .map(|b| self.handle_for(viewer, *b))
+                            .map(|b| self.object_handle_id(viewer, *b).map(O::from))
                             .collect::<Result<_, _>>()?,
                     })
                 })
@@ -2951,7 +3085,7 @@ impl RulesTxn {
         visible: &[&Object],
         clean_except: Option<&BTreeSet<CardId>>,
     ) -> Result<StoredPermittedView, String> {
-        let header = self.blank_view(viewer)?;
+        let header = self.view_header(viewer)?;
         let effects = self.visible_effects_from(viewer, effects)?;
         let mut players = Vec::with_capacity(4);
         for player in 0..4 {
@@ -3029,14 +3163,14 @@ impl RulesTxn {
                 .get_mut(owner.0 as usize)
                 .ok_or("invalid exile owner")?
                 .exile
-                .push(self.handle_for(viewer, object.id)?);
+                .push(self.object_handle_id(viewer, object.id)?.clone());
         }
         for player in &mut players {
             if face_down
                 .get(player.player.0 as usize)
                 .is_some_and(|owned| *owned)
             {
-                player.exile.sort_by(|a, b| a.0.cmp(&b.0));
+                player.exile.sort();
             }
         }
         let mut stack = Vec::with_capacity(self.state.rules.stack.len());

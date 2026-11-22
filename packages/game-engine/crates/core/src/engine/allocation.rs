@@ -294,7 +294,7 @@ impl RulesTxn {
                     .source_handles
                     .get(viewer.0 as usize)
                     .ok_or("missing allocation source reference")?
-                    .clone(),
+                    .into(),
                 current: self.handle_for(viewer, d.source.object).ok(),
             },
             oracle_id: self

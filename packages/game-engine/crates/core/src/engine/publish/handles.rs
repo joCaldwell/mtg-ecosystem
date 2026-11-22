@@ -10,7 +10,7 @@ pub struct HandleId<const KIND: u8>(Representation);
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Representation {
     Issued(u64),
-    Text(Arc<str>),
+    Text(Arc<String>),
 }
 
 const HYPOTHESIS: &str = "hypothesis-v1";
@@ -58,7 +58,8 @@ impl<const KIND: u8> HandleId<KIND> {
     }
 
     pub fn parse(text: &str) -> Self {
-        Self::parse_issued(text).unwrap_or_else(|| Self(Representation::Text(text.into())))
+        Self::parse_issued(text)
+            .unwrap_or_else(|| Self(Representation::Text(Arc::new(text.to_owned()))))
     }
 }
 
@@ -96,7 +97,7 @@ impl<const KIND: u8> Ord for HandleId<KIND> {
                 .then_with(|| (a & 3).cmp(&(b & 3)))
                 .then_with(|| decimal_cmp(a >> 3, b >> 3)),
             (Representation::Text(a), Representation::Text(b)) => a.cmp(b),
-            (Representation::Text(a), _) => a.as_ref().cmp(&other.to_string()),
+            (Representation::Text(a), _) => a.as_str().cmp(&other.to_string()),
             (_, Representation::Text(b)) => self.to_string().as_str().cmp(b),
         }
     }
@@ -134,6 +135,12 @@ macro_rules! boundary_handle {
                 Self::parse(&handle.0)
             }
         }
+        #[cfg(feature = "testkit")]
+        impl PartialEq<HandleId<$kind>> for $public {
+            fn eq(&self, id: &HandleId<$kind>) -> bool {
+                HandleId::from(self) == *id
+            }
+        }
         impl From<&$public> for $public {
             fn from(handle: &Self) -> Self {
                 handle.clone()
@@ -158,6 +165,7 @@ mod tests {
     #[test]
     fn numeric_actions_follow_exact_wire_order_and_identity() {
         type Object = HandleId<b'o'>;
+        assert!(std::mem::size_of::<Object>() <= 16);
         let mut ids = Vec::new();
         for seat in 0..4 {
             for namespace in [None, Some(HYPOTHESIS), Some("table:v2")] {

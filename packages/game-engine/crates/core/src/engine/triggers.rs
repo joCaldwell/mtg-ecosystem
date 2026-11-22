@@ -21,7 +21,7 @@ pub struct PendingTrigger {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant: Option<CascadeGrantProvenance>,
     pub source_facts: ObjectBefore,
-    pub(super) source_handles: Vec<ObjectHandle>,
+    pub(super) source_handles: Vec<publish::StoredObjectHandle>,
     event: TriggerOccurrenceId,
     pub witness: TriggerEventWitness,
 }
@@ -1691,7 +1691,7 @@ impl RulesTxn {
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         fact: &ObjectBefore,
-        handles: &[ObjectHandle],
+        handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
         // A hideaway invocation keeps its entry-time chooser even if a later
@@ -1839,7 +1839,7 @@ impl RulesTxn {
         controller: PlayerId,
         death_controller: Option<PlayerId>,
         facts: &ObjectBefore,
-        handles: &[ObjectHandle],
+        handles: &[publish::StoredObjectHandle],
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
@@ -2429,9 +2429,10 @@ impl RulesTxn {
                     .iter()
                     .map(|t| match t {
                         TargetEntity::Player { .. } => Ok(None),
-                        TargetEntity::Object { object } => {
-                            self.handle_for(PlayerId(v), *object).map(Some)
-                        }
+                        TargetEntity::Object { object } => self
+                            .object_handle_id(PlayerId(v), *object)
+                            .cloned()
+                            .map(Some),
                     })
                     .collect::<Result<Vec<_>, String>>()
             })
@@ -2477,7 +2478,7 @@ impl RulesTxn {
             .map(|v| {
                 objects
                     .iter()
-                    .map(|o| self.handle_for(PlayerId(v), *o))
+                    .map(|o| self.object_handle_id(PlayerId(v), *o).cloned())
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;

@@ -316,7 +316,7 @@ impl RulesTxn {
         &self,
         entry: &StackInstance,
         ability: u32,
-        source_handles: &[ObjectHandle],
+        source_handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
         let definition = self.activation_definition(entry.source)?;
         let activated = definition

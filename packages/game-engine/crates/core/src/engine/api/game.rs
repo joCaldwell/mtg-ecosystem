@@ -28,9 +28,9 @@ testkit_fields! {
         pub(in crate::engine) state_token: Arc<()>,
         // Private staging scope: nested event batches share the outer rollback.
         pub(in crate::engine) in_rule_step: bool,
-        // Derived accelerator only, never state: what the last publication read.
         // Reconstructed from the admitted program and a saved node address.
         pub(in crate::engine) kernel_leaf: Option<Arc<kir::LeafProgram>>,
+        // Derived accelerator only, never state: what the last publication read.
         pub(in crate::engine) published: Option<Arc<publish::Published>>,
     }
 }

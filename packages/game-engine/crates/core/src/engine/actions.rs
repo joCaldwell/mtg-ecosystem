@@ -11,14 +11,14 @@ pub enum StackKind {
         ability: EffectiveTriggerAbility,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         grant: Option<CascadeGrantProvenance>,
-        source_handles: Vec<ObjectHandle>,
+        source_handles: Vec<publish::StoredObjectHandle>,
         trigger_id: TriggerId,
         event: TriggerOccurrenceId,
         witness: TriggerEventWitness,
     },
     Activated {
         ability: u32,
-        source_handles: Vec<ObjectHandle>,
+        source_handles: Vec<publish::StoredObjectHandle>,
     },
 }
 impl StackKind {

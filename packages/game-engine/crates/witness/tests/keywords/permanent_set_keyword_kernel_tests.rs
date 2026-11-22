@@ -173,7 +173,7 @@ fn permanent_set_kernel_complete_mixed_capture_and_all_historical_handles_are_at
                 // Even coherent handles cannot authorize the wrong selection.
                 for viewer in 0..4 {
                     bad.target_handles[4 + viewer] = g
-                        .handle_for(PlayerId(viewer as u8), replacement)
+                        .stored_handle_for(PlayerId(viewer as u8), replacement)
                         .unwrap_or_else(|_| bad.target_handles[4 + viewer].clone());
                 }
             }

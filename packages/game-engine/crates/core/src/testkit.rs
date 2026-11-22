@@ -157,7 +157,7 @@ pub trait GameTestkit {
     fn capture_trigger_source_handles(
         &mut self,
         object: ObjectId,
-    ) -> Result<Vec<ObjectHandle>, String>;
+    ) -> Result<Vec<publish::StoredObjectHandle>, String>;
     fn cascade_charge(&self) -> usize;
     fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String>;
     fn casting_cost(&self, card: CardId, caster: PlayerId, from: Zone) -> Result<ManaCost, String>;
@@ -271,6 +271,11 @@ pub trait GameTestkit {
         player: PlayerId,
         domain: TargetDomain,
     ) -> bool;
+    fn stored_handle_for(
+        &self,
+        viewer: PlayerId,
+        id: ObjectId,
+    ) -> Result<publish::StoredObjectHandle, String>;
     fn handle_for(&self, viewer: PlayerId, id: ObjectId) -> Result<ObjectHandle, String>;
     fn has_color(source: &Characteristics) -> bool;
     fn has_granted_land_mana(&self, land: ObjectId) -> Result<bool, String>;
@@ -678,7 +683,7 @@ impl GameTestkit for Game {
     fn capture_trigger_source_handles(
         &mut self,
         object: ObjectId,
-    ) -> Result<Vec<ObjectHandle>, String> {
+    ) -> Result<Vec<publish::StoredObjectHandle>, String> {
         RulesTxn::capture_trigger_source_handles(self, object)
     }
     fn cascade_charge(&self) -> usize {
@@ -908,6 +913,13 @@ impl GameTestkit for Game {
         domain: TargetDomain,
     ) -> bool {
         RulesTxn::graveyard_target_legal(self, object, player, domain)
+    }
+    fn stored_handle_for(
+        &self,
+        viewer: PlayerId,
+        id: ObjectId,
+    ) -> Result<publish::StoredObjectHandle, String> {
+        self.object_handle_id(viewer, id).cloned()
     }
     fn handle_for(&self, viewer: PlayerId, id: ObjectId) -> Result<ObjectHandle, String> {
         RulesTxn::handle_for(self, viewer, id)
