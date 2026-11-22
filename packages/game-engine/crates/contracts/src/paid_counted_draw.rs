@@ -132,12 +132,9 @@ pub(super) fn extend_schema(s: &mut Value) {
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"targets":{"maxItems":0},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},
         "resolution":{"const":"instructions"},
-        "instructions":{"minItems":1,"maxItems":1,"items":{
-            "required":["op","count","source_block"],"properties":{
-                "op":{"const":"draw_controller_cards"},
-                "count":{"pattern":"^([2-9]|[1-9][0-9]+)$"},"source_block":{"maximum":2}
-            }
-        }}
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at_most(
+            instruction_schema::counted_draw("^([2-9]|[1-9][0-9]+)$"), 2
+        )}
     }});
     defs["PaidCountedDrawAbility"] = json!({"properties":{
         "functioning_zone":{"const":"battlefield"},
@@ -280,10 +277,11 @@ pub(super) fn witnesses() -> [Definition; 4] {
             remove_source_plus_one_counters: None,
         },
     };
-    ability.program.instructions = vec![Instruction::DrawControllerCards {
-        count: 3.into(),
-        source_block: 1,
-    }];
+    ability.program.instructions = vec![Instruction::draw(
+        PlayerExpr::you(Context::Activated),
+        3.into(),
+        1,
+    )];
     artifact.mana_abilities = vec![ManaAbility {
         restriction: None,
         self_damage: None,
@@ -314,10 +312,11 @@ pub(super) fn witnesses() -> [Definition; 4] {
         functioning_zone: FunctioningZone::Battlefield,
         effect: StaticEffect::EntersTapped,
     }];
-    land.activated[0].program.instructions = vec![Instruction::DrawControllerCards {
-        count: 2.into(),
-        source_block: 2,
-    }];
+    land.activated[0].program.instructions = vec![Instruction::draw(
+        PlayerExpr::you(Context::Activated),
+        2.into(),
+        2,
+    )];
     land.mana_abilities[0].source_block = 1;
     land.capabilities = land.requirements();
 
@@ -332,10 +331,11 @@ pub(super) fn witnesses() -> [Definition; 4] {
     creature.activated[0].cost = ActivationCost::Mana {
         cost: paid_mana.clone(),
     };
-    creature.activated[0].program.instructions = vec![Instruction::DrawControllerCards {
-        count: "123456789012345678901234567890".parse().unwrap(),
-        source_block: 0,
-    }];
+    creature.activated[0].program.instructions = vec![Instruction::draw(
+        PlayerExpr::you(Context::Activated),
+        "123456789012345678901234567890".parse().unwrap(),
+        0,
+    )];
     creature.capabilities = creature.requirements();
 
     let mut enchantment = creature.clone();
@@ -388,10 +388,11 @@ fn paid_counted_draw() {
     type Mutation = (&'static str, fn(&mut Definition));
     let mutations: &[Mutation] = &[
         ("one-card draw", |d| {
-            d.activated[0].program.instructions = vec![Instruction::DrawControllerCards {
-                count: 1.into(),
-                source_block: 2,
-            }];
+            d.activated[0].program.instructions = vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                2,
+            )];
         }),
         ("duplicate ordinal", |d| {
             d.mana_abilities[0].source_block = 2

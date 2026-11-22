@@ -104,10 +104,7 @@ pub(super) fn lower(
     }
     validate_binding(binding, source, if *value == 1 { "one" } else { "many" })?;
     Ok(Some([
-        Instruction::DrawControllerCards {
-            count: draw,
-            source_block: 0,
-        },
+        Instruction::draw(PlayerExpr::you(Context::Spell), draw, 0),
         Instruction::GrantLandPlaysThisTurn {
             count,
             source_block: 0,

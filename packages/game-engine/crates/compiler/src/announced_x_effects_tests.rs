@@ -88,10 +88,13 @@ fn archive_witness(raw: &str, index: u32) {
         assert!(draw.targets.is_empty());
         assert_eq!(
             draw.instructions,
-            [Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Controller,
-                source_block: 0
-            }]
+            [Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: kir::Amount::announced_x()
+                },
+                0
+            )]
         );
         let burn = &p.modes[1].program;
         assert_target(burn, TargetDomain::AnyDamageTarget, "line:2:7");
@@ -120,11 +123,7 @@ fn archive_witness(raw: &str, index: u32) {
             gain(controller),
         ],
         1066 => {
-            let draw = Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            };
+            let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0);
             vec![
                 damage(),
                 draw.clone(),

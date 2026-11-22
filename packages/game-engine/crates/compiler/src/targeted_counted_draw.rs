@@ -36,12 +36,10 @@ pub(super) fn lower(
     if program.additional_sacrifice.is_some() || !program.optional_additional_costs.is_empty() {
         return Err(unsupported("counted draw", "requires ordinary spell costs"));
     }
-    let recipient = life_recipient(program, slots, who, false)?;
-    program.instructions.push(Instruction::DrawCards {
-        recipient: Some(recipient),
-        count: i64::from(*value).into(),
-        source_block: 0,
-    });
+    let player = life_player(program, slots, who, Context::Spell, None)?;
+    program
+        .instructions
+        .push(Instruction::draw(player, i64::from(*value).into(), 0));
     Ok(true)
 }
 
@@ -159,11 +157,7 @@ mod tests {
         assert!(targeted_counted_draw_program(p));
         assert_eq!(
             p.instructions,
-            [Instruction::DrawCards {
-                recipient: Some(LifeRecipient::Target { target_slot: 0 }),
-                count: 4.into(),
-                source_block: 0,
-            }]
+            [Instruction::draw(PlayerExpr::target(0), 4.into(), 0)]
         );
         assert_eq!(
             d.capabilities,
@@ -191,11 +185,7 @@ mod tests {
                     .instructions
                     .iter()
                     .filter(|i| {
-                        matches!(i, Instruction::DrawCards {
-                    recipient: Some(LifeRecipient::Target { target_slot: 0 }),
-                    count,
-                    source_block: 0,
-                } if *count == Quantity::from(1))
+                        matches!(i, kernel!(Draw { player: target_player!(0), amount: fixed!(count) } @ 0) if *count == Quantity::from(1))
                     })
                     .count(),
                 2

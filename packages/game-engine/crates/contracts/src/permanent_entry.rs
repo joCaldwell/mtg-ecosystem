@@ -96,13 +96,9 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
                 .and_then(equipped_trigger::draw_count)
                 .filter(|n| *n <= 10)
             {
-                program
-                    .instructions
-                    .extend((0..count).map(|_| Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: block,
-                    }));
+                program.instructions.extend((0..count).map(|_| {
+                    Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block)
+                }));
                 json!({"effect":"draw","who":you,"amount":fixed(count)})
             } else if let Some(n) = clause
                 .strip_prefix("you gain ")

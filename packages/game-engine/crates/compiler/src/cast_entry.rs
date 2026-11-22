@@ -428,11 +428,11 @@ fn fixed_self_pump_preserves_signed_stats_and_rejects_wrong_source() {
     forged.activated[0]
         .program
         .instructions
-        .push(Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 1,
-        });
+        .push(Instruction::draw(
+            PlayerExpr::you(Context::Activated),
+            1.into(),
+            1,
+        ));
     forged.capabilities = forged.requirements();
     assert!(forged.validate().is_err());
 }

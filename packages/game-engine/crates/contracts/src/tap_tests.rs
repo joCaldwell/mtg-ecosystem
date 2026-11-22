@@ -18,11 +18,7 @@ pub(super) fn tap() -> Definition {
             target_slot: 0,
             source_block: 0,
         },
-        Instruction::DrawCards {
-            count: 1.into(),
-            recipient: None,
-            source_block: 1,
-        },
+        Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1),
     ];
     d.capabilities = d.requirements();
     d
@@ -158,7 +154,6 @@ fn tap_rejects_other_draw_counts_recipients_orders_and_compositions() {
     for case in [
         "draw_zero",
         "draw_two",
-        "explicit_controller",
         "each_opponent",
         "target_recipient",
         "draw_first",
@@ -170,7 +165,11 @@ fn tap_rejects_other_draw_counts_recipients_orders_and_compositions() {
         let p = d.spell.as_mut().unwrap();
         match case {
             "draw_zero" | "draw_two" => {
-                let Instruction::DrawCards { count, .. } = &mut p.instructions[1] else {
+                let kernel!(Draw {
+                    player: kir::PlayerExpr::Is { .. },
+                    amount: fixed!(count)
+                }) = &mut p.instructions[1]
+                else {
                     unreachable!()
                 };
                 *count = if case == "draw_zero" {
@@ -179,16 +178,15 @@ fn tap_rejects_other_draw_counts_recipients_orders_and_compositions() {
                     2.into()
                 };
             }
-            "explicit_controller" | "each_opponent" | "target_recipient" => {
-                let Instruction::DrawCards { recipient, .. } = &mut p.instructions[1] else {
+            "each_opponent" | "target_recipient" => {
+                let kernel!(Draw { player, .. }) = &mut p.instructions[1] else {
                     unreachable!()
                 };
-                *recipient = Some(match case {
-                    "explicit_controller" => LifeRecipient::Controller,
-                    "each_opponent" => LifeRecipient::EachOpponent,
-                    "target_recipient" => LifeRecipient::Target { target_slot: 0 },
+                *player = match case {
+                    "each_opponent" => kir::PlayerExpr::EachOpponent,
+                    "target_recipient" => kir::PlayerExpr::target(0),
                     _ => unreachable!(),
-                });
+                };
             }
             "draw_first" => p.instructions.swap(0, 1),
             "duplicate_tap" => p.instructions.push(p.instructions[0].clone()),

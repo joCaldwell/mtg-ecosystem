@@ -9,7 +9,7 @@ pub(super) fn lower(
     source: &Value,
     result: &ParseResult,
     binding: &Value,
-) -> Result<Option<DrawEachCount>, Failure> {
+) -> Result<Option<kir::Amount>, Failure> {
     let Some(printed) = source["oracle_text"]
         .as_str()
         .and_then(|text| text.strip_prefix("Each player draws "))
@@ -27,7 +27,7 @@ pub(super) fn lower(
     }
     let abilities: Value = decode(result.abilities.get(), "abilities")?;
     let (count, amount) = if printed == "X cards." {
-        (DrawEachCount::AnnouncedX, json!({"amount":"x"}))
+        (kir::Amount::announced_x(), json!({"amount":"x"}))
     } else {
         let n = abilities[0]["effects"][0]["steps"][0]["amount"]["value"]
             .as_u64()
@@ -41,13 +41,11 @@ pub(super) fn lower(
             return Err(fail());
         }
         (
-            DrawEachCount::Fixed {
-                value: i64::from(n).into(),
-            },
+            kir::Amount::fixed(i64::from(n)),
             json!({"amount":"fixed","value":n}),
         )
     };
-    let x = count == DrawEachCount::AnnouncedX;
+    let x = count.is_announced_x();
     let who = json!({"player":"each-player"});
     let step = json!({"effect":"draw","who":who,"amount":amount});
     if abilities != json!([{"kind":"spell","effects":[{"steps":[step]}]}])
@@ -122,13 +120,13 @@ fn each_player_draw() {
         (
             16434,
             "6396d0c1b0870998b12b5e755702eae14f6ca027021b51c4ff8d47252cf06ee7",
-            DrawEachCount::Fixed { value: 2.into() },
+            kir::Amount::fixed(2),
             Capability::CastInstantV1,
         ),
         (
             29766,
             "ceb103d282b6979a50401010eab88d81a960950d42ac8fd17b8e10358c0a1658",
-            DrawEachCount::AnnouncedX,
+            kir::Amount::announced_x(),
             Capability::CastSorceryV1,
         ),
     ];
@@ -140,7 +138,7 @@ fn each_player_draw() {
             panic!("{compiled:?}")
         };
         assert_eq!(d.provenance.source_index, row - 2);
-        assert_eq!(d.x_mana_cost, count == DrawEachCount::AnnouncedX);
+        assert_eq!(d.x_mana_cost, count.is_announced_x());
         assert_eq!(
             d.capabilities,
             BTreeSet::from([
@@ -153,10 +151,13 @@ fn each_player_draw() {
         assert!(p.targets.is_empty() && p.modes.is_empty() && p.additional_sacrifice.is_none());
         assert_eq!(
             p.instructions,
-            [Instruction::DrawEachPlayer {
-                count,
-                source_block: 0
-            }]
+            [Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::EachPlayer,
+                    amount: count
+                },
+                0
+            )]
         );
 
         for case in [

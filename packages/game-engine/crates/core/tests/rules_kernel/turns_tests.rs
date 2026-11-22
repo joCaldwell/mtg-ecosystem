@@ -1243,10 +1243,11 @@ fn flash_end_step_draw() {
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
-            instructions: vec![Instruction::DrawControllerCards {
-                count: 7.into(),
-                source_block: 1,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                7.into(),
+                1,
+            )],
             modes: vec![],
         },
     }];

@@ -1,4 +1,4 @@
-use super::{Instruction, SetExpr, kir::Amount};
+use super::{Instruction, PlayerExpr, SetExpr, kir::Amount};
 use serde_json::{Value, json};
 
 pub(super) fn forbid_unbound_operation(schema: &mut Value, name: &str, operation: &str) {
@@ -31,6 +31,85 @@ pub(crate) fn kernel_verb(verb: &str) -> Value {
 pub(crate) fn kernel_verbs(verbs: &[&str]) -> Value {
     json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
         "required":["do"],"properties":{"do":{"required":["verb"],"properties":{"verb":{"enum":verbs}}}}}}})
+}
+
+/// Selects one kernel verb named `verb` whose player operand is exactly
+/// `player`: the group or recipient a family is defined by.
+pub(crate) fn kernel_verb_for(verb: &str, player: &PlayerExpr) -> Value {
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
+        "required":["do"],"properties":{"do":{"required":["verb","player"],"properties":{
+            "verb":{"const":verb},"player":{"const":player}}}}}}})
+}
+
+/// "You" in any controller role (CR 109.5).
+fn you() -> Value {
+    json!({"required":["player","who"],"properties":{"player":{"const":"is"},
+        "who":{"required":["ref"],"properties":{"ref":{"const":"controller"}}}}})
+}
+
+/// A fixed amount whose value matches `value` (a string schema).
+fn fixed(value: Value) -> Value {
+    json!({"required":["amount","value"],"properties":{"amount":{"const":"fixed"},"value":value}})
+}
+
+const COUNT: &str = "^(0|[1-9][0-9]*)$";
+
+/// One kernel draw whose player and amount match these operand schemas.
+fn draw(player: Value, amount: Value) -> Value {
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
+        "required":["do"],"properties":{"do":{"required":["verb","player","amount"],"properties":{
+            "verb":{"const":"draw"},"player":player,"amount":amount}}}}}})
+}
+
+/// CR 121.1: the controller draws exactly one card.
+pub(crate) fn single_draw() -> Value {
+    draw(you(), fixed(json!({"const":"1"})))
+}
+
+/// CR 121.2: the controller draws a fixed count other than one, as one
+/// counted sequence. `pattern` narrows the count further when a family does.
+pub(crate) fn counted_draw(pattern: &str) -> Value {
+    draw(
+        you(),
+        fixed(json!({"type":"string","pattern":pattern,"not":{"const":"1"}})),
+    )
+}
+
+/// `counted_draw` for any count.
+pub(crate) fn any_counted_draw() -> Value {
+    counted_draw(COUNT)
+}
+
+/// A fixed draw that is not a counted controller draw: one card for the
+/// controller, or any fixed count for an announced or event player.
+pub(crate) fn uncounted_draw() -> Value {
+    json!({"anyOf":[single_draw(), player_draw(json!({}))]})
+}
+
+/// An announced or event player draws a fixed count matching `count`.
+pub(crate) fn player_draw(count: Value) -> Value {
+    draw(
+        json!({"required":["player"],"properties":{"player":{"const":"is"}},"not":you()}),
+        fixed(json!({"allOf":[{"type":"string","pattern":COUNT},count]})),
+    )
+}
+
+/// Target player `slot` draws a fixed count matching `count`.
+pub(crate) fn target_draw(slot: u32, count: Value) -> Value {
+    draw(
+        json!({"const":PlayerExpr::target(slot)}),
+        fixed(json!({"allOf":[{"type":"string","pattern":COUNT},count]})),
+    )
+}
+
+/// `schema` at exactly `source_block`.
+pub(crate) fn at(schema: Value, source_block: u32) -> Value {
+    json!({"allOf":[schema,{"properties":{"source_block":{"const":source_block}}}]})
+}
+
+/// `schema` at a source block no greater than `maximum`.
+pub(crate) fn at_most(schema: Value, maximum: u32) -> Value {
+    json!({"allOf":[schema,{"required":["source_block"],"properties":{"source_block":{"maximum":maximum}}}]})
 }
 
 /// Selects a kernel sequence. The opponent drain pair is the only audited one

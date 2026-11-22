@@ -63,10 +63,11 @@ pub(super) fn lower(
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
-            instructions: vec![Instruction::DrawControllerCards {
-                count: i64::from(*value).into(),
-                source_block: source_block(block)?,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                i64::from(*value).into(),
+                source_block(block)?,
+            )],
             modes: vec![],
         },
     }))
@@ -83,7 +84,7 @@ pub(super) fn validate_source(
             .activated
             .iter()
             .find_map(|a| match a.program.instructions.as_slice() {
-                [Instruction::DrawControllerCards { source_block, .. }] => Some(*source_block),
+                [draw] => draw.counted_controller_draw().map(|(_, block)| block),
                 _ => None,
             })
     else {
@@ -304,10 +305,11 @@ mod tests {
         assert_eq!(activation.cost, expected_cost);
         assert_eq!(
             activation.program.instructions,
-            vec![Instruction::DrawControllerCards {
-                count: count.into(),
+            vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                count.into(),
                 source_block
-            }]
+            )]
         );
         assert_eq!(
             definition.source_labels.as_ref().unwrap().activated,

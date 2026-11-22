@@ -27,11 +27,7 @@ fn prepared(already_tapped: bool) -> Prepared {
                 target_slot: 0,
                 source_block: 0
             },
-            Instruction::DrawCards {
-                recipient: None,
-                count,
-                source_block: 1
-            }
+            kernel!(Draw { player: you!(), amount: fixed!(count) } @ 1)
         ] if *count == Quantity::from(1)
     ));
     catalog.definitions.push(*definition);

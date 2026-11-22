@@ -68,7 +68,10 @@ fn composition_wave_a_independently_qualifies_permanent_entry() {
     assert_eq!(d.mana_abilities.len(), 1);
     assert!(matches!(
         d.triggered[0].program.instructions.as_slice(),
-        [Instruction::DrawCards { .. }]
+        [kernel!(Draw {
+            player: kir::PlayerExpr::Is { .. },
+            amount: fixed!(_)
+        })]
     ));
     let d = lowered(ARC);
     assert_eq!(

@@ -80,11 +80,7 @@ fn fixed_mill_complete_sources_cost_order_targets_and_provenance() {
             caps.insert(Capability::ControllerDrawV1);
             assert_eq!(
                 p.instructions[1],
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 1
-                }
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
             );
         }
         assert_eq!(d.capabilities, caps);

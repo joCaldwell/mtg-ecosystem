@@ -136,11 +136,7 @@ fn effects(body: &str, block: u32, context: Context) -> Option<(Vec<Instruction>
             } else if matches!(lower.as_str(), "draw a card" | "you draw a card") {
                 (
                     json!({"effect":"draw","who":{"player":"you"},"amount":fixed(1)}),
-                    Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: block,
-                    },
+                    Instruction::draw(PlayerExpr::you(context), 1.into(), block),
                 )
             } else {
                 let n = lower
@@ -285,7 +281,7 @@ fn has_scalar(a: &SpellProgram) -> bool {
         )
     }) || matches!(
         a.instructions.as_slice(),
-        [kernel!(GainLife { .. }), Instruction::DrawCards { .. }]
+        [kernel!(GainLife { .. }), draw] if draw.uncounted_draw()
     )
 }
 
@@ -332,10 +328,10 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
                 Instruction::Scry { .. }
                     | Instruction::Surveil { .. }
                     | Instruction::CreatePredefinedTokens { .. }
-                    | Instruction::DrawCards {
-                        recipient: None,
-                        ..
-                    }
+                    | kernel!(Draw {
+                        player: you!(),
+                        amount: fixed!(_)
+                    })
                     | kernel!(GainLife { player: you!(), .. })
             )
         })
@@ -421,14 +417,14 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(schema: &mut Value) {
     let has_look = json!({"contains":{"properties":{"op":{"enum":["scry","surveil","create_predefined_tokens"]}}}});
-    let inst = json!({"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["scry","surveil","draw_cards","create_predefined_tokens"]}}},instruction_schema::kernel_verb("gain_life")]}});
+    let inst = json!({"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["scry","surveil","create_predefined_tokens"]}}},instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}});
     schema["$defs"]["ScalarAbilityProgram"] = json!({"type":"object","required":["instructions","targets"],"properties":{
         "timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
         "targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},
         "optional_additional_costs":{"maxItems":0},"instructions":{"allOf":[inst,{"anyOf":[has_look,{
             "minItems":2,"maxItems":2,"prefixItems":[
                 instruction_schema::kernel_verb("gain_life"),
-                {"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"}}}
+                instruction_schema::single_draw()
             ],"items":false}]}]}
     }});
     schema["$defs"]["ScalarAbilityTrigger"] = json!({"required":["condition","program"],"properties":{

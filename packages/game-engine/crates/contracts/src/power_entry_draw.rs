@@ -19,11 +19,10 @@ fn draw_ability(ability: &TriggeredAbility) -> Option<bool> {
     }
     match p.instructions.as_slice() {
         [
-            Instruction::DrawCards {
-                recipient: None,
-                count,
-                ..
-            },
+            kernel!(Draw {
+                player: you!(),
+                amount: fixed!(count)
+            }),
         ] if *count == Quantity::from(1) => Some(false),
         [Instruction::OptionalDrawCards { .. }] => Some(true),
         _ => None,
@@ -148,7 +147,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         if optional {
             json!({"required":["op"],"properties":{"op":{"const":"optional_draw_cards"}}})
         } else {
-            json!({"required":["op","count"],"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"}}})
+            instruction_schema::single_draw()
         }
     };
     let ability = |condition: &Value, condition_if: &Value, optional: bool| {

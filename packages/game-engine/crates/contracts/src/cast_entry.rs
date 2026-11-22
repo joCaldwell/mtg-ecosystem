@@ -43,13 +43,11 @@ pub(super) fn validate_source(d: &Definition, fixed_activations: bool) -> Result
             draw["optional"] = json!(true);
             ("you may draw a card.", draw)
         }
-        [
-            Instruction::DrawCards {
-                recipient: None,
-                count,
-                source_block,
-            },
-        ] if *source_block == block && *count == Quantity::from(1) => ("draw a card.", draw),
+        [kernel!(Draw { player: you!(), amount: fixed!(count) } @ source_block)]
+            if *source_block == block && *count == Quantity::from(1) =>
+        {
+            ("draw a card.", draw)
+        }
         [Instruction::UntapControllerLands { source_block }] if *source_block == block => (
             "untap all lands you control.",
             json!({"effect":"untap","what":{"ref":"all","filter":{"types":["land"],"control":"you"}}}),
@@ -140,11 +138,11 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let instruction_shapes = (0..=1)
         .flat_map(|source_block| {
             [
-                vec![Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
+                vec![Instruction::draw(
+                    PlayerExpr::you(Context::Triggered),
+                    1.into(),
                     source_block,
-                }],
+                )],
                 vec![Instruction::OptionalDrawCards { source_block }],
                 vec![Instruction::UntapControllerLands { source_block }],
             ]

@@ -148,17 +148,13 @@ pub fn printed(line: &str, raw: &Value, block: u32) -> Option<TriggeredAbility> 
                     }
                 } else if n <= 2 {
                     if n == 2 {
-                        instructions.push(Instruction::DrawCards {
-                            recipient: None,
-                            count: 1.into(),
-                            source_block: block,
-                        });
+                        instructions.push(Instruction::draw(
+                            PlayerExpr::you(Context::Triggered),
+                            1.into(),
+                            block,
+                        ));
                     }
-                    Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: block,
-                    }
+                    Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block)
                 } else {
                     return None;
                 };
@@ -258,7 +254,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                 "functioning_zone":{"const":"battlefield"},"intervening_if":{"type":"null"},"death_filter":{"type":"null"},
                 "program":{"properties":{"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},
                     "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["draw_cards","optional_draw_cards","deal_damage","discard_cards","untap_controller_lands","create_predefined_tokens"]}}},instruction_schema::kernel_verb("gain_life")]}}}}
+                    "instructions":{"minItems":1,"items":{"anyOf":[{"properties":{"op":{"enum":["optional_draw_cards","deal_damage","discard_cards","untap_controller_lands","create_predefined_tokens"]}}},instruction_schema::uncounted_draw(),instruction_schema::kernel_verb("gain_life")]}}}}
             }}}}}},
         "else":{"properties":{"capabilities":{"not":cap}}}
     }));

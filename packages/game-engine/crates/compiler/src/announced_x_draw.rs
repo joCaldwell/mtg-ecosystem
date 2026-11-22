@@ -97,10 +97,13 @@ pub(super) fn lower(
             nodes.push(json!({"id":format!("card:{identity}{path}#quantity"),"path":path,"node":"event-result","event":event,"result":"quantity","cardinality":"one","availability":"if-produced","identity":"measured-quantity"}));
         }
         program.instructions.push(match op {
-            "draw" => Instruction::DrawAnnouncedX {
-                recipient: recipient.clone(),
-                source_block: 0,
-            },
+            "draw" => Instruction::act(
+                Verb::Draw {
+                    player: recipient.kernel(Context::Spell).expect("spell recipient"),
+                    amount: kir::Amount::announced_x(),
+                },
+                0,
+            ),
             "discard" => Instruction::DiscardCards {
                 recipient: None,
                 count: 1.into(),
@@ -191,10 +194,13 @@ mod tests {
         } else {
             LifeRecipient::Controller
         };
-        let draw = Instruction::DrawAnnouncedX {
-            recipient: recipient.clone(),
-            source_block: 0,
-        };
+        let draw = Instruction::act(
+            Verb::Draw {
+                player: recipient.kernel(Context::Spell).unwrap(),
+                amount: kir::Amount::announced_x(),
+            },
+            0,
+        );
         let expected = match index {
             6121 => vec![
                 draw,
@@ -252,10 +258,13 @@ mod tests {
         };
         assert_eq!(
             definition.spell.unwrap().instructions,
-            [Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot: 0 },
-                source_block: 0
-            }]
+            [Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::target(0),
+                    amount: kir::Amount::announced_x()
+                },
+                0
+            )]
         );
         for case in 0..10 {
             let bad = crate::tests::changed_source(&synthetic, |r| {

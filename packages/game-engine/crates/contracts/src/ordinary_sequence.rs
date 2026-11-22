@@ -360,18 +360,7 @@ fn instruction(
         ),
         Draw => (
             json!({"effect":"draw","who":you,"amount":amount}),
-            if cl.count == 1 {
-                Instruction::DrawCards {
-                    recipient: None,
-                    count,
-                    source_block,
-                }
-            } else {
-                Instruction::DrawControllerCards {
-                    count,
-                    source_block,
-                }
-            },
+            Instruction::draw(PlayerExpr::you(Context::Spell), count, source_block),
         ),
         Mill | TargetMill => {
             let (who, recipient) = if cl.operation == TargetMill {
@@ -545,22 +534,17 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
             recipient: None,
             ..
         })
-    ) && p.instructions.iter().any(|i| {
-        matches!(
-            i,
-            Instruction::DrawCards { .. } | Instruction::DrawControllerCards { .. }
-        )
-    });
+    ) && p.instructions.iter().any(|i| i.fixed_draw().is_some());
     for i in &p.instructions {
         match i {
             Instruction::Scry { .. }
             | Instruction::Surveil { .. }
             | Instruction::MillCards { .. }
             | Instruction::GrantLandPlaysThisTurn { .. } => library = true,
-            Instruction::DrawControllerCards { .. }
-            | Instruction::DrawCards {
-                recipient: None, ..
-            }
+            kernel!(Draw {
+                player: you!(),
+                amount: fixed!(_)
+            })
             | kernel!(GainLife { player: you!(), .. })
             | kernel!(LoseLife { player: you!(), .. })
             | Instruction::DiscardCards {
@@ -658,7 +642,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 pub(crate) fn extend_schema(schema: &mut Value) {
     let op = |name: &str| json!({"required":["op"],"properties":{"op":{"const":name}}});
     let library = json!({"required":["op"],"properties":{"op":{"enum":["scry","surveil","mill_cards","grant_land_plays_this_turn"]}}});
-    let draw = json!({"required":["op"],"properties":{"op":{"enum":["draw_cards","draw_controller_cards"]}}});
+    let draw = instruction_schema::kernel_verb("draw");
     let none = json!({"recipient":{"type":"null"}});
     let has_instruction = |op: &Value| json!({"properties":{"instructions":{"contains":op}}});
     let targets = |domain: &str, filter: Value| {
@@ -683,9 +667,9 @@ pub(crate) fn extend_schema(schema: &mut Value) {
                 "domain":{"enum":["any_player","battlefield_creature","battlefield_permanent"]}}}},
             "instructions":{"minItems":2,"items":{"anyOf":[
                 op("scry"),op("surveil"),{"allOf":[op("mill_cards"),{"properties":{"recipient":{"anyOf":[{"type":"null"},{"const":LifeRecipient::Target { target_slot:0 }}]}}}]},op("grant_land_plays_this_turn"),
-                op("draw_controller_cards"),op("destroy_target_creature"),
+                instruction_schema::any_counted_draw(),op("destroy_target_creature"),
                 op("exile_permanent"),op("return_to_owner_hand"),
-                {"allOf":[op("draw_cards"),{"properties":{"recipient":{"type":"null"},"count":{"const":"1"}}}]},
+                instruction_schema::single_draw(),
                 {"allOf":[op("discard_cards"),{"properties":none}]},
                 instruction_schema::kernel_verb("gain_life"),
                 instruction_schema::kernel_verb("lose_life"),
@@ -734,7 +718,6 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         }}
     }));
     for (name, cap) in [
-        ("draw_controller_cards", Capability::ControllerCountedDrawV1),
         (
             "grant_land_plays_this_turn",
             Capability::ControllerDrawLandAllowanceV1,
@@ -746,6 +729,10 @@ pub(crate) fn extend_schema(schema: &mut Value) {
     .map(|(name, cap)| (op(name), cap))
     .into_iter()
     .chain([
+        (
+            instruction_schema::any_counted_draw(),
+            Capability::ControllerCountedDrawV1,
+        ),
         (
             instruction_schema::kernel_verb("gain_life"),
             Capability::LifeGainV1,

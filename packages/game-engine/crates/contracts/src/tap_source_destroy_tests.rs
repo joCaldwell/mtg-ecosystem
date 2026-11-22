@@ -207,11 +207,11 @@ fn source_tap_destroy_rejects_unreviewed_costs_filters_programs_and_source_kinds
                 };
                 *regeneration_forbidden = true;
             }
-            "draw" => a.program.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            "draw" => a.program.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                0,
+            )),
             "slot" => {
                 a.program.instructions = vec![Instruction::DestroyPermanent {
                     target_slot: 1,

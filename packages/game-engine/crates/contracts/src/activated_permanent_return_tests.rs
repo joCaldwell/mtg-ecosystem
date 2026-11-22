@@ -185,11 +185,11 @@ fn activated_permanent_return_rejects_other_costs_qualifiers_and_compositions() 
                     source_block: 0,
                 }]
             }
-            "draw" => a.program.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            "draw" => a.program.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                0,
+            )),
             "additional" => {
                 a.program.additional_sacrifice = Some(SacrificeFilter {
                     types: vec![CardKind::Creature],

@@ -17,7 +17,7 @@ pub fn controller_library_order_program(p: &SpellProgram) -> bool {
         && p.targets.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && matches!(p.instructions.as_slice(),[Instruction::OrderLibraryTop{amount,source_block:0},Instruction::OptionalShuffleLibrary{source_block:0},Instruction::DrawCards{recipient:None,count,source_block:1}]if !amount.is_negative()&&*count==1.into())
+        && matches!(p.instructions.as_slice(),[Instruction::OrderLibraryTop{amount,source_block:0},Instruction::OptionalShuffleLibrary{source_block:0},kernel!(Draw { player: you!(), amount: fixed!(count) } @ 1)]if !amount.is_negative()&&*count==1.into())
 }
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
     if d.activated.iter().any(|a| has_order(&a.program))
@@ -49,7 +49,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
-    s["$defs"]["ControllerLibraryOrderProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":3,"maxItems":3,"prefixItems":[{"required":["op","amount","source_block"],"properties":{"op":{"const":"order_library_top"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","source_block"],"properties":{"op":{"const":"optional_shuffle_library"},"source_block":{"const":0}}},{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"},"source_block":{"const":1}}}],"items":false}}});
+    s["$defs"]["ControllerLibraryOrderProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":3,"maxItems":3,"prefixItems":[{"required":["op","amount","source_block"],"properties":{"op":{"const":"order_library_top"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","source_block"],"properties":{"op":{"const":"optional_shuffle_library"},"source_block":{"const":0}}},instruction_schema::at(instruction_schema::single_draw(), 1)],"items":false}}});
     s["$defs"]["OrderFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":["order_library_top","optional_shuffle_library"]}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/OrderFreeProgram"}}}}}});
     s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/OrderFreeProgram"}},"then":{"$ref":"#/$defs/ControllerLibraryOrderProgram"}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/OrderFreeProgram"}}}});
@@ -67,11 +67,7 @@ pub(crate) fn witness() -> Definition {
             source_block: 0,
         },
         Instruction::OptionalShuffleLibrary { source_block: 0 },
-        Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 1,
-        },
+        Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1),
     ];
     d.capabilities = d.requirements();
     d

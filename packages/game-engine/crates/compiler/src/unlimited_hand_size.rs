@@ -124,10 +124,11 @@ pub(super) fn lower_end_step_draw(
                 resolution: SpellResolution::Instructions,
                 functioning_zone: FunctioningZone::Stack,
                 targets: vec![],
-                instructions: vec![Instruction::DrawControllerCards {
-                    count: Quantity::from(i64::from(*value)),
-                    source_block: source_block(block)?,
-                }],
+                instructions: vec![Instruction::draw(
+                    PlayerExpr::you(Context::Triggered),
+                    Quantity::from(i64::from(*value)),
+                    source_block(block)?,
+                )],
                 modes: vec![],
             },
         });
@@ -150,16 +151,13 @@ fn validate_end_step_draw(
     let [ability] = definition.triggered.as_slice() else {
         return Err(shape_error());
     };
-    let [
-        Instruction::DrawControllerCards {
-            count,
-            source_block,
-        },
-    ] = ability.program.instructions.as_slice()
-    else {
+    let Some((count, source_block)) = (match ability.program.instructions.as_slice() {
+        [draw] => draw.counted_controller_draw(),
+        _ => None,
+    }) else {
         return Err(shape_error());
     };
-    let block = *source_block as usize;
+    let block = source_block as usize;
     let count = count
         .to_string()
         .parse::<i64>()
@@ -175,7 +173,7 @@ fn validate_end_step_draw(
     if !definition.characteristics.legendary
         || !definition.characteristics.additional_types.is_empty()
         || !definition.activated.is_empty()
-        || labels.triggered.as_slice() != [*source_block]
+        || labels.triggered.as_slice() != [source_block]
         || ability.condition != END_STEP_DRAW
         || count <= 0
         || !amount
@@ -485,10 +483,11 @@ fn flash_end_step_draw() {
         assert_eq!(ability.condition, END_STEP_DRAW);
         assert_eq!(
             ability.program.instructions,
-            [Instruction::DrawControllerCards {
-                count: Quantity::from(i64::from(count)),
-                source_block: 2,
-            }]
+            [Instruction::draw(
+                PlayerExpr::you(Context::Triggered),
+                Quantity::from(i64::from(count)),
+                2
+            )]
         );
     }
     assert!(lower_end_step_draw(&phase("each-opponent"), &[draw(7, false)], None, 1).is_err());

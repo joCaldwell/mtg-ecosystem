@@ -232,10 +232,13 @@ pub(super) fn instruction(
         Step::Draw {
             amount: DrawAmount::X {},
             ..
-        } => Instruction::DrawAnnouncedX {
-            recipient: LifeRecipient::Controller,
+        } => Instruction::act(
+            Verb::Draw {
+                player: PlayerExpr::you(Context::Spell),
+                amount: kir::Amount::announced_x(),
+            },
             source_block,
-        },
+        ),
         Step::Discard { .. } => Instruction::DiscardCards {
             recipient: None,
             count: 1.into(),

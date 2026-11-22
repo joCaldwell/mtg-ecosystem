@@ -715,21 +715,11 @@ impl Game {
                             .instructions
                             .get(frame.cursor as usize)
                         {
-                            Some(
-                                Instruction::DrawControllerCards {
-                                    source_block: b, ..
-                                }
-                                | Instruction::DrawEachPlayer {
-                                    source_block: b, ..
-                                },
-                            ) => b == source_block && frame.draw_progress.is_some(),
-                            Some(Instruction::DrawCards {
-                                count,
-                                source_block: b,
-                                ..
-                            }) => {
+                            // CR 121.2: a single draw has no progress; a
+                            // counted draw replaces one of its attempts.
+                            Some(kernel!(Draw { player, amount } @ b)) => {
                                 b == source_block
-                                    && (*count == Quantity::from(1)
+                                    && (mtg_contracts::kir::single_draw(player, amount)
                                         || frame.draw_progress.is_some())
                             }
                             Some(
@@ -742,9 +732,6 @@ impl Game {
                             Some(
                                 Instruction::DrawDamageAmount { source_block: b }
                                 | Instruction::DrawCardsIfAdditionalCost {
-                                    source_block: b, ..
-                                }
-                                | Instruction::DrawAnnouncedX {
                                     source_block: b, ..
                                 },
                             ) => b == source_block && frame.draw_progress.is_some(),

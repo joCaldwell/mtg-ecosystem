@@ -68,11 +68,11 @@ fn typed_land_search_contract_strict_complete_program_and_unbounded_positive_qua
         .as_mut()
         .unwrap()
         .instructions
-        .push(Instruction::DrawCards {
-            count: 1.into(),
-            recipient: None,
-            source_block: 0,
-        });
+        .push(Instruction::draw(
+            PlayerExpr::you(Context::Spell),
+            1.into(),
+            0,
+        ));
     mixed.capabilities = mixed.requirements();
     assert!(mixed.validate().is_err());
     let mut modal = d.clone();

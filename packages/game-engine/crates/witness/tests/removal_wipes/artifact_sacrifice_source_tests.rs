@@ -473,11 +473,11 @@ fn fixed_artifact_setup(with_mana: bool) -> Prepared {
             optional_additional_costs: vec![],
             targets: vec![],
             modes: vec![],
-            instructions: vec![Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                0,
+            )],
         },
     }];
     source.capabilities = source.requirements();

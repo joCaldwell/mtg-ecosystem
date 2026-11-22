@@ -90,10 +90,13 @@ fn paid_effects_setup() -> Prepared {
                 }
                 let draw = &mut program.modes[0].program;
                 draw.targets.clear();
-                draw.instructions = vec![Instruction::DrawAnnouncedX {
-                    recipient: LifeRecipient::Controller,
-                    source_block: 0,
-                }];
+                draw.instructions = vec![Instruction::act(
+                    Verb::Draw {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: kir::Amount::announced_x(),
+                    },
+                    0,
+                )];
                 program.modes[1].program.instructions = vec![damage.clone()];
             }
             RAY => {

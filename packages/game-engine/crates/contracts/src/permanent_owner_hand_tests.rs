@@ -157,11 +157,11 @@ fn permanent_owner_hand_rejects_incomplete_or_composed_programs() {
             }
             "missing_instruction" => p.instructions.clear(),
             "extra_return" => p.instructions.push(p.instructions[0].clone()),
-            "extra_draw" => p.instructions.push(Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1,
-            }),
+            "extra_draw" => p.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                1,
+            )),
             "extra_other_effect" => p.instructions.push(Instruction::DestroyPermanent {
                 target_slot: 0,
                 source_block: 1,

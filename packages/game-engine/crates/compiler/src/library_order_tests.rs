@@ -31,11 +31,7 @@ fn library_order_complete_ponder_cost_blocks_binding_and_legacy_search() {
                 source_block: 0
             },
             Instruction::OptionalShuffleLibrary { source_block: 0 },
-            Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1
-            }
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
         ]
     );
     assert_eq!(
@@ -111,11 +107,7 @@ fn library_order_rejects_qualified_null_partial_and_wrong_binding_source() {
             // sequence: the block pipeline lowers it, marked composed, as two
             // single draws (CR 121.2) with every other instruction unchanged.
             let d = tests::composed_near_miss(crate::tests::synthetic_compile(HEADER, &changed));
-            let draw = Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1,
-            };
+            let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1);
             assert_eq!(
                 d.spell.as_ref().unwrap().instructions,
                 vec![

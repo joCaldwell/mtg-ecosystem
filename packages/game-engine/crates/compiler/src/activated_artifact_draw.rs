@@ -19,11 +19,7 @@ pub(super) fn lower_two_draws(
     {
         return Ok(None);
     }
-    let draw = Instruction::DrawCards {
-        recipient: None,
-        count: 1.into(),
-        source_block: 0,
-    };
+    let draw = Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0);
     Ok(Some(ActivatedAbility {
         functioning_zone: FunctioningZone::Battlefield,
         cost: ActivationCost::Composite {
@@ -383,14 +379,8 @@ mod tests {
                 .capabilities
                 .contains(&Capability::ControllerDiscardV1)
         );
-        let mut expected = vec![
-            Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            };
-            draw_count
-        ];
+        let mut expected =
+            vec![Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0); draw_count];
         expected.push(Instruction::DiscardCards {
             count: 1.into(),
             recipient: None,

@@ -3,10 +3,11 @@
 use super::*;
 
 pub(crate) fn has_counted_draw(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::DrawCards {count, ..} if *count != Quantity::from(1)))
-        || p.modes.iter().any(|m| has_counted_draw(&m.program))
+    // A counted draw by the controller belongs to the hand-program families.
+    p.instructions.iter().any(|i| {
+        i.fixed_draw()
+            .is_some_and(|(player, count, _)| !player.is_you() && *count != Quantity::from(1))
+    }) || p.modes.iter().any(|m| has_counted_draw(&m.program))
 }
 
 /// A standalone, unqualified target-player draw with an executable count other than one.
@@ -22,11 +23,7 @@ pub fn targeted_counted_draw_program(p: &SpellProgram) -> bool {
             && t.chooser == Chooser::Controller
             && t.stage == EvaluationStage::Announcement
             && t.filter.is_none())
-        && matches!(p.instructions.as_slice(), [Instruction::DrawCards {
-            recipient: Some(LifeRecipient::Target { target_slot: 0 }),
-            count,
-            source_block: 0,
-        }] if !count.is_negative() && *count != Quantity::from(1))
+        && matches!(p.instructions.as_slice(), [kernel!(Draw { player: target_player!(0), amount: fixed!(count) } @ 0)] if !count.is_negative() && *count != Quantity::from(1))
 }
 
 pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
@@ -70,19 +67,15 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
             "slot":{"const":0},"selection_id":{"minLength":1},"domain":{"const":"any_player"},
             "chooser":{"const":"controller"},"stage":{"const":"announcement"},"filter":{"type":"null"}
         }}},
-        "instructions":{"minItems":1,"maxItems":1,"items":{
-            "required":["op","recipient","count","source_block"],"properties":{
-                "op":{"const":"draw_cards"},"recipient":{"const":LifeRecipient::Target {target_slot:0}},
-                "count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$","not":{"const":"1"}},
-                "source_block":{"const":0}
-            }
-        }}
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at(
+            instruction_schema::target_draw(0, json!({"not":{"const":"1"}})), 0
+        )}
     }});
     let free = json!({"$ref":"#/$defs/TargetedCountedDrawFreeProgram"});
     schema["$defs"]["TargetedCountedDrawFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op","count"],"properties":{
-            "op":{"const":"draw_cards"},"count":{"not":{"const":"1"}}
-        }}}},
+        // A counted draw by an announced or event player; the controller's
+        // counted draw belongs to the hand-program families.
+        "instructions":{"items":{"not":instruction_schema::player_draw(json!({"not":{"const":"1"}}))}},
         "modes":{"items":{"properties":{"program":free}}}
     }});
     schema["$defs"]["SpellProgram"]["allOf"]
@@ -139,11 +132,7 @@ pub(crate) fn witness() -> Definition {
         stage: EvaluationStage::Announcement,
         filter: None,
     }];
-    p.instructions = vec![Instruction::DrawCards {
-        recipient: Some(LifeRecipient::Target { target_slot: 0 }),
-        count: 4.into(),
-        source_block: 0,
-    }];
+    p.instructions = vec![Instruction::draw(PlayerExpr::target(0), 4.into(), 0)];
     d.capabilities = d.requirements();
     d
 }
@@ -154,7 +143,11 @@ fn targeted_counted_draw_requires_nonnegative_fixed_count_and_exact_capabilities
     for count in [-1, 0, 1, 2, 4] {
         let mut d = witness();
         let p = d.spell.as_mut().unwrap();
-        let Instruction::DrawCards { count: n, .. } = &mut p.instructions[0] else {
+        let kernel!(Draw {
+            player: kir::PlayerExpr::Is { .. },
+            amount: fixed!(n)
+        }) = &mut p.instructions[0]
+        else {
             unreachable!()
         };
         *n = count.into();
@@ -174,11 +167,11 @@ fn targeted_counted_draw_requires_nonnegative_fixed_count_and_exact_capabilities
         .as_mut()
         .unwrap()
         .instructions
-        .push(Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0,
-        });
+        .push(Instruction::draw(
+            PlayerExpr::you(Context::Spell),
+            1.into(),
+            0,
+        ));
     mixed.capabilities = mixed.requirements();
     assert!(mixed.validate().is_err());
 }

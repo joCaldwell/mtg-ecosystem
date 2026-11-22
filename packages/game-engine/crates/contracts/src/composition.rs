@@ -37,19 +37,7 @@ const FAMILY: u8 = 0;
 fn contexts(instruction: &Instruction) -> u8 {
     use Instruction as I;
     match instruction {
-        // CR 121.1-121.2: one card per instruction; larger fixed counts are
-        // emitted as repeated draws or as the sequential controller draw.
-        I::DrawCards {
-            recipient, count, ..
-        } => match recipient {
-            None | Some(LifeRecipient::Controller) | Some(LifeRecipient::Target { .. })
-                if *count == Quantity::from(1) =>
-            {
-                ANY
-            }
-            _ => FAMILY,
-        },
-        I::DrawControllerCards { .. } | I::OptionalDrawCards { .. } => ANY,
+        I::OptionalDrawCards { .. } => ANY,
         // CR 119.3: positive life changes for the controller, each opponent
         // or one announced player.
         I::Kernel { node, .. } => kernel_contexts(node),
@@ -125,10 +113,6 @@ fn contexts(instruction: &Instruction) -> u8 {
             | WipeAmount::CreatureCount
             | WipeAmount::OtherCastsManaValue => FAMILY,
         },
-        I::DrawEachPlayer { count, .. } => match count {
-            DrawEachCount::Fixed { .. } => ANY,
-            DrawEachCount::AnnouncedX => FAMILY,
-        },
         // CR 701.21a: each named player chooses and sacrifices.
         I::EachOpponentSacrifice { .. }
         | I::EachPlayerSacrifice { .. }
@@ -191,7 +175,6 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::LoseGameTargetPlayer { .. }
         | I::SacrificeCreature { .. }
         | I::DrawCardsIfAdditionalCost { .. }
-        | I::DrawAnnouncedX { .. }
         | I::DealDamageAnnouncedX { .. }
         | I::MillAnnouncedX { .. }
         | I::OptionalDrawUnlessCasterPays { .. }
@@ -231,6 +214,20 @@ fn kernel_contexts(node: &kir::Node) -> u8 {
                 ANY
             }
         }
+        // CR 121.1-121.2: a fixed draw by the controller, or by every player;
+        // one card for an announced player. An announced X, an event player
+        // and the targeted counted draw bind their families.
+        Some(Verb::Draw { player, amount }) => match (player, amount.as_fixed()) {
+            (_, None) => FAMILY,
+            (kir::PlayerExpr::EachPlayer, Some(_)) => ANY,
+            (player, Some(_)) if player.is_you() => ANY,
+            (player, Some(count))
+                if player.target_slot().is_some() && *count == Quantity::from(1) =>
+            {
+                ANY
+            }
+            _ => FAMILY,
+        },
         // CR 608.2h: a board-wide set is read as the instruction is performed.
         Some(
             Verb::Destroy {
@@ -897,10 +894,13 @@ mod tests {
         // Instruction row: event-bound and announced-X operations stay out.
         for instruction in [
             Instruction::DrawDamageAmount { source_block: 0 },
-            Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Controller,
-                source_block: 0,
-            },
+            Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: kir::Amount::announced_x(),
+                },
+                0,
+            ),
             Instruction::RevealAndCast { source_block: 0 },
         ] {
             let d = with(|d| {
@@ -1081,15 +1081,34 @@ mod tests {
         assert!(!admits_instruction(&pump, Context::Spell));
         assert!(admits_instruction(&pump, Context::Activated));
         assert!(admits_instruction(&pump, Context::Triggered));
-        // CR 121.2: only single draws are portable; larger counts are emitted
-        // as repeated instructions.
-        let draw = |count: i64| Instruction::DrawCards {
-            recipient: None,
-            count: count.into(),
-            source_block: 0,
-        };
-        assert!(admits_instruction(&draw(1), Context::Triggered));
-        assert!(!admits_instruction(&draw(2), Context::Triggered));
+        // CR 121.2: the controller's fixed draws are portable, as the counted
+        // controller draw always was; an announced player's draw is portable
+        // only as a single draw, and an announced X binds its family.
+        let draw = |player, count: i64| Instruction::draw(player, count.into(), 0);
+        let you = PlayerExpr::you(Context::Triggered);
+        assert!(admits_instruction(
+            &draw(you.clone(), 1),
+            Context::Triggered
+        ));
+        assert!(admits_instruction(&draw(you, 2), Context::Triggered));
+        assert!(admits_instruction(
+            &draw(PlayerExpr::target(0), 1),
+            Context::Spell
+        ));
+        assert!(!admits_instruction(
+            &draw(PlayerExpr::target(0), 2),
+            Context::Spell
+        ));
+        assert!(!admits_instruction(
+            &Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::announced_x()
+                },
+                0
+            ),
+            Context::Spell
+        ));
     }
 
     #[test]

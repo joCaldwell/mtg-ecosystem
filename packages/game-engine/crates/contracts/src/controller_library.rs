@@ -35,7 +35,7 @@ fn controller_look_program(p: &SpellProgram, surveil: bool) -> bool {
         Instruction::Surveil { amount, .. } if surveil => !amount.is_negative(),
         _ => false,
     };
-    let draw = |i: &Instruction| matches!(i, Instruction::DrawCards { recipient: None, count, .. } if *count == Quantity::from(1));
+    let draw = |i: &Instruction| matches!(i, kernel!(Draw { player: you!(), amount: fixed!(count) }) if *count == Quantity::from(1));
     match p.instructions.as_slice() {
         [i] => scry(i),
         [a, b] => (scry(a) && draw(b)) || (draw(a) && scry(b)),
@@ -341,7 +341,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::json;
     let scry = json!({"required":["op","amount","source_block"],"properties":{"op":{"const":"scry"},"amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"}}});
-    let draw = json!({"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"}}});
+    let draw = instruction_schema::single_draw();
     let root = json!({"required":["targets","instructions"],"properties":{
         "optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},
         "functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}
@@ -383,7 +383,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
         "then":{"anyOf":[{"$ref":"#/$defs/ControllerScryProgram"},{"$ref":"#/$defs/ArtifactCreatureKeywordProgram"},{"$ref":ordinary_sequence::SCHEMA},{"$ref":ability_sequence::SCHEMA}]}
     }));
     let has_scry = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/ScryFreeProgram"}}}});
-    let draw_in_program = json!({"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"draw_cards"}}}}}}}});
+    let draw_in_program = json!({"properties":{"spell":{"properties":{"instructions":{"contains":instruction_schema::uncounted_draw()}}}}});
     let def = schema["$defs"]["Definition"]["allOf"]
         .as_array_mut()
         .unwrap();
@@ -516,7 +516,7 @@ fn extend_surveil_schema(schema: &mut serde_json::Value) {
         {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
          "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
          "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}},
-        {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"draw_cards"}}}}}}}},
+        {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":instruction_schema::uncounted_draw()}}}}},
          "then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerDrawV1}}}},
          "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerDrawV1}}}}}}
     ]}}));
@@ -560,11 +560,7 @@ mod tests {
                     amount: amount.parse().unwrap(),
                     source_block: 0,
                 };
-                let draw = Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 1,
-                };
+                let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1);
                 d.spell.as_mut().unwrap().instructions = match order {
                     0 => vec![scry],
                     1 => vec![scry, draw],
@@ -645,11 +641,11 @@ mod tests {
                         .unwrap()
                         .targets
                 }
-                _ => p.instructions.push(Instruction::DrawCards {
-                    recipient: None,
-                    count: 2.into(),
-                    source_block: 0,
-                }),
+                _ => p.instructions.push(Instruction::draw(
+                    PlayerExpr::you(Context::Spell),
+                    2.into(),
+                    0,
+                )),
             }
             d.capabilities = d.requirements();
             assert!(d.validate().is_err(), "case {case}");
@@ -808,11 +804,7 @@ mod surveil_tests {
                     amount: n.parse().unwrap(),
                     source_block: 0,
                 };
-                let draw = Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 1,
-                };
+                let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1);
                 d.spell.as_mut().unwrap().instructions = match order {
                     0 => vec![look],
                     1 => vec![look, draw],

@@ -620,8 +620,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 1
               }
             ]
@@ -1757,8 +1772,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {
@@ -2806,13 +2836,43 @@
         "targets": [],
         "instructions": [
           {
-            "op": "draw_cards",
-            "count": "1",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
+            },
             "source_block": 1
           },
           {
-            "op": "draw_cards",
-            "count": "1",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
+            },
             "source_block": 1
           }
         ]
@@ -3222,8 +3282,23 @@
             "source_block": 0
           },
           {
-            "op": "draw_cards",
-            "count": "1",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
+            },
             "source_block": 1
           }
         ]
@@ -4976,8 +5051,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               },
               {
@@ -6631,13 +6721,43 @@
         "targets": [],
         "instructions": [
           {
-            "op": "draw_cards",
-            "count": "1",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
+            },
             "source_block": 0
           },
           {
-            "op": "draw_cards",
-            "count": "1",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
+            },
             "source_block": 0
           },
           {
@@ -7592,13 +7712,43 @@
         "targets": [],
         "instructions": [
           {
-            "op": "draw_cards",
-            "count": "1",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
+            },
             "source_block": 1
           },
           {
-            "op": "draw_cards",
-            "count": "1",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
+              }
+            },
             "source_block": 1
           }
         ]
@@ -10572,8 +10722,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -10965,23 +11130,43 @@
         ],
         "instructions": [
           {
-            "op": "draw_cards",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
               }
             },
-            "count": "1",
             "source_block": 0
           },
           {
-            "op": "draw_cards",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "draw",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                }
               }
             },
-            "count": "1",
             "source_block": 0
           },
           {
@@ -11148,8 +11333,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -11506,8 +11706,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 1
               }
             ]
@@ -13094,8 +13309,23 @@
                 "source_block": 0
               },
               {
-                "op": "draw_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "draw",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]

@@ -19,11 +19,11 @@ pub fn controlled_land_entry_trigger(life: Quantity, draw: bool) -> TriggeredAbi
         0,
     )];
     if draw {
-        instructions.push(Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0,
-        });
+        instructions.push(Instruction::draw(
+            PlayerExpr::you(Context::Triggered),
+            1.into(),
+            0,
+        ));
     }
     TriggeredAbility {
         condition: TriggerCondition::ControlledLandEntersBattlefield,
@@ -196,7 +196,8 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let with_draw = json!({"contains":{"const":ControllerDrawV1}});
     let as_commander = json!({"contains":{"const":CommanderIdentityV1}});
     let primary = instruction_schema::kernel_verb_at("gain_life", 0);
-    let secondary = json!({"const":Instruction::DrawCards { recipient: None, count: 1.into(), source_block: 0 }});
+    let secondary =
+        json!({"const":Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), 0)});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"allOf":[{"not":{"anyOf":[land_reclamation::selector(),proliferate::selector()]}},{"anyOf":[
             {"required":["triggered"],"properties":{"triggered":{"contains":{"required":["condition"],

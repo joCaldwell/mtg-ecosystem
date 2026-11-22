@@ -111,11 +111,7 @@ fn complete_pressure_point_preserves_tap_then_draw_and_full_provenance() {
                     target_slot: 0,
                     source_block: 0
                 },
-                Instruction::DrawCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 1
-                }
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
             ],
         })
     );
@@ -190,7 +186,7 @@ fn tap_source_consumes_complete_target_and_rejects_optional_or_qualified_steps()
         let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
         let spell = d.spell.as_ref().unwrap();
         assert_eq!(tests::sole_target(spell), expected);
-        assert_eq!(tests::ops(spell), ["tap_permanent", "draw_cards"]);
+        assert_eq!(tests::ops(spell), ["tap_permanent", "kernel"]);
     }
     for filter in [
         Value::Null,
@@ -302,16 +298,8 @@ fn tap_then_two_draws_is_an_ordinary_composed_sequence() {
                 target_slot: 0,
                 source_block: 0
             },
-            Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 1
-            },
-            Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 1
-            }
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1),
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
         ]
     );
 }

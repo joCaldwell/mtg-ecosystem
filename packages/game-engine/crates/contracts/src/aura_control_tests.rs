@@ -121,11 +121,11 @@ fn aura_control_rejects_every_outside_shape_even_with_recomputed_capabilities() 
                 .as_mut()
                 .unwrap()
                 .instructions
-                .push(Instruction::DrawCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 0,
-                })
+                .push(Instruction::draw(
+                    PlayerExpr::you(Context::Spell),
+                    1.into(),
+                    0,
+                ))
         }),
         ("mode", |d| {
             let p = d.spell.as_ref().unwrap().clone();
@@ -664,11 +664,11 @@ fn aura_control_general_keeps_complete_program_capability_and_metadata_fences() 
                     .as_mut()
                     .unwrap()
                     .instructions
-                    .push(Instruction::DrawCards {
-                        count: 1.into(),
-                        recipient: None,
-                        source_block: 2,
-                    })
+                    .push(Instruction::draw(
+                        PlayerExpr::you(Context::Spell),
+                        1.into(),
+                        2,
+                    ))
             }) as fn(&mut Definition),
         ),
         ("mode", |d| {

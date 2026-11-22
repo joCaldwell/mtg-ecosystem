@@ -87,11 +87,7 @@ impl BoundArtifactMode {
             let (ast, instruction) = if text == "Draw a card." {
                 (
                     json!({"effect":"draw","who":{"player":"you"},"amount":{"amount":"fixed","value":1}}),
-                    Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: block,
-                    },
+                    Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), block),
                 )
             } else if let Some(n) = text
                 .strip_prefix("You gain ")

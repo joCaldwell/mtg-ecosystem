@@ -216,11 +216,11 @@ fn activated_tap_rejects_other_costs_source_kinds_filters_and_compositions() {
                 .push(Color::B),
             "opponent" => a.program.targets[0].filter.as_mut().unwrap().opponent = true,
             "tapped" => a.program.targets[0].filter.as_mut().unwrap().tapped = true,
-            "draw" => a.program.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            "draw" => a.program.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                0,
+            )),
             "ability-zone" => a.functioning_zone = FunctioningZone::Stack,
             "program-zone" => a.program.functioning_zone = FunctioningZone::Battlefield,
             "timing" => a.program.timing = SpellTiming::MainPhase,

@@ -46,11 +46,7 @@ fn check(raw: &str) -> Box<Definition> {
         }]
     );
     assert!(draw_loss.program.targets.is_empty());
-    let draw = Instruction::DrawCards {
-        recipient: None,
-        count: 1.into(),
-        source_block: 0,
-    };
+    let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0);
     assert_eq!(
         draw_loss.program.instructions,
         [

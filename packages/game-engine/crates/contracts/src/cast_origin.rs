@@ -10,7 +10,7 @@ pub(super) fn validate(ability: &TriggeredAbility) -> Result<(), String> {
     if *caster != CasterRelation::Controller
         || !p.targets.is_empty()
         || !matches!(p.instructions.as_slice(),
-            [Instruction::DrawCards { recipient: None, count, .. }] if *count == Quantity::from(1))
+            [kernel!(Draw { player: you!(), amount: fixed!(count) })] if *count == Quantity::from(1))
     {
         return Err("cast-origin triggers require a battlefield controller cast and one mandatory controller draw".into());
     }
@@ -40,11 +40,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
                     "functioning_zone":{"const":"stack"},
                     "targets":{"maxItems":0},
                     "modes":{"maxItems":0},
-                    "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                        "op":{"const":"draw_cards"},
-                        "count":{"const":"1"},
-                        "recipient":{"type":"null"}
-                    }}}
+                    "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::single_draw()}
                 }}
             }}
         }));

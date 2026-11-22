@@ -43,10 +43,11 @@ fn controller_counted_draw_complete_costs_quantities_and_extra_clause_rejection(
         assert!(!d.capabilities.contains(&Capability::ControllerDrawV1));
         assert_eq!(
             d.spell.as_ref().unwrap().instructions,
-            vec![Instruction::DrawControllerCards {
-                count: n.into(),
-                source_block: 0
-            }]
+            vec![Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                n.into(),
+                0
+            )]
         );
         assert!(controller_counted_draw_program(d.spell.as_ref().unwrap()));
     }
@@ -88,11 +89,15 @@ fn controller_counted_draw_preserves_legacy_one_two_and_targeted_draws() {
         for i in &p.instructions {
             assert_eq!(
                 *i,
-                Instruction::DrawCards {
-                    recipient: target.then_some(LifeRecipient::Target { target_slot: 0 }),
-                    count: 1.into(),
-                    source_block: 0
-                }
+                Instruction::draw(
+                    if target {
+                        PlayerExpr::target(0)
+                    } else {
+                        PlayerExpr::you(Context::Spell)
+                    },
+                    1.into(),
+                    0
+                )
             )
         }
         assert_eq!(p.targets.len(), usize::from(target));
@@ -168,10 +173,7 @@ fn controller_counted_draw_life_complete_sources_costs_and_extra_clause_rejectio
         assert_eq!(
             d.spell.as_ref().unwrap().instructions,
             vec![
-                Instruction::DrawControllerCards {
-                    count: 3.into(),
-                    source_block: 0
-                },
+                Instruction::draw(PlayerExpr::you(Context::Spell), 3.into(), 0),
                 Instruction::act(
                     Verb::LoseLife {
                         player: PlayerExpr::you(Context::Spell),
@@ -223,11 +225,7 @@ fn controller_counted_draw_life_preserves_legacy_two_card_combinations() {
         for i in &p.instructions[..2] {
             assert_eq!(
                 *i,
-                Instruction::DrawCards {
-                    recipient: targeted.then_some(recipient.clone()),
-                    count: 1.into(),
-                    source_block: 0
-                }
+                Instruction::draw(recipient.kernel(Context::Spell).unwrap(), 1.into(), 0)
             );
         }
         assert_eq!(

@@ -81,14 +81,11 @@ impl LifeChapter {
             let ops = match self.effect {
                 ChapterEffect::Gain { amount } => vec![gain(amount)],
                 ChapterEffect::DrawLose { draw, loss } => {
-                    let mut steps = vec![
-                        Instruction::DrawCards {
-                            recipient: Some(LifeRecipient::Controller),
-                            count: 1.into(),
-                            source_block: block
-                        };
-                        draw as usize
-                    ];
+                    let mut steps =
+                        vec![
+                            Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block);
+                            draw as usize
+                        ];
                     steps.push(lose(PlayerExpr::you(Context::Triggered), loss));
                     steps
                 }
@@ -475,7 +472,6 @@ pub(super) fn extend_schema(schema: &mut Value) {
         ResolutionManaV1,
         LibraryPlayWindowV1,
     ];
-    let fixed = |op: &str, recipient: &str, field: &str| json!({"type":"object","required":["op","recipient",field],"properties":{"op":{"const":op},"recipient":{"const":recipient},(field):{"pattern":"^[1-9][0-9]*$"}}});
     let gain = instruction_schema::kernel_verb("gain_life");
     let sequence =
         |ops: Vec<Value>| json!({"minItems":ops.len(),"maxItems":ops.len(),"prefixItems":ops});
@@ -485,8 +481,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     ]);
     let registration = json!({"required":["op","program"],"properties":{"op":{"const":"register_controller_creature_entry_this_turn"},"program":{"properties":{"resolution":{"const":"instructions"},"timing":{"const":"instant"},"functioning_zone":{"const":"stack"},"instructions":child,"targets":{"maxItems":0},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
     let mut variants = vec![sequence(vec![gain]), sequence(vec![registration])];
-    let mut draw = fixed("draw_cards", "controller", "count");
-    draw["properties"]["count"] = json!({"const":"1"});
+    let draw = instruction_schema::single_draw();
     for n in 1..=3 {
         let mut steps = vec![draw.clone(); n];
         steps.push(instruction_schema::kernel_verb("lose_life"));

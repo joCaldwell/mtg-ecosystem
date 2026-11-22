@@ -93,11 +93,11 @@ fn untap_rejects_qualified_targets_and_incomplete_or_composed_programs() {
                     source_block: 0,
                 }]
             }
-            "extra" => p.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            "extra" => p.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                0,
+            )),
             "targets" => p.targets.clear(),
             "cost" => {
                 p.additional_sacrifice = Some(SacrificeFilter {

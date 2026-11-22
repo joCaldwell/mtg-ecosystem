@@ -160,11 +160,11 @@ fn compound_indestructible_rejects_structural_near_misses() {
                     SpellMode { program: child },
                 ];
             }
-            19 => p.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            19 => p.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                0,
+            )),
             _ => {
                 p.targets.push(p.targets[0].clone());
                 p.targets[1].slot = 1;

@@ -88,7 +88,7 @@ fn enchantment_destroy(p: &SpellProgram) -> bool {
 
 fn two_draws(p: &SpellProgram) -> bool {
     p.targets.is_empty() && p.instructions.len() == 2 && p.instructions.iter().all(|i|
-        matches!(i, Instruction::DrawCards { recipient: None, count, source_block: 0 } if *count == Quantity::from(1)))
+        matches!(i, kernel!(Draw { player: you!(), amount: fixed!(count) } @ 0) if *count == Quantity::from(1)))
 }
 
 fn discard_family(p: &SpellProgram) -> bool {
@@ -191,9 +191,7 @@ pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     );
     let draw = program(
         json!({"maxItems":0}),
-        json!({"minItems":2,"maxItems":2,"items":{"properties":{
-            "op":{"const":"draw_cards"},"count":{"const":"1"},"source_block":{"const":0},"recipient":{"type":"null"}
-        }}}),
+        json!({"minItems":2,"maxItems":2,"items":instruction_schema::at(instruction_schema::single_draw(), 0)}),
     );
     let mode = |shape: Value| json!({"contains":{"properties":{"program":shape}}});
     let modal = json!({"required":["modes"],"properties":{
@@ -459,14 +457,7 @@ fn targeted_discard_admits_exact_standalone_and_modal_programs() {
     }];
     let mut draw = discard.clone();
     draw.targets.clear();
-    draw.instructions = vec![
-        Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0
-        };
-        2
-    ];
+    draw.instructions = vec![Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0); 2];
     p.targets.clear();
     p.instructions.clear();
     p.modes = [destroy, draw, discard]

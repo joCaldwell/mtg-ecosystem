@@ -189,11 +189,11 @@ fn activated_counter_rejects_other_costs_filters_effects_and_context_shapes() {
                     source_block: 0,
                 }]
             }
-            "draw" => a.program.instructions.push(Instruction::DrawCards {
-                count: 1.into(),
-                recipient: None,
-                source_block: 0,
-            }),
+            "draw" => a.program.instructions.push(Instruction::draw(
+                PlayerExpr::you(Context::Triggered),
+                1.into(),
+                0,
+            )),
             "additional" => {
                 a.program.additional_sacrifice = Some(SacrificeFilter {
                     types: vec![CardKind::Creature],

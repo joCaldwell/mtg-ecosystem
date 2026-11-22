@@ -20,6 +20,9 @@ const fixtureDir = new URL("fixtures/", import.meta.url);
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const read = (name: string) => fs.readFileSync(new URL(name, fixtureDir), "utf8");
 const IR_SCHEMA_VERSION = 1;
+// CR 121.1: a Kernel IR draw of `count` cards by "you" in `role`.
+const draw = (role: string, count: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"draw",player:{player:"is",who:{ref:"controller",role}},amount:{amount:"fixed",value:count}}},source_block});
 const preflight = process.env.MTG_ENGINE_CONTRACT_PREFLIGHT === "1";
 // The normal acceptance run registers every existing test. Only the explicit
 // early preflight omits runtime-backed cases; it repeats cheap source/schema
@@ -332,7 +335,7 @@ test("action catalog preserves complete activated costs and opponent choice", ()
   assert.deepEqual(researcher.activated, [{
     functioning_zone: "battlefield", cost: "sacrifice_source",
     program: { functioning_zone: "stack", timing: "instant", resolution: "instructions", targets: [],
-      instructions: [{ op: "draw_cards", count: "1", source_block: 0 }, { op: "discard_cards", count: "1", source_block: 0 }] },
+      instructions: [draw("ability_controller", "1", 0), { op: "discard_cards", count: "1", source_block: 0 }] },
   }]);
   const edict = catalog.definitions.find((d: any) => d.oracle_id === "10c585c4-bf5b-4d8f-94a9-e9a5036a688f");
   assert.deepEqual(edict.characteristics.mana_cost, { generic: "1", colored: ["B"] });
@@ -381,8 +384,8 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     assert.equal(d.capabilities.includes("counter_stack_object_v1"), true);
   }
   for (const [name, cost, instructions] of [
-    ["merfolk-looter", "tap_source", ["draw_cards", "discard_cards"]],
-    ["azure-mage", { mana: { cost: { generic: "3", colored: ["U"] } } }, ["draw_cards"]],
+    ["merfolk-looter", "tap_source", ["draw", "discard_cards"]],
+    ["azure-mage", { mana: { cost: { generic: "3", colored: ["U"] } } }, ["draw"]],
   ] as const) {
     const source = JSON.parse(read(`${name}.json`));
     const d = catalog.definitions.find((d: any) => d.oracle_id === source.oracleIdentity);
@@ -390,7 +393,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     assert.deepEqual(d.characteristics.mana_cost, { generic: "1", colored: ["U"] });
     assert.deepEqual(d.activated, [{ functioning_zone: "battlefield", cost,
       program: { functioning_zone: "stack", timing: "instant", resolution: "instructions", targets: [],
-        instructions: instructions.map(op => ({ op, count: "1", source_block: 0 })) } }]);
+        instructions: instructions.map(op => op === "draw" ? draw("ability_controller", "1", 0) : ({ op, count: "1", source_block: 0 })) } }]);
   }
   const validate = new Ajv2020({ strict: false, formats: {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
@@ -436,7 +439,7 @@ test("damage and life catalog preserves complete sources and target domains", ()
   const hands=get("Healing Hands");
   assert.deepEqual(hands.characteristics.mana_cost,{generic:"2",colored:["W"]});
   assert.equal(hands.spell.targets[0].domain,"any_player");
-  assert.deepEqual(hands.spell.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"4"}}},source_block:0},{op:"draw_cards",count:"1",source_block:1}]);
+  assert.deepEqual(hands.spell.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"4"}}},source_block:0},draw("spell_controller","1",1)]);
   const nectar=get("Sacred Nectar");
   assert.deepEqual(nectar.characteristics.mana_cost,{generic:"1",colored:["W"]});
   assert.deepEqual(nectar.spell.targets,[]);
@@ -485,7 +488,7 @@ test("trigger catalog binds mandatory self and other events without trusting arc
   assert.deepEqual(visionary.characteristics.mana_cost,{generic:"1",colored:["G"]});
   assert.equal(visionary.triggered[0].condition,"self_enters_battlefield");
   assert.deepEqual(visionary.triggered[0].program.targets,[]);
-  assert.deepEqual(visionary.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:0}]);
+  assert.deepEqual(visionary.triggered[0].program.instructions,[draw("ability_controller","1",0)]);
   const warden=get("Essence Warden");
   assert.deepEqual(warden.characteristics.mana_cost,{generic:"0",colored:["G"]});
   assert.equal(warden.triggered[0].condition,"other_creature_enters_battlefield");
@@ -609,7 +612,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   for(const mutate of [
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes[0].hidden=true;},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Healing Salve").spell.modes.pop();},
-    (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[{op:"draw_cards",count:"1",source_block:0}];},
+    (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.instructions=[draw("spell_controller","1",0)];},
     (c: any)=>{const p=c.definitions.find((d: any)=>d.name==="Healing Salve").spell;p.modes[0].program.modes=structuredClone(p.modes);},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Slaughterhouse Bouncer").triggered[0].intervening_if="owner_hand_empty";},
     (c: any)=>{c.definitions.find((d: any)=>d.name==="Seeds of Strength").spell.targets[0].selection_id=3;},
@@ -1840,7 +1843,7 @@ test("exact-source damage recipient discard preserves its actor", () => {
     assert.ok(definition.capabilities.includes("event_player_discard_v1"));
     assert.deepEqual(definition.triggered[0].program.instructions,[
       {op:"discard_cards",recipient:"event_player",count:"1",source_block:0},
-      {op:"draw_cards",count:"1",source_block:0},
+      draw("ability_controller","1",0),
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
@@ -1983,7 +1986,7 @@ test("exact-source filtered damage distinguishes observer and creature source", 
       source:{subject:"creature_filter",controller:"controller",types:{predicate:"all",terms:[{predicate:"type",kind:"artifact"},{predicate:"type",kind:"creature"}]}},
       kind:"combat",recipient:"player",
     }});
-    assert.deepEqual(research.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:2}]);
+    assert.deepEqual(research.triggered[0].program.instructions,[draw("ability_controller","1",2)]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
 
@@ -2033,7 +2036,7 @@ test("exact-source controller damage discard preserves sequencing and context", 
     assert.ok(definition.capabilities.includes("controller_discard_v1"));
     assert.deepEqual(definition.triggered[0].condition,{damage_dealt:{source:{subject:"source"},kind:"combat",recipient:"player"}});
     assert.deepEqual(definition.triggered[0].program.instructions,[
-      {op:"draw_cards",count:"1",source_block:1},
+      draw("ability_controller","1",1),
       {op:"discard_cards",count:"1",source_block:1},
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
@@ -2115,8 +2118,8 @@ test("headless damage v2 profile compiles all 36 exact sources", () => {
   const catalog=loadCatalog("damage-matches-v2");
   assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,36);
-  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"46a6ab070f1d3a094a8b95c6ae43b4c7f301bfae04fb10a2b5eee754abe578a4");
-  assert.equal(read("catalogs/damage-matches.sha256").trim(),"30886a2a41478249356703bf39a52153449cb66cc512084d3a1ff94da682a2a5");
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"8fb412eb9ee7bf29ef241f95b01446d1dd9897dcbe5f0de43301dc15ea17cd66");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"5cf5be8c40692c197fcc74132abf3e47511bc8bed50e076dc0c479f4e5f548af");
   const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
@@ -2175,7 +2178,7 @@ test("exact-source Snow creature and attacking deathtouch preserve strict shapes
     for(const cap of ["snow_supertype_v1","attacking_creature_keywords_v1","filtered_damage_trigger_v1"]) assert.ok(d.capabilities.includes(cap),cap);
     assert.deepEqual(d.static_abilities,[{functioning_zone:"battlefield",effect:{modify_creatures:{scope:"attacking_controller",power:"0",toughness:"0",keywords:["deathtouch"],restrictions:[]}}}]);
     assert.deepEqual(d.triggered[0].condition,{damage_dealt:{source:{subject:"creature_filter",controller:"controller",types:{predicate:"type",kind:"creature"}},kind:"combat",recipient:"player"}});
-    assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:1}]);
+    assert.deepEqual(d.triggered[0].program.instructions,[draw("ability_controller","1",1)]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
     for(const isolated of ["snow","scope"]) {
@@ -2240,7 +2243,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       source:{subject:"creature_filter",controller:"controller",types:{predicate:"type",kind:"creature"}},
       kind:"combat",recipient:"player",source_power:"greater_than_base",
     }});
-    assert.deepEqual(d.triggered[0].program.instructions,[{op:"draw_cards",count:"1",source_block:1}]);
+    assert.deepEqual(d.triggered[0].program.instructions,[draw("ability_controller","1",1)]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
     for(const mutate of [
@@ -2259,7 +2262,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
     }
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
-    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"46a6ab070f1d3a094a8b95c6ae43b4c7f301bfae04fb10a2b5eee754abe578a4");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"8fb412eb9ee7bf29ef241f95b01446d1dd9897dcbe5f0de43301dc15ea17cd66");
     assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}

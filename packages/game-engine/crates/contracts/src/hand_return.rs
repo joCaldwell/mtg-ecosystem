@@ -3,12 +3,11 @@
 use super::*;
 pub(crate) fn has_hand_program(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
-        matches!(
-            i,
-            Instruction::DrawControllerCards { .. }
-                | Instruction::PutHandOnLibrary { .. }
-                | Instruction::GrantLandPlaysThisTurn { .. }
-        )
+        i.counted_controller_draw().is_some()
+            || matches!(
+                i,
+                Instruction::PutHandOnLibrary { .. } | Instruction::GrantLandPlaysThisTurn { .. }
+            )
     }) || p.modes.iter().any(|m| has_hand_program(&m.program))
 }
 /// Exact counted controller draws followed by an ordered whole-hand return.
@@ -19,7 +18,7 @@ pub fn controller_hand_return_program(p: &SpellProgram) -> bool {
         && p.targets.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && matches!(p.instructions.as_slice(),[Instruction::DrawControllerCards{count:draw,source_block:0},Instruction::PutHandOnLibrary{count,source_block:0}]if !draw.is_negative()&&!count.is_negative())
+        && matches!(p.instructions.as_slice(),[kernel!(Draw { player: you!(), amount: fixed!(draw) } @ 0),Instruction::PutHandOnLibrary{count,source_block:0}]if !draw.is_negative()&&!count.is_negative())
 }
 pub(crate) fn controller_draw_land_allowance_program(p: &SpellProgram) -> bool {
     p.additional_sacrifice.is_none()
@@ -30,7 +29,7 @@ pub(crate) fn controller_draw_land_allowance_program(p: &SpellProgram) -> bool {
         && p.resolution == SpellResolution::Instructions
         && matches!(
             p.instructions.as_slice(),
-            [Instruction::DrawControllerCards { count: draw, source_block: 0 },
+            [kernel!(Draw { player: you!(), amount: fixed!(draw) } @ 0),
              Instruction::GrantLandPlaysThisTurn { count, source_block: 0 }]
                 if !draw.is_negative() && !count.is_negative()
         )
@@ -76,9 +75,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
-    let counted_draw = json!({"required":["op","count","source_block"],"properties":{
-        "op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}
-    }});
+    let counted_draw = instruction_schema::at(instruction_schema::any_counted_draw(), 0);
     s["$defs"]["ControllerDrawLandAllowanceProgram"] = json!({"properties":{
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
         "modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},
@@ -88,8 +85,8 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
                 "count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}
             }}],"items":false}
     }});
-    s["$defs"]["ControllerHandReturnProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[{"required":["op","count","source_block"],"properties":{"op":{"const":"draw_controller_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}},{"required":["op","count","source_block"],"properties":{"op":{"const":"put_hand_on_library"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}],"items":false}}});
-    s["$defs"]["HandReturnFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"enum":["draw_controller_cards","put_hand_on_library","grant_land_plays_this_turn"]}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}});
+    s["$defs"]["ControllerHandReturnProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[counted_draw.clone(),{"required":["op","count","source_block"],"properties":{"op":{"const":"put_hand_on_library"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}],"items":false}}});
+    s["$defs"]["HandReturnFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"anyOf":[instruction_schema::any_counted_draw(),{"required":["op"],"properties":{"op":{"enum":["put_hand_on_library","grant_land_plays_this_turn"]}}}]}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/HandReturnFreeProgram"}}}}}});
     s["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/HandReturnFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"},{"$ref":"#/$defs/ControllerDrawLandAllowanceProgram"},{"$ref":"#/$defs/FlashEndStepDrawProgram"},{"$ref":"#/$defs/PaidCountedDrawProgram"},{"$ref":ordinary_sequence::SCHEMA}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/HandReturnFreeProgram"}}}});
     let family = json!({"anyOf":[{"$ref":"#/$defs/ControllerHandReturnProgram"},{"$ref":"#/$defs/ControllerDrawDiscardProgram"},{"$ref":"#/$defs/ControllerCountedDrawProgram"},{"$ref":"#/$defs/ControllerDrawLandAllowanceProgram"},{"$ref":ordinary_sequence::SCHEMA}]});
@@ -133,17 +130,18 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
         ),
     ] {
         let ordinary = json!({"required":["spell"],"properties":{"spell":{"type":"object","$ref":format!("#/$defs/{program}")}}});
-        let composed_with = |op: &str| {
+        let composed_with = |instruction: serde_json::Value| {
             json!({"required":["spell"],"properties":{"spell":{
-                "$ref":ordinary_sequence::SCHEMA,"properties":{"instructions":{"contains":{"properties":{"op":{"const":op}}}}}
+                "$ref":ordinary_sequence::SCHEMA,"properties":{"instructions":{"contains":instruction}}
             }}})
         };
+        let op = |op: &str| json!({"properties":{"op":{"const":op}}});
         let family = match cap {
             Capability::ControllerCountedDrawV1 => {
-                json!({"anyOf":[ordinary,composed_with("draw_controller_cards"),{"$ref":"#/$defs/FlashEndStepDrawDefinition"},{"$ref":"#/$defs/PaidCountedDrawDefinition"}]})
+                json!({"anyOf":[ordinary,composed_with(instruction_schema::any_counted_draw()),{"$ref":"#/$defs/FlashEndStepDrawDefinition"},{"$ref":"#/$defs/PaidCountedDrawDefinition"}]})
             }
             Capability::ControllerDrawLandAllowanceV1 => {
-                json!({"anyOf":[ordinary,composed_with("grant_land_plays_this_turn")]})
+                json!({"anyOf":[ordinary,composed_with(op("grant_land_plays_this_turn"))]})
             }
             _ => ordinary,
         };
@@ -155,10 +153,7 @@ pub(crate) fn extend_schema(s: &mut serde_json::Value) {
 pub(crate) fn witness() -> Definition {
     let mut d = crate::controller_library::witness();
     d.spell.as_mut().unwrap().instructions = vec![
-        Instruction::DrawControllerCards {
-            count: 3.into(),
-            source_block: 0,
-        },
+        Instruction::draw(PlayerExpr::you(Context::Spell), 3.into(), 0),
         Instruction::PutHandOnLibrary {
             count: 2.into(),
             source_block: 0,
@@ -193,8 +188,10 @@ mod tests {
                     1 => p.instructions.swap(0, 1),
                     2 => p.instructions.push(p.instructions[1].clone()),
                     3 => {
-                        if let Instruction::DrawControllerCards { count, .. } =
-                            &mut p.instructions[0]
+                        if let kernel!(Draw {
+                            player: you!(),
+                            amount: fixed!(count)
+                        }) = &mut p.instructions[0]
                         {
                             *count = (-1).into()
                         }

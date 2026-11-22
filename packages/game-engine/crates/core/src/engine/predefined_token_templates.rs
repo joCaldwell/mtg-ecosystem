@@ -56,11 +56,9 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
         });
     } else {
         let instruction = match kind {
-            PredefinedToken::Clue => Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            },
+            PredefinedToken::Clue => {
+                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0)
+            }
             PredefinedToken::Food => Instruction::act(
                 Verb::GainLife {
                     player: PlayerExpr::you(Context::Activated),

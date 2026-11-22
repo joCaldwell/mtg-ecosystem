@@ -427,10 +427,7 @@ fn draw_discard_typed_zero_and_large_count_use_available_hand() {
                 .find(|d| d.name == "Careful Study")
                 .unwrap();
             d.spell.as_mut().unwrap().instructions = vec![
-                Instruction::DrawControllerCards {
-                    count: draw.into(),
-                    source_block: 0,
-                },
+                Instruction::draw(PlayerExpr::you(Context::Spell), draw.into(), 0),
                 Instruction::DiscardCards {
                     recipient: None,
                     count: discard.parse().unwrap(),

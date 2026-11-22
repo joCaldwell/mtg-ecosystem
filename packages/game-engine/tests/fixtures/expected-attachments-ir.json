@@ -295,8 +295,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -1129,8 +1144,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               },
               {
@@ -2244,8 +2274,23 @@
             "source_block": 0
           },
           {
-            "count": "1",
-            "op": "draw_cards",
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "verb": "draw"
+              }
+            },
+            "op": "kernel",
             "source_block": 1
           }
         ],
@@ -3653,8 +3698,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               },
               {
@@ -4528,13 +4588,43 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "count": "1",
-            "op": "draw_cards",
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "verb": "draw"
+              }
+            },
+            "op": "kernel",
             "source_block": 0
           },
           {
-            "count": "1",
-            "op": "draw_cards",
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "verb": "draw"
+              }
+            },
+            "op": "kernel",
             "source_block": 0
           },
           {
@@ -7200,8 +7290,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -7384,23 +7489,43 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "count": "1",
-            "op": "draw_cards",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "draw"
               }
             },
+            "op": "kernel",
             "source_block": 0
           },
           {
-            "count": "1",
-            "op": "draw_cards",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "node": {
+              "do": {
+                "amount": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "draw"
               }
             },
+            "op": "kernel",
             "source_block": 0
           },
           {
@@ -7576,8 +7701,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -7721,8 +7861,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "draw_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "draw"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],

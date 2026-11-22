@@ -555,10 +555,7 @@ fn hand_return_typed_zero_draw_and_unbounded_return_clamps_available_hand() {
                 .find(|d| d.name == "Brainstorm")
                 .unwrap();
             d.spell.as_mut().unwrap().instructions = vec![
-                Instruction::DrawControllerCards {
-                    count: draw.into(),
-                    source_block: 0,
-                },
+                Instruction::draw(PlayerExpr::you(Context::Spell), draw.into(), 0),
                 Instruction::PutHandOnLibrary {
                     count: count.parse().unwrap(),
                     source_block: 0,

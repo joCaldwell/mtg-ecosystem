@@ -85,13 +85,9 @@ pub(super) fn extend_schema(schema: &mut Value) {
         "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
         "targets":{"maxItems":0},
         "modes":{"maxItems":0},
-        "instructions":{"minItems":1,"maxItems":1,"items":{
-            "required":["op","count","source_block"],"properties":{
-                "op":{"const":"draw_controller_cards"},
-                "count":{"type":"string","pattern":"^[1-9][0-9]*$"},
-                "source_block":{"maximum":LAST_SOURCE_BLOCK}
-            }
-        }}
+        "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at_most(
+            instruction_schema::counted_draw("^[1-9][0-9]*$"), LAST_SOURCE_BLOCK
+        )}
     }});
     schema["$defs"]["FlashEndStepDrawDefinition"] = json!({
         "required":["characteristics","spell","keywords","static_abilities","triggered","capabilities"],
@@ -162,10 +158,11 @@ mod tests {
         definition.spell.as_mut().unwrap().timing = SpellTiming::Instant;
         let program = SpellProgram {
             resolution: SpellResolution::Instructions,
-            instructions: vec![Instruction::DrawControllerCards {
-                count: 7.into(),
-                source_block: 1,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Triggered),
+                7.into(),
+                1,
+            )],
             ..definition.spell.clone().unwrap()
         };
         definition.triggered = vec![TriggeredAbility {
@@ -215,10 +212,11 @@ mod tests {
         check_invalid(invalid);
         for (count, source_block) in [(0, 1), (7, 3)] {
             let mut invalid = definition.clone();
-            invalid.triggered[0].program.instructions = vec![Instruction::DrawControllerCards {
-                count: count.into(),
+            invalid.triggered[0].program.instructions = vec![Instruction::draw(
+                PlayerExpr::you(Context::Triggered),
+                count.into(),
                 source_block,
-            }];
+            )];
             check_invalid(invalid);
         }
         let mut ordinary = controller_counted_draw::witness();

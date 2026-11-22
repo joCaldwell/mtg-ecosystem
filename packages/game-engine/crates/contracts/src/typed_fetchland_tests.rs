@@ -42,11 +42,11 @@ fn typed_fetchland_contract_nonnegative_exact_quantity_and_complete_closure() {
             2 => probe.activated[0]
                 .program
                 .instructions
-                .push(Instruction::DrawCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 0,
-                }),
+                .push(Instruction::draw(
+                    PlayerExpr::you(Context::Activated),
+                    1.into(),
+                    0,
+                )),
             3 => probe.activated[0].program.optional_additional_costs.push(
                 OptionalAdditionalManaCost {
                     identity: "foreign".into(),

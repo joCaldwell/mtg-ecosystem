@@ -65,7 +65,13 @@ fn d2cc_archived_whole_programs_capability_closure() {
     );
     assert!(matches!(
         lower(SYTHIS).triggered[0].program.instructions.as_slice(),
-        [kernel!(GainLife { .. }), Instruction::DrawCards { .. }]
+        [
+            kernel!(GainLife { .. }),
+            kernel!(Draw {
+                player: kir::PlayerExpr::Is { .. },
+                amount: fixed!(_)
+            })
+        ]
     ));
     assert!(matches!(
         lower(ARCHER).triggered[0].program.instructions.as_slice(),

@@ -44,10 +44,10 @@ fn slice4_equipment_binds_distinct_sources_and_ordered_steps() {
         compiled(BLADE).triggered[0].program.instructions.as_slice(),
         [
             Instruction::DealDamage { target_slot: 0, .. },
-            Instruction::DrawCards {
-                recipient: None,
-                ..
-            }
+            kernel!(Draw {
+                player: you!(),
+                amount: fixed!(_)
+            })
         ]
     ));
     assert!(matches!(
@@ -91,7 +91,13 @@ fn slice4_look_steps_reuse_entry_attack_and_paid_sacrifice_contexts() {
     );
     assert!(matches!(
         omen.triggered[0].program.instructions.as_slice(),
-        [Instruction::Scry { .. }, Instruction::DrawCards { .. }]
+        [
+            Instruction::Scry { .. },
+            kernel!(Draw {
+                player: kir::PlayerExpr::Is { .. },
+                amount: fixed!(_)
+            })
+        ]
     ));
 }
 

@@ -31,7 +31,7 @@ pub fn fixed_mill_program(p: &SpellProgram) -> bool {
         _ => return false,
     };
     let mill = |i: &Instruction| matches!(i,Instruction::MillCards {recipient,count,..} if !count.is_negative() && match (target,recipient) {(None,None)=>true,(Some(0),Some(LifeRecipient::Target {target_slot:0}))=>true,_=>false});
-    let draw = |i: &Instruction| matches!(i,Instruction::DrawCards {recipient:None,count,..} if *count==Quantity::from(1));
+    let draw = |i: &Instruction| matches!(i,kernel!(Draw { player: you!(), amount: fixed!(count) }) if *count==Quantity::from(1));
     match p.instructions.as_slice() {
         [i] => mill(i),
         [a, b] => (mill(a) && draw(b)) || (draw(a) && mill(b)),
@@ -69,7 +69,7 @@ pub(crate) fn validate_definition(d: &Definition) -> Result<(), String> {
 pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::json;
     let root = json!({"properties":{"optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}}});
-    let draw = json!({"properties":{"op":{"const":"draw_cards"},"count":{"const":"1"},"recipient":{"type":"null"}}});
+    let draw = instruction_schema::single_draw();
     let mill = |recipient: serde_json::Value| json!({"required":["op","count","source_block"],"properties":{"op":{"const":"mill_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"recipient":recipient}});
     let composition = |m: serde_json::Value| json!({"oneOf":[{"minItems":1,"maxItems":1,"items":m},{"minItems":2,"maxItems":2,"prefixItems":[m,draw],"items":false},{"minItems":2,"maxItems":2,"prefixItems":[draw,m],"items":false}]});
     let own = mill(json!({"type":"null"}));
@@ -102,7 +102,7 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     def.push(json!({"if":has,"then":{"allOf":[
   {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},"then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},"else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}},
   {"if":{"properties":{"spell":{"properties":{"targets":{"contains":{"required":["domain"],"properties":{"domain":{"const":"any_player"}}}}}}}},"then":{"properties":{"capabilities":{"contains":{"const":Capability::AnyPlayerTargetV1}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::AnyPlayerTargetV1}}}}}},
-  {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"draw_cards"}}}}}}}},"then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerDrawV1}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerDrawV1}}}}}}
+  {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":instruction_schema::uncounted_draw()}}}}},"then":{"properties":{"capabilities":{"contains":{"const":Capability::ControllerDrawV1}}}},"else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ControllerDrawV1}}}}}}
  ]}}));
 }
 #[cfg(test)]
@@ -141,11 +141,7 @@ mod tests {
                         count: count.parse().unwrap(),
                         source_block: 0,
                     }];
-                    let draw = Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: 1,
-                    };
+                    let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1);
                     if order == 1 {
                         p.instructions.push(draw);
                     } else if order == 2 {

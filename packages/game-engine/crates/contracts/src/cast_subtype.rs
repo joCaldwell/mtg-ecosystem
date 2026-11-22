@@ -120,11 +120,7 @@ fn action(action: &str, block: u32) -> Option<(Value, Instruction)> {
                 source_block: block,
             }
         } else {
-            Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: block,
-            }
+            Instruction::draw(PlayerExpr::you(Context::Triggered), 1.into(), block)
         },
     ))
 }

@@ -3,10 +3,10 @@
 use super::*;
 use mtg_contracts::{
     ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
-    KeywordAbility, LifeRecipient, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
-    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount,
-    compound_indestructible_parameters, kernel,
-    kir::{Context, SetExpr},
+    KeywordAbility, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
+    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, WipeAmount, announced_x,
+    compound_indestructible_parameters, fixed, kernel,
+    kir::{self, Context, SetExpr},
     target_player,
 };
 use mtg_core::query::{self, Tri};
@@ -46,8 +46,10 @@ fn announced_x(instruction: &I) -> bool {
         I::DamageSet {
             amount: WipeAmount::AnnouncedX,
             ..
-        } | I::DrawAnnouncedX { .. }
-            | I::DealDamageAnnouncedX { .. }
+        } | kernel!(Draw {
+            player: kir::PlayerExpr::Is { .. },
+            amount: announced_x!()
+        }) | I::DealDamageAnnouncedX { .. }
             | I::MillAnnouncedX { .. }
             | kernel!(GainLife {
                 amount: mtg_contracts::announced_x!(),
@@ -400,14 +402,14 @@ impl Strategy<'_> {
                 player: target_player!(target_slot),
                 ..
             })
-            | I::DrawCards {
-                recipient: Some(LifeRecipient::Target { target_slot }),
-                ..
-            }
-            | I::DrawAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot },
-                ..
-            } => *target_slot == slot,
+            | kernel!(Draw {
+                player: target_player!(target_slot),
+                amount: fixed!(_)
+            })
+            | kernel!(Draw {
+                player: target_player!(target_slot),
+                amount: announced_x!()
+            }) => *target_slot == slot,
             _ => false,
         })
     }
@@ -1444,10 +1446,15 @@ impl Strategy<'_> {
                 break;
             }
             let score = self.wipe_score(v, p, &x).unwrap_or_else(|| {
-                let caps_draw = p
-                    .instructions
-                    .iter()
-                    .any(|instruction| matches!(instruction, I::DrawAnnouncedX { .. }));
+                let caps_draw = p.instructions.iter().any(|instruction| {
+                    matches!(
+                        instruction,
+                        kernel!(Draw {
+                            player: kir::PlayerExpr::Is { .. },
+                            amount: announced_x!()
+                        })
+                    )
+                });
                 if caps_draw
                     && v.players
                         .iter()
@@ -1912,8 +1919,10 @@ impl Strategy<'_> {
                                 || matches!(
                                     i,
                                     I::CreateCreatureTokens { .. }
-                                        | I::DrawCards { .. }
-                                        | I::DrawControllerCards { .. }
+                                        | kernel!(Draw {
+                                            player: kir::PlayerExpr::Is { .. },
+                                            amount: fixed!(_)
+                                        })
                                         | I::DistributePlusOneCounters { .. }
                                 )
                         });
@@ -1944,65 +1953,70 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let (tap, sac, cost) =
-            match &a.cost {
-                ActivationCost::TapPayLifeSacrificeSource { life } => {
-                    if self.library_count(v) == 0
-                        || !a.program.instructions.iter().any(develops_mana)
-                        || v.players
-                            .iter()
-                            .find(|p| p.player == v.viewer)
-                            .is_none_or(|p| p.life_frozen_until_next_turn || p.life <= *life)
-                    {
-                        return None;
-                    }
-                    (true, true, zero_cost())
-                }
-                ActivationCost::DiscardSource { mana } => {
-                    if self.library_count(v) < 2
-                        || !a.program.instructions.iter().any(|i| {
-                            matches!(i, I::DrawCards { .. } | I::DrawControllerCards { .. })
-                        })
-                    {
-                        return None;
-                    }
-                    (false, false, mana.clone())
-                }
-                ActivationCost::TapSource => (true, false, zero_cost()),
-                ActivationCost::SacrificeSource => (false, true, zero_cost()),
-                ActivationCost::Mana { cost } => (false, false, cost.clone()),
-                ActivationCost::Composite { costs } => {
-                    if costs
-                        .remove_source_plus_one_counters
-                        .as_ref()
-                        .is_some_and(|n| o.plus_one_counters < *n)
-                    {
-                        return None;
-                    }
-                    (
-                        costs.tap,
-                        costs.sacrifice,
-                        costs.mana.clone().unwrap_or_else(zero_cost),
-                    )
-                }
-                ActivationCost::SacrificePermanent {
-                    count,
-                    filter,
-                    mana,
-                } => {
-                    if *count != 1 {
-                        return None;
-                    }
-                    if !self
-                        .sacrifice_objects(v, filter)
+        let (tap, sac, cost) = match &a.cost {
+            ActivationCost::TapPayLifeSacrificeSource { life } => {
+                if self.library_count(v) == 0
+                    || !a.program.instructions.iter().any(develops_mana)
+                    || v.players
                         .iter()
-                        .any(|t| self.sacrifice_worthwhile(v, &a.program, t))
-                    {
-                        return None;
-                    }
-                    (false, false, mana.clone().unwrap_or_else(zero_cost))
+                        .find(|p| p.player == v.viewer)
+                        .is_none_or(|p| p.life_frozen_until_next_turn || p.life <= *life)
+                {
+                    return None;
                 }
-            };
+                (true, true, zero_cost())
+            }
+            ActivationCost::DiscardSource { mana } => {
+                if self.library_count(v) < 2
+                    || !a.program.instructions.iter().any(|i| {
+                        matches!(
+                            i,
+                            kernel!(Draw {
+                                player: kir::PlayerExpr::Is { .. },
+                                amount: fixed!(_)
+                            })
+                        )
+                    })
+                {
+                    return None;
+                }
+                (false, false, mana.clone())
+            }
+            ActivationCost::TapSource => (true, false, zero_cost()),
+            ActivationCost::SacrificeSource => (false, true, zero_cost()),
+            ActivationCost::Mana { cost } => (false, false, cost.clone()),
+            ActivationCost::Composite { costs } => {
+                if costs
+                    .remove_source_plus_one_counters
+                    .as_ref()
+                    .is_some_and(|n| o.plus_one_counters < *n)
+                {
+                    return None;
+                }
+                (
+                    costs.tap,
+                    costs.sacrifice,
+                    costs.mana.clone().unwrap_or_else(zero_cost),
+                )
+            }
+            ActivationCost::SacrificePermanent {
+                count,
+                filter,
+                mana,
+            } => {
+                if *count != 1 {
+                    return None;
+                }
+                if !self
+                    .sacrifice_objects(v, filter)
+                    .iter()
+                    .any(|t| self.sacrifice_worthwhile(v, &a.program, t))
+                {
+                    return None;
+                }
+                (false, false, mana.clone().unwrap_or_else(zero_cost))
+            }
+        };
         if tap
             && (o.tapped
                 || (d.characteristics.kind == CardKind::Creature
@@ -2011,11 +2025,7 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let draw = a
-            .program
-            .instructions
-            .iter()
-            .any(|i| matches!(i, I::DrawCards { .. }));
+        let draw = a.program.instructions.iter().any(I::uncounted_draw);
         if draw
             && v.players
                 .iter()

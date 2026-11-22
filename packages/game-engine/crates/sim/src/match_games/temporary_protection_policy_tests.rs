@@ -288,11 +288,16 @@ fn temporary_protection_policy_synthetic_identity_and_invalid_shape_controls_are
             .find(|d| d.oracle_id == id)
             .unwrap();
         match n {
-            0 => d.spell.as_mut().unwrap().instructions.push(I::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            }),
+            0 => d
+                .spell
+                .as_mut()
+                .unwrap()
+                .instructions
+                .push(mtg_contracts::Instruction::draw(
+                    mtg_contracts::kir::PlayerExpr::you(mtg_contracts::kir::Context::Spell),
+                    1.into(),
+                    0,
+                )),
             1 => d.spell.as_mut().unwrap().timing = SpellTiming::MainPhase,
             2 => {
                 d.spell.as_mut().unwrap().targets[0].domain =

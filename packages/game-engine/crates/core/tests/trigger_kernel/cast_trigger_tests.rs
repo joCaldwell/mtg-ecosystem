@@ -986,16 +986,20 @@ fn d2cc_actor_commander_draw_suspension_departure_and_decline_all_traces() {
             synthetic_relation(&mut p, CasterRelation::AnyPlayer, TypePredicate::Any {});
             edit(&mut p, STUDENT, |d| {
                 d.triggered[0].program.instructions = vec![
-                    Instruction::DrawCards {
-                        recipient: Some(LifeRecipient::EventPlayer),
-                        count: 1.into(),
-                        source_block: 0,
-                    },
-                    Instruction::DrawCards {
-                        recipient: Some(LifeRecipient::EventPlayer),
-                        count: 1.into(),
-                        source_block: 0,
-                    },
+                    Instruction::draw(
+                        mtg_contracts::kir::PlayerExpr::event(
+                            mtg_contracts::kir::EventPlayerRole::Caster,
+                        ),
+                        1.into(),
+                        0,
+                    ),
+                    Instruction::draw(
+                        mtg_contracts::kir::PlayerExpr::event(
+                            mtg_contracts::kir::EventPlayerRole::Caster,
+                        ),
+                        1.into(),
+                        0,
+                    ),
                     Instruction::act(
                         Verb::GainLife {
                             player: PlayerExpr::you(Context::Triggered),

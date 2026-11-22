@@ -27,7 +27,7 @@ test("typed_fetchland exported schema closes cost and complete activation shape"
     (d: any) => { delete d.activated[0].cost.tap_pay_life_sacrifice_source.life; },
     (d: any) => { d.activated[0].cost.tap_pay_life_sacrifice_source.payer = "owner"; },
     (d: any) => { d.activated[0].cost = "tap_source"; },
-    (d: any) => { d.activated[0].program.instructions.push({ op: "draw_cards", count: "1", source_block: 0 }); },
+    (d: any) => { d.activated[0].program.instructions.push({ op: "kernel", node: { do: { verb: "draw", player: { player: "is", who: { ref: "controller", role: "ability_controller" } }, amount: { amount: "fixed", value: "1" } } }, source_block: 0 }); },
     (d: any) => { d.activated[0].program.optional_additional_costs = [{ identity: "foreign", source_block: 0, mana: { generic: "1", colored: [] } }]; },
     (d: any) => { d.activated[0].program.instructions.push({ op: "draw_cards_if_additional_cost", count: "1", cost_identity: "foreign", source_block: 0 }); },
     (d: any) => { d.activated[0].program.timing = "main_phase"; },

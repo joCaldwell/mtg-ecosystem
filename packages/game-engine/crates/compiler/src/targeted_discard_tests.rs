@@ -120,14 +120,7 @@ fn modal_witness(d: &Definition) {
     assert!(draw.program.targets.is_empty());
     assert_eq!(
         draw.program.instructions,
-        vec![
-            Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0
-            };
-            2
-        ]
+        vec![Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0); 2]
     );
     assert_discard(&discard.program, TargetDomain::AnyPlayer, "line:3:1", 2);
 }

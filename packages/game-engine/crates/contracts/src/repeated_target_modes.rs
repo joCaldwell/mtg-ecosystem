@@ -64,11 +64,7 @@ pub fn program(name: &str, text: &str, ast: &Value, timing: SpellTiming) -> Opti
             }
             "Target player draws a card." => (
                 TargetDomain::AnyPlayer,
-                Instruction::DrawCards {
-                    recipient: Some(LifeRecipient::Target { target_slot: 0 }),
-                    count: 1.into(),
-                    source_block: 0,
-                },
+                Instruction::draw(PlayerExpr::target(0), 1.into(), 0),
                 json!({"effect":"draw","who":player,"amount":fixed(1)}),
             ),
             "Exile target player's graveyard." => (
@@ -164,7 +160,7 @@ pub(super) fn schema(s: &mut Value) {
             "phase_out_target_permanent",
             Some(Capability::TargetedPhasingV1),
         ),
-        (TargetDomain::AnyPlayer, "draw_cards", None),
+        (TargetDomain::AnyPlayer, "draw", None),
         (
             TargetDomain::AnyPlayer,
             "exile_target_graveyard",
@@ -199,13 +195,15 @@ pub(super) fn schema(s: &mut Value) {
                     operand["regeneration_forbidden"] = json!({"const":false});
                 }
             }
-            "draw_cards" => {
-                operand["recipient"] = json!({"const":LifeRecipient::Target{target_slot:0}});
-                operand["count"] = json!({"const":Quantity::from(1)});
-            }
+            "draw" => {}
             _ => {}
         }
-        let child = json!({"required":["program"],"properties":{"program":{"properties":{"resolution":{"const":"instructions"},"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"slot":{"const":0},"filter":filter}}},"instructions":{"minItems":1,"maxItems":1,"items":{"properties":operand}},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
+        let item = if op == "draw" {
+            instruction_schema::at(instruction_schema::target_draw(0, json!({"const":"1"})), 0)
+        } else {
+            json!({"properties":operand})
+        };
+        let child = json!({"required":["program"],"properties":{"program":{"properties":{"resolution":{"const":"instructions"},"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"slot":{"const":0},"filter":filter}}},"instructions":{"minItems":1,"maxItems":1,"items":item},"modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0}}}}});
         if let Some(required) = required {
             s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"required":["spell"],"properties":{"spell":{"type":"object","properties":{"resolution":{"const":SpellResolution::ChooseRepeatedModes{exactly:5}},"modes":{"contains":child}}}}},"then":{"properties":{"capabilities":{"contains":{"const":required}}}}}));
         }

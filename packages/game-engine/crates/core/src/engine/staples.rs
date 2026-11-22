@@ -227,47 +227,34 @@ impl Game {
         instruction: &Instruction,
     ) -> Result<PlayerId, String> {
         match instruction {
-            Instruction::DrawEachPlayer { .. } => frame
-                .each_player_draw
-                .as_ref()
-                .and_then(|scope| scope.remaining.first().copied())
-                .ok_or_else(|| "missing current each-player draw seat".into()),
-            Instruction::DrawCards {
-                recipient: Some(LifeRecipient::Target { target_slot }),
-                ..
-            }
-            | Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Target { target_slot },
-                ..
-            } => self
-                .entry(frame.stack_id)?
-                .player_targets
-                .get(*target_slot as usize)
-                .copied()
-                .ok_or_else(|| "missing draw target".into()),
-            Instruction::DrawCards {
-                recipient: Some(LifeRecipient::EventPlayer),
-                ..
-            } => self
-                .entry(frame.stack_id)?
-                .kind
-                .event_player()?
-                .ok_or_else(|| "absent draw event player".into()),
-            Instruction::DrawCards {
-                recipient: Some(LifeRecipient::EachOpponent),
-                ..
-            } => Err("unsupported each-opponent draw".into()),
-            Instruction::DrawCards {
-                recipient: None | Some(LifeRecipient::Controller),
-                ..
-            }
-            | Instruction::DrawAnnouncedX {
-                recipient: LifeRecipient::Controller,
-                ..
-            }
-            | Instruction::OptionalDrawUnlessCasterPays { .. }
+            kernel!(Draw { player, .. }) => match player {
+                mtg_contracts::kir::PlayerExpr::EachPlayer => frame
+                    .each_player_draw
+                    .as_ref()
+                    .and_then(|scope| scope.remaining.first().copied())
+                    .ok_or_else(|| "missing current each-player draw seat".into()),
+                mtg_contracts::kir::PlayerExpr::Is {
+                    who: mtg_contracts::kir::Ref::Target { slot },
+                } => self
+                    .entry(frame.stack_id)?
+                    .player_targets
+                    .get(*slot as usize)
+                    .copied()
+                    .ok_or_else(|| "missing draw target".into()),
+                mtg_contracts::kir::PlayerExpr::Is {
+                    who: mtg_contracts::kir::Ref::EventPlayer { .. },
+                } => self
+                    .entry(frame.stack_id)?
+                    .kind
+                    .event_player()?
+                    .ok_or_else(|| "absent draw event player".into()),
+                mtg_contracts::kir::PlayerExpr::Is {
+                    who: mtg_contracts::kir::Ref::Controller { .. },
+                } => Ok(self.entry(frame.stack_id)?.controller),
+                _ => Err("unsupported draw recipient".into()),
+            },
+            Instruction::OptionalDrawUnlessCasterPays { .. }
             | Instruction::OptionalDrawCards { .. }
-            | Instruction::DrawControllerCards { .. }
             | Instruction::DrawCardsIfAdditionalCost { .. }
             | Instruction::DrawDamageAmount { .. } => Ok(self.entry(frame.stack_id)?.controller),
             Instruction::OptionalDrawForSoleGreatestEntrant { .. } => frame

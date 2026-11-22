@@ -46,7 +46,7 @@ pub fn activated_artifact_draw_ability(ability: &ActivatedAbility) -> bool {
 fn draw_one(instruction: &Instruction) -> bool {
     matches!(
         instruction,
-        Instruction::DrawCards { count, recipient: None, source_block: 0 }
+        kernel!(Draw { player: you!(), amount: fixed!(count) } @ 0)
             if *count == Quantity::from(1)
     )
 }
@@ -78,7 +78,7 @@ pub(super) fn validate_source(d: &Definition) -> Result<(), String> {
 pub(super) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
 
-    let draw = unit_instruction_schema("draw_cards");
+    let draw = instruction_schema::at(instruction_schema::single_draw(), 0);
     let discard = unit_instruction_schema("discard_cards");
     let has_discard = json!({"required":["activated"],"properties":{
         "activated":{"contains":{"properties":{"program":{"properties":{
@@ -114,9 +114,9 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
         }
     });
     defs["ArtifactDrawFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":{"required":["op"],"properties":{
-            "op":{"enum":["draw_cards","optional_draw_cards","discard_cards"]}
-        }}}},
+        "instructions":{"items":{"not":{"anyOf":[instruction_schema::uncounted_draw(),{"required":["op"],"properties":{
+            "op":{"enum":["optional_draw_cards","discard_cards"]}
+        }}]}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/ArtifactDrawFreeProgram"}}}}
     }});
     let composite_draw = json!({
@@ -195,11 +195,11 @@ pub(super) fn witness() -> Definition {
     let mut d = activated_permanent_tap_tests::activated_tap();
     let p = &mut d.activated[0].program;
     p.targets.clear();
-    p.instructions = vec![Instruction::DrawCards {
-        count: 1.into(),
-        recipient: None,
-        source_block: 0,
-    }];
+    p.instructions = vec![Instruction::draw(
+        PlayerExpr::you(Context::Activated),
+        1.into(),
+        0,
+    )];
     d.capabilities = d.requirements();
     d
 }
@@ -256,11 +256,11 @@ fn paid_artifact_draw_requires_exact_ability_source_and_capabilities() {
             }
         }),
         ("wrong draw instruction", |d| {
-            d.activated[0].program.instructions = vec![Instruction::DrawCards {
-                count: 2.into(),
-                recipient: Some(LifeRecipient::Controller),
-                source_block: 1,
-            }];
+            d.activated[0].program.instructions = vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                2.into(),
+                1,
+            )];
         }),
     ];
     for (label, mutate) in mutations {

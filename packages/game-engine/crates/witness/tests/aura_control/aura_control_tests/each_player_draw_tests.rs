@@ -36,10 +36,13 @@ fn scenario() -> Prepared {
         spell.oracle_id = "synthetic-each-player-draw".into();
         spell.source_labels = None;
         spell.characteristics.mana_cost.generic = 1.into();
-        spell.spell.as_mut().unwrap().instructions = vec![Instruction::DrawEachPlayer {
-            count: DrawEachCount::Fixed { value: 2.into() },
-            source_block: 0,
-        }];
+        spell.spell.as_mut().unwrap().instructions = vec![Instruction::act(
+            Verb::Draw {
+                player: kir::PlayerExpr::EachPlayer,
+                amount: kir::Amount::fixed(2),
+            },
+            0,
+        )];
         spell.capabilities = spell.requirements();
         pod.config.cards[0].oracle_id = spell.oracle_id.clone();
         catalog

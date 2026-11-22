@@ -1285,7 +1285,6 @@ impl Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        let player = self.entry(frame.stack_id)?.controller;
         match instruction {
             Instruction::Kernel { node, source_block } => {
                 self.execute_kernel(frame, node, source_block)
@@ -1330,9 +1329,6 @@ impl Game {
                 count,
                 source_block,
             } => self.begin_hand_return(frame, count, source_block),
-            Instruction::DrawControllerCards { .. } | Instruction::DrawEachPlayer { .. } => {
-                self.draw_multiple(frame)
-            }
             Instruction::OrderLibraryTop {
                 amount,
                 source_block,
@@ -1603,42 +1599,6 @@ impl Game {
                     Ok(())
                 }
             }
-            Instruction::DrawCards {
-                recipient,
-                count,
-                source_block,
-            } => {
-                if count != Quantity::from(1) {
-                    return self.draw_multiple(frame);
-                }
-                let player = match recipient {
-                    Some(LifeRecipient::EachOpponent) => {
-                        return Err("unsupported each-opponent draw".into());
-                    }
-                    Some(LifeRecipient::EventPlayer) => {
-                        let Some(actor) = self.entry(frame.stack_id)?.kind.event_player()? else {
-                            return self.finish_instruction(
-                                frame,
-                                InstructionOutcome::Effect { actual: None },
-                            );
-                        };
-                        actor
-                    }
-                    None | Some(LifeRecipient::Controller) => player,
-                    Some(LifeRecipient::Target { target_slot }) => {
-                        if frame.legal_targets.get(target_slot as usize) != Some(&true) {
-                            return self.finish_instruction(
-                                frame,
-                                InstructionOutcome::Effect { actual: None },
-                            );
-                        }
-                        *self
-                            .bound_player_target(self.entry(frame.stack_id)?, target_slot as usize)
-                            .ok_or("missing draw player target")?
-                    }
-                };
-                self.draw_one(frame, player, source_block)
-            }
             Instruction::DrawCardsIfAdditionalCost { cost_identity, .. } => {
                 if !self
                     .additional_cost_was_selected(self.entry(frame.stack_id)?, &cost_identity)?
@@ -1648,9 +1608,7 @@ impl Game {
                 }
                 self.draw_multiple(frame)
             }
-            Instruction::DrawDamageAmount { .. } | Instruction::DrawAnnouncedX { .. } => {
-                self.draw_multiple(frame)
-            }
+            Instruction::DrawDamageAmount { .. } => self.draw_multiple(frame),
             // CR 603.5/608.2d: offer the option only during resolution, even
             // when the library is empty. Accepting performs the ordinary draw.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -1875,52 +1833,27 @@ impl Game {
     fn counted_draw_spec(
         &self,
         frame: &Resolving,
-        program: &SpellProgram,
         instruction: &Instruction,
     ) -> Result<Option<(Quantity, u32)>, String> {
         let (amount, source_block) = match instruction {
-            Instruction::DrawEachPlayer {
-                count,
-                source_block,
-            } => {
-                let amount = match count {
-                    DrawEachCount::Fixed { value } => value,
-                    DrawEachCount::AnnouncedX => self
-                        .entry(frame.stack_id)?
-                        .x
-                        .as_ref()
-                        .ok_or("missing announced X")?,
-                };
-                if amount.is_negative() {
-                    return Err("negative each-player draw amount".into());
+            // CR 121.2: every kernel draw other than one card by one player
+            // is a counted sequence of single draws.
+            kernel!(Draw { player, amount } @ source_block) => {
+                if mtg_contracts::kir::single_draw(player, amount) {
+                    return Ok(None);
                 }
-                (amount.clone(), *source_block)
-            }
-            Instruction::DrawControllerCards {
-                count,
-                source_block,
-            } => {
-                if count.is_negative() {
+                // CR 608.2b: an announced player draws only while that target
+                // is legal.
+                if let Some(slot) = player.target_slot()
+                    && frame.legal_targets.get(slot as usize) != Some(&true)
+                {
+                    return Err("missing legal counted draw target".into());
+                }
+                let amount = self.kernel_amount(frame, amount)?;
+                if amount.is_negative() {
                     return Err("negative counted draw amount".into());
                 }
-                (count.clone(), *source_block)
-            }
-            Instruction::DrawAnnouncedX {
-                recipient,
-                source_block,
-            } => {
-                if let LifeRecipient::Target { target_slot } = recipient
-                    && frame.legal_targets.get(*target_slot as usize) != Some(&true)
-                {
-                    return Err("missing legal announced-X draw target".into());
-                }
-                (
-                    self.entry(frame.stack_id)?
-                        .x
-                        .clone()
-                        .ok_or("missing announced X")?,
-                    *source_block,
-                )
+                (amount, *source_block)
             }
             Instruction::DrawDamageAmount { source_block } => {
                 (self.damage_draw_amount(frame)?, *source_block)
@@ -1932,19 +1865,6 @@ impl Game {
             } => {
                 if !self.additional_cost_was_selected(self.entry(frame.stack_id)?, cost_identity)? {
                     return Ok(None);
-                }
-                (count.clone(), *source_block)
-            }
-            Instruction::DrawCards {
-                count,
-                source_block,
-                ..
-            } if *count != Quantity::from(1) => {
-                if !targeted_counted_draw_program(program) {
-                    return Err("unsupported draw count".into());
-                }
-                if frame.legal_targets.first() != Some(&true) {
-                    return Err("missing legal counted draw target".into());
                 }
                 (count.clone(), *source_block)
             }
@@ -1984,7 +1904,7 @@ impl Game {
     // attempts. No SBA, card-count clamp or machine-integer conversion interrupts
     // the exact instruction. Commander replacement consumes just its attempt.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    fn draw_multiple(&mut self, mut frame: Resolving) -> Result<(), String> {
+    pub(super) fn draw_multiple(&mut self, mut frame: Resolving) -> Result<(), String> {
         self.validate_draw_progress(&frame)?;
         let program = self.program_for(self.entry(frame.stack_id)?)?;
         let instruction = program
@@ -1992,12 +1912,17 @@ impl Game {
             .get(frame.cursor as usize)
             .ok_or("missing counted draw instruction")?;
         let (amount, source_block) = self
-            .counted_draw_spec(&frame, program, instruction)?
+            .counted_draw_spec(&frame, instruction)?
             .ok_or("counted draw source invariant")?;
         // CR 121.2c: freeze the live APNAP order once, then perform all of
         // one player's draws before starting the next player's attempts.
-        if matches!(instruction, Instruction::DrawEachPlayer { .. })
-            && frame.each_player_draw.is_none()
+        if matches!(
+            instruction,
+            kernel!(Draw {
+                player: mtg_contracts::kir::PlayerExpr::EachPlayer,
+                ..
+            })
+        ) && frame.each_player_draw.is_none()
         {
             frame.each_player_draw = Some(EachPlayerDrawProgress {
                 remaining: self.apnap_players(),
@@ -2032,10 +1957,7 @@ impl Game {
                 .instructions
                 .get(frame.cursor as usize)
                 .ok_or("missing draw instruction")?;
-            if self
-                .counted_draw_spec(&frame, program, instruction)?
-                .is_some()
-            {
+            if self.counted_draw_spec(&frame, instruction)?.is_some() {
                 return Err("missing counted draw progress".into());
             }
             return self.finish_instruction(frame, outcome);
@@ -2082,13 +2004,17 @@ impl Game {
     fn validate_draw_progress(&self, frame: &Resolving) -> Result<(), String> {
         let program = self.program_for(self.entry(frame.stack_id)?)?;
         if let Some(scope) = &frame.each_player_draw {
-            let Some(instruction @ Instruction::DrawEachPlayer { .. }) =
-                program.instructions.get(frame.cursor as usize)
+            let Some(
+                instruction @ kernel!(Draw {
+                    player: mtg_contracts::kir::PlayerExpr::EachPlayer,
+                    ..
+                }),
+            ) = program.instructions.get(frame.cursor as usize)
             else {
                 return Err("each-player draw progress on another instruction".into());
             };
             let (amount, _) = self
-                .counted_draw_spec(frame, program, instruction)?
+                .counted_draw_spec(frame, instruction)?
                 .ok_or("missing each-player draw count")?;
             if scope.remaining.is_empty()
                 || (scope.completed.is_empty() && frame.draw_progress.is_none())
@@ -2103,7 +2029,7 @@ impl Game {
                 .get(frame.cursor as usize)
                 .ok_or("missing counted draw instruction")?;
             let (amount, source_block) = self
-                .counted_draw_spec(frame, program, instruction)?
+                .counted_draw_spec(frame, instruction)?
                 .ok_or("counted draw progress on another instruction")?;
             self.draw_player_for_instruction(frame, instruction)?;
             let mut total = progress.completed.clone();
@@ -2120,8 +2046,14 @@ impl Game {
             }
         }
         for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
-            let spec = self.counted_draw_spec(frame, program, instruction)?;
-            if matches!(instruction, Instruction::DrawEachPlayer { .. }) {
+            let spec = self.counted_draw_spec(frame, instruction)?;
+            if matches!(
+                instruction,
+                kernel!(Draw {
+                    player: mtg_contracts::kir::PlayerExpr::EachPlayer,
+                    ..
+                })
+            ) {
                 let InstructionOutcome::EachPlayerDrawAttempts { players } = outcome else {
                     return Err("missing each-player draw outcome".into());
                 };

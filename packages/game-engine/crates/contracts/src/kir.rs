@@ -1739,6 +1739,25 @@ impl Walk<'_, '_> {
                     _ => unaudited("life recipient"),
                 }
             }
+            // CR 121.1-121.2: the controller, one announced player, the
+            // trigger's event player or every player draws a fixed count or
+            // the announced X.
+            Verb::Draw { player, amount } => {
+                let announced = Self::fixed_or_announced_x(amount, 0, "draw count")?;
+                match player {
+                    PlayerExpr::Is {
+                        who: Ref::Controller { .. },
+                    }
+                    | PlayerExpr::EachPlayer => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::EventPlayer { .. },
+                    } if !announced => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::Target { .. },
+                    } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
+                    _ => unaudited("draw recipient"),
+                }
+            }
             // CR 701.8, 608.2h: destroy every battlefield permanent that
             // satisfies the filter as the instruction is performed.
             // CR 701.19c: forbidding regeneration is audited for the nonland
@@ -1852,6 +1871,17 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
                 out.insert(Capability::SacrificeV1);
             }
         }
+        // CR 121.2c, 107.3: the group and announced-X draws name their own
+        // surface. A fixed draw by one player is named by the complete
+        // program it belongs to (`Definition::requirements`).
+        Verb::Draw { player, amount } => {
+            event_player(player, out);
+            if *player == PlayerExpr::EachPlayer {
+                out.insert(Capability::EachPlayerDrawV1);
+            } else if amount.is_announced_x() {
+                out.insert(Capability::AnnouncedXDrawV1);
+            }
+        }
         // Board-wide destruction and movement share the reviewed wipe surface.
         Verb::Destroy {
             what: SetExpr::Matching { .. },
@@ -1865,6 +1895,12 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         }
         _ => {}
     }
+}
+
+/// CR 121.2: a draw of exactly one card by one player is a single draw.
+/// Every other draw is performed as a counted sequence of single draws.
+pub fn single_draw(player: &PlayerExpr, amount: &Amount) -> bool {
+    matches!(player, PlayerExpr::Is { .. }) && amount.as_fixed() == Some(&Quantity::from(1))
 }
 
 /// The capabilities a node derives, independent of where it resolves.

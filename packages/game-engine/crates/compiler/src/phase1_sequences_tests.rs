@@ -34,11 +34,7 @@ fn phase1_sequences_scalar_steps_keep_source_order_and_primitive_capabilities() 
                 count: 1.into(),
                 source_block: 0
             },
-            Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1
-            },
+            Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1),
         ]
     );
     for (raw, capabilities) in [

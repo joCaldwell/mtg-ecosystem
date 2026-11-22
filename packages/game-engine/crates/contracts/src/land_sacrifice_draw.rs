@@ -15,7 +15,7 @@ pub(super) fn present(d: &Definition) -> bool {
                 && a.program
                     .instructions
                     .iter()
-                    .any(|i| matches!(i, Instruction::DrawCards { .. }))
+                    .any(Instruction::uncounted_draw)
         })
 }
 
@@ -81,11 +81,11 @@ pub(super) fn validate(d: &Definition) -> Result<bool, String> {
         || !p.optional_additional_costs.is_empty()
         || p.additional_sacrifice.is_some()
         || p.instructions
-            != [Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 2,
-            }]
+            != [Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                2,
+            )]
         || payment.generic.is_negative()
         || payment.colored.contains(&Color::C)
     {
@@ -166,7 +166,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         ControllerDrawV1,
         LandSacrificeDrawV1,
     ];
-    let has_draw = json!({"required":["op"],"properties":{"op":{"const":"draw_cards"}}});
+    let has_draw = instruction_schema::uncounted_draw();
     let source_costs = json!({"required":["composite"],"properties":{
         "composite":{"properties":{"costs":{"properties":{"tap":{"const":true},"sacrifice":{"const":true}}}}}
     }});
@@ -190,10 +190,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "functioning_zone":{"const":"stack"},"timing":{"const":"instant"},"resolution":{"const":"instructions"},
             "targets":{"maxItems":0},"modes":{"maxItems":0},
             "additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":"draw_cards"},"recipient":{"type":"null"},
-                "count":{"const":"1"},"source_block":{"const":2}
-            }}}
+            "instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::at(instruction_schema::single_draw(), 2)}
         }}
     }}});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
@@ -261,11 +258,11 @@ pub(super) fn witness() -> Definition {
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             targets: vec![],
-            instructions: vec![Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 2,
-            }],
+            instructions: vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                2,
+            )],
             modes: vec![],
         },
     }];

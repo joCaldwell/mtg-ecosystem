@@ -34,10 +34,13 @@ fn paid_draw_setup() -> Prepared {
     spell.x_mana_cost = true;
     let recipient = LifeRecipient::Target { target_slot: 0 };
     spell.spell.as_mut().unwrap().instructions = vec![
-        Instruction::DrawAnnouncedX {
-            recipient: recipient.clone(),
-            source_block: 0,
-        },
+        Instruction::act(
+            Verb::Draw {
+                player: recipient.kernel(Context::Spell).unwrap(),
+                amount: mtg_contracts::kir::Amount::announced_x(),
+            },
+            0,
+        ),
         Instruction::announced_x_life(recipient.kernel(Context::Spell).unwrap(), false, 0),
     ];
     spell.capabilities = spell.requirements();

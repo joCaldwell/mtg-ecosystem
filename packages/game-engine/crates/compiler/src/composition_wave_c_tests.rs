@@ -65,7 +65,10 @@ fn composition_wave_c_restrictions_preserve_mana_sibling_and_ordered_draw() {
         spell.spell.unwrap().instructions.as_slice(),
         [
             Instruction::GrantCreatureRestriction { .. },
-            Instruction::DrawCards { .. }
+            kernel!(Draw {
+                player: kir::PlayerExpr::Is { .. },
+                amount: fixed!(_)
+            })
         ]
     ));
 }

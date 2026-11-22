@@ -53,11 +53,11 @@ fn cycling_complete_source_three_frozen_tapped_intrinsic_and_hand_programs() {
         );
         assert_eq!(
             d.activated[0].program.instructions,
-            vec![Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1
-            }]
+            vec![Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                1.into(),
+                1
+            )]
         );
         assert_eq!(d.source_labels.as_ref().unwrap().activated, vec![1]);
         assert_eq!(d.source_labels.as_ref().unwrap().statics, vec![0]);
@@ -198,14 +198,7 @@ fn cycling_fixed_spell_preserves_cast_draw_and_binds_hand_activation() {
     assert_eq!(spell.timing, SpellTiming::Instant);
     assert_eq!(
         spell.instructions,
-        vec![
-            Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            };
-            2
-        ]
+        vec![Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 0); 2]
     );
     let [activation] = definition.activated.as_slice() else {
         panic!("expected one hand activation");
@@ -223,11 +216,11 @@ fn cycling_fixed_spell_preserves_cast_draw_and_binds_hand_activation() {
     assert_eq!(definition.source_labels.as_ref().unwrap().activated, [1]);
     assert_eq!(
         activation.program.instructions,
-        [Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 1,
-        }]
+        [Instruction::draw(
+            PlayerExpr::you(Context::Activated),
+            1.into(),
+            1
+        )]
     );
     let mut forged = *definition;
     forged.activated.clear();

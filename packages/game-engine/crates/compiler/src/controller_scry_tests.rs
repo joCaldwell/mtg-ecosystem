@@ -102,11 +102,7 @@ fn controller_scry_compiler_four_frozen_sources_preserve_full_order_provenance_a
             amount: Quantity::from(n),
             source_block: b,
         };
-        let draw = |b| Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: b,
-        };
+        let draw = |b| Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), b);
         let expected = match *name {
             "Opt" => vec![scry(1, 0), draw(1)],
             "Preordain" => vec![scry(2, 0), draw(0)],

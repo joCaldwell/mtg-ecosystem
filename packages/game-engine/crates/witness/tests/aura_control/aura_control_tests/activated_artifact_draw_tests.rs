@@ -4,11 +4,7 @@
 use super::*;
 
 fn prepared_draw(cost: &ManaCost, discard: bool) -> Prepared {
-    let draw = Instruction::DrawCards {
-        recipient: None,
-        count: 1.into(),
-        source_block: 0,
-    };
+    let draw = Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0);
     let mut instructions = vec![draw.clone()];
     if discard {
         instructions.extend([
@@ -174,10 +170,11 @@ fn paid_counted_draw() {
             },
             source_block: 0,
         }],
-        vec![Instruction::DrawControllerCards {
-            count: 3.into(),
-            source_block: 1,
-        }],
+        vec![Instruction::draw(
+            PlayerExpr::you(Context::Activated),
+            3.into(),
+            1,
+        )],
     );
     let mut game = Game::new(prepared_artifact(catalog, artifact, false, 2));
     let activator = PlayerId(0);

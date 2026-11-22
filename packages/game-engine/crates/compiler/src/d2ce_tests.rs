@@ -294,10 +294,8 @@ fn d2ce_ir_strict_dimensions_mandatory_program_and_capability_closure() {
         assert!(serde_json::from_value::<TriggerCondition>(condition).is_err());
     }
     let mut event = d.clone();
-    if let Instruction::DrawCards { recipient, .. } =
-        &mut event.triggered[0].program.instructions[0]
-    {
-        *recipient = Some(LifeRecipient::EventPlayer);
+    if let kernel!(Draw { player, .. }) = &mut event.triggered[0].program.instructions[0] {
+        *player = PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer);
     } else {
         panic!("draw");
     }
@@ -339,9 +337,7 @@ fn source_damage_v2_exact_otter_source_and_provenance() {
     assert!(a.program.modes.is_empty());
     assert!(a.intervening_if.is_none());
     assert!(
-        matches!(a.program.instructions.as_slice(), [Instruction::DrawCards {
-        count, recipient: None, source_block: 0
-    }] if *count == Quantity::from(1))
+        matches!(a.program.instructions.as_slice(), [kernel!(Draw { player: you!(), amount: fixed!(count) } @ 0)] if *count == Quantity::from(1))
     );
     assert_eq!(d.provenance.source_sha256, source["sourceSha256"]);
     assert_eq!(d.provenance.ast_sha256, source["astSha256"]);
@@ -459,11 +455,11 @@ fn optional_draw_exact_commando_source_and_provenance() {
         let mandatory = lower(&raw);
         assert_eq!(
             mandatory.triggered[0].program.instructions,
-            [Instruction::DrawCards {
-                recipient: None,
-                count: Quantity::from(1),
-                source_block: 1
-            }]
+            [Instruction::draw(
+                PlayerExpr::you(Context::Triggered),
+                Quantity::from(1),
+                1
+            )]
         );
         assert!(
             !mandatory
@@ -530,11 +526,7 @@ fn event_player_discard_exact_cutpurse_source_provenance_and_binding() {
                 count: Quantity::from(1),
                 source_block: 0
             },
-            Instruction::DrawCards {
-                recipient: None,
-                count: Quantity::from(1),
-                source_block: 0
-            },
+            Instruction::draw(PlayerExpr::you(Context::Triggered), Quantity::from(1), 0),
         ]
     );
     assert!(a.program.targets.is_empty());
@@ -601,11 +593,11 @@ fn event_player_discard_rejects_unbound_qualified_and_unreviewed_programs() {
     // Damage recipient discard does not extend the older Draw/Life event-player
     // binding, which remains restricted to supported step and cast triggers.
     let mut damage_draw = lower(FOX);
-    damage_draw.triggered[0].program.instructions = vec![Instruction::DrawCards {
-        recipient: Some(LifeRecipient::EventPlayer),
-        count: Quantity::from(1),
-        source_block: 0,
-    }];
+    damage_draw.triggered[0].program.instructions = vec![Instruction::draw(
+        PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
+        Quantity::from(1),
+        0,
+    )];
     damage_draw.capabilities = damage_draw.requirements();
     assert!(damage_draw.validate().is_err());
     let mut damage_life = damage_draw;
@@ -791,11 +783,11 @@ fn filtered_damage_exact_research_source_provenance_and_conjunctive_types() {
     );
     assert_eq!(
         a.program.instructions,
-        [Instruction::DrawCards {
-            recipient: None,
-            count: Quantity::from(1),
-            source_block: 2
-        }]
+        [Instruction::draw(
+            PlayerExpr::you(Context::Triggered),
+            Quantity::from(1),
+            2
+        )]
     );
     assert!(
         a.program.targets.is_empty() && a.program.modes.is_empty() && a.intervening_if.is_none()
@@ -987,11 +979,7 @@ fn damage_controller_discard_exact_locke_source_provenance_and_order() {
     assert_eq!(
         a.program.instructions,
         [
-            Instruction::DrawCards {
-                recipient: None,
-                count: Quantity::from(1),
-                source_block: 1
-            },
+            Instruction::draw(PlayerExpr::you(Context::Triggered), Quantity::from(1), 1),
             Instruction::DiscardCards {
                 recipient: None,
                 count: Quantity::from(1),
@@ -1232,11 +1220,7 @@ fn damage_quantity_draw_rejects_unbound_ambiguous_and_qualified_source_shapes() 
         assert_eq!(
             d.triggered[0].program.instructions,
             vec![
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: Quantity::from(1),
-                    source_block: 0
-                };
+                Instruction::draw(PlayerExpr::you(Context::Triggered), Quantity::from(1), 0);
                 count as usize
             ]
         );
@@ -1290,11 +1274,11 @@ fn attacking_creature_keywords_exact_ohran_source_preserves_snow_and_both_abilit
     );
     assert_eq!(
         d.triggered[0].program.instructions,
-        [Instruction::DrawCards {
-            recipient: None,
-            count: Quantity::from(1),
-            source_block: 1
-        }]
+        [Instruction::draw(
+            PlayerExpr::you(Context::Triggered),
+            Quantity::from(1),
+            1
+        )]
     );
     for cap in [
         Capability::SnowSupertypeV1,
@@ -1499,11 +1483,11 @@ fn grouped_damage_exact_kutzil_source_binds_complete_scope_and_candidate_power()
     );
     assert_eq!(
         d.triggered[0].program.instructions,
-        [Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 1
-        }]
+        [Instruction::draw(
+            PlayerExpr::you(Context::Triggered),
+            1.into(),
+            1
+        )]
     );
     assert!(d.triggered[0].program.targets.is_empty() && d.triggered[0].program.modes.is_empty());
     for cap in [

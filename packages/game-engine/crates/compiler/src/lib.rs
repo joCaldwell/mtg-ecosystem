@@ -2999,10 +2999,13 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                     continue;
                 }
                 if let Some(count) = &each_player_draw {
-                    program.instructions.push(Instruction::DrawEachPlayer {
-                        count: count.clone(),
-                        source_block: 0,
-                    });
+                    program.instructions.push(Instruction::act(
+                        Verb::Draw {
+                            player: PlayerExpr::EachPlayer,
+                            amount: count.clone(),
+                        },
+                        0,
+                    ));
                     continue;
                 }
                 if let Some(instructions) = draw_land_allowance.take() {
@@ -3085,10 +3088,11 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                             "requires complete standalone source",
                         ));
                     }
-                    program.instructions.push(Instruction::DrawControllerCards {
+                    program.instructions.push(Instruction::draw(
+                        PlayerExpr::you(Context::Spell),
                         count,
-                        source_block: 0,
-                    });
+                        0,
+                    ));
                     if let Some(amount) = life_loss {
                         program.instructions.push(Instruction::act(
                             Verb::LoseLife {
@@ -3117,10 +3121,7 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                         ));
                     }
                     program.instructions.extend([
-                        Instruction::DrawControllerCards {
-                            count: draw,
-                            source_block: 0,
-                        },
+                        Instruction::draw(PlayerExpr::you(Context::Spell), draw, 0),
                         Instruction::DiscardCards {
                             recipient: None,
                             count,
@@ -3261,7 +3262,10 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                 || matches!(
                     p.instructions.as_slice(),
                     [
-                        Instruction::DrawAnnouncedX { .. },
+                        kernel!(Draw {
+                            player: kir::PlayerExpr::Is { .. },
+                            amount: announced_x!()
+                        }),
                         Instruction::DiscardCards { .. }
                     ]
                 )
@@ -3641,10 +3645,7 @@ fn append_spell_effects(
             ));
         }
         program.instructions.extend([
-            Instruction::DrawControllerCards {
-                count: draw,
-                source_block: 0,
-            },
+            Instruction::draw(PlayerExpr::you(context), draw, 0),
             Instruction::PutHandOnLibrary {
                 count,
                 source_block: 0,
@@ -4654,31 +4655,24 @@ fn append_spell_effects(
                     amount: DrawAmount::Fixed { value },
                     optional: false,
                 } => {
-                    let recipient = match life_recipient(
-                        program,
-                        slots,
-                        who,
-                        player_binding.event_role().is_some(),
-                    )? {
-                        LifeRecipient::Controller => None,
-                        r => Some(r),
-                    };
+                    let player =
+                        life_player(program, slots, who, context, player_binding.event_role())?;
+                    // CR 121.1: a group of opponents has no audited draw cell.
+                    if player == PlayerExpr::EachOpponent {
+                        return Err(unsupported("definition", "unsupported each-opponent draw"));
+                    }
                     if !(1..=2).contains(value) {
                         return Err(unsupported("effects.draw", "unsupported fixed draw count"));
                     }
                     // CR 121.2: multiple draws are performed one at a time.
                     for _ in 1..*value {
-                        program.instructions.push(Instruction::DrawCards {
-                            recipient: recipient.clone(),
-                            count: Quantity::from(1),
+                        program.instructions.push(Instruction::draw(
+                            player.clone(),
+                            Quantity::from(1),
                             source_block,
-                        });
+                        ));
                     }
-                    Instruction::DrawCards {
-                        recipient,
-                        count: Quantity::from(1),
-                        source_block,
-                    }
+                    Instruction::draw(player, Quantity::from(1), source_block)
                 }
                 Step::Counter { what } if what.reference == "target" && fixed_one(&what.count) => {
                     let domain = match &what.filter {
@@ -7272,11 +7266,11 @@ fn lower_activation(
                     who,
                     amount,
                     optional: false,
-                } if *who == you && amount.fixed_one() => Instruction::DrawCards {
-                    recipient: None,
-                    count: Quantity::from(1),
+                } if *who == you && amount.fixed_one() => Instruction::draw(
+                    PlayerExpr::you(Context::Activated),
+                    Quantity::from(1),
                     source_block,
-                },
+                ),
                 Step::Discard(DiscardStep::Chosen { who, what })
                     if *who == you
                         && what.reference == "filter"
@@ -8223,11 +8217,11 @@ mod tests {
                 .as_mut()
                 .unwrap()
                 .instructions
-                .push(Instruction::DrawCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 0,
-                });
+                .push(Instruction::draw(
+                    PlayerExpr::you(Context::Spell),
+                    1.into(),
+                    0,
+                ));
             extra.capabilities = extra.requirements().into_iter().collect();
             assert!(extra.validate().is_err());
             for (pointer, value) in [
@@ -8932,11 +8926,11 @@ mod tests {
             .as_mut()
             .unwrap()
             .instructions
-            .push(Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            });
+            .push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                0,
+            ));
         cases.push(d);
         let mut d = salve.clone();
         d.spell.as_mut().unwrap().modes.truncate(1);
@@ -10097,11 +10091,11 @@ mod tests {
                     timing: SpellTiming::Instant,
                     resolution: SpellResolution::Instructions,
                     targets: vec![],
-                    instructions: vec![Instruction::DrawCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: 0
-                    }]
+                    instructions: vec![Instruction::draw(
+                        PlayerExpr::you(Context::Triggered),
+                        1.into(),
+                        0
+                    )]
                 }
             }]
         );
@@ -10484,11 +10478,7 @@ mod tests {
                     },
                     0
                 ),
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 1
-                }
+                Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1)
             ]
         );
         let nectar = get("Sacred Nectar");
@@ -10725,11 +10715,11 @@ mod tests {
             .as_mut()
             .unwrap()
             .instructions
-            .push(Instruction::DrawCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 1,
-            });
+            .push(Instruction::draw(
+                PlayerExpr::you(Context::Spell),
+                1.into(),
+                1,
+            ));
         d.capabilities = d.requirements();
         c.validate().unwrap();
         let mut c = embedded_catalog("damage-life").unwrap();
@@ -10738,11 +10728,11 @@ mod tests {
             .iter_mut()
             .find(|d| d.name == "Prodigal Sorcerer")
             .unwrap();
-        d.activated[0].program.instructions = vec![Instruction::DrawCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0,
-        }];
+        d.activated[0].program.instructions = vec![Instruction::draw(
+            PlayerExpr::you(Context::Activated),
+            1.into(),
+            0,
+        )];
         d.capabilities = d.requirements();
         assert!(c.validate().is_err());
     }
@@ -10798,11 +10788,7 @@ mod tests {
         assert_eq!(
             looter.activated[0].program.instructions,
             [
-                Instruction::DrawCards {
-                    recipient: None,
-                    count: Quantity::from(1),
-                    source_block: 0
-                },
+                Instruction::draw(PlayerExpr::you(Context::Activated), Quantity::from(1), 0),
                 Instruction::DiscardCards {
                     recipient: None,
                     count: Quantity::from(1),
@@ -10826,11 +10812,11 @@ mod tests {
         );
         assert_eq!(
             mage.activated[0].program.instructions,
-            [Instruction::DrawCards {
-                recipient: None,
-                count: Quantity::from(1),
-                source_block: 0
-            }]
+            [Instruction::draw(
+                PlayerExpr::you(Context::Activated),
+                Quantity::from(1),
+                0
+            )]
         );
         for d in [looter, mage] {
             assert_eq!(
@@ -11504,11 +11490,11 @@ mod tests {
                     functioning_zone: FunctioningZone::Stack,
                     targets: vec![],
                     instructions: vec![
-                        Instruction::DrawCards {
-                            recipient: None,
-                            count: Quantity::from(1),
-                            source_block: 0
-                        },
+                        Instruction::draw(
+                            PlayerExpr::you(Context::Activated),
+                            Quantity::from(1),
+                            0
+                        ),
                         Instruction::DiscardCards {
                             recipient: None,
                             count: Quantity::from(1),
@@ -11718,11 +11704,11 @@ mod tests {
             |d| d.activated[0].program.functioning_zone = FunctioningZone::Battlefield,
             |d| d.activated[0].program.timing = SpellTiming::MainPhase,
             |d| {
-                d.activated[0].program.instructions = vec![Instruction::DrawCards {
-                    recipient: None,
-                    count: Quantity::from(2),
-                    source_block: 0,
-                }]
+                d.activated[0].program.instructions = vec![Instruction::draw(
+                    PlayerExpr::you(Context::Activated),
+                    Quantity::from(2),
+                    0,
+                )]
             },
             |d| {
                 d.activated[0].program.targets = vec![TargetSpec {
@@ -11771,10 +11757,7 @@ mod tests {
         for bad in [
             raw.replace("\"cost\":\"sacrifice_source\"", "\"cost\":\"tap_source\""),
             raw.replace("\"count\":\"1\"", "\"count\":\"01\""),
-            raw.replace(
-                "\"op\":\"draw_cards\"",
-                "\"optional\":true,\"op\":\"draw_cards\"",
-            ),
+            raw.replace("\"verb\":\"draw\"", "\"verb\":\"draw\",\"optional\":true"),
         ] {
             assert!(Catalog::read(&bad).is_err());
         }

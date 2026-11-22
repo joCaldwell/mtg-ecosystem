@@ -340,10 +340,10 @@ impl BoundModeSubset {
                                 player: target_player!(target_slot),
                                 ..
                             })
-                            | Instruction::DrawCards {
-                                recipient: Some(LifeRecipient::Target { target_slot }),
-                                ..
-                            }
+                            | kernel!(Draw {
+                                player: target_player!(target_slot),
+                                amount: fixed!(_)
+                            })
                             | Instruction::ExileTargetGraveyard { target_slot, .. }
                             | Instruction::DealDamage { target_slot, .. }
                             | Instruction::DestroyPermanent { target_slot, .. }

@@ -16,10 +16,7 @@ fn hand_return_complete_source_cost_bindings_and_program() {
     assert_eq!(
         d.spell.unwrap().instructions,
         vec![
-            Instruction::DrawControllerCards {
-                count: 3.into(),
-                source_block: 0
-            },
+            Instruction::draw(PlayerExpr::you(Context::Spell), 3.into(), 0),
             Instruction::PutHandOnLibrary {
                 count: 2.into(),
                 source_block: 0
