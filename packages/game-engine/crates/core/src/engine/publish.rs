@@ -36,10 +36,16 @@ impl Game {
             return Ok(());
         }
         let decider = self.state.rules.frame.decider(self)?;
-        if !self.republish_rows(decider)? {
-            self.publish_full(decider, false)?;
-        }
-        self.published = Some(Arc::new(Published::of(&self.state)));
+        let cache = if self.republish_rows(decider)? {
+            self.published
+                .as_ref()
+                .expect("reused a published view")
+                .cache
+                .clone()
+        } else {
+            self.publish_full(decider, false)?
+        };
+        self.published = Some(Arc::new(Published::of(&self.state, cache)));
         Ok(())
     }
 
@@ -71,7 +77,7 @@ impl Game {
                 .frame
                 .decider(&reference)
                 .map_err(String::from)
-                .and_then(|decider| reference.publish_full(decider, true))
+                .and_then(|decider| reference.publish_full(decider, true).map(|_| ()))
         };
         assert_eq!(
             *published, complete,

@@ -386,7 +386,7 @@ impl StoredPermittedView {
     pub(in crate::engine) fn from_rows(
         header: PermittedView,
         players: Vec<VisiblePlayer>,
-        objects: Vec<VisibleObject>,
+        objects: Vec<StoredObject>,
         stack: Vec<VisibleStackEntry>,
         previous: Option<&Self>,
     ) -> Self {
@@ -409,34 +409,9 @@ impl StoredPermittedView {
             stack: _,
         } = header;
         let previous = previous.filter(|previous| previous.viewer == viewer);
-        // Object rows: both lists are ordered by handle.
-        let mut rows = Vec::with_capacity(objects.len());
-        let mut all_shared = previous.is_some_and(|p| p.objects.len() == objects.len());
-        let old_rows = previous.map_or(&[][..], |p| p.objects.as_slice());
-        let mut old = old_rows.iter().peekable();
-        for object in objects {
-            while old
-                .peek()
-                .is_some_and(|row| row.handle.0.as_str() < object.handle.0.as_str())
-            {
-                old.next();
-            }
-            match old.peek() {
-                Some(row) if row.handle == object.handle && row.0.value == object => {
-                    all_shared &=
-                        rows.len() < old_rows.len() && Arc::ptr_eq(&row.0, &old_rows[rows.len()].0);
-                    rows.push((*row).clone());
-                    old.next();
-                }
-                _ => {
-                    all_shared = false;
-                    rows.push(StoredObject::new(object));
-                }
-            }
-        }
         let objects = match previous {
-            Some(previous) if all_shared => previous.data.objects.clone(),
-            _ => Arc::new(rows),
+            Some(old) if *old.objects == objects => old.objects.clone(),
+            _ => Arc::new(objects),
         };
         let players = match previous {
             Some(previous)

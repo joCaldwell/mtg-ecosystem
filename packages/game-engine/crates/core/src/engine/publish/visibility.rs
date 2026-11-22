@@ -1025,15 +1025,21 @@ impl Knowledge {
 // Work's state token is current. Lists preserve object-table order.
 #[derive(Default)]
 pub struct ProjectionIndex {
+    outside_libraries: Vec<CardId>,
     hand_counts: [usize; 4],
     library_counts: [usize; 4],
     attachments: BTreeMap<ObjectId, Vec<ObjectId>>,
     static_sources: Vec<CardId>,
 }
-// Publication only: the four viewers share each table row's handle-free
-// projection. A row is kept once derived without error; an error ends the
-// publication. Keyed by the row's address in the borrowed object table.
-type ObjectCores = std::cell::RefCell<BTreeMap<usize, ObjectCore>>;
+// Derived publication data. The index and characteristics are shared by forks
+// and by all four viewers. Each is carried forward only across its dependencies.
+#[derive(Clone, Default)]
+pub(super) struct ProjectionCache {
+    index: Arc<ProjectionIndex>,
+    cores: Arc<BTreeMap<ObjectId, Arc<ObjectCore>>>,
+}
+
+type ObjectCores = std::cell::RefCell<Arc<BTreeMap<ObjectId, Arc<ObjectCore>>>>;
 #[derive(Clone)]
 struct ObjectCore {
     keywords: Vec<KeywordAbility>,
@@ -1066,6 +1072,9 @@ impl Game {
     pub(in crate::engine) fn projection_index(&self) -> ProjectionIndex {
         let mut index = ProjectionIndex::default();
         for (card, object) in &self.state.rules.objects {
+            if !matches!(object.zone, Zone::Library { .. }) {
+                index.outside_libraries.push(card);
+            }
             match object.zone {
                 Zone::Hand { owner } => {
                     if let Some(count) = index.hand_counts.get_mut(owner.0 as usize) {
@@ -1550,15 +1559,16 @@ impl Game {
             mana_ability_used,
             characteristics,
         } = match cores {
-            Some(cores) => match cores
-                .borrow_mut()
-                .entry(std::ptr::from_ref(object) as usize)
-            {
-                std::collections::btree_map::Entry::Occupied(core) => core.get().clone(),
-                std::collections::btree_map::Entry::Vacant(slot) => {
-                    slot.insert(self.object_core(object, index)?).clone()
+            Some(cores) => {
+                let mut cores = cores.borrow_mut();
+                if let Some(core) = cores.get(&object.id) {
+                    core.as_ref().clone()
+                } else {
+                    let core = self.object_core(object, index)?;
+                    Arc::make_mut(&mut cores).insert(object.id, Arc::new(core.clone()));
+                    core
                 }
-            },
+            }
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
@@ -2691,7 +2701,7 @@ impl Game {
     fn permitted_view(
         &self,
         viewer: PlayerId,
-        (index, cores): (&ProjectionIndex, &ObjectCores),
+        index: &ProjectionIndex,
         effects: &[EffectKey],
         visible: &[&Object],
     ) -> Result<PermittedView, String> {
@@ -2702,7 +2712,7 @@ impl Game {
                 .push(self.project_player(PlayerId(player), Some(index))?);
         }
         for object in visible {
-            let object = self.project_visible_object(viewer, object, Some(index), Some(cores))?;
+            let object = self.project_visible_object(viewer, object, Some(index), None)?;
             if object.zone == Zone::Exile {
                 view.players[object.owner.0 as usize]
                     .exile
@@ -2726,6 +2736,7 @@ impl Game {
         (index, cores): (&ProjectionIndex, &ObjectCores),
         effects: &[EffectKey],
         visible: &[&Object],
+        clean_except: Option<&BTreeSet<CardId>>,
     ) -> Result<StoredPermittedView, String> {
         let mut header = self.blank_view(viewer)?;
         header.effects = self.visible_effects_from(viewer, effects)?;
@@ -2743,7 +2754,13 @@ impl Game {
         // object, so walking it yields the rows already in view order.
         let mut objects = Vec::with_capacity(visible.len());
         let mut face_down = [false; 4];
-        for id in knowledge.handles.entries.values() {
+        let mut previous = knowledge
+            .history
+            .last()
+            .into_iter()
+            .flat_map(|view| view.objects.iter())
+            .peekable();
+        for (handle, id) in knowledge.handles.entries.iter() {
             let Ok(position) = visible.binary_search_by_key(&id.card, |object| object.id.card)
             else {
                 continue;
@@ -2752,7 +2769,29 @@ impl Game {
             if object.id != *id {
                 continue;
             }
-            let row = self.project_visible_object(viewer, object, Some(index), Some(cores))?;
+            while previous.peek().is_some_and(|row| row.handle.0 < *handle) {
+                previous.next();
+            }
+            let old = previous.next_if(|row| row.handle.0 == *handle);
+            let row = match old {
+                Some(row)
+                    if clean_except.is_some_and(|dirty| !dirty.contains(&id.card))
+                        && object.attached_to.is_none()
+                        && row.attachments.is_empty()
+                        && !index.attachments.contains_key(id)
+                        && object.hideaway.is_none() =>
+                {
+                    row.clone()
+                }
+                _ => {
+                    let projected =
+                        self.project_visible_object(viewer, object, Some(index), Some(cores))?;
+                    match old {
+                        Some(row) if **row == projected => row.clone(),
+                        _ => stored_history::StoredObject::new(projected),
+                    }
+                }
+            };
             if row.face_down
                 && let Some(owned) = face_down.get_mut(row.owner.0 as usize)
             {
@@ -2803,14 +2842,68 @@ impl Game {
     /// derived again from the current rules. This is the definition that the
     /// incremental path in `publish.rs` must equal. `reference` selects the
     /// plain row-by-row view construction that debug builds compare with.
-    pub(in crate::engine) fn publish_full(
+    pub(super) fn publish_full(
         &mut self,
         decider: Option<Decider>,
         reference: bool,
-    ) -> Result<(), String> {
+    ) -> Result<ProjectionCache, String> {
+        let previous = self.published.clone();
+        let rules = &self.state.rules;
+        let dirty = previous
+            .as_ref()
+            .map(|old| rules.objects.changed_cards(&old.rules.objects));
+        let same_definitions = previous.as_ref().is_some_and(|old| {
+            Arc::ptr_eq(&rules.cards, &old.rules.cards)
+                && Arc::ptr_eq(&rules.tokens, &old.rules.tokens)
+                && rules.entry_copies == old.rules.entry_copies
+                && rules.back_face_objects == old.rules.back_face_objects
+        });
+        let projection = previous
+            .as_ref()
+            .filter(|_| same_definitions && dirty.as_ref().is_some_and(BTreeSet::is_empty))
+            .map_or_else(
+                || Arc::new(self.projection_index()),
+                |old| old.cache.index.clone(),
+            );
+        // A static ability can count other permanents or depend on attacker membership.
+        // Any board change in its presence starts a new layer epoch, as do changes to
+        // effect sources, bestow on the stack, and per-turn ability restrictions.
+        let clean_except = previous
+            .as_ref()
+            .filter(|old| {
+                same_definitions
+                    && Shared::same(&rules.effects, &old.rules.effects)
+                    && Shared::same(&rules.stack, &old.rules.stack)
+                    && (rules.frame == old.rules.frame
+                        || !rules.stack.iter().any(|entry| {
+                            entry.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                        }))
+                    && rules.turn.number == old.rules.turn.number
+                    && rules.mana_ability_uses == old.rules.mana_ability_uses
+                    && rules.combat == old.rules.combat
+                    && (dirty.as_ref().is_some_and(BTreeSet::is_empty)
+                        || (old.cache.index.static_sources.is_empty()
+                            && projection.static_sources.is_empty()
+                            && rules.effects.is_empty()))
+            })
+            .and(dirty.as_ref());
+        let mut cached = previous
+            .as_ref()
+            .filter(|_| clean_except.is_some())
+            .map(|old| old.cache.cores.clone())
+            .unwrap_or_default();
+        if let Some(dirty) = clean_except
+            && !dirty.is_empty()
+        {
+            Arc::make_mut(&mut cached).retain(|id, _| !dirty.contains(&id.card));
+        }
+        let cores = ObjectCores::new(cached);
+        let reuse_viewer: [bool; 4] = std::array::from_fn(|v| {
+            previous
+                .as_ref()
+                .is_some_and(|old| old.same_viewer(v, &self.state))
+        });
         let effects = self.refresh_effect_handles()?;
-        let projection = self.projection_index();
-        let cores = ObjectCores::default();
         let abilities: Vec<_> = self
             .state
             .rules
@@ -2830,13 +2923,30 @@ impl Game {
         let revision = self.state.rules.revision;
         for v in 0..4 {
             let viewer = PlayerId(v);
-            let current = self
-                .state
-                .rules
-                .objects
-                .values()
-                .filter(|o| self.visible_to(viewer, o))
-                .collect::<Vec<_>>();
+            // A library card can be visible only through a resolving look, reveal
+            // or entry choice. Keep the reference scan independent of the index.
+            let current: Vec<_> = if reference
+                || matches!(
+                    self.state.rules.frame,
+                    Frame::ResolutionChoice { .. }
+                        | Frame::GraveyardGroup { .. }
+                        | Frame::GraveyardReplacement { .. }
+                        | Frame::LandEntry { .. }
+                ) {
+                self.state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| self.visible_to(viewer, o))
+                    .collect()
+            } else {
+                projection
+                    .outside_libraries
+                    .iter()
+                    .filter_map(|card| self.state.rules.objects.get(card))
+                    .filter(|o| self.visible_to(viewer, o))
+                    .collect()
+            };
             let looked = self
                 .library_looked(viewer)
                 .map(<[ObjectId]>::to_vec)
@@ -2903,8 +3013,7 @@ impl Game {
             }
             #[cfg(debug_assertions)]
             if reference {
-                let view =
-                    self.permitted_view(viewer, (&projection, &cores), &effects, &current)?;
+                let view = self.permitted_view(viewer, &projection, &effects, &current)?;
                 let history = &mut self.state.knowledge.visibility[v as usize].history;
                 if !history
                     .last()
@@ -2916,13 +3025,22 @@ impl Game {
             }
             #[cfg(not(debug_assertions))]
             let _ = reference;
-            let view = self.stored_view(viewer, (&projection, &cores), &effects, &current)?;
+            let view = self.stored_view(
+                viewer,
+                (&projection, &cores),
+                &effects,
+                &current,
+                clean_except.filter(|_| reuse_viewer[v as usize]),
+            )?;
             let history = &mut self.state.knowledge.visibility[v as usize].history;
             if history.last().is_none_or(|previous| *previous != view) {
                 history.push(view);
             }
         }
-        Ok(())
+        Ok(ProjectionCache {
+            index: projection,
+            cores: cores.into_inner(),
+        })
     }
     /// Existing permitted handle order only; no raw-object scan or handle minting.
     /// Publication prunes this map when an incarnation ceases to be visible.

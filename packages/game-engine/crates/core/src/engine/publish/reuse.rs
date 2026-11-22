@@ -8,7 +8,8 @@ use crate::engine::*;
 /// It shares the state's tables, so a later write to any of them allocates a
 /// copy and this record keeps exactly what was published.
 pub struct Published {
-    rules: RulesState,
+    pub(super) rules: RulesState,
+    pub(super) cache: visibility::ProjectionCache,
     knowledge: Vec<Shared<visibility::Knowledge>>,
 }
 
@@ -112,9 +113,10 @@ impl Frame {
 }
 
 impl Published {
-    pub(super) fn of(state: &State) -> Self {
+    pub(super) fn of(state: &State, cache: visibility::ProjectionCache) -> Self {
         Self {
             rules: state.rules.clone(),
+            cache,
             knowledge: state.knowledge.visibility.clone(),
         }
     }
@@ -221,6 +223,13 @@ impl Published {
             && *next_trigger_id == was.next_trigger_id
             && *next_attachment_timestamp == was.next_attachment_timestamp
             && *next_stack_id == was.next_stack_id
+    }
+
+    pub(super) fn same_viewer(&self, viewer: usize, state: &State) -> bool {
+        self.knowledge
+            .get(viewer)
+            .zip(state.knowledge.visibility.get(viewer))
+            .is_some_and(|(old, current)| Shared::same(old, current))
     }
 
     /// True when no viewer's knowledge was written since this publication.
