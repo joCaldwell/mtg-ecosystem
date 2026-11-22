@@ -64,14 +64,63 @@ class StageDeckTests(unittest.TestCase):
             with self.subTest(message), self.assertRaisesRegex(ValueError, message):
                 self.check(cards)
 
-    def test_unregistered_archive_and_missing_rows_reject(self):
+    def test_quantities_must_be_positive_json_integers(self):
+        for bad in [0, -1, 0.5, True, "1", None]:
+            cards = deck(("leader", "Leader", 1, True), ("forest", "Forest", 98, False), ("elf", "Elf", bad, False))
+            with self.subTest(bad), self.assertRaisesRegex(ValueError, "positive integer"):
+                self.check(cards)
+
+    def test_only_the_registered_r4_origin_is_accepted(self):
         with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "archive.jsonl"
-            archive.write_bytes(b'{"recordType":"manifest"}\n{"oracleIdentity":"elf"}\n')
-            with self.assertRaisesRegex(ValueError, "registered accepted archive"):
-                module["accepted_origin"](archive)
+            fixtures, archive = Path(temp), Path(temp) / "archive.jsonl"
+            header = b'{"recordType":"manifest","n":1}\n'
+            archive.write_bytes(header + b'{"oracleIdentity":"elf"}\n')
+            sha = module["sha"]
+
+            def register(origins):
+                (fixtures / "accepted-archives.json").write_text(json.dumps(origins))
+                for origin in origins:
+                    (fixtures / origin["manifest_file"]).write_bytes(header)
+
+            exact = {"file_sha256": sha(archive.read_bytes()), "manifest_sha256": sha(header.rstrip())}
+            other = {"file_sha256": "0" * 64, "manifest_sha256": "1" * 64}
+            # A valid, registered older origin (e.g. schema-3 current) is not R4.
+            register([dict(exact, manifest_file="archive-manifest-current.json"),
+                      dict(other, manifest_file=module["R4_MANIFEST"])])
+            with self.assertRaisesRegex(ValueError, "not the registered Archive R4 file"):
+                module["accepted_origin"](archive, fixtures)
+            register([dict(other, manifest_file="archive-manifest-current.json"),
+                      dict(exact, manifest_file=module["R4_MANIFEST"])])
+            origin, got_header, _ = module["accepted_origin"](archive, fixtures)
+            self.assertEqual((origin["manifest_file"], got_header), (module["R4_MANIFEST"], header))
+            (fixtures / module["R4_MANIFEST"]).write_bytes(b'{"recordType":"manifest","n":2}\n')
+            with self.assertRaisesRegex(ValueError, "not the registered Archive R4 file"):
+                module["accepted_origin"](archive, fixtures)
             with self.assertRaisesRegex(ValueError, "lacks rows"):
                 module["archive_rows"](archive.read_bytes(), {"elf", "leader"})
+
+    def test_output_is_new_and_published_without_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            dangling = root / "dangling"
+            dangling.symlink_to(root / "missing")
+            existing = root / "existing"
+            existing.mkdir()
+            for path in [dangling, existing]:
+                with self.subTest(path.name), self.assertRaisesRegex(ValueError, "already exists"):
+                    module["new_output"](path)
+            linked = root / "linked"
+            linked.symlink_to(root)
+            self.assertEqual(module["new_output"](linked / "out"), root.resolve() / "out")
+            staged = root / "staged"
+            staged.mkdir()
+            empty = root / "appeared"
+            empty.mkdir()
+            with self.assertRaises(FileExistsError):
+                module["publish"](staged, empty)
+            self.assertTrue(staged.is_dir())
+            module["publish"](staged, root / "published")
+            self.assertTrue((root / "published").is_dir() and not staged.exists())
 
 
 if __name__ == "__main__":

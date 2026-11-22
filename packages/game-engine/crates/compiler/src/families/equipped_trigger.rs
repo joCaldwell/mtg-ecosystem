@@ -2,6 +2,13 @@
 use super::*;
 use serde_json::{Value, json};
 
+/// A block printed as one of the two reviewed equipped-creature trigger
+/// templates; its operands are proved separately against the AST.
+pub(crate) fn candidate(text: &str) -> bool {
+    use mtg_contracts::equipped_trigger::{DAMAGE, DIES};
+    text.starts_with(DAMAGE) || text.starts_with(DIES)
+}
+
 pub(crate) fn lower(
     block: usize,
     result: &ParseResult,
@@ -9,9 +16,8 @@ pub(crate) fn lower(
     identity: &str,
     source: &Value,
 ) -> Result<Option<TriggeredAbility>, Failure> {
-    use mtg_contracts::equipped_trigger::{DAMAGE, DIES};
     let line = &result.lines[block];
-    if !line.text.starts_with(DAMAGE) && !line.text.starts_with(DIES) {
+    if !candidate(&line.text) {
         return Ok(None);
     }
     let fail = || {

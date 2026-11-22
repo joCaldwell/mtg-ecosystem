@@ -5,11 +5,12 @@
   stage-deck.py MTG_SIM OUTPUT --decklist deck.json [--archive R4.jsonl]
 
 A decklist is the target-deck shape: {"name", "cards": [{"oracle_id", "name",
-"quantity", "is_commander"}]} with exactly 100 cards and one commander. Every
-card comes from its row in the accepted bulk archive: the whole file must match
-a registered origin (tests/fixtures/accepted-archives.json) and its first line
-the registered header, so each row is bound to its line. Nothing falls back to
-another archive revision; a card the compiler rejects fails the stage.
+"quantity", "is_commander"}]}: positive integer quantities, exactly 100 cards and
+one commander. Every card comes from its row in the accepted bulk Archive R4
+file: the whole file must match the registered R4 origin
+(tests/fixtures/accepted-archives.json) and its first line the registered R4
+header, so each row is bound to its line. No other archive revision is
+accepted; a card the compiler rejects fails the stage.
 
 OUTPUT (new) mirrors the fixture tree, so installing it under tests/fixtures
 only adds files: deck-SLUG/ (rows, header, provenance, origin), catalogs/
@@ -19,6 +20,7 @@ Commander policy file is copied for a byte comparison with the installed one.
 `MTG_SIM catalog build OUTPUT/catalogs/deck-SLUG.json` rebuilds the catalog.
 """
 import argparse
+import ctypes
 import hashlib
 import json
 import os
@@ -32,6 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "packages" / "game-engine" / "tests" / "fixtures"
 TEMPLATE = FIXTURES / "profiles" / "commander-four-colors-v1.json"
+R4_MANIFEST = "archive-manifest-phase1-r4.json"
 
 
 def sha(data):
@@ -74,19 +77,19 @@ def select_deck(args):
     return matches[0]
 
 
-def accepted_origin(archive):
-    """The registered origin whose header and whole-file digest match ARCHIVE."""
+def accepted_origin(archive, fixtures=FIXTURES):
+    """The registered Archive R4 origin, if ARCHIVE is exactly its whole file and header."""
     data = archive.read_bytes()
     header = data.split(b"\n", 1)[0] + b"\n"
     digest = sha(data)
-    origins = [o for o in read(FIXTURES / "accepted-archives.json")
-               if o["file_sha256"] == digest and o["manifest_sha256"] == sha(header.rstrip())]
+    origins = [o for o in read(fixtures / "accepted-archives.json") if o["manifest_file"] == R4_MANIFEST]
     if len(origins) != 1:
-        raise ValueError(f"{archive} is not one registered accepted archive (file SHA-256 {digest})")
+        raise ValueError(f"expected one registered {R4_MANIFEST} origin")
     origin = origins[0]
-    registered = FIXTURES / origin["manifest_file"]
-    if registered.read_bytes() != header:
-        raise ValueError(f"{archive} header differs from the registered {registered.name}")
+    registered = fixtures / R4_MANIFEST
+    if (origin["file_sha256"] != digest or origin["manifest_sha256"] != sha(header.rstrip())
+            or registered.read_bytes() != header):
+        raise ValueError(f"{archive} is not the registered Archive R4 file (file SHA-256 {digest})")
     return origin, header, data
 
 
@@ -112,7 +115,12 @@ def archive_rows(data, keys):
 
 def validate_deck(deck, rows, policy):
     cards = deck["cards"]
-    commanders = [c for c in cards if c.get("is_commander")]
+    for card in cards:
+        # JSON booleans are Python ints; a profile count is a positive u32.
+        quantity = card.get("quantity")
+        if type(quantity) is not int or not 0 < quantity < 2**32:
+            raise ValueError(f"quantity of {card.get('name', card.get('oracle_id'))!r} must be a positive integer")
+    commanders = [c for c in cards if c.get("is_commander") is True]
     if sum(c["quantity"] for c in cards) != 100 or len(commanders) != 1 or commanders[0]["quantity"] != 1:
         raise ValueError("a staged deck has exactly 100 cards and one commander")
     if len({c["oracle_id"] for c in cards}) != len(cards):
@@ -134,9 +142,26 @@ def validate_deck(deck, rows, policy):
     return commanders[0]["oracle_id"]
 
 
-def stage(binary, output, deck, archive):
+def publish(stage, output):
+    """Linux renameat2(2) with RENAME_NOREPLACE: never replaces anything at OUTPUT."""
+    rename = ctypes.CDLL(None, use_errno=True).renameat2
+    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    at_fdcwd, rename_noreplace = -100, 1
+    if rename(at_fdcwd, os.fsencode(stage), at_fdcwd, os.fsencode(output), rename_noreplace):
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(output))
+
+
+def new_output(path):
+    """OUTPUT with only its parent resolved; anything (even a dangling symlink) at OUTPUT rejects."""
+    output = path.parent.resolve() / path.name
     if os.path.lexists(output):
         raise ValueError(f"{output} already exists")
+    return output
+
+
+def stage(binary, output, deck, archive):
+    output = new_output(output)
     origin, header, data = accepted_origin(archive)
     name = slug(deck["name"])
     keys = {c["oracle_id"] for c in deck["cards"]}
@@ -193,7 +218,10 @@ def stage(binary, output, deck, archive):
                                       "profile": f"commander-deck-{name}-v1", "archive_sha256": origin["file_sha256"],
                                       "archive_manifest_sha256": origin["manifest_sha256"],
                                       "cards": len(keys), "slots": sum(c["quantity"] for c in deck["cards"])})
-        os.rename(out, output)
+        try:
+            publish(out, output)
+        except FileExistsError as error:
+            raise ValueError(f"{output} appeared during staging") from error
     return f"commander-deck-{name}-v1"
 
 
@@ -208,7 +236,7 @@ def main(argv=None):
     parser.add_argument("--archive", type=Path, default=shared_generated("oracle-ast-phase1-r4.jsonl"))
     args = parser.parse_args(argv)
     try:
-        profile = stage(args.binary.resolve(), args.output.resolve(), select_deck(args), args.archive.resolve())
+        profile = stage(args.binary.resolve(), args.output, select_deck(args), args.archive.resolve())
     except ValueError as error:
         sys.exit(f"stage-deck: {error}")
     print(profile)

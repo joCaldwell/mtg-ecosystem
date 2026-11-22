@@ -142,6 +142,17 @@ reconciliation. Stop the owner before apply: cooperative locks cannot stop edito
 Uninspectable `/proc` references require independent checks before the explicit
 `--allow-uninspectable`; detected actual references always block.
 
+`scripts/play-deck.sh` evidence directories (`generated/deck-play.*`) hold one
+detached HEAD checkout, which the helper refuses by design. Its only unique
+inputs are the staged fixture files, which `stage/` duplicates; `compiler`,
+`mtg-sim`, `stage/`, `game.json`, `replay.json` and the build/cache receipts sit
+beside it. After recording those receipts (or retaining the directory in the
+evidence store) and confirming no process or document references the checkout,
+its owner retires only the checkout with
+`git worktree remove --force generated/deck-play.ID/source`, which also deletes its
+target. Removing the remaining directory is evidence retirement and needs the
+same reference review.
+
 Ignored node_modules/target/generated deliberately block retirement: a tree may
 hold unique accepted binaries/proofs. Review and preserve/relocate those inputs,
 update references (including outside this repository), then retry. The helper

@@ -247,12 +247,13 @@ python3 scripts/stage-deck.py MTG_SIM OUT --deck "Jo's Cascade"  # or --decklist
 scripts/play-deck.sh "Jo's Cascade" 0
 ```
 
-`stage-deck.py` verifies the whole archive against its registered origin and
-header, takes every card from its line-bound R4 row, rejects ineligible
-Commander decks and fails if any card does not compile. `play-deck.sh` keeps its
-detached checkout, stage, game and replay under the printed
-`generated/deck-play.*` directory; retire it through
-[storage policy](game-engine-storage.md#worktree-lifecycle).
+`stage-deck.py` accepts only the registered Archive R4 file and header, takes
+every card from its line-bound row, requires positive integer quantities and an
+eligible Commander deck, fails if any card does not compile and publishes a new
+output without replacement. `play-deck.sh` runs the detached HEAD's own stager
+and locked, budget-checked builds, keeping checkout, stage, game and replay
+under the printed `generated/deck-play.*`; retire that checkout as the
+[storage policy](game-engine-storage.md#worktree-lifecycle) describes.
 
 ## Smoke probe
 

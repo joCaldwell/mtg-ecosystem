@@ -371,8 +371,7 @@ pub(crate) fn lower_families(
     } else {
         if !intrinsic_keywords.is_empty()
             || result.lines.iter().any(|l| {
-                l.text.starts_with(mtg_contracts::equipped_trigger::DAMAGE)
-                    || l.text.starts_with(mtg_contracts::equipped_trigger::DIES)
+                equipped_trigger::candidate(&l.text)
                     || (types.kind == CardKind::Creature
                         && mtg_contracts::permanent_entry::each_creature_sacrifice(&l.text))
                     || mtg_contracts::ability_sequence::candidate(&l.text, types.kind)

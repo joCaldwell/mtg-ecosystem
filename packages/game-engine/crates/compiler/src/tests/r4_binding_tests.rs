@@ -182,3 +182,23 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
     );
     assert_eq!(resolution::kernel_event_player("draws"), None);
 }
+
+/// The pre-Pass-2 revision 17 Faeburrow Elder graph (two unresolved scope
+/// references) is retired: only the exact R4 row's complete graph lowers.
+#[test]
+fn distinct_colors_reject_the_unresolved_revision_17_graph() {
+    let r4 = include_str!("../../../../tests/fixtures/phase1-r4/distinct-color-mana.json");
+    let result = compile(R4, r4);
+    assert!(
+        matches!(result, CompileResult::Lowered { .. }),
+        "{result:?}"
+    );
+    let manifest = include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json");
+    let historic =
+        include_str!("../../../../tests/fixtures/ramos/70a6f08e-854d-4e2f-9d8c-c45ec3231157.json");
+    let result = compile(manifest, historic);
+    assert!(
+        matches!(&result, CompileResult::Unsupported { path, .. } if path == "binding.mana"),
+        "{result:?}"
+    );
+}
