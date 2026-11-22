@@ -296,7 +296,15 @@ player with no candidate sacrifices nothing.
 
 Board-wide sets include granted keywords at execution; destruction, exile, bounce
 and all-recipient damage commit atomically, and temporary P/T sets capture
-recipients at resolution. Counts use typed outcomes, including exile-replaced but
+recipients at resolution. Destroy, exile and return-to-hand of "all"/"each"
+permanents take a general filter, read as the instruction is performed
+(CR 608.2h): conjunctions of card types, type alternatives, excluded types,
+basic/legendary, subtypes, colors, controller (you or your opponents), tapped,
+untapped, attacking, token, flying and fixed power, toughness or mana-value
+comparisons. Types and supertypes are current structural ones, colors current,
+subtypes, power, toughness and keywords fully derived; a permanent's mana value
+is its printed one (CR 202.3). Any other filter term rejects the card.
+Forbidding regeneration stays limited to the nonland-permanent wave. Counts use typed outcomes, including exile-replaced but
 excluding prevented destruction. Turn-long exile replacement covers only
 creatures actually dealt its damage, so exile causes no death. Indestructible
 prevents destruction before replacement; generic departures never imply dies
@@ -505,6 +513,7 @@ Each table decides one independent question (CR 113.3, 602.1, 603.1, 608.2):
 | Event | Self entry of any permanent type, self dies, becomes tapped, beginning steps, casts, attacks, damage to a player, other creature entries, creature deaths and controlled land entries, without intervening conditions. |
 | Static, mana, keyword | Own entry tapped, uncounterable spells, controller creature modifiers; tap-only fixed/any/commander-color mana; evergreen keywords without parameters. |
 | Step table | Target creature can't block or be blocked this turn; Treasure, Food and Clue tokens; countering a spell of one card type. |
+| Kernel verb | A [kernel node](game-engine-catalogs.md#kernel-ir) that `kir::check` admits for that stack object, except operands bound to a family's event data. |
 | Card shell | Single-face normal cards with fixed costs and a completely bound, diagnostic-free reference graph that covers every AST step; nonbasic lands with only basic land types or only descriptive subtypes. Hybrid/X costs, snow, Auras, Equipment, Sagas and basic lands keep their families. |
 
 Sentences resolve in printed order (CR 608.2c). A pronoun must be bound by the

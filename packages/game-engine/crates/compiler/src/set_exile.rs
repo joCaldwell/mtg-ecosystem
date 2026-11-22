@@ -71,11 +71,13 @@ pub(super) fn lower(
         resolution: SpellResolution::Instructions,
         functioning_zone: FunctioningZone::Stack,
         targets: vec![],
-        instructions: vec![Instruction::MoveSet {
-            action: SetMove::Exile,
-            set: clause.set,
-            source_block: 0,
-        }],
+        instructions: vec![Instruction::act(
+            Verb::Move {
+                what: clause.set.kernel(Context::Spell),
+                to: Destination::Exile,
+            },
+            0,
+        )],
         modes: vec![],
         additional_sacrifice: None,
         optional_additional_costs: vec![],
@@ -128,14 +130,24 @@ fn fixed_set_exile_rejects_changed_zone_unbound_selection_and_erased_ir() {
                     }
                 }
                 _ => {
-                    let Instruction::MoveSet { set, action, .. } = &mut ops[0] else {
-                        panic!()
-                    };
-                    if change == "action" {
-                        *action = SetMove::Destroy;
+                    let what = ObjectSet::Creatures.kernel(Context::Spell);
+                    ops[0] = if change == "action" {
+                        Instruction::act(
+                            Verb::Destroy {
+                                what: ObjectSet::GraveyardCards.kernel(Context::Spell),
+                                regeneration_forbidden: false,
+                            },
+                            0,
+                        )
                     } else {
-                        *set = ObjectSet::Creatures;
-                    }
+                        Instruction::act(
+                            Verb::Move {
+                                what,
+                                to: Destination::Exile,
+                            },
+                            0,
+                        )
+                    };
                 }
             }
             d.capabilities = d.requirements();

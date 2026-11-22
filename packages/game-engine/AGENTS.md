@@ -16,6 +16,10 @@ manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semanti
 - Rust IR types own executable contracts. Active schema stays 1 in place, with
   strict capabilities/shapes and exact build/catalog recovery fencing. Other format
   versions and historical evidence remain separate; no old decoder/downgrade matrix.
+- A new resolving effect is a [Kernel IR](../../docs/game-engine-catalogs.md#kernel-ir)
+  node: an audited `kir::check` cell and its interpreter arm. Do not add a legacy
+  `Instruction` variant, validation whitelist or schema conditional for it; migrate
+  a legacy variant by deleting it in the same change.
 - All admitted catalogs share rules/capacities. Profiles are admission data;
   hosting/search requests need explicit reviewed capabilities. New IR fields
   require reviewing capability mapping as well as exhaustive enum variants.

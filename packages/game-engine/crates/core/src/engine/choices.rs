@@ -332,14 +332,14 @@ impl BoundModeSubset {
                         (Instruction::ShufflePlayerGraveyard { .. }, _)
                             if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() => {}
                         (
-                            Instruction::GainLife {
-                                recipient: LifeRecipient::Target { target_slot },
+                            kernel!(GainLife {
+                                player: target_player!(target_slot),
                                 ..
-                            }
-                            | Instruction::LoseLife {
-                                recipient: LifeRecipient::Target { target_slot },
+                            })
+                            | kernel!(LoseLife {
+                                player: target_player!(target_slot),
                                 ..
-                            }
+                            })
                             | Instruction::DrawCards {
                                 recipient: Some(LifeRecipient::Target { target_slot }),
                                 ..

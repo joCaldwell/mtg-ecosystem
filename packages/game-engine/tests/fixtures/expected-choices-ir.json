@@ -394,9 +394,23 @@
         "targets": [],
         "instructions": [
           {
-            "op": "gain_life",
-            "recipient": "controller",
-            "amount": "4",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "gain_life",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "4"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -557,19 +571,43 @@
             ],
             "instructions": [
               {
-                "op": "lose_life",
-                "recipient": {
-                  "target": {
-                    "target_slot": 0
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "lose_life",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "target",
+                        "slot": 0
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
                   }
                 },
-                "amount": "1",
                 "source_block": 0
               },
               {
-                "op": "gain_life",
-                "recipient": "controller",
-                "amount": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "gain_life",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -649,13 +687,23 @@
         ],
         "instructions": [
           {
-            "op": "gain_life",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "gain_life",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "4"
+                }
               }
             },
-            "amount": "4",
             "source_block": 0
           },
           {
@@ -1201,9 +1249,23 @@
             "targets": [],
             "instructions": [
               {
-                "op": "gain_life",
-                "recipient": "controller",
-                "amount": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "gain_life",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -1358,19 +1420,43 @@
         ],
         "instructions": [
           {
-            "op": "lose_life",
-            "recipient": {
-              "target": {
-                "target_slot": 0
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "lose_life",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "4"
+                }
               }
             },
-            "amount": "4",
             "source_block": 0
           },
           {
-            "op": "gain_life",
-            "recipient": "controller",
-            "amount": "4",
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "gain_life",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "controller",
+                    "role": "spell_controller"
+                  }
+                },
+                "amount": {
+                  "amount": "fixed",
+                  "value": "4"
+                }
+              }
+            },
             "source_block": 0
           }
         ]
@@ -1629,13 +1715,23 @@
               ],
               "instructions": [
                 {
-                  "op": "gain_life",
-                  "recipient": {
-                    "target": {
-                      "target_slot": 0
+                  "op": "kernel",
+                  "node": {
+                    "do": {
+                      "verb": "gain_life",
+                      "player": {
+                        "player": "is",
+                        "who": {
+                          "ref": "target",
+                          "slot": 0
+                        }
+                      },
+                      "amount": {
+                        "amount": "fixed",
+                        "value": "3"
+                      }
                     }
                   },
-                  "amount": "3",
                   "source_block": 0
                 }
               ]

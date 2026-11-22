@@ -1,5 +1,5 @@
 [workspace]
-members = ["packages/game-engine/crates/contracts", "packages/game-engine/crates/compiler", "packages/game-engine/crates/core", "packages/game-engine/crates/sim", "packages/game-engine/crates/witness", "packages/game-server"]
+members = ["packages/game-engine/crates/contracts", "packages/game-engine/crates/oracle-ast", "packages/game-engine/crates/compiler", "packages/game-engine/crates/core", "packages/game-engine/crates/sim", "packages/game-engine/crates/witness", "packages/game-server"]
 resolver = "3"
 
 [workspace.package]
@@ -16,6 +16,7 @@ num-bigint = "0.4"
 num-traits = "0.2"
 sha2 = "0.10"
 mtg-contracts = { path = "packages/game-engine/crates/contracts" }
+mtg-oracle-ast = { path = "packages/game-engine/crates/oracle-ast" }
 mtg-compiler = { path = "packages/game-engine/crates/compiler" }
 mtg-core = { path = "packages/game-engine/crates/core" }
 

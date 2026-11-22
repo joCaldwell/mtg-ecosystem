@@ -172,11 +172,13 @@ fn controller_counted_draw_life_complete_sources_costs_and_extra_clause_rejectio
                     count: 3.into(),
                     source_block: 0
                 },
-                Instruction::LoseLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 3.into(),
-                    source_block: 0
-                }
+                Instruction::act(
+                    Verb::LoseLife {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: Amount::fixed(3)
+                    },
+                    0
+                )
             ]
         );
     }
@@ -230,11 +232,17 @@ fn controller_counted_draw_life_preserves_legacy_two_card_combinations() {
         }
         assert_eq!(
             p.instructions[2],
-            Instruction::LoseLife {
-                recipient,
-                amount: 2.into(),
-                source_block: 0
-            }
+            Instruction::act(
+                Verb::LoseLife {
+                    player: if targeted {
+                        PlayerExpr::target(0)
+                    } else {
+                        PlayerExpr::you(Context::Spell)
+                    },
+                    amount: Amount::fixed(2)
+                },
+                0
+            )
         );
     }
 }

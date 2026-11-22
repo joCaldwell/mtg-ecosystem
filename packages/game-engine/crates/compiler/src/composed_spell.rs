@@ -161,7 +161,7 @@ pub(super) fn lower(
                 env.graph
                     .event(ROOT, &path, "phase-out", &env.target, false);
             }
-            Instruction::GainLife { .. } => {
+            kernel!(GainLife { .. }) => {
                 env.bind_controller(&format!("{path}/who"));
                 env.graph
                     .event(ROOT, &path, "gain-life", &env.controller, false);
@@ -283,11 +283,13 @@ mod tests {
                 });
             }
             if life {
-                expected.push(Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 2.into(),
-                    source_block: 0,
-                });
+                expected.push(Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: Amount::fixed(2),
+                    },
+                    0,
+                ));
             }
             assert_eq!(p.instructions, expected);
         }

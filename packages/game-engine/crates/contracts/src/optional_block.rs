@@ -139,7 +139,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
             "modes":{"maxItems":0}, "targets":{"maxItems":0}, "optional_additional_costs":{"maxItems":0}, "additional_sacrifice":{"type":"null"},
             "instructions":{"minItems":2,"maxItems":2,"prefixItems":[
                 {"properties":{"op":{"const":"choose_optional"},"chooser":{"const":EffectRecipient::Controller},"following":{"const":1}}},
-                {"properties":{"op":{"const":"gain_life"},"recipient":{"const":LifeRecipient::Controller},"amount":{"pattern":"^[1-9][0-9]*$"}}}
+                instruction_schema::kernel_verb("gain_life")
             ]}
         }}
     }});
@@ -187,7 +187,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
 #[cfg(test)]
 pub(super) fn witness() -> Definition {
     let row: Value = strict_read(include_str!(
-        "../../../tests/fixtures/phase1-r3/d683d985-9888-4d21-8b5f-69e69ce4a03b.json"
+        "../../../tests/fixtures/phase1-r4/d683d985-9888-4d21-8b5f-69e69ce4a03b.json"
     ))
     .unwrap();
     let mut definition = Catalog::read(include_str!(

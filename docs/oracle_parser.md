@@ -59,12 +59,13 @@ contracts and generated gameplay SDK types remain separate from this AST.
 ### AST archive
 
 `npm run archive-parser` reads the local cache and writes ignored
-`generated/oracle-ast.jsonl`; `--input PATH --output PATH` selects alternatives.
+`generated/oracle-ast.jsonl`; `--input PATH --output PATH --paper-evidence PATH`
+select alternatives (a frozen corpus and its evidence snapshot).
 It never downloads or emits executable Card IR. [Archive code](../scripts/archive-parser.ts)
-owns exact fields and serialization. The schema-3 manifest declares
+owns exact fields and serialization. The schema-4 manifest declares
 `artifactKind: "oracle-ast-archive"`, `executable: false`, corpus byte/canonical-record
 hashes, parser source hash/revision, rules edition, versioned scope, frozen paper
-evidence identity and acceptance/exclusion/binding summaries. Source changes
+evidence identity and acceptance/exclusion/binding/resolution summaries. Source changes
 during generation fail publication.
 
 Adjacent content-addressed `corpus.snapshotFile` and `paperEvidence.snapshotFile`
@@ -82,10 +83,34 @@ Each subsequent line retains one complete input record in original order:
 - `unsupported`: all available face results/diagnostics, no complete-card AST hash;
   missing/null text remains explicit `missing-oracle-text`, distinct from empty.
 
-In-scope rows retain `binding`/`bindingSha256`; `bindingSummary` counts
+In-scope rows carry `resolution`/`resolutionSha256`, the authoritative contract
+([resolution.ts](../packages/oracle-parser/src/semantic/resolution.ts)), per
+parsed face and block, with block-relative paths:
+
+- `refs`: every reference resolved to the closed `Ref` vocabulary shared with the
+  kernel IR (source, controller by role, target slot, attached-to, event object or
+  player by trigger, entering object, step result, bound variable, linked pool,
+  announced X), a player derived from one, an operand evaluated in place, or
+  `unresolved` with the exact reason.
+- `steps`: each printed step's event under its AST discriminant, or the scope of
+  a [structural step](../packages/oracle-parser/src/semantic/step-vocabulary.ts);
+  a step the binder did not account for is `unaccounted`.
+- `spans`: a certificate tiling the normalized block text in UTF-8 byte offsets,
+  naming the AST field each clause produced (folded riders and modal bullets
+  included; bullet marks are the only trivia).
+- `residuals`: why a block or card is incomplete; empty means complete.
+
+Rows also retain the diagnostic `binding` graph it is derived from, still read
+by whole-card families until they retire; `bindingSummary` counts
 reference-bound and fully-bound cards, obligations and engine needs (see
-[binding invariants](#semantic-and-binding-invariants)). Neither a parsed row nor
-a bound graph establishes executable support.
+[binding invariants](#semantic-and-binding-invariants)). Neither a parsed row, a
+bound graph nor a complete resolution establishes executable support.
+
+The compiler decodes these shapes through `mtg-oracle-ast`, generated from
+`ast.ts` and `resolution.ts` by `scripts/generate-rust-ast.ts` (every union by an
+explicit discriminant; an inseparable union fails generation). The engine live
+guards run `node scripts/generate-rust-ast.ts --check`; regenerate after any
+change to those sources.
 
 Publication writes a unique adjacent temporary file, reads every record back and
 verifies serialization and raw/source/AST/binding hashes before atomic
@@ -95,7 +120,7 @@ temporary outputs.
 ### Executable output boundary
 
 Rust contracts own Card IR schema 1, evolved in place with strict capability
-and shape validation; archive schema 3 is independent. `mtg-sim schema` and
+and shape validation; archive schema 4 is independent. `mtg-sim schema` and
 `catalog build MANIFEST [--write]` are the implemented schema/catalog path.
 Bulk/per-set `build-ir` is unimplemented and fails explicitly; future bulk output
 needs complete set membership, reproducible source/rules/corpus identity,

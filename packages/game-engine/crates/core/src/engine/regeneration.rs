@@ -73,16 +73,12 @@ impl Game {
                             regeneration_forbidden,
                             ..
                         }
-                        | Instruction::DestroySet {
+                        | kernel!(Destroy {
                             regeneration_forbidden,
                             ..
-                        } => *regeneration_forbidden,
+                        }) => *regeneration_forbidden,
                         Instruction::DestroyTargetCreature { .. }
-                        | Instruction::DestroyAllCreatures { .. }
-                        | Instruction::MoveSet {
-                            action: SetMove::Destroy,
-                            ..
-                        } => false,
+                        | Instruction::DestroyAllCreatures { .. } => false,
                         _ => return Err("regeneration requires a destruction producer".into()),
                     }
                 }

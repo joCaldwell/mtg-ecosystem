@@ -1169,8 +1169,8 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::DiscardCards { .. }
                     | Instruction::CounterStackObject { .. }
                     | Instruction::DealDamage { .. }
-                    | Instruction::GainLife { .. }
-                    | Instruction::LoseLife { .. }
+                    | kernel!(GainLife { .. })
+                    | kernel!(LoseLife { .. })
                     | Instruction::DestroyTargetCreature { .. }
                     | Instruction::DestroyAllCreatures { .. }
                     | Instruction::ReturnOwnGraveyardCreatureToHand { .. }

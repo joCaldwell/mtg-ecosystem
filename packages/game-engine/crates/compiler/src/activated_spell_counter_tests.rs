@@ -139,7 +139,7 @@ fn activated_counter_of_an_ability_is_an_ordinary_composed_activation() {
     let raw = changed(|a| {
         a["effects"][0]["steps"][0]["what"]["filter"] = json!({"cls":"ability","anyOf":[{"abilityKind":"activated"},{"abilityKind":"triggered"}]})
     });
-    let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+    let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
     let [ability] = d.activated.as_slice() else {
         panic!("one activation")
     };

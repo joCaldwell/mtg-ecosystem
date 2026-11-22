@@ -101,10 +101,7 @@ fn frozen_absent_and_present_operands_preserve_catalog_ir() {
     ));
     assert!(matches!(
         lowered(NECTAR).spell.unwrap().instructions.as_slice(),
-        [Instruction::GainLife {
-            recipient: LifeRecipient::Controller,
-            ..
-        }]
+        [kernel!(GainLife { player: you!(), .. })]
     ));
     assert!(matches!(
         lowered(SWAN).spell.unwrap().instructions[1],

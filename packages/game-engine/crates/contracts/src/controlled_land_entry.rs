@@ -11,11 +11,13 @@ pub fn controlled_land_query() -> Value {
 }
 
 pub fn controlled_land_entry_trigger(life: Quantity, draw: bool) -> TriggeredAbility {
-    let mut instructions = vec![Instruction::GainLife {
-        recipient: LifeRecipient::Controller,
-        amount: life,
-        source_block: 0,
-    }];
+    let mut instructions = vec![Instruction::act(
+        Verb::GainLife {
+            player: PlayerExpr::you(Context::Triggered),
+            amount: Amount::Fixed { value: life },
+        },
+        0,
+    )];
     if draw {
         instructions.push(Instruction::DrawCards {
             recipient: None,
@@ -84,7 +86,13 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
     let [trigger] = d.triggered.as_slice() else {
         return Err(INVALID.into());
     };
-    let [Instruction::GainLife { amount, .. }, rest @ ..] = trigger.program.instructions.as_slice()
+    let [
+        kernel!(GainLife {
+            amount: fixed!(amount),
+            ..
+        }),
+        rest @ ..,
+    ] = trigger.program.instructions.as_slice()
     else {
         return Err(INVALID.into());
     };
@@ -187,8 +195,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
     let all_caps = [caps.as_slice(), &[ControllerDrawV1, CommanderIdentityV1]].concat();
     let with_draw = json!({"contains":{"const":ControllerDrawV1}});
     let as_commander = json!({"contains":{"const":CommanderIdentityV1}});
-    let primary = json!({"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},
-        "amount":{"pattern":"^[1-9][0-9]*$","maxLength":19},"source_block":{"const":0}}});
+    let primary = instruction_schema::kernel_verb_at("gain_life", 0);
     let secondary = json!({"const":Instruction::DrawCards { recipient: None, count: 1.into(), source_block: 0 }});
     schema["$defs"]["Definition"]["allOf"].as_array_mut().unwrap().push(json!({
         "if":{"allOf":[{"not":{"anyOf":[land_reclamation::selector(),proliferate::selector()]}},{"anyOf":[

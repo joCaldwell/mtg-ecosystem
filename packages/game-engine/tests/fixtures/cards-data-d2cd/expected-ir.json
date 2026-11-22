@@ -81,9 +81,19 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "amount": "2",
-                "op": "lose_life",
-                "recipient": "each_opponent",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "2"
+                    },
+                    "player": {
+                      "player": "each_opponent"
+                    },
+                    "verb": "lose_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -176,9 +186,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "amount": "1",
-                "op": "gain_life",
-                "recipient": "controller",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "gain_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -270,9 +294,19 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "amount": "1",
-                "op": "lose_life",
-                "recipient": "each_opponent",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "each_opponent"
+                    },
+                    "verb": "lose_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -606,9 +640,23 @@
                 "target_slot": null
               },
               {
-                "amount": "1",
-                "op": "gain_life",
-                "recipient": "controller",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "gain_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -705,9 +753,23 @@
                 "source_block": 0
               },
               {
-                "amount": "1",
-                "op": "lose_life",
-                "recipient": "controller",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "lose_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -1004,9 +1066,23 @@
                 "source_block": 0
               },
               {
-                "amount": "1",
-                "op": "lose_life",
-                "recipient": "controller",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "lose_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -1195,15 +1271,39 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "amount": "1",
-                "op": "lose_life",
-                "recipient": "each_opponent",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "each_opponent"
+                    },
+                    "verb": "lose_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               },
               {
-                "amount": "1",
-                "op": "gain_life",
-                "recipient": "controller",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "gain_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -1307,9 +1407,23 @@
                 "target_slot": null
               },
               {
-                "amount": "1",
-                "op": "gain_life",
-                "recipient": "controller",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "gain_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -1405,9 +1519,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "amount": "2",
-                "op": "gain_life",
-                "recipient": "controller",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "2"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "gain_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -1503,9 +1631,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "amount": "2",
-                "op": "gain_life",
-                "recipient": "controller",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "2"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "gain_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -1689,9 +1831,19 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "amount": "1",
-                "op": "lose_life",
-                "recipient": "each_opponent",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "each_opponent"
+                    },
+                    "verb": "lose_life"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],

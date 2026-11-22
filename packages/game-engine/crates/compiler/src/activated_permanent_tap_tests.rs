@@ -169,7 +169,7 @@ fn activated_tap_source_rejects_unrepresented_targets_and_step_fields() {
         ),
     ] {
         let raw = changed(|a| a["effects"][0]["steps"][0]["what"]["filter"] = filter);
-        let d = tests::composed_near_miss(compile(MANIFEST, &raw));
+        let d = tests::composed_near_miss(crate::tests::synthetic_compile(MANIFEST, &raw));
         let [ability] = d.activated.as_slice() else {
             panic!("one activation")
         };

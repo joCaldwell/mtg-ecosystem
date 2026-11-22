@@ -137,14 +137,21 @@ pub(super) fn instruction(
             [Step::Destroy { what, optional: None, regeneration_forbidden: Some(true) }]
                 if *what == selection())
     {
-        Some(Instruction::DestroySet {
-            set: ObjectSet::NonlandPermanents,
-            regeneration_forbidden: true,
-            source_block: block,
-        })
+        Some(sweep(block))
     } else {
         None
     }
+}
+
+/// CR 701.8, 701.19c: destroy every nonland permanent; none regenerates.
+fn sweep(block: u32) -> Instruction {
+    Instruction::act(
+        Verb::Destroy {
+            what: ObjectSet::NonlandPermanents.kernel(Context::Triggered),
+            regeneration_forbidden: true,
+        },
+        block,
+    )
 }
 
 #[cfg(test)]
@@ -165,14 +172,7 @@ mod tests {
             panic!("expected one trigger");
         };
         assert_eq!(trigger.condition, TriggerCondition::SelfDies);
-        assert_eq!(
-            trigger.program.instructions,
-            [Instruction::DestroySet {
-                set: ObjectSet::NonlandPermanents,
-                regeneration_forbidden: true,
-                source_block: 1
-            }]
-        );
+        assert_eq!(trigger.program.instructions, [sweep(1)]);
         for mutation in 0..4 {
             let mut unrelated = definition.clone();
             match mutation {

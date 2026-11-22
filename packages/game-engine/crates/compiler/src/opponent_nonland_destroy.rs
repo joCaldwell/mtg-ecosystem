@@ -69,11 +69,13 @@ pub(super) fn lower(source: &Source, binding: &Value) -> Result<Option<SpellProg
         resolution: SpellResolution::Instructions,
         functioning_zone: FunctioningZone::Stack,
         targets: vec![],
-        instructions: vec![Instruction::DestroySet {
-            set: ObjectSet::OpponentNonlandPermanents,
-            regeneration_forbidden: false,
-            source_block: 0,
-        }],
+        instructions: vec![Instruction::act(
+            Verb::Destroy {
+                what: ObjectSet::OpponentNonlandPermanents.kernel(Context::Spell),
+                regeneration_forbidden: false,
+            },
+            0,
+        )],
         modes: vec![],
     }))
 }

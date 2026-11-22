@@ -94,11 +94,7 @@ pub fn set_exile_modes(
             additional_sacrifice: None,
             optional_additional_costs: vec![],
             resolution: SpellResolution::Instructions,
-            instructions: vec![Instruction::MoveSet {
-                action: SetMove::Exile,
-                set: c.set.clone(),
-                source_block: 0,
-            }],
+            instructions: vec![exile(&c.set)],
         };
         root.modes.push(SpellMode { program: child });
         options.push(json!({"effects":[{"steps":[{"effect":"exile","what":c.what}]}]}));
@@ -110,14 +106,27 @@ fn subset(p: &SpellProgram) -> bool {
     p.resolution == SpellResolution::OneOrMoreModes || p.modes.iter().any(|m| subset(&m.program))
 }
 
+/// CR 406.1: exile every member of one closed set.
+fn exile(set: &ObjectSet) -> Instruction {
+    Instruction::act(
+        Verb::Move {
+            what: set.kernel(Context::Spell),
+            to: Destination::Exile,
+        },
+        0,
+    )
+}
+
 fn reserved(p: &SpellProgram) -> bool {
     let selected =
         |set: &ObjectSet| matches!(set, ObjectSet::Artifacts | ObjectSet::GraveyardCards);
+    let kernel_sets =
+        [ObjectSet::Artifacts, ObjectSet::GraveyardCards].map(|s| s.kernel(Context::Spell));
     p.instructions.iter().any(|i| match i {
-        Instruction::MoveSet { set, .. }
-        | Instruction::DestroySet { set, .. }
-        | Instruction::PumpSet { set, .. }
-        | Instruction::GrantKeywordsSet { set, .. } => selected(set),
+        kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => kernel_sets.contains(what),
+        Instruction::PumpSet { set, .. } | Instruction::GrantKeywordsSet { set, .. } => {
+            selected(set)
+        }
         Instruction::DamageSet { sets, .. } => sets.iter().any(selected),
         _ => false,
     }) || p.modes.iter().any(|m| reserved(&m.program))
@@ -230,7 +239,7 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
         || !p.targets.is_empty()
         || p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
-        || !matches!(p.instructions.as_slice(),[Instruction::MoveSet{set,action:SetMove::Exile,source_block:0}] if set==&clause.set)
+        || p.instructions.as_slice() != [exile(&clause.set)]
         || d.source_labels
             .as_ref()
             .is_some_and(|l| l.blocks.as_slice() != [text])
@@ -242,9 +251,13 @@ pub(super) fn validate(d: &Definition) -> Result<(), String> {
 
 pub(super) fn extend_schema(s: &mut Value) {
     let sets = json!({"enum":[ObjectSet::Artifacts,ObjectSet::GraveyardCards]});
+    let exiles = |sets: &[ObjectSet]| json!({"enum":sets.iter().map(exile).collect::<Vec<_>>()});
+    let kernel_sets =
+        [ObjectSet::Artifacts, ObjectSet::GraveyardCards].map(|s| s.kernel(Context::Spell));
     let free = json!({"$ref":"#/$defs/FixedExileSetFreeProgram"});
     s["$defs"]["FixedExileSetFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"anyOf":[
-        {"required":["set"],"properties":{"set":sets}},{"required":["sets"],"properties":{"sets":{"contains":sets}}}
+        {"required":["set"],"properties":{"set":sets}},{"required":["sets"],"properties":{"sets":{"contains":sets}}},
+        instruction_schema::kernel_set(&kernel_sets)
     ]}}},"modes":{"items":{"properties":{"program":free}}}}});
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":free}}});
     let shape = json!({"required":["spell"],"properties":{"triggered":{"maxItems":0},"activated":{"maxItems":0},"mana_abilities":{"maxItems":0},
@@ -253,8 +266,7 @@ pub(super) fn extend_schema(s: &mut Value) {
             "snow":{"const":false},"additional_types":{"maxItems":0},"subtypes":{"maxItems":0}}},
         "spell":{"type":"object","properties":{"resolution":{"const":"instructions"},"functioning_zone":{"const":"stack"},"targets":{"maxItems":0},
             "modes":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
-            "instructions":{"minItems":1,"maxItems":1,"items":{"required":["op","action","set","source_block"],"properties":{
-                "op":{"const":"move_set"},"action":{"const":"exile"},"set":sets,"source_block":{"const":0}}}}}},
+            "instructions":{"minItems":1,"maxItems":1,"items":exiles(&[ObjectSet::Artifacts,ObjectSet::GraveyardCards])}}},
         "capabilities":{"contains":{"const":Capability::BoardWipesV1}}}});
     let def = s["$defs"]["Definition"]["allOf"].as_array_mut().unwrap();
     def.push(json!({"properties":{"triggered":{"items":{"properties":{"program":free}}},"activated":{"items":{"properties":{"program":free}}}},"if":has,"then":{"anyOf":[shape,{"properties":{"spell":{"properties":{"resolution":{"const":"one_or_more_modes"}}}}}]}}));
@@ -270,8 +282,7 @@ pub(super) fn extend_schema(s: &mut Value) {
     },"if":parent,"then":{"properties":{
         "spell":{"properties":{"targets":{"maxItems":0},"instructions":{"maxItems":0},"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},
         "modes":{"minItems":2,"items":{"properties":{"program":{"properties":{"resolution":{"const":"instructions"},"targets":{"maxItems":0},"additional_sacrifice":{"type":"null"},
-            "optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
-                "op":{"const":"move_set"},"action":{"const":"exile"},"source_block":{"const":0},"set":{"enum":["artifacts","creatures","enchantments","graveyard_cards"]}}}}}}}}}}},
+            "optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":exiles(&[ObjectSet::Artifacts,ObjectSet::Creatures,ObjectSet::Enchantments,ObjectSet::GraveyardCards])}}}}}}}},
         "activated":{"maxItems":0},"triggered":{"maxItems":0},"keywords":{"maxItems":0},"mana_abilities":{"maxItems":0},"static_abilities":{"maxItems":0},
         "characteristics":{"properties":{"kind":{"enum":["sorcery","instant"]},"legendary":{"const":false},"basic":{"const":false},"snow":{"const":false},"additional_types":{"maxItems":0},"subtypes":{"maxItems":0}}},"x_mana_cost":{"const":false},
         "capabilities":{"allOf":[{"contains":{"const":Capability::ModalChoiceV1}},{"contains":{"const":Capability::NonemptyModeSubsetV1}},{"contains":{"const":Capability::BoardWipesV1}}]}

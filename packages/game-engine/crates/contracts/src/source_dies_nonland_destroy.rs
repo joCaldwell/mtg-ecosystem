@@ -32,14 +32,28 @@ pub fn death_sweep_abilities(block: u32) -> Value {
     );
     Value::Array(abilities)
 }
+/// CR 701.8, 701.19c: destroy every nonland permanent; none regenerates.
+fn sweep(block: u32) -> Instruction {
+    Instruction::act(
+        Verb::Destroy {
+            what: ObjectSet::NonlandPermanents.kernel(Context::Triggered),
+            regeneration_forbidden: true,
+        },
+        block,
+    )
+}
 const INVALID_FAMILY: &str =
     "nonland destruction with regeneration prohibited requires a complete source-dies trigger";
 
 fn contains_destroy(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
-        matches!(i, Instruction::DestroySet { set, regeneration_forbidden, .. }
-            if *set != ObjectSet::OpponentNonlandPermanents
-                && (*set != ObjectSet::NonlandPermanents || *regeneration_forbidden))
+        matches!(
+            i,
+            kernel!(Destroy {
+                regeneration_forbidden: true,
+                ..
+            })
+        )
     }) || p.modes.iter().any(|mode| contains_destroy(&mode.program))
 }
 
@@ -118,14 +132,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
             SpellTiming::Instant,
             SpellResolution::Instructions,
         )
-        || !matches!(
-            trigger.program.instructions.as_slice(),
-            [Instruction::DestroySet {
-                set: ObjectSet::NonlandPermanents,
-                regeneration_forbidden: true,
-                source_block,
-            }] if *source_block == block
-        )
+        || trigger.program.instructions.as_slice() != [sweep(block)]
     {
         return Err(INVALID_FAMILY.into());
     }
@@ -133,10 +140,9 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 }
 
 pub(super) fn extend_schema(schema: &mut Value) {
-    let death_sweep = json!({"required":["op","set"],"properties":{
-        "op":{"const":"destroy_set"},"set":{"not":{"const":ObjectSet::OpponentNonlandPermanents}}
-    },"not":{"properties":{"set":{"const":ObjectSet::NonlandPermanents},
-        "regeneration_forbidden":{"const":false}}}});
+    let death_sweep = json!({"allOf":[instruction_schema::kernel_verb("destroy"),{"properties":{"node":{
+        "properties":{"do":{"required":["regeneration_forbidden"],"properties":{
+            "regeneration_forbidden":{"const":true}}}}}}}]});
 
     let free = json!({"$ref":"#/$defs/SourceDiesNonlandDestroyFreeProgram"});
     schema["$defs"]["SourceDiesNonlandDestroyFreeProgram"] = json!({"properties":{
@@ -160,10 +166,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         program(
             SpellTiming::Instant,
             SpellResolution::Instructions,
-            json!([{
-                "op":"destroy_set","set":ObjectSet::NonlandPermanents,"source_block":block,
-                "regeneration_forbidden":true
-            }]),
+            json!([sweep(block)]),
         )
     };
     let keyword_form = |block, keywords| {

@@ -252,11 +252,13 @@ fn synthetic_source_dies_nonland_destroy_paid_sacrifice() {
             optional_additional_costs: vec![],
             additional_sacrifice: None,
             modes: vec![],
-            instructions: vec![Instruction::DestroySet {
-                set: ObjectSet::NonlandPermanents,
-                regeneration_forbidden: true,
-                source_block: 0,
-            }],
+            instructions: vec![Instruction::act(
+                Verb::Destroy {
+                    what: ObjectSet::NonlandPermanents.kernel(Context::Triggered),
+                    regeneration_forbidden: true,
+                },
+                0,
+            )],
         },
     }];
     sentinel.capabilities = sentinel.requirements();

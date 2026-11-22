@@ -76,11 +76,13 @@ pub fn printed(
                     following: 1,
                     source_block,
                 },
-                Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: i64::from(life).into(),
+                Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Triggered),
+                        amount: Amount::fixed(i64::from(life)),
+                    },
                     source_block,
-                },
+                ),
             ],
         },
     })

@@ -15,13 +15,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-/// The kind of stack object whose program is being composed (CR 113.3).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Context {
-    Spell,
-    Activated,
-    Triggered,
-}
+pub use kir::Context;
 
 const SPELL: u8 = 1;
 const ACTIVATED: u8 = 2;
@@ -58,12 +52,7 @@ fn contexts(instruction: &Instruction) -> u8 {
         I::DrawControllerCards { .. } | I::OptionalDrawCards { .. } => ANY,
         // CR 119.3: positive life changes for the controller, each opponent
         // or one announced player.
-        I::GainLife { recipient, .. } | I::LoseLife { recipient, .. } => match recipient {
-            LifeRecipient::Controller
-            | LifeRecipient::EachOpponent
-            | LifeRecipient::Target { .. } => ANY,
-            LifeRecipient::EventPlayer => FAMILY,
-        },
+        I::Kernel { node, .. } => kernel_contexts(node),
         I::DrainOpponents { amount, .. } => match amount {
             OpponentDrainAmount::Fixed { .. } => ANY,
             OpponentDrainAmount::AnnouncedX => FAMILY,
@@ -131,9 +120,7 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::CounterSpellAndMillController { .. }
         | I::CounterSpellUnlessPays { .. } => ANY,
         // CR 608.2h: non-targeted sets are read when the instruction is performed.
-        I::DestroySet { .. }
-        | I::DestroyAllCreatures { .. }
-        | I::MoveSet { .. }
+        I::DestroyAllCreatures { .. }
         | I::PumpSet { .. }
         | I::UntapControllerLands { .. } => ANY,
         I::DamageSet { amount, .. } => match amount {
@@ -228,6 +215,35 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::SearchRecipientBasicLand { .. }
         | I::SetTargetColor { .. }
         | I::TransformSource { .. } => FAMILY,
+    }
+}
+
+/// The kernel row. `kir::check` decides scope, kinds and the audited cell for
+/// the actual context; this row only keeps operands that read a reviewed
+/// family's event data out of composition.
+fn kernel_contexts(node: &kir::Node) -> u8 {
+    match node.verb() {
+        // CR 119.3: life changes for the controller, each opponent or one
+        // announced player.
+        Some(Verb::GainLife { player, .. } | Verb::LoseLife { player, .. }) => {
+            if player.is_event_player() {
+                FAMILY
+            } else {
+                ANY
+            }
+        }
+        // CR 608.2h: a board-wide set is read as the instruction is performed.
+        Some(
+            Verb::Destroy {
+                what: SetExpr::Matching { .. },
+                ..
+            }
+            | Verb::Move {
+                what: SetExpr::Matching { .. },
+                ..
+            },
+        ) => ANY,
+        _ => FAMILY,
     }
 }
 
@@ -856,7 +872,12 @@ mod tests {
 
     #[test]
     fn composed_definitions_validate_only_through_the_matrix() {
-        let tap_gain = || ability(ActivationCost::TapSource, program(vec![gain()], vec![]));
+        let tap_gain = || {
+            ability(
+                ActivationCost::TapSource,
+                program(vec![gain(Context::Activated)], vec![]),
+            )
+        };
         let valid = with(|d| d.activated.push(tap_gain()));
         valid.validate().unwrap();
         assert!(valid.capabilities.contains(&Capability::ComposedAbilityV1));
@@ -1019,28 +1040,32 @@ mod tests {
             modes: vec![],
         }
     }
-    fn gain() -> Instruction {
-        Instruction::GainLife {
-            recipient: LifeRecipient::Controller,
-            amount: 2.into(),
-            source_block: 0,
-        }
+    fn gain(context: Context) -> Instruction {
+        Instruction::act(
+            Verb::GainLife {
+                player: PlayerExpr::you(context),
+                amount: Amount::fixed(2),
+            },
+            0,
+        )
     }
 
     #[test]
     fn instruction_rows_separate_portable_source_and_family_bound_operations() {
         for context in [Context::Spell, Context::Activated, Context::Triggered] {
-            assert!(admits_instruction(&gain(), context));
+            assert!(admits_instruction(&gain(context), context));
             assert!(!admits_instruction(
                 &Instruction::DrawDamageAmount { source_block: 0 },
                 context
             ));
             assert!(!admits_instruction(
-                &Instruction::GainLife {
-                    recipient: LifeRecipient::EventPlayer,
-                    amount: 1.into(),
-                    source_block: 0
-                },
+                &Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::event(kir::EventPlayerRole::Caster),
+                        amount: Amount::fixed(1)
+                    },
+                    0
+                ),
                 context
             ));
         }
@@ -1070,15 +1095,21 @@ mod tests {
 
     #[test]
     fn programs_reject_modes_empty_bodies_family_instructions_and_unbound_targets() {
-        assert!(super::program(&program(vec![gain()], vec![]), Context::Activated).is_ok());
+        assert!(
+            super::program(
+                &program(vec![gain(Context::Activated)], vec![]),
+                Context::Activated
+            )
+            .is_ok()
+        );
         assert!(super::program(&program(vec![], vec![]), Context::Activated).is_err());
         let mut modal = program(vec![], vec![]);
         modal.modes = vec![
             SpellMode {
-                program: program(vec![gain()], vec![]),
+                program: program(vec![gain(Context::Activated)], vec![]),
             },
             SpellMode {
-                program: program(vec![gain()], vec![]),
+                program: program(vec![gain(Context::Activated)], vec![]),
             },
         ];
         assert!(super::program(&modal, Context::Spell).is_err());
@@ -1099,7 +1130,7 @@ mod tests {
             vec![],
         );
         assert!(super::program(&unbound, Context::Triggered).is_err());
-        let mut sorcery_speed = program(vec![gain()], vec![]);
+        let mut sorcery_speed = program(vec![gain(Context::Activated)], vec![]);
         sorcery_speed.timing = SpellTiming::MainPhase;
         assert!(super::program(&sorcery_speed, Context::Activated).is_ok());
         assert!(super::program(&sorcery_speed, Context::Spell).is_ok());

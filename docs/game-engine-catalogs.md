@@ -112,29 +112,70 @@ generated paths and recognizable ELF/Wasm/SQLite output. It never alters the ind
 transitive feature behavior still requires review. Focused guards are
 `python3 scripts/test-engine-structure.py` and `python3 scripts/test-engine-cache.py`.
 
+## Kernel IR
+
+`contracts/src/kir.rs` is the operand algebra new instructions are written in. A
+legacy `Instruction` variant fuses one verb with one recipient and amount shape;
+`Instruction::Kernel { node, source_block }` carries a `kir::Node` instead:
+
+| Layer | Contents |
+| --- | --- |
+| `Ref` | The closed reference vocabulary: source, controller (with its role), target slot, attached-to, event object/player, entering object, step result, bound variable, linked pool, announced X |
+| `PlayerExpr`, `SetExpr`, `Amount` | Players, object sets (`Matching { zone, filter: Pred }`) and quantities built from references and predicate atoms |
+| `Verb` | One game action over those operands |
+| `Node` | `Do`, `Seq`, `If`, `Optional`, `ForEach`, `Choose`, `UnlessPays`, `Delayed`, `Reflexive` |
+
+`kir::check(node, env)` is the one admission decision. It proves each reference
+is in scope and of the right kind for the context, targets and event; rejects a
+filtered count of a hand or library (CR 400.2); and admits a verb only in an
+audited cell, one the core interpreter (`core/src/engine/kir.rs`) executes and
+recovers. `Definition::kernel_check` runs it for every program; the capability
+walker derives capabilities from verbs, and the published schema branch for a
+kernel node is the plain derived shape. A family schema twin names a kernel
+verb only to recognise its own programs. A well-scoped node without a cell is
+rejected as unaudited; control nodes are scope-checked but have no cell until
+the resolving frame can resume inside a node.
+
+Audited cells: `gain_life`/`lose_life` for the controller, each opponent, one
+announced player or the event player; `destroy` and `move` (exile, owners'
+hands) over battlefield permanents matching a filter, and exile of every
+graveyard card. Life and board-wide movement exist only as kernel verbs. Every
+other legacy variant is migrated the same way: add its cell and executor, move
+each emitter and guard to the kernel shape, delete the variant, regenerate
+catalogs and compare Foundations and Ramos pod digests.
+
 ## Compositional lowering
 
 `compiler/src/lib.rs` tries whole-card families first. A record whose shape no
 family supports falls back to `compiler/src/compose.rs`, which repeats the
-archive integrity checks, requires a completely bound reference graph that
-covers the AST, and lowers each block through small tables: `compose/costs.rs`,
-`compose/events.rs`, `compose/keywords.rs`, `compose/steps.rs` and the shared
-typed step lowerer. Unknown kinds, fields, operands and unconsumed references
-reject. A family that recognised the source and refused its reference graph
-(path `binding`) has given an integrity verdict, which is final: only shape
-rejections fall back. A family rejection that composition does not recover
-keeps its original reason, so coverage reasons stay comparable.
+archive integrity checks, decodes the complete AST through the generated
+`mtg-oracle-ast` types and verifies the record's archive R4 resolution
+(`compiler/src/resolution.rs`, contract in the [parser guide](oracle_parser.md#ast-archive)):
+it must be complete; each reference's closed `Ref` role must be one the shared
+lowerer reads ("you" and implicit payers the block's controller, printed targets
+announced targets, other pronouns targets or results of the block's own steps);
+the step map must be exactly the AST's steps; and each block's span certificate
+must tile its text, give every sentence its own span and print every top-level
+field. Composition never reads the diagnostic graph. Lowering then uses small
+tables: `compose/costs.rs`, `compose/events.rs`, `compose/keywords.rs`,
+`compose/steps.rs` and the shared typed step lowerer. Unknown kinds, fields,
+operands and unconsumed references reject; a shape outside the lowering mirror
+is named by its verb. A family that recognised the source and refused its
+reference graph (path `binding`) has given an integrity verdict, which is final:
+only shape rejections fall back. A family rejection that composition does not
+recover keeps its original reason, so coverage reasons stay comparable.
 
-The fallback also rejects a block whose printed text and AST disagree: the
-sentence count; "may", "up to" and "if"/"unless" against `optional`, `upTo` and
-a condition; a printed number absent from the block's AST; a cost term; an
-ability word the block does not print; and an evergreen keyword present in only
-one of the source keyword list and the AST. Legacy family tests therefore keep
-strict rejection for malformed mutations, and assert `composed` with the exact
-changed operands for self-consistent near misses (`tests::composed_near_miss`). `--example composition_gaps ARCHIVE` lists the
+The fallback also rejects "may", "up to" and "if"/"unless" against `optional`,
+`upTo` and a condition; a printed number absent from the block's AST; a cost
+term; an ability word the block does not print; and an evergreen keyword present
+in only one of the source keyword list and the AST. Hand-built test rows with
+placeholder text cannot carry a resolution: `tests::synthetic_compile` lowers them
+through the block tables only (`cfg(test)`), and `tests::composed_near_miss`
+asserts `composed` with the exact changed operands. `--example composition_gaps ARCHIVE` lists the
 table row each remaining card lacks. Lowering still rejects at the first card-wide
-binding check; the report defers those checks, so `reason` is the first blocker
+resolution check; the report defers those checks, so `reason` is the first blocker
 after them, `binding` the card-wide rejection and `block` the failing printed block.
+`--example ast_decode ARCHIVE` decodes every face and resolution through the generated types.
 `--example inspect ARCHIVE NAME` prints one compile result. New lowerers start IR
 structs from `PermanentFilter::any()`, `TargetSpec::new` and `SpellProgram::instructions`
 (`contracts/src/builders.rs`), so a new field touches one constructor.
@@ -145,7 +186,7 @@ Adding a primitive touches the row that owns it, not every family:
 | --- | --- |
 | Cost term, self event, keyword or step shape that lowers to existing IR | One `compose/*.rs` table row and its test; a frozen fixture when it opens a new runtime path |
 | Existing instruction, target route or cost in another kind of stack object | One `contracts/src/composition.rs` row, a witness in `witness/tests/permanents_mana/composition_tests.rs`, and the core fix if recovery assumed a shape |
-| New instruction | The `Instruction` variant and its binding arm in `contracts/src/lib.rs`, its `composition.rs` row (the match is exhaustive), a `compose/steps.rs` row, the core executor and a witness |
+| New instruction | A [kernel](#kernel-ir) cell in `kir::check` with its capability, the executor in `core/src/engine/kir.rs`, a `composition.rs` kernel row, the emitting row and a witness. Add a legacy `Instruction` variant only for a whole procedure the algebra does not express |
 
 Capabilities, schema, labels and source blocks come from the shared assembly;
 no per-card capability, schema branch or family validator is added.

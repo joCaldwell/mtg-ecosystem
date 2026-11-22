@@ -458,7 +458,17 @@ impl Game {
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
             Instruction::DestroyAllCreatures { source_block } => {
-                self.move_board_set(frame, ObjectSet::Creatures, SetMove::Destroy, source_block)
+                let objects = self.objects_in_set(
+                    &ObjectSet::Creatures,
+                    self.entry(frame.stack_id)?.controller,
+                );
+                self.move_board_objects(
+                    frame,
+                    objects,
+                    wipes::SetMove::Destroy,
+                    source_block,
+                    false,
+                )
             }
             Instruction::ReturnOwnGraveyardCreatureToBattlefield {
                 target_slot,

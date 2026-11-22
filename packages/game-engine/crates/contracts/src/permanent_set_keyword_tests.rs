@@ -174,21 +174,27 @@ fn permanent_set_keyword_all_stat_modifiers_and_malformed_vectors_reject() {
 fn permanent_set_keyword_every_other_opcode_and_context_rejects() {
     let d = grant(&[KeywordAbility::Hexproof, KeywordAbility::Indestructible]);
     for instruction in [
-        Instruction::MoveSet {
-            set: ObjectSet::ControllerPermanents,
-            action: SetMove::Destroy,
-            source_block: 0,
-        },
-        Instruction::MoveSet {
-            set: ObjectSet::ControllerPermanents,
-            action: SetMove::Exile,
-            source_block: 0,
-        },
-        Instruction::MoveSet {
-            set: ObjectSet::ControllerPermanents,
-            action: SetMove::Hand,
-            source_block: 0,
-        },
+        Instruction::act(
+            Verb::Destroy {
+                what: ObjectSet::ControllerPermanents.kernel(Context::Spell),
+                regeneration_forbidden: false,
+            },
+            0,
+        ),
+        Instruction::act(
+            Verb::Move {
+                what: ObjectSet::ControllerPermanents.kernel(Context::Spell),
+                to: Destination::Exile,
+            },
+            0,
+        ),
+        Instruction::act(
+            Verb::Move {
+                what: ObjectSet::ControllerPermanents.kernel(Context::Spell),
+                to: Destination::OwnerHand,
+            },
+            0,
+        ),
         Instruction::DamageSet {
             sets: vec![ObjectSet::ControllerPermanents],
             each_player: false,

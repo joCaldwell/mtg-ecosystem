@@ -152,9 +152,9 @@ pub(super) fn lower(
 #[cfg(test)]
 #[test]
 fn slice6a_optional_entry_search_preserves_its_independent_death_trigger() {
-    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
     let row =
-        include_str!("../../../tests/fixtures/phase1-r3/00c0543c-2a1f-4425-8283-4062d74a1637.json");
+        include_str!("../../../tests/fixtures/phase1-r4/00c0543c-2a1f-4425-8283-4062d74a1637.json");
     let result = compile(header, row);
     let CompileResult::Lowered { mut definition } = result else {
         panic!("{result:?}");

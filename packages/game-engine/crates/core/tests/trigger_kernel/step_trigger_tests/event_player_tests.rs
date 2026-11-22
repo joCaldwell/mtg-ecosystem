@@ -250,14 +250,13 @@ fn d2cb_actor_controller_owner_departures_remain_distinct() {
         for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
             let mut p = prepared(&[(MINE, 2, 1, Zone::Battlefield)], TurnStep::Upkeep);
             edit(&mut p, MINE, |d| {
-                d.triggered[0]
-                    .program
-                    .instructions
-                    .push(Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: 3.into(),
-                        source_block: 0,
-                    })
+                d.triggered[0].program.instructions.push(Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Triggered),
+                        amount: Amount::fixed(3),
+                    },
+                    0,
+                ))
             });
             let mut g = Game::with_trace(p, mode);
             to_step(&mut g, 1, TurnStep::Draw);
@@ -306,14 +305,13 @@ fn d2cb_synthetic_absent_actor_upkeep_draw_end_and_multiple_controller_apnap() {
                     step,
                     turn_relation: TurnRelation::AnyPlayer,
                 };
-                d.triggered[0]
-                    .program
-                    .instructions
-                    .push(Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: 1.into(),
-                        source_block: 0,
-                    });
+                d.triggered[0].program.instructions.push(Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Triggered),
+                        amount: Amount::fixed(1),
+                    },
+                    0,
+                ));
             });
             let mut g = Game::with_trace(p, mode);
             g.concede(PlayerId(0)).unwrap();

@@ -67,17 +67,17 @@ pub(super) fn lower(
 #[cfg(test)]
 #[test]
 fn slice6a_optional_trigger_lowers_same_choice_for_two_trigger_conditions() {
-    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
     for (record, condition) in [
         (
             include_str!(
-                "../../../tests/fixtures/phase1-r3/045a9d3d-c20d-427f-a77b-0bffc6f55526.json"
+                "../../../tests/fixtures/phase1-r4/045a9d3d-c20d-427f-a77b-0bffc6f55526.json"
             ),
             TriggerCondition::OtherCreatureEntersBattlefield,
         ),
         (
             include_str!(
-                "../../../tests/fixtures/phase1-r3/2f47661e-a107-4d98-8773-0a068a63df49.json"
+                "../../../tests/fixtures/phase1-r4/2f47661e-a107-4d98-8773-0a068a63df49.json"
             ),
             TriggerCondition::StepBegan {
                 step: BeginningStep::Upkeep,
@@ -93,7 +93,7 @@ fn slice6a_optional_trigger_lowers_same_choice_for_two_trigger_conditions() {
         assert_eq!(trigger.condition, condition);
         assert!(matches!(trigger.program.instructions.as_slice(),
             [Instruction::ChooseOptional { chooser: EffectRecipient::Controller, following: 1, .. },
-                Instruction::GainLife { recipient: LifeRecipient::Controller, amount, .. }]
+                kernel!(GainLife { player: you!(), amount: fixed!(amount) })]
                 if *amount == Quantity::from(1)));
         trigger.program.instructions.remove(0);
         definition.capabilities = definition.requirements();

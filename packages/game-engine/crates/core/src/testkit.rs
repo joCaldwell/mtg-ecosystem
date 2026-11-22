@@ -13,6 +13,7 @@ use crate::engine::{
     phasing::PhaseSelection, stored_history::StoredPermittedView,
 };
 pub use crate::{build_id, formats, query};
+pub use mtg_contracts::kir::{Amount, Context, EventPlayerRole, PlayerExpr, Ref, SetExpr, Verb};
 pub use mtg_contracts::*;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -245,6 +246,11 @@ pub trait GameTestkit {
     fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String>;
     fn event_group_limit(&self) -> usize;
     fn execute_damage_life_instruction(
+        &mut self,
+        frame: Resolving,
+        instruction: Instruction,
+    ) -> Result<(), String>;
+    fn execute_kernel_instruction(
         &mut self,
         frame: Resolving,
         instruction: Instruction,
@@ -861,6 +867,16 @@ impl GameTestkit for Game {
         instruction: Instruction,
     ) -> Result<(), String> {
         Game::execute_damage_life_instruction(self, frame, instruction)
+    }
+    fn execute_kernel_instruction(
+        &mut self,
+        frame: Resolving,
+        instruction: Instruction,
+    ) -> Result<(), String> {
+        let Instruction::Kernel { node, source_block } = instruction else {
+            return Err("expected a kernel instruction".into());
+        };
+        Game::execute_kernel(self, frame, node, source_block)
     }
     fn execute_effect_instruction(
         &mut self,

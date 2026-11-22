@@ -128,8 +128,8 @@ pub(super) fn lower(
 #[test]
 fn slice6a_optional_search_requires_bound_chooser_and_complete_operations() {
     let raw =
-        include_str!("../../../tests/fixtures/phase1-r3/d683d985-9888-4d21-8b5f-69e69ce4a03b.json");
-    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r3.json");
+        include_str!("../../../tests/fixtures/phase1-r4/d683d985-9888-4d21-8b5f-69e69ce4a03b.json");
+    let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
     let result = compile(header, raw);
     let CompileResult::Lowered { mut definition } = result else {
         panic!("{result:?}");

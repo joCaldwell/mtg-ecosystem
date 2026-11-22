@@ -3,8 +3,8 @@ use mtg_witness::aura::prepared_with_sources;
 use mtg_witness::equipped::{answer, both, object, pay_to_priority, recover, request};
 
 const PATH: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/d683d985-9888-4d21-8b5f-69e69ce4a03b.json");
-const HEADER: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/d683d985-9888-4d21-8b5f-69e69ce4a03b.json");
+const HEADER: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
 
 fn prepared() -> Prepared {
     let mut p = prepared_with_sources(
@@ -17,7 +17,7 @@ fn prepared() -> Prepared {
     );
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(HEADER, PATH)
     else {
-        panic!("exact R3 source");
+        panic!("exact R4 source");
     };
     p.config.cards[0].oracle_id = definition.oracle_id.clone();
     let catalog = Arc::make_mut(&mut p.catalog);

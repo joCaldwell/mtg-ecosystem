@@ -41,7 +41,10 @@ fn composition_wave_a_binds_intrinsic_keywords_and_exact_siblings() {
     );
     let loss = lowered(LOSS);
     let mut forged = loss.clone();
-    let Instruction::LoseLife { amount, .. } = &mut forged.triggered[0].program.instructions[0]
+    let kernel!(LoseLife {
+        amount: fixed!(amount),
+        ..
+    }) = &mut forged.triggered[0].program.instructions[0]
     else {
         panic!("missing life loss");
     };

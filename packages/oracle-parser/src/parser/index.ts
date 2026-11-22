@@ -28,6 +28,8 @@ import { attachDiceTable, parseDiceTableRows } from "./dice.ts";
 import { parseClassCard, parseLevelCard } from "./level-cards.ts";
 import { parseStationCard } from "./station-cards.ts";
 import { parseStickerSheet } from "./sticker-sheets.ts";
+import { registerBlockSource, type BlockSourceLine } from "./block-sources.ts";
+import { carrySentenceSpans } from "./sentence-spans.ts";
 import { hasBrackets, hasCleaveKeyword, parseCleaveParagraph } from "./cleave.ts";
 import { parseCaseAbility, startsCaseKeyword } from "./case-cards.ts";
 import { parseTrigger, parseTriggerLimit } from "./triggers.ts";
@@ -114,7 +116,7 @@ function parseEffectsBlock(c: Cursor, options: Token[][], stackCopyInput?: Stack
 
 function parseLineTokens(tokens: Token[], options: Token[][], session = new LineSession(tokens)): Ability | null {
   const parsed = parseLineTokensUnchecked(tokens, options, session);
-  const ability = parsed && finalizeCharacteristicDefinitions(parsed);
+  const ability = parsed && carrySentenceSpans(parsed, finalizeCharacteristicDefinitions(parsed));
   // Kicker alternative targets are chosen while casting that spell, never
   // when a triggered/activated ability happens to resolve (601.2c/702.33g).
   if (ability && ability.kind !== "spell" && (hasAlternativeKickerTargets(ability) || hasCastingCostModes(ability))) return null;
@@ -478,6 +480,13 @@ registerLineParser((tokens, options) => parseLineTokens(tokens, options));
 // ---------------------------------------------------------------------------
 
 /** Diagnostic-bearing single-line parse. */
+const HEADER_TOKENS = new WeakMap<ParsedLine, Token[]>();
+
+function headerLine(parsed: ParsedLine): BlockSourceLine[] {
+  const tokens = HEADER_TOKENS.get(parsed);
+  return tokens ? [{ text: parsed.text, tokens, role: "header" }] : [];
+}
+
 function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceId?: string, cardNames?: CardNameCatalog, cleave = false): ParsedLine {
   let tokens: Token[];
   try {
@@ -494,7 +503,9 @@ function parseLineWithDiagnostics(text: string, optionTokens: Token[][], sourceI
   if (ability) {
     if (optionTokens.length && !containsModal(ability))
       return { text, ok: false, error: "modal bullets require a consuming modal header" };
-    return { text, ok: true, ability };
+    const parsed: ParsedLine = { text, ok: true, ability };
+    if (sourceId !== undefined) HEADER_TOKENS.set(parsed, tokens);
+    return parsed;
   }
   // Unpaired, empty or nested cleave brackets fail before any parse attempt.
   return { text, ok: false, error: session.cursors.length ? session.error() : "malformed square brackets in cleave text" };
@@ -508,7 +519,8 @@ function mergeFollowingReplacement(first: Ability, next: string, sourceId?: stri
     if (error instanceof LexError) return null;
     throw error;
   }
-  return mergeReplacementParagraph(first, tokens, body => parseSentences(body, { modalOptions: [] }));
+  const merged = mergeReplacementParagraph(first, tokens, body => parseSentences(body, { modalOptions: [] }));
+  return merged && carrySentenceSpans(first, merged);
 }
 
 export interface ParseContext {
@@ -568,12 +580,11 @@ function parseAbilityBlocks(lines: readonly string[], startIndex: number, contex
     if (bullets.length > 0) {
       const blockText = [line, ...bullets].join("\n");
       try {
-        const optionTokens = bullets.map((b, index) => {
-          const tokens = lex(b, sourceId(i + index + 1), context.cardNames);
-          return b.startsWith("{P}") ? tokens : tokens.slice(1);
-        });
+        const bulletTokens = bullets.map((b, index) => lex(b, sourceId(i + index + 1), context.cardNames));
+        const optionTokens = bullets.map((b, index) => b.startsWith("{P}") ? bulletTokens[index] : bulletTokens[index].slice(1));
         const parsed = parseLineWithDiagnostics(line, optionTokens, sourceId(i), context.cardNames);
-        results.push({ ...parsed, text: blockText });
+        results.push(registerBlockSource({ ...parsed, text: blockText }, { lines: [...headerLine(parsed),
+          ...bullets.map((text, index): BlockSourceLine => ({ text, tokens: bulletTokens[index], role: "option" }))] }));
       } catch (error) {
         if (!(error instanceof LexError)) throw error;
         results.push({ text: blockText, ok: false, error: `modal option: ${error.message} at position ${error.position}` });
@@ -585,14 +596,17 @@ function parseAbilityBlocks(lines: readonly string[], startIndex: number, contex
     const parsed = parseLineWithDiagnostics(line, [], sourceId(i), context.cardNames, hasCleaveKeyword(lines));
     // CR 614.15: a following paragraph may only replace this spell ability's
     // instruction. It then belongs to this block instead of failing alone.
+    const premerge = parsed.ok && sourceId(i) !== undefined && /\binstead\b/i.test(lines[i + 1] ?? "") ? structuredClone(parsed.ability) : undefined;
     const merged = parsed.ok && i + 1 < lines.length && !lines[i + 2]?.startsWith("•")
       ? mergeFollowingReplacement(parsed.ability, lines[i + 1], sourceId(i + 1), context.cardNames) : null;
     if (merged) {
-      results.push({ text: `${line}\n${lines[i + 1]}`, ok: true, ability: merged });
+      const paragraph = sourceId(i + 1) === undefined ? [] : [{ text: lines[i + 1], tokens: lex(lines[i + 1], sourceId(i + 1), context.cardNames), role: "paragraph" as const }];
+      results.push(registerBlockSource({ text: `${line}\n${lines[i + 1]}`, ok: true, ability: merged },
+        { lines: [...headerLine(parsed), ...paragraph], ...(premerge ? { premerge } : {}) }));
       i++;
       continue;
     }
-    results.push(parsed);
+    results.push(registerBlockSource(parsed, { lines: headerLine(parsed) }));
   }
 
   return results;

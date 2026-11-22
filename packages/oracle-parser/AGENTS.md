@@ -18,6 +18,10 @@ IR. Broad grammar expansion is paused; `build-ir` deliberately fails. See
   Source/archive contracts are in the guide, not parallel module/type inventories.
 - Reference-bound/fully-bound/parsed remain separate from compiler/runtime support.
   Use exact data and cited rules; preserve unresolved scopes and target provenance.
+- The archive's `resolution` (closed `Ref` roles, step obligations, span
+  certificate) is the compiler's contract; map a new binder node to the
+  vocabulary or leave it a named residual. Changing `ast.ts` or
+  `semantic/resolution.ts` requires `node scripts/generate-rust-ast.ts`.
 - Downloaded corpora, raw snapshots and generated archives/reports remain ignored
   and protected. Never refresh a frozen corpus to improve a comparison percentage.
 

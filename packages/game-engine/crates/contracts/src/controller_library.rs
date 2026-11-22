@@ -606,11 +606,13 @@ mod tests {
                         source_block: 0,
                     }]
                 }
-                1 => p.instructions.push(Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 2.into(),
-                    source_block: 0,
-                }),
+                1 => p.instructions.push(Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Spell),
+                        amount: Amount::fixed(2),
+                    },
+                    0,
+                )),
                 2 => p.instructions.push(p.instructions[0].clone()),
                 3 => d.characteristics.kind = CardKind::Land,
                 4 => d.characteristics.basic = true,
@@ -679,11 +681,13 @@ mod tests {
             match case {
                 0 => p.targets[0].filter.as_mut().unwrap().types = vec![CardKind::Land],
                 1 => {
-                    p.instructions[1] = Instruction::GainLife {
-                        recipient: LifeRecipient::Controller,
-                        amount: 2.into(),
-                        source_block: 0,
-                    }
+                    p.instructions[1] = Instruction::act(
+                        Verb::GainLife {
+                            player: PlayerExpr::you(Context::Spell),
+                            amount: Amount::fixed(2),
+                        },
+                        0,
+                    )
                 }
                 2 => {
                     p.instructions[1] = Instruction::Scry {

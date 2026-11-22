@@ -73,13 +73,9 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
     };
     let gain = match tail {
         [] => None,
-        [
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount,
-                source_block: 0,
-            },
-        ] if *amount > Quantity::zero() => {
+        [kernel!(GainLife { player: you!(), amount: fixed!(amount) } @ 0)]
+            if *amount > Quantity::zero() =>
+        {
             Some(amount.to_string().parse::<u32>().map_err(|_| INVALID)?)
         }
         _ => return Err(INVALID.into()),
@@ -141,8 +137,7 @@ pub(super) fn extend_schema(schema: &mut Value) {
         }}},
         "instructions":{"minItems":1,"maxItems":2,"prefixItems":[
             {"const":{"op":op,"source_block":0,"target_slot":0}},
-            {"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},
-                           "amount":{"pattern":"^[1-9][0-9]*$"},"source_block":{"const":0}}}
+            instruction_schema::kernel_verb_at("gain_life", 0)
         ],"items":false}
     }});
     // Each child program also uses SpellProgram, so this forbids every nested occurrence.
@@ -225,11 +220,13 @@ pub(super) fn witness(gain: Option<u32>) -> Definition {
         source_block: 0,
     }];
     if let Some(value) = gain {
-        p.instructions.push(Instruction::GainLife {
-            recipient: LifeRecipient::Controller,
-            amount: i64::from(value).into(),
-            source_block: 0,
-        });
+        p.instructions.push(Instruction::act(
+            Verb::GainLife {
+                player: PlayerExpr::you(Context::Spell),
+                amount: Amount::fixed(i64::from(value)),
+            },
+            0,
+        ));
     }
     d.capabilities = d.requirements();
     d
@@ -277,25 +274,31 @@ fn graveyard_battlefield_return() {
             }
         },
         |p| {
-            p.instructions[1] = Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 3.into(),
-                source_block: 1,
-            }
+            p.instructions[1] = Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::fixed(3),
+                },
+                1,
+            )
         },
         |p| {
-            p.instructions[1] = Instruction::GainLife {
-                recipient: LifeRecipient::EachOpponent,
-                amount: 3.into(),
-                source_block: 0,
-            }
+            p.instructions[1] = Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::EachOpponent,
+                    amount: Amount::fixed(3),
+                },
+                0,
+            )
         },
         |p| {
-            p.instructions[1] = Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 0.into(),
-                source_block: 0,
-            }
+            p.instructions[1] = Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: Amount::fixed(0),
+                },
+                0,
+            )
         },
         |p| p.instructions.swap(0, 1),
         |p| {

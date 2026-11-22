@@ -432,15 +432,15 @@ test("damage and life catalog preserves complete sources and target domains", ()
   const soul=get("Soul Feast");
   assert.deepEqual(soul.characteristics.mana_cost,{generic:"3",colored:["B","B"]});
   assert.equal(soul.spell.targets[0].domain,"any_player");
-  assert.deepEqual(soul.spell.instructions,[{op:"lose_life",recipient:{target:{target_slot:0}},amount:"4",source_block:0},{op:"gain_life",recipient:"controller",amount:"4",source_block:0}]);
+  assert.deepEqual(soul.spell.instructions,[{op:"kernel",node:{do:{verb:"lose_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"4"}}},source_block:0},{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"controller",role:"spell_controller"}},amount:{amount:"fixed",value:"4"}}},source_block:0}]);
   const hands=get("Healing Hands");
   assert.deepEqual(hands.characteristics.mana_cost,{generic:"2",colored:["W"]});
   assert.equal(hands.spell.targets[0].domain,"any_player");
-  assert.deepEqual(hands.spell.instructions,[{op:"gain_life",recipient:{target:{target_slot:0}},amount:"4",source_block:0},{op:"draw_cards",count:"1",source_block:1}]);
+  assert.deepEqual(hands.spell.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"4"}}},source_block:0},{op:"draw_cards",count:"1",source_block:1}]);
   const nectar=get("Sacred Nectar");
   assert.deepEqual(nectar.characteristics.mana_cost,{generic:"1",colored:["W"]});
   assert.deepEqual(nectar.spell.targets,[]);
-  assert.deepEqual(nectar.spell.instructions,[{op:"gain_life",recipient:"controller",amount:"4",source_block:0}]);
+  assert.deepEqual(nectar.spell.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"controller",role:"spell_controller"}},amount:{amount:"fixed",value:"4"}}},source_block:0}]);
   assert.deepEqual(get("Mountain").characteristics.color_identity,["R"]);
   const flame=JSON.parse(read("flame-rift.json"));
   assert.equal(flame.binding.fullyBound,false);
@@ -489,13 +489,13 @@ test("trigger catalog binds mandatory self and other events without trusting arc
   const warden=get("Essence Warden");
   assert.deepEqual(warden.characteristics.mana_cost,{generic:"0",colored:["G"]});
   assert.equal(warden.triggered[0].condition,"other_creature_enters_battlefield");
-  assert.deepEqual(warden.triggered[0].program.instructions,[{op:"gain_life",recipient:"controller",amount:"1",source_block:0}]);
+  assert.deepEqual(warden.triggered[0].program.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"controller",role:"ability_controller"}},amount:{amount:"fixed",value:"1"}}},source_block:0}]);
   const artist=get("Blood Artist");
   assert.deepEqual(artist.characteristics.mana_cost,{generic:"1",colored:["B"]});
   assert.equal(artist.characteristics.power,"0");assert.equal(artist.characteristics.toughness,"1");
   assert.equal(artist.triggered[0].condition,"any_creature_dies");
   assert.deepEqual(artist.triggered[0].program.targets,[{slot:0,selection_id:"line:0:8",chooser:"controller",stage:"announcement",domain:"any_player"}]);
-  assert.deepEqual(artist.triggered[0].program.instructions,[{op:"lose_life",recipient:{target:{target_slot:0}},amount:"1",source_block:0},{op:"gain_life",recipient:"controller",amount:"1",source_block:0}]);
+  assert.deepEqual(artist.triggered[0].program.instructions,[{op:"kernel",node:{do:{verb:"lose_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"1"}}},source_block:0},{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"controller",role:"ability_controller"}},amount:{amount:"fixed",value:"1"}}},source_block:0}]);
   for (const name of ["blood-artist","essence-warden"]) assert.equal(JSON.parse(read(`${name}.json`)).binding.fullyBound,false);
   assert.equal(JSON.parse(read("elvish-visionary.json")).binding.fullyBound,true);
   for (const name of ["Deathgreeter","Flame Rift"]) assert.equal(catalog.definitions.some((d: any) => d.name===name),false);
@@ -593,7 +593,7 @@ test("choices catalog preserves separate occurrences, complete modal programs an
   assert.deepEqual(seeds.instructions,[0,1,2].map((slot)=>({op:"modify_power_toughness",target_slot:slot,power:"1",toughness:"1",duration:"until_end_of_turn",source_block:slot})));
   const salve=get("Healing Salve");assert.deepEqual(salve.spell.instructions,[]);assert.deepEqual(salve.spell.targets,[]);assert.equal(salve.spell.modes.length,2);
   const [gain,shield]=salve.spell.modes.map((m: any)=>m.program);
-  assert.deepEqual(gain.instructions,[{op:"gain_life",recipient:{target:{target_slot:0}},amount:"3",source_block:0}]);
+  assert.deepEqual(gain.instructions,[{op:"kernel",node:{do:{verb:"gain_life",player:{player:"is",who:{ref:"target",slot:0}},amount:{amount:"fixed",value:"3"}}},source_block:0}]);
   assert.equal(gain.targets[0].domain,"any_player");
   assert.deepEqual(shield.instructions,[{op:"prevent_next_damage",target_slot:0,amount:"3",duration:"until_end_of_turn",source_block:0}]);assert.equal(shield.targets[0].domain,"any_damage_target");
   for(const cap of ["modal_choice_v1","life_gain_v1","damage_budget_prevention_v1","any_player_target_v1","any_damage_target_v1"])assert.ok(salve.capabilities.includes(cap));
@@ -2115,8 +2115,8 @@ test("headless damage v2 profile compiles all 36 exact sources", () => {
   const catalog=loadCatalog("damage-matches-v2");
   assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,36);
-  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"d4a23a11f918f7a38827f9edb57ecd7dc41f76c9c0af0996b915b0220da96af8");
-  assert.equal(read("catalogs/damage-matches.sha256").trim(),"16cdae39b42a26a4b7fa305482013ef7320c59962f4cd7e858ee636ca5f097bb");
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"46a6ab070f1d3a094a8b95c6ae43b4c7f301bfae04fb10a2b5eee754abe578a4");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"30886a2a41478249356703bf39a52153449cb66cc512084d3a1ff94da682a2a5");
   const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
@@ -2259,7 +2259,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
     }
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
-    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"d4a23a11f918f7a38827f9edb57ecd7dc41f76c9c0af0996b915b0220da96af8");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"46a6ab070f1d3a094a8b95c6ae43b4c7f301bfae04fb10a2b5eee754abe578a4");
     assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}

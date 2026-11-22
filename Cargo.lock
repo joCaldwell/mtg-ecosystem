@@ -619,6 +619,7 @@ name = "mtg-compiler"
 version = "0.1.0"
 dependencies = [
  "mtg-contracts",
+ "mtg-oracle-ast",
  "regex",
  "serde",
  "serde_json",
@@ -649,6 +650,14 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "mtg-oracle-ast"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

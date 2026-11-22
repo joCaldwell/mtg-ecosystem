@@ -130,31 +130,31 @@ fn keyword_rows_reject_parameters_and_unknown_keywords() {
     assert!(keywords::lower(&creature, &keywords(json!([{"keyword":"cascade"}]))).is_err());
 }
 
-const R3: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r3.json");
-const STRIP: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-strip-mine.json");
+const R4: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+const STRIP: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-strip-mine.json");
 const SEAL: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-seal-of-primordium.json");
-const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-piranha-marsh.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-seal-of-primordium.json");
+const MARSH: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-piranha-marsh.json");
 const DRAGON: &str =
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-destructor-dragon.json");
-const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-bake-into-a-pie.json");
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-destructor-dragon.json");
+const PIE: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-bake-into-a-pie.json");
 // A complete row whose reference graph a family recognised and refused.
-const CREW: &str = include_str!("../../../../tests/fixtures/phase1-r3/compose-hire-a-crew.json");
+const CREW: &str = include_str!("../../../../tests/fixtures/phase1-r4/compose-hire-a-crew.json");
 const WITNESSES: [&str; 9] = [
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-marble-chalice.json"),
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-rishadan-port.json"),
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-marble-chalice.json"),
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-rishadan-port.json"),
     STRIP,
     SEAL,
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-kamahl-pit-fighter.json"),
-    include_str!("../../../../tests/fixtures/phase1-r3/compose-icatian-priest.json"),
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-kamahl-pit-fighter.json"),
+    include_str!("../../../../tests/fixtures/phase1-r4/compose-icatian-priest.json"),
     MARSH,
     DRAGON,
     PIE,
 ];
 
 fn composed(raw: &str) -> Definition {
-    let CompileResult::Lowered { definition } = compile(R3, raw) else {
-        panic!("composed frozen source must lower: {:?}", compile(R3, raw));
+    let CompileResult::Lowered { definition } = compile(R4, raw) else {
+        panic!("composed frozen source must lower: {:?}", compile(R4, raw));
     };
     assert!(definition.composed);
     assert!(
@@ -198,8 +198,12 @@ fn frozen_witnesses_lower_block_by_block_and_round_trip_executable_ir() {
 
 #[test]
 fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
-    let archive = accepted_manifest(R3).unwrap();
-    let unbound = |row: &mut serde_json::Value| row["binding"]["referencesBound"] = json!(false);
+    let archive = accepted_manifest(R4).unwrap();
+    // A card-level residual: the resolution is not complete.
+    let unbound = |row: &mut serde_json::Value| {
+        row["resolution"]["complete"] = json!(false);
+        row["resolution"]["residuals"] = json!(["diagnostic:missing-antecedent"]);
+    };
     // CR 207.2c: an annotation block 1 does not print is a block blocker.
     let unprinted = |row: &mut serde_json::Value| {
         row["faces"][0]["result"]["abilities"][1]["abilityWord"] = json!("Unprinted");
@@ -217,10 +221,13 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     // Only the card-wide binding check fails: lowering still rejects it, and
     // the report names no block.
     let only_binding = changed(STRIP, unbound);
-    assert_eq!(lower(archive, &only_binding).unwrap_err().path, "binding");
+    assert_eq!(
+        lower(archive, &only_binding).unwrap_err().path,
+        "resolution"
+    );
     assert_eq!(
         summary(&blockers(archive, &only_binding)),
-        (Some("binding".into()), None, None)
+        (Some("resolution".into()), None, None)
     );
     // Both fail: lowering is unchanged (the binding verdict comes first) and
     // the report also names the block that would fail next.
@@ -228,12 +235,13 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
         unbound(row);
         unprinted(row);
     });
-    assert_eq!(lower(archive, &both).unwrap_err().path, "binding");
+    assert_eq!(lower(archive, &both).unwrap_err().path, "resolution");
+    // The annotation no printed token produced fails the span certificate.
     assert_eq!(
         summary(&blockers(archive, &both)),
         (
-            Some("binding".into()),
-            Some("abilities.abilityWord".into()),
+            Some("resolution".into()),
+            Some("resolution.spans".into()),
             Some(1)
         )
     );
@@ -318,8 +326,8 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
 
 #[test]
 fn families_keep_precedence_and_composition_never_relabels_them() {
-    let raw = include_str!("../../../../tests/fixtures/phase1-r3/bond-land.json");
-    let CompileResult::Lowered { definition } = compile(R3, raw) else {
+    let raw = include_str!("../../../../tests/fixtures/phase1-r4/bond-land.json");
+    let CompileResult::Lowered { definition } = compile(R4, raw) else {
         panic!("family source must lower")
     };
     assert!(!definition.composed);
@@ -335,16 +343,16 @@ fn a_family_binding_verdict_is_final() {
     // The block pipeline alone accepts this row, but a family recognised the
     // source and refused its reference graph. That is an integrity verdict,
     // not a shape rejection, so the compiler reports it instead of falling back.
-    assert!(lower(accepted_manifest(R3).unwrap(), CREW).is_ok());
+    assert!(lower(accepted_manifest(R4).unwrap(), CREW).is_ok());
     assert!(matches!(
-        compile(R3, CREW),
+        compile(R4, CREW),
         CompileResult::Unsupported { ref path, .. } if path == "binding"
     ));
 }
 
 #[test]
 fn printed_text_and_ast_must_agree_on_choices_words_and_numbers() {
-    let rejected = |raw: &str| !matches!(compile(R3, raw), CompileResult::Lowered { .. });
+    let rejected = |raw: &str| !matches!(compile(R4, raw), CompileResult::Lowered { .. });
     let reworded = |raw: &str, from: &str, to: &str| {
         changed(raw, |row| {
             let text = row["source"]["oracle_text"]
@@ -396,7 +404,12 @@ fn printed_text_and_ast_must_agree_on_choices_words_and_numbers() {
 
 #[test]
 fn changed_sources_reject_instead_of_dropping_or_guessing() {
-    let rejected = |raw: &str| !matches!(compile(R3, raw), CompileResult::Lowered { .. });
+    let rejected = |raw: &str| !matches!(compile(R4, raw), CompileResult::Lowered { .. });
+    // Whole-card families never read the resolution; ask the pipeline.
+    let composition_rejects = |raw: &str| lower(accepted_manifest(R4).unwrap(), raw).is_err();
+    for witness in [DRAGON, MARSH] {
+        assert!(lower(accepted_manifest(R4).unwrap(), witness).is_ok());
+    }
     // An unconsumed step field.
     assert!(rejected(&changed(STRIP, |row| {
         row["faces"][0]["result"]["abilities"][1]["effects"][0]["steps"][0]["unless"] = json!(true);
@@ -417,27 +430,18 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
         row["faces"][0]["result"]["abilities"][0]["restriction"] =
             json!({"restriction":"timing","turn":"your"});
     })));
-    // The reference graph must be completely bound.
-    assert!(rejected(&changed(DRAGON, |row| {
-        row["binding"]["referencesBound"] = json!(false)
+    // The resolution must be complete, card-wide and in every block.
+    assert!(composition_rejects(&changed(DRAGON, |row| {
+        row["resolution"]["complete"] = json!(false);
+        row["resolution"]["residuals"] = json!(["face:unparsed"]);
     })));
-    assert!(rejected(&changed(DRAGON, |row| {
-        row["binding"]["diagnostics"] = json!([{"code":"missing-antecedent"}]);
+    assert!(composition_rejects(&changed(DRAGON, |row| {
+        row["resolution"]["complete"] = json!(false);
+        row["resolution"]["faces"][0]["blocks"][1]["residuals"] = json!(["ref:missing-antecedent"]);
     })));
-    assert!(rejected(&changed(DRAGON, |row| {
-        row["binding"]["counts"]["unresolved"] = json!(1)
-    })));
-    // A pronoun bound to the source instead of the block's announced target.
-    assert!(rejected(&changed(DRAGON, |row| {
-        let id = row["oracleIdentity"].as_str().unwrap().to_owned();
-        row["binding"]["references"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({
-                "path":"/faces/0/abilities/1/effects/0/steps/0/who/of",
-                "expression":{"ref":"it"},"binding":"bound",
-                "target":format!("card:{id}/source#object")
-            }));
+    // A pronoun resolved to the source instead of the block's announced target.
+    assert!(composition_rejects(&changed(DRAGON, |row| {
+        row["resolution"]["faces"][0]["blocks"][1]["refs"][0]["ref"] = json!({"ref":"source"});
     })));
     // A clause removed from the AST leaves its bound references dangling,
     // and an injected clause has no bound event.
@@ -448,8 +452,8 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
             .unwrap()
             .pop();
     });
-    assert!(lower(accepted_manifest(R3).unwrap(), CREW).is_ok());
-    assert!(lower(accepted_manifest(R3).unwrap(), &shortened).is_err());
+    assert!(lower(accepted_manifest(R4).unwrap(), CREW).is_ok());
+    assert!(lower(accepted_manifest(R4).unwrap(), &shortened).is_err());
     assert!(rejected(&changed(SEAL, |row| {
         row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"]
             .as_array_mut()
@@ -457,26 +461,21 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
             .push(json!({"effect":"draw","who":{"player":"you"},
                 "amount":{"amount":"fixed","value":1}}));
     })));
-    // A reference bound to a node that does not exist, a "you" bound to
-    // another player, and a repeated node identity.
-    assert!(rejected(&changed(DRAGON, |row| {
-        row["binding"]["references"][0]["target"] = json!("absent");
+    // A reference at a path the AST does not have, a "you" resolved to
+    // another player's role, and a repeated reference path.
+    assert!(composition_rejects(&changed(DRAGON, |row| {
+        row["resolution"]["faces"][0]["blocks"][1]["refs"][0]["path"] =
+            json!("/effects/0/steps/0/absent/what");
     })));
-    assert!(rejected(&changed(MARSH, |row| {
-        let refs = row["binding"]["references"].as_array_mut().unwrap();
-        let you = refs
-            .iter()
-            .position(|r| r["expression"] == json!({"player":"you"}))
-            .unwrap();
-        let other = refs
-            .iter()
-            .position(|r| r["expression"] != json!({"player":"you"}))
-            .unwrap();
-        refs[you]["target"] = refs[other]["target"].clone();
+    assert!(composition_rejects(&changed(MARSH, |row| {
+        let refs = &mut row["resolution"]["faces"][0]["blocks"][1]["refs"];
+        refs[0]["ref"] = json!({"ref":"event-player","role":"enters"});
     })));
-    assert!(rejected(&changed(DRAGON, |row| {
-        let nodes = row["binding"]["nodes"].as_array_mut().unwrap();
-        nodes.push(nodes.last().unwrap().clone());
+    assert!(composition_rejects(&changed(DRAGON, |row| {
+        let refs = row["resolution"]["faces"][0]["blocks"][1]["refs"]
+            .as_array_mut()
+            .unwrap();
+        refs.push(refs[0].clone());
     })));
     // A printed clause the AST does not carry.
     assert!(rejected(&changed(SEAL, |row| {
@@ -512,19 +511,23 @@ fn timing_and_step_tables_lower_sorcery_speed_and_combat_restrictions() {
     // The restriction is one more printed sentence; without it the row's
     // text and AST disagree.
     assert!(!matches!(
-        compile(R3, &changed(SEAL, restrict)),
+        compile(R4, &changed(SEAL, restrict)),
         CompileResult::Lowered { .. }
     ));
     let sorcery = changed(SEAL, |row| {
         restrict(row);
-        let text = format!(
-            "{} Activate only as a sorcery.",
-            row["source"]["oracle_text"].as_str().unwrap()
-        );
+        let printed = row["source"]["oracle_text"].as_str().unwrap().to_owned();
+        let text = format!("{printed} Activate only as a sorcery.");
         row["source"]["oracle_text"] = json!(text);
         row["faces"][0]["result"]["lines"][0]["text"] = json!(text);
+        // The certificate the parser emits for the added clause.
+        let spans = &mut row["resolution"]["faces"][0]["blocks"][0]["spans"]["certificate"];
+        spans["bytes"] = json!(text.len());
+        spans["segments"].as_array_mut().unwrap().push(
+            json!({"start":printed.len() + 1,"end":text.len(),"fields":["/costs","/restriction"]}),
+        );
     });
-    let CompileResult::Lowered { definition } = compile(R3, &sorcery) else {
+    let CompileResult::Lowered { definition } = compile(R4, &sorcery) else {
         panic!("timing row must lower")
     };
     assert!(definition.composed);
@@ -568,4 +571,89 @@ fn timing_and_step_tables_lower_sorcery_speed_and_combat_restrictions() {
     ] {
         assert!(!steps::claims(&unclaimed), "{unclaimed}");
     }
+}
+
+/// Archive R4 negative mutations: each changes the resolution, the printed
+/// text or a span without the other side agreeing, and each rejects with the
+/// check that caught it rather than lowering something else.
+#[test]
+fn r4_resolution_mutations_reject() {
+    const CHALICE: &str =
+        include_str!("../../../../tests/fixtures/phase1-r4/compose-marble-chalice.json");
+    const SAGA: &str =
+        include_str!("../../../../tests/fixtures/phase1-r4/burn-burn-tree-and-fern.json");
+    let archive = accepted_manifest(R4).unwrap();
+    let path = |raw: &str| lower(archive, raw).map(|_| ()).unwrap_err().path;
+    assert!(lower(archive, CHALICE).is_ok());
+    // A swapped controller: "you" in an activated ability is its controller.
+    let swapped = changed(CHALICE, |row| {
+        let refs = &mut row["resolution"]["faces"][0]["blocks"][0]["refs"];
+        let you = refs
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|r| r["ref"]["ref"] == "controller")
+            .unwrap();
+        you["ref"]["role"] = json!("spell-controller");
+    });
+    assert_eq!(path(&swapped), "resolution");
+    // A truncated activation restriction: the AST keeps the field, the text
+    // no longer prints it.
+    let truncated = changed(SEAL, |row| {
+        row["faces"][0]["result"]["abilities"][0]["restriction"] = json!({"restriction":"sorcery"});
+    });
+    assert_eq!(path(&truncated), "resolution.spans");
+    // A dropped mid-sentence word: the certificate no longer tiles the text.
+    let dropped = changed(STRIP, |row| {
+        let drop = |text: &serde_json::Value| {
+            json!(
+                text.as_str()
+                    .unwrap()
+                    .replace("Destroy target land", "Destroy land")
+            )
+        };
+        row["source"]["oracle_text"] = drop(&row["source"]["oracle_text"]);
+        let line = &mut row["faces"][0]["result"]["lines"][1]["text"];
+        *line = drop(line);
+    });
+    assert!(lower(archive, &dropped).is_err());
+    let dropped_block = changed(STRIP, |row| {
+        let text = &mut row["faces"][0]["result"]["lines"][1]["text"];
+        *text = json!(
+            text.as_str()
+                .unwrap()
+                .replace("Destroy target land", "Destroy land")
+        );
+    });
+    assert!(lower(archive, &dropped_block).is_err());
+    // A retargeted step entry or a dangling reference path.
+    let retargeted = changed(STRIP, |row| {
+        row["resolution"]["faces"][0]["blocks"][1]["steps"][0]["path"] =
+            json!("/effects/0/steps/1");
+    });
+    assert_eq!(path(&retargeted), "resolution");
+    // A span shifted into a multi-byte character ("—" is three bytes).
+    let read = |resolution: String| {
+        let sha = crate::sha256(resolution.as_bytes());
+        resolution::Resolution::read(
+            Some(&*RawValue::from_string(resolution).unwrap()),
+            Some(&sha),
+        )
+        .unwrap()
+    };
+    let row: serde_json::Value = serde_json::from_str(SAGA).unwrap();
+    let resolution = read(row["resolution"].to_string());
+    let (text, ability) = (
+        row["faces"][0]["result"]["lines"][1]["text"]
+            .as_str()
+            .unwrap(),
+        &row["faces"][0]["result"]["abilities"][1],
+    );
+    assert!(resolution.spans(1, text, ability).is_ok());
+    let mut shifted = row["resolution"].clone();
+    let dash = text.find('—').unwrap();
+    shifted["faces"][0]["blocks"][1]["spans"]["certificate"]["segments"][0]["end"] =
+        json!(dash + 1);
+    let shifted = read(shifted.to_string());
+    assert!(shifted.spans(1, text, ability).is_err());
 }

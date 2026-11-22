@@ -180,6 +180,7 @@ pub use controller_library::{
     matches_fixed_amount, printed_cast_scry,
 };
 pub use fixed_mill::fixed_mill_program;
+use kir::{Amount, Context, Destination, PlayerExpr, SetExpr, Verb};
 pub use library_order::controller_library_order_program;
 pub use library_selection::controller_library_selection_program;
 use serde::{Deserialize, Serialize, de};
@@ -206,6 +207,7 @@ pub use greatest_power::{greatest_power_ast, greatest_power_programs, greatest_p
 mod power_filtered_removal;
 pub use divided_plus_one_counters::divided_plus_one_counters_modal_program;
 pub mod bulk_catalog;
+pub mod kir;
 mod strict_io;
 pub use strict_io::{JsonByteProof, strict_read_seekable, strict_read_seekable_verified};
 mod unlimited_hand_size;
@@ -690,12 +692,43 @@ pub enum ObjectSet {
     FlyingCreatures,
     NonflyingCreatures,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum SetMove {
-    Destroy,
-    Exile,
-    Hand,
+impl ObjectSet {
+    /// The kernel set this closed set denotes for "you" in `context`. Kernel
+    /// verbs take a general filter; the instructions that still carry an
+    /// `ObjectSet` name one of these.
+    pub fn kernel(&self, context: Context) -> SetExpr {
+        use kir::Atom;
+        let kind = |kind| Atom::Type { kind };
+        let controlled = |player| Atom::ControlledBy { player };
+        let you = || controlled(PlayerExpr::you(context));
+        let opponents = || controlled(PlayerExpr::EachOpponent);
+        let flying = KeywordAbility::Flying;
+        let atoms = match self {
+            Self::GraveyardCards => return SetExpr::graveyards(),
+            Self::ControllerCreatures => vec![kind(CardKind::Creature), you()],
+            Self::ControllerPermanents => vec![you()],
+            Self::Creatures => vec![kind(CardKind::Creature)],
+            Self::NonlandPermanents => return SetExpr::battlefield(kir::Pred::nonland_permanents()),
+            Self::OpponentNonlandPermanents => vec![
+                Atom::NotType {
+                    kind: CardKind::Land,
+                },
+                opponents(),
+            ],
+            Self::Enchantments => vec![kind(CardKind::Enchantment)],
+            Self::Artifacts => vec![kind(CardKind::Artifact)],
+            Self::AttackingCreatures => vec![kind(CardKind::Creature), Atom::Attacking],
+            Self::OpponentCreatures => vec![kind(CardKind::Creature), opponents()],
+            Self::FlyingCreatures => {
+                vec![kind(CardKind::Creature), Atom::Keyword { keyword: flying }]
+            }
+            Self::NonflyingCreatures => vec![
+                kind(CardKind::Creature),
+                Atom::NotKeyword { keyword: flying },
+            ],
+        };
+        SetExpr::battlefield(kir::Pred(atoms))
+    }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "amount", rename_all = "snake_case", deny_unknown_fields)]
@@ -905,6 +938,12 @@ pub struct CreatureStatModifier {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Instruction {
+    /// One Kernel IR node. `kir::check` is its whole admission decision and
+    /// the core kernel interpreter its only executor.
+    Kernel {
+        node: kir::Node,
+        source_block: u32,
+    },
     TransformSource {
         source_block: u32,
     },
@@ -1015,20 +1054,7 @@ pub enum Instruction {
         target_slot: u32,
         source_block: u32,
     },
-    MoveSet {
-        set: ObjectSet,
-        action: SetMove,
-        source_block: u32,
-    },
     RemoveOpponentNonlandIndestructible {
-        source_block: u32,
-    },
-    DestroySet {
-        set: ObjectSet,
-        /// CR 701.19c: a prohibition keeps regeneration replacement effects
-        /// from applying to this destruction.
-        #[serde(default, skip_serializing_if = "is_false")]
-        regeneration_forbidden: bool,
         source_block: u32,
     },
     PumpSet {
@@ -1448,30 +1474,43 @@ pub enum Instruction {
         amount: Quantity,
         source_block: u32,
     },
-    GainLife {
-        recipient: LifeRecipient,
-        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
-        amount: Quantity,
-        source_block: u32,
-    },
     /// Each opponent loses the amount, then the controller gains the total life actually lost.
     DrainOpponents {
         amount: OpponentDrainAmount,
         #[schemars(range(max = 0))]
         source_block: u32,
     },
-    LoseLife {
-        recipient: LifeRecipient,
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
-        source_block: u32,
-    },
 }
 impl Instruction {
+    /// One kernel verb as an instruction.
+    pub fn act(verb: kir::Verb, source_block: u32) -> Self {
+        Self::Kernel {
+            node: kir::Node::Do(verb),
+            source_block,
+        }
+    }
+    /// The verb of a single-verb kernel instruction.
+    pub fn verb(&self) -> Option<&kir::Verb> {
+        match self {
+            Self::Kernel { node, .. } => node.verb(),
+            _ => None,
+        }
+    }
+    pub fn verb_mut(&mut self) -> Option<&mut kir::Verb> {
+        match self {
+            Self::Kernel {
+                node: kir::Node::Do(verb),
+                ..
+            } => Some(verb),
+            _ => None,
+        }
+    }
     /// Compiler-owned complete source block for this instruction.
     pub fn source_block(&self) -> u32 {
         match self {
-            Self::TransformSource { source_block } => *source_block,
+            Self::Kernel { source_block, .. } | Self::TransformSource { source_block } => {
+                *source_block
+            }
             Self::ExileLibraryForPlay { source_block, .. }
             | Self::LookTopMayRevealForMana { source_block, .. }
             | Self::RegisterControllerCreatureEntryThisTurn { source_block, .. }
@@ -1502,10 +1541,8 @@ impl Instruction {
             | Self::ProtectControllerUntilNextTurn { source_block }
             | Self::FreezeControllerLifeUntilNextTurn { source_block }
             | Self::PhaseOutControllerPermanents { source_block }
-            | Self::PhaseOutTargetPermanent { source_block, .. }
-            | Self::MoveSet { source_block, .. } => *source_block,
+            | Self::PhaseOutTargetPermanent { source_block, .. } => *source_block,
             Self::RemoveOpponentNonlandIndestructible { source_block } => *source_block,
-            Self::DestroySet { source_block, .. } => *source_block,
             Self::PumpSet { source_block, .. } => *source_block,
             Self::DamageSet { source_block, .. } => *source_block,
             Self::GainLifeDestroyed { source_block, .. } => *source_block,
@@ -1578,10 +1615,7 @@ impl Instruction {
             Self::DealDamage { source_block, .. }
             | Self::DealDamageToController { source_block, .. }
             | Self::DealDamageToManaActivator { source_block, .. } => *source_block,
-            Self::GainLife { source_block, .. } => *source_block,
-            Self::DrainOpponents { source_block, .. } | Self::LoseLife { source_block, .. } => {
-                *source_block
-            }
+            Self::DrainOpponents { source_block, .. } => *source_block,
         }
     }
 }
@@ -1983,11 +2017,10 @@ fn fixed_artifact_sacrifice_effect(p: &SpellProgram) -> bool {
         (
             [],
             [
-                Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount,
-                    ..
-                },
+                kernel!(GainLife {
+                    player: you!(),
+                    amount: fixed!(amount)
+                }),
             ],
         ) => *amount > Quantity::zero(),
         (
@@ -3312,7 +3345,84 @@ impl Definition {
         }
         set
     }
+    /// Runs `kir::check` on every kernel node of every program, in the
+    /// context and under the event that program resolves with. This is the
+    /// one admission decision for kernel nodes, for every kind of definition.
+    fn kernel_check(&self) -> Result<(), String> {
+        fn program(
+            p: &SpellProgram,
+            context: Context,
+            event: Option<&TriggerCondition>,
+            announced_x: bool,
+        ) -> Result<(), String> {
+            let env = kir::Env {
+                context,
+                targets: &p.targets,
+                event,
+                announced_x,
+            };
+            for instruction in &p.instructions {
+                match instruction {
+                    Instruction::Kernel { node, .. } => {
+                        kir::check(node, &env)?;
+                    }
+                    // CR 603.7: the registered program resolves as a delayed
+                    // triggered ability of its own event.
+                    Instruction::RegisterControllerCreatureEntryThisTurn {
+                        program: child, ..
+                    } => program(
+                        child,
+                        Context::Triggered,
+                        Some(&TriggerCondition::DelayedControllerCreatureEntry),
+                        false,
+                    )?,
+                    Instruction::RegisterControllerSpellCastThisTurn { program: child, .. } => {
+                        program(
+                            child,
+                            Context::Triggered,
+                            Some(&TriggerCondition::DelayedControllerSpellCast),
+                            false,
+                        )?
+                    }
+                    _ => {}
+                }
+            }
+            p.modes
+                .iter()
+                .try_for_each(|mode| program(&mode.program, context, event, announced_x))
+        }
+        if let Some(p) = &self.spell {
+            program(p, Context::Spell, None, self.x_mana_cost)?;
+        }
+        for ability in &self.activated {
+            program(&ability.program, Context::Activated, None, false)?;
+        }
+        for ability in &self.triggered {
+            program(
+                &ability.program,
+                Context::Triggered,
+                Some(&ability.condition),
+                false,
+            )?;
+        }
+        for ability in &self.static_abilities {
+            match &ability.effect {
+                // CR 702.103: the bestow program resolves as the Aura spell.
+                StaticEffect::Bestow { program: p, .. } => program(p, Context::Spell, None, false)?,
+                // CR 702.85a: the granted cascade is a cast trigger.
+                StaticEffect::GrantSpellCascade { program: p, .. } => program(
+                    p,
+                    Context::Triggered,
+                    Some(&TriggerCondition::SelfSpellCast),
+                    false,
+                )?,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
     pub fn validate(&self) -> Result<(), String> {
+        self.kernel_check()?;
         if self.composed {
             return composition::validate(self);
         }
@@ -4470,7 +4580,10 @@ impl Definition {
                             | Instruction::ReturnEntryTargetCreature { .. }
                             | Instruction::DiscardPlayerSet { .. }
                             | Instruction::DestroyPermanent { .. }
-                            | Instruction::DestroySet { .. }
+                            | kernel!(Destroy {
+                                regeneration_forbidden: true,
+                                ..
+                            })
                             | Instruction::CreateCreatureTokens { .. }
                             | Instruction::CreatePredefinedTokens { .. }
                             | Instruction::PutSourcePlusOneCountersForCastColors { .. }
@@ -4493,8 +4606,8 @@ impl Definition {
                             | Instruction::DiscardCards { .. }
                             | Instruction::SacrificeCreature { .. }
                             | Instruction::ModifyPowerToughness { .. }
-                            | Instruction::GainLife { .. }
-                            | Instruction::LoseLife { .. }
+                            | kernel!(GainLife { .. })
+                            | kernel!(LoseLife { .. })
                     )
                 })
             {
@@ -5109,11 +5222,7 @@ pub fn temporary_permanent_keyword_program(
         [grant] => (grant, None, None),
         [
             grant,
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount,
-                source_block: 0,
-            },
+            kernel!(GainLife { player: you!(), amount: fixed!(amount) } @ 0),
         ] if controlled && !amount.is_negative() => (grant, Some(amount), None),
         [
             grant,
@@ -5292,12 +5401,15 @@ fn validate_instruction_program_with_chapter(
     // Controller selectors require complete ordinary temporary-effect families.
     fn controller_set(p: &SpellProgram) -> bool {
         p.instructions.iter().any(|i| match i {
-            Instruction::MoveSet { set, .. }
-            | Instruction::PumpSet { set, .. }
-            | Instruction::GrantKeywordsSet { set, .. } => matches!(
-                set,
-                ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
-            ),
+            kernel!(Destroy { what, .. }) | kernel!(Move { what, .. }) => {
+                what.filter().is_some_and(kir::Pred::names_you)
+            }
+            Instruction::PumpSet { set, .. } | Instruction::GrantKeywordsSet { set, .. } => {
+                matches!(
+                    set,
+                    ObjectSet::ControllerCreatures | ObjectSet::ControllerPermanents
+                )
+            }
             Instruction::DamageSet { sets, .. } => sets.iter().any(|set| {
                 matches!(
                     set,
@@ -5523,9 +5635,7 @@ fn validate_program_bindings(
             | Instruction::ProtectControllerUntilNextTurn { .. }
             | Instruction::FreezeControllerLifeUntilNextTurn { .. }
             | Instruction::PhaseOutControllerPermanents { .. }
-            | Instruction::MoveSet { .. }
             | Instruction::RemoveOpponentNonlandIndestructible { .. }
-            | Instruction::DestroySet { .. }
             | Instruction::PumpSet { .. }
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::EachPlayerSacrifice { .. }
@@ -5560,10 +5670,10 @@ fn validate_program_bindings(
                         matches!(
                             i,
                             Instruction::DestroyAllCreatures { .. }
-                                | Instruction::MoveSet {
-                                    action: SetMove::Destroy,
+                                | kernel!(Destroy {
+                                    what: SetExpr::Matching { .. },
                                     ..
-                                }
+                                })
                         )
                     })
                 {
@@ -5965,33 +6075,13 @@ fn validate_program_bindings(
             Instruction::MillAnnouncedX { target_slot, .. } => {
                 Some((*target_slot, TargetDomain::AnyPlayer))
             }
-            Instruction::GainLife {
-                recipient, amount, ..
-            }
-            | Instruction::LoseLife {
-                recipient, amount, ..
-            } => {
-                if *amount <= Quantity::zero()
-                    && !(amount == &Quantity::zero()
-                        && matches!(
-                            instruction,
-                            Instruction::GainLife {
-                                recipient: LifeRecipient::Controller,
-                                ..
-                            }
-                        )
-                        && temporary_permanent_keyword_program(p).is_some())
-                {
-                    return Err("life quantity must be positive".into());
-                }
-                match recipient {
-                    LifeRecipient::Controller
-                    | LifeRecipient::EachOpponent
-                    | LifeRecipient::EventPlayer => None,
-                    LifeRecipient::Target { target_slot } => {
-                        Some((*target_slot, TargetDomain::AnyPlayer))
-                    }
-                }
+            // `kir::check` owns scope, operand kinds and the audited cell
+            // (see `Definition::kernel_check`). What stays here is the
+            // admission each reviewed family still narrows.
+            Instruction::Kernel { node, .. } => {
+                kernel_family_guard(p, node)?;
+                used.extend(kir::target_slots(node));
+                None
             }
             Instruction::DrawCardsIfAdditionalCost {
                 count,
@@ -6083,18 +6173,30 @@ fn validate_program_bindings(
     }
     Ok(())
 }
+/// Family admission that is narrower than the kernel's audited cells.
+fn kernel_family_guard(p: &SpellProgram, node: &kir::Node) -> Result<(), String> {
+    match node.verb() {
+        // CR 119.3: life changes are positive, except the fixed zero tail of
+        // the complete permanent-grant family.
+        Some(Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }) => {
+            let zero_tail = matches!(node.verb(), Some(Verb::GainLife { .. }))
+                && player.is_you()
+                && amount.as_fixed() == Some(&Quantity::zero())
+                && temporary_permanent_keyword_program(p).is_some();
+            if !zero_tail && amount.as_fixed().is_none_or(|n| *n <= Quantity::zero()) {
+                return Err("life quantity must be positive".into());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
 impl Instruction {
     pub fn uses_event_player(&self) -> bool {
         matches!(
             self,
             Self::DrawCards {
                 recipient: Some(LifeRecipient::EventPlayer),
-                ..
-            } | Self::GainLife {
-                recipient: LifeRecipient::EventPlayer,
-                ..
-            } | Self::LoseLife {
-                recipient: LifeRecipient::EventPlayer,
                 ..
             }
         )
@@ -6258,20 +6360,7 @@ fn add_program_requirements_for_source_pump(
         // not authorize this new composition in hosted/search profiles.
         set.insert(Capability::PermanentOwnerHandMoveV1);
     }
-    if program.additional_sacrifice.is_some()
-        || program.instructions.iter().any(|i| {
-            matches!(
-                i,
-                Instruction::GainLife {
-                    recipient: LifeRecipient::EachOpponent,
-                    ..
-                } | Instruction::LoseLife {
-                    recipient: LifeRecipient::EachOpponent,
-                    ..
-                }
-            )
-        })
-    {
+    if program.additional_sacrifice.is_some() {
         set.insert(Capability::SacrificeV1);
     }
     if !program.modes.is_empty() {
@@ -6497,9 +6586,7 @@ fn add_program_requirements_for_source_pump(
                 ..
             } => Capability::TemporaryCreatureSetKeywordProgramV1,
             Instruction::GrantKeywordsSet { .. } => Capability::BoardWipesV1,
-            Instruction::MoveSet { .. }
-            | Instruction::DestroySet { .. }
-            | Instruction::PumpSet { .. }
+            Instruction::PumpSet { .. }
             | Instruction::DamageSet { .. }
             | Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }
@@ -6651,9 +6738,12 @@ fn add_program_requirements_for_source_pump(
             Instruction::OrderLibraryTop { .. } | Instruction::OptionalShuffleLibrary { .. } => {
                 Capability::ControllerLibraryOrderV1
             }
-            Instruction::GainLife { .. } => Capability::LifeGainV1,
             Instruction::DrainOpponents { .. } => Capability::OpponentLifeDrainV1,
-            Instruction::LoseLife { .. } => Capability::LifeLossV1,
+            // The kernel walker derives every capability of a kernel node.
+            Instruction::Kernel { node, .. } => {
+                set.extend(kir::node_capabilities(node));
+                continue;
+            }
         });
     }
 }
@@ -6837,8 +6927,7 @@ fn fixed_artifact_sacrifice_schema(schema: &mut serde_json::Value) {
         "instructions":{"minItems":1,"maxItems":1,"items":{"properties":{
             "op":{"const":"deal_damage"},"target_slot":{"const":0},"amount":{"pattern":"^[1-9][0-9]*$"}}}}
     }});
-    let life = json!({"properties":{"targets":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":{
-        "properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},"amount":{"pattern":"^[1-9][0-9]*$"}}}}}});
+    let life = json!({"properties":{"targets":{"maxItems":0},"instructions":{"minItems":1,"maxItems":1,"items":instruction_schema::kernel_verb("gain_life")}}});
     let pump = json!({"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{
         "slot":{"const":0},"domain":{"const":"battlefield_creature"},"stage":{"const":"announcement"},
         "chooser":{"const":"controller"},"filter":{"type":"null"},"selection_id":{"pattern":"^line:(0|[1-9][0-9]*):1$"}}}},
@@ -7572,8 +7661,7 @@ pub fn catalog_schema() -> serde_json::Value {
             "instructions":{"minItems":1,"maxItems":2,"prefixItems":[
                 {"properties":{"op":{"const":"grant_keywords"},"target_slot":{"const":0},"modifier":{"type":"null"},
                     "keywords":{"$ref":"#/$defs/TemporaryCreatureKeywords"},"duration":{"const":"until_end_of_turn"},"source_block":{"const":0}}},
-                {"properties":{"op":{"const":"gain_life"},"recipient":{"const":"controller"},
-                    "amount":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"source_block":{"const":0}}}
+                instruction_schema::kernel_verb_at("gain_life", 0)
             ]}
         }
     });
@@ -7824,23 +7912,11 @@ pub fn catalog_schema() -> serde_json::Value {
             {"if":{"properties":{"characteristics":{"properties":{"kind":{"const":"instant"}}}}},
              "then":{"properties":{"spell":{"properties":{"timing":{"const":"instant"}}},"capabilities":{"contains":{"const":Capability::CastInstantV1},"not":{"contains":{"const":Capability::CastSorceryV1}}}}},
              "else":{"properties":{"spell":{"properties":{"timing":{"const":"main_phase"}}},"capabilities":{"contains":{"const":Capability::CastSorceryV1},"not":{"contains":{"const":Capability::CastInstantV1}}}}}},
-            {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":{"required":["op"],"properties":{"op":{"const":"gain_life"}}}}}}}},
+            {"if":{"properties":{"spell":{"properties":{"instructions":{"contains":instruction_schema::kernel_verb("gain_life")}}}}},
              "then":{"properties":{"capabilities":{"contains":{"const":Capability::LifeGainV1}}}},
              "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::LifeGainV1}}}}}}
         ]}
     }));
-    // CR 119.9: only the exact new complete grant family admits a zero tail.
-    // Generic gain/loss programs retain their strictly positive amount contract.
-    schema["$defs"]["SpellProgram"]["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(serde_json::json!({
-            "if":{"not":{"$ref":"#/$defs/TemporaryPermanentKeywordProgram"}},
-            "then":{"properties":{"instructions":{"items":{
-                "if":{"required":["op"],"properties":{"op":{"enum":["gain_life","lose_life"]}}},
-                "then":{"properties":{"amount":{"type":"string","pattern":"^[1-9][0-9]*$"}}}
-            }}}}
-        }));
     // The set family has its own non-targeted shape; targeted any_grant above
     // deliberately continues to match only GrantKeywords.
     let set_grant_op =
@@ -8749,11 +8825,13 @@ mod tests {
                 functioning_zone: FunctioningZone::Stack,
                 timing: SpellTiming::Instant,
                 resolution: SpellResolution::Instructions,
-                instructions: vec![Instruction::GainLife {
-                    recipient: LifeRecipient::Controller,
-                    amount: 1.into(),
-                    source_block: 0,
-                }],
+                instructions: vec![Instruction::act(
+                    Verb::GainLife {
+                        player: PlayerExpr::you(Context::Activated),
+                        amount: Amount::fixed(1),
+                    },
+                    0,
+                )],
                 targets: vec![],
                 modes: vec![],
                 additional_sacrifice: None,
@@ -10723,21 +10801,27 @@ mod tests {
             },
             Instruction::DrawDamageAmount { source_block: 0 },
             Instruction::OptionalDrawCards { source_block: 0 },
-            Instruction::GainLife {
-                recipient: LifeRecipient::Controller,
-                amount: 1.into(),
-                source_block: 0,
-            },
-            Instruction::GainLife {
-                recipient: LifeRecipient::EventPlayer,
-                amount: 1.into(),
-                source_block: 0,
-            },
-            Instruction::LoseLife {
-                recipient: LifeRecipient::EventPlayer,
-                amount: 1.into(),
-                source_block: 0,
-            },
+            Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::you(Context::Triggered),
+                    amount: Amount::fixed(1),
+                },
+                0,
+            ),
+            Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::event(kir::EventPlayerRole::Caster),
+                    amount: Amount::fixed(1),
+                },
+                0,
+            ),
+            Instruction::act(
+                Verb::LoseLife {
+                    player: PlayerExpr::event(kir::EventPlayerRole::Caster),
+                    amount: Amount::fixed(1),
+                },
+                0,
+            ),
             Instruction::DiscardCards {
                 recipient: None,
                 count: 1.into(),
