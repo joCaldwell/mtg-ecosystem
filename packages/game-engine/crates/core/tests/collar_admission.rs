@@ -155,7 +155,7 @@ fn collar_admission_exact_catalog_and_default_delta() {
     c.definitions.retain(|d| d.oracle_id != COLLAR);
     assert_eq!(
         digest(&c).unwrap(),
-        "e5575e5bd699b3cd06c473816e3089bca96dd38ea3d98c4dc571ee434ebbc9e2"
+        "9141ac77bd744475e73d57a2dbf70a15d6b7ac6fc4c79cf6951b8394acd922e0"
     );
     let mut raw: serde_json::Value = serde_json::from_str(include_str!(
         "../../../tests/fixtures/profiles/commander-sacrifice-v1.json"

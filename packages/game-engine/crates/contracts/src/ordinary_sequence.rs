@@ -363,23 +363,19 @@ fn instruction(
             Instruction::draw(PlayerExpr::you(Context::Spell), count, source_block),
         ),
         Mill | TargetMill => {
-            let (who, recipient) = if cl.operation == TargetMill {
+            let (who, player) = if cl.operation == TargetMill {
                 let id = selection(&raw["who"], source_block)?;
                 push_target(p, id, TargetDomain::AnyPlayer, None)?;
                 (
                     json!({"player":"target-player","selectionId":id}),
-                    Some(LifeRecipient::Target { target_slot: 0 }),
+                    PlayerExpr::target(0),
                 )
             } else {
-                (you, None)
+                (you, PlayerExpr::you(Context::Spell))
             };
             (
                 json!({"effect":"mill","who":who,"amount":amount}),
-                Instruction::MillCards {
-                    recipient,
-                    count,
-                    source_block,
-                },
+                Instruction::mill(player, Amount::Fixed { value: count }, source_block),
             )
         }
         Gain => (
@@ -411,11 +407,12 @@ fn instruction(
         ),
         Discard => (
             json!({"effect":"discard","who":you,"what":{"ref":"filter","filter":{"cls":"card"},"count":amount}}),
-            Instruction::DiscardCards {
-                recipient: None,
-                count,
+            Instruction::discard(
+                PlayerExpr::you(Context::Spell),
+                Amount::Fixed { value: count },
+                false,
                 source_block,
-            },
+            ),
         ),
         Destroy | Exile | Bounce => {
             let id = selection(&raw["what"], source_block)?;
@@ -516,16 +513,20 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
     }
     let mut library = matches!(
         p.instructions.first(),
-        Some(Instruction::DiscardCards {
-            recipient: None,
-            ..
-        })
+        Some(kernel!(Discard {
+            player: you!(),
+            amount: fixed!(_),
+            random: false
+        }))
     ) && p.instructions.iter().any(|i| i.fixed_draw().is_some());
     for i in &p.instructions {
         match i {
             Instruction::Scry { .. }
             | Instruction::Surveil { .. }
-            | Instruction::MillCards { .. }
+            | kernel!(Mill {
+                amount: fixed!(_),
+                ..
+            })
             | Instruction::GrantLandPlaysThisTurn { .. } => library = true,
             kernel!(Draw {
                 player: you!(),
@@ -533,9 +534,11 @@ pub(crate) fn program(p: &SpellProgram) -> bool {
             })
             | kernel!(GainLife { player: you!(), .. })
             | kernel!(LoseLife { player: you!(), .. })
-            | Instruction::DiscardCards {
-                recipient: None, ..
-            }
+            | kernel!(Discard {
+                player: you!(),
+                amount: fixed!(_),
+                random: false
+            })
             | kernel!(Destroy {
                 what: target_object!(_),
                 regeneration_forbidden: false
@@ -631,18 +634,18 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 
 pub(crate) fn extend_schema(schema: &mut Value) {
     let op = |name: &str| json!({"required":["op"],"properties":{"op":{"const":name}}});
-    let library = json!({"required":["op"],"properties":{"op":{"enum":["scry","surveil","mill_cards","grant_land_plays_this_turn"]}}});
+    let library = json!({"anyOf":[
+        {"required":["op"],"properties":{"op":{"enum":["scry","surveil","grant_land_plays_this_turn"]}}},
+        instruction_schema::fixed_mill()
+    ]});
     let draw = instruction_schema::kernel_verb("draw");
-    let none = json!({"recipient":{"type":"null"}});
     let has_instruction = |op: &Value| json!({"properties":{"instructions":{"contains":op}}});
     let targets = |domain: &str, filter: Value| {
         json!({"properties":{"targets":{
             "minItems":1,"maxItems":1,"items":{"properties":{"domain":{"const":domain},"filter":filter}}
         }}})
     };
-    let mill_target = json!({"allOf":[op("mill_cards"), {"required":["recipient"],"properties":{
-        "recipient":{"const":LifeRecipient::Target { target_slot: 0 }}
-    }}]});
+    let mill_target = instruction_schema::target_mill(Some(0));
     let creature_move = instruction_schema::target_destroy(None, Some(false));
     let permanent_move = json!({"anyOf":[
         instruction_schema::any_target_destroy(None),
@@ -659,15 +662,15 @@ pub(crate) fn extend_schema(schema: &mut Value) {
                 "chooser":{"const":"controller"},"stage":{"const":"announcement"},
                 "domain":{"enum":["any_player","battlefield_creature","battlefield_permanent"]}}}},
             "instructions":{"minItems":2,"items":{"anyOf":[
-                op("scry"),op("surveil"),{"allOf":[op("mill_cards"),{"properties":{"recipient":{"anyOf":[{"type":"null"},{"const":LifeRecipient::Target { target_slot:0 }}]}}}]},op("grant_land_plays_this_turn"),
+                op("scry"),op("surveil"),instruction_schema::controller_mill(),instruction_schema::target_mill(Some(0)),op("grant_land_plays_this_turn"),
                 instruction_schema::any_counted_draw(),
                 instruction_schema::target_move(None, "exile"),instruction_schema::target_move(None, "owner_hand"),
                 instruction_schema::single_draw(),
-                {"allOf":[op("discard_cards"),{"properties":none}]},
+                instruction_schema::controller_discard(json!({"type":"string"})),
                 instruction_schema::kernel_verb("gain_life"),
                 instruction_schema::kernel_verb("lose_life"),
                 instruction_schema::target_destroy(None, Some(false))
-            ]},"anyOf":[{"contains":library},{"prefixItems":[op("discard_cards")],"contains":draw}]
+            ]},"anyOf":[{"contains":library},{"prefixItems":[instruction_schema::controller_discard(json!({"type":"string"}))],"contains":draw}]
             }
         },
         "allOf":[
@@ -717,7 +720,6 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         ),
         ("scry", Capability::ControllerScryV1),
         ("surveil", Capability::ControllerSurveilV1),
-        ("mill_cards", Capability::FixedMillProgramV1),
     ]
     .map(|(name, cap)| (op(name), cap))
     .into_iter()
@@ -725,6 +727,10 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         (
             instruction_schema::any_counted_draw(),
             Capability::ControllerCountedDrawV1,
+        ),
+        (
+            instruction_schema::fixed_mill(),
+            Capability::FixedMillProgramV1,
         ),
         (
             instruction_schema::kernel_verb("gain_life"),

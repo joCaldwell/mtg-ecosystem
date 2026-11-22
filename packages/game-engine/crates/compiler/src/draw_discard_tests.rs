@@ -17,11 +17,12 @@ fn draw_discard_complete_source_cost_bindings_and_program() {
         d.spell.unwrap().instructions,
         vec![
             Instruction::draw(PlayerExpr::you(Context::Spell), 2.into(), 0),
-            Instruction::DiscardCards {
-                recipient: None,
-                count: 2.into(),
-                source_block: 0
-            }
+            Instruction::discard(
+                kir::PlayerExpr::you(kir::Context::Spell),
+                kir::Amount::Fixed { value: 2.into() },
+                false,
+                0
+            )
         ]
     );
 }

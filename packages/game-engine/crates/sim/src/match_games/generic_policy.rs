@@ -49,15 +49,16 @@ fn announced_x(instruction: &I) -> bool {
         }) | kernel!(Damage {
             amount: announced_x!(),
             ..
-        }) | I::MillAnnouncedX { .. }
-            | kernel!(GainLife {
-                amount: mtg_contracts::announced_x!(),
-                ..
-            })
-            | kernel!(LoseLife {
-                amount: mtg_contracts::announced_x!(),
-                ..
-            })
+        }) | kernel!(Mill {
+            player: target_player!(_),
+            amount: announced_x!()
+        }) | kernel!(GainLife {
+            amount: mtg_contracts::announced_x!(),
+            ..
+        }) | kernel!(LoseLife {
+            amount: mtg_contracts::announced_x!(),
+            ..
+        })
     )
 }
 
@@ -1379,7 +1380,10 @@ impl Strategy<'_> {
                     }
                     (set_damage.sets.into_iter().cloned().collect(), Some(damage))
                 }
-                I::EachPlayerSacrifice { .. } => {
+                kernel!(Sacrifice {
+                    player: kir::PlayerExpr::EachPlayer,
+                    ..
+                }) => {
                     found = true;
                     for player in &v.live_turn_order {
                         if let Some(o) = v

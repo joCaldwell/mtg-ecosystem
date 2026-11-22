@@ -358,11 +358,12 @@ mod tests {
                 7 => d.activated[0]
                     .program
                     .instructions
-                    .push(Instruction::DiscardCards {
-                        recipient: None,
-                        count: 1.into(),
-                        source_block: 1,
-                    }),
+                    .push(Instruction::discard(
+                        kir::PlayerExpr::you(kir::Context::Activated),
+                        kir::Amount::Fixed { value: 1.into() },
+                        false,
+                        1,
+                    )),
                 8 => d.activated[0].program.functioning_zone = FunctioningZone::Hand,
                 9 => d.static_abilities[0].functioning_zone = FunctioningZone::Hand,
                 10 => d.intrinsic_zone = Some(FunctioningZone::Hand),

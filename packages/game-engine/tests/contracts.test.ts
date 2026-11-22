@@ -27,6 +27,14 @@ const damage = (slot: number, value: string, source_block: number) => ({op:"kern
 // CR 400.3: a Kernel IR move of target `slot` to `to`.
 const move = (slot: number, to: string, source_block: number) => ({op:"kernel",
   node:{do:{verb:"move",what:{set:"one",object:{ref:"target",slot}},to:{to}}},source_block});
+// CR 701.9a: a Kernel IR discard of `count` cards by `player`.
+const you = (role: string) => ({player:"is",who:{ref:"controller",role}});
+const damaged = {player:"is",who:{ref:"event_player",role:"damaged_player"}};
+const discard = (player: any, count: string, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"discard",player,amount:{amount:"fixed",value:count}}},source_block});
+// CR 701.21a: a Kernel IR sacrifice of one creature by `player`.
+const sacrifice = (player: any, source_block: number) => ({op:"kernel",
+  node:{do:{verb:"sacrifice",player,count:{amount:"fixed",value:"1"},filter:[{atom:"type",kind:"creature"}]}},source_block});
 const draw = (role: string, count: string, source_block: number) => ({op:"kernel",
   node:{do:{verb:"draw",player:{player:"is",who:{ref:"controller",role}},amount:{amount:"fixed",value:count}}},source_block});
 const preflight = process.env.MTG_ENGINE_CONTRACT_PREFLIGHT === "1";
@@ -341,12 +349,12 @@ test("action catalog preserves complete activated costs and opponent choice", ()
   assert.deepEqual(researcher.activated, [{
     functioning_zone: "battlefield", cost: "sacrifice_source",
     program: { functioning_zone: "stack", timing: "instant", resolution: "instructions", targets: [],
-      instructions: [draw("ability_controller", "1", 0), { op: "discard_cards", count: "1", source_block: 0 }] },
+      instructions: [draw("ability_controller", "1", 0), discard(you("ability_controller"), "1", 0)] },
   }]);
   const edict = catalog.definitions.find((d: any) => d.oracle_id === "10c585c4-bf5b-4d8f-94a9-e9a5036a688f");
   assert.deepEqual(edict.characteristics.mana_cost, { generic: "1", colored: ["B"] });
   assert.deepEqual(edict.spell.targets, [{ slot: 0, selection_id: "line:0:0", chooser: "controller", stage: "announcement", domain: "opponent_player" }]);
-  assert.deepEqual(edict.spell.instructions, [{ op: "target_player_sacrifice_creature", target_slot: 0, source_block: 0 }]);
+  assert.deepEqual(edict.spell.instructions, [sacrifice({ player: "is", who: { ref: "target", slot: 0 } }, 0)]);
   assert.equal(edict.capabilities.includes("opponent_target_v1"), true);
   assert.equal(edict.capabilities.includes("creature_target_v1"), false);
   const swamp = catalog.definitions.find((d: any) => d.oracle_id === "56719f6a-1a6c-4c0a-8d21-18f7d7350b68");
@@ -399,7 +407,7 @@ test("stack catalog preserves complete counter domains and distinct tap and mana
     assert.deepEqual(d.characteristics.mana_cost, { generic: "1", colored: ["U"] });
     assert.deepEqual(d.activated, [{ functioning_zone: "battlefield", cost,
       program: { functioning_zone: "stack", timing: "instant", resolution: "instructions", targets: [],
-        instructions: instructions.map(op => op === "draw" ? draw("ability_controller", "1", 0) : ({ op, count: "1", source_block: 0 })) } }]);
+        instructions: instructions.map(op => op === "draw" ? draw("ability_controller", "1", 0) : discard(you("ability_controller"), "1", 0)) } }]);
   }
   const validate = new Ajv2020({ strict: false, formats: {
     uint32: { type: "number", validate: (n: number) => Number.isInteger(n) && n >= 0 && n <= 0xffff_ffff },
@@ -1848,14 +1856,15 @@ test("exact-source damage recipient discard preserves its actor", () => {
     assert.equal(definition.name,"Dimir Cutpurse");
     assert.ok(definition.capabilities.includes("event_player_discard_v1"));
     assert.deepEqual(definition.triggered[0].program.instructions,[
-      {op:"discard_cards",recipient:"event_player",count:"1",source_block:0},
+      discard(damaged,"1",0),
       draw("ability_controller","1",0),
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
 
-    for(const recipient of ["target", "each_opponent", {target_slot:0}, true]) {
-      const bad=structuredClone(catalog);bad.definitions[0].triggered[0].program.instructions[0].recipient=recipient;
+    // Malformed kernel players are structurally rejected.
+    for(const player of ["target", {player:"target"}, {player:"is",who:{ref:"event_player"}}, {target_slot:0}, true]) {
+      const bad=structuredClone(catalog);bad.definitions[0].triggered[0].program.instructions[0].node.do.player=player;
       assert.equal(validate(bad),false);
     }
     const modal=loadCatalog("choices");
@@ -1863,7 +1872,7 @@ test("exact-source damage recipient discard preserves its actor", () => {
     assert.ok(modal.definitions[0]);
     modal.definitions[0].capabilities.push("event_player_discard_v1");
     const child=modal.definitions[0].spell.modes[0].program;
-    child.targets=[];child.instructions=[{op:"discard_cards",recipient:"event_player",count:"1",source_block:0}];
+    child.targets=[];child.instructions=[discard(damaged,"1",0)];
     // This is an intentionally unbound schema-only witness. Runtime definition
     // validation additionally rejects event recipients on a spell program.
     assert.equal(validate(modal),true,JSON.stringify(validate.errors));
@@ -1894,16 +1903,16 @@ test("exact-source damage recipient sacrifice preserves its actor", () => {
     assert.equal(definition.name,"Demon of Loathing");
     assert.deepEqual(new Set(definition.keywords),new Set(["flying","trample"]));
     assert.ok(definition.capabilities.includes("event_player_sacrifice_v1"));
-    assert.deepEqual(definition.triggered[0].program.instructions,[{op:"sacrifice_creature",recipient:"event_player",source_block:1}]);
+    assert.deepEqual(definition.triggered[0].program.instructions,[sacrifice(damaged,1)]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
 
     for(const mutate of [
-      (i:any)=>{i.recipient="controller";},
-      (i:any)=>{i.recipient={event_player:null};},
-      (i:any)=>{i.count="1";},
-      (i:any)=>{i.optional=true;},
-      (i:any)=>{delete i.recipient;},
+      (i:any)=>{i.node.do.player="controller";},
+      (i:any)=>{i.node.do.player={event_player:null};},
+      (i:any)=>{i.node.do.count="1";},
+      (i:any)=>{i.node.do.optional=true;},
+      (i:any)=>{delete i.node.do.player;},
     ]) {
       const bad=structuredClone(catalog);mutate(bad.definitions[0].triggered[0].program.instructions[0]);
       assert.equal(validate(bad),false);
@@ -1913,7 +1922,7 @@ test("exact-source damage recipient sacrifice preserves its actor", () => {
     assert.ok(modal.definitions[0]);
     modal.definitions[0].capabilities.push("event_player_sacrifice_v1");
     const child=modal.definitions[0].spell.modes[0].program;
-    child.targets=[];child.instructions=[{op:"sacrifice_creature",recipient:"event_player",source_block:0}];
+    child.targets=[];child.instructions=[sacrifice(damaged,0)];
     // Structural schema witness only; runtime also rejects an unbound actor.
     assert.equal(validate(modal),true,JSON.stringify(validate.errors));
     passed=true;
@@ -2043,14 +2052,14 @@ test("exact-source controller damage discard preserves sequencing and context", 
     assert.deepEqual(definition.triggered[0].condition,{damage_dealt:{source:{subject:"source"},kind:"combat",recipient:"player"}});
     assert.deepEqual(definition.triggered[0].program.instructions,[
       draw("ability_controller","1",1),
-      {op:"discard_cards",count:"1",source_block:1},
+      discard(you("ability_controller"),"1",1),
     ]);
     const validate=new Ajv2020({strict:false,formats:{uint32:{type:"number",validate:(n:number)=>Number.isInteger(n)&&n>=0&&n<=0xffff_ffff}}}).compile(run("schema"));
     assert.equal(validate(catalog),true,JSON.stringify(validate.errors));
 
-    for(const recipient of [undefined,"controller"]) {
+    // The kernel controller discard has one encoding.
+    {
       const witness=structuredClone(catalog);
-      if(recipient!==undefined) witness.definitions[0].triggered[0].program.instructions[1].recipient=recipient;
       assert.equal(validate(witness),true,JSON.stringify(validate.errors));
 
       // Synthetic schema closure only; runtime deliberately rejects modal damage programs.
@@ -2124,8 +2133,8 @@ test("headless damage v2 profile compiles all 36 exact sources", () => {
   const catalog=loadCatalog("damage-matches-v2");
   assert.equal(catalog.schema_version,IR_SCHEMA_VERSION);
   assert.equal(catalog.definitions.length,36);
-  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"4db05b77068d369890a6f633929f16d6c8a012860573982fc0107820b2f35e4d");
-  assert.equal(read("catalogs/damage-matches.sha256").trim(),"14b45c5fe99f659e0d7be13051f7c28a96d1c04fa502b1d45eaacbaff85ac9fe");
+  assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"8329a5d31a9d862021a4a178880c2d65d5c6bf82a0f8ab74d2185d4d1efbd60d");
+  assert.equal(read("catalogs/damage-matches.sha256").trim(),"cebf67b51574456419e7cd6fa5fc7e1c4f0a92d43179d52382e537ad072c167d");
   const group=fileURLToPath(new URL("fixtures/damage-matches-v2/",import.meta.url));
   const provenance=JSON.parse(fs.readFileSync(path.join(group,"provenance.json"),"utf8"));
   const archives=JSON.parse(fs.readFileSync(path.join(group,"accepted-archives.json"),"utf8"));
@@ -2268,7 +2277,7 @@ test("exact-source Kutzil consumes grouped power and cast prohibition on the cur
       const bad=structuredClone(catalog);mutate(bad.definitions[0]);assert.equal(validate(bad),false);
     }
     assert.equal(fs.readFileSync(record,"utf8"),raw,"compilation cannot rewrite the archived diagnostic binding");
-    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"4db05b77068d369890a6f633929f16d6c8a012860573982fc0107820b2f35e4d");
+    assert.equal(read("catalogs/damage-matches-v2.sha256").trim(),"8329a5d31a9d862021a4a178880c2d65d5c6bf82a0f8ab74d2185d4d1efbd60d");
     assert.equal(validate(loadCatalog("damage-matches-v2")),true,JSON.stringify(validate.errors));
     passed=true;
   } finally {if(passed) fs.rmSync(temporary,{recursive:true,force:true});}

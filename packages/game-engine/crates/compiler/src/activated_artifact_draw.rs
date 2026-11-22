@@ -36,11 +36,12 @@ pub(super) fn lower_two_draws(
             instructions: vec![
                 draw.clone(),
                 draw,
-                Instruction::DiscardCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 0,
-                },
+                Instruction::discard(
+                    kir::PlayerExpr::you(kir::Context::Activated),
+                    kir::Amount::Fixed { value: 1.into() },
+                    false,
+                    0,
+                ),
             ],
         },
     }))
@@ -381,11 +382,12 @@ mod tests {
         );
         let mut expected =
             vec![Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0); draw_count];
-        expected.push(Instruction::DiscardCards {
-            count: 1.into(),
-            recipient: None,
-            source_block: 0,
-        });
+        expected.push(Instruction::discard(
+            kir::PlayerExpr::you(kir::Context::Activated),
+            kir::Amount::Fixed { value: 1.into() },
+            false,
+            0,
+        ));
         assert_eq!(definition.activated[0].program.instructions, expected);
     }
 

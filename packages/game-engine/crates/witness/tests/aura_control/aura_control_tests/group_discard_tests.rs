@@ -40,11 +40,12 @@ fn setup() -> Prepared {
         spell.source_labels = None;
         let program = spell.spell.as_mut().unwrap();
         program.targets.clear();
-        program.instructions = vec![Instruction::DiscardPlayerSet {
-            scope: GroupDiscardScope::EachOpponent,
-            count: 2.into(),
-            source_block: 0,
-        }];
+        program.instructions = vec![Instruction::discard(
+            kir::PlayerExpr::EachOpponent,
+            kir::Amount::Fixed { value: 2.into() },
+            false,
+            0,
+        )];
         spell.capabilities = spell.requirements();
         prepared.config.cards[0].oracle_id = spell.oracle_id.clone();
         catalog

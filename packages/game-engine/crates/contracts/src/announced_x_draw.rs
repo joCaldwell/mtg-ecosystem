@@ -24,7 +24,10 @@ pub(super) fn has_x_instruction(p: &SpellProgram) -> bool {
                 },
                 amount: announced_x!(),
                 ..
-            }) | Instruction::MillAnnouncedX { .. }
+            }) | kernel!(Mill {
+                player: target_player!(_),
+                amount: announced_x!()
+            })
         )
     }) || p.modes.iter().any(|m| has_x_instruction(&m.program))
 }
@@ -97,11 +100,12 @@ impl Shape {
             Instruction::announced_x_life(player, gain, 0)
         };
         let damage = Instruction::damage_target(0, kir::Amount::announced_x(), 0);
-        let discard = Instruction::DiscardCards {
-            recipient: None,
-            count: 1.into(),
-            source_block: 0,
-        };
+        let discard = Instruction::discard(
+            kir::PlayerExpr::you(kir::Context::Spell),
+            kir::Amount::Fixed { value: 1.into() },
+            false,
+            0,
+        );
         let controller = LifeRecipient::Controller;
         match self {
             Self::Draw => vec![draw(controller)],
@@ -117,10 +121,7 @@ impl Shape {
             }
             Self::TargetGain => vec![life(player, true)],
             Self::MillGain => vec![
-                Instruction::MillAnnouncedX {
-                    target_slot: 0,
-                    source_block: 0,
-                },
+                Instruction::mill(kir::PlayerExpr::target(0), kir::Amount::announced_x(), 0),
                 life(controller, true),
             ],
             Self::DrawOrDamage => vec![],
@@ -186,16 +187,7 @@ impl Shape {
         {
             return false;
         }
-        let mut instructions = self.instructions();
-        if let Some(Instruction::DiscardCards {
-            recipient: Some(ActionRecipient::Controller),
-            ..
-        }) = p.instructions.last()
-            && let Some(Instruction::DiscardCards { recipient, .. }) = instructions.last_mut()
-        {
-            *recipient = Some(ActionRecipient::Controller);
-        }
-        p.instructions == instructions
+        p.instructions == self.instructions()
             && self
                 .modes()
                 .iter()

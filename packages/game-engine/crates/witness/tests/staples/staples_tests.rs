@@ -1169,13 +1169,20 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                         what: target_object!(_),
                         to: kir::Destination::OwnerLibraryTop
                     })
-                    | Instruction::TargetPlayerSacrificeCreature { .. }
+                    | kernel!(Sacrifice {
+                        player: target_player!(_),
+                        ..
+                    })
                     | Instruction::DrawCardsIfAdditionalCost { .. }
                     | kernel!(Draw {
                         player: kir::PlayerExpr::Is { .. },
                         amount: fixed!(_)
                     })
-                    | Instruction::DiscardCards { .. }
+                    | kernel!(Discard {
+                        player: you!() | event_player!(),
+                        amount: fixed!(_),
+                        random: false
+                    })
                     | Instruction::CounterStackObject { .. }
                     | kernel!(Damage {
                         to: kir::DamageTo::Ref {
@@ -1191,7 +1198,10 @@ fn compiled_pool_lifetime_token_bound_requires_review_on_recursion_changes() {
                     | Instruction::OrderLibraryTop { .. }
                     | Instruction::OptionalShuffleLibrary { .. }
                     | Instruction::SelectLibraryCard { .. }
-                    | Instruction::MillCards { .. }
+                    | kernel!(Mill {
+                        amount: fixed!(_),
+                        ..
+                    })
                     | Instruction::Surveil { .. }
                     | Instruction::Scry { .. }
                     | Instruction::SearchBasicLands { .. }

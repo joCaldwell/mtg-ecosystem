@@ -113,10 +113,7 @@ fn archive_witness(raw: &str, index: u32) {
         21951 | 24464 => vec![damage(), gain(controller)],
         23936 => vec![gain(target)],
         25940 => vec![
-            Instruction::MillAnnouncedX {
-                target_slot: 0,
-                source_block: 0,
-            },
+            Instruction::mill(kir::PlayerExpr::target(0), kir::Amount::announced_x(), 0),
             gain(controller),
         ],
         1066 => {
@@ -125,11 +122,12 @@ fn archive_witness(raw: &str, index: u32) {
                 damage(),
                 draw.clone(),
                 draw,
-                Instruction::DiscardCards {
-                    count: 1.into(),
-                    recipient: None,
-                    source_block: 0,
-                },
+                Instruction::discard(
+                    kir::PlayerExpr::you(kir::Context::Spell),
+                    kir::Amount::Fixed { value: 1.into() },
+                    false,
+                    0,
+                ),
             ]
         }
         _ => unreachable!(),

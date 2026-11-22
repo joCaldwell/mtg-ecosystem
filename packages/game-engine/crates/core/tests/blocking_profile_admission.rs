@@ -55,7 +55,7 @@ fn development_profile_adds_fourteen_complete_definitions_and_admits_four_legal_
     assert_eq!(previous.definitions.len(), 47);
     assert_eq!(
         mtg_contracts::digest(&previous).unwrap(),
-        "9a27a91e277228841724929c1d4cc4d5b348e8ed58515ce3c7e0d3816c1532fa"
+        "685f96bf4f5c5abcd9912382ed17bd78d5ba08807edce350dfdcde7a6019717a"
     );
 
     for definition in &original.definitions {

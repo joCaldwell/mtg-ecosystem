@@ -363,9 +363,30 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "target_player_sacrifice_creature",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "count": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "filter": [
+                  {
+                    "atom": "type",
+                    "kind": "creature"
+                  }
+                ],
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "sacrifice"
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -726,8 +747,29 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "op": "sacrifice_creature",
-                "recipient": "event_player",
+                "node": {
+                  "do": {
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "filter": [
+                      {
+                        "atom": "type",
+                        "kind": "creature"
+                      }
+                    ],
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "damaged_player"
+                      }
+                    },
+                    "verb": "sacrifice"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],
@@ -1094,9 +1136,23 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "count": "1",
-                "op": "discard_cards",
-                "recipient": "event_player",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "event_player",
+                        "role": "damaged_player"
+                      }
+                    },
+                    "verb": "discard"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               },
               {

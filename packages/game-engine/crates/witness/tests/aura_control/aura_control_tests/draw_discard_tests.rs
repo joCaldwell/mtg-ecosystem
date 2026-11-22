@@ -428,11 +428,14 @@ fn draw_discard_typed_zero_and_large_count_use_available_hand() {
                 .unwrap();
             d.spell.as_mut().unwrap().instructions = vec![
                 Instruction::draw(PlayerExpr::you(Context::Spell), draw.into(), 0),
-                Instruction::DiscardCards {
-                    recipient: None,
-                    count: discard.parse().unwrap(),
-                    source_block: 0,
-                },
+                Instruction::discard(
+                    kir::PlayerExpr::you(kir::Context::Spell),
+                    kir::Amount::Fixed {
+                        value: discard.parse().unwrap(),
+                    },
+                    false,
+                    0,
+                ),
             ];
             d.capabilities = d.requirements();
             d.validate().unwrap();

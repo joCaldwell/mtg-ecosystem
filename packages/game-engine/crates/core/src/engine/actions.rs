@@ -391,20 +391,19 @@ impl Game {
         instruction: &'a Instruction,
     ) -> Result<(PlayerId, &'a Quantity, u32), String> {
         match instruction {
-            Instruction::DiscardCards {
-                recipient,
-                count,
-                source_block,
-            } => Ok((
-                self.resolution_player(frame, recipient.as_ref())?,
-                count,
-                *source_block,
-            )),
-            Instruction::DiscardPlayerSet {
-                count,
-                source_block,
-                ..
-            } => {
+            kernel!(Discard { player: player @ (you!() | event_player!()), amount: fixed!(count), random: false } @ source_block) =>
+            {
+                let recipient = player
+                    .is_event_player()
+                    .then_some(ActionRecipient::EventPlayer);
+                Ok((
+                    self.resolution_player(frame, recipient.as_ref())?,
+                    count,
+                    *source_block,
+                ))
+            }
+            kernel!(Discard { player: mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent, amount: fixed!(count), random: false } @ source_block) =>
+            {
                 let player = frame
                     .group_discard
                     .as_ref()
@@ -412,11 +411,8 @@ impl Game {
                     .ok_or("missing group discard chooser")?;
                 Ok((*player, count, *source_block))
             }
-            Instruction::DiscardTargetPlayer {
-                target_slot,
-                count,
-                source_block,
-            } => {
+            kernel!(Discard { player: target_player!(target_slot), amount: fixed!(count), random: false } @ source_block) =>
+            {
                 // A sole illegal target ends resolution before instruction dispatch.
                 let slot = *target_slot as usize;
                 if frame.legal_targets.get(slot) != Some(&true) {
@@ -1346,27 +1342,6 @@ impl Game {
                 source_block,
                 ..
             } => self.begin_library_selection(frame, amount, source_block),
-            Instruction::MillCards {
-                recipient,
-                count,
-                source_block,
-            } => self.execute_mill(frame, recipient, count, source_block),
-            Instruction::MillAnnouncedX {
-                target_slot,
-                source_block,
-            } => {
-                let count = self
-                    .entry(frame.stack_id)?
-                    .x
-                    .clone()
-                    .ok_or("missing announced X")?;
-                self.execute_mill(
-                    frame,
-                    Some(LifeRecipient::Target { target_slot }),
-                    count,
-                    source_block,
-                )
-            }
             Instruction::Scry {
                 amount,
                 source_block,
@@ -1436,12 +1411,10 @@ impl Game {
             | Instruction::GrantKeywordsSet { .. }
             | Instruction::GainLifeDestroyed { .. }
             | Instruction::ExileDamagedThisTurn { .. }
-            | Instruction::EachPlayerSacrifice { .. }
             | Instruction::LoseLifeDeathController { .. }) => {
                 self.execute_wipes_instruction(frame, i)
             }
             i @ (Instruction::SacrificeDamage { .. }
-            | Instruction::EachOpponentSacrifice { .. }
             | Instruction::ModifySourcePowerToughness { .. }) => {
                 self.execute_sacrifice_instruction(frame, i)
             }
@@ -1522,68 +1495,6 @@ impl Game {
                 quantity,
                 source_block,
             } => self.produce_resolution_mana(frame, color, quantity, source_block),
-            Instruction::SacrificeCreature {
-                recipient,
-                source_block,
-            } => {
-                if recipient != ActionRecipient::EventPlayer {
-                    return Err("unsupported controller sacrifice instruction".into());
-                }
-                let actor = self.resolution_player(&frame, Some(&recipient))?;
-                if !self.is_live(actor) || self.controlled_creatures(actor).is_empty() {
-                    self.finish_instruction(
-                        frame,
-                        InstructionOutcome::Sacrificed {
-                            player: actor,
-                            movement: None,
-                        },
-                    )
-                } else {
-                    self.rules_mut().frame = Frame::ResolutionChoice {
-                        frame,
-                        choice: ResolutionChoice::Sacrifice {
-                            player: actor,
-                            source_block,
-                        },
-                    };
-                    Ok(())
-                }
-            }
-            Instruction::TargetPlayerSacrificeCreature {
-                target_slot,
-                source_block,
-            } => {
-                let target = *self
-                    .entry(frame.stack_id)?
-                    .player_targets
-                    .get(target_slot as usize)
-                    .ok_or("missing player target binding")?;
-                if !frame
-                    .legal_targets
-                    .get(target_slot as usize)
-                    .copied()
-                    .unwrap_or(false)
-                    || !self.is_live(target)
-                    || self.controlled_creatures(target).is_empty()
-                {
-                    self.finish_instruction(
-                        frame,
-                        InstructionOutcome::Sacrificed {
-                            player: target,
-                            movement: None,
-                        },
-                    )
-                } else {
-                    self.rules_mut().frame = Frame::ResolutionChoice {
-                        frame,
-                        choice: ResolutionChoice::Sacrifice {
-                            player: target,
-                            source_block,
-                        },
-                    };
-                    Ok(())
-                }
-            }
             Instruction::DrawCardsIfAdditionalCost { cost_identity, .. } => {
                 if !self
                     .additional_cost_was_selected(self.entry(frame.stack_id)?, &cost_identity)?
@@ -1637,13 +1548,133 @@ impl Game {
             Instruction::OptionalDrawCards { source_block } => {
                 self.offer_controller_draw(frame, source_block)
             }
-            Instruction::DiscardPlayerSet {
-                scope,
+            Instruction::CounterStackObject {
+                target_slot,
+                source_block,
+            } => self.resolve_counter_instruction(frame, target_slot, source_block, None),
+            Instruction::CounterSpellUnlessPays { .. }
+            | Instruction::OptionalDrawUnlessCasterPays { .. } => {
+                self.begin_resolution_payment(frame)
+            }
+            Instruction::CounterSpellAndMillController {
+                target_slot,
                 count,
                 source_block,
-            } => self.group_discard_step(frame, scope, count, source_block),
-            Instruction::DiscardTargetPlayerAtRandom { .. } => self.random_discard_step(frame),
-            op @ (Instruction::DiscardCards { .. } | Instruction::DiscardTargetPlayer { .. }) => {
+            } => self.resolve_counter_instruction(frame, target_slot, source_block, Some(count)),
+            _ => Err("unexpected action instruction".into()),
+        }
+    }
+    /// CR 701.17a, 701.9a-b, 701.21a: a kernel mill, discard or sacrifice,
+    /// performed by the executors whose events, choices and outcomes
+    /// recovery re-derives.
+    pub(super) fn execute_player_action(
+        &mut self,
+        frame: Resolving,
+        op: Instruction,
+    ) -> Result<(), String> {
+        match op {
+            kernel!(Mill { player, amount } @ source_block) => {
+                let recipient = match player {
+                    you!() => None,
+                    target_player!(target_slot) => Some(LifeRecipient::Target { target_slot }),
+                    _ => return Err("kernel mill player has no audited executor".into()),
+                };
+                let count = match amount {
+                    fixed!(value) => value,
+                    announced_x!() => self
+                        .entry(frame.stack_id)?
+                        .x
+                        .clone()
+                        .ok_or("missing announced X")?,
+                    _ => return Err("kernel mill amount has no audited executor".into()),
+                };
+                self.execute_mill(frame, recipient, count, source_block)
+            }
+            op @ kernel!(Sacrifice {
+                player: mtg_contracts::kir::PlayerExpr::EachPlayer,
+                ..
+            }) => self.execute_wipes_instruction(frame, op),
+            op @ kernel!(Sacrifice {
+                player: mtg_contracts::kir::PlayerExpr::EachOpponent,
+                ..
+            }) => self.execute_sacrifice_instruction(frame, op),
+            kernel!(Sacrifice { player: event_player!(), .. } @ source_block) => {
+                let actor = self.resolution_player(&frame, Some(&ActionRecipient::EventPlayer))?;
+                if !self.is_live(actor) || self.controlled_creatures(actor).is_empty() {
+                    self.finish_instruction(
+                        frame,
+                        InstructionOutcome::Sacrificed {
+                            player: actor,
+                            movement: None,
+                        },
+                    )
+                } else {
+                    self.rules_mut().frame = Frame::ResolutionChoice {
+                        frame,
+                        choice: ResolutionChoice::Sacrifice {
+                            player: actor,
+                            source_block,
+                        },
+                    };
+                    Ok(())
+                }
+            }
+            kernel!(Sacrifice { player: target_player!(target_slot), .. } @ source_block) => {
+                let target = *self
+                    .entry(frame.stack_id)?
+                    .player_targets
+                    .get(target_slot as usize)
+                    .ok_or("missing player target binding")?;
+                if !frame
+                    .legal_targets
+                    .get(target_slot as usize)
+                    .copied()
+                    .unwrap_or(false)
+                    || !self.is_live(target)
+                    || self.controlled_creatures(target).is_empty()
+                {
+                    self.finish_instruction(
+                        frame,
+                        InstructionOutcome::Sacrificed {
+                            player: target,
+                            movement: None,
+                        },
+                    )
+                } else {
+                    self.rules_mut().frame = Frame::ResolutionChoice {
+                        frame,
+                        choice: ResolutionChoice::Sacrifice {
+                            player: target,
+                            source_block,
+                        },
+                    };
+                    Ok(())
+                }
+            }
+            kernel!(Discard { player: player @ (mtg_contracts::kir::PlayerExpr::EachPlayer | mtg_contracts::kir::PlayerExpr::EachOpponent), amount: fixed!(count), random: false } @ source_block) =>
+            {
+                let scope = if player == mtg_contracts::kir::PlayerExpr::EachPlayer {
+                    GroupDiscardScope::EachPlayer
+                } else {
+                    GroupDiscardScope::EachOpponent
+                };
+                self.group_discard_step(frame, scope, count, source_block)
+            }
+            kernel!(Discard {
+                player: target_player!(_),
+                random: true,
+                ..
+            }) => self.random_discard_step(frame),
+            op @ (kernel!(Discard {
+                player: you!() | event_player!(),
+                amount: fixed!(_),
+                random: false
+            })
+            | kernel!(Discard {
+                player: target_player!(_),
+                amount: fixed!(_),
+                random: false
+            })) => {
                 let (player, count, source_block) = self.discard_spec(&frame, &op)?;
                 if count.is_negative() {
                     return Err("negative discard count".into());
@@ -1675,20 +1706,7 @@ impl Game {
                     Ok(())
                 }
             }
-            Instruction::CounterStackObject {
-                target_slot,
-                source_block,
-            } => self.resolve_counter_instruction(frame, target_slot, source_block, None),
-            Instruction::CounterSpellUnlessPays { .. }
-            | Instruction::OptionalDrawUnlessCasterPays { .. } => {
-                self.begin_resolution_payment(frame)
-            }
-            Instruction::CounterSpellAndMillController {
-                target_slot,
-                count,
-                source_block,
-            } => self.resolve_counter_instruction(frame, target_slot, source_block, Some(count)),
-            _ => Err("unexpected action instruction".into()),
+            _ => Err("kernel player action has no audited executor".into()),
         }
     }
     pub(super) fn resolving_entrant(&self, frame: &Resolving) -> Result<ObjectBefore, String> {
@@ -2420,15 +2438,11 @@ impl Game {
                         player,
                         source_block,
                     },
-                    Instruction::SacrificeCreature {
-                        recipient,
-                        source_block: expected,
-                    },
+                    kernel!(Sacrifice { player: event_player!(), .. } @ expected),
                 ) => {
-                    *recipient == ActionRecipient::EventPlayer
-                        && source_block == expected
+                    source_block == expected
                         && self
-                            .resolution_player(frame, Some(recipient))
+                            .resolution_player(frame, Some(&ActionRecipient::EventPlayer))
                             .is_ok_and(|actor| actor == *player)
                 }
                 (
@@ -2436,10 +2450,7 @@ impl Game {
                         player,
                         source_block,
                     },
-                    Instruction::TargetPlayerSacrificeCreature {
-                        target_slot,
-                        source_block: expected,
-                    },
+                    kernel!(Sacrifice { player: target_player!(target_slot), .. } @ expected),
                 ) => {
                     *source_block == *expected
                         && self

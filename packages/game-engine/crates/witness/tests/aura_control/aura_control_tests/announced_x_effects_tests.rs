@@ -102,10 +102,7 @@ fn paid_effects_setup() -> Prepared {
             }
             DRAIN => {
                 program.instructions = vec![
-                    Instruction::MillAnnouncedX {
-                        target_slot: 0,
-                        source_block: 0,
-                    },
+                    Instruction::mill(kir::PlayerExpr::target(0), kir::Amount::announced_x(), 0),
                     Instruction::announced_x_life(
                         mtg_contracts::kir::PlayerExpr::you(Context::Spell),
                         true,

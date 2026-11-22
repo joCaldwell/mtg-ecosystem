@@ -9,11 +9,12 @@ fn prepared_draw(cost: &ManaCost, discard: bool) -> Prepared {
     if discard {
         instructions.extend([
             draw,
-            Instruction::DiscardCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            },
+            Instruction::discard(
+                kir::PlayerExpr::you(kir::Context::Activated),
+                kir::Amount::Fixed { value: 1.into() },
+                false,
+                0,
+            ),
         ]);
     }
     let (catalog, artifact) = artifact_draw(cost, false, Vec::new(), instructions);

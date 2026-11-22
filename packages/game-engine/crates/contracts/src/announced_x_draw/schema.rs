@@ -14,10 +14,10 @@ fn program_schema(shape: Shape) -> Value {
         .instructions()
         .into_iter()
         .map(|i| match i {
-            Instruction::DiscardCards { .. } => json!({"properties":{
-                "op":{"const":"discard_cards"},"count":{"const":"1"},"source_block":{"const":0},
-                "recipient":{"enum":[null,"controller"]}
-            }}),
+            i if i.controller_discard().is_some() => instruction_schema::at(
+                instruction_schema::controller_discard(json!({"const":"1"})),
+                0,
+            ),
             i if i.single_draw() => instruction_schema::at(instruction_schema::single_draw(), 0),
             i => json!({"const":i}),
         })
@@ -50,7 +50,7 @@ pub(crate) fn extend_schema(schema: &mut Value) {
     ]});
     schema["$defs"]["AnnouncedXDrawFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":{"anyOf":[
-            {"required":["op"],"properties":{"op":{"enum":["mill_announced_x"]}}},
+            instruction_schema::target_mill_x(),
             instruction_schema::target_damage_x(),
             x_draw,
             instruction_schema::kernel_announced_x(&["gain_life","lose_life"])
@@ -58,7 +58,12 @@ pub(crate) fn extend_schema(schema: &mut Value) {
         "modes":{"items":{"properties":{"program":free}}}
     }});
     // The announced-X damage of these spells is block zero's, to slot zero.
-    schema["$defs"]["Instruction"]["allOf"].as_array_mut().unwrap().push(json!({
+    let rules = schema["$defs"]["Instruction"]
+        .as_object_mut()
+        .unwrap()
+        .entry("allOf")
+        .or_insert_with(|| json!([]));
+    rules.as_array_mut().unwrap().push(json!({
         "if":instruction_schema::target_damage_x(),
         "then":{"properties":{"source_block":{"const":0},"node":{"properties":{"do":{"properties":{
             "to":{"properties":{"who":{"properties":{"slot":{"const":0}}}}}}}}}}}
@@ -138,7 +143,7 @@ pub(crate) fn extend_schema(schema: &mut Value) {
     ]}}}}}});
     let counted_x = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
         "anyOf":[
-            {"required":["op","count"],"properties":{"op":{"const":"discard_target_player_at_random"},"count":{"const":{"amount":"announced_x"}}}},
+            instruction_schema::target_discard_x(),
             {"allOf":[
                 instruction_schema::kernel_verb_for("draw", &kir::PlayerExpr::EachPlayer),
                 instruction_schema::kernel_announced_x(&["draw"])

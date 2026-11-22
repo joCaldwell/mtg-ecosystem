@@ -53,8 +53,29 @@
         ],
         "instructions": [
           {
-            "op": "target_player_sacrifice_creature",
-            "target_slot": 0,
+            "op": "kernel",
+            "node": {
+              "do": {
+                "verb": "sacrifice",
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "count": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "filter": [
+                  {
+                    "atom": "type",
+                    "kind": "creature"
+                  }
+                ]
+              }
+            },
             "source_block": 0
           }
         ]
@@ -273,8 +294,23 @@
                 "source_block": 0
               },
               {
-                "op": "discard_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "discard",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]
@@ -1475,8 +1511,23 @@
                 "source_block": 0
               },
               {
-                "op": "discard_cards",
-                "count": "1",
+                "op": "kernel",
+                "node": {
+                  "do": {
+                    "verb": "discard",
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    }
+                  }
+                },
                 "source_block": 0
               }
             ]

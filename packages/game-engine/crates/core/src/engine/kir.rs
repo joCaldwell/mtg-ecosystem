@@ -117,6 +117,14 @@ impl Game {
                 self.execute_damage_life_instruction(frame, instruction)
             };
         }
+        // CR 701.17a, 701.9a-b, 701.21a: mill, discard and sacrifice keep
+        // their executors, choices and recovery checks.
+        if matches!(
+            node,
+            Node::Do(Verb::Mill { .. } | Verb::Discard { .. } | Verb::Sacrifice { .. })
+        ) {
+            return self.execute_player_action(frame, Instruction::Kernel { node, source_block });
+        }
         let Node::Do(verb) = node else {
             return Err("kernel control node has no audited executor".into());
         };

@@ -519,7 +519,8 @@ impl Game {
                 };
                 self.finish_instruction(frame, InstructionOutcome::Life { actual })
             }
-            Instruction::EachPlayerSacrifice { source_block } => {
+            kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. } @ source_block) =>
+            {
                 let remaining = (0..4)
                     .map(|n| PlayerId((self.state.rules.turn_owner.0 + n) % 4))
                     .filter(|p| self.is_live(*p))

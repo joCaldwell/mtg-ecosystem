@@ -86,9 +86,10 @@ pub fn printed(line: &str, noun: &str, ast: &Value, block: u32) -> Option<Trigge
             let clause = clause.to_ascii_lowercase();
             let archived = &ast["effects"][i]["steps"][j];
             let step = if each_creature_sacrifice(line) {
-                program.instructions.push(Instruction::EachPlayerSacrifice {
-                    source_block: block,
-                });
+                program.instructions.push(Instruction::sacrifice_creature(
+                    kir::PlayerExpr::EachPlayer,
+                    block,
+                ));
                 json!({"effect":"sacrifice","who":{"player":"each-player"},"what":{"ref":"filter","filter":{"types":["creature"]},"count":fixed(1)},"chosenBy":{"player":"each-player"}})
             } else if let Some(count) = clause
                 .strip_prefix("draw ")

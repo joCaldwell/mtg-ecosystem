@@ -3133,11 +3133,12 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                     }
                     program.instructions.extend([
                         Instruction::draw(PlayerExpr::you(Context::Spell), draw, 0),
-                        Instruction::DiscardCards {
-                            recipient: None,
-                            count,
-                            source_block: 0,
-                        },
+                        Instruction::discard(
+                            kir::PlayerExpr::you(kir::Context::Spell),
+                            kir::Amount::Fixed { value: count },
+                            false,
+                            0,
+                        ),
                     ]);
                     continue;
                 }
@@ -3219,7 +3220,10 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                 i,
                 Instruction::Scry { .. }
                     | Instruction::Surveil { .. }
-                    | Instruction::MillCards { .. }
+                    | kernel!(Mill {
+                        amount: fixed!(_),
+                        ..
+                    })
             )
         })
     }) {
@@ -3277,7 +3281,11 @@ fn lower_families(archive: &AcceptedArchive, record: &str) -> Result<Definition,
                             player: kir::PlayerExpr::Is { .. },
                             amount: announced_x!()
                         }),
-                        Instruction::DiscardCards { .. }
+                        kernel!(Discard {
+                            player: you!() | event_player!(),
+                            amount: fixed!(_),
+                            random: false
+                        })
                     ]
                 )
         })
@@ -4539,7 +4547,7 @@ fn append_spell_effects(
                     controller_library::surveil_instruction(amount, source_block)?
                 }
                 Step::Mill { who, amount } => {
-                    fixed_mill::instruction(program, slots, who, amount, source_block)?
+                    fixed_mill::instruction(program, slots, who, amount, context, source_block)?
                 }
                 Step::GainLife { who, amount, .. } => Instruction::act(
                     Verb::GainLife {
@@ -4590,10 +4598,10 @@ fn append_spell_effects(
                         .as_deref()
                         .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
                     let count = match &what.count {
-                        DrawAmount::Fixed { value } if *value > 0 => RandomDiscardCount::Fixed {
-                            value: i64::from(*value).into(),
-                        },
-                        DrawAmount::X {} => RandomDiscardCount::AnnouncedX,
+                        DrawAmount::Fixed { value } if *value > 0 => {
+                            Amount::fixed(i64::from(*value))
+                        }
+                        DrawAmount::X {} => Amount::announced_x(),
                         _ => {
                             return Err(unsupported(
                                 "discard.count",
@@ -4601,11 +4609,12 @@ fn append_spell_effects(
                             ));
                         }
                     };
-                    Instruction::DiscardTargetPlayerAtRandom {
-                        target_slot: bind_target(program, slots, id, domain)?,
+                    Instruction::discard(
+                        PlayerExpr::target(bind_target(program, slots, id, domain)?),
                         count,
+                        true,
                         source_block,
-                    }
+                    )
                 }
                 Step::Discard(DiscardStep::Chosen { who, what })
                     if let PlayerBinding::DiscardTarget(domain) = player_binding =>
@@ -4614,11 +4623,14 @@ fn append_spell_effects(
                         .selection_id
                         .as_deref()
                         .ok_or_else(|| unsupported("discard.who", "missing target selection"))?;
-                    Instruction::DiscardTargetPlayer {
-                        target_slot: bind_target(program, slots, id, domain)?,
-                        count: fixed_positive(&what.count)?,
+                    Instruction::discard(
+                        PlayerExpr::target(bind_target(program, slots, id, domain)?),
+                        Amount::Fixed {
+                            value: fixed_positive(&what.count)?,
+                        },
+                        false,
                         source_block,
-                    }
+                    )
                 }
                 Step::Discard(DiscardStep::Chosen { who, what })
                     if player_binding == PlayerBinding::DamageRecipient
@@ -4630,15 +4642,16 @@ fn append_spell_effects(
                         && what.filter
                             == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
                 {
-                    Instruction::DiscardCards {
-                        recipient: if who.player == "that-player" {
-                            Some(ActionRecipient::EventPlayer)
+                    Instruction::discard(
+                        if who.player == "that-player" {
+                            PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer)
                         } else {
-                            None
+                            PlayerExpr::you(context)
                         },
-                        count: Quantity::from(1),
+                        Amount::fixed(1),
+                        false,
                         source_block,
-                    }
+                    )
                 }
                 Step::Draw {
                     who,
@@ -4788,10 +4801,10 @@ fn append_spell_effects(
                             types: vec!["creature".into()],
                         }) =>
                 {
-                    Instruction::SacrificeCreature {
-                        recipient: ActionRecipient::EventPlayer,
+                    Instruction::sacrifice_creature(
+                        PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer),
                         source_block,
-                    }
+                    )
                 }
                 Step::Sacrifice {
                     who,
@@ -4808,7 +4821,7 @@ fn append_spell_effects(
                             types: vec!["creature".into()],
                         }) =>
                 {
-                    Instruction::EachOpponentSacrifice { source_block }
+                    Instruction::sacrifice_creature(PlayerExpr::EachOpponent, source_block)
                 }
                 Step::Sacrifice {
                     who,
@@ -4834,10 +4847,7 @@ fn append_spell_effects(
                         who.selection_id.as_deref().unwrap_or(""),
                         TargetDomain::OpponentPlayer,
                     )?;
-                    Instruction::TargetPlayerSacrificeCreature {
-                        target_slot,
-                        source_block,
-                    }
+                    Instruction::sacrifice_creature(PlayerExpr::target(target_slot), source_block)
                 }
                 _ => {
                     return Err(unsupported(
@@ -5283,7 +5293,7 @@ fn lower_wipes_step(
             && matches!(&what.filter,ObjectFilter::Types(f) if f.types==["creature"])
             && fixed_one(&what.count) =>
         {
-            Instruction::EachPlayerSacrifice { source_block }
+            Instruction::sacrifice_creature(PlayerExpr::EachPlayer, source_block)
         }
         Step::CreateReplacement {
             replacement,
@@ -7300,11 +7310,14 @@ fn lower_activation(
                         && what.filter
                             == ObjectFilter::Class(CardFilter { cls: "card".into() }) =>
                 {
-                    Instruction::DiscardCards {
-                        recipient: None,
-                        count: Quantity::from(1),
+                    Instruction::discard(
+                        kir::PlayerExpr::you(kir::Context::Activated),
+                        kir::Amount::Fixed {
+                            value: Quantity::from(1),
+                        },
+                        false,
                         source_block,
-                    }
+                    )
                 }
                 _ => {
                     return Err(unsupported(
@@ -8373,7 +8386,10 @@ mod tests {
         let program = definition.spell.as_ref().unwrap();
         assert!(matches!(
             program.instructions.as_slice(),
-            [Instruction::TargetPlayerSacrificeCreature { target_slot: 0, .. }]
+            [kernel!(Sacrifice {
+                player: target_player!(0),
+                ..
+            })]
         ));
         assert_eq!(program.targets[0].domain, TargetDomain::OpponentPlayer);
         // Synthetic AST negatives: identical qualifications on both actors
@@ -10810,11 +10826,14 @@ mod tests {
             looter.activated[0].program.instructions,
             [
                 Instruction::draw(PlayerExpr::you(Context::Activated), Quantity::from(1), 0),
-                Instruction::DiscardCards {
-                    recipient: None,
-                    count: Quantity::from(1),
-                    source_block: 0
-                },
+                Instruction::discard(
+                    kir::PlayerExpr::you(kir::Context::Activated),
+                    kir::Amount::Fixed {
+                        value: Quantity::from(1)
+                    },
+                    false,
+                    0
+                ),
             ]
         );
         let mage = catalog
@@ -11087,10 +11106,10 @@ mod tests {
         );
         assert_eq!(
             program.instructions,
-            [Instruction::TargetPlayerSacrificeCreature {
-                target_slot: 0,
-                source_block: 0
-            }]
+            [Instruction::sacrifice_creature(
+                kir::PlayerExpr::target(0),
+                0
+            )]
         );
         assert!(definition.activated.is_empty());
     }
@@ -11514,11 +11533,14 @@ mod tests {
                             Quantity::from(1),
                             0
                         ),
-                        Instruction::DiscardCards {
-                            recipient: None,
-                            count: Quantity::from(1),
-                            source_block: 0
-                        }
+                        Instruction::discard(
+                            kir::PlayerExpr::you(kir::Context::Activated),
+                            kir::Amount::Fixed {
+                                value: Quantity::from(1)
+                            },
+                            false,
+                            0
+                        )
                     ]
                 }
             }]
@@ -11771,7 +11793,10 @@ mod tests {
         let raw = canonical(&catalog).unwrap();
         for bad in [
             raw.replace("\"cost\":\"sacrifice_source\"", "\"cost\":\"tap_source\""),
-            raw.replace("\"count\":\"1\"", "\"count\":\"01\""),
+            raw.replace(
+                "\"amount\":{\"amount\":\"fixed\",\"value\":\"1\"}",
+                "\"amount\":{\"amount\":\"fixed\",\"value\":\"01\"}",
+            ),
             raw.replace("\"verb\":\"draw\"", "\"verb\":\"draw\",\"optional\":true"),
         ] {
             assert!(Catalog::read(&bad).is_err());

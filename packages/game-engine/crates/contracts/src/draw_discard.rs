@@ -8,20 +8,21 @@ pub fn controller_draw_discard_program(p: &SpellProgram) -> bool {
         && p.targets.is_empty()
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && matches!(p.instructions.as_slice(),[kernel!(Draw { player: you!(), amount: fixed!(draw) } @ 0),Instruction::DiscardCards{recipient:None,count,source_block:0}] if !draw.is_negative()&&*draw!=Quantity::from(1)&&!count.is_negative())
+        && matches!(p.instructions.as_slice(),[kernel!(Draw { player: you!(), amount: fixed!(draw) } @ 0),kernel!(Discard { player: you!(), amount: fixed!(count), random: false } @ 0)] if !draw.is_negative()&&*draw!=Quantity::from(1)&&!count.is_negative())
 }
 pub(crate) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
-    s["$defs"]["ControllerDrawDiscardProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[instruction_schema::at(instruction_schema::any_counted_draw(), 0),{"required":["op","count","source_block"],"properties":{"op":{"const":"discard_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"recipient":{"type":"null"},"source_block":{"const":0}}}],"items":false}}});
+    s["$defs"]["ControllerDrawDiscardProgram"] = json!({"properties":{"additional_sacrifice":{"type":"null"},"optional_additional_costs":{"maxItems":0},"modes":{"maxItems":0},"targets":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"},"instructions":{"minItems":2,"maxItems":2,"prefixItems":[instruction_schema::at(instruction_schema::any_counted_draw(), 0),instruction_schema::at(instruction_schema::controller_discard(json!({"type":"string","pattern":"^(0|[1-9][0-9]*)$"})), 0)],"items":false}}});
 }
 #[cfg(test)]
 pub(crate) fn witness() -> Definition {
     let mut d = hand_return::witness();
-    d.spell.as_mut().unwrap().instructions[1] = Instruction::DiscardCards {
-        recipient: None,
-        count: 2.into(),
-        source_block: 0,
-    };
+    d.spell.as_mut().unwrap().instructions[1] = Instruction::discard(
+        kir::PlayerExpr::you(kir::Context::Spell),
+        kir::Amount::Fixed { value: 2.into() },
+        false,
+        0,
+    );
     d.capabilities = d.requirements();
     d
 }
@@ -32,8 +33,11 @@ mod tests {
     fn draw_discard_quantity_and_whole_scope() {
         for n in ["0", "2", "99999999999999999999999"] {
             let mut d = witness();
-            if let Instruction::DiscardCards { count, .. } =
-                &mut d.spell.as_mut().unwrap().instructions[1]
+            if let kernel!(Discard {
+                player: you!() | event_player!(),
+                amount: fixed!(count),
+                random: false
+            }) = &mut d.spell.as_mut().unwrap().instructions[1]
             {
                 *count = n.parse().unwrap();
             }
@@ -51,18 +55,22 @@ mod tests {
                     1 => p.instructions.swap(0, 1),
                     2 => p.instructions.push(p.instructions[1].clone()),
                     3 => {
-                        if let Instruction::DiscardCards { count, .. } = &mut p.instructions[1] {
+                        if let kernel!(Discard {
+                            player: you!() | event_player!(),
+                            amount: fixed!(count),
+                            random: false
+                        }) = &mut p.instructions[1]
+                        {
                             *count = (-1).into()
                         }
                     }
                     4 => {
-                        if let Instruction::DiscardCards { recipient, .. } = &mut p.instructions[1]
-                        {
-                            *recipient = Some(ActionRecipient::EventPlayer)
+                        if let kernel!(Discard { player, .. }) = &mut p.instructions[1] {
+                            *player = kir::PlayerExpr::event(kir::EventPlayerRole::DamagedPlayer)
                         }
                     }
                     5 => {
-                        if let Instruction::DiscardCards { source_block, .. } =
+                        if let kernel!(Discard { player: you!() | event_player!(), amount: fixed!(_), random: false } @ source_block) =
                             &mut p.instructions[1]
                         {
                             *source_block = 1

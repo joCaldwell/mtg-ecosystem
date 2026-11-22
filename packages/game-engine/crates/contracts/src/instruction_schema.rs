@@ -51,7 +51,7 @@ fn you() -> Value {
 }
 
 /// A fixed amount whose value matches `value` (a string schema).
-fn fixed(value: Value) -> Value {
+pub(crate) fn fixed(value: Value) -> Value {
     json!({"required":["amount","value"],"properties":{"amount":{"const":"fixed"},"value":value}})
 }
 
@@ -62,6 +62,118 @@ fn draw(player: Value, amount: Value) -> Value {
     json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
         "required":["do"],"properties":{"do":{"required":["verb","player","amount"],"properties":{
             "verb":{"const":"draw"},"player":player,"amount":amount}}}}}})
+}
+
+/// One kernel verb named `verb` whose operands match `operands`, each one
+/// required.
+fn kernel_do(verb: &str, operands: Value) -> Value {
+    let mut properties = operands.as_object().cloned().unwrap_or_default();
+    let mut required = vec![json!("verb")];
+    required.extend(properties.keys().map(|k| json!(k)));
+    properties.insert("verb".into(), json!({ "const": verb }));
+    json!({"required":["op","node"],"properties":{"op":{"const":"kernel"},"node":{
+        "required":["do"],"properties":{"do":{"required":required,"properties":properties}}}}})
+}
+
+/// The player announced as target `slot` (any slot when `None`).
+pub(crate) fn target_player(slot: Option<u32>) -> Value {
+    let slot = slot.map_or(json!({}), |slot| json!({ "const": slot }));
+    json!({"required":["player","who"],"properties":{"player":{"const":"is"},
+        "who":{"required":["ref","slot"],"properties":{"ref":{"const":"target"},"slot":slot}}}})
+}
+
+/// The announced X (CR 107.3).
+pub(crate) fn announced_x() -> Value {
+    json!({ "const": Amount::announced_x() })
+}
+
+/// CR 701.17a: the controller mills a fixed count.
+pub(crate) fn controller_mill() -> Value {
+    kernel_do(
+        "mill",
+        json!({"player":you(),"amount":fixed(json!({"type":"string","pattern":COUNT}))}),
+    )
+}
+
+/// CR 701.17a: the player announced as target `slot` mills a fixed count.
+pub(crate) fn target_mill(slot: Option<u32>) -> Value {
+    kernel_do(
+        "mill",
+        json!({"player":target_player(slot),"amount":fixed(json!({"type":"string","pattern":COUNT}))}),
+    )
+}
+
+/// CR 701.17a, 107.3: the announced player mills the announced X.
+pub(crate) fn target_mill_x() -> Value {
+    kernel_do(
+        "mill",
+        json!({"player":target_player(None),"amount":announced_x()}),
+    )
+}
+
+/// CR 701.17a: any fixed mill.
+pub(crate) fn fixed_mill() -> Value {
+    json!({"anyOf":[controller_mill(), target_mill(None)]})
+}
+
+/// CR 701.9a-b: one kernel discard; a chosen discard serializes no `random`.
+pub(crate) fn discard(player: Value, amount: Value, random: bool) -> Value {
+    let mut schema = kernel_do("discard", json!({"player":player,"amount":amount}));
+    let operands = &mut schema["properties"]["node"]["properties"]["do"];
+    if random {
+        operands["required"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("random"));
+        operands["properties"]["random"] = json!({ "const": true });
+    } else {
+        operands["not"] = json!({ "required": ["random"] });
+    }
+    schema
+}
+
+/// CR 701.9a: the controller discards a fixed count matching `count`.
+pub(crate) fn controller_discard(count: Value) -> Value {
+    discard(you(), fixed(count), false)
+}
+
+/// CR 701.9a: the controller or the damaged player discards a fixed count.
+pub(crate) fn chosen_discard() -> Value {
+    let event = json!({"const":PlayerExpr::event(EventPlayerRole::DamagedPlayer)});
+    discard(
+        json!({"anyOf":[you(), event]}),
+        fixed(json!({"type":"string"})),
+        false,
+    )
+}
+
+/// CR 701.9a-b: the player announced as target 0 discards a positive count,
+/// at random when `random`.
+pub(crate) fn target_discard(random: bool) -> Value {
+    discard(
+        target_player(None),
+        fixed(json!({"type":"string","pattern":"^[1-9][0-9]*$"})),
+        random,
+    )
+}
+
+/// CR 701.9b, 107.3: the announced player discards the announced X at random.
+pub(crate) fn target_discard_x() -> Value {
+    discard(target_player(None), announced_x(), true)
+}
+
+/// CR 701.9a: each player or each opponent discards a positive count.
+pub(crate) fn group_discard() -> Value {
+    discard(
+        json!({"enum":[PlayerExpr::EachPlayer, PlayerExpr::EachOpponent]}),
+        fixed(json!({"type":"string","pattern":"^[1-9][0-9]*$"})),
+        false,
+    )
+}
+
+/// CR 701.9a-b: any discard by an announced player.
+pub(crate) fn any_target_discard() -> Value {
+    kernel_do("discard", json!({ "player": target_player(None) }))
 }
 
 /// CR 121.1: the controller draws exactly one card.

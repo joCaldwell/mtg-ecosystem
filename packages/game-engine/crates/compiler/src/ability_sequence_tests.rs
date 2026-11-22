@@ -59,10 +59,11 @@ fn slice4_equipment_binds_distinct_sources_and_ordered_steps() {
     assert!(matches!(
         compiled(FEAST).triggered[0].program.instructions.as_slice(),
         [
-            Instruction::DiscardCards {
-                recipient: Some(ActionRecipient::EventPlayer),
-                ..
-            },
+            kernel!(Discard {
+                player: event_player!(),
+                amount: fixed!(_),
+                random: false
+            }),
             kernel!(Untap {
                 what: kir::SetExpr::Matching { .. }
             })

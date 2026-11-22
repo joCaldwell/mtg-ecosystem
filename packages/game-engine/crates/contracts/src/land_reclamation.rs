@@ -37,11 +37,11 @@ pub fn land_reclamation_statics() -> [StaticAbility; 2] {
 
 pub fn land_reclamation_trigger() -> TriggeredAbility {
     let mut trigger = controlled_land_entry_trigger(1.into(), false);
-    trigger.program.instructions = vec![Instruction::MillCards {
-        recipient: None,
-        count: 1.into(),
-        source_block: 2,
-    }];
+    trigger.program.instructions = vec![Instruction::mill(
+        kir::PlayerExpr::you(kir::Context::Triggered),
+        kir::Amount::Fixed { value: 1.into() },
+        2,
+    )];
     trigger
 }
 

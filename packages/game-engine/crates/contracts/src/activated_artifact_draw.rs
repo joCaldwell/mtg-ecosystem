@@ -32,11 +32,7 @@ pub fn activated_artifact_draw_ability(ability: &ActivatedAbility) -> bool {
         && match p.instructions.split_last() {
             Some((last, [])) => draw_one(last),
             Some((
-                Instruction::DiscardCards {
-                    count,
-                    recipient: None,
-                    source_block: 0,
-                },
+                kernel!(Discard { player: you!(), amount: fixed!(count), random: false } @ 0),
                 draws @ ([_] | [_, _]),
             )) => *count == Quantity::from(1) && draws.iter().all(draw_one),
             _ => false,
@@ -79,7 +75,10 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
     use serde_json::json;
 
     let draw = instruction_schema::at(instruction_schema::single_draw(), 0);
-    let discard = unit_instruction_schema("discard_cards");
+    let discard = instruction_schema::at(
+        instruction_schema::controller_discard(json!({"const":"1"})),
+        0,
+    );
     let has_discard = json!({"required":["activated"],"properties":{
         "activated":{"contains":{"properties":{"program":{"properties":{
             "instructions":{"contains":discard}
@@ -114,8 +113,8 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
         }
     });
     defs["ArtifactDrawFreeProgram"] = json!({"properties":{
-        "instructions":{"items":{"not":{"anyOf":[instruction_schema::uncounted_draw(),{"required":["op"],"properties":{
-            "op":{"enum":["optional_draw_cards","discard_cards"]}
+        "instructions":{"items":{"not":{"anyOf":[instruction_schema::uncounted_draw(),instruction_schema::chosen_discard(),{"required":["op"],"properties":{
+            "op":{"enum":["optional_draw_cards"]}
         }}]}}},
         "modes":{"items":{"properties":{"program":{"$ref":"#/$defs/ArtifactDrawFreeProgram"}}}}
     }});
@@ -178,16 +177,6 @@ pub(super) fn extend_schema(s: &mut serde_json::Value) {
         },
         "else":{"properties":{"capabilities":{"not":{"contains":{"const":Capability::ActivatedArtifactDrawV1}}}}}
     }));
-}
-
-fn unit_instruction_schema(op: &str) -> serde_json::Value {
-    serde_json::json!({
-        "required":["op","count","source_block"],
-        "properties":{
-            "op":{"const":op},"count":{"const":"1"},
-            "recipient":{"type":"null"},"source_block":{"const":0}
-        }
-    })
 }
 
 #[cfg(test)]
@@ -271,11 +260,12 @@ fn paid_artifact_draw_requires_exact_ability_source_and_capabilities() {
     }
 
     let draw = d.activated[0].program.instructions[0].clone();
-    let discard = Instruction::DiscardCards {
-        count: 1.into(),
-        recipient: None,
-        source_block: 0,
-    };
+    let discard = Instruction::discard(
+        kir::PlayerExpr::you(kir::Context::Activated),
+        kir::Amount::Fixed { value: 1.into() },
+        false,
+        0,
+    );
     for instructions in [
         vec![draw.clone(), discard.clone()],
         vec![draw.clone(), draw.clone(), discard.clone()],

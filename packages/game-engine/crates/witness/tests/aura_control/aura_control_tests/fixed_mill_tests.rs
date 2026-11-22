@@ -272,7 +272,10 @@ fn fixed_mill_typed_zero_short_empty_and_arbitrary_large_counts() {
             .iter_mut()
             .find(|d| d.name == "Tome Scour")
             .unwrap();
-        if let Instruction::MillCards { count, .. } = &mut d.spell.as_mut().unwrap().instructions[0]
+        if let kernel!(Mill {
+            amount: fixed!(count),
+            ..
+        }) = &mut d.spell.as_mut().unwrap().instructions[0]
         {
             *count = amount.parse().unwrap();
         }

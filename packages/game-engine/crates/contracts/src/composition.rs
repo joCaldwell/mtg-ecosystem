@@ -71,26 +71,12 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::OptionalShuffleLibrary { .. }
         | I::SelectLibraryCard { .. }
         | I::PutHandOnLibrary { .. } => ANY,
-        I::MillCards { recipient, .. } => match recipient {
-            None | Some(LifeRecipient::Target { .. }) => ANY,
-            _ => FAMILY,
-        },
-        // CR 701.9a: hand choices stay private to each discarding player.
-        I::DiscardCards { recipient, .. } => match recipient {
-            None => ANY,
-            Some(_) => FAMILY,
-        },
-        I::DiscardPlayerSet { .. } | I::DiscardTargetPlayer { .. } => ANY,
         // CR 701.6: the countered object is the announced stack target.
         I::CounterStackObject { .. }
         | I::CounterSpellAndMillController { .. }
         | I::CounterSpellUnlessPays { .. } => ANY,
         // CR 608.2h: non-targeted sets are read when the instruction is performed.
         I::PumpSet { .. } => ANY,
-        // CR 701.21a: each named player chooses and sacrifices.
-        I::EachOpponentSacrifice { .. }
-        | I::EachPlayerSacrifice { .. }
-        | I::TargetPlayerSacrificeCreature { .. } => ANY,
         // CR 400.7, 608.2b: an announced graveyard card or player's graveyard.
         I::ReturnOwnGraveyardCreatureToHand { optional, .. }
         | I::ReturnOwnGraveyardCardToHand { optional, .. } => {
@@ -147,13 +133,10 @@ fn contexts(instruction: &Instruction) -> u8 {
         | I::ReturnEntryTargetCreature { .. }
         | I::MoveTriggeredSuccessor { .. }
         | I::LoseGameTargetPlayer { .. }
-        | I::SacrificeCreature { .. }
         | I::DrawCardsIfAdditionalCost { .. }
-        | I::MillAnnouncedX { .. }
         | I::OptionalDrawUnlessCasterPays { .. }
         | I::OptionalDrawForSoleGreatestEntrant { .. }
         | I::DrawDamageAmount { .. }
-        | I::DiscardTargetPlayerAtRandom { .. }
         | I::CopyControlledCreatureSpell { .. }
         // Optional blocks, delayed cast registration, mana-tap riders, colour
         // changes, proliferate, recipient searches and transformation each
@@ -238,6 +221,15 @@ fn kernel_contexts(node: &kir::Node) -> u8 {
                 ..
             },
         ) => ANY,
+        // CR 701.17a: the controller's or one announced player's own
+        // library. An announced X binds its family.
+        Some(Verb::Mill { amount, .. }) if amount.as_fixed().is_some() => ANY,
+        // CR 701.9a: hand choices stay private to each discarding player.
+        // The damaged player and a random discard bind their families.
+        Some(Verb::Discard { player, random, .. }) if !random && !player.is_event_player() => ANY,
+        // CR 701.21a: each named player chooses and sacrifices. The damaged
+        // player binds its family.
+        Some(Verb::Sacrifice { player, .. }) if !player.is_event_player() => ANY,
         _ => FAMILY,
     }
 }

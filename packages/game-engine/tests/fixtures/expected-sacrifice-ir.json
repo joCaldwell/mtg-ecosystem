@@ -917,9 +917,30 @@
         "functioning_zone": "stack",
         "instructions": [
           {
-            "op": "target_player_sacrifice_creature",
-            "source_block": 0,
-            "target_slot": 0
+            "node": {
+              "do": {
+                "count": {
+                  "amount": "fixed",
+                  "value": "1"
+                },
+                "filter": [
+                  {
+                    "atom": "type",
+                    "kind": "creature"
+                  }
+                ],
+                "player": {
+                  "player": "is",
+                  "who": {
+                    "ref": "target",
+                    "slot": 0
+                  }
+                },
+                "verb": "sacrifice"
+              }
+            },
+            "op": "kernel",
+            "source_block": 0
           }
         ],
         "resolution": "instructions",
@@ -1711,8 +1732,23 @@
                 "source_block": 0
               },
               {
-                "count": "1",
-                "op": "discard_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "discard"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -5159,8 +5195,23 @@
                 "source_block": 0
               },
               {
-                "count": "1",
-                "op": "discard_cards",
+                "node": {
+                  "do": {
+                    "amount": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "player": {
+                      "player": "is",
+                      "who": {
+                        "ref": "controller",
+                        "role": "ability_controller"
+                      }
+                    },
+                    "verb": "discard"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 0
               }
             ],
@@ -9538,7 +9589,25 @@
             "functioning_zone": "stack",
             "instructions": [
               {
-                "op": "each_opponent_sacrifice",
+                "node": {
+                  "do": {
+                    "count": {
+                      "amount": "fixed",
+                      "value": "1"
+                    },
+                    "filter": [
+                      {
+                        "atom": "type",
+                        "kind": "creature"
+                      }
+                    ],
+                    "player": {
+                      "player": "each_opponent"
+                    },
+                    "verb": "sacrifice"
+                  }
+                },
+                "op": "kernel",
                 "source_block": 1
               }
             ],

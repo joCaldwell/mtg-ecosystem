@@ -104,11 +104,12 @@ pub(super) fn lower(
                 },
                 0,
             ),
-            "discard" => Instruction::DiscardCards {
-                recipient: None,
-                count: 1.into(),
-                source_block: 0,
-            },
+            "discard" => Instruction::discard(
+                kir::PlayerExpr::you(kir::Context::Spell),
+                kir::Amount::Fixed { value: 1.into() },
+                false,
+                0,
+            ),
             "gain-life" | "lose-life" => Instruction::announced_x_life(
                 recipient.kernel(Context::Spell).expect("spell recipient"),
                 op == "gain-life",
@@ -212,11 +213,12 @@ mod tests {
             ],
             26764 => vec![
                 draw,
-                Instruction::DiscardCards {
-                    recipient: None,
-                    count: 1.into(),
-                    source_block: 0,
-                },
+                Instruction::discard(
+                    kir::PlayerExpr::you(kir::Context::Spell),
+                    kir::Amount::Fixed { value: 1.into() },
+                    false,
+                    0,
+                ),
             ],
             _ => vec![draw],
         };

@@ -210,15 +210,16 @@ pub(super) fn instruction(
             };
             Instruction::damage_target(target_slot, kir::Amount::announced_x(), source_block)
         }
-        Step::Mill { who, .. } => Instruction::MillAnnouncedX {
-            target_slot: bind_target(
+        Step::Mill { who, .. } => Instruction::mill(
+            kir::PlayerExpr::target(bind_target(
                 program,
                 slots,
                 fixed_mill::target_selection(who).ok_or_else(fail)?,
                 TargetDomain::AnyPlayer,
-            )?,
+            )?),
+            kir::Amount::announced_x(),
             source_block,
-        },
+        ),
         Step::GainLife { who, .. } => Instruction::announced_x_life(
             life_recipient(program, slots, who, false)?
                 .kernel(Context::Spell)
@@ -236,11 +237,12 @@ pub(super) fn instruction(
             },
             source_block,
         ),
-        Step::Discard { .. } => Instruction::DiscardCards {
-            recipient: None,
-            count: 1.into(),
+        Step::Discard { .. } => Instruction::discard(
+            kir::PlayerExpr::you(kir::Context::Spell),
+            kir::Amount::Fixed { value: 1.into() },
+            false,
             source_block,
-        },
+        ),
         _ => return Ok(None),
     };
     Ok(Some(instruction))

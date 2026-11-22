@@ -2,10 +2,15 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 pub(crate) fn has_mill(p: &SpellProgram) -> bool {
-    p.instructions
-        .iter()
-        .any(|i| matches!(i, Instruction::MillCards { .. }))
-        || p.modes.iter().any(|m| has_mill(&m.program))
+    p.instructions.iter().any(|i| {
+        matches!(
+            i,
+            kernel!(Mill {
+                amount: fixed!(_),
+                ..
+            })
+        )
+    }) || p.modes.iter().any(|m| has_mill(&m.program))
 }
 /// Exactly one controller/target-player mill, optionally with one controller draw.
 pub fn fixed_mill_program(p: &SpellProgram) -> bool {
@@ -30,7 +35,7 @@ pub fn fixed_mill_program(p: &SpellProgram) -> bool {
         }
         _ => return false,
     };
-    let mill = |i: &Instruction| matches!(i,Instruction::MillCards {recipient,count,..} if !count.is_negative() && match (target,recipient) {(None,None)=>true,(Some(0),Some(LifeRecipient::Target {target_slot:0}))=>true,_=>false});
+    let mill = |i: &Instruction| matches!(i,kernel!(Mill { player, amount: fixed!(count) }) if !count.is_negative() && match (target, player) {(None, you!()) => true, (Some(0), target_player!(0)) => true, _ => false});
     let draw = |i: &Instruction| matches!(i,kernel!(Draw { player: you!(), amount: fixed!(count) }) if *count==Quantity::from(1));
     match p.instructions.as_slice() {
         [i] => mill(i),
@@ -70,19 +75,14 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
     use serde_json::json;
     let root = json!({"properties":{"optional_additional_costs":{"maxItems":0},"additional_sacrifice":{"type":"null"},"modes":{"maxItems":0},"functioning_zone":{"const":"stack"},"resolution":{"const":"instructions"}}});
     let draw = instruction_schema::single_draw();
-    let mill = |recipient: serde_json::Value| json!({"required":["op","count","source_block"],"properties":{"op":{"const":"mill_cards"},"count":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"recipient":recipient}});
+    let own = instruction_schema::controller_mill();
+    let targeted = instruction_schema::target_mill(Some(0));
     let composition = |m: serde_json::Value| json!({"oneOf":[{"minItems":1,"maxItems":1,"items":m},{"minItems":2,"maxItems":2,"prefixItems":[m,draw],"items":false},{"minItems":2,"maxItems":2,"prefixItems":[draw,m],"items":false}]});
-    let own = mill(json!({"type":"null"}));
-    let mut targeted = mill(json!({"const":LifeRecipient::Target {target_slot:0}}));
-    targeted["required"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!("recipient"));
     schema["$defs"]["FixedMillProgram"] = json!({"allOf":[root,{"oneOf":[
      {"properties":{"targets":{"maxItems":0},"instructions":composition(own)}},
      {"properties":{"targets":{"minItems":1,"maxItems":1,"items":{"properties":{"slot":{"const":0},"selection_id":{"minLength":1},"domain":{"const":"any_player"},"chooser":{"const":"controller"},"stage":{"const":"announcement"},"filter":{"type":"null"}}}},"instructions":composition(targeted)}}
     ]}]});
-    schema["$defs"]["MillFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":{"required":["op"],"properties":{"op":{"const":"mill_cards"}}}}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}}}});
+    schema["$defs"]["MillFreeProgram"] = json!({"properties":{"instructions":{"items":{"not":instruction_schema::fixed_mill()}},"modes":{"items":{"properties":{"program":{"$ref":"#/$defs/MillFreeProgram"}}}}}});
     schema["$defs"]["SpellProgram"]["allOf"].as_array_mut().unwrap().push(json!({"if":{"not":{"$ref":"#/$defs/MillFreeProgram"}},"then":{"anyOf":[{"$ref":"#/$defs/FixedMillProgram"},{"$ref":ordinary_sequence::SCHEMA}]}}));
     let has = json!({"required":["spell"],"properties":{"spell":{"type":"object","not":{"$ref":"#/$defs/MillFreeProgram"}}}});
     let def = schema["$defs"]["Definition"]["allOf"]
@@ -108,11 +108,11 @@ pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
 #[cfg(test)]
 pub(crate) fn witness() -> Definition {
     let mut d = crate::controller_library::witness();
-    d.spell.as_mut().unwrap().instructions = vec![Instruction::MillCards {
-        recipient: None,
-        count: 2.into(),
-        source_block: 0,
-    }];
+    d.spell.as_mut().unwrap().instructions = vec![Instruction::mill(
+        kir::PlayerExpr::you(kir::Context::Spell),
+        kir::Amount::Fixed { value: 2.into() },
+        0,
+    )];
     d.capabilities = d.requirements();
     d
 }
@@ -136,11 +136,18 @@ mod tests {
                             filter: None,
                         }];
                     }
-                    p.instructions = vec![Instruction::MillCards {
-                        recipient: targeted.then_some(LifeRecipient::Target { target_slot: 0 }),
-                        count: count.parse().unwrap(),
-                        source_block: 0,
-                    }];
+                    let player = if targeted {
+                        kir::PlayerExpr::target(0)
+                    } else {
+                        kir::PlayerExpr::you(kir::Context::Spell)
+                    };
+                    p.instructions = vec![Instruction::mill(
+                        player,
+                        kir::Amount::Fixed {
+                            value: count.parse().unwrap(),
+                        },
+                        0,
+                    )];
                     let draw = Instruction::draw(PlayerExpr::you(Context::Spell), 1.into(), 1);
                     if order == 1 {
                         p.instructions.push(draw);
@@ -164,17 +171,29 @@ mod tests {
                         let i = p
                             .instructions
                             .iter_mut()
-                            .find(|i| matches!(i, Instruction::MillCards { .. }))
+                            .find(|i| {
+                                matches!(
+                                    i,
+                                    kernel!(Mill {
+                                        amount: fixed!(_),
+                                        ..
+                                    })
+                                )
+                            })
                             .unwrap();
                         match variant {
                             0 => {
-                                if let Instruction::MillCards { count, .. } = i {
+                                if let kernel!(Mill {
+                                    amount: fixed!(count),
+                                    ..
+                                }) = i
+                                {
                                     *count = (-1).into()
                                 }
                             }
                             1 => {
-                                if let Instruction::MillCards { recipient, .. } = i {
-                                    *recipient = Some(LifeRecipient::EachOpponent)
+                                if let kernel!(Mill { player, .. }) = i {
+                                    *player = kir::PlayerExpr::EachOpponent
                                 }
                             }
                             2 => p.instructions.push(Instruction::Scry {
@@ -211,10 +230,10 @@ mod ramos_combined_cost_fences {
                     domain: TargetDomain::AnyPlayer,
                     filter: None,
                 }];
-                let Instruction::MillCards { recipient, .. } = &mut p.instructions[0] else {
+                let kernel!(Mill { player, .. }) = &mut p.instructions[0] else {
                     unreachable!()
                 };
-                *recipient = Some(LifeRecipient::Target { target_slot: 0 });
+                *player = kir::PlayerExpr::target(0);
             }
             d.capabilities = d.requirements();
             d.validate().unwrap();

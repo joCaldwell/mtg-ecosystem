@@ -958,6 +958,9 @@ impl PlayerExpr {
             _ => None,
         }
     }
+    pub fn is_target(&self) -> bool {
+        self.target_slot().is_some()
+    }
     pub fn is_event_player(&self) -> bool {
         matches!(
             self,
@@ -1245,7 +1248,7 @@ impl Walk<'_, '_> {
                 else {
                     return scope("event player outside a triggered ability");
                 };
-                if !event_player_roles(event).contains(role) {
+                if !event_supplies(event, *role) {
                     return scope(format!("event has no {role:?}"));
                 }
                 self.out.event_player = true;
@@ -1970,6 +1973,81 @@ impl Walk<'_, '_> {
                     },
                 to: Destination::Exile,
             } if filter.0.is_empty() => Ok(()),
+            // CR 701.17a: the controller or one announced player mills a
+            // fixed count; one announced player mills the announced X.
+            Verb::Mill { player, amount } => {
+                let announced = Self::fixed_or_announced_x(amount, 0, "mill count")?;
+                match player {
+                    PlayerExpr::Is {
+                        who: Ref::Controller { .. },
+                    } if !announced => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::Target { .. },
+                    } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
+                    _ => unaudited("mill recipient"),
+                }
+            }
+            // CR 701.9a-b: the controller or the damaged player discards a
+            // fixed count, one announced player discards a positive count
+            // (at random, also the announced X), and each player or each
+            // opponent discards a positive count.
+            Verb::Discard {
+                player,
+                amount,
+                random,
+            } => {
+                let announced = Self::fixed_or_announced_x(amount, 0, "discard count")?;
+                match player {
+                    PlayerExpr::Is {
+                        who:
+                            Ref::Controller { .. }
+                            | Ref::EventPlayer {
+                                role: EventPlayerRole::DamagedPlayer,
+                            },
+                    } if !random && !announced => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::Target { .. },
+                    } if matches!(
+                        self.player_target(player)?,
+                        Some(TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)
+                    ) && (*random || !announced) =>
+                    {
+                        if announced {
+                            Ok(())
+                        } else {
+                            Self::fixed_at_least(amount, 1, "discard count")
+                        }
+                    }
+                    PlayerExpr::EachPlayer | PlayerExpr::EachOpponent if !random && !announced => {
+                        Self::fixed_at_least(amount, 1, "discard count")
+                    }
+                    _ => unaudited("discard recipient"),
+                }
+            }
+            // CR 701.21a: the damaged player, one announced opponent, each
+            // player or each opponent sacrifices one creature.
+            Verb::Sacrifice {
+                player,
+                count,
+                filter,
+            } if *filter == Pred::creatures() && count.as_fixed() == Some(&Quantity::from(1)) => {
+                match player {
+                    PlayerExpr::Is {
+                        who:
+                            Ref::EventPlayer {
+                                role: EventPlayerRole::DamagedPlayer,
+                            },
+                    }
+                    | PlayerExpr::EachPlayer
+                    | PlayerExpr::EachOpponent => Ok(()),
+                    PlayerExpr::Is {
+                        who: Ref::Target { .. },
+                    } if self.player_target(player)? == Some(TargetDomain::OpponentPlayer) => {
+                        Ok(())
+                    }
+                    _ => unaudited("sacrifice recipient"),
+                }
+            }
             _ => unaudited("verb"),
         }
     }
@@ -2213,6 +2291,48 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         } => {
             out.insert(Capability::UntapControllerLandsV1);
         }
+        // CR 701.17a, 107.3.
+        Verb::Mill { amount, .. } => {
+            out.insert(if amount.is_announced_x() {
+                Capability::AnnouncedXEffectsV1
+            } else {
+                Capability::FixedMillProgramV1
+            });
+        }
+        // CR 701.9: each recipient names its reviewed surface. The
+        // controller's discard is named by its complete program
+        // (`Definition::requirements`).
+        Verb::Discard { player, random, .. } => match player {
+            PlayerExpr::EachPlayer | PlayerExpr::EachOpponent => {
+                out.insert(Capability::GroupHandDiscardV1);
+            }
+            _ if *random => {
+                out.insert(Capability::RandomPlayerDiscardV1);
+            }
+            PlayerExpr::Is {
+                who: Ref::Target { .. },
+            } => {
+                out.insert(Capability::TargetPlayerDiscardV1);
+            }
+            PlayerExpr::Is {
+                who: Ref::EventPlayer { .. },
+            } => {
+                out.insert(Capability::EventPlayerDiscardV1);
+            }
+            _ => {}
+        },
+        // CR 701.21a: "each player" shares the reviewed wipe surface and
+        // "each opponent" the reviewed group sacrifice surface.
+        Verb::Sacrifice { player, .. } => {
+            out.insert(match player {
+                PlayerExpr::EachPlayer => Capability::BoardWipesV1,
+                PlayerExpr::EachOpponent => Capability::SacrificeV1,
+                PlayerExpr::Is {
+                    who: Ref::Target { .. },
+                } => Capability::TargetPlayerSacrificeCreatureV1,
+                _ => Capability::EventPlayerSacrificeV1,
+            });
+        }
         _ => {}
     }
 }
@@ -2311,6 +2431,18 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
         TriggerCondition::ManaTapped { .. } => &[EventPlayerRole::ActivatingPlayer],
         _ => &[],
     }
+}
+
+/// True when `event` supplies the event player in `role` (CR 603.2). A
+/// damage event's damaged player is bound only by the actions that read it,
+/// so it is not the role lowerers of "that player" choose.
+fn event_supplies(event: &TriggerCondition, role: EventPlayerRole) -> bool {
+    event_player_roles(event).contains(&role)
+        || (role == EventPlayerRole::DamagedPlayer
+            && matches!(
+                event,
+                TriggerCondition::DamageDealt { .. } | TriggerCondition::EquippedCombatDamage
+            ))
 }
 
 /// The event-player role an event supplies, for lowerers of "that player".

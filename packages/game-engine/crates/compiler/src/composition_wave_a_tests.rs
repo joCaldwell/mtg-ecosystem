@@ -62,7 +62,10 @@ fn composition_wave_a_independently_qualifies_permanent_entry() {
     let marauder = lowered(MARAUDER);
     assert!(matches!(
         marauder.triggered[0].program.instructions.as_slice(),
-        [Instruction::EachPlayerSacrifice { .. }]
+        [kernel!(Sacrifice {
+            player: kir::PlayerExpr::EachPlayer,
+            ..
+        })]
     ));
     let d = lowered(PRISM);
     assert_eq!(d.mana_abilities.len(), 1);
