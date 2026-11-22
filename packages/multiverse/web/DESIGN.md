@@ -95,7 +95,8 @@ inspection instead of hover. Respect 200% text scaling.
 Navigation is Home, My decks, Play, Inbox, Memories, Activity, Profile, Settings.
 A rule separates section links from decks. Activity owns its page title; Profile
 has no tabs. Desktop collapse produces a 64 px rail with accessible names, titles,
-thumbnail/lifecycle state and Inbox count. Tablet drawers retain labels; widening
+thumbnail/lifecycle state and Inbox count. The desktop toggle stays in the same
+position when the rail collapses or expands. Tablet drawers retain labels; widening
 restores the saved preference. Failed preference saves retain the prior state.
 The footer names latest authenticated request/time plus confirmed Agent context,
 never implies a persistent connection or mistakes reads for writes.
@@ -237,17 +238,20 @@ Name/tag filters hide nonmatches and empty groups. Show matched/full counts,
 omit filtered group targets/costs and keep global totals/review scope unchanged.
 Active query/count/Clear/Export matches live in a separate context row beneath
 tablet navigation. No matches is one message. Clearing restores scroll, selection
-and open details. Main deck rows have a selection checkbox and support Shift+Space.
-Bulk actions stay by the list header.
+and open details.
 
 Desktop columns have 300 px minimum with 12 px gaps; tablets 250 px. Add columns at
 wide sizes rather than stretching existing ones. Editor rows are compact single
 lines; shared readers wrap long names. Prices use a fixed right-aligned tabular
 column near mana. Card rows are atomic inline flex boxes across native columns.
-Maybe rows are whole native buttons: blank space/mana/price open details, Enter/
-Space activate and ? inspects. Phone rows keep full mana/price and truncate only
-name. Full linked notes live in details, not grid tracks. Maybe cards do not join
-bulk actions requiring main membership; stored purposes remain intact.
+
+Add columns at wide sizes rather than stretching them. Card groups open the list.
+Primary activation opens card details and marks that row with a neutral fill.
+Right-click, modifier-click, Shift+Space and the card details action toggle bulk
+selection on editable deck rows. The first selection reveals checkboxes in a
+reserved gutter and actions below the list without moving the rows. On tablets
+the actions stick to the bottom of the viewport. Maybe rows are whole buttons
+and stay outside bulk selection. `?` inspects.
 
 Panel navigation stays one line: Review, Brief, Power, Stats, Checks, Memories,
 History. The strip scrolls when text needs more space, and Brief drafts survive

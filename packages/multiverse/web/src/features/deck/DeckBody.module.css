@@ -20,9 +20,7 @@
   min-height: 0;
 }
 
-/* Positioned so the selection bar can float over the bottom of the list. */
 .listPane {
-  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
