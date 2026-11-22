@@ -9,28 +9,31 @@ export interface ConfirmDialogProps {
   tone?: "default" | "danger";
   onConfirm: () => void;
   onClose: () => void;
+  busy?: boolean;
   /** The touch form: a bottom sheet with tap-sized buttons. */
   sheet?: boolean;
 }
 
 /** A yes/no question. A dangerous confirm starts with focus on Cancel. */
-export function ConfirmDialog({ title, children, confirmLabel, tone = "default", onConfirm, onClose, sheet = false }: ConfirmDialogProps) {
+export function ConfirmDialog({ title, children, confirmLabel, tone = "default", onConfirm, onClose, busy = false, sheet = false }: ConfirmDialogProps) {
   const danger = tone === "danger";
   const size = sheet ? "touch" : "md";
   return (
     <Dialog
       title={title}
       onClose={onClose}
+      busy={busy}
       placement={sheet ? "sheet" : "center"}
       footer={
         <>
-          <Button variant="ghost" size={size} onClick={onClose} data-autofocus={danger ? "" : undefined}>
+          <Button variant="ghost" size={size} onClick={onClose} disabled={busy} data-autofocus={danger ? "" : undefined}>
             Cancel
           </Button>
           <Button
             variant={danger ? "reject" : "primary"}
             size={size}
-            onClick={onConfirm}
+            onClick={() => { if (!busy) onConfirm(); }}
+            aria-disabled={busy || undefined}
             data-autofocus={danger ? undefined : ""}
           >
             {confirmLabel}

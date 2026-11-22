@@ -11,19 +11,19 @@ export function useAttempt() {
   const { apply } = useDeck();
   const report = useSaveStatusReport();
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [requests, setRequests] = useState(0);
 
   /** Run a request; resolves null (and sets `error`) when it fails. */
   const attempt = useCallback(async <T>(fn: () => Promise<T>): Promise<T | null> => {
     setError(null);
-    setBusy(true);
+    setRequests(count => count + 1);
     try {
       return await fn();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
       return null;
     } finally {
-      setBusy(false);
+      setRequests(count => count - 1);
     }
   }, []);
 
@@ -42,5 +42,5 @@ export function useAttempt() {
     [attempt, apply, report],
   );
 
-  return { error, setError, busy, attempt, mutate };
+  return { error, setError, busy: requests > 0, attempt, mutate };
 }

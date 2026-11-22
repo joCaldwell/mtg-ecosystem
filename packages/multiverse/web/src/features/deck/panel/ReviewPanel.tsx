@@ -4,7 +4,7 @@
 // J/K. Decision happens here, in the list (review mode) and in the banner
 // through the same `Review` object.
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { plainText } from "../../../domain/inbox.ts";
 import { proposalQueue } from "../../../domain/review.ts";
 import { changesSince, staleNote, staleTouches } from "../../../domain/staleChanges.ts";
@@ -24,13 +24,20 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
   const ui = useDeckUi();
   // Reason drafts by decision, so moving between proposals keeps them.
   const [reasons, setReasons] = useState<Record<string, string>>({});
-
-  if (view.units.length === 0) return <EmptyState title="No pending proposals" />;
-  if (state.deck.category === "archived") return <Text tone="muted">Pending proposals are kept. To accept or reject them, switch this deck to Paper or Theorycrafted.</Text>;
-
   // The same unit useReview treats as current, also outside review mode.
   const focus = Math.min(ui.cursor, view.units.length - 1);
   const focused = view.units[focus]?.proposalId;
+  const requestedFocus = useRef<number | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  useLayoutEffect(() => {
+    if (requestedFocus.current === focused) {
+      requestedFocus.current = null;
+      heading.current?.focus();
+    }
+  }, [focused]);
+
+  if (view.units.length === 0) return <EmptyState title="No pending proposals" />;
+  if (state.deck.category === "archived") return <Text tone="muted">Pending proposals are kept. To accept or reject them, switch this deck to Paper or Theorycrafted.</Text>;
   const queue = proposalQueue(view.units);
 
   return (
@@ -45,7 +52,10 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
           if (proposal.id !== focused) {
             return (
               <div key={proposal.id} className={styles.collapsed} data-proposal={proposal.id}>
-                <button type="button" className={styles.line} aria-expanded={false} onClick={() => ui.setCursor(entry.firstUnit)}>
+                <button type="button" className={styles.line} aria-expanded={false} onClick={() => {
+                  requestedFocus.current = proposal.id;
+                  ui.setCursor(entry.firstUnit);
+                }}>
                   <span className={styles.position}>{position}</span>
                   <span className={styles.lineTitle}>{plainText(proposal.summary)}</span>
                   <span className={styles.lineMeta}>
@@ -60,9 +70,9 @@ export function ReviewPanel({ view, review }: { view: DeckViewModel; review: Rev
             <div key={proposal.id} className={styles.proposal} data-proposal={proposal.id}>
               <div className={styles.head}>
                 <ProposalEyebrow proposal={proposal} counter={position} />
-                <p className={styles.summary}>
+                <h2 ref={heading} className={styles.summary} tabIndex={-1}>
                   <InlineText text={proposal.summary} />
-                </p>
+                </h2>
               </div>
               {/* Amber only when the changes since touch this proposal's own
                   cards; otherwise the same sentence, quietly. Accepting still

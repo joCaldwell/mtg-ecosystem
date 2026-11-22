@@ -8,6 +8,7 @@ import { createContext, useContext, useEffect, useMemo, useReducer, useRef, type
 import type { SortBy } from "../../domain/cards.ts";
 import type { GroupBy } from "../../domain/grouping.ts";
 import type { TagMatch } from "../../domain/deckSearch.ts";
+import type { CardInfo } from "../../mtg/index.ts";
 
 import type { PanelView } from "./panelViews.ts";
 export type PanelTab = PanelView;
@@ -18,6 +19,8 @@ export interface OpenCard {
   name: string;
   /** A token or emblem the deck makes, opened from the Tokens section. */
   token?: boolean;
+  /** Resolved facts for a named card outside a read-only deck's list. */
+  info?: CardInfo;
 }
 
 export interface DeckUiState {
@@ -116,7 +119,8 @@ export interface DeckUi extends DeckUiState {
   setTagMatch: (value: TagMatch) => void;
   setTagInverted: (value: boolean) => void;
   setTab: (value: PanelTab) => void;
-  openCardPanel: (card: OpenCard | null) => void;
+  openCardPanel: (card: OpenCard | null | Promise<OpenCard | null>, invoker?: Element | null) => void;
+  cancelCardLookup: () => void;
   toggleSelected: (oracleId: string) => void;
   clearSelection: () => void;
   startReview: () => void;
@@ -132,6 +136,7 @@ const DeckUiContext = /* @__PURE__ */ createContext<DeckUi | null>(null);
 export function DeckUiProvider({ children }: { children: ReactNode }) {
   const cardOrigin = useRef<HTMLElement | null>(null);
   const currentCard = useRef<OpenCard | null>(null);
+  const inspectionEpoch = useRef(0);
   const [ui, dispatch] = useReducer(reducer, null, (): DeckUiState => ({
     groupBy: localStorage.getItem(GROUP_BY_KEY) === "type" ? "type" : "slot",
     sortBy: storedSortBy(),
@@ -149,6 +154,8 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
   }));
   currentCard.current = ui.openCard;
 
+  useEffect(() => () => { inspectionEpoch.current++; }, []);
+
   useEffect(() => {
     localStorage.setItem(GROUP_BY_KEY, ui.groupBy);
   }, [ui.groupBy]);
@@ -157,31 +164,40 @@ export function DeckUiProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(SORT_BY_KEY, ui.sortBy);
   }, [ui.sortBy]);
 
-  const actions = useMemo(
-    () => ({
+  const actions = useMemo(() => {
+    const cancelCardLookup = () => { inspectionEpoch.current++; };
+    function showCard(card: OpenCard | null, invoker: Element | null) {
+      if (card && !currentCard.current) cardOrigin.current = invoker instanceof HTMLElement ? invoker : null;
+      currentCard.current = card;
+      dispatch({ t: "openCard", card });
+    }
+    return {
       setGroupBy: (value: GroupBy) => dispatch({ t: "groupBy", value }),
       setSortBy: (value: SortBy) => dispatch({ t: "sortBy", value }),
       setSearchTerm: (value: string) => dispatch({ t: "searchTerm", value }),
       setTagIds: (value: number[]) => dispatch({ t: "tagIds", value }),
       setTagMatch: (value: TagMatch) => dispatch({ t: "tagMatch", value }),
       setTagInverted: (value: boolean) => dispatch({ t: "tagInverted", value }),
-      setTab: (value: PanelTab) => { dispatch({ t: "tab", value }); window.dispatchEvent(new Event("deck-details")); },
-      openCardPanel: (card: OpenCard | null) => {
-        if (card && !currentCard.current) cardOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        currentCard.current = card;
-        dispatch({ t: "openCard", card });
+      setTab: (value: PanelTab) => { cancelCardLookup(); dispatch({ t: "tab", value }); window.dispatchEvent(new Event("deck-details")); },
+      openCardPanel: (card: OpenCard | null | Promise<OpenCard | null>, invoker = document.activeElement) => {
+        const epoch = ++inspectionEpoch.current;
+        if (!(card instanceof Promise)) return showCard(card, invoker);
+        const route = location.href;
+        void card.then(found => {
+          if (found && epoch === inspectionEpoch.current && route === location.href && invoker?.isConnected) showCard(found, invoker);
+        }, () => {});
       },
+      cancelCardLookup,
       toggleSelected: (oracleId: string) => dispatch({ t: "toggleSelected", oracleId }),
       clearSelection: () => dispatch({ t: "clearSelection" }),
-      startReview: () => dispatch({ t: "startReview" }),
+      startReview: () => { cancelCardLookup(); dispatch({ t: "startReview" }); },
       stopReview: () => dispatch({ t: "stopReview" }),
       setCursor: (index: number) => dispatch({ t: "cursor", index }),
-      setRejecting: (key: string | null) => dispatch({ t: "rejecting", key }),
-      openDialog: (value: DeckDialog) => dispatch({ t: "dialog", value }),
+      setRejecting: (key: string | null) => { if (key) cancelCardLookup(); dispatch({ t: "rejecting", key }); },
+      openDialog: (value: DeckDialog) => { cancelCardLookup(); dispatch({ t: "dialog", value }); },
       closeDialog: () => dispatch({ t: "dialog", value: null }),
-    }),
-    [],
-  );
+    };
+  }, []);
 
   return <DeckUiContext.Provider value={{ ...ui, ...actions, cardOrigin }}>{children}</DeckUiContext.Provider>;
 }

@@ -3,10 +3,11 @@ import type { CardInfo } from "./CardInfo.ts";
 import { useCardHover, useCardInspect } from "./CardHover.tsx";
 import styles from "./CardRef.module.css";
 
-const OpenCtx = /* @__PURE__ */ createContext<((name: string) => void) | null>(null);
+type OpenCardReference = (name: string, invoker: HTMLButtonElement) => void;
+const OpenCtx = /* @__PURE__ */ createContext<OpenCardReference | null>(null);
 
 /** A screen that can show card details (the deck page) provides this, so a CardRef anywhere under it opens the card. */
-export function CardOpenProvider({ onOpen, children }: { onOpen: (name: string) => void; children: ReactNode }) {
+export function CardOpenProvider({ onOpen, children }: { onOpen: OpenCardReference; children: ReactNode }) {
   return <OpenCtx.Provider value={onOpen}>{children}</OpenCtx.Provider>;
 }
 
@@ -27,10 +28,12 @@ export function CardRef({ name, card, onOpen }: { name: string; card?: CardInfo;
       className={open ? `${styles.ref} ${styles.openable}` : styles.ref}
       {...hover(card ?? name)}
       onKeyDown={(e) => { if (e.key === "?") { e.preventDefault(); e.stopPropagation(); inspect(card ?? name); } }}
-      onClick={(e: MouseEvent) => {
+      onClick={(e: MouseEvent<HTMLButtonElement>) => {
         // A reference inside a clickable row should open the card, not select the row.
         e.stopPropagation();
-        if (open) open(name); else inspect(card ?? name);
+        if (onOpen) onOpen(name);
+        else if (fromContext) fromContext(name, e.currentTarget);
+        else inspect(card ?? name);
       }}
     >
       {name}

@@ -122,13 +122,14 @@ try {
   });
 
   await check("Card result actions remain outside options and reachable by Tab", async () => {
+    await page.setViewportSize({ width: 720, height: 500 });
     const created = await context.request.post("/api/decks", { headers: { Origin: origin }, data: { name: `Keyboard card search check ${summaries.length}`, category: "theorycrafted" } });
     assert.ok(created.ok(), await created.text());
     const fresh = await created.json();
     const commander = data.cards.find(card => card.role === "commander");
     assert.ok(commander);
     await page.goto(`/deck/${fresh.state.deck.id}`, { waitUntil: "domcontentloaded" });
-    const input = page.getByRole("combobox", { name: "Add a card or search", exact: true });
+    const input = page.getByRole("combobox", { name: "Add cards", exact: true });
     await input.fill(commander.name);
     const list = page.getByRole("listbox", { name: "Card search results", exact: true });
     await list.getByRole("option").first().waitFor();
@@ -141,6 +142,13 @@ try {
     assert.equal(await actions.getByRole("button", { name: /^Add to maybe/ }).evaluate(el => el === document.activeElement), true);
     await page.keyboard.press("Tab");
     assert.equal(await actions.getByRole("button", { name: "Add as commander", exact: true }).evaluate(el => el === document.activeElement), true);
+    assert(await actions.evaluate(el => {
+      const box = el.getBoundingClientRect();
+      return box.top >= 0 && box.bottom <= innerHeight;
+    }), "the result actions are visible without scrolling the deck page");
+    await page.keyboard.press("Escape");
+    assert(await input.evaluate(el => el === document.activeElement));
+    assert.equal(await input.getAttribute("aria-expanded"), "false");
     assert.equal((await (await context.request.get(`/api/decks/${fresh.state.deck.id}`)).json()).state.cards.length, 0);
   });
   assert.deepEqual(pageErrors, []);

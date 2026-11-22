@@ -9,6 +9,8 @@ export interface DialogProps {
   onClose: () => void;
   /** An inner inspection view can go back before Escape closes the sheet. */
   onEscape?: () => void;
+  /** A pending write keeps the dialog open until the result is known. */
+  busy?: boolean;
   width?: "md" | "lg" | "wide";
   /** `sheet` rises from the bottom edge at full width: the touch form (DESIGN.md). */
   placement?: "center" | "sheet" | "drawer";
@@ -19,7 +21,7 @@ export interface DialogProps {
 }
 
 /** Native modal semantics keep the surrounding document inert and restore focus. */
-export function Dialog({ title, onClose, onEscape, width = "md", placement = "center", children, footer, bodyClassName }: DialogProps) {
+export function Dialog({ title, onClose, onEscape, busy = false, width = "md", placement = "center", children, footer, bodyClassName }: DialogProps) {
   const titleId = useId();
   const panel = useRef<HTMLDialogElement>(null);
   const pressedOutside = useRef(false);
@@ -43,27 +45,27 @@ export function Dialog({ title, onClose, onEscape, width = "md", placement = "ce
     <dialog
       ref={panel}
       aria-labelledby={titleId}
-      {...({ closedby: onEscape ? "closerequest" : "any" } as Record<string, string>)}
+      {...({ closedby: busy ? "none" : onEscape ? "closerequest" : "any" } as Record<string, string>)}
       className={`${styles.dialog} ${placement === "sheet" ? styles.sheet : placement === "drawer" ? styles.drawer : styles[width]}`}
       onCancel={(event) => {
         // The controlled workflow can refuse dismissal while a write is in flight,
         // or go back from an inner inspection without closing the sheet.
         event.preventDefault();
-        (onEscape ?? onClose)();
+        if (!busy) (onEscape ?? onClose)();
       }}
-      onClose={(event) => { if (!event.currentTarget.open) onClose(); }}
+      onClose={(event) => { if (!busy && !event.currentTarget.open) onClose(); }}
       onPointerDown={(event) => {
-        if (onEscape || !("closedBy" in event.currentTarget)) pressedOutside.current = outside(event);
+        pressedOutside.current = !busy && (!!onEscape || !("closedBy" in event.currentTarget)) && outside(event);
       }}
       onPointerUp={(event) => {
-        if ((onEscape || !("closedBy" in event.currentTarget)) && pressedOutside.current && outside(event)) onClose();
+        if (!busy && pressedOutside.current && outside(event)) onClose();
         pressedOutside.current = false;
       }}
       onPointerCancel={() => { pressedOutside.current = false; }}
     >
       <div className={styles.head}>
         <h2 id={titleId} className={styles.title}>{title}</h2>
-        <IconButton label="Close" size={placement !== "center" ? "touch" : "sm"} onClick={onClose}>
+        <IconButton label="Close" size={placement !== "center" ? "touch" : "sm"} onClick={onClose} disabled={busy}>
           <Icon name="close" />
         </IconButton>
       </div>

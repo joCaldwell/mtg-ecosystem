@@ -1,15 +1,26 @@
 // Slot targets are typed as text. Empty is "no limit on this side"; the same
 // whole number in both fields means exactly that many.
 
-export type ParsedTarget = { ok: true; value: number | null } | { ok: false };
+type ParsedTarget = { ok: true; value: number | null } | { ok: false };
 
-export function parseTarget(text: string): ParsedTarget {
+function parseTarget(text: string): ParsedTarget {
   const t = text.trim();
   if (t === "") return { ok: true, value: null };
-  return /^\d+$/.test(t) ? { ok: true, value: Number(t) } : { ok: false };
+  const value = Number(t);
+  return /^\d+$/.test(t) && Number.isInteger(value) ? { ok: true, value } : { ok: false };
 }
 
-export const TARGET_ERROR = "A slot target must be a whole number, zero or more.";
+const TARGET_ERROR = "Enter a whole number of zero or more.";
+
+export function parseTargets(min: string, max: string) {
+  const lower = parseTarget(min);
+  const upper = parseTarget(max);
+  if (!lower.ok || !upper.ok)
+    return { ok: false as const, minError: lower.ok ? undefined : TARGET_ERROR, maxError: upper.ok ? undefined : TARGET_ERROR };
+  if (lower.value != null && upper.value != null && lower.value > upper.value)
+    return { ok: false as const, minError: "Min must be at most Max.", maxError: undefined };
+  return { ok: true as const, min: lower.value, max: upper.value };
+}
 
 export function targetText(n: number | null): string {
   return n == null ? "" : String(n);

@@ -89,8 +89,8 @@ try {
         const main = page.locator('[data-deck-list="true"] [class*="_cols_"] button[data-oracle-id]').first();
         await scrollUntilVisible(page, main, VIEWPORTS[width]);
         await main.click({ modifiers: ['Control'] });
-        await page.getByRole('toolbar', { name: 'Selected cards' }).waitFor();
-        await page.getByRole('toolbar', { name: 'Selected cards' }).getByRole('button', { name: /^Clear/ }).click();
+        await page.getByRole('group', { name: 'Selected cards' }).waitFor();
+        await page.getByRole('group', { name: 'Selected cards' }).getByRole('button', { name: /^Clear/ }).click();
         assert.deepEqual(snap((await api('/api/decks/2')).state), snapshot);
         assert.equal((await axe(page)).length, 0);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);

@@ -1,3 +1,29 @@
+.item {
+  display: inline-flex;
+  vertical-align: top;
+  inline-size: 100%;
+  break-inside: avoid;
+}
+
+.item .row { flex: 1; min-inline-size: 0; inline-size: auto; }
+
+.selector {
+  display: grid;
+  place-items: center;
+  flex: none;
+  min-inline-size: var(--h-sm);
+  min-block-size: var(--h-sm);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+
+.selector:hover { background: var(--hover); }
+.selector .selectCheck { min-block-size: 0; margin: 0; accent-color: var(--sel); cursor: inherit; }
+
+@media (pointer: coarse) {
+  .selector { min-inline-size: var(--tap); min-block-size: var(--tap); }
+}
+
 .row {
   --sym-size: var(--mana-list-size);
   --mana-gap: var(--mana-list-gap);

@@ -189,16 +189,20 @@ or about this app.
 ## Deck editor and inspection
 
 Add cards keeps `/`, Enter, Shift+Enter (shortlist, keep results) and Escape.
+The results stay within the available viewport and Escape returns to the input.
 Loading, errors and empty results are statuses, not listbox options.
 
 Filters show matched/full counts and keep global totals and review scope
 unchanged. Clearing restores scroll, selection and open details.
 
-Add columns at wide sizes rather than stretching them. Maybe rows are whole buttons and do not join
-bulk actions requiring main membership; `?` inspects.
+Add columns at wide sizes rather than stretching them. Main deck rows have a
+selection checkbox and support Shift+Space. Bulk actions stay by the list header.
+Maybe rows are whole buttons and do not join bulk actions requiring main membership;
+`?` inspects.
 
 Panel navigation is one line: Review, Brief, Power, Stats, Checks, Memories,
-History, with `aria-current` on the current view. Inspection replaces navigation
+History, with `aria-current` on the current view. The strip scrolls when text
+needs more space. Brief drafts survive view changes. Inspection replaces navigation
 with a Back control naming the origin. Keep the previous view mounted, hidden and
 inert, preserving drafts, scroll and review cursor. In a sheet, Escape returns from
 inspection first; explicit Close closes the sheet.

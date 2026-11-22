@@ -44,8 +44,8 @@ try {
         const sourceCounts = ["W", "U", "B", "R", "G"].map(color => expected.sources.land.by_type[color] + expected.sources.nonland.by_type[color]);
         // 290efc7 paired the donuts over one shared colour table. Preserve
         // the exact data assertions against its count columns.
-        const legend = comparison.getByRole("table").first();
-        assert.deepEqual(await legend.locator("thead th").allTextContents(), ["Colour", "Cost demand", "Direct sources"]);
+        const legend = comparison.getByRole("table", { name: "Mana demand and direct sources by colour", exact: true });
+        assert.deepEqual(await legend.locator("thead th").allTextContents(), ["Colour", "Cost demand", "Direct sources", "Count", "Share", "Count", "Share"]);
         const legendRows = legend.locator("tbody tr");
         assert.deepEqual((await legendRows.locator("td:nth-child(2)").allTextContents()).map(Number), costCounts);
         assert.deepEqual((await legendRows.locator("td:nth-child(4)").allTextContents()).map(Number), sourceCounts);
@@ -53,7 +53,7 @@ try {
         await comparison.getByText(`${sourceCounts.reduce((a, b) => a + b, 0)} source-colour counts`, { exact: true }).waitFor();
         const exact = comparison.locator("summary").filter({ hasText: "Exact colour counts" });
         await exact.focus(); await exact.press("Enter");
-        const rows = exact.locator("..").getByRole("table").locator("tbody tr");
+        const rows = exact.locator("..").getByRole("table", { name: "Exact colour counts for first faces", exact: true }).locator("tbody tr");
         for (const [index, color] of ["W", "U", "B", "R", "G"].entries()) {
           const expected = before.computed.mana.first_face;
           assert.deepEqual((await rows.nth(index).locator("td").allTextContents()).map(Number), [expected.costs.fixed_symbols[color], expected.sources.land.by_type[color], expected.sources.nonland.by_type[color]]);
@@ -144,8 +144,58 @@ try {
   await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).click(); await settle(page, watch); assert.equal(await page.getByRole("dialog").count(), 0);
   await page.getByRole("button", { name: "Deck details", exact: true }).click(); assert.equal(await draft.inputValue(), "Unsaved shared popup draft");
   assert.equal((await axe(page)).length, 0); await context.close();
+
+  // Use real card facts, with a test-only brief and a held lookup response.
+  const deckNames = new Set([
+    ...before.cards.map(card => card.name),
+    ...before.proposals.flatMap(proposal => proposal.items.map(item => item.card_name)),
+  ]);
+  const basicCards = await (await fetch(`${origin}/api/search?q=t%3Abasic&filter=off`, { headers: { Cookie: "checks_user=1" } })).json();
+  const lateCard = basicCards.find(card => !deckNames.has(card.name));
+  assert(lateCard, "fixture needs a basic card outside the deck and its proposals");
+  const currentCard = cards[0];
+  for (const width of [1440, 375]) {
+    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    await context.addCookies([{ name: "checks_user", value: "1", url: origin }]);
+    await context.route("**/*", route => route.request().url().startsWith(`${origin}/`) ? route.fallback() : route.abort());
+    await context.route(`${origin}/api/decks/${deckId}`, async route => {
+      const response = await route.fetch();
+      const json = await response.json();
+      json.state.brief.thesis = `[[${lateCard.name}]] and [[${currentCard.name}]]`;
+      await route.fulfill({ response, json });
+    });
+    const lateLookup = `${origin}/api/resolve?${new URLSearchParams({ name: lateCard.name })}`;
+    const release = Promise.withResolvers();
+    await context.route(lateLookup, async route => {
+      await release.promise;
+      await route.continue();
+    });
+    try {
+      const page = await context.newPage();
+      await page.goto(`${origin}/deck/${deckId}`);
+      const cardRef = name => page.locator("button[data-card-ref]").and(page.getByRole("button", { name, exact: true }));
+      const request = page.waitForRequest(lateLookup);
+      await cardRef(lateCard.name).first().press("Enter");
+      await request;
+      await cardRef(currentCard.name).first().press("Enter");
+      const inspector = width < 720 ? page.getByRole("dialog") : page.getByRole("complementary", { name: "Deck panel" });
+      const title = inspector.getByRole("heading", { name: currentCard.name, exact: true });
+      await title.waitFor();
+      const result = page.waitForResponse(lateLookup);
+      release.resolve();
+      assert((await (await result).json()).matches.some(card => card.oracle_id === lateCard.oracle_id));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      assert(await title.isVisible(), `late card lookup replaces current inspection at ${width}px`);
+      await page.keyboard.press("Escape");
+      await title.waitFor({ state: "hidden" });
+      console.log(`Latest named card inspection ${width} passed`);
+    } finally {
+      release.resolve();
+      await context.close();
+    }
+  }
   assert.deepEqual(await read(), before, "inspection and unsaved forms do not write deck data");
-  const report = { results, deck_data_unchanged: true, shared_popup_escape_back_close_distinct: true, shared_draft_dom_preserved_across_resize: true };
+  const report = { results, deck_data_unchanged: true, shared_popup_escape_back_close_distinct: true, shared_draft_dom_preserved_across_resize: true, stale_named_card_ignored_desktop_and_phone: true };
   if (option("report")) writeFileSync(option("report"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify(report));
 } finally { await browser.close(); }

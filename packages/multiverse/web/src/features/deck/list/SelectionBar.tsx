@@ -3,7 +3,7 @@
 // state is what the list shows; one failure stops the rest and leaves the
 // selection in place for a retry.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../../../api/client.ts";
 import { Button, ConfirmDialog, Menu, Text, useToast, type MenuItem } from "../../../ui/index.ts";
 import { useDeck, useDeckState } from "../DeckStore.tsx";
@@ -21,27 +21,43 @@ export function SelectionBar() {
   const { toast } = useToast();
   const [confirmCut, setConfirmCut] = useState(false);
   const [busy, setBusy] = useState(false);
+  const writing = useRef(false);
+  const bar = useRef<HTMLDivElement>(null);
+  const selected = useRef(ui.selected);
+  selected.current = ui.selected;
 
   // A card an agent removed since it was selected is simply skipped.
   const cards = state.cards.filter((c) => ui.selected.includes(c.oracle_id));
   if (ui.selected.length === 0) return null;
 
+  function clearSelection() {
+    if (bar.current?.contains(document.activeElement)) {
+      bar.current.closest("[data-deck-page]")?.querySelector<HTMLElement>("[data-deck-list]")?.focus({ preventScroll: true });
+    }
+    ui.clearSelection();
+  }
+
   /** Apply `step` to each selected card in turn; resolves to how many succeeded. */
   async function each(step: (oracleId: string) => ReturnType<typeof run>, skip?: (oracleId: string) => boolean) {
+    if (writing.current) return null;
+    writing.current = true;
     setBusy(true);
     let done = 0;
-    for (const c of cards) {
-      if (skip?.(c.oracle_id)) continue;
-      if (!(await step(c.oracle_id))) {
-        setBusy(false);
-        toast(`Stopped after ${done} of ${cards.length}. The error is above the list.`);
-        return null;
+    try {
+      for (const c of cards) {
+        if (skip?.(c.oracle_id)) continue;
+        if (!(await step(c.oracle_id))) {
+          toast(`Stopped after ${done} of ${cards.length}. The error is above the list.`);
+          return null;
+        }
+        done++;
       }
-      done++;
+      if (selected.current === ui.selected) clearSelection();
+      return done;
+    } finally {
+      writing.current = false;
+      setBusy(false);
     }
-    setBusy(false);
-    ui.clearSelection();
-    return done;
   }
 
   async function patchAll(patch: (oracleId: string) => Patch, summary: (n: number) => string) {
@@ -71,11 +87,13 @@ export function SelectionBar() {
     ...state.slots.map((s) => ({
       id: `slot-${s.id}`,
       label: s.name,
+      disabled: busy,
       onSelect: () => void patchAll(() => ({ slot_id: s.id }), (n) => `Filed ${plural(n)} into ${s.name}.`),
     })),
     {
       id: "unfiled",
       label: "Clear primary slot",
+      disabled: busy,
       onSelect: () => void patchAll(() => ({ slot_id: null }), (n) => `Cleared the primary slot of ${plural(n)}.`),
     },
   ];
@@ -99,8 +117,8 @@ export function SelectionBar() {
     : [{ id: "none", label: "No tags yet. Add them under Edit slots and tags.", onSelect: () => {}, disabled: true }];
 
   return (
-    <div className={styles.bar} role="toolbar" aria-label="Selected cards" aria-busy={busy}>
-      <Text weight="bold" size="sm">
+    <div ref={bar} className={styles.bar} role="group" aria-label="Selected cards" aria-busy={busy}>
+      <Text role="status" weight="bold" size="sm">
         {ui.selected.length} selected
       </Text>
       <Menu size="sm" label="Primary slot" items={slotItems} />
@@ -108,7 +126,7 @@ export function SelectionBar() {
       <Menu size="sm" label="Tag" items={tagItems} />
       <Button
         size="sm"
-        disabled={busy}
+        aria-disabled={busy}
         onClick={() => void patchAll(() => ({ maybe: true }), (n) => `Moved ${plural(n)} to the maybe list.`)}
       >
         To maybe
@@ -116,12 +134,12 @@ export function SelectionBar() {
       <Button
         size="sm"
         variant="reject"
-        disabled={busy}
-        onClick={() => (cards.length > 1 ? setConfirmCut(true) : void cutAll())}
+        aria-disabled={busy}
+        onClick={() => { if (!writing.current) cards.length > 1 ? setConfirmCut(true) : void cutAll(); }}
       >
         Cut
       </Button>
-      <Button size="sm" variant="ghost" kbd="Esc" onClick={ui.clearSelection}>
+      <Button size="sm" variant="ghost" kbd="Esc" aria-disabled={busy} onClick={() => { if (!writing.current) clearSelection(); }}>
         Clear
       </Button>
       {confirmCut && (

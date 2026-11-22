@@ -28,6 +28,7 @@ export function DeleteDeckDialog({ onClose }: { onClose: () => void }) {
       tone="danger"
       onConfirm={confirm}
       onClose={onClose}
+      busy={busy}
     >
       <Stack gap={5}>
         <Text as="p">
@@ -38,6 +39,9 @@ export function DeleteDeckDialog({ onClose }: { onClose: () => void }) {
         <Text as="p" tone="muted">
           Global memories stay. Forks of this deck stay as decks of their own and lose the link to it. Entries
           about it stay in the activity feed. This cannot be undone.
+        </Text>
+        <Text role="status" tone="muted" as="p">
+          {busy ? "Deleting this deck. This dialog will stay open until the request finishes." : ""}
         </Text>
         {error ? <ErrorNote>{error}</ErrorNote> : null}
       </Stack>
