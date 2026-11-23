@@ -507,24 +507,4 @@ impl RulesTxn {
         }
         Ok(())
     }
-    pub(super) fn execute_attachment_instruction(
-        &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String> {
-        let block = match instruction {
-            _ => return Err("not an attachment instruction".into()),
-        };
-        let cause = BatchCause::Instruction {
-            stack_id: frame.stack_id,
-            player: self.entry(frame.stack_id)?.controller,
-            source: self.entry(frame.stack_id)?.source,
-            cursor: frame.cursor,
-            source_block: block,
-        };
-        match instruction {
-            _ => return Err("not an attachment instruction".into()),
-        }
-        self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-    }
 }

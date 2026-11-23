@@ -167,32 +167,7 @@ impl RulesTxn {
         }
         Ok(value)
     }
-    pub(super) fn begin_cascade(
-        &mut self,
-        frame: Resolving,
-        source_block: u32,
-    ) -> Result<(), String> {
-        let threshold = self.cascade_threshold(&frame)?;
-        let progress = CascadeProgress {
-            frame,
-            source_block,
-            threshold,
-            stage: CascadeStage::Scan,
-            exiled: vec![],
-            hit: None,
-            land_choices: vec![],
-            child: None,
-            remainder: vec![],
-            permutation: vec![],
-            random_index: 0,
-            commander_cursor: 0,
-            redirected: vec![],
-        };
-        self.rules_mut().frame = Frame::Cascade {
-            progress: Box::new(progress),
-        };
-        Ok(())
-    }
+
     fn nonstack_mana_value(&self, object: ObjectId) -> Result<Quantity, String> {
         Ok(self
             .copiable_definition(object)?

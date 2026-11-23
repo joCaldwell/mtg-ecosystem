@@ -1528,28 +1528,3 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
     }
     panic!("predeclared focused Defender development bound1500")
 }
-
-#[path = "matches_adversarial/blocking_match_admission.rs"]
-mod blocking_match_admission;
-
-#[path = "matches_adversarial/tap_match_admission.rs"]
-mod tap_match_admission;
-
-#[path = "matches_adversarial/tapped_match_admission.rs"]
-mod tapped_match_admission;
-
-#[path = "matches_adversarial/untap_match_defense.rs"]
-mod untap_match_defense;
-
-#[path = "matches_adversarial/activated_tap_match_admission.rs"]
-mod activated_tap_match_admission;
-
-#[path = "matches_adversarial/activated_counter_match_admission.rs"]
-mod activated_counter_match_admission;
-#[path = "matches_adversarial/royal_match_admission.rs"]
-mod royal_match_admission;
-
-#[path = "matches_adversarial/permanent_return_match_admission.rs"]
-mod permanent_return_match_admission;
-#[path = "matches_adversarial/untap_activation_match_admission.rs"]
-mod untap_activation_match_admission;

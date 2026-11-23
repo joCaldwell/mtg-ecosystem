@@ -267,21 +267,7 @@ impl RulesTxn {
         }
         Ok(())
     }
-    pub(super) fn removal_target_controller(
-        &self,
-        frame: &Resolving,
-        slot: u32,
-    ) -> Result<PlayerId, String> {
-        Ok(self.target_facts(frame, slot)?.controller)
-    }
-    fn effect_recipient(&self, frame: &Resolving, r: &EffectRecipient) -> Result<PlayerId, String> {
-        match r {
-            EffectRecipient::Controller => Ok(self.entry(frame.stack_id)?.controller),
-            EffectRecipient::TargetController { target_slot } => {
-                Ok(self.target_facts(frame, *target_slot)?.controller)
-            }
-        }
-    }
+
     fn target_facts<'a>(&self, frame: &'a Resolving, slot: u32) -> Result<&'a TargetFacts, String> {
         frame
             .target_facts

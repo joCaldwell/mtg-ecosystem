@@ -15,17 +15,3 @@ impl KeywordAbility {
         })
     }
 }
-
-pub(super) fn without_reminder(line: &str) -> Option<String> {
-    let mut depth = 0_usize;
-    let mut text = String::new();
-    for ch in line.chars() {
-        match ch {
-            '(' => depth += 1,
-            ')' => depth = depth.checked_sub(1)?,
-            _ if depth == 0 => text.push(ch),
-            _ => {}
-        }
-    }
-    (depth == 0).then_some(text)
-}

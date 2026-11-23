@@ -15,6 +15,26 @@ use crate::engine::{
 pub use crate::{build_id, formats, query};
 pub use mtg_contracts::kir::{Amount, Context, EventPlayerRole, PlayerExpr, Ref, SetExpr, Verb};
 pub use mtg_contracts::*;
+
+/// Construct a private rules witness from validated definitions and an explicit board.
+pub fn witness_scenario(catalog: Catalog, config: ScenarioConfig) -> Prepared {
+    catalog.validate().expect("valid witness catalog");
+    for card in &config.cards {
+        assert!(
+            catalog.definition_by_oracle_id(&card.oracle_id).is_some(),
+            "missing witness definition {}",
+            card.oracle_id
+        );
+    }
+    Prepared {
+        catalog_digest: digest(&catalog).unwrap(),
+        profile_digest: digest(&config).unwrap(),
+        catalog: std::sync::Arc::new(catalog),
+        config,
+        match_config: None,
+    }
+}
+
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1549,5 +1569,175 @@ pub trait WorkTestkit {
 impl WorkTestkit for Work {
     fn belongs_to_viewer(&self, viewer: PlayerId) -> bool {
         Work::belongs_to_viewer(self, viewer)
+    }
+}
+
+impl ScenarioConfig {
+    pub fn effects() -> Self {
+        let cards = (0..46)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=15 => 0,
+                    16..=30 => 1,
+                    31..=41 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        1 => OX,
+                        2 | 18 => BEARS,
+                        3 => BEARS,
+                        4 | 19 | 39 | 42 => BLOOD_ARTIST,
+                        5 | 24 => GROWTH,
+                        6 => GROWTH,
+                        7 => DISFIGURE,
+                        8 | 23 => BOLT,
+                        9 | 10 | 14 | 27 | 30 | 37 => FOREST,
+                        11 | 15 => PLAINS,
+                        12 => SWAMP,
+                        13 | 28 | 33..=36 | 40 | 41 | 43..=45 => MOUNTAIN,
+                        16 | 17 | 38 => BEARS,
+                        20 => SPELL,
+                        21 => SPELL,
+                        22 => SPELL,
+                        31 | 32 => GROWTH,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        5..=8 | 20..=24 | 31 | 32 => Zone::Hand { owner },
+                        14 | 15 | 29 | 30 | 40 | 41 | 44 | 45 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-effects-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+
+    pub fn triggers() -> Self {
+        let cards = (0..38)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=15 => 0,
+                    16..=27 => 1,
+                    28..=33 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        1 | 2 | 16 | 28 | 34 => BLOOD_ARTIST,
+                        3 | 17 | 29 => WARDEN,
+                        4 => VISIONARY,
+                        5 => BEARS,
+                        6 => BEARS,
+                        18 | 30 => BEARS,
+                        7 => SWAMP,
+                        8 | 9 | 14 | 31 | 32 | 33 | 35 | 36 | 37 => FOREST,
+                        10 => PLAINS,
+                        13 | 23 => MOUNTAIN,
+                        19 => BOLT,
+                        20 => SPELL,
+                        21 => SPELL,
+                        22 => SPELL,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        4 | 19..=22 => Zone::Hand { owner },
+                        14 | 15 | 26 | 27 | 32 | 33 | 36 | 37 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-triggers-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+
+    pub fn damage_life() -> Self {
+        let cards = (0..35)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=13 | 34 => 0,
+                    14..=25 => 1,
+                    26..=30 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 | 26 => BEARS,
+                        1 | 2 => SWAMP,
+                        3 | 7 | 17 | 27 => MOUNTAIN,
+                        4 | 8 => PLAINS,
+                        9 => SOUL_FEAST,
+                        10 => HEALING_HANDS,
+                        11 | 20 | 28 => BOLT,
+                        14 => ISAMARU,
+                        15 => BEARS,
+                        16 => BEARS,
+                        21 => SPELL,
+                        22 => SPELL,
+                        23 => SPELL,
+                        34 => NECTAR,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        9..=11 | 20..=23 | 28 | 34 => Zone::Hand { owner },
+                        12 | 13 | 24 | 25 | 29 | 30 | 32 | 33 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-damage-life-v1".into(),
+            commanders: vec![CardId(14)],
+            cards,
+        }
+    }
+
+    pub fn damage_life_low() -> Self {
+        let mut c = Self::damage_life();
+        c.initial.life = std::array::from_fn(|_| Quantity::from(4));
+        c.profile = "four-seat-damage-life-low-v1".into();
+        c
     }
 }

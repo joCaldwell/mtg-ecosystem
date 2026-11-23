@@ -142,17 +142,6 @@ impl RulesTxn {
         }
     }
 
-    pub(super) fn may_transform_source(&self, object: ObjectId) -> bool {
-        !self.copiable_back_side(object)
-            && self.entry_copy(object).is_none()
-            && self
-                .current(object)
-                .is_ok_and(|o| o.present_on_battlefield())
-            && self
-                .definition(object.card)
-                .is_ok_and(|d| d.transform_faces.is_some())
-    }
-
     /// The actual transforming object keeps the front face's mana value.
     /// An ordinary card or token copying only the back face has value zero.
     pub(crate) fn physical_transform_mana_value(&self, object: ObjectId) -> Option<Quantity> {

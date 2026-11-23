@@ -460,6 +460,12 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
             || labels.triggered.len() != d.triggered.len()
             || labels.mana.len() != d.mana_abilities.len()
             || labels.statics.len() != d.static_abilities.len()
+            || d.spell
+                .iter()
+                .chain(d.activated.iter().map(|a| &a.program))
+                .chain(d.triggered.iter().map(|a| &a.program))
+                .flat_map(|program| &program.instructions)
+                .any(|instruction| instruction.source_block() as usize >= labels.blocks.len())
             || !labels.spell_modes.is_empty()
         {
             return Err("invalid source label provenance".into());

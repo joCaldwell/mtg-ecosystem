@@ -5,10 +5,10 @@ fn fixture() -> Game {
     Game::new(
         Prepared::admit(
             Catalog::read(include_str!(
-                "../../../../../tests/fixtures/expected-effects-ir.json"
+                "../../../../../tests/fixtures/expected-ir.json"
             ))
             .unwrap(),
-            ScenarioConfig::effects_two_furnaces(),
+            ScenarioConfig::combat_game(),
         )
         .unwrap(),
     )

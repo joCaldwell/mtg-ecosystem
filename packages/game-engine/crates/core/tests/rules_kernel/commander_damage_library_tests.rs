@@ -2,9 +2,9 @@ use super::*;
 
 fn prepared(config: ScenarioConfig) -> Prepared {
     let source = if config == ScenarioConfig::commander_library() {
-        include_str!("../../../../tests/fixtures/expected-library-ir.json")
+        include_str!("../../../../tests/fixtures/expected-action-ir.json")
     } else {
-        include_str!("../../../../tests/fixtures/expected-damage-ir.json")
+        include_str!("../../../../tests/fixtures/expected-action-ir.json")
     };
     Prepared::admit(Catalog::read(source).unwrap(), config).unwrap()
 }

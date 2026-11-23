@@ -2,8 +2,6 @@
 use super::*;
 use serde_json::{Value, json};
 
-const PROTECTION_TEXT: &str = "This spell can't be countered.";
-
 const TARGET_ID: &str = "line:1:1";
 
 // Preserve the wire capabilities of the existing protected board damage program.

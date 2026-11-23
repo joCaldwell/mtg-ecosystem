@@ -2,12 +2,12 @@ use super::*;
 
 fn catalog() -> Catalog {
     Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-damage-life-ir.json"
+        "../../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap()
 }
 fn game() -> Game {
-    Game::new(Prepared::admit(catalog(), ScenarioConfig::damage_life()).unwrap())
+    Game::new(witness_scenario(catalog(), ScenarioConfig::damage_life()))
 }
 fn settle(g: &mut Game) -> Request {
     for _ in 0..500 {
@@ -46,53 +46,6 @@ fn recover(g: &Game) {
     assert_eq!(replayed.state_digest().unwrap(), g.state_digest().unwrap());
     assert_eq!(restored.trace(), g.trace());
     assert_eq!(replayed.trace(), g.trace());
-}
-fn detached_pinger() -> Game {
-    let mut g = game();
-    let source = g.object_id(CardId(0)).unwrap();
-    answer(
-        &mut g,
-        Response::ActivateAbility {
-            object: source,
-            ability: 0,
-        },
-    );
-    answer(
-        &mut g,
-        Response::EntityTargets {
-            entities: vec![TargetEntity::Player {
-                player: PlayerId(1),
-            }],
-        },
-    );
-    answer(&mut g, Response::Pass);
-    answer(&mut g, Response::Cast { card: CardId(21) });
-    answer(
-        &mut g,
-        Response::Targets {
-            objects: vec![source],
-        },
-    );
-    let land = g.object_id(CardId(18)).unwrap();
-    answer(&mut g, Response::ActivateMana { object: land });
-    answer(&mut g, Response::FinishMana { undo_mana: false });
-    answer(
-        &mut g,
-        Response::SpendMana {
-            spending: BTreeMap::from([(Color::U, 1.into())]),
-        },
-    );
-    for _ in 0..4 {
-        answer(&mut g, Response::Pass);
-    }
-    settle(&mut g);
-    assert_eq!(g.state.rules.stack.len(), 1);
-    assert!(g.current(source).is_err());
-    assert_eq!(
-        g.current(g.object_id(CardId(0)).unwrap()).unwrap().zone,
-        Zone::Hand { owner: PlayerId(0) }
-    );
-    g
 }
 
 #[test]
@@ -173,7 +126,10 @@ fn commander_noncombat_damage_and_life_changes_never_write_combat_history() {
 
 #[test]
 fn ordered_life_events_measure_zero_then_recover_before_state_based_actions() {
-    let mut g = Game::new(Prepared::admit(catalog(), ScenarioConfig::damage_life_low()).unwrap());
+    let mut g = Game::new(witness_scenario(
+        catalog(),
+        ScenarioConfig::damage_life_low(),
+    ));
     let receipt = g
         .commit_batch(
             BatchCause::Fixture,
@@ -400,152 +356,5 @@ fn ordered_event_failure_rolls_back_prior_life_move_source_and_trace_writes() {
         assert_eq!(g.state, initial.state);
         assert_eq!(g.trace, initial.trace);
         assert!(Arc::ptr_eq(&token, &g.state_token));
-    }
-}
-
-#[test]
-fn detached_paid_damage_uses_exact_last_known_facts_and_rejects_rehashed_forgery() {
-    let initial = detached_pinger();
-    recover(&initial);
-    let fact = initial.state.rules.stack[0].source_facts.clone().unwrap();
-    assert!(fact.tapped);
-    assert_eq!(fact.zone, Zone::Battlefield);
-    assert_eq!(fact.object.incarnation, 0);
-    for mutation in 0..5 {
-        let mut g = initial.fork();
-        let mut damage = NoncombatDamageOccurrence {
-            source: fact.clone(),
-            controller: PlayerId(0),
-            recipient: DamageRecipient::Player {
-                player: PlayerId(1),
-            },
-            amount: 1.into(),
-        };
-        match mutation {
-            0 => damage.source.tapped = false,
-            1 => damage.source.marked_damage = 9.into(),
-            2 => damage.source.controller = PlayerId(1),
-            3 => damage.controller = PlayerId(1),
-            _ => damage.source.object.incarnation = 90,
-        };
-        assert!(
-            g.commit_batch(
-                BatchCause::Fixture,
-                leaf(ProposedEvent::NoncombatDamage {
-                    damage: Box::new(damage)
-                })
-            )
-            .is_err()
-        );
-        assert_eq!(g.state, initial.state);
-        assert_eq!(g.trace, initial.trace);
-        let mut saved: Snapshot = strict_read(&initial.snapshot().unwrap()).unwrap();
-        let source = saved.state.rules.stack[0].source_facts.as_mut().unwrap();
-        match mutation {
-            0 => source.tapped = false,
-            1 => source.marked_damage = 9.into(),
-            2 => source.controller = PlayerId(1),
-            3 => source.zone = Zone::Stack,
-            _ => source.object.incarnation = 90,
-        };
-        saved.state_sha256 = digest(&saved.state).unwrap();
-        assert!(
-            Game::restore(
-                initial.prepared.as_ref().clone(),
-                &canonical(&saved).unwrap()
-            )
-            .is_err()
-        );
-    }
-    let mut g = initial.fork();
-    for _ in 0..4 {
-        answer(&mut g, Response::Pass);
-    }
-    settle(&mut g);
-    let damage = g
-        .events()
-        .iter()
-        .find_map(|event| match event {
-            Event::Committed {
-                actual: EventOutcome::DamageCommitted { actual, .. },
-                ..
-            } => Some(actual),
-            _ => None,
-        })
-        .unwrap();
-    assert_eq!(damage.len(), 1);
-    assert_eq!(damage[0].source, fact);
-    assert_eq!(g.state.rules.players[1].life, 39.into());
-    recover(&g);
-}
-
-#[test]
-fn damage_life_admission_binds_complete_catalog_version_and_exact_five_profiles() {
-    let c = catalog();
-    for config in [
-        ScenarioConfig::damage_life(),
-        ScenarioConfig::damage_life_low(),
-        ScenarioConfig::damage_life_borrowed(),
-        ScenarioConfig::damage_life_empty_library(),
-        ScenarioConfig::damage_life_library(),
-    ] {
-        Prepared::admit(c.clone(), config).unwrap();
-    }
-    let old = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-stack-ir.json"
-    ))
-    .unwrap();
-    assert!(Prepared::admit(old, ScenarioConfig::damage_life()).is_err());
-    for mutation in 0..4 {
-        let mut bad = c.clone();
-        match mutation {
-            0 => {
-                bad.definitions.pop();
-            }
-            1 => {
-                bad.definitions
-                    .iter_mut()
-                    .find(|d| d.name == "Soul Feast")
-                    .unwrap()
-                    .characteristics
-                    .mana_cost
-                    .generic = 2.into()
-            }
-            2 => {
-                bad.definitions
-                    .iter_mut()
-                    .find(|d| d.name == "Lightning Bolt")
-                    .unwrap()
-                    .spell
-                    .as_mut()
-                    .unwrap()
-                    .instructions[0] = Instruction::damage_target(
-                    0,
-                    mtg_contracts::kir::Amount::Fixed { value: 4.into() },
-                    0,
-                )
-            }
-            _ => {
-                let mut extra = bad.definitions[0].clone();
-                extra.oracle_id = "zz-extra".into();
-                bad.definitions.push(extra);
-            }
-        };
-        assert!(Prepared::admit(bad, ScenarioConfig::damage_life()).is_err());
-    }
-    for mutation in 0..5 {
-        let mut bad = ScenarioConfig::damage_life();
-        match mutation {
-            0 => bad.cards[0].controller = PlayerId(1),
-            1 => bad.commanders = vec![CardId(0)],
-            2 => bad.cards[11].zone = Zone::Battlefield,
-            3 => bad.cards[3].oracle_id = bad.cards[1].oracle_id.clone(),
-            _ => {
-                let mut extra = bad.cards[1].clone();
-                extra.id = CardId(100);
-                bad.cards.push(extra);
-            }
-        };
-        assert!(Prepared::admit(c.clone(), bad).is_err());
     }
 }

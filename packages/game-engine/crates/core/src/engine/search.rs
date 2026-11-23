@@ -156,48 +156,7 @@ impl RulesTxn {
             .push(action);
         Ok(())
     }
-    pub(super) fn remember_scry(
-        &mut self,
-        player: PlayerId,
-        top: &[ObjectId],
-        bottom: &[ObjectId],
-    ) -> Result<(), String> {
-        let action = OwnKnowledgeAction::Scry {
-            top: self.remembered_library_cards(player, top, 0)?,
-            bottom: self.remembered_library_cards(player, bottom, top.len())?,
-        };
-        self.remember_library_action(player, action)
-    }
-    pub(super) fn remember_surveil(
-        &mut self,
-        player: PlayerId,
-        top: &[ObjectId],
-    ) -> Result<(), String> {
-        let action = OwnKnowledgeAction::Surveil {
-            top: self.remembered_library_cards(player, top, 0)?,
-        };
-        self.remember_library_action(player, action)
-    }
-    pub(super) fn remember_library_order(
-        &mut self,
-        player: PlayerId,
-        top: &[ObjectId],
-    ) -> Result<(), String> {
-        let action = OwnKnowledgeAction::LibraryOrdered {
-            top: self.remembered_library_cards(player, top, 0)?,
-        };
-        self.remember_library_action(player, action)
-    }
-    pub(super) fn remember_library_selection(
-        &mut self,
-        player: PlayerId,
-        bottom: &[ObjectId],
-    ) -> Result<(), String> {
-        let action = OwnKnowledgeAction::LibrarySelected {
-            bottom: self.remembered_library_cards(player, bottom, 0)?,
-        };
-        self.remember_library_action(player, action)
-    }
+
     pub(super) fn remember_mill(&mut self, player: PlayerId, count: usize) -> Result<(), String> {
         self.remember_library_action(player, OwnKnowledgeAction::Milled { count })
     }

@@ -111,26 +111,4 @@ impl RulesTxn {
         }
         Ok(())
     }
-    pub(super) fn additional_cost_was_selected(
-        &self,
-        entry: &StackInstance,
-        identity: &str,
-    ) -> Result<bool, String> {
-        if !entry.kind.is_spell() || !self.stack_entry_complete(entry) {
-            return Err("conditional draw requires a completed spell".into());
-        }
-        let selected = entry
-            .selected_additional_costs
-            .as_ref()
-            .ok_or("missing optional cost declaration")?;
-        if !self
-            .program_for(entry)?
-            .optional_additional_costs
-            .iter()
-            .any(|c| c.identity == identity)
-        {
-            return Err("conditional draw linked to foreign cost".into());
-        }
-        Ok(selected.iter().any(|id| id == identity))
-    }
 }

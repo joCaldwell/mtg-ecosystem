@@ -267,21 +267,4 @@ impl RulesTxn {
         }
         Ok(())
     }
-    pub(super) fn register_delayed_chapter(&mut self, frame: Resolving) -> Result<(), String> {
-        self.validate_resolving(&frame)?;
-        if frame.cursor != 0 {
-            return Err("wrong delayed chapter cursor".into());
-        }
-        let issuer = frame.stack_id;
-        let row = self.delayed_registration(self.entry(issuer)?)?;
-        self.validate_delayed_registration(&row)?;
-        if self.is_live(row.controller) {
-            self.reserve_effect_slot()?;
-            self.rules_mut().delayed_chapters.push(row);
-        }
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::DelayedChapterRegistered { issuer },
-        )
-    }
 }

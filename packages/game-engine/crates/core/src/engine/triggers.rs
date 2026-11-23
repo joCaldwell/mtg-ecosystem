@@ -944,7 +944,7 @@ impl RulesTxn {
                     TriggerCondition::SelfEntersBattlefield => enters && Some(object.id) == subject,
                     TriggerCondition::OtherCreatureEntersBattlefield => {
                         let matched=creature && enters && Some(object.id)!=subject;
-                        
+
                         matched
                     }
                 };

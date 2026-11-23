@@ -219,7 +219,7 @@ mod tests {
                 ],
             ),
             (
-                include_str!("../../../../tests/fixtures/expected-commander-ir.json"),
+                include_str!("../../../../tests/fixtures/expected-action-ir.json"),
                 vec![
                     ScenarioConfig::command_casting(),
                     ScenarioConfig::commander_lifecycle(),
@@ -227,14 +227,14 @@ mod tests {
                 ],
             ),
             (
-                include_str!("../../../../tests/fixtures/expected-damage-ir.json"),
+                include_str!("../../../../tests/fixtures/expected-action-ir.json"),
                 vec![
                     ScenarioConfig::commander_damage(),
                     ScenarioConfig::commander_damage_borrowed(),
                 ],
             ),
             (
-                include_str!("../../../../tests/fixtures/expected-library-ir.json"),
+                include_str!("../../../../tests/fixtures/expected-action-ir.json"),
                 vec![ScenarioConfig::commander_library()],
             ),
             (
@@ -244,56 +244,6 @@ mod tests {
                     ScenarioConfig::actions_borrowed(),
                     ScenarioConfig::actions_empty_library(),
                     ScenarioConfig::mixed_mana(),
-                ],
-            ),
-            (
-                include_str!("../../../../tests/fixtures/expected-stack-ir.json"),
-                vec![
-                    ScenarioConfig::stack_costs(),
-                    ScenarioConfig::stack_costs_borrowed(),
-                    ScenarioConfig::stack_costs_empty_library(),
-                    ScenarioConfig::stack_costs_library(),
-                ],
-            ),
-            (
-                include_str!("../../../../tests/fixtures/expected-damage-life-ir.json"),
-                vec![
-                    ScenarioConfig::damage_life(),
-                    ScenarioConfig::damage_life_low(),
-                    ScenarioConfig::damage_life_borrowed(),
-                    ScenarioConfig::damage_life_empty_library(),
-                    ScenarioConfig::damage_life_library(),
-                ],
-            ),
-            (
-                include_str!("../../../../tests/fixtures/expected-trigger-ir.json"),
-                vec![
-                    ScenarioConfig::triggers(),
-                    ScenarioConfig::triggers_low(),
-                    ScenarioConfig::triggers_borrowed(),
-                    ScenarioConfig::triggers_empty_library(),
-                    ScenarioConfig::triggers_nonactive(),
-                ],
-            ),
-            (
-                include_str!("../../../../tests/fixtures/expected-effects-ir.json"),
-                vec![
-                    ScenarioConfig::effects(),
-                    ScenarioConfig::effects_furnace(),
-                    ScenarioConfig::effects_two_furnaces(),
-                    ScenarioConfig::effects_borrowed(),
-                    ScenarioConfig::effects_low(),
-                ],
-            ),
-            (
-                include_str!("../../../../tests/fixtures/expected-choices-ir.json"),
-                vec![
-                    ScenarioConfig::choices(),
-                    ScenarioConfig::choices_furnace(),
-                    ScenarioConfig::conditions(),
-                    ScenarioConfig::conditions_nonempty(),
-                    ScenarioConfig::conditions_borrowed(),
-                    ScenarioConfig::conditions_no_targets(),
                 ],
             ),
         ];

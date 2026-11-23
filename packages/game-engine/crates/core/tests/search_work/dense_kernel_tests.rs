@@ -728,147 +728,6 @@ mod diagnostic {
             "all_segment_inputs_and_results_verified":true})
     }
 
-    fn effect_case(collect_timings: bool) -> serde_json::Value {
-        let catalog = Catalog::read(include_str!(
-            "../../../../tests/fixtures/expected-effects-ir.json"
-        ))
-        .unwrap();
-        let prepared = Prepared::admit(catalog, ScenarioConfig::effects()).unwrap();
-        let base = Game::new(prepared);
-        let source_card = base
-            .prepared
-            .config
-            .cards
-            .iter()
-            .find(|card| card.oracle_id == GROWTH)
-            .unwrap()
-            .id;
-        let source = base.object_id(source_card).unwrap();
-        let instruction = base
-            .definition(source_card)
-            .unwrap()
-            .spell
-            .as_ref()
-            .unwrap()
-            .instructions[0]
-            .clone();
-        let (power, toughness, source_block) = match &instruction {
-            kernel!(ModifyUntil { what: target_object!(_), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) => {
-                (power.clone(), toughness.clone(), *source_block)
-            }
-            _ => panic!("archived complete signed P/T instruction"),
-        };
-        let targets = base
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|object| {
-                object.zone == Zone::Battlefield
-                    && base
-                        .definition(object.id.card)
-                        .unwrap()
-                        .characteristics
-                        .kind
-                        == CardKind::Creature
-            })
-            .map(|object| object.id)
-            .collect::<Vec<_>>();
-        assert!(!targets.is_empty());
-        let mut rows = vec![];
-        for count in [0usize, 8, 64, 256] {
-            let mut domain = base.fork();
-            for index in 0..count {
-                let target = targets[index % targets.len()];
-                let source_handles = domain.capture_trigger_source_handles(source).unwrap();
-                let target_handles = domain.capture_trigger_source_handles(target).unwrap();
-                domain.state.rules.effects.push(ResolvedEffect {
-                    id: EffectId(index as u64),
-                    origin: EffectOrigin {
-                        activated_ability: None,
-                        mode: None,
-                        stack_id: StackId(u32::try_from(index).unwrap()),
-                        source,
-                        controller: base.current(source).unwrap().controller,
-                        source_handles,
-                        cursor: 0,
-                        source_block,
-                    },
-                    target_handles,
-                    expires_in_cleanup_of_turn: base.state.rules.turn.number,
-                    kind: ResolvedEffectKind::ModifyPowerToughness {
-                        target,
-                        power: power.clone(),
-                        toughness: toughness.clone(),
-                    },
-                });
-            }
-            domain.state.rules.next_effect_id = count as u64;
-            // These rows deliberately have no invocation history. Even the
-            // below-capacity seeded row is domain-only, never a legal restore.
-            let restore = Game::restore(
-                domain.prepared.as_ref().clone(),
-                &domain.snapshot().unwrap(),
-            );
-            assert_eq!(restore.is_err(), count != 0);
-            let mut synthetic_config = domain.prepared.config.clone();
-            synthetic_config.profile = format!("synthetic-evaluator-only-{count}");
-            assert!(Prepared::admit((*domain.prepared.catalog).clone(), synthetic_config).is_err());
-            let actual_limit = domain.effect_limit();
-            if count > actual_limit {
-                assert_eq!(
-                    domain.validate_effect_state().unwrap_err(),
-                    "effect capacity"
-                );
-            }
-            let expected = targets
-                .iter()
-                .enumerate()
-                .map(|(slot, target)| {
-                    let mut value = base
-                        .definition(target.card)
-                        .unwrap()
-                        .characteristics
-                        .clone();
-                    let occurrences =
-                        count / targets.len() + usize::from(slot < count % targets.len());
-                    for _ in 0..occurrences {
-                        value.power.as_mut().unwrap().add(&power);
-                        value.toughness.as_mut().unwrap().add(&toughness);
-                    }
-                    value
-                })
-                .collect::<Vec<_>>();
-            let mut samples = vec![];
-            let result = targets
-                .iter()
-                .map(|target| domain.characteristics(*target).unwrap())
-                .collect::<Vec<_>>();
-            assert_eq!(result, expected);
-            for repetition in 0..if collect_timings { 6 } else { 0 } {
-                let result = measure(
-                    "pure_characteristics_modifier_sweep",
-                    repetition,
-                    targets.len(),
-                    &mut samples,
-                    || {
-                        targets
-                            .iter()
-                            .map(|target| domain.characteristics(*target).unwrap())
-                            .collect::<Vec<_>>()
-                    },
-                );
-                assert_eq!(result, expected);
-            }
-            rows.push(serde_json::json!({"effect_instances":count,"actual_fixture_capacity":actual_limit,
-                "released_match_capacity":32,"domain_evaluator_only":true,"supported_invocation_creation_claim":false,
-                "production_restore_rejected":count!=0,"synthetic_profile_admission_rejected":true,
-                "targets":targets.len(),"source_instruction":&instruction,"samples":samples,
-                "memory":memory()}));
-        }
-        serde_json::json!({"case":"effects","rows":rows})
-    }
-
     fn mana_in_place(branch: &mut Game) -> (Request, CallCounts) {
         let mut counts = CallCounts::default();
         let observation = counted_observe(branch, PlayerId(0), &mut counts);
@@ -1024,15 +883,6 @@ mod diagnostic {
     }
 
     #[test]
-    fn dense_modifier_evaluator_reference_has_no_timing() {
-        let result = effect_case(false);
-        assert_eq!(result["rows"].as_array().unwrap().len(), 4);
-        for row in result["rows"].as_array().unwrap() {
-            assert!(row["samples"].as_array().unwrap().is_empty());
-        }
-    }
-
-    #[test]
     #[ignore = "explicit host-only profiling/timing; requires external watchdog and RSS cap"]
     fn dense_kernel_diagnostic_host_adapter() {
         assert_eq!(
@@ -1041,7 +891,6 @@ mod diagnostic {
         );
         let name = std::env::var("DENSE_KERNEL_CASE").expect("one declared case per process");
         let result = match name.as_str() {
-            "effects" => effect_case(true),
             "retained_branches" => retained_case(),
             other => kernel_case(&named_case(other)),
         };

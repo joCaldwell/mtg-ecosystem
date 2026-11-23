@@ -286,18 +286,7 @@ impl RulesTxn {
             _ => Err("not a staples instruction".into()),
         }
     }
-    fn return_graveyard_card(
-        &mut self,
-        frame: Resolving,
-        target: ObjectId,
-        block: u32,
-    ) -> Result<(), String> {
-        if !self.object_target_legal(self.entry(frame.stack_id)?, target) {
-            return self
-                .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
-        }
-        self.return_target_to_owner_hand(frame, target, block)
-    }
+
     pub(super) fn return_target_to_owner_hand(
         &mut self,
         frame: Resolving,
@@ -393,20 +382,7 @@ impl RulesTxn {
             after: random.word_position,
         })
     }
-    /// A shuffle's cursor indexes its player's library while that player is
-    /// live. A departed player's library left the game with them (CR 800.4a),
-    /// and the shuffle step skips their continuation whatever its cursor.
-    fn valid_shuffle_cursor(&self, player: PlayerId, index: u32) -> bool {
-        !self.is_live(player)
-            || (index as usize)
-                < self
-                    .state
-                    .rules
-                    .libraries
-                    .get(&player)
-                    .map_or(1, Vec::len)
-                    .max(1)
-    }
+
     pub(super) fn valid_staples_choice(
         &self,
         frame: &Resolving,

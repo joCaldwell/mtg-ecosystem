@@ -18,34 +18,18 @@ hosting. Fixture/catalog admission defines support; the deck library is independ
 
 ## Supported behavior and remaining work
 
-[Mechanics](game-engine-mechanics.md) owns complete supported families/rejections;
-[invariants](game-engine-mechanics.md#runtime-invariants) owns runtime constraints.
-Later extensions retain separate qualification. Shared
-rules/capacities never dispatch by card/profile name. Hosting admits foundations
-and attachments; search admits foundations only. Later headless admissions do
-not broaden those consumers. [Catalogs](game-engine-catalogs.md#ir-and-build-identity)
-owns the sole active IR schema 1 and separate version/build identities.
+Archive R4 composition feeds the sole executable instruction,
+`Instruction::Kernel`. The KIR checker admits complete programs with bound
+operands. Core resolves them through its rules transactions and continuation
+stack. The compiler reports an unsupported record when a clause cannot lower.
+[Mechanics](game-engine-mechanics.md) describes the rules and [catalogs](game-engine-catalogs.md#kernel-ir)
+describes the wire contract and admission boundaries.
 
-Controller-creature, attacking-creature and controller-permanent
-temporary keyword programs share bounded capture and characteristic derivation.
-A combined fixed stat/keyword grant is one instruction/effect with one recipient
-capture; later control or incarnation changes do not select new recipients.
-Permanent-wide grants reject stat modifiers. Profiles and consumers remain
-separately admitted.
-
-`scripts/play-deck.sh DECK [SEED]` stages any 100-card, one-commander deck that
-compiles completely from the accepted Archive R4 file (`scripts/stage-deck.py`,
-by name in `generated/phase1-target-decks.json` or a decklist JSON) as a
-headless four-seat mirror profile, then runs `mtg-sim match-game` and
-`match-replay` from a detached HEAD. `Jo's Cascade` (the Ramos deck) completed
-seed zero and its replay this way; it replaces the revision 17 Ramos stager,
-whose frozen rows remain test sources. Seat rotation, varied pods and hosted
-client qualification remain open; see [evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration).
-
-Continuous Aura control shares one operation for creatures, artifacts, lands and
-general permanents. Control-source dependencies use scratch, apply-once ordering;
-attachment legality and timestamps remain shared. Multitype targets retain all
-types. Structural attachment cycles and type-changing sources remain unsupported.
+The retained Commander Foundations profile uses the R4 match catalog. Its
+decklists, catalog digest and engine build bind the host and search inputs.
+The smoke and rules witnesses use smaller source-lowered catalogs. Historical
+card counts, deck completions and benchmark timings belong to the source
+revisions in [evidence](game-engine-evidence.md).
 
 Product setup embeds a qualified sample; standalone client acceptance covers
 joining and opening choices. Full decisions, automated launch, account-to-seat

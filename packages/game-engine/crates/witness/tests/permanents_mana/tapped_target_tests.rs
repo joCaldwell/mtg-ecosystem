@@ -6,7 +6,7 @@ use super::*;
 
 fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
     let mut c = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     for raw in [
@@ -35,7 +35,11 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
                 .unwrap()
                 .tapped
         );
-        c.definitions.push(*definition);
+        if let Some(existing) = c.definition_by_oracle_id(&definition.oracle_id) {
+            assert_eq!(existing, definition.as_ref());
+        } else {
+            c.definitions.push(*definition);
+        }
     }
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();

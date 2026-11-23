@@ -2,7 +2,7 @@ use super::*;
 
 fn catalog() -> Catalog {
     Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-commander-ir.json"
+        "../../../../tests/fixtures/expected-action-ir.json"
     ))
     .unwrap()
 }

@@ -75,11 +75,11 @@ fn kernel_pump_over_a_general_filter_captures_executes_and_recovers() {
     recover(&g);
 }
 
-/// The reviewed wipes catalog (frozen pre-R4 IR) with the rows in play.
+/// The source-lowered R4 witness catalog with the rows in play.
 fn prepared(rows: &[(&str, bool)]) -> Prepared {
     const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
     let c = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     let mut config = ScenarioConfig::turns_permanents();

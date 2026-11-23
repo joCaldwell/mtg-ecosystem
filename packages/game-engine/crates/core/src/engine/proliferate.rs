@@ -2,7 +2,4 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-/// One candidate at a time encodes an arbitrary subset with bounded branching.
-pub(super) type ProliferateChoices = Vec<(ObjectId, bool)>;
-
 impl RulesTxn {}

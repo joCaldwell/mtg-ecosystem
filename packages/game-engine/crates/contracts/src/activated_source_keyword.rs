@@ -4,7 +4,6 @@ use super::*;
 use serde_json::{Value, json};
 
 const INVALID: &str = "requires complete printed mana-only self keyword grants";
-const SUFFIX: &str = " until end of turn.";
 
 pub fn keywords(a: &ActivatedAbility) -> Option<&[KeywordAbility]> {
     let p = &a.program;

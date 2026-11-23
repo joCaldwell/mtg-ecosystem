@@ -894,28 +894,6 @@ impl RulesTxn {
             _ => Err("kernel player action has no audited executor".into()),
         }
     }
-    pub(super) fn resolving_entrant(&self, frame: &Resolving) -> Result<ObjectBefore, String> {
-        let StackKind::Triggered {
-            witness:
-                TriggerEventWitness::CreatureEnteredWithPower {
-                    entrant,
-                    last_appearance: Some(last),
-                    ..
-                },
-            ..
-        } = &self.entry(frame.stack_id)?.kind
-        else {
-            return Err("missing resolving entrant".into());
-        };
-        if self
-            .current(entrant.object)
-            .is_ok_and(|o| o.present_on_battlefield())
-        {
-            self.object_before(entrant.object)
-        } else {
-            Ok((**last).clone())
-        }
-    }
 
     pub(super) fn draw_one(
         &mut self,
@@ -1021,17 +999,7 @@ impl RulesTxn {
         };
         Ok(Some((amount, source_block)))
     }
-    /// CR 120.4b/603.2c: "that many" is the positive final member of this
-    /// invocation's actual damage witness, never printed power or life changes.
-    pub(super) fn damage_draw_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
-        match &self.entry(frame.stack_id)?.kind {
-            StackKind::Triggered {
-                witness: TriggerEventWitness::DamageDealt { damage, .. },
-                ..
-            } if damage.amount > Quantity::zero() => Ok(damage.amount.clone()),
-            _ => Err("damage-quantity draw requires a positive actual damage witness".into()),
-        }
-    }
+
     // CR 121.2/121.4/704.4: one attempt per rule unit, including repeated failed
     // attempts. No SBA, card-count clamp or machine-integer conversion interrupts
     // the exact instruction. Commander replacement consumes just its attempt.

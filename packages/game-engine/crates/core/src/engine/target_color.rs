@@ -16,14 +16,6 @@ impl RulesTxn {
         .then_some(*target)
     }
 
-    pub(super) fn target_color_request(&self, frame: &Resolving) -> Option<Request> {
-        Some(Request::ChooseColor {
-            decision_id: self.state.rules.revision,
-            player: self.entry(frame.stack_id).ok()?.controller,
-            target: self.target_color_target(frame)?,
-        })
-    }
-
     pub(super) fn validate_target_color_response(
         &self,
         frame: &Resolving,
@@ -37,20 +29,6 @@ impl RulesTxn {
             return Err("invalid color choice".into());
         }
         Ok(())
-    }
-
-    pub(super) fn target_color_pending(&self, frame: &Resolving) -> Result<Color, String> {
-        let input = self
-            .state
-            .rules
-            .pending
-            .as_ref()
-            .ok_or("missing color choice")?;
-        self.validate_target_color_response(frame, input.player, &input.response)?;
-        let Response::ChooseColor { color } = input.response else {
-            return Err("missing color response".into());
-        };
-        Ok(color)
     }
 
     pub(super) fn latest_color_set(&self, target: ObjectId) -> Option<(u64, Color)> {

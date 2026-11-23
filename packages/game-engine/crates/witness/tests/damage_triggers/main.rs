@@ -5,5 +5,5 @@ mod damage_controller_discard_tests;
 mod damage_match_appearance_tests;
 mod filtered_damage_trigger_tests;
 mod opponent_damage_trigger_tests;
-mod optional_draw_tests;
+
 mod query_tests;

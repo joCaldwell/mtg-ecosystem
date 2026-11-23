@@ -1,14 +1,11 @@
 # Supported engine mechanics
 
-This is the current semantic map, not a claim of general Magic support. Read
-the runtime invariants below before editing rules. Exact Rust IR validation in
-`crates/contracts`, lowering in `crates/compiler` (Archive R4 composition only)
-and complete archived source fixtures define executable shapes; committed catalogs
-keep reviewed IR from retired whole-card families as runtime data;
-[profiles](game-engine-catalogs.md#match-profile-data) independently admit decks
-and consumers. Source/compiler support, private runtime witnesses, accepted-pod
-prefixes, completion games, hosting/search review and browser acceptance are
-separate.
+Every executable card lowers completely from Archive R4 to schema-1 KIR.
+`contracts/src/composition.rs` validates the card shell and ability context.
+`kir::check` validates the node and bindings. Match profiles independently
+select decks and consumer capabilities. The rules descriptions below also
+document shared primitives and historical witnesses. Current card admission
+requires a fresh complete lowering and a matching catalog identity.
 
 The rules baseline is the frozen [2026-09-25 Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt),
 SHA-256 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
@@ -499,12 +496,9 @@ completed proposal (CR 601.6).
 
 Every compiled card is lowered one printed block at a time and admitted by the
 tables in `crates/contracts/src/composition.rs`. Its definition carries
-`composed: true` and `composed_ability_v1`; the marker and the capability are
-inseparable in validation and in the published schema. The capability names the
-pipeline, not a mechanic, so the hosted and search sets admit it while every
-mechanic still needs its own reviewed capability. Committed catalog IR from
-retired whole-card families stays runtime data without the marker; the shapes
-below that mention a family describe that frozen IR.
+`composed: true` and `composed_ability_v1`. Rust checks the complete capability
+set and rejects an unsupported combination. The schema describes the structural
+form of the single `Kernel` instruction.
 
 Each table decides one independent question (CR 113.3, 602.1, 603.1, 608.2):
 
@@ -533,9 +527,8 @@ integrity rules are owned by
 
 ## Admission and policy boundaries
 
-Foundations and attachments remain the only hosted profiles; foundations alone
-is search-reviewed. Headless damage, blocking and sacrifice pools are development
-admissions whose membership comes from strict profile/catalog JSON.
+The Foundations profile supplies the retained hosted and search decklists.
+Other R4 fixture catalogs exercise private rules and compiler tests.
 
 Develop policy uses permitted observations and public IR features. It may
 estimate value but never determines legality or inspects hidden state; new

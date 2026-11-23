@@ -40,38 +40,6 @@ impl LinkedPlayProgress {
 }
 
 impl RulesTxn {
-    pub(super) fn begin_linked_play(
-        &mut self,
-        frame: Resolving,
-        hideaway_block: u32,
-        minimum_total_power: Quantity,
-        source_block: u32,
-    ) -> Result<(), String> {
-        // Test the condition once, when carrying out the effect, including
-        // negative power. Subsequent plays can themselves change the battlefield.
-        let mut power = Quantity::zero();
-        for object in self.controlled_creatures(self.entry(frame.stack_id)?.controller) {
-            power.add(
-                &self
-                    .characteristics(object)?
-                    .power
-                    .ok_or("missing creature power")?,
-            );
-        }
-        if power < minimum_total_power {
-            return self.finish_ability(frame.stack_id, true);
-        }
-        self.rules_mut().frame = Frame::PlayHideawayLinked {
-            progress: Box::new(LinkedPlayProgress {
-                frame,
-                hideaway_block,
-                source_block,
-                children: Vec::new(),
-            }),
-        };
-        Ok(())
-    }
-
     pub(super) fn linked_land_playable(
         &self,
         player: PlayerId,

@@ -170,14 +170,6 @@ pub(super) struct ManaDamageLife {
     after: Quantity,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ManaDamageShield {
-    pub(super) effect: EffectId,
-    before: Quantity,
-    after: Quantity,
-}
-
 impl RulesTxn {
     pub(super) fn mana_use_key(&self, source: ObjectId) -> ManaAbilityUse {
         ManaAbilityUse {

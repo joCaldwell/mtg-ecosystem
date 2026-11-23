@@ -33,14 +33,6 @@ pub struct RevealAndCastProgress {
 }
 
 impl RevealAndCastProgress {
-    pub(super) fn after_shuffle(frame: Resolving, source_block: u32) -> Self {
-        Self {
-            frame,
-            source_block,
-            lands: vec![],
-            stage: RevealStage::Scan,
-        }
-    }
     pub(super) fn permission(&self, game: &RulesTxn) -> Result<CastPermission, String> {
         let RevealStage::Offer { hit } = self.stage else {
             return Err("no revealed card cast offer".into());

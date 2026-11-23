@@ -2,12 +2,12 @@ use super::*;
 
 fn catalog() -> Catalog {
     Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-trigger-ir.json"
+        "../../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap()
 }
 fn game() -> Game {
-    Game::new(Prepared::admit(catalog(), ScenarioConfig::triggers()).unwrap())
+    Game::new(witness_scenario(catalog(), ScenarioConfig::triggers()))
 }
 fn movement(g: &Game, card: u32, destination: Zone) -> ProposedEvent {
     ProposedEvent::Move {
@@ -272,125 +272,5 @@ fn natural_pending_trigger_snapshots_reject_rehashed_provenance_forgeries() {
         saved.state = serde_json::from_value(value).unwrap();
         saved.state_sha256 = digest(&saved.state).unwrap();
         assert!(Game::restore(g.prepared.as_ref().clone(), &canonical(&saved).unwrap()).is_err());
-    }
-}
-
-#[test]
-fn triggered_stack_targets_are_abilities_and_countering_moves_no_source_card() {
-    let mut g = visionary_placement();
-    loop {
-        match settle(&mut g) {
-            Request::OrderTriggers { candidates, .. } => {
-                answer(&mut g, Response::OrderTriggers { order: candidates })
-            }
-            Request::Priority { .. } => break,
-            other => panic!("unexpected placement decision {other:?}"),
-        }
-    }
-    assert_eq!(g.state.rules.stack.len(), 4);
-    assert!(
-        g.state
-            .rules
-            .stack
-            .iter()
-            .all(|s| matches!(s.kind, StackKind::Triggered { .. }) && s.paid.is_some())
-    );
-    recover(&g);
-    let target = g.state.rules.stack[0].id;
-    let countering = g.state.rules.stack[3].id;
-    let source = g.state.rules.stack[0].source;
-    let fact = g.current(source).unwrap().clone();
-    let initial = g.fork();
-    assert!(
-        g.commit_batch(
-            BatchCause::Fixture,
-            leaf(ProposedEvent::CounterStackObject {
-                target,
-                countering,
-                domain: TargetDomain::StackSpell
-            })
-        )
-        .is_err()
-    );
-    assert_eq!(g.state, initial.state);
-    let receipt = g
-        .commit_batch(
-            BatchCause::Fixture,
-            leaf(ProposedEvent::CounterStackObject {
-                target,
-                countering,
-                domain: TargetDomain::StackActivatedOrTriggeredAbility,
-            }),
-        )
-        .unwrap();
-    assert!(matches!(
-        receipt.result(&[]),
-        Some(EventOutcome::StackObjectCountered {
-            spell: false,
-            movement: None,
-            ..
-        })
-    ));
-    assert_eq!(g.current(source).unwrap(), &fact);
-    assert_eq!(g.state.rules.stack.len(), 3);
-    assert!(!g.state.rules.stack.iter().any(|s| s.id == target));
-}
-
-#[test]
-fn trigger_admission_requires_exact_catalog_and_all_five_closed_profiles() {
-    for c in [
-        ScenarioConfig::triggers(),
-        ScenarioConfig::triggers_low(),
-        ScenarioConfig::triggers_borrowed(),
-        ScenarioConfig::triggers_empty_library(),
-        ScenarioConfig::triggers_nonactive(),
-    ] {
-        Prepared::admit(catalog(), c).unwrap();
-    }
-    for mutation in 0..4 {
-        let mut c = catalog();
-        match mutation {
-            0 => {
-                c.definitions.pop();
-            }
-            1 => {
-                c.definitions
-                    .iter_mut()
-                    .find(|d| d.name == "Blood Artist")
-                    .unwrap()
-                    .triggered[0]
-                    .condition = TriggerCondition::SelfEntersBattlefield
-            }
-            2 => {
-                c.definitions
-                    .iter_mut()
-                    .find(|d| d.name == "Essence Warden")
-                    .unwrap()
-                    .characteristics
-                    .mana_cost
-                    .generic = 1.into()
-            }
-            _ => {
-                let mut extra = c.definitions[0].clone();
-                extra.oracle_id = "extra".into();
-                c.definitions.push(extra);
-            }
-        }
-        assert!(Prepared::admit(c, ScenarioConfig::triggers()).is_err());
-    }
-    for mutation in 0..5 {
-        let mut config = ScenarioConfig::triggers();
-        match mutation {
-            0 => config.cards[1].controller = PlayerId(3),
-            1 => config.cards[4].zone = Zone::Battlefield,
-            2 => config.commanders.push(CardId(1)),
-            3 => config.cards[3].oracle_id = config.cards[1].oracle_id.clone(),
-            _ => {
-                let mut extra = config.cards[1].clone();
-                extra.id = CardId(999);
-                config.cards.push(extra);
-            }
-        }
-        assert!(Prepared::admit(catalog(), config).is_err());
     }
 }

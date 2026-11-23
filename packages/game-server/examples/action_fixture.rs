@@ -58,18 +58,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     std::fs::create_dir(root)?;
     let mut captures = vec![];
-    for (name, fixture, bytes) in [
-        (
-            "commander-foundations-v1",
-            "packages/game-engine/tests/fixtures/expected-match-ir.json",
-            include_str!("../../game-engine/tests/fixtures/expected-match-ir.json"),
-        ),
-        (
-            "commander-attachments-v1",
-            "packages/game-engine/tests/fixtures/expected-attachments-ir.json",
-            include_str!("../../game-engine/tests/fixtures/expected-attachments-ir.json"),
-        ),
-    ] {
+    for (name, fixture, bytes) in [(
+        "commander-foundations-v1",
+        "packages/game-engine/tests/fixtures/expected-match-ir.json",
+        include_str!("../../game-engine/tests/fixtures/expected-match-ir.json"),
+    )] {
         let catalog = mtg_contracts::Catalog::read(bytes)?;
         let catalog_hash = mtg_contracts::digest(&catalog)?;
         let config = MatchConfig::for_profile(name, [3; 32], PlayerId(0))?;

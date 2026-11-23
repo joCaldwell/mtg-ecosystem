@@ -324,7 +324,7 @@ fn setup_and_commander_nested_departure_removals_are_captured_at_commit() {
     );
     let p = Prepared::admit(
         Catalog::read(include_str!(
-            "../../../../../tests/fixtures/expected-commander-ir.json"
+            "../../../../../tests/fixtures/expected-action-ir.json"
         ))
         .unwrap(),
         ScenarioConfig::commander_exile(),

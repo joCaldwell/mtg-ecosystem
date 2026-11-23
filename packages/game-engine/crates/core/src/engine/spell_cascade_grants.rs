@@ -112,16 +112,6 @@ impl RulesTxn {
     }
 }
 
-pub(super) fn hand_cast_eligible(
-    controller: PlayerId,
-    turn: u64,
-    cast: &triggers::CastOccurrence,
-) -> bool {
-    cast.caster == controller
-        && cast.cast_from == (Zone::Hand { owner: controller })
-        && cast.history.turn_number == turn
-}
-
 /// Shared live/historical predicate; historical validation never consults today's ledger.
 pub(super) fn eligible(
     eligibility: &mtg_contracts::SpellCascadeEligibility,

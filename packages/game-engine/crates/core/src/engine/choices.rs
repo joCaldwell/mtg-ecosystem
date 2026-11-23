@@ -9,20 +9,7 @@ use super::*;
 pub const SEEDS: &str = "dd3d4d96-1e88-49e1-8276-7f62c22ad91a";
 pub const SALVE: &str = "8da8644c-75a1-4fe9-8e94-900d948d631c";
 pub const BOUNCER: &str = "82076865-7917-4d3b-8fe8-c21bfcd64d29";
-pub(super) const CHOICE_EXTRA: [(&str, &str); 3] = [
-    (
-        SEEDS,
-        definition_digest!("MTG_DEFINITION_choices_dd3d4d96-1e88-49e1-8276-7f62c22ad91a"),
-    ),
-    (
-        SALVE,
-        definition_digest!("MTG_DEFINITION_choices_8da8644c-75a1-4fe9-8e94-900d948d631c"),
-    ),
-    (
-        BOUNCER,
-        definition_digest!("MTG_DEFINITION_choices_82076865-7917-4d3b-8fe8-c21bfcd64d29"),
-    ),
-];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceInformation {
@@ -162,117 +149,7 @@ pub enum InterveningStage {
 pub enum TriggerPlacementFailure {
     NoLegalTargets,
 }
-impl ScenarioConfig {
-    pub fn choices() -> Self {
-        let cards = (0..44)
-            .map(|id| {
-                let owner = PlayerId(match id {
-                    0..=15 => 0,
-                    16..=31 => 1,
-                    32..=39 => 2,
-                    _ => 3,
-                });
-                CardSetup {
-                    id: CardId(id),
-                    owner,
-                    controller: owner,
-                    oracle_id: match id {
-                        0 => ISAMARU,
-                        1 => OX,
-                        2 => BOUNCER,
-                        3 => AZURE,
-                        4 => SEEDS,
-                        5 | 14 => SALVE,
-                        6 | 19 | 20 => SPELL,
-                        7 | 13 | 29 | 31 | 37 | 39 | 41..=43 => FOREST,
-                        8 | 9 | 15 => PLAINS,
-                        12 => SWAMP,
-                        16 | 17 | 35 => BEARS,
-                        18 | 27 => BOLT,
-                        21 => COUNTERSPELL,
-                        22 => STIFLE,
-                        23 | 28 | 36 | 38 => MOUNTAIN,
-                        32 | 40 => BLOOD_ARTIST,
-                        33 => HEALER,
-                        34 => FURNACE,
-                        _ => ISLAND,
-                    }
-                    .into(),
-                    zone: match id {
-                        4..=6 | 18..=22 | 27 | 34 => Zone::Hand { owner },
-                        14 | 15 | 30 | 31 | 38 | 39 | 42 | 43 => Zone::Library { owner },
-                        _ => Zone::Battlefield,
-                    },
-                }
-            })
-            .collect();
-        Self {
-            initial: ScenarioInitial {
-                turn_step: TurnStep::PrecombatMain,
-                ..ScenarioInitial::default()
-            },
-            mode: Mode::Scenario,
-            players: 4,
-            profile: "four-seat-choices-v1".into(),
-            commanders: vec![CardId(0)],
-            cards,
-        }
-    }
-    pub fn choices_furnace() -> Self {
-        let mut c = Self::choices();
-        c.profile = "four-seat-choices-furnace-v1".into();
-        c.cards[34].zone = Zone::Battlefield;
-        c
-    }
-    pub fn conditions() -> Self {
-        let mut c = Self::choices();
-        c.profile = "four-seat-conditions-v1".into();
-        c.cards
-            .retain(|c| !matches!(c.id, CardId(4) | CardId(5) | CardId(6)));
-        c
-    }
-    pub fn conditions_nonempty() -> Self {
-        let mut c = Self::choices();
-        c.profile = "four-seat-conditions-nonempty-v1".into();
-        c.cards.retain(|c| !matches!(c.id, CardId(4) | CardId(6)));
-        c
-    }
-    pub fn conditions_borrowed() -> Self {
-        let mut c = Self::conditions();
-        c.profile = "four-seat-conditions-borrowed-v1".into();
-        c.cards
-            .iter_mut()
-            .find(|c| c.id == CardId(2))
-            .expect("exact Bouncer")
-            .owner = PlayerId(2);
-        c.cards
-            .iter_mut()
-            .find(|c| c.id == CardId(39))
-            .expect("exact Forest")
-            .zone = Zone::Hand { owner: PlayerId(2) };
-        c
-    }
-    pub fn conditions_no_targets() -> Self {
-        let mut c = Self::conditions();
-        c.profile = "four-seat-conditions-no-targets-v1".into();
-        c.commanders.clear();
-        c.cards.retain(|c| {
-            !matches!(
-                c.id,
-                CardId(0)
-                    | CardId(1)
-                    | CardId(3)
-                    | CardId(16)
-                    | CardId(17)
-                    | CardId(32)
-                    | CardId(33)
-                    | CardId(35)
-                    | CardId(40)
-            )
-        });
-        c
-    }
-}
+
 // Only canonical indices enter the snapshot and replay identity. The selected
 // instruction sequence is derived afresh from the build-fenced catalog after restore.
 #[derive(Clone, Debug, Serialize, Deserialize)]

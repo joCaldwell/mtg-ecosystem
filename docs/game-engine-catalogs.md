@@ -6,35 +6,28 @@ owns the pinned environment/per-worktree Cargo lock for native commands.
 
 ## Catalog source and commands
 
-`tests/fixtures/accepted-archives.json` admits source archives; each
-`provenance.json` row pins its raw record and archive manifest. A historical
-archive with `file_sha256: null` validates existing fixtures through committed
-manifest/record pins but cannot be extracted or claimed as a fresh full-file proof.
-The current preserved archive has a full-file pin and remains outside Git.
+The executable source is Archive R4. The accepted-archive registry pins the whole
+file, header, parser and corpus. Each provenance row pins its exact card line.
+The full archive stays outside Git. The committed extracts live in
+`tests/fixtures/phase1-r4/`.
 
 From repository root, under the shared native lock:
 
 ```sh
-cargo run --locked -p mtg-sim -- catalog build packages/game-engine/tests/fixtures/catalogs/wipes.json
-cargo run --locked -p mtg-sim -- catalog build packages/game-engine/tests/fixtures/catalogs/wipes.json --write
+cargo run --locked -p mtg-sim -- catalog build packages/game-engine/tests/fixtures/catalogs/phase1-r4.json
+cargo run --locked -p mtg-sim -- catalog build packages/game-engine/tests/fixtures/catalogs/phase1-r4.json --write
 cargo run --locked -p mtg-sim -- catalog extract /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json 'Exact Card Name' oracle-id
 cargo run --locked -p mtg-sim -- catalog verify /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json
 ```
 
-`build` checks complete supported records, provenance pins, IR bytes and digest.
-`--write` regenerates both outputs by lowering every record, so it requires
-Archive R4 rows. Every committed catalog predates R4: its expected IR is frozen
-reviewed data that the compiler no longer reproduces. `build` without `--write`
-and `mtg_compiler::catalog::embedded_catalog` admit that IR instead, but only
-for the 30 manifests listed with their frozen digests in `catalog.rs`
-(`FROZEN_CATALOGS`), byte for byte the committed manifest and with no R4 row.
-Each record must be pinned by a committed accepted-archive registry, each
-definition must carry exactly the oracle, source, AST, binding and archive
-identity of its pinned record, and the catalog must validate and hash to the
-frozen digest. Any other manifest, embedded or on disk, lowers its source;
-`catalogs/phase1-r4.json` is the committed Archive R4 catalog that proves it. Core embeds the same IR for
-profiles. Converting or retiring these catalogs belongs with the legacy
-`Instruction` variants they use. `--json-errors` emits a structured diagnostic
+Both filesystem and embedded catalog loaders lower every selected record through
+composition. A build checks the resulting schema-1 catalog and its digest against
+the committed outputs. `--write` regenerates those outputs. The base, action
+and match manifests supply the smoke, scenario and Foundations startup fixtures.
+The phase1-r4 and witness-r4 manifests exercise individual compiler and rules
+paths. The parser tests also retain ten independent pre-R4 source records.
+
+`--json-errors` emits a structured diagnostic
 on stderr. Coverage publishes both receipts together and preserves occupied
 destinations unless their receipts already match. Manifest fields are `schema_version: 1`,
 `provenance`, `records`, `expected_ir`, `expected_digest` and `output_order`:
@@ -127,9 +120,9 @@ transitive feature behavior still requires review. Focused guards are
 
 ## Kernel IR
 
-`contracts/src/kir.rs` is the operand algebra new instructions are written in. A
-legacy `Instruction` variant fuses one verb with one recipient and amount shape;
-`Instruction::Kernel { node, source_block }` carries a `kir::Node` instead:
+`Instruction::Kernel { node: kir::Node, source_block: u32 }` is the sole
+executable instruction in schema 1. The block index identifies the source
+of an instruction for the resolving stack object.
 
 | Layer | Contents |
 | --- | --- |
@@ -142,10 +135,9 @@ legacy `Instruction` variant fuses one verb with one recipient and amount shape;
 is in scope and of the right kind for the context, targets and event; rejects a
 filtered count of a hand or library (CR 400.2); and admits a verb only in an
 audited cell, one the core interpreter (`core/src/engine/kir.rs`) executes and
-recovers. `Definition::kernel_check` runs it for every program; the capability
-walker derives capabilities from verbs. The published schema uses the derived
-node shape and requires the continuation capability where a program uses it.
-A family schema twin names a kernel verb only to recognise its own programs.
+recovers. Composition calls the checker for each program and derives the required capabilities
+from the node and its operands. The published JSON Schema describes the wire
+structure. Rust checks target bindings, operand scope and capability closure.
 A well-scoped node without a cell is rejected as unaudited. The resolving
 frame can resume at an audited control node, with bindings and progress tied
 to its address in the admitted program.
@@ -218,33 +210,10 @@ Foundations and Ramos pod digests.
 
 ## Compositional lowering
 
-The compiler is one pipeline: `ingest/` (hash-bound record, source, parse and
-typed AST mirror), `operands.rs` (total operand lowerers), `rules/` (effect,
-static, trigger and activation lowerers, with `rules/procedures.rs` holding the
-whole-procedure shapes that still emit dedicated legacy instructions) and
-`assemble.rs` (definition shell and admission), driven block by block by
-`compose.rs`; `lib.rs` is only the public API. There are no whole-card families,
-diagnostic-graph builders or text recognizers, and no Saga, modal/transforming
-face, Bestow, optional-cost or linked-Hideaway shell: those mechanics reject
-until they are rebuilt as composition rows on Kernel IR. Every record goes
-through `compose.rs`, which checks archive integrity, decodes the complete AST
-through the generated `mtg-oracle-ast` types and verifies the record's archive
-R4 resolution (`compiler/src/resolution.rs`, contract in the
-[parser guide](oracle_parser.md#ast-archive)). A record without a resolution
-(every archive before R4) rejects at path `resolution`. The resolution must be
-complete; each reference's closed `Ref` role must be one the shared lowerer reads
-("you" and implicit payers the block's controller, printed targets announced
-targets, other pronouns targets or results of the block's own steps, a kernel
-event player only under the one trigger that supplies it); the step map must be
-exactly the AST's steps; and each block's span certificate must tile its text,
-give every sentence its own span and print every top-level field. Composition
-never reads the diagnostic graph. Lowering then uses small tables:
-`compose/costs.rs`, `compose/events.rs`, `compose/keywords.rs`,
-`compose/steps.rs` and the shared typed step lowerer. Unknown kinds, fields,
-operands and unconsumed references reject; a shape outside the lowering mirror
-is named by its verb. "Draw N cards" lowers to N ordered single draws
-(CR 121.2) in every block kind, and a paid one-card basic land search to the
-tapped search instruction.
+Archive R4 supplies the source, parsed abilities and bound resolution graph.
+`compose` lowers every printed ability or rejects the complete record. Every
+executable program contains KIR nodes. Missing references, unaudited operators,
+and unsupported complete procedures such as scry and surveil reject explicitly.
 
 The normalized source lines must equal the parsed blocks. When the parser
 groups the same printed lines differently (an ability-word "instead" rider kept

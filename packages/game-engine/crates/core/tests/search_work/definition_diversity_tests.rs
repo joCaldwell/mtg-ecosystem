@@ -4,8 +4,6 @@
 use super::*;
 use std::{hint::black_box, time::Instant};
 
-mod heterogeneous;
-
 const CONTRACT: &str = r#"{
  "schema":"definition-diversity-diagnostic-v1",
  "synthetic_counts":[0,8,64,256],"selector_partitions":4,
@@ -74,7 +72,7 @@ fn canonical_state(state: &State) -> Vec<u8> {
 fn payloads(count: usize) -> Vec<Payload> {
     assert!([0, 8, 64, 256].contains(&count));
     let template = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-effects-ir.json"
+        "../../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     let source = template
@@ -139,10 +137,10 @@ fn unique_payloads(rows: &[Payload]) -> Vec<String> {
 }
 fn fixture() -> (Game, Vec<ObjectId>, ObjectId) {
     let catalog = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-effects-ir.json"
+        "../../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
-    let prepared = Prepared::admit(catalog, ScenarioConfig::effects()).unwrap();
+    let prepared = witness_scenario(catalog, ScenarioConfig::effects());
     let mut game = Game::with_trace(prepared, TraceMode::Off);
     for _ in 0..1000 {
         match game.advance(Budget::new(64)) {
@@ -427,14 +425,7 @@ fn definition_diversity_duplicate_payload_with_different_identity_is_not_diversi
     rows[7] = rows[0].clone();
     unique_payloads(&rows);
 }
-#[test]
-fn definition_diversity_heterogeneous_source_programs_and_actual_events() {
-    for enabled in [false, true] {
-        for empty_hand in [false, true] {
-            heterogeneous::row(enabled, empty_hand, 0, false);
-        }
-    }
-}
+
 fn semantic_bytes(row: &serde_json::Value) -> String {
     let mut value = row.clone();
     let object = value.as_object_mut().unwrap();
@@ -502,18 +493,6 @@ fn definition_diversity_host_diagnostic() {
             println!("DEFINITION_DIVERSITY_ROW_START={}", canonical(&serde_json::json!({"row":"synthetic_unique_modifier_payloads","count":count,"repetition":repetition})).unwrap());
             let row = modifier_row(count, repetition, true);
             append_row(&mut rows, &mut first, format!("modifier-{count}"), row);
-        }
-        for enabled in [false, true] {
-            for empty in [false, true] {
-                println!("DEFINITION_DIVERSITY_ROW_START={}", canonical(&serde_json::json!({"row":"source_backed_heterogeneous","enabled":enabled,"bouncer_controller_hand_empty":empty,"repetition":repetition})).unwrap());
-                let row = heterogeneous::row(enabled, empty, repetition, true);
-                append_row(
-                    &mut rows,
-                    &mut first,
-                    format!("heterogeneous-{enabled}-{empty}"),
-                    row,
-                );
-            }
         }
     }
     let report = serde_json::json!({"schema":"definition-diversity-diagnostic-v1","status":"all_declared_rows_verified","expected_rows":48,"build_id":build_id(),

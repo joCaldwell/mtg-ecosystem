@@ -7,7 +7,7 @@ use mtg_core::*;
 fn prepared(config: ScenarioConfig) -> Prepared {
     Prepared::admit(
         Catalog::read(include_str!(
-            "../../../tests/fixtures/expected-commander-ir.json"
+            "../../../tests/fixtures/expected-action-ir.json"
         ))
         .unwrap(),
         config,

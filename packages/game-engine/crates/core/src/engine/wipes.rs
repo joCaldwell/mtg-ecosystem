@@ -282,26 +282,7 @@ impl RulesTxn {
             self.prepare_noncombat_set_damage(frame, amount, block, targets)
         }
     }
-    pub(super) fn anger_targets(&self, frame: &Resolving) -> Vec<ObjectId> {
-        frame
-            .outcomes
-            .iter()
-            .flat_map(|o| match o {
-                InstructionOutcome::Damage {
-                    actual: Some(EventOutcome::DamageCommitted { actual, .. }),
-                } => actual
-                    .iter()
-                    .filter_map(|d| match d.recipient {
-                        DamageRecipient::Creature { object } if d.amount > Quantity::zero() => {
-                            Some(object)
-                        }
-                        _ => None,
-                    })
-                    .collect(),
-                _ => vec![],
-            })
-            .collect()
-    }
+
     pub(super) fn create_set_effect(
         &mut self,
         frame: Resolving,

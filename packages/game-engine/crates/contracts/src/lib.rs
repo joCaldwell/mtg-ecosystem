@@ -1,14 +1,11 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
+mod basic_landwalk;
 mod builders;
 mod mana_combination;
 pub use mana_combination::{MANA_COMBINATION_COLORS, validate_mana_combination};
-pub mod commander_modal_keyword;
 
 mod bestow;
 pub use bestow::{BestowCastPlan, BestowForm, bestow_alternative};
-pub mod hand_cast_cascade;
-pub mod library_top_mana;
-mod unspent_mana;
 
 mod opening_placement;
 pub use opening_placement::opening_placement_ability;
@@ -32,10 +29,8 @@ mod listed_mana_choice;
 mod pain_mana;
 pub use hybrid_filter_mana::hybrid_filter_colors;
 pub use pain_mana::disjoint_pain_mana_family;
-pub mod basic_landwalk;
-mod cast_entry;
+
 pub mod cast_subtype;
-pub mod combat_window;
 
 mod entry_copy;
 pub mod modal_land;
@@ -43,17 +38,9 @@ mod saga;
 pub mod transform_face;
 pub use saga::saga_damage_target;
 pub mod fixed_color_protection;
-mod fixed_creature_activation;
-pub mod fixed_creature_damage;
-pub use fixed_creature_activation::fixed_activation_keyword;
-mod cast_mana_value_sweep;
-mod cast_payer_draw;
-mod controlled_creature_spell_copy;
-pub mod demonstrate;
 
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
-mod fetched_land_untap;
 
 mod typed_land_search;
 pub use typed_land_search::{BasicLandType, TypedLandSearch};
@@ -61,69 +48,42 @@ mod build_input;
 pub use build_input::engine_build_input;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 mod activated_artifact_draw;
-pub mod activated_creature_tap;
+
 pub mod activated_source_keyword;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
 
-mod artifact_modal;
-
 mod controlled_land_entry;
-mod land_reclamation;
-
-mod entry_graveyard_exile;
 
 mod land_entry_gain_life;
-mod land_entry_scry;
-pub mod proliferate;
-pub mod target_color;
 
-mod land_sacrifice_draw;
 mod opponent_count_entry;
-mod other_land_entry;
-mod reveal_land_entry;
-mod set_exile;
 
-mod hand_cast;
-
-mod targeted_game_loss;
-
-pub mod ability_sequence;
 pub mod attachment_modifiers;
-mod controller_creature_pump;
+
 mod controller_library;
-pub mod creature_planeswalker_return;
+
 pub mod equipped_trigger;
 pub mod impulse_play;
-pub mod intrinsic_keyword_blocks;
+
 pub mod mana_tap_observer;
 pub use mana_tap_observer::ManaTapFilter;
-pub mod optional_entry_search;
-pub mod optional_trigger;
-pub mod permanent_entry;
-pub mod source_damage_counters;
+
 pub use impulse_play::PlayWindow;
 pub mod resolution_mana;
 pub use resolution_mana::ManaResolutionQuantity;
 pub mod predefined_tokens;
 pub use predefined_tokens::PredefinedToken;
 mod fixed_mill;
-mod graveyard_battlefield_return;
-pub mod graveyard_shuffle;
+
 mod group_discard;
 pub mod modal_targets;
-pub mod scoped_creature_stats;
+
 pub mod scoped_static;
 
-mod nonland_exile_life;
-
-pub mod linked_hideaway;
 mod source_dies_nonland_destroy;
-pub mod source_regeneration;
 
-mod same_color_mana;
-pub mod self_graveyard_shuffle;
 mod self_spell_protection;
-pub mod source_attack_pump;
+
 pub mod source_combat_restrictions;
 pub use controller_library::matches_fixed_amount;
 
@@ -135,10 +95,8 @@ use std::{collections::BTreeSet, fmt};
 
 mod archives;
 pub use archives::*;
-pub mod composed_spell;
+
 pub mod composition;
-pub mod ordinary_sequence;
-mod own_graveyard_card_return;
 
 mod power_filtered_removal;
 
@@ -178,18 +136,7 @@ pub struct ManaCost {
     pub generic: Quantity,
     pub colored: Vec<Color>,
 }
-impl ManaCost {
-    fn printed_fixed_cost(&self) -> String {
-        let mut text = String::new();
-        if self.generic != Quantity::zero() || self.colored.is_empty() {
-            text.push_str(&format!("{{{}}}", self.generic));
-        }
-        for color in &self.colored {
-            text.push_str(&format!("{{{color:?}}}"));
-        }
-        text
-    }
-}
+impl ManaCost {}
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
@@ -280,86 +227,46 @@ pub fn unsupported_rules_subtype(subtype: &str) -> bool {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
-    ComposedOrdinarySpellV1,
-    EquippedCreatureTriggerV1,
-    ResolutionManaV1,
     PredefinedArtifactTokensV1,
-    FilteredStaticModifiersV1,
+
     PlayerGraveyardShuffleV1,
     OpeningPlacementV1,
-    ExileResolvingSpellV1,
-    ControllerProtectionUntilNextTurnV1,
+
     ControllerLifeFreezeV1,
-    ControlledPermanentPhasingV1,
-    TargetedPhasingV1,
-    CountedSelfGenericCostReductionV1,
-    OptionalAdditionalManaCostV1,
-    ResolutionCastV1,
-    CombatHandCastV1,
-    CascadeV1,
-    LookTopMayRevealForManaV1,
-    RevealAndCastV1,
-    DemonstrateV1,
+
     ProtectionFromEverythingV1,
-    SelfGraveyardRevealShuffleV1,
+
     BasicLandwalkV1,
     FixedColorProtectionV1,
     SourceCombatRestrictionsV1,
-    StaticSpellCascadeGrantV1,
-    CascadeLandEntryV1,
-    HandCastCascadeGrantV1,
-    HideawayV1,
-    LinkedExilePlayV1,
+
     CastHistoryV1,
     CastManaValueSweepV1,
-    RandomBottomV1,
+
     CastTriggerV1,
-    CastOriginTriggerV1,
+
     CastColorPredicateV1,
     CastSubtypePredicateV1,
-    TemporaryCombatRestrictionV1,
-    OptionalEffectBlockV1,
+
     ManaTapTriggerV1,
-    LibraryPlayWindowV1,
-    CastSpellColorCountersV1,
-    CounterRemovalManaV1,
-    ListedManaChoiceV1,
-    SameColorManaV1,
-    DisjointPainManaV1,
-    HybridFilterManaV1,
-    ManaLifeGainV1,
-    RestrictedManaV1,
+
     SourceTapTriggerV1,
-    ControllerCreaturePlusOneCounterReplacementV1,
+
     AttackTriggerV1,
     DamageTriggerV1,
     SourceDamageTriggerV2,
-    OptionalControllerDrawV1,
-    CastPayerDrawV1,
+
     EventPlayerDiscardV1,
     EventPlayerSacrificeV1,
     FilteredDamageTriggerV1,
     DamageControllerDiscardV1,
-    DamageQuantityDrawV1,
-    SnowSupertypeV1,
-    AttackingCreatureKeywordsV1,
-    OpponentCastProhibitionV1,
-    UnlimitedHandSizeV1,
-    ReducedHandSizeV1,
-    IncreasedHandSizeV1,
-    GroupedCreatureDamageTriggerV1,
+
     EventPlayerRecipientV1,
-    SourceStatusConditionV1,
-    CastEntryConditionV1,
+
     UntapControllerLandsV1,
     StepBeginningTriggerV1,
     EntersTappedV1,
-    ConditionalBasicLandEntryV1,
-    ConditionalOtherLandEntryV1,
-    ConditionalOpponentCountEntryV1,
-    RevealLandEntryV1,
-    ConditionalLandTypeEntryV1,
-    OptionalLifeLandEntryV1,
+
     TypedNonbasicIntrinsicManaV1,
     UnspentManaConversionV1,
     ControllerLandGrantedManaV1,
@@ -369,27 +276,18 @@ pub enum Capability {
     EnterAsCopyOfPermanentEnteredThisTurnV1,
     CastArtifactV1,
     PermanentManaV1,
-    OpponentLandManaV1,
-    DistinctPermanentColorsV1,
+
     CompositeActivationCostV1,
     CastEnchantmentV1,
-    AuraControlV1,
-    BestowV1,
+
     TemporaryPowerToughnessV1,
-    SourceRegenerationV1,
+
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
     StaticDamageReplacementV1,
-    ControlledCreatureDamageReplacementV1,
-    SagaChaptersV1,
-    ModalLandFacesV1,
-    TransformV1,
-    DelayedControllerCreatureEntryV1,
-    DelayedControllerSpellCastV1,
+
     NormalLayoutV1,
-    ColorHybridCostV1,
-    PhyrexianCostV1,
-    GreatestPowerV1,
+
     BasicLandManaV1,
     LandPlayV1,
     BaseCreatureV1,
@@ -416,32 +314,26 @@ pub enum Capability {
     ActivatedAbilityV1,
     SacrificeSourceCostV1,
     ControllerDrawV1,
-    ControllerScryV1,
-    ControllerSurveilV1,
+
     FixedMillProgramV1,
-    ControllerLibrarySelectionV1,
-    ControllerLibraryOrderV1,
-    ControllerHandReturnV1,
-    ControllerDrawDiscardV1,
+
     ControllerCountedDrawV1,
-    ControllerDrawLandAllowanceV1,
-    TriggeredSuccessorLibraryTuckV1,
+
     ControllerDiscardV1,
     OpponentTargetV1,
     TargetPlayerSacrificeCreatureV1,
     StackSpellTargetV1,
     StackAbilityTargetV1,
     CounterStackObjectV1,
-    CounterSpellControllerMillV1,
-    CounterUnlessGenericV1,
+
     ControlledCreatureSpellCopyV1,
     TapSourceCostV1,
     PayLifeCostV1,
     ManaActivationCostV1,
-    HandActivationV1,
+
     DiscardSourceCostV1,
     AnyDamageTargetV1,
-    RemoveIndestructibleV1,
+
     PlayerOrPlaneswalkerTargetV1,
     AnyPlayerTargetV1,
     NoncombatDamageV1,
@@ -452,23 +344,19 @@ pub enum Capability {
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
-    PowerFilteredCreatureEntryV1,
-    CreatureEntryReturnV1,
+
     EntryGraveyardExileV1,
-    LandEntryGainLifeV1,
-    LandEntryScryV1,
+
     ControlledLandEntryV1,
     LandReclamationV1,
-    LandSacrificeDrawV1,
+
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
     CreatureOrPlaneswalkerTargetV1,
-    FixedTargetModesV1,
-    RepeatedTargetModesV1,
+
     ModalChoiceV1,
-    CommanderModalKeywordGrantV1,
-    NonemptyModeSubsetV1,
+
     DefenderV1,
     FlyingV1,
     ReachV1,
@@ -477,15 +365,7 @@ pub enum Capability {
     LifelinkV1,
     DeathtouchV1,
     IndestructibleV1,
-    StaticPermanentIndestructibleGrantV1,
-    TemporaryIndestructibleSpellV1,
-    TemporaryFlyingSpellV1,
-    TemporaryDeathtouchSpellV1,
-    CompoundIndestructibleSpellV1,
-    TemporaryCreatureKeywordProgramV1,
-    TemporaryPermanentKeywordProgramV1,
-    TemporaryCreatureSetKeywordProgramV1,
-    TemporaryPermanentSetKeywordProgramV1,
+
     ActivatedSourceKeywordGrantV1,
     TrampleV1,
     FirstStrikeV1,
@@ -494,20 +374,17 @@ pub enum Capability {
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
-    ProliferateV1,
+
     TargetColorSetV1,
-    DividedPlusOneCountersV1,
+
     DestroyCreatureV1,
     GraveyardRecursionV1,
-    GraveyardBattlefieldReturnV1,
+
     OwnGraveyardCardReturnV1,
     BasicLandSearchV1,
-    BasicLandFetchV1,
-    BasicLandSplitSearchV1,
-    ColoredLibrarySearchV1,
-    TypedLandSearchV1,
+
     CreatureAnthemV1,
-    ScopedCreatureStatsV1,
+
     TargetPlayerDrawV1,
     AttachmentsV1,
     PermanentRemovalV1,
@@ -518,11 +395,11 @@ pub enum Capability {
     AnnouncedXDrawV1,
     EachPlayerDrawV1,
     AnnouncedXEffectsV1,
-    TargetedCountedDrawV1,
+
     TargetPlayerDiscardV1,
     RandomPlayerDiscardV1,
     GroupHandDiscardV1,
-    TargetedGameLossV1,
+
     // Admitted by `composition`, not by a whole-card family. A plain comment:
     // a documented variant would change the published enum schema shape.
     ComposedAbilityV1,
@@ -2472,7 +2349,6 @@ pub fn aura_control_source(definition: &Definition) -> bool {
     aura_control_domain(definition).is_some()
 }
 
-/// The sole narrow cascade program shared by intrinsic and granted instances.
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1, Capability::ComposedAbilityV1]);
@@ -2602,36 +2478,14 @@ impl Definition {
             ) {
                 set.insert(Capability::FilteredDamageTriggerV1);
             }
-            let trigger_capability = match ability.condition {
-                TriggerCondition::GroupedDamageDealt { .. } => {
-                    Capability::GroupedCreatureDamageTriggerV1
-                }
+            let trigger = match &ability.condition {
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
-                TriggerCondition::DelayedControllerCreatureEntry => {
-                    Capability::DelayedControllerCreatureEntryV1
-                }
-                TriggerCondition::DelayedControllerSpellCast => {
-                    Capability::DelayedControllerSpellCastV1
-                }
-                TriggerCondition::SagaChapter { .. } => Capability::SagaChaptersV1,
-                TriggerCondition::SpellCast {
-                    spell: TypePredicate::SpellColor { .. },
-                    ..
-                } => {
-                    set.insert(Capability::CastColorPredicateV1);
-                    Capability::CastTriggerV1
-                }
-                TriggerCondition::SpellCast { ref spell, .. }
-                    if cast_subtype::restricted(spell) =>
-                {
-                    set.insert(Capability::CastSubtypePredicateV1);
-                    Capability::CastTriggerV1
-                }
-                TriggerCondition::SelfSpellCast | TriggerCondition::SpellCast { .. } => {
-                    Capability::CastTriggerV1
-                }
-                TriggerCondition::SpellCastWithOrigin { .. } => {
-                    set.insert(Capability::CastOriginTriggerV1);
+                TriggerCondition::SpellCast { spell, .. } => {
+                    if matches!(spell, TypePredicate::SpellColor { .. }) {
+                        set.insert(Capability::CastColorPredicateV1);
+                    } else if cast_subtype::restricted(spell) {
+                        set.insert(Capability::CastSubtypePredicateV1);
+                    }
                     Capability::CastTriggerV1
                 }
                 TriggerCondition::CreatureAttacked { .. } => Capability::AttackTriggerV1,
@@ -2643,38 +2497,18 @@ impl Definition {
                 TriggerCondition::DamageDealt { .. } => Capability::SourceDamageTriggerV2,
                 TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
                 TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
-                TriggerCondition::EquippedCombatDamage | TriggerCondition::EquippedDies => {
-                    Capability::EquippedCreatureTriggerV1
-                }
                 TriggerCondition::ControlledLandEntersBattlefield => {
                     Capability::ControlledLandEntryV1
                 }
                 TriggerCondition::SelfBecomesTapped => Capability::SourceTapTriggerV1,
-                TriggerCondition::ManaTapped { .. } => Capability::ManaTapTriggerV1,
                 TriggerCondition::OtherCreatureEntersBattlefield => {
                     Capability::OtherCreatureEntersBattlefieldV1
                 }
-                TriggerCondition::ControlledCreatureEntersWithPower { .. } => {
-                    Capability::PowerFilteredCreatureEntryV1
-                }
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
                 TriggerCondition::SelfDies => Capability::SelfDiesV1,
-                TriggerCondition::SelfAuraToGraveyard => Capability::AttachmentsV1,
-                TriggerCondition::SelfMoved { .. } => Capability::TriggeredSuccessorLibraryTuckV1,
+                _ => continue, // Composition rejects unsupported events.
             };
-            set.insert(trigger_capability);
-            if ability.intervening_if == Some(InterveningCondition::SourceCastByController) {
-                set.insert(Capability::CastEntryConditionV1);
-            }
-            if ability.intervening_if.is_some() {
-                set.insert(Capability::InterveningIfV1);
-            }
-            if matches!(
-                ability.intervening_if,
-                Some(InterveningCondition::SourceStatus { .. })
-            ) {
-                set.insert(Capability::SourceStatusConditionV1);
-            }
+            set.insert(trigger);
             add_program_requirements(&mut set, &ability.program);
         }
         for keyword in &self.keywords {
@@ -2686,116 +2520,25 @@ impl Definition {
             {
                 set.insert(Capability::IndestructibleV1);
             }
-            if let StaticEffect::ModifyCreatures {
-                scope: CreatureScope::ControlledSubtype { .. },
-                keywords,
-                ..
-            } = &a.effect
-            {
-                set.extend(
-                    keywords
-                        .iter()
-                        .filter_map(|k| intrinsic_keyword_capability(*k)),
-                );
-            }
-            if attachment_modifiers::grants_protection(&a.effect) {
-                set.insert(Capability::FixedColorProtectionV1);
-            }
-            let static_capability = match a.effect {
-                StaticEffect::GrantSpellCascade { .. } => Capability::StaticSpellCascadeGrantV1,
-                StaticEffect::Bestow { .. } => Capability::BestowV1,
-                StaticEffect::CascadeLandEntry => Capability::CascadeLandEntryV1,
-                StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn => {
-                    Capability::EnterAsCopyOfPermanentEnteredThisTurnV1
-                }
-                StaticEffect::ControlEnchantedPermanent => Capability::AuraControlV1,
-                StaticEffect::OpponentsCantCastDuringControllerTurn => {
-                    Capability::OpponentCastProhibitionV1
-                }
-                StaticEffect::ControllerCreaturePlusOneCounterReplacement { .. } => {
-                    Capability::ControllerCreaturePlusOneCounterReplacementV1
-                }
-                StaticEffect::UnlimitedControllerHandSize => Capability::UnlimitedHandSizeV1,
-                StaticEffect::ReduceMaximumHandSize { .. } => Capability::ReducedHandSizeV1,
-                StaticEffect::IncreaseMaximumHandSize { .. } => Capability::IncreasedHandSizeV1,
-                StaticEffect::KeepUnspentManaAsBlack => Capability::UnspentManaConversionV1,
-                StaticEffect::GrantControllerLandsAnyColorMana => {
-                    Capability::ControllerLandGrantedManaV1
-                }
-                StaticEffect::ControllerNonlandsAllColors => Capability::ControllerNonlandColorsV1,
-                StaticEffect::MayBeginOnBattlefield => Capability::OpeningPlacementV1,
-                StaticEffect::GrantControllerLandsAllBasicTypes => {
-                    Capability::ControllerLandBasicTypesV1
-                }
-                StaticEffect::AdditionalLandPlay | StaticEffect::PlayLandsFromOwnGraveyard => {
-                    Capability::LandReclamationV1
-                }
+            let static_capability = match &a.effect {
                 StaticEffect::EntersTapped => Capability::EntersTappedV1,
-                StaticEffect::EntersTappedUnlessPayLife { .. } => {
-                    Capability::OptionalLifeLandEntryV1
-                }
-                StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
-                    Capability::ConditionalBasicLandEntryV1
-                }
-                StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
-                    Capability::ConditionalOtherLandEntryV1
-                }
-                StaticEffect::EntersTappedUnlessOpponentCount { .. } => {
-                    Capability::ConditionalOpponentCountEntryV1
-                }
-                StaticEffect::EntersTappedUnlessRevealLandTypes { .. } => {
-                    Capability::RevealLandEntryV1
-                }
-                StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
-                    Capability::RestrictedManaV1
-                }
-                StaticEffect::EntersTappedUnlessControllerLandTypes { .. } => {
-                    Capability::ConditionalLandTypeEntryV1
-                }
-                StaticEffect::ReduceSelfGenericCost { .. } => {
-                    Capability::CountedSelfGenericCostReductionV1
-                }
-                StaticEffect::ReduceGenericByCreatureCount => Capability::BoardWipesV1,
-                StaticEffect::CantBeCountered => self_spell_protection::capability(self),
-                StaticEffect::SelfGraveyardRevealShuffle => {
-                    Capability::SelfGraveyardRevealShuffleV1
-                }
-                StaticEffect::GrantOtherControlledPermanentsIndestructible => {
-                    set.insert(Capability::IndestructibleV1);
-                    Capability::StaticPermanentIndestructibleGrantV1
-                }
-                StaticEffect::DoubleDamageToPermanentOrPlayer => {
-                    Capability::StaticDamageReplacementV1
-                }
-                StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer => {
-                    Capability::ControlledCreatureDamageReplacementV1
-                }
+                StaticEffect::CantBeCountered => Capability::SelfSpellProtectionV1,
                 StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
-                StaticEffect::ControllerScopedCreatureStats { .. } => {
-                    Capability::ScopedCreatureStatsV1
-                }
-                StaticEffect::ModifySourceByDistinctPermanentColors { .. } => {
-                    Capability::DistinctPermanentColorsV1
-                }
-                StaticEffect::ModifyCreatures {
-                    scope: CreatureScope::AttackingController,
-                    ..
-                } => Capability::AttackingCreatureKeywordsV1,
                 StaticEffect::ModifyCreatures {
                     scope: CreatureScope::Source,
                     ..
-                } if source_combat_restrictions::restriction(&a.effect).is_some() => {
-                    Capability::SourceCombatRestrictionsV1
+                } => {
+                    if source_combat_restrictions::restriction(&a.effect).is_some() {
+                        Capability::SourceCombatRestrictionsV1
+                    } else {
+                        Capability::SacrificeV1
+                    }
                 }
                 StaticEffect::ModifyCreatures {
-                    scope: CreatureScope::Source,
+                    scope: CreatureScope::Controller,
                     ..
-                } => Capability::SacrificeV1,
-                StaticEffect::ModifyCreatures {
-                    scope: CreatureScope::ControlledSubtype { .. },
-                    ..
-                } => Capability::FilteredStaticModifiersV1,
-                StaticEffect::ModifyCreatures { .. } => Capability::AttachmentsV1,
+                } => Capability::AttachmentsV1,
+                _ => continue, // Composition rejects unsupported static abilities.
             };
             set.insert(static_capability);
         }
@@ -2941,22 +2684,7 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
     })
 }
 // One primitive mapping for targeted and set grants, including schema closure.
-fn temporary_keyword_primitive_capability(keyword: KeywordAbility) -> Option<Capability> {
-    Some(match keyword {
-        KeywordAbility::Flying => Capability::FlyingV1,
-        KeywordAbility::Reach => Capability::ReachV1,
-        KeywordAbility::Vigilance => Capability::VigilanceV1,
-        KeywordAbility::DoubleStrike => Capability::DoubleStrikeV1,
-        KeywordAbility::Deathtouch => Capability::DeathtouchV1,
-        KeywordAbility::Indestructible => Capability::IndestructibleV1,
-        KeywordAbility::Lifelink => Capability::LifelinkV1,
-        KeywordAbility::Hexproof => Capability::AttachmentsV1,
-        KeywordAbility::Haste => Capability::HasteV1,
-        KeywordAbility::Trample => Capability::TrampleV1,
-        KeywordAbility::FirstStrike => Capability::FirstStrikeV1,
-        _ => return None,
-    })
-}
+
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
     for target in &program.targets {
         if target.filter.is_some() {

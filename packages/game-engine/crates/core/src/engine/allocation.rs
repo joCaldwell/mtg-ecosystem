@@ -27,24 +27,6 @@ pub struct DamageAllocationRecord {
 }
 impl RulesTxn {}
 impl RulesTxn {
-    pub(super) fn damage_handle(
-        &self,
-        viewer: PlayerId,
-        transaction: DamageTransactionId,
-        damage: DamageId,
-    ) -> Result<DamageHandle, String> {
-        self.state
-            .knowledge
-            .visibility
-            .get(viewer.0 as usize)
-            .and_then(|k| {
-                k.damage_handles
-                    .iter()
-                    .find(|(id, _)| *id == (transaction, damage))
-                    .map(|(_, h)| h.clone())
-            })
-            .ok_or_else(|| "unknown damage handle".into())
-    }
     pub(crate) fn resolve_damage_handle(
         &self,
         viewer: PlayerId,

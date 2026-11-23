@@ -9,7 +9,7 @@ const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
 const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
 fn catalog() -> Catalog {
     let mut c = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
@@ -20,7 +20,11 @@ fn catalog() -> Catalog {
     ) else {
         panic!("complete Thieving Otter source must lower")
     };
-    c.definitions.push(*definition);
+    if let Some(existing) = c.definition_by_oracle_id(&definition.oracle_id) {
+        assert_eq!(existing, definition.as_ref());
+    } else {
+        c.definitions.push(*definition);
+    }
     c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();

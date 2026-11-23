@@ -7,7 +7,7 @@ use mtg_core::testkit::{Feature, ProfileError};
 
 fn prepared() -> Prepared {
     let mut catalog = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     for raw in [
@@ -35,7 +35,11 @@ fn prepared() -> Prepared {
             );
             assert_eq!(definition.activated[0].cost, ActivationCost::TapSource);
         }
-        catalog.definitions.push(*definition);
+        if let Some(existing) = catalog.definition_by_oracle_id(&definition.oracle_id) {
+            assert_eq!(existing, definition.as_ref());
+        } else {
+            catalog.definitions.push(*definition);
+        }
     }
     catalog
         .definitions
