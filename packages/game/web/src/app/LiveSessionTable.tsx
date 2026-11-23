@@ -45,12 +45,8 @@ export function LiveSessionTable({ session, snapshot, headingLevel = 1, emptyAct
   const decisionLabels = useMemo(() => {
     const cards = table ? [...table.hand, ...table.commandZone, ...table.stack, ...(table.otherObjects ?? []), ...table.seats.flatMap(seat => [...seat.battlefield, ...seat.commandZone])] : [];
     const labels = cards.map(card => ({ handle: card.inspectionId, name: card.name }));
-    if (request?.request === 'search_lands') for (const candidate of request.candidates) {
-      const metadata = snapshot.metadata?.cards.find(card => card.oracle_id === candidate.oracle_id);
-      labels.push({ handle: candidate.handle, name: metadata?.faces.length === 1 ? metadata.faces[0]!.name : null });
-    }
     return immutable([...new Map(labels.map(label => [label.handle, label])).values()]);
-  }, [table, request, snapshot.metadata]);
+  }, [table]);
   return <GameSurface className={styles.liveSurface}><SessionStatus diagnostics={diagnostics} snapshot={snapshot} onStop={session.stop} />{table ? <Table diagnostics={diagnostics} table={table} headingLevel={headingLevel}
         choiceStatus={<CommandStatus command={snapshot.command} connected={interactive && snapshot.connection === 'ready'} onRetry={() => { if (interactive) void session.retryCommand(); }} />}
         decisionControls={request?.request === 'priority' || request?.request === 'mana' ? <LiveActions snapshot={snapshot.actions} draft={actionDraft} enabled={interactive && currentContext !== null} objects={actionObjects}

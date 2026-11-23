@@ -1,6 +1,6 @@
 # Local Rust hosting contract
 
-Foundations and attachments are the reviewed hosted profiles. Profile data requests
+Foundations is the reviewed hosted profile. Profile data requests
 hosting; explicit reviewed capabilities and exact pod/build/catalog validation
 admit it. Other headless pools are not implicitly hosted. Search is a separate
 native consumer. [Evidence](game-engine-evidence.md) owns source-qualified P8 proof;
@@ -9,9 +9,8 @@ Deployment/lobby/matchmaking and account-to-seat provisioning remain unfinished.
 
 ## Hosted profiles
 
-`commander-foundations-v1` and `commander-attachments-v1` request hosting through
-strict discovered profile data. Reviewed capability sets, whole-pod construction
-and exact catalogs/builds admit them; other headless profiles remain rejected.
+`commander-foundations-v1` requests hosting through its profile data. Admission
+checks the capability set, whole pod, catalog and build identity.
 This selects admission, never profile-specific rules. Public attachments, grants,
 counters/tokens are permitted projections; hands, libraries and search choices
 remain viewer-private. SDK completion policies use only their seat observation

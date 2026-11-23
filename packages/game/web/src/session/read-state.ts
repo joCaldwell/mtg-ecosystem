@@ -9,8 +9,8 @@ export class SessionFailure extends Error {
 }
 
 /** These are intentionally tested read/display capabilities, not gameplay coverage. */
-export const READ_PROFILES = ['commander-foundations-v1', 'commander-attachments-v1'] as const;
-export const OBSERVATION_VERSION = 21;
+export const READ_PROFILES = ['commander-foundations-v1'] as const;
+export const OBSERVATION_VERSION = 56;
 
 export function immutable<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {

@@ -8,14 +8,7 @@ pub enum ProposedEvent {
     Transform {
         object: ObjectId,
     },
-    RevealLibraryCard {
-        player: PlayerId,
-        object: ObjectId,
-    },
-    BottomRevealedCards {
-        player: PlayerId,
-        order: Vec<ObjectId>,
-    },
+
     FreezeLifeUntilNextTurn {
         player: PlayerId,
     },
@@ -29,56 +22,13 @@ pub enum ProposedEvent {
         player: PlayerId,
         card: ObjectId,
     },
-    RevealSearchLands {
-        player: PlayerId,
-        objects: Vec<ObjectId>,
-    },
-    HandReturn {
-        player: PlayerId,
-        count: Quantity,
-        objects: Vec<ObjectId>,
-        command: Vec<ObjectId>,
-    },
-    OrderLibraryTop {
-        player: PlayerId,
-        amount: Quantity,
-        looked: Vec<ObjectId>,
-        order: Vec<ObjectId>,
-    },
-    Hideaway {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        selected: ObjectId,
-        bottom: Vec<ObjectId>,
-    },
-    LibrarySelect {
-        player: PlayerId,
-        amount: Quantity,
-        destination: LibraryRemainder,
-        looked: Vec<ObjectId>,
-        hand: Vec<ObjectId>,
-        remainder: Vec<ObjectId>,
-        hand_to_command: bool,
-    },
+
     Mill {
         player: PlayerId,
         count: Quantity,
         cards: Vec<ObjectId>,
     },
-    Surveil {
-        player: PlayerId,
-        amount: Quantity,
-        looked: Vec<ObjectId>,
-        top: Vec<ObjectId>,
-        graveyard: Vec<ObjectId>,
-    },
-    Scry {
-        player: PlayerId,
-        amount: Quantity,
-        looked: Vec<ObjectId>,
-        top: Vec<ObjectId>,
-        bottom: Vec<ObjectId>,
-    },
+
     /// CR 303.4a/608.3c: entry and legal attachment are one occurrence.
     EnterAttached {
         object: ObjectId,
@@ -100,14 +50,7 @@ pub enum ProposedEvent {
     DestroyCreature {
         object: ObjectId,
     },
-    CascadeLandEntry {
-        object: ObjectId,
-        player: PlayerId,
-    },
-    SearchLandEntry {
-        object: ObjectId,
-        player: PlayerId,
-    },
+
     ShuffleLibraryWord {
         player: PlayerId,
         index: u32,
@@ -127,11 +70,7 @@ pub enum ProposedEvent {
     ApplyCounterPlacementEffect {
         effect: CounterPlacementEffectKey,
     },
-    ProliferateCounters {
-        object: ObjectId,
-        plus_one: Quantity,
-        lore: bool,
-    },
+
     PutPlusOneCounters {
         object: ObjectId,
         amount: Quantity,
@@ -145,11 +84,7 @@ pub enum ProposedEvent {
     Setup {
         action: SetupAction,
     },
-    AllocateDamageEffect {
-        transaction: DamageTransactionId,
-        effect: EffectKey,
-        allocations: Vec<(DamageId, Quantity)>,
-    },
+
     CreateEffect {
         effect: Box<ResolvedEffect>,
     },
@@ -196,11 +131,7 @@ pub enum ProposedEvent {
     PutOnTopOwnerLibrary {
         object: ObjectId,
     },
-    PutInLibraryAtPosition {
-        object: ObjectId,
-        player: PlayerId,
-        position: LibraryPosition,
-    },
+
     Lose {
         player: PlayerId,
         reason: PlayerLossReason,
@@ -300,58 +231,17 @@ pub enum EventOutcome {
     CounterPlacementModified {
         application: CounterPlacementApplication,
     },
-    LibraryCardRevealed {
-        player: PlayerId,
-        object: ObjectId,
-    },
-    RevealedCardsBottomed {
-        player: PlayerId,
-        order: Vec<ObjectId>,
-    },
+
     HandCardRevealedForEntry {
         player: PlayerId,
         card: ObjectId,
     },
-    SearchLandsRevealed {
-        player: PlayerId,
-        objects: Vec<ObjectId>,
-    },
-    HandReturned {
-        player: PlayerId,
-        movements: Vec<MoveOutcome>,
-    },
-    LibraryOrdered {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        order: Vec<ObjectId>,
-    },
-    HiddenAway {
-        movement: MoveOutcome,
-        bottom: Vec<ObjectId>,
-    },
-    LibrarySelected {
-        player: PlayerId,
-        hand: Option<MoveOutcome>,
-        remainder: Vec<ObjectId>,
-        graveyard: Vec<MoveOutcome>,
-    },
+
     Milled {
         player: PlayerId,
         movements: Vec<MoveOutcome>,
     },
-    Surveilled {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        top: Vec<ObjectId>,
-        graveyard: Vec<ObjectId>,
-        movements: Vec<MoveOutcome>,
-    },
-    Scried {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        top: Vec<ObjectId>,
-        bottom: Vec<ObjectId>,
-    },
+
     EnteredAttached {
         movement: MoveOutcome,
         target: ObjectId,
@@ -399,13 +289,7 @@ pub enum EventOutcome {
         controller: PlayerId,
         token: Box<mtg_contracts::CreatureToken>,
     },
-    Proliferated {
-        object: ObjectId,
-        previous_plus_one: Quantity,
-        current_plus_one: Quantity,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        lore: Option<LoreChange>,
-    },
+
     PlusOneCountersPlaced {
         object: ObjectId,
         amount: Quantity,
@@ -421,12 +305,7 @@ pub enum EventOutcome {
     Setup {
         actual: SetupOutcome,
     },
-    DamageEffectAllocated {
-        transaction: DamageTransactionId,
-        effect: EffectKey,
-        allocations: Vec<(DamageId, Quantity)>,
-        applications: Vec<DamageApplication>,
-    },
+
     EffectCreated {
         effect: Box<ResolvedEffect>,
     },
@@ -581,20 +460,11 @@ pub enum InstructionOutcome {
     Kernel {
         outcomes: Vec<InstructionOutcome>,
     },
-    OptionalBlock {
-        accepted_by: Option<PlayerId>,
-    },
-    OptionalSkipped,
+
     DelayedChapterRegistered {
         issuer: StackId,
     },
-    Demonstrated {
-        first: spell_copy::CopyIdentity,
-        opponent: Option<spell_copy::CopyIdentity>,
-    },
-    SpellCopied {
-        copy: StackId,
-    },
+
     CounterPlacements {
         actual: Vec<EventOutcome>,
     },
@@ -703,8 +573,6 @@ pub enum Event {
         source: ObjectId,
         player: PlayerId,
         ability: EffectiveTriggerAbility,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        grant: Option<CascadeGrantProvenance>,
         occurrence: TriggerOccurrenceId,
         witness: TriggerEventWitness,
         source_facts: Box<ObjectBefore>,

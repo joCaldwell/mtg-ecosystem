@@ -1,16 +1,13 @@
 {
-  "native_source": "052af6a20931461943d174c961db6c38eb635dd9",
-  "protocol_schema_sha256": "b191d97401a2ff548ff8acfc4ff9c588e3fcf6bde2f2cec42238f47e42af0dfd",
+  "native_source": "059d0801cf6d03105bcc031d391c96077fb2ef74",
+  "sdk_source": "059d0801cf6d03105bcc031d391c96077fb2ef74",
+  "protocol_schema_sha256": "33f0af1f377051f403b48aa560b3432998acf5bf00b5e6e019d92a770cd24c9c",
   "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "scope": "Frozen Native21 committed Resume release build. Three schemas and SDK50 inputs match retained evidence. Hosted Chromium completion approves only the tested foundations identity.",
-  "sdk_source": "052af6a20931461943d174c961db6c38eb635dd9",
-  "engine_build_id": "18d04f99c7f81c0c6169e4d060b5c83328ddaab2ba5535f8da74cbe5faf4aaac",
-  "server_build_id": "42b0f10f7082dfb62f7ebd59ac43e34c2ad0cc01d46d3c9361a2bda5fa1c33ae",
-  "native_source_manifest_sha256": "788c943819c83d8ebc6afb226ab375395dd1dcac34262e76eed1a9a4456a1feb",
-  "evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-committed-resume-release-20261118",
-  "sdk_evidence_root": "/home/josh/.local/share/mtg-ecosystem/engine-evidence/native21-committed-resume-release-20261118/client-integration",
-  "sdk_source_bridge_sha256": "3485835431b12b19a54706ce072f063661a99bfebb4323dd676a4b71dd1fef12",
-  "native_source_verification_sha256": "35f415ec83a902364d164b921dda4f92c099337e47a7f9ca488d864338c8f487",
-  "sdk_build_manifest_sha256": "b3b98e7a6393e04512fb0402f07e1d8dc7e17b80027b1f4b737ee1786fc09caf",
-  "sdk_verification_sha256": "3263e62affec1b4aea9fac5756ea546f16b3bd6876522211e45a47724262312a"
+  "engine_build_id": "7bafc669819e9023d73f6ffafd3fb2060b005f0aad317b861e7eb85447c84a94",
+  "server_build_id": "ba40bf6386425d9ed2890236da060e27c1b3dfebdf38005bf1887cd7f8523aaf",
+  "profile": "commander-foundations-v1",
+  "catalog_sha256": "3e36982dc804bc7138c964ccd908ec3076e1a8d63c9c99705367d34f582644c5",
+  "observation_version": 56,
+  "sdk_build_manifest_sha256": "a1b6b267d1d9a7f985ae65d100da1b7f1781213f8f8b2f830ed255d254d85442",
+  "scope": "R4 debug host schema export, generated SDK, client typecheck and local decision controls. Hosted browser qualification requires a separate run."
 }

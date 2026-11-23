@@ -27,7 +27,7 @@ struct Board {
 
 fn board() -> Board {
     let mut catalog = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     // CR 205.2b: a creature that is also a land. Its execution type is

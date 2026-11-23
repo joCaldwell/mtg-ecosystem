@@ -159,7 +159,6 @@ testkit_fields! {
 #[serde(deny_unknown_fields)]
 pub struct ManaDamageUndo {
     pub(super) life: Vec<ManaDamageLife>,
-    pub(super) shields: Vec<ManaDamageShield>,
     triggers: Vec<(TriggerId, PlayerId)>,
 }
 
@@ -167,14 +166,6 @@ pub struct ManaDamageUndo {
 #[serde(deny_unknown_fields)]
 pub(super) struct ManaDamageLife {
     pub(super) player: PlayerId,
-    before: Quantity,
-    after: Quantity,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ManaDamageShield {
-    pub(super) effect: EffectId,
     before: Quantity,
     after: Quantity,
 }
@@ -273,8 +264,7 @@ impl RulesTxn {
                     continue;
                 }
                 Frame::ManaAbility { activation } => activation,
-                Frame::DamageEffects { transaction }
-                | Frame::DamageAllocation { transaction, .. } => {
+                Frame::DamageEffects { transaction } => {
                     let DamageContinuation::Mana { activation, .. } = &transaction.continuation
                     else {
                         break;
@@ -367,8 +357,7 @@ impl RulesTxn {
                 },
                 Frame::ManaAbility { activation } => self.saved_frame(activation.resume)?,
                 Frame::ManaSourceChoice { resume, .. } => self.saved_frame(*resume)?,
-                Frame::DamageEffects { transaction }
-                | Frame::DamageAllocation { transaction, .. } => match &transaction.continuation {
+                Frame::DamageEffects { transaction } => match &transaction.continuation {
                     DamageContinuation::Mana { activation, .. }
                         if self.mana_damage_resume_available(activation)? =>
                     {
@@ -1285,7 +1274,7 @@ impl RulesTxn {
             self.reverse_mana_life(r.player, life)?;
         }
         if let Some(damage) = &r.damage {
-            self.reverse_mana_damage(r.player, damage)?;
+            self.reverse_mana_damage(damage)?;
         }
         let p = &mut self.rules_mut().players[r.player.0 as usize];
         for unit in &r.produced_restricted {

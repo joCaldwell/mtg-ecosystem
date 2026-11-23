@@ -4,10 +4,19 @@
 //! the engine namespace that in-source tests previously saw through
 //! `use super::*`, so scenario and witness binaries build outside `--lib`.
 pub use crate::engine::*;
+
+pub const GROWTH: &str = "5748ebf1-24e3-499d-ab7c-c2cebd462a24";
+pub const DISFIGURE: &str = "77eafe49-b9c5-461d-89c5-cec217dd2974";
+pub const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
+pub const SOUL_FEAST: &str = "8186fd80-015f-470c-9e1c-cbf45764a057";
+pub const HEALING_HANDS: &str = "3cc48835-3ac0-4774-b380-f9b21d2dc974";
+pub const NECTAR: &str = "30870ee5-6ad7-48a9-983e-d3b018f2344f";
+pub const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
+pub const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
+pub const VISIONARY: &str = "c6a3a882-a127-4590-93d7-679ef4313efe";
+pub const WARDEN: &str = "6ca2a89e-7032-4864-b4e9-66f3178f90ab";
 // Engine modules shadow same-named contracts modules, as inside the engine.
-pub use crate::engine::{
-    impulse_play, mana_tap_observer, optional_block, proliferate, resolution_mana, target_color,
-};
+pub use crate::engine::mana_tap_observer;
 use crate::engine::{
     keywords::KeywordSource, object_facts::DerivedObject, payments::AnnouncementPayment,
     phasing::PhaseSelection, stored_history::StoredPermittedView,
@@ -15,6 +24,26 @@ use crate::engine::{
 pub use crate::{build_id, formats, query};
 pub use mtg_contracts::kir::{Amount, Context, EventPlayerRole, PlayerExpr, Ref, SetExpr, Verb};
 pub use mtg_contracts::*;
+
+/// Construct a private rules witness from validated definitions and an explicit board.
+pub fn witness_scenario(catalog: Catalog, config: ScenarioConfig) -> Prepared {
+    catalog.validate().expect("valid witness catalog");
+    for card in &config.cards {
+        assert!(
+            catalog.definition_by_oracle_id(&card.oracle_id).is_some(),
+            "missing witness definition {}",
+            card.oracle_id
+        );
+    }
+    Prepared {
+        catalog_digest: digest(&catalog).unwrap(),
+        profile_digest: digest(&config).unwrap(),
+        catalog: std::sync::Arc::new(catalog),
+        config,
+        match_config: None,
+    }
+}
+
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -119,13 +148,7 @@ pub trait GameTestkit {
         ability: u32,
     ) -> Result<(), String>;
     fn announce_priority_spell(&mut self, player: PlayerId, card: CardId) -> Result<(), String>;
-    fn announced_graveyard_group(
-        &self,
-        caster: PlayerId,
-        chooser: PlayerId,
-        maximum: u8,
-        entities: &[TargetEntity],
-    ) -> Result<(PlayerId, Vec<ObjectId>), String>;
+
     fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool>;
     fn apply_departure(&mut self, player: PlayerId) -> Result<(), String>;
     fn apply_noncombat_damage(
@@ -158,7 +181,7 @@ pub trait GameTestkit {
         &mut self,
         object: ObjectId,
     ) -> Result<Vec<publish::StoredObjectHandle>, String>;
-    fn cascade_charge(&self) -> usize;
+
     fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String>;
     fn casting_cost(&self, card: CardId, caster: PlayerId, from: Zone) -> Result<ManaCost, String>;
     fn check_history_capacity(&mut self) -> Result<(), String>;
@@ -208,7 +231,7 @@ pub trait GameTestkit {
     fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId>;
     fn current(&self, id: ObjectId) -> Result<&Object, String>;
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility>;
-    fn damage_allocation_request(&self) -> Result<Option<Request>, String>;
+
     fn damage_effect_group(
         &self,
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String>;
@@ -243,7 +266,7 @@ pub trait GameTestkit {
     fn entry_cause_for_test(&self) -> BatchCause;
     fn entry_copy_origin(&self, object: ObjectId) -> Option<(ObjectId, CardId)>;
     fn entry_group_for_test(&self) -> EventGroup;
-    fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String>;
+
     fn event_group_limit(&self) -> usize;
     fn execute_damage_life_instruction(
         &mut self,
@@ -263,7 +286,7 @@ pub trait GameTestkit {
     fn execute_wipes_instruction(&mut self, frame: Resolving, i: Instruction)
     -> Result<(), String>;
     fn finish_committed_player_losses(&mut self, batch: &CommittedBatch) -> Result<bool, String>;
-    fn grant_payload_charge(&self) -> usize;
+    fn trigger_payload_charge(&self) -> usize;
     fn granted_land_mana_colors() -> [Color; 5];
     fn graveyard_target_legal(
         &self,
@@ -307,7 +330,6 @@ pub trait GameTestkit {
     fn land_entry_step(&mut self) -> Result<(), String>;
     fn lethal_requirement(&self, source: ObjectId, blocker: ObjectId) -> Result<Quantity, String>;
     fn library_prefix(&self, player: PlayerId, amount: &Quantity) -> Result<Vec<ObjectId>, String>;
-    fn linked_hideaway_cards(&self, source: ObjectId, source_block: u32) -> Vec<ObjectId>;
     fn live_effect_keys(&self) -> Vec<EffectKey>;
     fn main_phase_action(&self, player: PlayerId) -> bool;
     fn mana_ability_used(&self, source: ObjectId) -> bool;
@@ -318,7 +340,7 @@ pub trait GameTestkit {
         controller: PlayerId,
         f: &PermanentFilter,
     ) -> bool;
-    fn may_play_exile(&self, player: PlayerId, object: ObjectId) -> bool;
+
     fn mixed_mana_choices(
         &self,
         player: PlayerId,
@@ -396,7 +418,6 @@ pub trait GameTestkit {
     fn record_entry_copy(&mut self, entering: ObjectId, donor: ObjectId) -> Result<(), String>;
     fn refresh_effect_handles(&mut self) -> Result<Vec<EffectKey>, String>;
     fn refresh_visibility(&mut self) -> Result<(), String>;
-    fn remaining_graveyard_targets(&self, owner: PlayerId, cards: &[ObjectId]) -> Vec<ObjectId>;
     fn replacement_reveals(&self, object: ObjectId) -> bool;
     fn replay_to(
         prepared: Prepared,
@@ -411,38 +432,24 @@ pub trait GameTestkit {
         effect: &EffectHandle,
         damage: &DamageHandle,
     ) -> Result<(EffectKey, DamageId), String>;
-    fn resolve_damage_handle(
-        &self,
-        viewer: PlayerId,
-        handle: &DamageHandle,
-    ) -> Result<DamageId, String>;
+
     fn resolve_entity(
         &self,
         viewer: PlayerId,
         target: &PlayerTargetEntity,
     ) -> Result<TargetEntity, String>;
     fn resolve_handle(&self, viewer: PlayerId, handle: &ObjectHandle) -> Result<ObjectId, String>;
-    fn resolve_search_handle(
-        &self,
-        player: PlayerId,
-        handle: &ObjectHandle,
-    ) -> Result<ObjectId, String>;
+
     fn resolve_trigger_handle(
         &self,
         viewer: PlayerId,
         handle: &TriggerHandle,
     ) -> Result<TriggerId, String>;
-    fn restore_hideaway_link(&mut self, receipt: HideawayLink) -> Result<(), String>;
-    fn resulting_permission_matches(
-        &self,
-        permission: &CastPermission,
-        stack: &StackInstance,
-    ) -> Result<bool, String>;
+
     fn retain_source_facts(&mut self, fact: &ObjectBefore);
     fn retain_source_lki(&mut self, object: ObjectId) -> Result<(), String>;
     fn sacrifice_candidates(&self, player: PlayerId, filter: &SacrificeFilter) -> Vec<ObjectId>;
-    fn search_lands(&self, player: PlayerId) -> Vec<ObjectId>;
-    fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String>;
+
     fn selected_payment_pool(
         &self,
         player: PlayerId,
@@ -454,7 +461,7 @@ pub trait GameTestkit {
         root: &'a SpellProgram,
         mode: Option<u32>,
     ) -> Result<&'a SpellProgram, String>;
-    fn shield_limit(&self, effect: &ResolvedEffect) -> Result<Quantity, String>;
+
     fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String>;
     fn stabilization_wave_with_legends(
         &mut self,
@@ -474,7 +481,7 @@ pub trait GameTestkit {
     fn target_is_creature(&self, object: ObjectId) -> bool;
     fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool;
     fn targetable_player(&self, player: PlayerId) -> bool;
-    fn targeted_loss_authority(&self) -> Result<(BatchCause, PlayerId), String>;
+
     fn targeting_characteristics<'a>(
         &'a self,
         entry: &'a StackInstance,
@@ -488,12 +495,6 @@ pub trait GameTestkit {
         source: ObjectId,
         ability: EffectiveTriggerAbility,
     ) -> Option<&str>;
-    fn turn_up_linked_hideaway(
-        &mut self,
-        source: ObjectId,
-        source_block: u32,
-        card: ObjectId,
-    ) -> Result<HideawayLink, String>;
     fn update_library_position_memory(&mut self, event: &ProposedEvent, actual: &EventOutcome);
     fn valid_set_effect_targets(
         &self,
@@ -560,11 +561,7 @@ pub trait GameTestkit {
     fn validate_tokens_state(&self) -> Result<(), String>;
     fn validate_trigger_entry(&self, entry: &StackInstance) -> Result<Option<TriggerId>, String>;
     fn validate_trigger_state(&self) -> Result<(), String>;
-    fn visible_allocation_candidate(
-        &self,
-        viewer: PlayerId,
-        c: &DamageAllocationCandidate,
-    ) -> Result<VisibleDamageAllocationCandidate, String>;
+
     fn visible_damage_effect_candidate(
         &self,
         viewer: PlayerId,
@@ -619,15 +616,7 @@ impl GameTestkit for Game {
     fn announce_priority_spell(&mut self, player: PlayerId, card: CardId) -> Result<(), String> {
         RulesTxn::announce_priority_spell(self, player, card)
     }
-    fn announced_graveyard_group(
-        &self,
-        caster: PlayerId,
-        chooser: PlayerId,
-        maximum: u8,
-        entities: &[TargetEntity],
-    ) -> Result<(PlayerId, Vec<ObjectId>), String> {
-        RulesTxn::announced_graveyard_group(self, caster, chooser, maximum, entities)
-    }
+
     fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
         RulesTxn::announced_target_legality(self, entry)
     }
@@ -686,9 +675,7 @@ impl GameTestkit for Game {
     ) -> Result<Vec<publish::StoredObjectHandle>, String> {
         RulesTxn::capture_trigger_source_handles(self, object)
     }
-    fn cascade_charge(&self) -> usize {
-        RulesTxn::cascade_charge(self)
-    }
+
     fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
         RulesTxn::cast_is_prohibited(self, player)
     }
@@ -785,9 +772,7 @@ impl GameTestkit for Game {
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
         RulesTxn::current_keywords(self, object)
     }
-    fn damage_allocation_request(&self) -> Result<Option<Request>, String> {
-        RulesTxn::damage_allocation_request(self)
-    }
+
     fn damage_effect_group(
         &self,
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String> {
@@ -860,9 +845,7 @@ impl GameTestkit for Game {
     fn entry_group_for_test(&self) -> EventGroup {
         RulesTxn::entry_group_for_test(self)
     }
-    fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String> {
-        RulesTxn::entry_search_block(self, frame)
-    }
+
     fn event_group_limit(&self) -> usize {
         RulesTxn::event_group_limit(self)
     }
@@ -878,9 +861,7 @@ impl GameTestkit for Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        let Instruction::Kernel { node, source_block } = instruction else {
-            return Err("expected a kernel instruction".into());
-        };
+        let Instruction::Kernel { node, source_block } = instruction;
         RulesTxn::execute_kernel(self, frame, node, source_block)
     }
     fn execute_effect_instruction(
@@ -900,8 +881,8 @@ impl GameTestkit for Game {
     fn finish_committed_player_losses(&mut self, batch: &CommittedBatch) -> Result<bool, String> {
         RulesTxn::finish_committed_player_losses(self, batch)
     }
-    fn grant_payload_charge(&self) -> usize {
-        RulesTxn::grant_payload_charge(self)
+    fn trigger_payload_charge(&self) -> usize {
+        RulesTxn::trigger_payload_charge(self)
     }
     fn granted_land_mana_colors() -> [Color; 5] {
         RulesTxn::granted_land_mana_colors()
@@ -990,9 +971,6 @@ impl GameTestkit for Game {
     fn library_prefix(&self, player: PlayerId, amount: &Quantity) -> Result<Vec<ObjectId>, String> {
         RulesTxn::library_prefix(self, player, amount)
     }
-    fn linked_hideaway_cards(&self, source: ObjectId, source_block: u32) -> Vec<ObjectId> {
-        RulesTxn::linked_hideaway_cards(self, source, source_block)
-    }
     fn live_effect_keys(&self) -> Vec<EffectKey> {
         RulesTxn::live_effect_keys(self)
     }
@@ -1013,9 +991,7 @@ impl GameTestkit for Game {
     ) -> bool {
         RulesTxn::matches_permanent_filter(self, object, controller, f)
     }
-    fn may_play_exile(&self, player: PlayerId, object: ObjectId) -> bool {
-        RulesTxn::may_play_exile(self, player, object)
-    }
+
     fn mixed_mana_choices(
         &self,
         player: PlayerId,
@@ -1049,8 +1025,17 @@ impl GameTestkit for Game {
     fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
         RulesTxn::object_target_legal(self, entry, object)
     }
+    // CR 109.5, 205.2b, 608.2h, 806.1: current control, and every card type.
     fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
-        RulesTxn::objects_in_set(self, set, controller)
+        self.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| {
+                crate::query::matches_object_set(&self.object_facts(o), controller, set).is_yes()
+            })
+            .map(|o| o.id)
+            .collect()
     }
     fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
         RulesTxn::observation_work_units(self, viewer)
@@ -1165,9 +1150,6 @@ impl GameTestkit for Game {
     fn refresh_visibility(&mut self) -> Result<(), String> {
         RulesTxn::refresh_visibility(self)
     }
-    fn remaining_graveyard_targets(&self, owner: PlayerId, cards: &[ObjectId]) -> Vec<ObjectId> {
-        RulesTxn::remaining_graveyard_targets(self, owner, cards)
-    }
     fn replacement_reveals(&self, object: ObjectId) -> bool {
         RulesTxn::replacement_reveals(self, object)
     }
@@ -1190,13 +1172,7 @@ impl GameTestkit for Game {
     ) -> Result<(EffectKey, DamageId), String> {
         RulesTxn::resolve_damage_effect_pair(self, viewer, effect, damage)
     }
-    fn resolve_damage_handle(
-        &self,
-        viewer: PlayerId,
-        handle: &DamageHandle,
-    ) -> Result<DamageId, String> {
-        RulesTxn::resolve_damage_handle(self, viewer, handle)
-    }
+
     fn resolve_entity(
         &self,
         viewer: PlayerId,
@@ -1207,13 +1183,7 @@ impl GameTestkit for Game {
     fn resolve_handle(&self, viewer: PlayerId, handle: &ObjectHandle) -> Result<ObjectId, String> {
         RulesTxn::resolve_handle(self, viewer, handle)
     }
-    fn resolve_search_handle(
-        &self,
-        player: PlayerId,
-        handle: &ObjectHandle,
-    ) -> Result<ObjectId, String> {
-        RulesTxn::resolve_search_handle(self, player, handle)
-    }
+
     fn resolve_trigger_handle(
         &self,
         viewer: PlayerId,
@@ -1221,16 +1191,7 @@ impl GameTestkit for Game {
     ) -> Result<TriggerId, String> {
         RulesTxn::resolve_trigger_handle(self, viewer, handle)
     }
-    fn restore_hideaway_link(&mut self, receipt: HideawayLink) -> Result<(), String> {
-        RulesTxn::restore_hideaway_link(self, receipt)
-    }
-    fn resulting_permission_matches(
-        &self,
-        permission: &CastPermission,
-        stack: &StackInstance,
-    ) -> Result<bool, String> {
-        RulesTxn::resulting_permission_matches(self, permission, stack)
-    }
+
     fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         RulesTxn::retain_source_facts(self, fact)
     }
@@ -1240,12 +1201,7 @@ impl GameTestkit for Game {
     fn sacrifice_candidates(&self, player: PlayerId, filter: &SacrificeFilter) -> Vec<ObjectId> {
         RulesTxn::sacrifice_candidates(self, player, filter)
     }
-    fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
-        RulesTxn::search_lands(self, player)
-    }
-    fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String> {
-        RulesTxn::searched_land_force_tapped(self, player)
-    }
+
     fn selected_payment_pool(
         &self,
         player: PlayerId,
@@ -1261,9 +1217,7 @@ impl GameTestkit for Game {
     ) -> Result<&'a SpellProgram, String> {
         RulesTxn::selected_program(self, root, mode)
     }
-    fn shield_limit(&self, effect: &ResolvedEffect) -> Result<Quantity, String> {
-        RulesTxn::shield_limit(self, effect)
-    }
+
     fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         RulesTxn::source_facts(self, entry)
     }
@@ -1309,9 +1263,7 @@ impl GameTestkit for Game {
     fn targetable_player(&self, player: PlayerId) -> bool {
         RulesTxn::targetable_player(self, player)
     }
-    fn targeted_loss_authority(&self) -> Result<(BatchCause, PlayerId), String> {
-        RulesTxn::targeted_loss_authority(self)
-    }
+
     fn targeting_characteristics<'a>(
         &'a self,
         entry: &'a StackInstance,
@@ -1336,14 +1288,6 @@ impl GameTestkit for Game {
         ability: EffectiveTriggerAbility,
     ) -> Option<&str> {
         RulesTxn::trigger_source_label(self, source, ability)
-    }
-    fn turn_up_linked_hideaway(
-        &mut self,
-        source: ObjectId,
-        source_block: u32,
-        card: ObjectId,
-    ) -> Result<HideawayLink, String> {
-        RulesTxn::turn_up_linked_hideaway(self, source, source_block, card)
     }
     fn update_library_position_memory(&mut self, event: &ProposedEvent, actual: &EventOutcome) {
         RulesTxn::update_library_position_memory(self, event, actual)
@@ -1472,13 +1416,7 @@ impl GameTestkit for Game {
     fn validate_trigger_state(&self) -> Result<(), String> {
         RulesTxn::validate_trigger_state(self)
     }
-    fn visible_allocation_candidate(
-        &self,
-        viewer: PlayerId,
-        c: &DamageAllocationCandidate,
-    ) -> Result<VisibleDamageAllocationCandidate, String> {
-        RulesTxn::visible_allocation_candidate(self, viewer, c)
-    }
+
     fn visible_damage_effect_candidate(
         &self,
         viewer: PlayerId,
@@ -1585,5 +1523,175 @@ pub trait WorkTestkit {
 impl WorkTestkit for Work {
     fn belongs_to_viewer(&self, viewer: PlayerId) -> bool {
         Work::belongs_to_viewer(self, viewer)
+    }
+}
+
+impl ScenarioConfig {
+    pub fn effects() -> Self {
+        let cards = (0..46)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=15 => 0,
+                    16..=30 => 1,
+                    31..=41 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        1 => OX,
+                        2 | 18 => BEARS,
+                        3 => BEARS,
+                        4 | 19 | 39 | 42 => BLOOD_ARTIST,
+                        5 | 24 => GROWTH,
+                        6 => GROWTH,
+                        7 => DISFIGURE,
+                        8 | 23 => BOLT,
+                        9 | 10 | 14 | 27 | 30 | 37 => FOREST,
+                        11 | 15 => PLAINS,
+                        12 => SWAMP,
+                        13 | 28 | 33..=36 | 40 | 41 | 43..=45 => MOUNTAIN,
+                        16 | 17 | 38 => BEARS,
+                        20 => SPELL,
+                        21 => SPELL,
+                        22 => SPELL,
+                        31 | 32 => GROWTH,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        5..=8 | 20..=24 | 31 | 32 => Zone::Hand { owner },
+                        14 | 15 | 29 | 30 | 40 | 41 | 44 | 45 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-effects-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+
+    pub fn triggers() -> Self {
+        let cards = (0..38)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=15 => 0,
+                    16..=27 => 1,
+                    28..=33 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 => ISAMARU,
+                        1 | 2 | 16 | 28 | 34 => BLOOD_ARTIST,
+                        3 | 17 | 29 => WARDEN,
+                        4 => VISIONARY,
+                        5 => BEARS,
+                        6 => BEARS,
+                        18 | 30 => BEARS,
+                        7 => SWAMP,
+                        8 | 9 | 14 | 31 | 32 | 33 | 35 | 36 | 37 => FOREST,
+                        10 => PLAINS,
+                        13 | 23 => MOUNTAIN,
+                        19 => BOLT,
+                        20 => SPELL,
+                        21 => SPELL,
+                        22 => SPELL,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        4 | 19..=22 => Zone::Hand { owner },
+                        14 | 15 | 26 | 27 | 32 | 33 | 36 | 37 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-triggers-v1".into(),
+            commanders: vec![CardId(0)],
+            cards,
+        }
+    }
+
+    pub fn damage_life() -> Self {
+        let cards = (0..35)
+            .map(|id| {
+                let owner = PlayerId(match id {
+                    0..=13 | 34 => 0,
+                    14..=25 => 1,
+                    26..=30 => 2,
+                    _ => 3,
+                });
+                CardSetup {
+                    id: CardId(id),
+                    owner,
+                    controller: owner,
+                    oracle_id: match id {
+                        0 | 26 => BEARS,
+                        1 | 2 => SWAMP,
+                        3 | 7 | 17 | 27 => MOUNTAIN,
+                        4 | 8 => PLAINS,
+                        9 => SOUL_FEAST,
+                        10 => HEALING_HANDS,
+                        11 | 20 | 28 => BOLT,
+                        14 => ISAMARU,
+                        15 => BEARS,
+                        16 => BEARS,
+                        21 => SPELL,
+                        22 => SPELL,
+                        23 => SPELL,
+                        34 => NECTAR,
+                        _ => ISLAND,
+                    }
+                    .into(),
+                    zone: match id {
+                        9..=11 | 20..=23 | 28 | 34 => Zone::Hand { owner },
+                        12 | 13 | 24 | 25 | 29 | 30 | 32 | 33 => Zone::Library { owner },
+                        _ => Zone::Battlefield,
+                    },
+                }
+            })
+            .collect();
+        Self {
+            initial: ScenarioInitial {
+                turn_step: TurnStep::PrecombatMain,
+                ..ScenarioInitial::default()
+            },
+            mode: Mode::Scenario,
+            players: 4,
+            profile: "four-seat-damage-life-v1".into(),
+            commanders: vec![CardId(14)],
+            cards,
+        }
+    }
+
+    pub fn damage_life_low() -> Self {
+        let mut c = Self::damage_life();
+        c.initial.life = std::array::from_fn(|_| Quantity::from(4));
+        c.profile = "four-seat-damage-life-low-v1".into();
+        c
     }
 }

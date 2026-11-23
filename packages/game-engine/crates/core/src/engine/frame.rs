@@ -45,48 +45,14 @@ pub(super) type HeldMut<'a> = Held<&'a mut Vec<effects::PreparedDamage>>;
 
 // The shared and exclusive traversals are one body, so they cannot diverge.
 macro_rules! frame_walk {
-    ($walk:ident, $walk_cast:ident, $walk_damage:ident, $Held:ident $(, $mutability:tt)?) => {
-        fn $walk_cast<'a>(
-            cast: &'a $($mutability)? Casting,
-            visit: &mut dyn FnMut($Held<'a>),
-        ) {
-            match & $($mutability)? cast.completion {
-                CastCompletion::Priority => {}
-                CastCompletion::HandTrigger { frame } => visit($Held::Invocation {
-                    hold: Hold::Suspended,
-                    id: frame.stack_id,
-                }),
-                CastCompletion::Resolution {
-                    permission: _,
-                    progress,
-                } => match progress {
-                    CastOwner::LinkedPlay {
-                        progress,
-                        object: _,
-                        receipt: _,
-                    } => visit($Held::Invocation {
-                        hold: Hold::Suspended,
-                        id: progress.frame.stack_id,
-                    }),
-                    CastOwner::Cascade(progress) => visit($Held::Invocation {
-                        hold: Hold::Suspended,
-                        id: progress.frame.stack_id,
-                    }),
-                    CastOwner::RevealAndCast(progress) => visit($Held::Invocation {
-                        hold: Hold::Suspended,
-                        id: progress.frame.stack_id,
-                    }),
-                },
-            }
-        }
-
+    ($walk:ident, $walk_damage:ident, $Held:ident $(, $mutability:tt)?) => {
         fn $walk_damage<'a>(
             transaction: &'a $($mutability)? DamageTransaction,
             hold: Hold,
             visit: &mut dyn FnMut($Held<'a>),
         ) {
             let DamageTransaction {
-                allocation_groups: _,
+
                 id: _,
                 kind: _,
                 entries,
@@ -132,24 +98,11 @@ macro_rules! frame_walk {
                     hold,
                     id: transaction.frame.stack_id,
                 }),
-                Frame::PlayHideawayLinked { progress } => visit($Held::Invocation {
-                    hold,
-                    id: progress.frame.stack_id,
-                }),
                 Frame::LandEntry {
                     origin,
                     objects: _,
                     choices: _,
                 } => match origin {
-                    EntryOrigin::LinkedPlay {
-                        progress,
-                        object: _,
-                        receipt: _,
-                        back_face: _,
-                    } => visit($Held::Invocation {
-                        hold,
-                        id: progress.frame.stack_id,
-                    }),
                     EntryOrigin::Copy {
                         frame,
                         selection: _,
@@ -162,50 +115,30 @@ macro_rules! frame_walk {
                         decision_id: _,
                         back_face: _,
                     } => {}
-                    EntryOrigin::Search { frame } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
-                    EntryOrigin::Cascade { progress } => visit($Held::Invocation {
-                        hold,
-                        id: progress.frame.stack_id,
-                    }),
-                },
+                    },
                 Frame::ManaSourceChoice {
                     player: _,
                     source: _,
                     scope: _,
                     resume: _,
                 } => {},
-                Frame::RevealAndCast { progress } => visit($Held::Invocation {
-                    hold,
-                    id: progress.frame.stack_id,
-                }),
-                Frame::HandCast { frame, child: _ } => visit($Held::Invocation {
-                    hold,
-                    id: frame.stack_id,
-                }),
-                Frame::Cascade { progress } => visit($Held::Invocation {
-                    hold,
-                    id: progress.frame.stack_id,
-                }),
                 Frame::LegendRule {
                     resume: _,
                     groups: _,
                     kept: _,
                 } => {},
-                Frame::AdditionalCosts { cast }
-                | Frame::AnnounceX { cast }
-                | Frame::HybridCost { cast }
-                | Frame::SacrificeCost { cast }
-                | Frame::Modes { cast }
-                | Frame::EntityTargets { cast }
-                | Frame::StackTargets { cast }
-                | Frame::PlayerTargets { cast }
-                | Frame::SpendMana { cast }
-                | Frame::Targets { cast }
-                | Frame::Mana { cast }
-                | Frame::Payment { cast } => $walk_cast(cast, visit),
+                Frame::AdditionalCosts { cast: _ }
+                | Frame::AnnounceX { cast: _ }
+                | Frame::HybridCost { cast: _ }
+                | Frame::SacrificeCost { cast: _ }
+                | Frame::Modes { cast: _ }
+                | Frame::EntityTargets { cast: _ }
+                | Frame::StackTargets { cast: _ }
+                | Frame::PlayerTargets { cast: _ }
+                | Frame::SpendMana { cast: _ }
+                | Frame::Targets { cast: _ }
+                | Frame::Mana { cast: _ }
+                | Frame::Payment { cast: _ } => {},
                 Frame::ForcedSacrifice {
                     frame,
                     remaining: _,
@@ -219,15 +152,7 @@ macro_rules! frame_walk {
                     hold,
                     id: frame.stack_id,
                 }),
-                Frame::OptionalDamage { frame } => visit($Held::Invocation {
-                    hold,
-                    id: frame.stack_id,
-                }),
                 Frame::ManaAbility { activation: _ } => {}
-                Frame::DamageAllocation {
-                    transaction,
-                    effect: _,
-                } => $walk_damage(transaction, hold, visit),
                 Frame::DamageEffects { transaction } => $walk_damage(transaction, hold, visit),
                 Frame::CounterPlacement { transaction } => visit($Held::Invocation {
                     hold,
@@ -247,47 +172,11 @@ macro_rules! frame_walk {
                     destination: _,
                     continuation,
                 } => match & $($mutability)? *continuation {
-                    CommanderContinuation::CascadeBottom { progress } => {
-                        visit($Held::Invocation {
-                            hold,
-                            id: progress.frame.stack_id,
-                        })
-                    }
-                    CommanderContinuation::GraveyardShuffle {
+                    CommanderContinuation::BoardReturn {
                         frame,
                         objects: _,
                         remaining: _,
                         choices: _,
-                        source_block: _,
-                    }
-                    | CommanderContinuation::HandReturn {
-                        frame,
-                        objects: _,
-                        remaining: _,
-                        choices: _,
-                        source_block: _,
-                    }
-                    | CommanderContinuation::BoardReturn {
-                        frame,
-                        objects: _,
-                        remaining: _,
-                        choices: _,
-                        source_block: _,
-                    } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
-                    CommanderContinuation::LookTopMana { frame, revealed: _ } => {
-                        visit($Held::Invocation {
-                            hold,
-                            id: frame.stack_id,
-                        })
-                    }
-                    CommanderContinuation::LibrarySelect {
-                        frame,
-                        looked: _,
-                        hand: _,
-                        remainder: _,
                         source_block: _,
                     } => visit($Held::Invocation {
                         hold,
@@ -347,17 +236,14 @@ macro_rules! frame_walk {
     };
 }
 
-frame_walk!(walk, walk_cast, walk_damage, HeldRef);
-frame_walk!(walk_mut, walk_cast_mut, walk_damage_mut, HeldMut, mut);
+frame_walk!(walk, walk_damage, HeldRef);
+frame_walk!(walk_mut, walk_damage_mut, HeldMut, mut);
 
 macro_rules! frame_parent {
     ($name:ident $(, $mutable:tt)?) => {
     fn $name(&$($mutable)? self) -> Option<(&$($mutable)? FrameLink, Hold)> {
         match self {
-            Self::ResolutionPayment {payment, ..} => match &$($mutable)? payment.purpose {
-                resolution_payment::PaymentPurpose::Kernel {resume} => Some((resume, Hold::Resolving)),
-                resolution_payment::PaymentPurpose::Counter { .. } | resolution_payment::PaymentPurpose::CastPayerDraw => None,
-            },
+            Self::ResolutionPayment {payment, ..} => Some((&$($mutable)? payment.resume, Hold::Resolving)),
             Self::Kernel { task } => Some((&$($mutable)? task.resume, Hold::Resolving)),
             Self::Stabilize { resume, .. } | Self::LegendRule { resume, .. } => {
                 Some((resume, Hold::Resolving))
@@ -378,7 +264,7 @@ macro_rules! frame_parent {
             Self::TriggerOrder { placement } | Self::TriggerTargets { placement, .. } => {
                 Some((&$($mutable)? placement.resume, Hold::Resolving))
             }
-            Self::DamageAllocation { transaction, .. } | Self::DamageEffects { transaction } => {
+            Self::DamageEffects { transaction } => {
                 match &$($mutable)? transaction.continuation {
                     DamageContinuation::Mana { activation, .. } => {
                         Some((&$($mutable)? activation.resume, Hold::Suspended))
@@ -386,27 +272,21 @@ macro_rules! frame_parent {
                     DamageContinuation::Combat | DamageContinuation::Instruction { .. } => None,
                 }
             }
-            Self::CommanderReturn { continuation: CommanderContinuation::CascadeBottom { .. }
-                | CommanderContinuation::GraveyardShuffle { .. }
-                | CommanderContinuation::HandReturn { .. }
-                | CommanderContinuation::LookTopMana { .. }
-                | CommanderContinuation::LibrarySelect { .. }
-                | CommanderContinuation::BoardReturn { .. }
+            Self::CommanderReturn { continuation: CommanderContinuation::BoardReturn { .. }
                 | CommanderContinuation::SpellMove { .. }
                 | CommanderContinuation::ResolutionDraw { .. }
                 | CommanderContinuation::Draw { .. }, .. }
             | Self::GraveyardReplacement { .. }
-            | Self::PlayHideawayLinked { .. }
+
             | Self::LandEntry { .. }
-            | Self::RevealAndCast { .. }
-            | Self::HandCast { .. }
-            | Self::Cascade { .. }
+
+
+
             | Self::AdditionalCosts { .. }
             | Self::AnnounceX { .. }
             | Self::HybridCost { .. }
             | Self::SacrificeCost { .. }
             | Self::ForcedSacrifice { .. }
-            | Self::OptionalDamage { .. }
             | Self::Setup
             | Self::Modes { .. }
             | Self::CounterPlacement { .. }
@@ -510,7 +390,6 @@ impl Frame {
             | Frame::Payment { cast } => Some(cast),
             Frame::GraveyardGroup { tx: _ }
             | Frame::GraveyardReplacement { transaction: _ }
-            | Frame::PlayHideawayLinked { progress: _ }
             | Frame::LandEntry {
                 origin: _,
                 objects: _,
@@ -522,9 +401,6 @@ impl Frame {
                 scope: _,
                 resume: _,
             }
-            | Frame::RevealAndCast { progress: _ }
-            | Frame::HandCast { frame: _, child: _ }
-            | Frame::Cascade { progress: _ }
             | Frame::LegendRule {
                 resume: _,
                 groups: _,
@@ -541,13 +417,8 @@ impl Frame {
                 payment: _,
             }
             | Frame::Kernel { task: _ }
-            | Frame::OptionalDamage { frame: _ }
             | Frame::ManaAbility { activation: _ }
             | Frame::Setup
-            | Frame::DamageAllocation {
-                transaction: _,
-                effect: _,
-            }
             | Frame::CounterPlacement { transaction: _ }
             | Frame::DamageEffects { transaction: _ }
             | Frame::TriggerOrder { placement: _ }
@@ -728,5 +599,27 @@ impl RulesTxn {
         rules.frames.truncate(base + path.len());
         rules.frame.parent_mut().ok_or("missing saved parent")?.0.0 = base + path.len() - 1;
         Ok(())
+    }
+}
+
+/// Unwrap owning continuations without copying or mutating them.
+pub fn retained_effect_frame<'a>(frames: &'a [Frame], mut frame: &'a Frame) -> &'a Frame {
+    loop {
+        frame = match frame {
+            Frame::ManaAbility { activation } => &frames[activation.resume.0],
+            Frame::DamageEffects { transaction } => match &transaction.continuation {
+                DamageContinuation::Mana { activation, .. } => &frames[activation.resume.0],
+                _ => return frame,
+            },
+            Frame::ManaSourceChoice { resume, .. }
+            | Frame::Stabilize { resume, .. }
+            | Frame::LegendRule { resume, .. } => &frames[resume.0],
+            Frame::CommanderReturn { continuation, .. } => match continuation {
+                CommanderContinuation::StateBased { resume }
+                | CommanderContinuation::StateBasedBatch { resume, .. } => &frames[resume.0],
+                _ => return frame,
+            },
+            _ => return frame,
+        };
     }
 }

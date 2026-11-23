@@ -92,47 +92,8 @@ pub(crate) fn lower_trigger(
     intervening: Option<&SourceCondition>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
-    if let Some(ability) = controlled_land_entry::lower(trigger, effects, intervening, block)? {
-        return Ok(ability);
-    }
-    if land_entry_scry::matches(trigger, effects, intervening, block) {
-        return Ok(land_entry_scry_trigger());
-    }
     if let Some(ability) = land_entry_gain_life::lower(trigger, effects, intervening, block)? {
         return Ok(ability);
-    }
-    if let SourceTrigger::PutIntoGraveyard { what, from, to } = trigger {
-        if matches!(what, TriggerObject::This { noun } if noun == "creature") {
-            return successor_tuck::lower(effects, intervening, from, to, source_block(block)?);
-        }
-        // This shortcut emits no binding instructions; unconsumed sentence
-        // bindings must not disappear when bypassing append_spell_effects.
-        if !matches!(what, TriggerObject::This {noun} if noun == "aura")
-            || from != "battlefield"
-            || *to != serde_json::json!({"zone":"graveyard","owner":"any"})
-            || intervening.is_some()
-            || !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty() && matches!(steps.as_slice(), [Step::ReturnToHand {what,to,optional:None}] if *what == serde_json::json!({"ref":"it"}) && to == "owner"))
-        {
-            return Err(unsupported("trigger", "unsupported Aura return"));
-        }
-        return Ok(TriggeredAbility {
-            death_filter: None,
-            functioning_zone: FunctioningZone::Battlefield,
-            condition: TriggerCondition::SelfAuraToGraveyard,
-            intervening_if: None,
-            program: SpellProgram {
-                optional_additional_costs: vec![],
-                additional_sacrifice: None,
-                timing: SpellTiming::Instant,
-                resolution: SpellResolution::Instructions,
-                functioning_zone: FunctioningZone::Stack,
-                targets: vec![],
-                instructions: vec![Instruction::ReturnAuraFromGraveyard {
-                    source_block: block as u32,
-                }],
-                modes: vec![],
-            },
-        });
     }
     // The archive reference-binding object is diagnostic/nonexecutable. This
     // Rust semantic binder consumes the complete typed AST instead: "other"
@@ -339,31 +300,6 @@ pub(crate) fn lower_trigger(
         &mut program,
     )? {
         program.instructions.push(instruction);
-    } else if let (
-        SourceTrigger::Enters { what: subject },
-        [
-            Sentence {
-                bindings,
-                steps,
-                condition: None,
-                condition_kind: None,
-            },
-        ],
-    ) = (trigger, effects)
-        && is_source_creature(subject)
-        && intervening.is_none()
-        && bindings.is_empty()
-        && let [Step::ReturnToHand { what, to, optional }] = steps.as_slice()
-        && to == "owner"
-    {
-        let slot = bind_permanent_target(&mut program, &mut BTreeMap::new(), what)?;
-        program
-            .instructions
-            .push(Instruction::ReturnEntryTargetCreature {
-                target_slot: slot,
-                optional: optional.unwrap_or(false),
-                source_block: source_block(block)?,
-            });
     } else {
         append_spell_effects(
             &mut program,

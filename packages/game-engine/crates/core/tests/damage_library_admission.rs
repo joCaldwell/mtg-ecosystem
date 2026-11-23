@@ -3,21 +3,15 @@ mod support;
 use mtg_contracts::{Catalog, Color, Instruction, Quantity};
 use mtg_core::*;
 
-fn old() -> Catalog {
-    Catalog::read(include_str!(
-        "../../../tests/fixtures/expected-commander-ir.json"
-    ))
-    .unwrap()
-}
 fn damage() -> Catalog {
     Catalog::read(include_str!(
-        "../../../tests/fixtures/expected-damage-ir.json"
+        "../../../tests/fixtures/expected-action-ir.json"
     ))
     .unwrap()
 }
 fn library() -> Catalog {
     Catalog::read(include_str!(
-        "../../../tests/fixtures/expected-library-ir.json"
+        "../../../tests/fixtures/expected-action-ir.json"
     ))
     .unwrap()
 }
@@ -33,16 +27,8 @@ fn profiles() -> [(ScenarioConfig, Catalog); 3] {
 fn each_scenario_requires_its_exact_pool_and_current_catalog_schema() {
     for (config, catalog) in profiles() {
         assert!(Prepared::admit(catalog.clone(), config.clone()).is_ok());
-        for wrong in [
-            old(),
-            if config == ScenarioConfig::commander_library() {
-                damage()
-            } else {
-                library()
-            },
-        ] {
-            assert!(Prepared::admit(wrong, config.clone()).is_err());
-        }
+        let base = Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json")).unwrap();
+        assert!(Prepared::admit(base, config.clone()).is_err());
         for index in 0..catalog.definitions.len() {
             let mut missing = catalog.clone();
             missing.definitions.remove(index);
@@ -55,8 +41,6 @@ fn each_scenario_requires_its_exact_pool_and_current_catalog_schema() {
         assert!(Catalog::read(&mtg_contracts::canonical(&invalid).unwrap()).is_err());
         assert!(Prepared::admit(invalid, ScenarioConfig::commander_library()).is_err());
     }
-    assert!(Prepared::admit(damage(), ScenarioConfig::command_casting()).is_err());
-    assert!(Prepared::admit(library(), ScenarioConfig::command_casting()).is_err());
 }
 
 #[test]

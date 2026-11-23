@@ -85,15 +85,7 @@ impl RulesTxn {
                     source,
                 })
             }
-            Some(Instruction::ReturnOwnGraveyardCreatureToBattlefield {
-                target_slot,
-                source_block,
-            }) if spell.targets.get(*target_slot as usize) == Some(&source)
-                && frame.legal_targets.get(*target_slot as usize) == Some(&true)
-                && self.object_target_legal(spell, source) =>
-            {
-                Ok(self.instruction_cause(frame, *source_block)?)
-            }
+
             _ => Err("invalid copy entry producer/source".into()),
         }
     }

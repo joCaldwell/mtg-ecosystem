@@ -59,13 +59,16 @@ export function decisionSurface(request: PlayerRequest, labels: readonly ObjectL
       request.can_mulligan ? [['keep', 'Keep hand'], ['mulligan', 'Take mulligan']] : [['keep', 'Keep hand']]);
     case 'bottom_opening': return selection('Order cards for the bottom of your library', request.candidates, request.count, request.count, true);
     case 'discard': case 'resolve_discard': return selection('Choose cards to discard', request.candidates, request.count, request.count);
-    case 'search_lands': return selection('Choose supplied search results', request.candidates.map(candidate => candidate.handle), 0, request.maximum);
     case 'legend_rule': return selection('Choose the object to keep', request.candidates, 1, 1);
     case 'sacrifice_cost': case 'forced_sacrifice': case 'sacrifice': return selection('Choose an object to sacrifice', request.candidates, 1, 1);
-    case 'announce_x': case 'mana_color': case 'optional_effect': case 'optional_recursion':
-    case 'modes': case 'order_triggers': case 'damage_effect': case 'damage_allocation':
+    case 'announce_x': case 'mana_color': case 'optional_effect':
+    case 'modes': case 'order_triggers': case 'damage_effect':
     case 'commander_return': return { status: 'context-missing', title: 'Decision context unavailable', reason: `${request.request}: source, effect or source-label mapping is not sufficient for a reviewed human choice. No draft is available.` };
     case 'priority': case 'mana': return { status: 'context-missing', title: 'Action labels unavailable', reason: `${request.request}: requires the bound core action query and human-readable source mapping. An ability index is not a human label.` };
+    case 'opening_placement': case 'graveyard_replacement_order': case 'additional_costs':
+    case 'entry_copy': case 'entry_attachment': case 'hybrid_cost':
+    case 'choose_mana_ability': case 'mana_combination': case 'entry_reveal':
+    case 'counter_placement_effect':
     case 'spend_mana': case 'targets': case 'entity_targets': case 'player_targets': case 'stack_targets':
     case 'attackers': case 'blockers': case 'damage': return { status: 'unsupported', title: 'Control not implemented', reason: `${request.request}: needs reviewed joint constraints and permitted context integration. No costs, targets or lethal requirements are derived here.` };
     default: { const exhaustive: never = request; return exhaustive; }
@@ -144,14 +147,17 @@ export function completeDecision(request: PlayerRequest, labels: readonly Object
     case 'bottom_opening': return { response: 'bottom_opening', objects };
     case 'discard': return { response: 'discard', objects };
     case 'resolve_discard': return { response: 'resolve_discard', objects };
-    case 'search_lands': return { response: 'search_lands', objects };
     case 'legend_rule': return object === undefined ? null : { response: 'legend_rule', keep: object };
     case 'sacrifice_cost': return object === undefined ? null : { response: 'sacrifice_cost', object };
     case 'forced_sacrifice': return object === undefined ? null : { response: 'forced_sacrifice', object };
     case 'sacrifice': return object === undefined ? null : { response: 'sacrifice', object };
-    case 'announce_x': case 'mana_color': case 'optional_effect': case 'optional_recursion':
-    case 'modes': case 'order_triggers': case 'damage_effect': case 'damage_allocation':
+    case 'announce_x': case 'mana_color': case 'optional_effect':
+    case 'modes': case 'order_triggers': case 'damage_effect':
     case 'commander_return': case 'priority': case 'mana': case 'spend_mana': case 'targets':
+    case 'opening_placement': case 'graveyard_replacement_order': case 'additional_costs':
+    case 'entry_copy': case 'entry_attachment': case 'hybrid_cost':
+    case 'choose_mana_ability': case 'mana_combination': case 'entry_reveal':
+    case 'counter_placement_effect':
     case 'entity_targets': case 'player_targets': case 'stack_targets': case 'attackers': case 'blockers': case 'damage': return null;
     default: { const exhaustive: never = request; return exhaustive; }
   }

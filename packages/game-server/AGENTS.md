@@ -8,8 +8,7 @@ types; no handwritten response/observation replacements. Core rules remain deter
 
 - Host owns auth-to-seat, HTTP/OS/SQLite, queues, clocks and resource groups.
   Derive viewer from verified authorization; product sign-in alone grants no seat.
-- Reviewed hosted profiles are foundations/attachments; search-enabled foundations
-  is separate. Capabilities, exact catalogs/pods and both engine `ENGINE_BUILD`
+- Foundations is the reviewed hosted profile. Search admission is separate. Capabilities, exact catalogs/pods and both engine `ENGINE_BUILD`
   (installed into core by `main`) and host `SERVER_BUILD_ID` fence admission/recovery. Names never grant mechanics.
 - Retain durable acceptance before acknowledgment, immutable command dispositions,
   match-scoped IDs, bounded queues/pages and one executor per match. Test

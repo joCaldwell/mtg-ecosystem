@@ -16,10 +16,6 @@ pub(crate) use mana_policy::spend_response;
 mod ordinary_diagnostic;
 #[cfg(test)]
 mod replay_reuse_tests;
-#[cfg(test)]
-mod suite_receipt_probe;
-#[cfg(test)]
-mod suite_receipt_tests;
 
 // Evidence belongs outside native crate sources regardless of Cargo's test cwd.
 fn artifact_root() -> Result<std::path::PathBuf, String> {
@@ -146,51 +142,7 @@ fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::D
 }
 // One distinct card per color. Reassign flexible cards when a later slot
 // has no other candidate. The search depth is bounded by the five colors.
-fn colored_library_choices(
-    colors: &[Color],
-    candidates: &[mtg_core::ColoredCardCandidate],
-) -> Vec<mtg_core::ColoredCardAssignment> {
-    fn assign(
-        slot: usize,
-        colors: &[Color],
-        candidates: &[mtg_core::ColoredCardCandidate],
-        owners: &mut [Option<usize>],
-        seen: &mut [bool],
-    ) -> bool {
-        for (index, card) in candidates.iter().enumerate() {
-            if seen[index] || !card.slots.contains(&colors[slot]) {
-                continue;
-            }
-            seen[index] = true;
-            if owners[index].is_none_or(|prior| assign(prior, colors, candidates, owners, seen)) {
-                owners[index] = Some(slot);
-                return true;
-            }
-        }
-        false
-    }
-    let mut owners = vec![None; candidates.len()];
-    for slot in 0..colors.len() {
-        assign(
-            slot,
-            colors,
-            candidates,
-            &mut owners,
-            &mut vec![false; candidates.len()],
-        );
-    }
-    colors
-        .iter()
-        .enumerate()
-        .filter_map(|(slot, color)| {
-            let card = owners.iter().position(|owner| *owner == Some(slot))?;
-            Some(mtg_core::ColoredCardAssignment {
-                slot: *color,
-                handle: candidates[card].handle.clone(),
-            })
-        })
-        .collect()
-}
+
 struct Strategy<'a> {
     catalog: &'a Catalog,
     policy: Policy,
@@ -263,45 +215,10 @@ impl Strategy<'_> {
                         .clone(),
                 }
             }
-            PlayerRequest::HandCast { candidates, .. } => candidates
-                .iter()
-                .find(|card| self.supported_cast_target(v, card))
-                .cloned()
-                .map(|card| PlayerResponse::Cast { card })
-                .unwrap_or(PlayerResponse::Pass),
-            PlayerRequest::HandReturn {
-                candidates, count, ..
-            } => PlayerResponse::HandReturn {
-                objects: candidates.iter().rev().take(*count).cloned().collect(),
-            },
-            PlayerRequest::LibraryOrder { candidates, .. } => PlayerResponse::LibraryOrder {
-                objects: candidates.clone(),
-            },
-            PlayerRequest::LibrarySelect { candidates, .. } => PlayerResponse::LibrarySelect {
-                hand: candidates.first().cloned().into_iter().collect(),
-                remainder: candidates.iter().skip(1).cloned().collect(),
-            },
+
             // The same owner-only look payload is used by the optional
             // reveal-for-mana continuation. Resolve the choice using its
             // public IR and the ordinary decision token.
-            PlayerRequest::Scry { .. }
-                if self.top_program(v).is_some_and(|(_, program)| {
-                    matches!(
-                        program.instructions.as_slice(),
-                        [mtg_contracts::Instruction::LookTopMayRevealForMana { .. }]
-                    )
-                }) =>
-            {
-                PlayerResponse::OptionalEffect { perform: false }
-            }
-            PlayerRequest::Scry { candidates, .. } => PlayerResponse::Scry {
-                top: candidates.clone(),
-                bottom: vec![],
-            },
-            PlayerRequest::Surveil { candidates, .. } => PlayerResponse::Surveil {
-                top: candidates.clone(),
-                graveyard: vec![],
-            },
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
             PlayerRequest::AdditionalCosts { .. } => {
                 PlayerResponse::AdditionalCosts { selected: vec![] }
@@ -389,11 +306,7 @@ impl Strategy<'_> {
             PlayerRequest::EntryReveal { candidates, .. } => PlayerResponse::EntryReveal {
                 card: candidates.first().cloned(),
             },
-            PlayerRequest::CascadeLandEntry { candidates, .. } => {
-                PlayerResponse::CascadeLandEntry {
-                    object: candidates.first().cloned(),
-                }
-            }
+
             PlayerRequest::EntryCopy { candidates, .. } => PlayerResponse::EntryCopy {
                 object: self.best_permanent(v, candidates),
             },
@@ -405,67 +318,14 @@ impl Strategy<'_> {
             PlayerRequest::GraveyardReplacementOrder { .. } => {
                 PlayerResponse::OptionalEffect { perform: true }
             }
-            PlayerRequest::Hideaway { candidates, .. } => PlayerResponse::Hideaway {
-                object: candidates
-                    .first()
-                    .cloned()
-                    .ok_or("empty hideaway selection")?,
-            },
-            PlayerRequest::PlayHideawayLinked {
-                candidates,
-                back_land_candidates,
-                ..
-            } => {
-                let front = candidates
-                    .iter()
-                    .find(|card| self.supported_cast_target(v, card))
-                    .cloned();
-                match (front, back_land_candidates.first()) {
-                    (None, Some(object)) => PlayerResponse::PlayHideawayLinkedBackLand {
-                        object: object.clone(),
-                    },
-                    (object, _) => PlayerResponse::PlayHideawayLinked { object },
-                }
-            }
-            PlayerRequest::ChooseOpponent { candidates, .. } => PlayerResponse::ChooseOpponent {
-                opponent: *candidates.first().ok_or("empty opponent selection")?,
-            },
-            PlayerRequest::SearchLandBattlefield { candidates, .. } => {
-                PlayerResponse::SearchLandBattlefield {
-                    object: candidates
-                        .first()
-                        .cloned()
-                        .ok_or("empty revealed land partition")?,
-                }
-            }
-            PlayerRequest::ColoredSearch {
-                colors, candidates, ..
-            } => PlayerResponse::ColoredSearch {
-                assignments: colored_library_choices(colors, candidates),
-            },
-            PlayerRequest::SearchLands {
-                maximum,
-                candidates,
-                ..
-            } => PlayerResponse::SearchLands {
-                objects: self.search_lands(v, candidates, *maximum as usize),
-            },
+
             PlayerRequest::SacrificeCost { candidates, .. } => PlayerResponse::SacrificeCost {
                 object: self.sacrifice_choice(v, candidates)?,
             },
             PlayerRequest::ForcedSacrifice { candidates, .. } => PlayerResponse::ForcedSacrifice {
                 object: self.sacrifice_choice(v, candidates)?,
             },
-            PlayerRequest::ChooseColor { colors, .. } => PlayerResponse::ChooseColor {
-                color: *colors.first().ok_or("no legal color")?,
-            },
-            PlayerRequest::Proliferate { candidate, .. } => PlayerResponse::Proliferate {
-                object: candidate.clone(),
-                include: v
-                    .objects
-                    .iter()
-                    .any(|o| o.handle == *candidate && o.controller == v.viewer),
-            },
+
             PlayerRequest::OptionalEffect { .. } => PlayerResponse::OptionalEffect {
                 perform: self.optional_effect(
                     v,
@@ -475,9 +335,7 @@ impl Strategy<'_> {
                         .map(|instruction| instruction.source_block),
                 ),
             },
-            PlayerRequest::OptionalRecursion { .. } => {
-                PlayerResponse::OptionalRecursion { perform: true }
-            }
+
             PlayerRequest::OpeningPlacement { candidates, .. } => {
                 PlayerResponse::OpeningPlacement {
                     object: candidates.first().cloned(),
@@ -860,25 +718,6 @@ impl Strategy<'_> {
                     damage: c.damage.clone(),
                 }
             }
-            PlayerRequest::DamageAllocation {
-                required,
-                candidates,
-                ..
-            } => {
-                let mut rest = required.clone();
-                let allocations = candidates
-                    .iter()
-                    .map(|c| {
-                        let n = std::cmp::min(c.amount.clone(), rest.clone());
-                        rest.subtract(&n);
-                        (c.damage.clone(), n)
-                    })
-                    .collect();
-                if rest != Quantity::zero() {
-                    return Err("insufficient allocation candidates".into());
-                }
-                PlayerResponse::DamageAllocation { allocations }
-            }
         })
     }
 }
@@ -1249,28 +1088,6 @@ pub(super) fn batch(
     profile_name: &str,
     directory: &Path,
 ) -> Result<serde_json::Value, String> {
-    batch_impl(catalog, profile_name, directory).map(|(report, _)| report)
-}
-
-// Small process-local receipts, never serialized into evidence or a bundle.
-// Only batch_impl issues these after independent replay and interaction scanning;
-// no Game, snapshot or accepted-input journal is retained here.
-struct VerifiedBatchEntry {
-    index: usize,
-    evidence_sha256: String,
-    loss_facts: Vec<(PlayerId, mtg_core::PlayerLossReason)>,
-}
-struct VerifiedBatch {
-    catalog_sha256: String,
-    profile: String,
-    entries: Vec<VerifiedBatchEntry>,
-}
-
-fn batch_impl(
-    catalog: &Catalog,
-    profile_name: &str,
-    directory: &Path,
-) -> Result<(serde_json::Value, VerifiedBatch), String> {
     let catalog_sha256 = mtg_contracts::digest(catalog)?;
     let profile_spec = mtg_core::match_profile(profile_name).ok_or("unknown batch profile")?;
     if profile_spec.catalog_sha256 != catalog_sha256 {
@@ -1288,7 +1105,6 @@ fn batch_impl(
     fs::write(directory.join("manifest.json"), canonical(&manifest)?).map_err(|e| e.to_string())?;
     let mut reports = vec![];
     let mut failures = vec![];
-    let mut entries = vec![];
     for index in 0..18u32 {
         let mut config = MatchConfig::for_profile(
             profile,
@@ -1324,9 +1140,6 @@ fn batch_impl(
             &evidence_text,
         )
         .map_err(|e| e.to_string())?;
-        // Hash exactly the bytes passed to the successful write. Release the
-        // large serialization before constructing the independent detailed Game.
-        let evidence_sha256 = sha256(evidence_text.as_bytes());
         drop(evidence_text);
         let replay =
             verify_suite_entry(index as usize, &e).and_then(|()| verify_replay_game(catalog, &e));
@@ -1342,13 +1155,6 @@ fn batch_impl(
             // nonterminal evidence; a failed proof cannot supply this fast path.
             Err(_) => interactions::game(catalog, &e)?,
         };
-        if let Ok(verified) = replay {
-            entries.push(VerifiedBatchEntry {
-                index: index as usize,
-                evidence_sha256,
-                loss_facts: verified.loss_facts,
-            });
-        }
         reports.push(report);
     }
     let interaction_summary = interactions::summarize(catalog, &reports)?;
@@ -1360,102 +1166,7 @@ fn batch_impl(
             directory.display()
         ));
     }
-    // A failed run cannot return any receipts, including its successful prefix.
-    Ok((
-        report,
-        VerifiedBatch {
-            catalog_sha256,
-            profile: profile.into(),
-            entries,
-        },
-    ))
-}
-
-pub(super) fn suite(catalog: &Catalog) -> Result<(Vec<Evidence>, serde_json::Value), String> {
-    let parent = artifact_root()?.join("p5-batches");
-    fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
-    let directory = (0..1000)
-        .map(|i| parent.join(format!("capture-{}-{i}", std::process::id())))
-        .find(|p| !p.exists())
-        .ok_or("no fresh batch directory")?;
-    let profile = "commander-foundations-v1";
-    let (report, verified) = batch_impl(catalog, profile, &directory)?;
-    let evidence = read_verified_suite(catalog, profile, &directory, &verified)?;
-    Ok((evidence, report))
-}
-
-// Reuse only this process's fully verified batch. Saved bytes are still read and
-// strict-decoded, then bound to their original catalog, profile and ordered slot.
-// Standalone verify_suite below deliberately has no receipt path: bundle replay
-// must independently prove every checkpoint, accepted input and terminal fact.
-fn read_verified_suite(
-    catalog: &Catalog,
-    profile: &str,
-    directory: &Path,
-    verified: &VerifiedBatch,
-) -> Result<Vec<Evidence>, String> {
-    if verified.entries.len() != 18 {
-        return Err("fixed completion batch must contain18 games".into());
-    }
-    if verified.catalog_sha256 != mtg_contracts::digest(catalog)? || verified.profile != profile {
-        return Err("fixed completion batch receipt catalog/profile mismatch".into());
-    }
-    // As before, finish all file reads/strict decoding before checking entries.
-    // Keep only a small digest beside each Evidence already needed by the bundle.
-    let saved = (0..18)
-        .map(|index| {
-            let text = fs::read_to_string(directory.join(format!("game-{index:02}.json")))
-                .map_err(|e| e.to_string())?;
-            let e: Evidence = strict_read(&text)?;
-            Ok((e, sha256(text.as_bytes())))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    let mut evidence = Vec::with_capacity(18);
-    let mut reasons = vec![];
-    for (index, ((e, evidence_sha256), receipt)) in
-        saved.into_iter().zip(&verified.entries).enumerate()
-    {
-        verify_suite_entry(index, &e)?;
-        if receipt.index != index
-            || e.config.profile != verified.profile
-            || evidence_sha256 != receipt.evidence_sha256
-        {
-            return Err("fixed completion batch receipt index/profile/bytes mismatch".into());
-        }
-        reasons.extend(receipt.loss_facts.iter().map(|(_, reason)| *reason));
-        evidence.push(e);
-    }
-    if !reasons.contains(&mtg_core::PlayerLossReason::CommanderDamage)
-        || !reasons.contains(&mtg_core::PlayerLossReason::Life)
-    {
-        return Err(
-            "fixed completion evidence lacks Commander-damage or ordinary-life loss witness".into(),
-        );
-    }
-    Ok(evidence)
-}
-
-pub(super) fn verify_suite(catalog: &Catalog, evidence: &[Evidence]) -> Result<(), String> {
-    if evidence.len() != 18 {
-        return Err("fixed completion batch must contain18 games".into());
-    }
-    let mut reasons = vec![];
-    for (index, e) in evidence.iter().enumerate() {
-        verify_suite_entry(index, e)?;
-        reasons.extend(
-            verify_replay(catalog, e)?
-                .into_iter()
-                .map(|(_, reason)| reason),
-        );
-    }
-    if !reasons.contains(&mtg_core::PlayerLossReason::CommanderDamage)
-        || !reasons.contains(&mtg_core::PlayerLossReason::Life)
-    {
-        return Err(
-            "fixed completion evidence lacks Commander-damage or ordinary-life loss witness".into(),
-        );
-    }
-    Ok(())
+    Ok(report)
 }
 fn apply_completion_layout(
     profile: &mtg_core::MatchProfile,
@@ -1794,89 +1505,6 @@ pub(super) fn replay_live(
 mod admission_and_host_tests {
     use super::*;
     use std::cell::Cell;
-
-    #[test]
-    fn optional_effect_policy_uses_only_the_top_program() {
-        let catalog = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
-        let (_, _, _, mut game) = initial();
-        game.advance(Budget::unlimited());
-        let mut o = observe(&game, PlayerId(0), u64::MAX, &mut 0, &mut 0).unwrap();
-        o.decision = Some(PlayerRequest::OptionalEffect {
-            token: mtg_core::DecisionToken("policy-fixture".into()),
-            player: PlayerId(0),
-        });
-        let mut strategy = Strategy::new(&catalog, Policy::Develop, [0; 4]);
-        let id = |name: &str| {
-            catalog
-                .definitions
-                .iter()
-                .find(|d| d.name == name)
-                .unwrap()
-                .oracle_id
-                .clone()
-        };
-        let target = mtg_core::VisibleTarget {
-            announced: ObjectHandle("own-permanent".into()),
-            current: Some(ObjectHandle("own-permanent".into())),
-        };
-        let entry = |name: &str| mtg_core::VisibleStackEntry {
-            spell_copy: false,
-            bestowed: false,
-            hybrid_colors: vec![],
-            selected_additional_costs: None,
-            x: None,
-            mana_value: None,
-            selected_modes: vec![],
-            mode: None,
-            triggered: Some(mtg_core::VisibleTriggered {
-                handle: mtg_core::StackHandle(name.into()),
-                source: target.clone(),
-                oracle_id: id(name),
-                ability: mtg_core::VisibleTriggerAbility::Intrinsic { index: 0 },
-            }),
-            entity_targets: vec![],
-            handle: Some(mtg_core::StackHandle(name.into())),
-            stack_targets: vec![],
-            spell: None,
-            ability: None,
-            player_targets: vec![],
-            controller: PlayerId(0),
-            cast_complete: true,
-            targets: vec![target.clone()],
-        };
-        for name in ["Bastion of Remembrance", "Sol Ring"] {
-            let d = definition(&catalog, &id(name)).unwrap();
-            let mut permanent = o.view.objects[0].clone();
-            permanent.handle = target.announced.clone();
-            permanent.oracle_id = d.oracle_id.clone();
-            permanent.characteristics = Some(d.characteristics.clone());
-            permanent.controller = PlayerId(0);
-            permanent.zone = Zone::Battlefield;
-            o.view.objects = vec![permanent];
-            // A lower Arsonist must not make Sage's own-permanent target desirable.
-            o.view.stack = vec![entry("Goblin Arsonist"), entry("Reclamation Sage")];
-            assert_eq!(
-                strategy.choose(&o).unwrap(),
-                PlayerResponse::OptionalEffect { perform: false }
-            );
-            o.view.objects[0].controller = PlayerId(1);
-            assert_eq!(
-                strategy.choose(&o).unwrap(),
-                PlayerResponse::OptionalEffect { perform: true }
-            );
-            o.view.objects[0].controller = PlayerId(0);
-            o.view.stack = vec![entry("Goblin Arsonist")];
-            assert_eq!(
-                strategy.choose(&o).unwrap(),
-                PlayerResponse::OptionalEffect { perform: true }
-            );
-        }
-        o.view.stack.clear();
-        assert_eq!(
-            strategy.choose(&o).unwrap(),
-            PlayerResponse::OptionalEffect { perform: false }
-        );
-    }
 
     #[test]
     fn frozen_completion_suite_cannot_substitute_host_concessions() {

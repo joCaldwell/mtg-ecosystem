@@ -10,7 +10,7 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
 
 fn tap_catalog() -> Catalog {
     let mut catalog = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     for raw in [
@@ -40,7 +40,11 @@ fn tap_catalog() -> Catalog {
             );
             assert_eq!(definition.activated.len(), 1);
         }
-        catalog.definitions.push(*definition);
+        if let Some(existing) = catalog.definition_by_oracle_id(&definition.oracle_id) {
+            assert_eq!(existing, definition.as_ref());
+        } else {
+            catalog.definitions.push(*definition);
+        }
     }
     catalog
 }
@@ -390,7 +394,11 @@ fn paid_creature_source_tap_checks_target_and_pays_before_resolution() {
             .contains(&Capability::ActivatedTapPermanentV1)
     );
     let mut catalog = tap_catalog();
-    catalog.definitions.push(*definition);
+    if let Some(existing) = catalog.definition_by_oracle_id(&definition.oracle_id) {
+        assert_eq!(existing, definition.as_ref());
+    } else {
+        catalog.definitions.push(*definition);
+    }
     let p = prepared_with_catalog(
         &[
             ("Half-Elf Monk", 0, false),

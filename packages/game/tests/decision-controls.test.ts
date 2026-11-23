@@ -48,7 +48,6 @@ test('implemented handle adapters preserve exact supplied response fields withou
     { ...base, request: 'bottom_opening', candidates: ['copy-a', 'copy-b'], count: 2 },
     { ...base, request: 'discard', candidates: ['copy-a', 'copy-b'], count: 2 },
     { ...base, request: 'resolve_discard', candidates: ['copy-a', 'copy-b'], count: 2 },
-    { ...base, request: 'search_lands', candidates: [{ handle: 'copy-a', oracle_id: 'synthetic-not-card-data' }], maximum: 2 },
     { ...base, request: 'legend_rule', candidates: ['copy-a'], previous_choices: [] },
     { ...base, request: 'sacrifice_cost', candidates: ['copy-a'] },
     { ...base, request: 'forced_sacrifice', candidates: ['copy-a'], previous_choices: [] },
@@ -71,7 +70,7 @@ test('implemented handle adapters preserve exact supplied response fields withou
 
 test('missing source semantics block payload construction, including otherwise simple quantities and booleans', () => {
   for (const request of [
-    { ...base, request: 'announce_x' }, { ...base, request: 'optional_effect' }, { ...base, request: 'optional_recursion' },
+    { ...base, request: 'announce_x' }, { ...base, request: 'optional_effect' },
     { ...base, request: 'modes', candidates: [0, 1] }, { ...base, request: 'priority' },
   ] satisfies DecisionRequest[]) {
     assert.equal(decisionSurface(request, []).status, 'context-missing');

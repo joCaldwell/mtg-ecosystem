@@ -37,36 +37,15 @@ impl Frame {
             Frame::GraveyardReplacement { transaction: _ } | Frame::GraveyardGroup { tx: _ } => {
                 Decider::requested(game.replacement_request(), 4)
             }
-            Frame::DamageAllocation {
-                transaction: _,
-                effect: _,
-            } => Decider::requested(game.damage_allocation_request()?, 14),
+
             Frame::SacrificeCost { cast: _ }
             | Frame::ForcedSacrifice {
                 frame: _,
                 remaining: _,
                 choices: _,
                 source_block: _,
-            }
-            | Frame::OptionalDamage { frame: _ } => {
-                Decider::requested(game.sacrifice_request()?, 17)
-            }
-            Frame::HandCast { frame: _, child: _ } => {
-                Decider::requested(game.hand_cast_request()?, 45)
-            }
-            Frame::PlayHideawayLinked { progress: _ }
-            | Frame::RevealAndCast { progress: _ }
-            | Frame::Cascade { progress: _ } => match game.resolution_cast_request()? {
-                Some(request) => {
-                    let kind = match request {
-                        Request::CascadeLandEntry { .. } => 23,
-                        Request::PlayHideawayLinked { .. } => 46,
-                        _ => 22,
-                    };
-                    Decider::of(request.player(), kind)
-                }
-                None => None,
-            },
+            } => Decider::requested(game.sacrifice_request()?, 17),
+
             Frame::Modes { cast: _ } => Decider::requested(game.modes_request()?, 13),
             Frame::CounterPlacement { transaction: _ } => {
                 Decider::requested(game.counter_placement_request()?, 22)
@@ -95,13 +74,12 @@ impl Frame {
             } => Decider::requested(game.legend_request()?, 19),
             Frame::Setup => Decider::requested(game.setup_request()?, 15),
             Frame::EntityTargets { cast: _ } => {
-                let any_damage_or_shuffle = game.program()?.targets.first().is_some_and(|t| {
-                    t.domain == TargetDomain::AnyDamageTarget
-                        || game.program().is_ok_and(|p| {
-                            mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
-                        })
-                });
-                if any_damage_or_shuffle {
+                let any_damage = game
+                    .program()?
+                    .targets
+                    .first()
+                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget);
+                if any_damage {
                     Decider::of(top()?, 10)
                 } else {
                     None
@@ -111,13 +89,12 @@ impl Frame {
                 placement: _,
                 stack_id: _,
             } => {
-                let any_damage_or_shuffle = game.program()?.targets.first().is_some_and(|t| {
-                    t.domain == TargetDomain::AnyDamageTarget
-                        || game.program().is_ok_and(|p| {
-                            mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
-                        })
-                });
-                if any_damage_or_shuffle {
+                let any_damage = game
+                    .program()?
+                    .targets
+                    .first()
+                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget);
+                if any_damage {
                     Decider::of(top()?, 10)
                 } else if !game.top_has_target_domain()? {
                     // CR 603.3d: a trigger with no legal target is removed by

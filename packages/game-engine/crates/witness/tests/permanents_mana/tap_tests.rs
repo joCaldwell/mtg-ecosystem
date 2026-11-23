@@ -6,7 +6,7 @@ use super::*;
 
 fn prepared(already_tapped: bool) -> Prepared {
     let mut catalog = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
@@ -29,7 +29,11 @@ fn prepared(already_tapped: bool) -> Prepared {
             kernel!(Draw { player: you!(), amount: fixed!(count) } @ 1)
         ] if *count == Quantity::from(1)
     ));
-    catalog.definitions.push(*definition);
+    if let Some(existing) = catalog.definition_by_oracle_id(&definition.oracle_id) {
+        assert_eq!(existing, definition.as_ref());
+    } else {
+        catalog.definitions.push(*definition);
+    }
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));

@@ -324,9 +324,7 @@ impl RulesTxn {
             let grants = match &effect.kind {
                 ResolvedEffectKind::GrantKeywords {
                     target, keywords, ..
-                } if *target == object && self.scalar_keyword_effect_applies(effect, object) => {
-                    Some(keywords)
-                }
+                } if *target == object && self.is_battlefield_creature(object) => Some(keywords),
                 ResolvedEffectKind::GrantKeywordsSet {
                     targets, keywords, ..
                 } if targets.contains(&object)
@@ -381,21 +379,6 @@ impl RulesTxn {
             })
             .flatten()
             .copied()
-            .chain(
-                self.state
-                    .rules
-                    .effects
-                    .iter()
-                    .filter_map(move |effect| match effect.kind {
-                        ResolvedEffectKind::CombatRestriction {
-                            target,
-                            restriction,
-                        } if target == object && self.target_is_creature(object) => {
-                            Some(restriction)
-                        }
-                        _ => None,
-                    }),
-            )
     }
 
     pub(crate) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {
@@ -411,28 +394,6 @@ impl RulesTxn {
         })
     }
     pub(super) fn entity_target_legal(&self, target: TargetEntity, entry: &StackInstance) -> bool {
-        let choosing = matches!(self.state.rules.frame, Frame::EntityTargets { .. })
-            && self.top().is_ok_and(|top| top.id == entry.id);
-        let program = if choosing {
-            self.program()
-        } else {
-            self.program_for(entry)
-        };
-        if program.is_ok_and(|p| mtg_contracts::graveyard_shuffle::offered_by(p).is_some()) {
-            return match target {
-                TargetEntity::Player { .. } => self.entity_legal(target),
-                TargetEntity::Object { object } => self.current(object).is_ok_and(|o| {
-                    let Zone::Graveyard { owner } = o.zone else {
-                        return false;
-                    };
-                    entry
-                        .entity_targets
-                        .first()
-                        .is_none_or(|p| *p == TargetEntity::Player { player: owner })
-                        && self.player_graveyard_card(o, owner)
-                }),
-            };
-        }
         self.entity_legal(target)
             && match target {
                 TargetEntity::Player { .. } => true,
@@ -520,65 +481,5 @@ impl RulesTxn {
             }
         }
         Ok(())
-    }
-    pub(super) fn execute_attachment_instruction(
-        &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String> {
-        let block = match instruction {
-            Instruction::AttachEquipment { source_block, .. }
-            | Instruction::ReturnAuraFromGraveyard { source_block } => source_block,
-            _ => return Err("not an attachment instruction".into()),
-        };
-        let cause = BatchCause::Instruction {
-            stack_id: frame.stack_id,
-            player: self.entry(frame.stack_id)?.controller,
-            source: self.entry(frame.stack_id)?.source,
-            cursor: frame.cursor,
-            source_block: block,
-        };
-        match instruction {
-            Instruction::AttachEquipment { target_slot, .. } => {
-                let object = self.entry(frame.stack_id)?.source;
-                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
-                if frame.legal_targets.get(target_slot as usize) == Some(&true)
-                    && self.object_target_legal(self.entry(frame.stack_id)?, target)
-                    && self
-                        .current(object)
-                        .is_ok_and(|o| o.present_on_battlefield() && o.attached_to != Some(target))
-                {
-                    self.commit(
-                        ProposedEvent::Attach {
-                            object,
-                            target: Some(target),
-                        },
-                        cause,
-                    )?;
-                }
-            }
-            Instruction::ReturnAuraFromGraveyard { .. } => {
-                // CR 400.7d: the trigger finds the new graveyard incarnation,
-                // but cannot find a later incarnation after another zone move.
-                let source = self.entry(frame.stack_id)?.source;
-                let incarnation = source
-                    .incarnation
-                    .checked_add(1)
-                    .ok_or("Aura incarnation overflow")?;
-                let object = ObjectId {
-                    card: source.card,
-                    incarnation,
-                };
-                let owner = self.state.rules.cards[&source.card].owner;
-                if self
-                    .current(object)
-                    .is_ok_and(|o| o.zone == (Zone::Graveyard { owner }))
-                {
-                    self.move_object_for(object, Zone::Hand { owner }, cause)?;
-                }
-            }
-            _ => return Err("not an attachment instruction".into()),
-        }
-        self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
     }
 }

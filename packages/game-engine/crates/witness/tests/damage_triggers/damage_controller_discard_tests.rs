@@ -7,7 +7,7 @@ const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
 const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 pub(super) fn prepared(empty: bool, commander: bool) -> Prepared {
     let mut c = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
@@ -23,7 +23,11 @@ pub(super) fn prepared(empty: bool, commander: bool) -> Prepared {
             .capabilities
             .contains(&Capability::DamageControllerDiscardV1)
     );
-    c.definitions.push(*definition);
+    if let Some(existing) = c.definition_by_oracle_id(&definition.oracle_id) {
+        assert_eq!(existing, definition.as_ref());
+    } else {
+        c.definitions.push(*definition);
+    }
     c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();

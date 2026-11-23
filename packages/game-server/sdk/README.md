@@ -106,7 +106,6 @@ not general bots or browser controls:
 | --- | --- |
 | `foundations-consumer.mjs` | Keep/pass, empty combat, offered discard and mandatory Commander returns; natural decking witness, no lands/casts/activations |
 | `commander-consumer.mjs` | Admitted all-Isamaru pod's land/commander/payment/attack sequence; no optional hand spells |
-| `attachments-consumer.mjs` | Admitted attachments pod, public-state mana planning/casts/equip/Auras/combat and offered private search handles; one policy instance per seat/game |
 
 Unsupported requests stop. The shared retry loop retains the original envelope/ID
 on unknown transport outcomes and 429/503 only: at most 24 attempts and 8 minutes

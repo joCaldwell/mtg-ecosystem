@@ -115,32 +115,9 @@ impl ReferenceQuery for Game {
         {
             candidates.push(*id);
         }
-        if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(Request::DamageAllocation {
-                candidates: ids, ..
-            }) = self
-                .damage_allocation_request()
-                .map_err(|_| QueryRejection::Invariant)?
-            && let Some(c) = ids.get(cursor - base - effect_count)
-        {
-            candidates.push(
-                self.visible_allocation_candidate(viewer, c)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
-        }
+
         let extra = effect_count
-            + if matches!(b.decision, Some(PlayerRequest::DamageAllocation { .. })) {
-                self.damage_allocation_request()
-                    .map_err(|_| QueryRejection::Invariant)?
-                    .map_or(0, |r| {
-                        if let Request::DamageAllocation { candidates, .. } = r {
-                            candidates.len()
-                        } else {
-                            0
-                        }
-                    })
-            } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
+            + if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
                 self.modes_request()
                     .map_err(|_| QueryRejection::Invariant)?
                     .map_or(0, |r| {
@@ -198,25 +175,7 @@ impl ReferenceQuery for Game {
                     return Ok((*cursor as usize >= ids.len())
                         .then(|| QueryValue::Decision(request.clone())));
                 }
-                if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = request {
-                    let Some(Request::DamageAllocation {
-                        candidates: ids, ..
-                    }) = self
-                        .damage_allocation_request()
-                        .map_err(|_| QueryRejection::Invariant)?
-                    else {
-                        return Err(QueryRejection::Invariant);
-                    };
-                    if let Some(candidate) = ids.get(*cursor as usize) {
-                        candidates.push(
-                            self.visible_allocation_candidate(*viewer, candidate)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        )
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= ids.len())
-                        .then(|| QueryValue::Decision(request.clone())));
-                }
+
                 if let Some(PlayerRequest::Modes { candidates, .. }) = request {
                     let Some(Request::Modes {
                         candidates: ids, ..
@@ -315,7 +274,6 @@ impl ReferenceQuery for Game {
                     converted,
                     converted_entities,
                     converted_triggers,
-                    converted_allocations,
                     value,
                 },
             ) => {
@@ -331,10 +289,7 @@ impl ReferenceQuery for Game {
                             Frame::EntityTargets { .. },
                             PlayerResponse::EntityTargets { entities },
                         ) => entities.len() == self.program().map_err(invalid)?.targets.len(),
-                        (
-                            Frame::DamageAllocation { .. },
-                            PlayerResponse::DamageAllocation { allocations },
-                        ) => allocations.len() <= self.damage_limit(),
+
                         (Frame::Modes { .. }, PlayerResponse::Modes { .. }) => true,
                         (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
                             objects.len() == self.program().map_err(invalid)?.targets.len()
@@ -430,23 +385,10 @@ impl ReferenceQuery for Game {
                     );
                     return Ok(None);
                 }
-                if let PlayerResponse::DamageAllocation { allocations } = response
-                    && converted_allocations.len() < allocations.len()
-                {
-                    let (handle, amount) = &allocations[converted_allocations.len()];
-                    let id = self
-                        .resolve_damage_handle(*viewer, handle)
-                        .map_err(invalid)?;
-                    converted_allocations.push((id, amount.clone()));
-                    return Ok(None);
-                }
+
                 if value.is_none() {
                     *value = Some(
-                        if matches!(response, PlayerResponse::DamageAllocation { .. }) {
-                            Response::DamageAllocation {
-                                allocations: converted_allocations.clone(),
-                            }
-                        } else if matches!(response, PlayerResponse::BottomOpening { .. }) {
+                        if matches!(response, PlayerResponse::BottomOpening { .. }) {
                             Response::BottomOpening {
                                 objects: converted.clone(),
                             }
@@ -726,9 +668,7 @@ pub(crate) fn compare_queries_with_profile(
                         damage: candidates[0].damage.clone(),
                     }
                 }
-                Request::DamageAllocation { .. } => PlayerResponse::DamageAllocation {
-                    allocations: vec![],
-                },
+
                 _ => continue,
             };
             let token = game
@@ -777,23 +717,7 @@ pub(crate) fn compare_queries_with_profile(
                             .collect(),
                     })
                 }
-                PlayerRequest::DamageAllocation {
-                    candidates,
-                    required,
-                    ..
-                } => {
-                    let mut left = required;
-                    Some(PlayerResponse::DamageAllocation {
-                        allocations: candidates
-                            .into_iter()
-                            .map(|candidate| {
-                                let amount = left.clone().min(candidate.amount);
-                                left.subtract(&amount);
-                                (candidate.damage, amount)
-                            })
-                            .collect(),
-                    })
-                }
+
                 _ => None,
             };
             if let Some(response) = valid {
@@ -846,19 +770,6 @@ fn match_root() -> Game {
     }
     panic!("opening did not finish")
 }
-fn fixture(catalog: &str, config: ScenarioConfig) -> Game {
-    Game::with_trace(
-        Prepared::admit(Catalog::read(catalog).unwrap(), config).unwrap(),
-        TraceMode::Off,
-    )
-}
-fn answer(game: &mut Game, response: Response) {
-    let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
-        panic!("fixture decision")
-    };
-    game.respond(request.player(), request.decision_id(), response)
-        .unwrap();
-}
 #[test]
 fn optimized_work_matches_original_every_unit_for_four_three_two_seat_roots() {
     let mut game = match_root();
@@ -871,137 +782,7 @@ fn optimized_work_matches_original_every_unit_for_four_three_two_seat_roots() {
         compare_queries(&game);
     }
 }
-#[test]
-fn optimized_work_matches_effects_modes_targets_and_trigger_candidate_domains() {
-    let effects = include_str!("../../../../../tests/fixtures/expected-effects-ir.json");
-    compare_queries(&fixture(effects, ScenarioConfig::effects_two_furnaces()));
-    let choices = include_str!("../../../../../tests/fixtures/expected-choices-ir.json");
-    let mut mode = fixture(choices, ScenarioConfig::choices());
-    answer(&mut mode, Response::Cast { card: CardId(5) });
-    let _ = mode.advance(Budget::unlimited());
-    assert!(matches!(mode.state.rules.frame, Frame::Modes { .. }));
-    compare_queries(&mode);
-    answer(&mut mode, Response::Modes { mode: 1 });
-    let _ = mode.advance(Budget::unlimited());
-    assert!(matches!(
-        mode.state.rules.frame,
-        Frame::EntityTargets { .. }
-    ));
-    compare_queries(&mode);
-    let mut targets = fixture(choices, ScenarioConfig::choices());
-    answer(&mut targets, Response::Cast { card: CardId(4) });
-    let _ = targets.advance(Budget::unlimited());
-    assert!(matches!(targets.state.rules.frame, Frame::Targets { .. }));
-    compare_queries(&targets);
-    let mut triggers = fixture(
-        include_str!("../../../../../tests/fixtures/expected-trigger-ir.json"),
-        ScenarioConfig::triggers(),
-    );
-    let source = triggers.object_id(CardId(5)).unwrap();
-    answer(
-        &mut triggers,
-        Response::ActivateAbility {
-            object: source,
-            ability: 0,
-        },
-    );
-    let _ = triggers.advance(Budget::unlimited());
-    assert!(matches!(
-        triggers.state.rules.frame,
-        Frame::TriggerOrder { .. }
-    ));
-    compare_queries(&triggers);
-}
-fn shield(game: &mut Game, source: u32, amount: i64) {
-    let source = game.object_id(CardId(source)).unwrap();
-    let id = EffectId(game.state.rules.next_effect_id);
-    game.state.rules.next_effect_id += 1;
-    game.state.rules.next_stack_id = 1;
-    let source_handles = game.capture_trigger_source_handles(source).unwrap();
-    let turn = game.state.rules.turn.number;
-    game.state.rules.effects.push(ResolvedEffect {
-        id,
-        target_handles: vec![],
-        origin: EffectOrigin {
-            activated_ability: None,
-            mode: Some(1),
-            stack_id: StackId(0),
-            source,
-            controller: PlayerId(0),
-            source_handles,
-            cursor: 0,
-            source_block: 0,
-        },
-        expires_in_cleanup_of_turn: turn,
-        kind: ResolvedEffectKind::PreventNextDamage {
-            target: TargetEntity::Player {
-                player: PlayerId(0),
-            },
-            remaining: amount.into(),
-        },
-    });
-}
-fn damage_sources(game: &Game) -> Vec<DamageOccurrence> {
-    game.state
-        .rules
-        .objects
-        .values()
-        .filter(|o| {
-            o.zone == Zone::Battlefield
-                && game.definition(o.id.card).unwrap().characteristics.kind == CardKind::Creature
-        })
-        .take(2)
-        .map(|o| DamageOccurrence {
-            source: o.id,
-            controller: o.controller,
-            recipient: DamageRecipient::Player {
-                player: PlayerId(0),
-            },
-            amount: 3.into(),
-        })
-        .collect()
-}
-#[test]
-fn optimized_work_matches_simultaneous_damage_effect_and_allocation_rows() {
-    // Private event-domain fixtures isolate query enumeration; natural whole
-    // shield/damage rules are covered by the independent effects/choice suites.
-    let mut effects = fixture(
-        include_str!("../../../../../tests/fixtures/expected-effects-ir.json"),
-        ScenarioConfig::effects_two_furnaces(),
-    );
-    let healer = effects
-        .state
-        .rules
-        .cards
-        .iter()
-        .find(|(_, c)| c.oracle_id == HEALER)
-        .unwrap()
-        .0
-        .0;
-    shield(&mut effects, healer, 1);
-    let damage = damage_sources(&effects);
-    effects.prepare_combat_damage(damage).unwrap();
-    effects.refresh_visibility().unwrap();
-    assert!(matches!(
-        effects.state.rules.frame,
-        Frame::DamageEffects { .. }
-    ));
-    compare_queries(&effects);
-    let mut allocation = fixture(
-        include_str!("../../../../../tests/fixtures/expected-choices-ir.json"),
-        ScenarioConfig::choices(),
-    );
-    shield(&mut allocation, 5, 3);
-    let damage = damage_sources(&allocation);
-    allocation.prepare_combat_damage(damage).unwrap();
-    allocation.damage_effect_step().unwrap();
-    allocation.refresh_visibility().unwrap();
-    assert!(matches!(
-        allocation.state.rules.frame,
-        Frame::DamageAllocation { .. }
-    ));
-    compare_queries(&allocation);
-}
+
 #[test]
 fn optimized_work_caches_rehydrate_and_never_cross_executor_or_state_boundaries() {
     let mut game = match_root();

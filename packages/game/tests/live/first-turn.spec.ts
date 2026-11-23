@@ -30,8 +30,8 @@ const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 function initiationResponse(action: ActionInitiation): PlayerResponse {
   switch (action.action) {
     case 'pass': return { response: 'pass' };
-    case 'play_land': return { response: 'play_land', object: action.object };
-    case 'cast': return { response: 'cast', card: action.card };
+    case 'play_land': case 'play_back_land': return { response: action.action, object: action.object };
+    case 'cast': case 'bestow': return { response: action.action, card: action.card };
     case 'activate_mana': return { response: 'activate_mana', object: action.object };
     case 'activate_ability': return { response: 'activate_ability', object: action.object, ability: action.ability };
     case 'finish_mana': return { response: 'finish_mana', undo_mana: action.undo_mana };

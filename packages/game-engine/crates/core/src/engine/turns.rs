@@ -135,8 +135,7 @@ impl RulesTxn {
         if definition.characteristics.kind != CardKind::Land
             || !definition.capabilities.contains(&Capability::LandPlayV1)
             || self.state.rules.cards[&card].owner != player
-            || !(self.can_play_from_land_zone(player, object.zone)
-                || self.may_play_exile(player, object.id))
+            || !(self.can_play_from_land_zone(player, object.zone))
             || !self.has_land_play_allowance(player)
         {
             return Err("invalid or unsupported land play".into());

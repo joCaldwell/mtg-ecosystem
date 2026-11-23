@@ -53,15 +53,6 @@ impl RulesTxn {
         let (source, index, is_static) = match ability {
             EffectiveTriggerAbility::DelayedChapter { chapter: index, .. }
             | EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
-            EffectiveTriggerAbility::Granted {
-                grant_source,
-                static_ability_index,
-            } => (grant_source, static_ability_index, true),
-            EffectiveTriggerAbility::TemporaryGrant {
-                grant_source,
-                triggered_ability_index,
-                ..
-            } => (grant_source, triggered_ability_index, false),
         };
         let labels = self
             .copiable_definition(source)
@@ -149,40 +140,6 @@ impl RulesTxn {
                     | EffectiveTriggerAbility::DelayedChapter { chapter: index, .. },
                 ..
             } => (DecisionSourceKind::Triggered, Some(index)),
-            StackKind::Triggered {
-                ability, ref grant, ..
-            } => {
-                // The grantor describes this ability; the cast spell remains its
-                // rules source. Preserve the viewer's captured public handle after departure.
-                let (grant_source, index) = match ability {
-                    EffectiveTriggerAbility::Granted {
-                        grant_source,
-                        static_ability_index,
-                    } => (grant_source, static_ability_index),
-                    EffectiveTriggerAbility::TemporaryGrant {
-                        grant_source,
-                        triggered_ability_index,
-                        ..
-                    } => (grant_source, triggered_ability_index),
-                    EffectiveTriggerAbility::Intrinsic { .. }
-                    | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
-                };
-                return Some(DecisionSource {
-                    kind: DecisionSourceKind::Triggered,
-                    oracle_id: self
-                        .copiable_definition(grant_source)
-                        .ok()?
-                        .oracle_id
-                        .clone(),
-                    object: grant
-                        .as_ref()?
-                        .source_handles
-                        .get(viewer.0 as usize)
-                        .map(ObjectHandle::from),
-                    ability: Some(index),
-                    text: self.trigger_source_label(entry.source, ability)?.into(),
-                });
-            }
         };
         self.described_source(viewer, entry.source, kind, ability)
     }
@@ -220,12 +177,7 @@ impl RulesTxn {
                 modes: vec![],
             });
         }
-        if let PlayerRequest::CascadeLandEntry { .. } = request
-            && let Frame::Cascade { progress } = &self.state.rules.frame
-        {
-            return self
-                .effect_decision_context(viewer, &self.cascade_land_source(progress).ok()??);
-        }
+
         if matches!(
             request,
             PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. }
@@ -254,9 +206,6 @@ impl RulesTxn {
                 })
                 .flatten();
         }
-        if let Frame::DamageAllocation { effect, .. } = &self.state.rules.frame {
-            return self.effect_decision_context(viewer, effect);
-        }
 
         if let Frame::DamageEffects { transaction } = &self.state.rules.frame
             && let DamageContinuation::Mana { activation, .. } = &transaction.continuation
@@ -278,15 +227,6 @@ impl RulesTxn {
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
-            (Frame::PlayHideawayLinked { progress }, PlayerRequest::PlayHideawayLinked { .. }) => {
-                self.entry(progress.frame.stack_id).ok()?
-            }
-            (Frame::RevealAndCast { progress }, PlayerRequest::OptionalEffect { .. }) => {
-                self.entry(progress.frame.stack_id).ok()?
-            }
-            (Frame::HandCast { frame, .. }, PlayerRequest::HandCast { .. }) => {
-                self.entry(frame.stack_id).ok()?
-            }
             (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
                     .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)
@@ -311,7 +251,6 @@ impl RulesTxn {
             (
                 Frame::ResolutionPayment { frame, .. }
                 | Frame::ResolutionChoice { frame, .. }
-                | Frame::OptionalDamage { frame }
                 | Frame::ForcedSacrifice { frame, .. },
                 _,
             ) => self.entry(frame.stack_id).ok()?,
@@ -353,11 +292,7 @@ impl RulesTxn {
                 .collect();
         }
         let block = match &self.state.rules.frame {
-            Frame::RevealAndCast { progress } => Some(progress.source_block),
-            Frame::PlayHideawayLinked { progress } => Some(progress.source_block),
-            Frame::ResolutionPayment { frame, .. }
-            | Frame::ResolutionChoice { frame, .. }
-            | Frame::OptionalDamage { frame } => {
+            Frame::ResolutionPayment { frame, .. } | Frame::ResolutionChoice { frame, .. } => {
                 // source_block is a typed instruction provenance index, not text parsing.
                 self.program_for(self.entry(frame.stack_id).ok()?)
                     .ok()?

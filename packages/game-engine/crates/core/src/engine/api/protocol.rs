@@ -12,12 +12,6 @@ pub enum ManaAbilityIdentity {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Response {
-    PlayHideawayLinked {
-        object: Option<ObjectId>,
-    },
-    PlayHideawayLinkedBackLand {
-        object: ObjectId,
-    },
     EntryCopy {
         object: Option<ObjectId>,
     },
@@ -30,27 +24,7 @@ pub enum Response {
     AdditionalCosts {
         selected: Vec<String>,
     },
-    HandReturn {
-        objects: Vec<ObjectId>,
-    },
-    LibraryOrder {
-        objects: Vec<ObjectId>,
-    },
-    Hideaway {
-        object: ObjectId,
-    },
-    LibrarySelect {
-        hand: Vec<ObjectId>,
-        remainder: Vec<ObjectId>,
-    },
-    Surveil {
-        top: Vec<ObjectId>,
-        graveyard: Vec<ObjectId>,
-    },
-    Scry {
-        top: Vec<ObjectId>,
-        bottom: Vec<ObjectId>,
-    },
+
     LegendRule {
         keep: ObjectId,
     },
@@ -75,46 +49,22 @@ pub enum Response {
     ManaColor {
         color: Color,
     },
-    ColoredSearch {
-        assignments: Vec<ColoredCardAssignment>,
-    },
-    SearchLands {
-        objects: Vec<ObjectId>,
-    },
-    CascadeLandEntry {
-        object: Option<ObjectId>,
-    },
+
     EntryReveal {
         card: Option<ObjectId>,
     },
-    SearchLandBattlefield {
-        object: ObjectId,
-    },
-    ChooseOpponent {
-        opponent: PlayerId,
-    },
+
     OptionalEffect {
         perform: bool,
     },
-    ChooseColor {
-        color: Color,
-    },
-    Proliferate {
-        object: ObjectId,
-        include: bool,
-    },
-    OptionalRecursion {
-        perform: bool,
-    },
+
     Mulligan {
         take: bool,
     },
     BottomOpening {
         objects: Vec<ObjectId>,
     },
-    DamageAllocation {
-        allocations: Vec<(DamageId, Quantity)>,
-    },
+
     ModeSubset {
         modes: Vec<u32>,
     },
@@ -216,11 +166,6 @@ pub enum GraveyardOrderOption {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
-    PlayHideawayLinked {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<ObjectId>,
-    },
     EntryCopy {
         decision_id: u64,
         player: PlayerId,
@@ -246,49 +191,13 @@ pub enum Request {
         player: PlayerId,
         object: ObjectId,
     },
-    HandCast {
-        player: PlayerId,
-        decision_id: u64,
-        candidates: Vec<ObjectId>,
-    },
+
     AdditionalCosts {
         decision_id: u64,
         player: PlayerId,
         candidates: Vec<mtg_contracts::OptionalAdditionalManaCost>,
     },
-    HandReturn {
-        decision_id: u64,
-        player: PlayerId,
-        count: usize,
-        candidates: Vec<ObjectId>,
-    },
-    LibraryOrder {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<ObjectId>,
-        count: usize,
-    },
-    Hideaway {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<ObjectId>,
-    },
-    LibrarySelect {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<ObjectId>,
-        remainder: LibraryRemainder,
-    },
-    Surveil {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<ObjectId>,
-    },
-    Scry {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<ObjectId>,
-    },
+
     LegendRule {
         decision_id: u64,
         player: PlayerId,
@@ -331,58 +240,19 @@ pub enum Request {
         player: PlayerId,
         colors: Vec<Color>,
     },
-    CascadeLandEntry {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<ObjectId>,
-    },
+
     EntryReveal {
         decision_id: u64,
         player: PlayerId,
         source: ObjectId,
         candidates: Vec<ObjectId>,
     },
-    SearchLandBattlefield {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<ObjectId>,
-    },
-    ColoredSearch {
-        decision_id: u64,
-        player: PlayerId,
-        library: Vec<String>,
-        colors: Vec<Color>,
-        candidates: Vec<ColoredCardCandidate>,
-    },
-    SearchLands {
-        decision_id: u64,
-        player: PlayerId,
-        maximum: u32,
-        candidates: Vec<ObjectId>,
-    },
-    ChooseOpponent {
-        decision_id: u64,
-        player: PlayerId,
-        candidates: Vec<PlayerId>,
-    },
+
     OptionalEffect {
         decision_id: u64,
         player: PlayerId,
     },
-    ChooseColor {
-        decision_id: u64,
-        player: PlayerId,
-        target: ObjectId,
-    },
-    Proliferate {
-        decision_id: u64,
-        player: PlayerId,
-        candidate: ObjectId,
-    },
-    OptionalRecursion {
-        decision_id: u64,
-        player: PlayerId,
-    },
+
     Mulligan {
         decision_id: u64,
         player: PlayerId,
@@ -396,15 +266,7 @@ pub enum Request {
         count: usize,
         candidates: Vec<ObjectId>,
     },
-    DamageAllocation {
-        decision_id: u64,
-        player: PlayerId,
-        recipient: TargetEntity,
-        effect: EffectKey,
-        remaining: Quantity,
-        required: Quantity,
-        candidates: Vec<DamageAllocationCandidate>,
-    },
+
     Modes {
         decision_id: u64,
         player: PlayerId,
@@ -528,36 +390,19 @@ pub enum Request {
 impl Request {
     pub fn decision_id(&self) -> u64 {
         match self {
-            Self::PlayHideawayLinked { decision_id, .. }
-            | Self::HandCast { decision_id, .. }
-            | Self::HandReturn { decision_id, .. }
-            | Self::LibraryOrder { decision_id, .. }
-            | Self::Hideaway { decision_id, .. }
-            | Self::LibrarySelect { decision_id, .. }
-            | Self::Scry { decision_id, .. }
-            | Self::Surveil { decision_id, .. } => *decision_id,
             Self::AdditionalCosts { decision_id, .. }
             | Self::HybridCost { decision_id, .. }
             | Self::AnnounceX { decision_id, .. }
             | Self::ChooseManaAbility { decision_id, .. }
             | Self::ManaCombination { decision_id, .. }
             | Self::ManaColor { decision_id, .. }
-            | Self::ColoredSearch { decision_id, .. }
-            | Self::SearchLands { decision_id, .. }
             | Self::EntryCopy { decision_id, .. }
             | Self::EntryAttachment { decision_id, .. }
-            | Self::CascadeLandEntry { decision_id, .. }
             | Self::EntryReveal { decision_id, .. }
-            | Self::SearchLandBattlefield { decision_id, .. }
-            | Self::ChooseOpponent { decision_id, .. }
             | Self::OptionalEffect { decision_id, .. }
-            | Self::ChooseColor { decision_id, .. }
-            | Self::Proliferate { decision_id, .. }
-            | Self::OptionalRecursion { decision_id, .. }
             | Self::Mulligan { decision_id, .. }
             | Self::OpeningPlacement { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
-            | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
             | Self::CounterPlacementEffect { decision_id, .. }
             | Self::DamageEffect { decision_id, .. }
@@ -584,36 +429,19 @@ impl Request {
     }
     pub fn player(&self) -> PlayerId {
         match self {
-            Self::PlayHideawayLinked { player, .. }
-            | Self::HandCast { player, .. }
-            | Self::HandReturn { player, .. }
-            | Self::LibraryOrder { player, .. }
-            | Self::Hideaway { player, .. }
-            | Self::LibrarySelect { player, .. }
-            | Self::Scry { player, .. }
-            | Self::Surveil { player, .. } => *player,
             Self::AdditionalCosts { player, .. }
             | Self::HybridCost { player, .. }
             | Self::AnnounceX { player, .. }
             | Self::ChooseManaAbility { player, .. }
             | Self::ManaCombination { player, .. }
             | Self::ManaColor { player, .. }
-            | Self::ColoredSearch { player, .. }
-            | Self::SearchLands { player, .. }
             | Self::EntryCopy { player, .. }
             | Self::EntryAttachment { player, .. }
-            | Self::CascadeLandEntry { player, .. }
             | Self::EntryReveal { player, .. }
-            | Self::SearchLandBattlefield { player, .. }
-            | Self::ChooseOpponent { player, .. }
             | Self::OptionalEffect { player, .. }
-            | Self::ChooseColor { player, .. }
-            | Self::Proliferate { player, .. }
-            | Self::OptionalRecursion { player, .. }
             | Self::Mulligan { player, .. }
             | Self::OpeningPlacement { player, .. }
             | Self::BottomOpening { player, .. }
-            | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
             | Self::CounterPlacementEffect { player, .. }
             | Self::DamageEffect { player, .. }

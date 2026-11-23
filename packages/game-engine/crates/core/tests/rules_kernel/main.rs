@@ -1,21 +1,16 @@
 //! Moved from mtg-core in-source tests; see docs/game-engine-development.md.
 use mtg_core::testkit::*;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
+use std::{collections::BTreeMap, sync::Arc};
 mod actions_tests;
 mod casting_foundation_tests;
-mod choices_tests;
-mod combat_keywords_tests;
+
 mod combat_tests;
 mod commander_damage_library_tests;
 mod commander_tests;
 mod damage_life_tests;
-mod damage_match_tests;
-mod damage_match_v2_tests;
+
 mod departure_tests;
-mod effects_tests;
+
 mod event_tests;
 mod p2_tests;
 mod payment_event_tests;

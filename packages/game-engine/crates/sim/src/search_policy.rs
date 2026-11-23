@@ -77,14 +77,6 @@ pub(super) fn choose(
             return Err("counter placement replacement choices outside this policy".into());
         }
 
-        PlayerRequest::HandCast { .. }
-        | PlayerRequest::HandReturn { .. }
-        | PlayerRequest::LibraryOrder { .. }
-        | PlayerRequest::LibrarySelect { .. }
-        | PlayerRequest::Scry { .. }
-        | PlayerRequest::Surveil { .. } => {
-            return Err("scry outside this policy admission".into());
-        }
         PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
             keep: candidates.last().ok_or("empty legend choices")?.clone(),
         },
@@ -100,21 +92,11 @@ pub(super) fn choose(
         PlayerRequest::ChooseManaAbility { .. }
         | PlayerRequest::ManaCombination { .. }
         | PlayerRequest::ManaColor { .. }
-        | PlayerRequest::ColoredSearch { .. }
-        | PlayerRequest::SearchLands { .. }
-        | PlayerRequest::CascadeLandEntry { .. }
-        | PlayerRequest::ChooseOpponent { .. }
         | PlayerRequest::GraveyardReplacementOrder { .. }
-        | PlayerRequest::Hideaway { .. }
-        | PlayerRequest::PlayHideawayLinked { .. }
         | PlayerRequest::EntryCopy { .. }
         | PlayerRequest::EntryAttachment { .. }
         | PlayerRequest::EntryReveal { .. }
-        | PlayerRequest::SearchLandBattlefield { .. }
-        | PlayerRequest::OptionalEffect { .. }
-        | PlayerRequest::OptionalRecursion { .. }
-        | PlayerRequest::ChooseColor { .. }
-        | PlayerRequest::Proliferate { .. } => {
+        | PlayerRequest::OptionalEffect { .. } => {
             return Err("staples request unsupported by this completion policy".into());
         }
         PlayerRequest::Priority { .. } => {
@@ -297,25 +279,7 @@ pub(super) fn choose(
                 damage: candidate.damage.clone(),
             }
         }
-        PlayerRequest::DamageAllocation {
-            required,
-            candidates,
-            ..
-        } => {
-            let mut remaining = required.clone();
-            let allocations = candidates
-                .iter()
-                .map(|candidate| {
-                    let amount = std::cmp::min(candidate.amount.clone(), remaining.clone());
-                    remaining.subtract(&amount);
-                    (candidate.damage.clone(), amount)
-                })
-                .collect();
-            if remaining != Quantity::zero() {
-                return Err("rollout allocation cannot satisfy required prevention".into());
-            }
-            PlayerResponse::DamageAllocation { allocations }
-        }
+
         PlayerRequest::OpeningPlacement { .. }
         | PlayerRequest::Mulligan { .. }
         | PlayerRequest::BottomOpening { .. } => {

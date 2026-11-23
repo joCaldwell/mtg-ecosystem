@@ -20,6 +20,7 @@ export function actionResponse(beginning: Readonly<ActionBeginning>, context: Ac
   const source = beginning.label.available.source;
   const boundObject = (handle: string) => scope.scope === 'window' || scope.object === handle;
   switch (action.action) {
+    case 'play_back_land': case 'bestow': return null;
     case 'play_land': return context['window'] === 'priority' && boundObject(action.object) ? { response: 'play_land', object: action.object } : null;
     case 'cast': return context['window'] === 'priority' && boundObject(action.card) && source?.kind === 'spell' && source.object === action.card ? { response: 'cast', card: action.card } : null;
     case 'activate_ability': return context['window'] === 'priority' && boundObject(action.object) && source?.kind === 'activated' && source.object === action.object && source.ability === action.ability && source.text ? { response: 'activate_ability', object: action.object, ability: action.ability } : null;
@@ -36,6 +37,8 @@ export function actionDescription(beginning: Readonly<ActionBeginning>, objects:
   switch (beginning.initiation.action) {
     case 'pass': return 'Pass priority';
     case 'play_land': return 'Play land — card context unavailable';
+    case 'bestow': return 'Bestow — card context unavailable';
+    case 'play_back_land': return 'Play back face as land — card context unavailable';
     case 'cast': return 'Cast spell — card and payment context unavailable';
     case 'activate_mana': return 'Activate mana — ability label unavailable';
     case 'activate_ability': return 'Activate ability — source label unavailable';

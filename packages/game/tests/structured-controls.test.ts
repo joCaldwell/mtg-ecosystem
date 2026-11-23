@@ -60,6 +60,9 @@ test('semantic choices require the corresponding producer context and preserve o
   const modes = [{ mode: 0, text: 'Synthetic first mode' }, { mode: 2, text: 'Synthetic second mode' }];
   assert.deepEqual(completeDecision(mode, [], { ...emptyDraft, selected: ['2'] }, { ...context, modes }), { response: 'modes', mode: 2 });
   assert.equal(completeDecision(mode, [], { ...emptyDraft, selected: ['2'] }, { ...context, modes: [...modes, modes[1]!] }), null);
+  for (const constraint of [{ one_or_more: true }, { exactly: 2 }, { allow_repeat: true }]) {
+    assert.equal(completeDecision({ ...mode, ...constraint }, [], { ...emptyDraft, selected: ['2'] }, { ...context, modes }), null);
+  }
 });
 
 test('ordered mixed targets distinguish object and player identity and do not inspect target rules', () => {
@@ -82,20 +85,10 @@ test('field reconciliation removes retired candidate choices and ambiguity fails
 });
 
 test('replacement-effect choices require per-occurrence labels and retain the exact effect/damage pair', () => {
-  const candidate = { allocation_required: false, amount_before: '4', amount_after: '8', budget_remaining: null, damage: 'd1', damage_oracle_id: 'synthetic-damage', damage_source: { announced: 'a', current: 'a' }, effect: 'e1', effect_controller: 0, effect_oracle_id: 'synthetic-effect', effect_source: { announced: 'b', current: 'b' }, kind: 'double_damage' as const };
+  const candidate = { amount_before: '4', amount_after: '8', damage: 'd1', damage_oracle_id: 'synthetic-damage', damage_source: { announced: 'a', current: 'a' }, effect: 'e1', effect_controller: 0, effect_oracle_id: 'synthetic-effect', effect_source: { announced: 'b', current: 'b' }, kind: 'double_damage' as const };
   const request: DecisionRequest = { ...base, request: 'damage_effect', recipient: { entity: 'player', player: 0 }, candidates: [{ ...candidate, label: 'Synthetic exact effect source block' }, { ...candidate, damage: 'd2', label: 'Synthetic exact effect source block' }] };
   const missingLabel: DecisionRequest = { ...base, request: 'damage_effect', recipient: { entity: 'player', player: 0 }, candidates: [candidate] };
   assert.equal(decisionSurface(missingLabel, []).status, 'context-missing');
   assert.deepEqual(completeDecision(request, labels, { ...emptyDraft, selected: ['["e1","d2"]'] }), { response: 'damage_effect', effect: 'e1', damage: 'd2' });
   assert.equal(completeDecision(request, labels, { ...emptyDraft, selected: ['["foreign","d2"]'] }), null);
-});
-
-test('prevention allocation requires selected effect context and exact supplied occurrence maxima and total', () => {
-  const request: DecisionRequest = { ...base, request: 'damage_allocation', recipient: { entity: 'player', player: 0 }, effect: 'e1', remaining: '9', required: '5', candidates: [{ damage: 'd1', source: { announced: 'a', current: null }, oracle_id: 'synthetic-a', amount: '2' }, { damage: 'd2', source: { announced: 'b', current: 'b' }, oracle_id: 'synthetic-b', amount: '4' }] };
-  const effect: DecisionContext = { ...context, source: { ...source, kind: 'effect' } };
-  const draft = values(['d1', '2'], ['d2', '3']);
-  assert.equal(completeDecision(request, labels, draft, context), null);
-  assert.deepEqual(completeDecision(request, labels, draft, effect), { response: 'damage_allocation', allocations: [['d1', '2'], ['d2', '3']] });
-  assert.equal(completeDecision(request, labels, values(['d1', '3'], ['d2', '2']), effect), null);
-  assert.equal(completeDecision(request, labels, values(['d1', '1'], ['d2', '3']), effect), null);
 });

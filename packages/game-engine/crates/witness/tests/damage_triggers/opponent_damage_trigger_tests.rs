@@ -9,7 +9,7 @@ const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
 const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
 fn catalog() -> Catalog {
     let mut c = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
@@ -20,7 +20,11 @@ fn catalog() -> Catalog {
     ) else {
         panic!("complete Thieving Otter source must lower")
     };
-    c.definitions.push(*definition);
+    if let Some(existing) = c.definition_by_oracle_id(&definition.oracle_id) {
+        assert_eq!(existing, definition.as_ref());
+    } else {
+        c.definitions.push(*definition);
+    }
     c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();
@@ -356,86 +360,6 @@ fn opponent_damage_private_collection_uses_observer_controller_and_frozen_restor
     }
 }
 
-fn pay_input(g: &mut Game) {
-    let Request::SpendMana {
-        player,
-        cost,
-        available,
-        ..
-    } = settle(g)
-    else {
-        panic!("spending")
-    };
-    let remaining = g.payment_pool(player, &cost).unwrap();
-    let spending = available
-        .into_iter()
-        .filter_map(|(color, mut amount)| {
-            amount.subtract(&remaining.get(&color).cloned().unwrap_or_default());
-            (amount > Quantity::zero()).then_some((color, amount))
-        })
-        .collect();
-    answer(g, Response::SpendMana { spending });
-}
-fn fund(g: &mut Game) {
-    let player = settle(g).player();
-    let lands = g
-        .state
-        .rules
-        .objects
-        .values()
-        .filter(|o| {
-            o.zone == Zone::Battlefield
-                && o.controller == player
-                && !o.tapped
-                && g.definition(o.id.card).unwrap().characteristics.kind == CardKind::Land
-        })
-        .map(|o| o.id)
-        .collect::<Vec<_>>();
-    for object in lands {
-        answer(g, Response::ActivateMana { object });
-    }
-    answer(g, Response::FinishMana { undo_mana: false });
-    pay_input(g);
-}
-fn cast(g: &mut Game, card: u32) {
-    answer(g, Response::Cast { card: CardId(card) });
-    fund(g);
-    placed(g);
-}
-
-#[test]
-fn opponent_damage_exact_source_prevented_combat_has_no_trigger_and_replays() {
-    let fog = catalog()
-        .definitions
-        .iter()
-        .find(|d| d.name == "Fog")
-        .unwrap()
-        .oracle_id
-        .clone();
-    for mode in modes() {
-        let mut g = Game::with_trace(
-            prepared(&[
-                (OTTER, 2, 0, Zone::Battlefield),
-                (&fog, 0, 0, Zone::Hand { owner: PlayerId(0) }),
-            ]),
-            mode,
-        );
-        cast(&mut g, 1);
-        resolve(&mut g);
-        to_step(&mut g, 1, TurnStep::DeclareAttackers);
-        let source = object(&g);
-        answer(
-            &mut g,
-            Response::Attackers {
-                attacks: vec![(source, PlayerId(1))],
-            },
-        );
-        to_step(&mut g, 1, TurnStep::PostcombatMain);
-        assert_eq!(g.state.rules.players[1].life, 40.into());
-        assert_eq!(g.state.rules.next_trigger_id, 0);
-        recover(&g);
-    }
-}
 #[test]
 fn opponent_damage_hosting_and_search_remain_excluded() {
     let c = catalog();

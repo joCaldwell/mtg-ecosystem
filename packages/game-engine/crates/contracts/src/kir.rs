@@ -1242,6 +1242,9 @@ impl Walk<'_, '_> {
             return Ok(RefKind::Object);
         }
         let found = match reference {
+            Ref::Source if self.env.context == Context::Spell => {
+                return unaudited("spell source as an object operand");
+            }
             Ref::Source => RefKind::Object,
             Ref::Controller { role } => {
                 if *role != self.env.context.controller_role() {
@@ -1642,7 +1645,11 @@ impl Walk<'_, '_> {
                 self.amount(amount)
             }
             Verb::Damage { source, to, amount } => {
-                self.expect(source, &[RefKind::Object], "damage source")?;
+                // CR 120.1: a spell can deal damage as its own source. This
+                // attribution does not select the spell as a permanent.
+                if *source != Ref::Source {
+                    self.expect(source, &[RefKind::Object], "damage source")?;
+                }
                 self.damage_to(to)?;
                 self.amount(amount)
             }
@@ -2040,9 +2047,8 @@ impl Walk<'_, '_> {
                     _ => unaudited("life recipient"),
                 }
             }
-            // CR 121.1-121.2: the controller, one announced player, the
-            // trigger's event player or every player draws a fixed count or
-            // the announced X.
+            // CR 121.1-121.2, 608.2b: only the single-draw executor skips
+            // an illegal announced target and continues the remaining program.
             Verb::Draw { player, amount } => {
                 let announced = Self::fixed_or_announced_x(amount, 0, "draw count")?;
                 match player {
@@ -2055,8 +2061,12 @@ impl Walk<'_, '_> {
                     } if !announced && Self::recipient_role(*role) => Ok(()),
                     PlayerExpr::Is {
                         who: Ref::Target { .. },
-                    } if self.player_target(player)? == Some(TargetDomain::AnyPlayer) => Ok(()),
-                    _ => unaudited("draw recipient"),
+                    } if single_draw(player, amount)
+                        && self.player_target(player)? == Some(TargetDomain::AnyPlayer) =>
+                    {
+                        Ok(())
+                    }
+                    _ => unaudited("draw recipient or targeted count"),
                 }
             }
             // CR 120.1-120.3: the resolving object's source deals damage.
@@ -2323,7 +2333,11 @@ impl Walk<'_, '_> {
                 layer: Layer::Ability,
                 change: Change::AddKeywords { keywords },
                 until: Until::EndOfTurn,
-            } if !keywords.is_empty() => Ok(()),
+            } if self.env.context == Context::Activated
+                && super::supported_temporary_keywords(keywords) =>
+            {
+                Ok(())
+            }
             _ => unaudited("verb"),
         }
     }
@@ -3406,6 +3420,50 @@ mod tests {
     }
 
     #[test]
+    fn permanent_source_modifications_require_an_executable_context() {
+        let pump = Node::Do(Verb::ModifyUntil {
+            what: SetExpr::source(),
+            layer: Layer::PowerToughnessModify,
+            change: Change::PowerToughness {
+                power: Amount::fixed(1),
+                toughness: Amount::fixed(1),
+            },
+            until: Until::EndOfTurn,
+        });
+        let grant = |keyword| {
+            Node::Do(Verb::ModifyUntil {
+                what: SetExpr::source(),
+                layer: Layer::Ability,
+                change: Change::AddKeywords {
+                    keywords: vec![keyword],
+                },
+                until: Until::EndOfTurn,
+            })
+        };
+        let activated = Env {
+            context: Context::Activated,
+            ..spell(&[])
+        };
+        let triggered = Env {
+            context: Context::Triggered,
+            ..spell(&[])
+        };
+        assert!(check(&pump, &spell(&[])).is_err());
+        assert!(check(&pump, &activated).is_ok());
+        assert!(check(&grant(KeywordAbility::Flying), &activated).is_ok());
+        assert!(check(&grant(KeywordAbility::Flying), &triggered).is_err());
+        assert!(check(&grant(KeywordAbility::Flying), &spell(&[])).is_err());
+        for keyword in [
+            KeywordAbility::Menace,
+            KeywordAbility::Shroud,
+            KeywordAbility::Defender,
+            KeywordAbility::ProtectionFromEachColor,
+        ] {
+            assert!(check(&grant(keyword), &activated).is_err());
+        }
+    }
+
+    #[test]
     fn control_rejects_counted_draw_leaves() {
         let targets = [TargetSpec::new(0, "line:0:0", TargetDomain::AnyPlayer)];
         let env = Env {
@@ -3420,7 +3478,6 @@ mod tests {
             (you.clone(), Amount::fixed(0)),
             (you.clone(), Amount::fixed(2)),
             (you.clone(), Amount::announced_x()),
-            (target.clone(), Amount::fixed(2)),
             (PlayerExpr::EachPlayer, Amount::fixed(1)),
         ] {
             let leaf = Node::Do(Verb::Draw { player, amount });
@@ -3429,6 +3486,13 @@ mod tests {
                 check(&Node::Seq(vec![leaf]), &env),
                 Err(KirError::Unaudited(reason)) if reason.contains("nested counted draw")
             ));
+        }
+        for amount in [Amount::fixed(0), Amount::fixed(2), Amount::announced_x()] {
+            let leaf = Node::Do(Verb::Draw {
+                player: target.clone(),
+                amount,
+            });
+            assert!(matches!(check(&leaf, &env), Err(KirError::Unaudited(_))));
         }
         for player in [you, target] {
             let leaf = Node::Do(Verb::Draw {

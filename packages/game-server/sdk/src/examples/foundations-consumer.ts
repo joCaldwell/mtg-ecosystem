@@ -57,7 +57,7 @@ export type ConsumerReport = Summary & (
 );
 /** Test seams change transport/time, never supply an authoritative Game. */
 export interface ConsumerOptions {
-  expectedProfile?: 'commander-foundations-v1' | 'commander-attachments-v1';
+  expectedProfile?: 'commander-foundations-v1';
   policy?: (observation: Observation, viewer: number, manifest: PublicManifest) => PlayerResponse | null;
   fetch?: typeof globalThis.fetch;
   now?: () => number;

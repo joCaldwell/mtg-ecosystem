@@ -1,19 +1,10 @@
 # Engine fixtures
 
-Keep exact card source records, archive/provenance manifests, reviewed IR catalogs,
-profile/deck data, and small expected results here. Source facts remain checked in;
-catalog regeneration uses `mtg-sim catalog build MANIFEST --write` on Archive R4
-rows and requires review of the source and rules, not acceptance of whatever the
-compiler emits. Committed catalogs predate R4: their reviewed IR is admitted
-against its pinned sources and digest, never regenerated (see
-[catalog commands](../../../../docs/game-engine-catalogs.md#catalog-source-and-commands)).
-`phase1-r4/` holds the Archive R4 rows compiler and catalog tests lower.
-
-Current scenario expectations are the compact semantic hashes in
-`d1b3-history-scenario-digests.json` plus explicit event, outcome, choice, and
-privacy assertions in `../contracts.test.ts` and the Rust scenario suites.
-The simulator checks trace/budget equivalence and replay separately. Do not
-regenerate these expectations merely to make a failing test pass.
+The manifests in `catalogs/` select exact Archive R4 records. Regenerate expected
+IR and digests together with `mtg-sim catalog build MANIFEST --write`.
+The `ramos/` records retained for Oracle parser tests are independent of engine
+catalogs. [Catalog commands](../../../../docs/game-engine-catalogs.md#catalog-source-and-commands)
+describe provenance, extraction and verification.
 
 ## Historical reports
 

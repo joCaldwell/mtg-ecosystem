@@ -120,26 +120,6 @@ fn unsupported(s: impl Into<String>) -> SearchRejection {
 }
 
 impl RulesTxn {
-    fn remembered_library_cards(
-        &self,
-        player: PlayerId,
-        objects: &[ObjectId],
-        offset: usize,
-    ) -> Result<Vec<RememberedCard>, String> {
-        let sequence = self.state.knowledge.visibility[player.0 as usize]
-            .own_knowledge
-            .len();
-        objects
-            .iter()
-            .enumerate()
-            .map(|(i, o)| {
-                Ok(RememberedCard {
-                    memory_ref: format!("memory-{sequence}-{}", offset + i),
-                    oracle_id: self.definition(o.card)?.oracle_id.clone(),
-                })
-            })
-            .collect()
-    }
     pub(super) fn remember_library_action(
         &mut self,
         player: PlayerId,
@@ -156,48 +136,7 @@ impl RulesTxn {
             .push(action);
         Ok(())
     }
-    pub(super) fn remember_scry(
-        &mut self,
-        player: PlayerId,
-        top: &[ObjectId],
-        bottom: &[ObjectId],
-    ) -> Result<(), String> {
-        let action = OwnKnowledgeAction::Scry {
-            top: self.remembered_library_cards(player, top, 0)?,
-            bottom: self.remembered_library_cards(player, bottom, top.len())?,
-        };
-        self.remember_library_action(player, action)
-    }
-    pub(super) fn remember_surveil(
-        &mut self,
-        player: PlayerId,
-        top: &[ObjectId],
-    ) -> Result<(), String> {
-        let action = OwnKnowledgeAction::Surveil {
-            top: self.remembered_library_cards(player, top, 0)?,
-        };
-        self.remember_library_action(player, action)
-    }
-    pub(super) fn remember_library_order(
-        &mut self,
-        player: PlayerId,
-        top: &[ObjectId],
-    ) -> Result<(), String> {
-        let action = OwnKnowledgeAction::LibraryOrdered {
-            top: self.remembered_library_cards(player, top, 0)?,
-        };
-        self.remember_library_action(player, action)
-    }
-    pub(super) fn remember_library_selection(
-        &mut self,
-        player: PlayerId,
-        bottom: &[ObjectId],
-    ) -> Result<(), String> {
-        let action = OwnKnowledgeAction::LibrarySelected {
-            bottom: self.remembered_library_cards(player, bottom, 0)?,
-        };
-        self.remember_library_action(player, action)
-    }
+
     pub(super) fn remember_mill(&mut self, player: PlayerId, count: usize) -> Result<(), String> {
         self.remember_library_action(player, OwnKnowledgeAction::Milled { count })
     }

@@ -6,7 +6,7 @@ use super::*;
 
 fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
     let mut c = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     for (header, raw) in [
@@ -33,7 +33,11 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
         else {
             panic!("complete archived untap witness source must lower");
         };
-        c.definitions.push(*definition);
+        if let Some(existing) = c.definition_by_oracle_id(&definition.oracle_id) {
+            assert_eq!(existing, definition.as_ref());
+        } else {
+            c.definitions.push(*definition);
+        }
     }
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();
@@ -449,46 +453,7 @@ fn permanent_untap_public_targets_include_untapped_permanents_and_reject_stack_h
 }
 
 #[test]
-fn permanent_untap_actual_equipment_targetability_and_feature_guards_stay_strict() {
-    for equipment in ["Lightning Greaves", "Swiftfoot Boots"] {
-        let mut g = Game::new(prepared(&[
-            ("Birds of Paradise", 0, false),
-            (equipment, 0, false),
-            ("Burst of Energy", 1, true),
-            ("Plains", 0, false),
-            ("Plains", 1, false),
-        ]));
-        let target = object(&g, 0);
-        let source = object(&g, 1);
-        answer(
-            &mut g,
-            1,
-            Response::ActivateAbility {
-                object: source,
-                ability: 0,
-            },
-        );
-        pay(&mut g, 1, target);
-        resolve_to(&mut g, 1, 0);
-        assert_eq!(g.current(source).unwrap().attached_to, Some(target));
-        priority(&mut g, 1, 1);
-        answer(&mut g, 1, Response::Cast { card: CardId(2) });
-        let r = request(&mut g, 1);
-        assert!(matches!(&r,Request::Targets {candidates,..} if !candidates.contains(&target)));
-        let before = g.snapshot().unwrap();
-        assert!(
-            g.respond(
-                r.player(),
-                r.decision_id(),
-                Response::Targets {
-                    objects: vec![target]
-                }
-            )
-            .is_err()
-        );
-        assert_eq!(g.snapshot().unwrap(), before);
-        check(&g);
-    }
+fn permanent_untap_feature_guards_stay_strict() {
     let p = prepared(&[("Burst of Energy", 0, true)]);
     let mut single = p.catalog.as_ref().clone();
     single.definitions.retain(|d| d.name == "Burst of Energy");

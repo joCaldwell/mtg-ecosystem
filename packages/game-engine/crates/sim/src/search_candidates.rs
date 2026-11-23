@@ -1,9 +1,8 @@
 //! Bounded strategy candidates from the real root's permitted observation only.
 //! This is an explicitly pruned adapter, never an exhaustive legality oracle.
 use mtg_contracts::{
-    ActivationCost, CardKind, Catalog, Color, Definition, FunctioningZone, Instruction, ManaCost,
-    Quantity, SpellProgram, TargetDomain, canonical, fixed, kernel, sha256, target_object,
-    target_player,
+    ActivationCost, CardKind, Catalog, Color, Definition, FunctioningZone, ManaCost, Quantity,
+    SpellProgram, TargetDomain, canonical, fixed, kernel, sha256, target_object, target_player,
 };
 use mtg_core::{
     ObjectHandle, Observation, PlayerId, PlayerRequest, PlayerTargetEntity, RootHandleMap,
@@ -227,8 +226,7 @@ pub(super) fn beneficial(program: &SpellProgram) -> bool {
             kernel!(GainLife {
                 player: target_player!(_),
                 ..
-            })
-            | Instruction::PreventNextDamage { .. } => true,
+            }) => true,
             kernel!(ModifyUntil {
                 what: target_object!(_),
                 change: mtg_contracts::kir::Change::PowerToughness {

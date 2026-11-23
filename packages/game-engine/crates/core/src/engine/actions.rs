@@ -9,8 +9,6 @@ pub enum StackKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_condition: Option<InterveningCheck>,
         ability: EffectiveTriggerAbility,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        grant: Option<CascadeGrantProvenance>,
         source_handles: Vec<publish::StoredObjectHandle>,
         trigger_id: TriggerId,
         event: TriggerOccurrenceId,
@@ -46,97 +44,12 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolutionChoice {
-    Demonstrate {
-        source_block: u32,
-        first: Option<spell_copy::CopyIdentity>,
-    },
-    HandReturn {
-        player: PlayerId,
-        hand: Vec<ObjectId>,
-        source_block: u32,
-    },
-    LibraryOrder {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        source_block: u32,
-    },
-    OptionalShuffle {
-        player: PlayerId,
-        source_block: u32,
-    },
-    LookTopMana {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        revealed: bool,
-    },
-    Hideaway {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        bottom: Option<hideaway::RandomBottom>,
-    },
-    LibrarySelect {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        source_block: u32,
-    },
-    Surveil {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        source_block: u32,
-    },
-    Scry {
-        player: PlayerId,
-        looked: Vec<ObjectId>,
-        source_block: u32,
-    },
-    Search {
-        player: PlayerId,
-        maximum: u32,
-        split: bool,
-        source_block: u32,
-    },
-    ColoredSearch {
-        player: PlayerId,
-        source_block: u32,
-        revealed: Option<Vec<(Color, ObjectId)>>,
-    },
-    SearchSplit {
-        player: PlayerId,
-        objects: Vec<ObjectId>,
-        source_block: u32,
-    },
-    Shuffle {
-        player: PlayerId,
-        index: u32,
-        source_block: u32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        fetched_land: Option<MoveOutcome>,
-    },
     OptionalEffect {
         player: PlayerId,
         target: ObjectId,
         source_block: u32,
     },
-    ChooseOptional {
-        player: PlayerId,
-        source_block: u32,
-    },
-    OptionalDraw {
-        player: PlayerId,
-        source_block: u32,
-    },
-    SetColor {
-        source_block: u32,
-    },
-    Proliferate {
-        source_block: u32,
-        choices: proliferate::ProliferateChoices,
-    },
-    OptionalRecursion {
-        player: PlayerId,
-        target: ObjectId,
-        source_block: u32,
-    },
+
     Sacrifice {
         player: PlayerId,
         source_block: u32,
@@ -507,126 +420,18 @@ impl RulesTxn {
         self.announce_ability(player, decision_id, object, ability)
     }
     pub(crate) fn actions_request(&self) -> Result<Option<Request>, String> {
-        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
+        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
             return Ok(None);
         };
         let decision_id = self.state.rules.revision;
         Ok(match choice {
-            ResolutionChoice::SetColor { .. } => self.target_color_request(frame),
-            ResolutionChoice::Proliferate { choices, .. } => {
-                self.proliferate_request(frame, choices)
-            }
-            ResolutionChoice::ColoredSearch {
-                player,
-                revealed: None,
-                ..
-            } if self.is_live(*player) => Some(self.colored_request(frame, *player)?),
-            ResolutionChoice::Demonstrate { first, .. }
-                if self.is_live(self.entry(frame.stack_id)?.controller) =>
-            {
-                let player = self.entry(frame.stack_id)?.controller;
-                if first.is_none() {
-                    Some(Request::OptionalEffect {
-                        player,
-                        decision_id,
-                    })
-                } else {
-                    let candidates = self.opponents(player);
-                    (!candidates.is_empty()).then_some(Request::ChooseOpponent {
-                        player,
-                        decision_id,
-                        candidates,
-                    })
-                }
-            }
-            ResolutionChoice::HandReturn { player, .. } if self.is_live(*player) => {
-                Some(Request::HandReturn {
-                    decision_id,
-                    player: *player,
-                    count: self.hand_return_count_for_current()?,
-                    candidates: self.action_hand(*player),
-                })
-            }
-            ResolutionChoice::LibraryOrder { player, looked, .. } if self.is_live(*player) => {
-                Some(Request::LibraryOrder {
-                    decision_id,
-                    player: *player,
-                    candidates: looked.clone(),
-                    count: looked.len(),
-                })
-            }
-            ResolutionChoice::LookTopMana {
-                player,
-                looked,
-                revealed,
-            } if self.is_live(*player) => {
-                Some(self.look_top_mana_request(frame, *player, looked, *revealed)?)
-            }
-            ResolutionChoice::Hideaway {
-                player,
-                looked,
-                bottom: None,
-            } if self.is_live(*player) => Some(Request::Hideaway {
-                decision_id,
-                player: *player,
-                candidates: looked.clone(),
-            }),
-            ResolutionChoice::LibrarySelect { player, looked, .. } if self.is_live(*player) => {
-                Some(Request::LibrarySelect {
-                    decision_id,
-                    player: *player,
-                    candidates: looked.clone(),
-                    remainder: self.selection_destination(frame)?,
-                })
-            }
-            ResolutionChoice::Surveil { player, looked, .. } if self.is_live(*player) => {
-                Some(Request::Surveil {
-                    decision_id,
-                    player: *player,
-                    candidates: looked.clone(),
-                })
-            }
-            ResolutionChoice::Scry { player, looked, .. } if self.is_live(*player) => {
-                Some(Request::Scry {
-                    decision_id,
-                    player: *player,
-                    candidates: looked.clone(),
-                })
-            }
-            ResolutionChoice::Search {
-                player, maximum, ..
-            } if self.is_live(*player) => Some(Request::SearchLands {
-                decision_id,
-                player: *player,
-                maximum: *maximum,
-                candidates: self.search_lands(*player),
-            }),
-            ResolutionChoice::SearchSplit {
-                player, objects, ..
-            } if self.is_live(*player) && objects.len() == 2 => {
-                Some(Request::SearchLandBattlefield {
-                    decision_id,
-                    player: *player,
-                    candidates: objects.clone(),
-                })
-            }
-            ResolutionChoice::OptionalShuffle { player, .. }
-            | ResolutionChoice::OptionalEffect { player, .. }
-            | ResolutionChoice::ChooseOptional { player, .. }
-            | ResolutionChoice::OptionalDraw { player, .. }
-                if self.is_live(*player) =>
-            {
+            ResolutionChoice::OptionalEffect { player, .. } if self.is_live(*player) => {
                 Some(Request::OptionalEffect {
                     decision_id,
                     player: *player,
                 })
             }
-            ResolutionChoice::OptionalRecursion { player, .. } if self.is_live(*player) => {
-                Some(Request::OptionalRecursion {
-                    decision_id,
-                    player: *player,
-                })
-            }
+
             ResolutionChoice::Sacrifice { player, .. } if self.is_live(*player) => {
                 let candidates = self.controlled_creatures(*player);
                 (!candidates.is_empty()).then_some(Request::Sacrifice {
@@ -652,36 +457,10 @@ impl RulesTxn {
         player: PlayerId,
         response: &Response,
     ) -> Option<Result<(), String>> {
-        if let Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::SetColor { .. },
-        } = &self.state.rules.frame
-        {
-            return Some(self.validate_target_color_response(frame, player, response));
-        }
-        if let Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::Proliferate { choices, .. },
-        } = &self.state.rules.frame
-        {
-            return Some(self.validate_proliferate_choice(frame, choices, player, response));
-        }
-        if let Some(result) = self.validate_look_top_mana_response(player, response) {
-            return Some(result);
-        }
         if let (
             Frame::ResolutionChoice {
                 choice:
-                    ResolutionChoice::OptionalShuffle {
-                        player: chooser, ..
-                    }
-                    | ResolutionChoice::OptionalEffect {
-                        player: chooser, ..
-                    }
-                    | ResolutionChoice::ChooseOptional {
-                        player: chooser, ..
-                    }
-                    | ResolutionChoice::OptionalDraw {
+                    ResolutionChoice::OptionalEffect {
                         player: chooser, ..
                     },
                 ..
@@ -695,179 +474,11 @@ impl RulesTxn {
                 Err("invalid optional effect choice".into())
             });
         }
-        if let Frame::ResolutionChoice {
-            frame,
-            choice:
-                ResolutionChoice::ColoredSearch {
-                    player: actor,
-                    revealed: None,
-                    ..
-                },
-        } = &self.state.rules.frame
-        {
-            return Some(match response {
-                Response::ColoredSearch { assignments }
-                    if player == *actor && self.is_live(player) =>
-                {
-                    self.validate_colored_answer(frame, player, assignments)
-                }
-                _ => Err("invalid colored library decision".into()),
-            });
-        }
-        if let Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::Demonstrate { first, .. },
-        } = &self.state.rules.frame
-        {
-            return Some(
-                if self.is_live(player)
-                    && self
-                        .entry(frame.stack_id)
-                        .is_ok_and(|entry| entry.controller == player)
-                    && match (first, response) {
-                        (None, Response::OptionalEffect { .. }) => true,
-                        (Some(_), Response::ChooseOpponent { opponent }) => {
-                            *opponent != player && self.is_live(*opponent)
-                        }
-                        _ => false,
-                    }
-                {
-                    Ok(())
-                } else {
-                    Err("invalid demonstrate choice".into())
-                },
-            );
-        }
-        if let Some(result) = self.validate_staples_response(player, response) {
-            return Some(result);
-        }
+
         if let Some(result) = self.validate_trigger_response(player, response) {
             return Some(result);
         }
         match (&self.state.rules.frame, response) {
-            (
-                Frame::ResolutionChoice {
-                    frame,
-                    choice:
-                        ResolutionChoice::HandReturn {
-                            player: chooser,
-                            source_block,
-                            ..
-                        },
-                },
-                Response::HandReturn { objects },
-            ) => Some(
-                self.validate_hand_return(frame, *chooser, *source_block, objects)
-                    .and_then(|_| {
-                        if player == *chooser {
-                            Ok(())
-                        } else {
-                            Err("wrong hand return chooser".into())
-                        }
-                    }),
-            ),
-            (
-                Frame::ResolutionChoice {
-                    frame,
-                    choice:
-                        ResolutionChoice::LibraryOrder {
-                            player: chooser,
-                            looked,
-                            source_block,
-                        },
-                },
-                Response::LibraryOrder { objects },
-            ) => Some(
-                self.validate_library_order_choice(frame, *chooser, looked, *source_block)
-                    .and_then(|_| {
-                        if player != *chooser {
-                            return Err("invalid ordering chooser".into());
-                        }
-                        self.validate_library_partition(player, looked, objects, &[])
-                    }),
-            ),
-            (
-                Frame::ResolutionChoice {
-                    frame,
-                    choice:
-                        ResolutionChoice::Hideaway {
-                            player: chooser,
-                            looked,
-                            bottom: None,
-                        },
-                },
-                Response::Hideaway { object },
-            ) => Some(
-                self.validate_hideaway_choice(frame, *chooser, looked, None)
-                    .and_then(|_| {
-                        if player == *chooser && self.is_live(player) && looked.contains(object) {
-                            Ok(())
-                        } else {
-                            Err("invalid hideaway selection".into())
-                        }
-                    }),
-            ),
-            (
-                Frame::ResolutionChoice {
-                    frame,
-                    choice:
-                        ResolutionChoice::LibrarySelect {
-                            player: chooser,
-                            looked,
-                            source_block,
-                        },
-                },
-                Response::LibrarySelect { hand, remainder },
-            ) => Some(
-                self.validate_selection_choice(frame, *chooser, looked, *source_block)
-                    .and_then(|_| {
-                        if player != *chooser {
-                            return Err("invalid library chooser".into());
-                        }
-                        self.validate_selection_partition(player, looked, hand, remainder)
-                    }),
-            ),
-
-            (
-                Frame::ResolutionChoice {
-                    frame,
-                    choice:
-                        ResolutionChoice::Surveil {
-                            player: chooser,
-                            looked,
-                            source_block,
-                        },
-                },
-                Response::Surveil { top, graveyard },
-            ) => Some(
-                self.validate_surveil_choice(frame, *chooser, looked, *source_block)
-                    .and_then(|_| {
-                        if player != *chooser {
-                            return Err("invalid surveil chooser".into());
-                        }
-                        self.validate_library_partition(player, looked, top, graveyard)
-                    }),
-            ),
-            (
-                Frame::ResolutionChoice {
-                    frame,
-                    choice:
-                        ResolutionChoice::Scry {
-                            player: chooser,
-                            looked,
-                            source_block,
-                        },
-                },
-                Response::Scry { top, bottom },
-            ) => Some(
-                self.validate_scry_choice(frame, *chooser, looked, *source_block)
-                    .and_then(|_| {
-                        if player != *chooser {
-                            return Err("invalid scry chooser".into());
-                        }
-                        self.validate_library_partition(player, looked, top, bottom)
-                    }),
-            ),
             (
                 Frame::EntityTargets { .. } | Frame::TriggerTargets { .. },
                 Response::EntityTargets { entities },
@@ -968,94 +579,6 @@ impl RulesTxn {
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
-                if let ResolutionChoice::SetColor { source_block } = choice {
-                    return self.target_color_step(frame, source_block);
-                }
-                if let ResolutionChoice::Proliferate {
-                    source_block,
-                    choices,
-                } = choice
-                {
-                    return self.proliferate_step(frame, source_block, choices);
-                }
-                if let ResolutionChoice::Demonstrate {
-                    first,
-                    source_block,
-                } = choice
-                {
-                    return self.demonstrate_choice_step(frame, first, source_block);
-                }
-                if let ResolutionChoice::HandReturn {
-                    player,
-                    source_block,
-                    ..
-                } = choice
-                {
-                    return self.hand_return_step(frame, player, source_block);
-                }
-                if let ResolutionChoice::LibraryOrder {
-                    player,
-                    looked,
-                    source_block,
-                } = choice
-                {
-                    return self.library_order_step(frame, player, looked, source_block);
-                }
-                if let ResolutionChoice::OptionalShuffle {
-                    player,
-                    source_block,
-                } = choice
-                {
-                    return self.optional_shuffle_step(frame, player, source_block);
-                }
-
-                if let ResolutionChoice::LookTopMana {
-                    player,
-                    looked,
-                    revealed,
-                } = choice
-                {
-                    return self.look_top_mana_step(frame, player, looked, revealed);
-                }
-                if let ResolutionChoice::Hideaway {
-                    player,
-                    looked,
-                    bottom,
-                } = choice
-                {
-                    return self.hideaway_step(frame, player, looked, bottom);
-                }
-                if let ResolutionChoice::LibrarySelect {
-                    player,
-                    looked,
-                    source_block,
-                } = choice
-                {
-                    return self.library_selection_step(frame, player, looked, source_block);
-                }
-                if let ResolutionChoice::Surveil {
-                    player,
-                    looked,
-                    source_block,
-                } = choice
-                {
-                    return self.surveil_choice_step(frame, player, looked, source_block);
-                }
-                if let ResolutionChoice::Scry {
-                    player,
-                    looked,
-                    source_block,
-                } = choice
-                {
-                    return self.scry_choice_step(frame, player, looked, source_block);
-                }
-                if let ResolutionChoice::ChooseOptional {
-                    player,
-                    source_block,
-                } = choice
-                {
-                    return self.choose_optional_block(frame, player, source_block);
-                }
                 if let ResolutionChoice::OptionalEffect {
                     player,
                     target,
@@ -1064,47 +587,10 @@ impl RulesTxn {
                 {
                     return self.removal_choice_step(frame, player, target, source_block);
                 }
-                if let ResolutionChoice::ColoredSearch {
-                    player,
-                    source_block,
-                    revealed,
-                } = choice
-                {
-                    return self.colored_step(frame, player, source_block, revealed);
-                }
-                if matches!(
-                    choice,
-                    ResolutionChoice::OptionalEffect { .. }
-                        | ResolutionChoice::Search { .. }
-                        | ResolutionChoice::ColoredSearch { .. }
-                        | ResolutionChoice::SearchSplit { .. }
-                        | ResolutionChoice::Shuffle { .. }
-                        | ResolutionChoice::OptionalRecursion { .. }
-                        | ResolutionChoice::OptionalDraw { .. }
-                ) {
-                    return self.staples_choice_step(frame, choice);
-                }
+
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::SetColor { .. }
-                        | ResolutionChoice::Proliferate { .. }
-                        | ResolutionChoice::Demonstrate { .. }
-                        | ResolutionChoice::HandReturn { .. }
-                        | ResolutionChoice::LibraryOrder { .. }
-                        | ResolutionChoice::OptionalShuffle { .. }
-                        | ResolutionChoice::LookTopMana { .. }
-                        | ResolutionChoice::Hideaway { .. }
-                        | ResolutionChoice::LibrarySelect { .. }
-                        | ResolutionChoice::Surveil { .. }
-                        | ResolutionChoice::Scry { .. }
-                        | ResolutionChoice::OptionalEffect { .. }
-                        | ResolutionChoice::Search { .. }
-                        | ResolutionChoice::ColoredSearch { .. }
-                        | ResolutionChoice::SearchSplit { .. }
-                        | ResolutionChoice::Shuffle { .. }
-                        | ResolutionChoice::OptionalRecursion { .. }
-                        | ResolutionChoice::OptionalDraw { .. }
-                        | ResolutionChoice::ChooseOptional { .. } => unreachable!(),
+                        ResolutionChoice::OptionalEffect { .. } => unreachable!(),
                         ResolutionChoice::Sacrifice { player, .. } => {
                             InstructionOutcome::Sacrificed {
                                 player,
@@ -1127,25 +613,7 @@ impl RulesTxn {
                     .ok_or("missing resolution choice")?;
                 self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
-                    ResolutionChoice::SetColor { .. }
-                    | ResolutionChoice::Proliferate { .. }
-                    | ResolutionChoice::Demonstrate { .. }
-                    | ResolutionChoice::HandReturn { .. }
-                    | ResolutionChoice::LibraryOrder { .. }
-                    | ResolutionChoice::OptionalShuffle { .. }
-                    | ResolutionChoice::LookTopMana { .. }
-                    | ResolutionChoice::Hideaway { .. }
-                    | ResolutionChoice::LibrarySelect { .. }
-                    | ResolutionChoice::Surveil { .. }
-                    | ResolutionChoice::Scry { .. }
-                    | ResolutionChoice::OptionalEffect { .. }
-                    | ResolutionChoice::Search { .. }
-                    | ResolutionChoice::ColoredSearch { .. }
-                    | ResolutionChoice::SearchSplit { .. }
-                    | ResolutionChoice::Shuffle { .. }
-                    | ResolutionChoice::OptionalRecursion { .. }
-                    | ResolutionChoice::OptionalDraw { .. }
-                    | ResolutionChoice::ChooseOptional { .. } => unreachable!(),
+                    ResolutionChoice::OptionalEffect { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
                     | ResolutionChoice::Discard { source_block, .. } => source_block,
                 };
@@ -1275,285 +743,7 @@ impl RulesTxn {
         self.rules_mut().frame = Frame::Resolve { frame };
         Ok(())
     }
-    pub(super) fn execute_action_instruction(
-        &mut self,
-        frame: Resolving,
-        instruction: Instruction,
-    ) -> Result<(), String> {
-        match instruction {
-            Instruction::Kernel { node, source_block } => {
-                self.execute_kernel(frame, node, source_block)
-            }
-            Instruction::PlayHideawayLinked {
-                hideaway_block,
-                minimum_total_power,
-                source_block,
-            } => self.begin_linked_play(frame, hideaway_block, minimum_total_power, source_block),
-            Instruction::LoseGameTargetPlayer { .. } => self.resolve_targeted_loss(frame),
-            Instruction::TransformSource { source_block } => {
-                let source = self.entry(frame.stack_id)?.source;
-                // CR 701.27f: this supported printed ability can transform
-                // its original incarnation once. A queued duplicate observes
-                // the new face and does nothing.
-                let actual = if self.may_transform_source(source) {
-                    Some(self.commit(
-                        ProposedEvent::Transform { object: source },
-                        self.instruction_cause(&frame, source_block)?,
-                    )?)
-                } else {
-                    None
-                };
-                self.finish_instruction(frame, InstructionOutcome::Effect { actual })
-            }
-            Instruction::RegisterControllerCreatureEntryThisTurn { .. }
-            | Instruction::RegisterControllerSpellCastThisTurn { .. } => {
-                self.register_delayed_chapter(frame)
-            }
-            Instruction::RevealAndCast { source_block } => {
-                self.begin_library_shuffle(frame, source_block)
-            }
-            Instruction::OfferHandCastWithoutManaCost { .. } => {
-                self.rules_mut().frame = Frame::HandCast {
-                    frame: Box::new(frame),
-                    child: None,
-                };
-                Ok(())
-            }
-            Instruction::Cascade { source_block, .. } => self.begin_cascade(frame, source_block),
-            Instruction::PutHandOnLibrary {
-                count,
-                source_block,
-            } => self.begin_hand_return(frame, count, source_block),
-            Instruction::OrderLibraryTop {
-                amount,
-                source_block,
-            } => self.begin_library_order(frame, amount, source_block),
-            Instruction::ShufflePlayerGraveyard { source_block } => {
-                self.start_graveyard_shuffle(frame, source_block)
-            }
-            Instruction::OptionalShuffleLibrary { source_block } => {
-                self.begin_optional_shuffle(frame, source_block)
-            }
-            Instruction::LookTopMayRevealForMana { .. } => self.begin_look_top_mana(frame),
-            Instruction::Hideaway { .. } => self.begin_hideaway(frame),
-            Instruction::SelectLibraryCard {
-                amount,
-                source_block,
-                ..
-            } => self.begin_library_selection(frame, amount, source_block),
-            Instruction::Scry {
-                amount,
-                source_block,
-            } => self.begin_scry(frame, amount, source_block),
-            Instruction::Surveil {
-                amount,
-                source_block,
-            } => self.begin_surveil(frame, amount, source_block),
-            Instruction::FreezeControllerLifeUntilNextTurn { source_block } => {
-                let actual = self.commit(
-                    ProposedEvent::FreezeLifeUntilNextTurn {
-                        player: self.entry(frame.stack_id)?.controller,
-                    },
-                    self.instruction_cause(&frame, source_block)?,
-                )?;
-                self.finish_instruction(
-                    frame,
-                    InstructionOutcome::Effect {
-                        actual: Some(actual),
-                    },
-                )
-            }
-            Instruction::PhaseOutTargetPermanent {
-                target_slot,
-                source_block,
-            } => {
-                let slot = target_slot as usize;
-                let target = *self
-                    .bound_object_target(self.entry(frame.stack_id)?, slot)
-                    .ok_or("missing phasing target")?;
-                // CR 608.2b, 702.26b: keep resolution-start legality, but a
-                // previous mode may already have phased this incarnation out.
-                let outcome = if frame.legal_targets.get(slot) != Some(&true) {
-                    InstructionOutcome::IllegalTarget { target }
-                } else if !self
-                    .current(target)
-                    .is_ok_and(|o| o.present_on_battlefield())
-                {
-                    InstructionOutcome::ObjectNoLongerPresent { target }
-                } else {
-                    let actual = self.commit(
-                        ProposedEvent::PhaseOutTarget { object: target },
-                        self.instruction_cause(&frame, source_block)?,
-                    )?;
-                    InstructionOutcome::Effect {
-                        actual: Some(actual),
-                    }
-                };
-                self.finish_instruction(frame, outcome)
-            }
-            Instruction::PhaseOutControllerPermanents { source_block } => {
-                let actual = self.commit(
-                    ProposedEvent::PhaseOutControlled {
-                        controller: self.entry(frame.stack_id)?.controller,
-                    },
-                    self.instruction_cause(&frame, source_block)?,
-                )?;
-                self.finish_instruction(
-                    frame,
-                    InstructionOutcome::Effect {
-                        actual: Some(actual),
-                    },
-                )
-            }
-            i @ (Instruction::RemoveOpponentNonlandIndestructible { .. }
-            | Instruction::GrantKeywordsSet { .. }
-            | Instruction::GainLifeDestroyed { .. }
-            | Instruction::ExileDamagedThisTurn { .. }
-            | Instruction::LoseLifeDeathController { .. }) => {
-                self.execute_wipes_instruction(frame, i)
-            }
-            i @ Instruction::SacrificeDamage { .. } => self.execute_sacrifice_instruction(frame, i),
-            i @ (Instruction::ReturnEntryTargetCreature { .. }
-            | Instruction::ChangeLifeFromTarget { .. }
-            | Instruction::CreateTokensFor { .. }
-            | Instruction::DamageTargetController { .. }) => {
-                self.execute_removal_instruction(frame, i)
-            }
-            i @ (Instruction::AttachEquipment { .. }
-            | Instruction::ReturnAuraFromGraveyard { .. }) => {
-                self.execute_attachment_instruction(frame, i)
-            }
-            op @ (Instruction::ReturnOwnGraveyardCreatureToHand { .. }
-            | Instruction::ReturnOwnGraveyardCreatureToBattlefield { .. }
-            | Instruction::ReturnOwnGraveyardCardToHand { .. }
-            | Instruction::SearchRecipientBasicLand { .. }
-            | Instruction::SearchBasicLands { .. }
-            | Instruction::FetchBasicLand { .. }
-            | Instruction::SearchBasicLandsSplit { .. }
-            | Instruction::SearchColoredLibrary { .. }
-            | Instruction::SearchTypedLands { .. }) => self.execute_staples_instruction(frame, op),
-            Instruction::SetTargetColor { source_block, .. } => {
-                self.rules_mut().frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::SetColor { source_block },
-                };
-                Ok(())
-            }
-            Instruction::Proliferate { source_block } => {
-                self.rules_mut().frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::Proliferate {
-                        source_block,
-                        choices: vec![],
-                    },
-                };
-                Ok(())
-            }
-            Instruction::DistributePlusOneCounters { source_block, .. } => {
-                let allocations = self.allocated_counter_targets(&frame)?;
-                let cause = self.instruction_cause(&frame, source_block)?;
-                self.begin_counter_placements(frame, allocations, cause)
-            }
-            Instruction::Demonstrate { source_block } => {
-                self.rules_mut().frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::Demonstrate {
-                        source_block,
-                        first: None,
-                    },
-                };
-                Ok(())
-            }
-            Instruction::CopyControlledCreatureSpell {
-                target_slot,
-                source_block,
-            } => self.copy_creature_spell(frame, target_slot, source_block),
-            op @ Instruction::PutSourcePlusOneCountersForCastColors { .. } => {
-                self.execute_token_instruction(frame, op)
-            }
-            op @ (Instruction::GrantKeywords { .. }
-            | Instruction::RegenerateSource { .. }
-            | Instruction::GrantCreatureRestriction { .. }
-            | Instruction::ProtectControllerUntilNextTurn { .. }
-            | Instruction::PreventCombatDamage { .. }
-            | Instruction::GrantLandPlaysThisTurn { .. }
-            | Instruction::GrantHandCastCascade { .. }
-            | Instruction::PreventNextDamage { .. }) => self.execute_effect_instruction(frame, op),
-            Instruction::ExileLibraryForPlay { .. } => self.execute_impulse_play(frame),
-            Instruction::AddResolutionMana {
-                color,
-                quantity,
-                source_block,
-            } => self.produce_resolution_mana(frame, color, quantity, source_block),
-            Instruction::DrawCardsIfAdditionalCost { cost_identity, .. } => {
-                if !self
-                    .additional_cost_was_selected(self.entry(frame.stack_id)?, &cost_identity)?
-                {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                self.draw_multiple(frame)
-            }
-            Instruction::DrawDamageAmount { .. } => self.draw_multiple(frame),
-            // CR 603.5/608.2d: offer the option only during resolution, even
-            // when the library is empty. Accepting performs the ordinary draw.
-            // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-            Instruction::OptionalDrawForSoleGreatestEntrant { source_block } => {
-                let entrant = self.resolving_entrant(&frame)?;
-                let power = entrant
-                    .characteristics
-                    .power
-                    .as_ref()
-                    .ok_or("entrant without power")?;
-                for o in self
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| o.present_on_battlefield() && o.id != entrant.object)
-                {
-                    if self.is_battlefield_creature(o.id)
-                        && self
-                            .characteristics(o.id)?
-                            .power
-                            .as_ref()
-                            .is_some_and(|p| p >= power)
-                    {
-                        return self.finish_instruction(
-                            frame,
-                            InstructionOutcome::Effect { actual: None },
-                        );
-                    }
-                }
-                let player = entrant.controller;
-                let mut frame = frame;
-                frame.entrant_draw = Some(Box::new(entrant));
-                self.offer_player_draw(frame, player, source_block)
-            }
-            Instruction::ChooseOptional {
-                chooser,
-                following,
-                source_block,
-            } => self.begin_optional_block(frame, chooser, following, source_block),
-            Instruction::OptionalDrawCards { source_block } => {
-                self.offer_controller_draw(frame, source_block)
-            }
-            Instruction::CounterStackObject {
-                target_slot,
-                source_block,
-            } => self.resolve_counter_instruction(frame, target_slot, source_block, None),
-            Instruction::CounterSpellUnlessPays { .. }
-            | Instruction::OptionalDrawUnlessCasterPays { .. } => {
-                self.begin_resolution_payment(frame)
-            }
-            Instruction::CounterSpellAndMillController {
-                target_slot,
-                count,
-                source_block,
-            } => self.resolve_counter_instruction(frame, target_slot, source_block, Some(count)),
-            _ => Err("unexpected action instruction".into()),
-        }
-    }
+
     /// CR 701.17a, 701.9a-b, 701.21a: a kernel mill, discard or sacrifice,
     /// performed by the executors whose events, choices and outcomes
     /// recovery re-derives.
@@ -1699,55 +889,6 @@ impl RulesTxn {
             _ => Err("kernel player action has no audited executor".into()),
         }
     }
-    pub(super) fn resolving_entrant(&self, frame: &Resolving) -> Result<ObjectBefore, String> {
-        let StackKind::Triggered {
-            witness:
-                TriggerEventWitness::CreatureEnteredWithPower {
-                    entrant,
-                    last_appearance: Some(last),
-                    ..
-                },
-            ..
-        } = &self.entry(frame.stack_id)?.kind
-        else {
-            return Err("missing resolving entrant".into());
-        };
-        if self
-            .current(entrant.object)
-            .is_ok_and(|o| o.present_on_battlefield())
-        {
-            self.object_before(entrant.object)
-        } else {
-            Ok((**last).clone())
-        }
-    }
-    pub(super) fn offer_controller_draw(
-        &mut self,
-        frame: Resolving,
-        source_block: u32,
-    ) -> Result<(), String> {
-        let player = self.entry(frame.stack_id)?.controller;
-        self.offer_player_draw(frame, player, source_block)
-    }
-    fn offer_player_draw(
-        &mut self,
-        frame: Resolving,
-        player: PlayerId,
-        source_block: u32,
-    ) -> Result<(), String> {
-        if !self.is_live(player) {
-            return self
-                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
-        }
-        self.rules_mut().frame = Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::OptionalDraw {
-                player,
-                source_block,
-            },
-        };
-        Ok(())
-    }
 
     pub(super) fn draw_one(
         &mut self,
@@ -1848,51 +989,12 @@ impl RulesTxn {
                 }
                 (amount, *source_block)
             }
-            Instruction::DrawDamageAmount { source_block } => {
-                (self.damage_draw_amount(frame)?, *source_block)
-            }
-            Instruction::DrawCardsIfAdditionalCost {
-                cost_identity,
-                count,
-                source_block,
-            } => {
-                if !self.additional_cost_was_selected(self.entry(frame.stack_id)?, cost_identity)? {
-                    return Ok(None);
-                }
-                (count.clone(), *source_block)
-            }
+
             _ => return Ok(None),
         };
         Ok(Some((amount, source_block)))
     }
-    /// CR 120.4b/603.2c: "that many" is the positive final member of this
-    /// invocation's actual damage witness, never printed power or life changes.
-    pub(super) fn damage_draw_amount(&self, frame: &Resolving) -> Result<Quantity, String> {
-        if let Some(Instruction::DrawCardsIfAdditionalCost {
-            cost_identity,
-            count,
-            ..
-        }) = self
-            .program_for(self.entry(frame.stack_id)?)?
-            .instructions
-            .get(frame.cursor as usize)
-        {
-            return if self
-                .additional_cost_was_selected(self.entry(frame.stack_id)?, cost_identity)?
-            {
-                Ok(count.clone())
-            } else {
-                Err("unselected optional-cost draw progress".into())
-            };
-        }
-        match &self.entry(frame.stack_id)?.kind {
-            StackKind::Triggered {
-                witness: TriggerEventWitness::DamageDealt { damage, .. },
-                ..
-            } if damage.amount > Quantity::zero() => Ok(damage.amount.clone()),
-            _ => Err("damage-quantity draw requires a positive actual damage witness".into()),
-        }
-    }
+
     // CR 121.2/121.4/704.4: one attempt per rule unit, including repeated failed
     // attempts. No SBA, card-count clamp or machine-integer conversion interrupts
     // the exact instruction. Commander replacement consumes just its attempt.
@@ -2116,19 +1218,7 @@ impl RulesTxn {
     /// completed children above it; `None` once a departure detached it.
     pub(super) fn resolving_entry_index(&self, id: StackId) -> Result<Option<usize>, String> {
         if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == id) {
-            let children = match &self.state.rules.frame {
-                Frame::Resolve { frame } if frame.stack_id == id => {
-                    self.resolution_copy_children(frame)?
-                }
-                Frame::PlayHideawayLinked { progress } if progress.frame.stack_id == id => {
-                    self.linked_play_children(progress)
-                }
-                _ => self.resolution_child(id).into_iter().collect(),
-            };
-            let suffix = &self.state.rules.stack[index + 1..];
-            if !suffix.iter().map(|s| s.id).eq(children)
-                || !suffix.iter().all(|s| self.stack_entry_complete(s))
-            {
+            if index + 1 != self.state.rules.stack.len() {
                 return Err("exact resolving owner completion invariant".into());
             }
             return Ok(Some(index));
@@ -2149,23 +1239,9 @@ impl RulesTxn {
         }
     }
     pub(crate) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
-        self.validate_resolving_children(frame, &self.resolution_copy_children(frame)?)
+        self.validate_resolving_children(frame, &[])
     }
-    pub(super) fn validate_resolving_owned(
-        &self,
-        frame: &Resolving,
-        child: Option<StackId>,
-    ) -> Result<(), String> {
-        if frame.copied_child().is_some()
-            || matches!(
-                frame.outcomes.as_slice(),
-                [InstructionOutcome::Demonstrated { .. }]
-            )
-        {
-            return Err("copy outcome overlaps cast continuation".into());
-        }
-        self.validate_resolving_children(frame, child.as_slice())
-    }
+
     pub(super) fn validate_resolving_children(
         &self,
         frame: &Resolving,
@@ -2183,39 +1259,14 @@ impl RulesTxn {
         self.validate_group_discard_progress(frame)?;
         let entry = self.entry(frame.stack_id)?;
         let program = self.program_for(entry)?;
-        if let Some(fact) = &frame.entrant_draw {
-            let StackKind::Triggered {
-                witness:
-                    TriggerEventWitness::CreatureEnteredWithPower {
-                        entrant,
-                        last_appearance: Some(_),
-                        ..
-                    },
-                ..
-            } = &entry.kind
-            else {
-                return Err("detached entrant choice".into());
-            };
-            if !matches!(
-                program.instructions.get(frame.cursor as usize),
-                Some(Instruction::OptionalDrawForSoleGreatestEntrant { .. })
-            ) || entrant.object != fact.object
-                || entrant.owner != fact.owner
-                || fact.zone != Zone::Battlefield
-                || fact.controller != self.resolving_entrant(frame)?.controller
-            {
-                return Err("invalid resolving entrant identity".into());
-            }
-            self.validate_characteristic_identity(fact.object, fact.zone, &fact.characteristics)?;
+        if frame.entrant_draw.is_some() {
+            return Err("unsupported resolving entrant choice".into());
         }
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
             || !self.announced_target_count_valid(program, entry)
             || !self.stack_entry_complete(entry)
-            // Immediate loss and completion of its activated ability share one
-            // atomic rule step. There is no post-loss resolving continuation.
-            || (matches!(program.instructions.first(), Some(Instruction::LoseGameTargetPlayer { .. })) && frame.cursor != 0)
             || frame.cursor as usize > program.instructions.len()
             || frame.outcomes.len() != frame.cursor as usize
             || frame.legal_targets.len() != self.bound_target_count(entry)
@@ -2251,28 +1302,10 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn revalidate_actions_departure(&mut self) -> Result<(), String> {
-        if let Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::OptionalEffect { target, .. },
-        } = &self.state.rules.frame
-            && self.current(*target).is_err()
-            && matches!(
-                self.program_for(self.entry(frame.stack_id)?)?
-                    .instructions
-                    .get(frame.cursor as usize),
-                Some(Instruction::ReturnEntryTargetCreature { .. })
-            )
-        {
-            let outcome = InstructionOutcome::ObjectNoLongerPresent { target: *target };
-            let frame = frame.clone();
-            self.rules_mut().pending = None;
-            return self.finish_instruction(frame, outcome);
-        }
         if matches!(
             self.state.rules.frame,
             Frame::ResolutionChoice { .. }
                 | Frame::ForcedSacrifice { .. }
-                | Frame::OptionalDamage { .. }
                 | Frame::SacrificeCost { .. }
         ) && self.state.rules.pending.as_ref().is_some_and(|input| {
             self.validate_response(input.player, &input.response)
@@ -2300,129 +1333,6 @@ impl RulesTxn {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
-                (
-                    ResolutionChoice::SetColor { source_block },
-                    Instruction::SetTargetColor {
-                        source_block: expected,
-                        ..
-                    },
-                ) => {
-                    source_block == expected
-                        && self.entry(frame.stack_id)?.kind.activated_index().is_some()
-                }
-                (
-                    ResolutionChoice::Proliferate {
-                        source_block,
-                        choices,
-                    },
-                    Instruction::Proliferate {
-                        source_block: expected,
-                    },
-                ) => {
-                    source_block == expected
-                        && choices.len() <= self.state.rules.cards.len()
-                        && choices.windows(2).all(|p| p[0].0 < p[1].0)
-                }
-                (
-                    ResolutionChoice::ChooseOptional {
-                        player,
-                        source_block,
-                    },
-                    Instruction::ChooseOptional {
-                        chooser,
-                        source_block: expected,
-                        ..
-                    },
-                ) => {
-                    source_block == expected
-                        && self.optional_recipient(frame, chooser)? == Some(*player)
-                }
-                (
-                    ResolutionChoice::Demonstrate { source_block, .. },
-                    Instruction::Demonstrate {
-                        source_block: expected,
-                    },
-                ) => expected == source_block && self.demonstrate_cast(frame).is_ok(),
-                (
-                    ResolutionChoice::HandReturn {
-                        player,
-                        hand,
-                        source_block,
-                    },
-                    Instruction::PutHandOnLibrary { .. },
-                ) => {
-                    self.validate_hand_return_source(frame, *player, *source_block)
-                        .is_ok()
-                        && (!self.is_live(*player) || *hand == self.action_hand(*player))
-                }
-                (
-                    ResolutionChoice::LibraryOrder {
-                        player,
-                        looked,
-                        source_block,
-                    },
-                    Instruction::OrderLibraryTop { .. },
-                ) => self
-                    .validate_library_order_choice(frame, *player, looked, *source_block)
-                    .is_ok(),
-                (
-                    ResolutionChoice::OptionalShuffle {
-                        player,
-                        source_block,
-                    },
-                    Instruction::OptionalShuffleLibrary { source_block: b },
-                ) => *player == self.entry(frame.stack_id)?.controller && source_block == b,
-
-                (
-                    ResolutionChoice::LookTopMana {
-                        player,
-                        looked,
-                        revealed,
-                    },
-                    Instruction::LookTopMayRevealForMana { .. },
-                ) => self
-                    .validate_look_top_mana_choice(frame, *player, looked, *revealed)
-                    .is_ok(),
-                (
-                    ResolutionChoice::Hideaway {
-                        player,
-                        looked,
-                        bottom,
-                    },
-                    Instruction::Hideaway { .. },
-                ) => self
-                    .validate_hideaway_choice(frame, *player, looked, bottom.as_ref())
-                    .is_ok(),
-                (
-                    ResolutionChoice::LibrarySelect {
-                        player,
-                        looked,
-                        source_block,
-                    },
-                    Instruction::SelectLibraryCard { .. },
-                ) => self
-                    .validate_selection_choice(frame, *player, looked, *source_block)
-                    .is_ok(),
-                (
-                    ResolutionChoice::Surveil {
-                        player,
-                        looked,
-                        source_block,
-                    },
-                    Instruction::Surveil { .. },
-                ) => self
-                    .validate_surveil_choice(frame, *player, looked, *source_block)
-                    .is_ok(),
-                (
-                    ResolutionChoice::Scry {
-                        player,
-                        looked,
-                        source_block,
-                    },
-                    Instruction::Scry { .. },
-                ) => self
-                    .validate_scry_choice(frame, *player, looked, *source_block)
-                    .is_ok(),
                 (
                     ResolutionChoice::Sacrifice {
                         player,

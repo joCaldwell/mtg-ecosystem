@@ -18,17 +18,12 @@ pub struct PendingTrigger {
     pub source: ObjectId,
     pub controller: PlayerId,
     pub ability: EffectiveTriggerAbility,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grant: Option<CascadeGrantProvenance>,
     pub source_facts: ObjectBefore,
     pub(super) source_handles: Vec<publish::StoredObjectHandle>,
     event: TriggerOccurrenceId,
     pub witness: TriggerEventWitness,
 }
-enum MatchedCascadeGrant {
-    Static(ObjectBefore),
-    Temporary(CascadeGrantProvenance),
-}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerPlacement {
@@ -367,8 +362,7 @@ fn power_entry_matches(
 }
 fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     match outcome {
-        EventOutcome::HiddenAway { movement, .. }
-        | EventOutcome::EnteredAttached { movement, .. }
+        EventOutcome::EnteredAttached { movement, .. }
         | EventOutcome::Moved { movement }
         | EventOutcome::Sacrificed { movement, .. }
         | EventOutcome::CardDiscarded { movement, .. }
@@ -586,18 +580,8 @@ impl RulesTxn {
                         active: self.state.rules.active,
                     }]
                 }
-                EventOutcome::LibrarySelected {
-                    hand, graveyard, ..
-                } => hand
-                    .iter()
-                    .chain(graveyard)
-                    .map(|movement| TriggerEventWitness::Moved {
-                        movement: movement.clone(),
-                    })
-                    .collect(),
-                EventOutcome::HandReturned { movements, .. }
-                | EventOutcome::Surveilled { movements, .. }
-                | EventOutcome::Milled { movements, .. } => movements
+
+                EventOutcome::Milled { movements, .. } => movements
                     .iter()
                     .map(|movement| TriggerEventWitness::Moved {
                         movement: movement.clone(),
@@ -616,9 +600,7 @@ impl RulesTxn {
                 EventOutcome::TurnTransitioned { lore: changes, .. } => {
                     lore.extend(changes.iter().cloned())
                 }
-                EventOutcome::Proliferated {
-                    lore: Some(change), ..
-                } => lore.push(change.clone()),
+
                 _ => {}
             }
             for witness in &witnesses {
@@ -728,7 +710,7 @@ impl RulesTxn {
                 caster: entry.controller,
                 cast_from: entry.cast_from,
                 priority_paid_exile: entry.cast_from == Zone::Exile
-                    && entry.alternative_cost != Some(cascade::AlternativeCost::WithoutManaCost),
+                    && entry.alternative_cost != Some(AlternativeCost::WithoutManaCost),
                 spell: self.object_before(entry.source)?,
             }),
         };
@@ -957,10 +939,7 @@ impl RulesTxn {
                     TriggerCondition::SelfEntersBattlefield => enters && Some(object.id) == subject,
                     TriggerCondition::OtherCreatureEntersBattlefield => {
                         let matched=creature && enters && Some(object.id)!=subject;
-                        if matched && matches!(definition.program.instructions.as_slice(),[Instruction::OptionalDrawForSoleGreatestEntrant{..}]) {
-                            let entrant=observers.object_before(subject.ok_or("missing entrant identity")?)?;
-                            entry_witness=Some(TriggerEventWitness::CreatureEnteredWithPower{entrant:Box::new(entrant.clone()),last_appearance:Some(Box::new(entrant)),movement:match &witness{TriggerEventWitness::Moved{movement}=>Some(movement.clone()),TriggerEventWitness::TokenEntered{..}=>None,_=>return Err("missing actual entry movement".into())}});
-                        }
+
                         matched
                     }
                 };
@@ -1040,89 +1019,11 @@ impl RulesTxn {
                             })
                             .transpose()?,
                         matched_witness,
-                        None,
-                    ));
+                ));
                 }
             }
         }
-        if let TriggerEventWitness::SpellCast { cast } = &witness {
-            let spell = observers
-                .state
-                .rules
-                .stack
-                .iter()
-                .find(|s| s.id == cast.stack_id)
-                .ok_or("missing completed cast for grants")?;
-            let mana_value = observers.stack_mana_value(spell)?;
-            for object in observers
-                .state
-                .rules
-                .objects
-                .values()
-                .filter(|o| o.present_on_battlefield())
-            {
-                let fact = observers.object_before(object.id)?;
-                if fact.controller != cast.caster || !observers.is_live(cast.caster) {
-                    continue;
-                }
-                for (index, descriptor) in observers
-                    .copiable_definition(object.id)?
-                    .static_abilities
-                    .iter()
-                    .enumerate()
-                {
-                    if let StaticEffect::GrantSpellCascade { eligibility, .. } = &descriptor.effect
-                        && descriptor.functioning_zone == FunctioningZone::Battlefield
-                        && spell_cascade_grants::eligible(eligibility, &mana_value, cast)
-                    {
-                        matched.push((
-                            None,
-                            cast.spell.clone(),
-                            EffectiveTriggerAbility::Granted {
-                                grant_source: object.id,
-                                static_ability_index: u32::try_from(index)
-                                    .map_err(|_| "static ability index limit")?,
-                            },
-                            None,
-                            witness.clone(),
-                            Some(MatchedCascadeGrant::Static(fact.clone())),
-                        ));
-                    }
-                }
-            }
-            // CR 611.2f/702.85c: each resolved effect independently grants
-            // one ability to a later spell put on the stack from this hand.
-            // Only this successful-cast collector creates its trigger.
-            for effect in &observers.state.rules.effects {
-                let ResolvedEffectKind::GrantHandCastCascade {
-                    triggered_ability_index,
-                    source_facts,
-                } = &effect.kind
-                else {
-                    continue;
-                };
-                let turn = effect.expires_in_cleanup_of_turn;
-                if spell_cascade_grants::hand_cast_eligible(effect.origin.controller, turn, cast) {
-                    matched.push((
-                        None,
-                        cast.spell.clone(),
-                        EffectiveTriggerAbility::TemporaryGrant {
-                            effect: effect.id,
-                            grant_source: effect.origin.source,
-                            triggered_ability_index: *triggered_ability_index,
-                            grant_stack_id: effect.origin.stack_id,
-                            turn,
-                        },
-                        None,
-                        witness.clone(),
-                        Some(MatchedCascadeGrant::Temporary(CascadeGrantProvenance {
-                            source_facts: source_facts.as_ref().clone(),
-                            source_handles: effect.origin.source_handles.clone(),
-                        })),
-                    ));
-                }
-            }
-        }
+
         if let TriggerEventWitness::SpellCast { cast } = &witness {
             for registration in &self.state.rules.delayed_chapters {
                 if registration.controller != cast.caster
@@ -1149,7 +1050,6 @@ impl RulesTxn {
                         registration: Box::new(registration.clone()),
                         cast: cast.clone(),
                     },
-                    None,
                 ));
             }
         }
@@ -1183,7 +1083,6 @@ impl RulesTxn {
                         },
                         entrant: Box::new(entrant.clone()),
                     },
-                    None,
                 ));
             }
         }
@@ -1192,12 +1091,10 @@ impl RulesTxn {
         // their ordinary diagnostic below, but consume no trigger capacity.
         let emission = matched
             .iter()
-            .filter(|(_, _, _, condition, _, _)| condition.as_ref().is_none_or(|c| c.passed()))
+            .filter(|(_, _, _, condition, _)| condition.as_ref().is_none_or(|c| c.passed()))
             .count();
         self.preflight_trigger_emission(emission)?;
-        for (death_controller, source_facts, ability, match_condition, witness, grant_fact) in
-            matched
-        {
+        for (death_controller, source_facts, ability, match_condition, witness) in matched {
             if let Some(check) = &match_condition {
                 self.record_event(Event::TriggerConditionChecked {
                     source: source_facts.object,
@@ -1236,14 +1133,7 @@ impl RulesTxn {
                 }
                 _ => self.capture_trigger_source_handles(source)?,
             };
-            let grant = match grant_fact {
-                Some(MatchedCascadeGrant::Static(fact)) => Some(CascadeGrantProvenance {
-                    source_handles: self.capture_trigger_source_handles(fact.object)?,
-                    source_facts: fact,
-                }),
-                Some(MatchedCascadeGrant::Temporary(grant)) => Some(grant),
-                None => None,
-            };
+
             self.rules_mut().pending_triggers.push(PendingTrigger {
                 death_controller,
                 match_condition,
@@ -1251,7 +1141,7 @@ impl RulesTxn {
                 source,
                 controller,
                 ability,
-                grant: grant.clone(),
+
                 source_facts,
                 source_handles,
                 event: event.clone(),
@@ -1262,7 +1152,7 @@ impl RulesTxn {
                 source,
                 player: controller,
                 ability,
-                grant,
+
                 occurrence: event.clone(),
                 witness: witness.clone(),
                 source_facts: Box::new(consumed),
@@ -1467,7 +1357,7 @@ impl RulesTxn {
                         cost_lock: None,
                         selected_additional_costs: None,
                         alternative_cost: None,
-                        hand_cast_permission: None,
+
                         x: None,
                         death_controller: trigger.death_controller,
                         sacrificed: None,
@@ -1483,7 +1373,7 @@ impl RulesTxn {
                         kind: StackKind::Triggered {
                             match_condition: trigger.match_condition,
                             ability: trigger.ability,
-                            grant: trigger.grant,
+
                             source_handles: trigger.source_handles,
                             trigger_id: id,
                             event: trigger.event,
@@ -1696,11 +1586,7 @@ impl RulesTxn {
         let definition = self.effective_trigger(source, ability)?;
         // A hideaway invocation keeps its entry-time chooser even if a later
         // controller is retained in the permanent's departure LKI (113.7a).
-        let departed_hideaway = self.current(source).is_err()
-            && matches!(
-                definition.program.instructions.as_slice(),
-                [Instruction::Hideaway { .. }]
-            );
+        let departed_hideaway = false;
         // A chapter's captured lore occurrence fixes its controller. The same
         // incarnation's final characteristics can refresh when it leaves.
         let departed_chapter = matches!(definition.condition, TriggerCondition::SagaChapter { .. })
@@ -1843,18 +1729,7 @@ impl RulesTxn {
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
-        if matches!(
-            definition.program.instructions.as_slice(),
-            [Instruction::OptionalDrawForSoleGreatestEntrant { .. }]
-        ) && !matches!(
-            witness,
-            TriggerEventWitness::CreatureEnteredWithPower {
-                last_appearance: Some(_),
-                ..
-            }
-        ) {
-            return Err("missing greatest-power entrant evidence".into());
-        }
+
         let condition = &definition.condition;
         let valid = match witness {
             TriggerEventWitness::Equipped {
@@ -2129,10 +2004,7 @@ impl RulesTxn {
                 movement,
                 last_appearance,
             } => {
-                let special = matches!(
-                    definition.program.instructions.as_slice(),
-                    [Instruction::OptionalDrawForSoleGreatestEntrant { .. }]
-                );
+                let special = false;
                 if let Some(last) = last_appearance {
                     self.validate_characteristic_identity(
                         last.object,
@@ -2248,7 +2120,7 @@ impl RulesTxn {
     ) -> Result<Option<TriggerId>, String> {
         let StackKind::Triggered {
             ability,
-            grant,
+
             source_handles,
             trigger_id,
             event,
@@ -2258,7 +2130,6 @@ impl RulesTxn {
         else {
             return Ok(None);
         };
-        self.validate_cascade_grant(*ability, entry.controller, witness, grant.as_ref())?;
         self.validate_trigger_source(
             entry.source,
             *ability,
@@ -2330,12 +2201,6 @@ impl RulesTxn {
         }
         let mut ids = BTreeSet::new();
         for trigger in &self.state.rules.pending_triggers {
-            self.validate_cascade_grant(
-                trigger.ability,
-                trigger.controller,
-                &trigger.witness,
-                trigger.grant.as_ref(),
-            )?;
             self.validate_trigger_source(
                 trigger.source,
                 trigger.ability,
@@ -2504,5 +2369,76 @@ impl RulesTxn {
         })?;
         self.rules_mut().frame = Frame::TriggerOrder { placement };
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
+pub enum EffectiveTriggerAbility {
+    DelayedChapter { chapter: u32, issuer: StackId },
+    Intrinsic { index: u32 },
+}
+
+impl RulesTxn {
+    pub(super) fn effective_trigger(
+        &self,
+        source: ObjectId,
+        ability: EffectiveTriggerAbility,
+    ) -> Result<std::borrow::Cow<'_, mtg_contracts::TriggeredAbility>, String> {
+        match ability {
+            EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
+                let (condition, program) = self.delayed_chapter(source, chapter)?;
+                Ok(std::borrow::Cow::Owned(mtg_contracts::TriggeredAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    condition,
+                    intervening_if: None,
+                    death_filter: None,
+                    program: program.clone(),
+                }))
+            }
+            EffectiveTriggerAbility::Intrinsic { index } => self
+                .copiable_definition(source)?
+                .triggered
+                .get(index as usize)
+                .map(std::borrow::Cow::Borrowed)
+                .ok_or_else(|| "missing intrinsic triggered definition".into()),
+        }
+    }
+}
+
+fn trigger_history_charge(witness: &TriggerEventWitness) -> usize {
+    let history = match witness {
+        TriggerEventWitness::DelayedSpellCast { .. }
+        | TriggerEventWitness::DelayedCreatureEntered { .. } => {
+            stored_history::payload_charge(witness)
+        }
+        TriggerEventWitness::ManaTapped { .. } => stored_history::payload_charge(witness),
+        TriggerEventWitness::SpellCast { cast } => stored_history::payload_charge(&cast.history),
+        _ => 0,
+    };
+    history
+}
+pub fn entry_history_charge(entry: &StackInstance) -> usize {
+    match &entry.kind {
+        StackKind::Triggered { witness, .. } => trigger_history_charge(witness),
+        _ => 0,
+    }
+}
+impl RulesTxn {
+    pub(crate) fn trigger_payload_charge(&self) -> usize {
+        let mut charge = 0usize;
+        for registration in &self.state.rules.delayed_chapters {
+            charge = charge.saturating_add(stored_history::payload_charge(registration));
+        }
+        // Cascade/owned-child frames already charge their complete payload.
+        for t in &self.state.rules.pending_triggers {
+            charge = charge.saturating_add(trigger_history_charge(&t.witness));
+        }
+        let rules = &self.state.rules;
+        for s in rules.stack.iter().chain(rules.detached.values()) {
+            charge = charge.saturating_add(entry_history_charge(s));
+        }
+
+        charge
     }
 }

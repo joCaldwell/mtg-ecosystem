@@ -14,9 +14,13 @@ export function inspectDecision(request: PlayerRequest | null): TableView['decis
     };
     case 'priority': return { title: 'Priority', description: '', details: [] };
     case 'mana': return { title: 'Mana', description: '', details: [] };
+    case 'opening_placement': case 'graveyard_replacement_order': case 'additional_costs':
+    case 'entry_copy': case 'entry_attachment': case 'hybrid_cost':
+    case 'choose_mana_ability': case 'mana_combination': case 'entry_reveal':
+    case 'counter_placement_effect':
     case 'legend_rule': case 'announce_x': case 'sacrifice_cost': case 'forced_sacrifice':
-    case 'mana_color': case 'search_lands': case 'optional_effect': case 'optional_recursion':
-    case 'bottom_opening': case 'damage_allocation': case 'modes': case 'damage_effect':
+    case 'mana_color': case 'optional_effect':
+    case 'bottom_opening': case 'modes': case 'damage_effect':
     case 'order_triggers': case 'entity_targets': case 'stack_targets': case 'player_targets':
     case 'sacrifice': case 'resolve_discard': case 'spend_mana': case 'commander_return':
     case 'attackers': case 'blockers': case 'damage': case 'discard':

@@ -71,7 +71,6 @@ impl Game {
                 .iter()
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
-            catalog_has_target_color_set: prepared.has_target_color_set(),
             catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
             definition_index: RulesTxn::definition_index(&prepared.catalog, &s.state.rules.cards),
             prepared: Arc::new(prepared),

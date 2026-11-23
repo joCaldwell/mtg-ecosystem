@@ -166,12 +166,6 @@ testkit_fields! {
     }
 }
 impl Prepared {
-    pub(in crate::engine) fn has_target_color_set(&self) -> bool {
-        self.catalog
-            .definitions
-            .iter()
-            .any(|d| d.capabilities.contains(&Capability::TargetColorSetV1))
-    }
     pub(in crate::engine) fn has_nonland_color_grant(&self) -> bool {
         self.catalog.definitions.iter().any(|d| {
             d.capabilities
@@ -248,32 +242,9 @@ impl Prepared {
                     ScenarioConfig::command_casting(),
                     ScenarioConfig::commander_lifecycle(),
                     ScenarioConfig::commander_exile(),
-                ],
-                [ALLOWED.as_slice(), &[(PLAINS, PLAINS_DIGEST)]].concat(),
-            ),
-            (
-                vec![
                     ScenarioConfig::commander_damage(),
                     ScenarioConfig::commander_damage_borrowed(),
-                ],
-                [
-                    ALLOWED.as_slice(),
-                    &[(PLAINS, PLAINS_DIGEST)],
-                    &[(YARGLE, YARGLE_DIGEST)],
-                ]
-                .concat(),
-            ),
-            (
-                vec![ScenarioConfig::commander_library()],
-                [
-                    ALLOWED.as_slice(),
-                    &[(PLAINS, PLAINS_DIGEST)],
-                    &[(TIME_EBB, TIME_EBB_DIGEST)],
-                ]
-                .concat(),
-            ),
-            (
-                vec![
+                    ScenarioConfig::commander_library(),
                     ScenarioConfig::actions(),
                     ScenarioConfig::actions_borrowed(),
                     ScenarioConfig::actions_empty_library(),
@@ -285,106 +256,6 @@ impl Prepared {
                     &[(YARGLE, YARGLE_DIGEST)],
                     &[(TIME_EBB, TIME_EBB_DIGEST)],
                     ACTION_EXTRA.as_slice(),
-                ]
-                .concat(),
-            ),
-            (
-                vec![
-                    ScenarioConfig::choices(),
-                    ScenarioConfig::choices_furnace(),
-                    ScenarioConfig::conditions(),
-                    ScenarioConfig::conditions_nonempty(),
-                    ScenarioConfig::conditions_borrowed(),
-                    ScenarioConfig::conditions_no_targets(),
-                ],
-                [
-                    ALLOWED.as_slice(),
-                    &[(PLAINS, PLAINS_DIGEST)],
-                    &[(YARGLE, YARGLE_DIGEST)],
-                    &[(TIME_EBB, TIME_EBB_DIGEST)],
-                    ACTION_EXTRA.as_slice(),
-                    STACK_EXTRA.as_slice(),
-                    DAMAGE_LIFE_EXTRA.as_slice(),
-                    TRIGGER_EXTRA.as_slice(),
-                    EFFECT_EXTRA.as_slice(),
-                    CHOICE_EXTRA.as_slice(),
-                ]
-                .concat(),
-            ),
-            (
-                vec![
-                    ScenarioConfig::effects(),
-                    ScenarioConfig::effects_furnace(),
-                    ScenarioConfig::effects_two_furnaces(),
-                    ScenarioConfig::effects_borrowed(),
-                    ScenarioConfig::effects_low(),
-                ],
-                [
-                    ALLOWED.as_slice(),
-                    &[(PLAINS, PLAINS_DIGEST)],
-                    &[(YARGLE, YARGLE_DIGEST)],
-                    &[(TIME_EBB, TIME_EBB_DIGEST)],
-                    ACTION_EXTRA.as_slice(),
-                    STACK_EXTRA.as_slice(),
-                    DAMAGE_LIFE_EXTRA.as_slice(),
-                    TRIGGER_EXTRA.as_slice(),
-                    EFFECT_EXTRA.as_slice(),
-                ]
-                .concat(),
-            ),
-            (
-                vec![
-                    ScenarioConfig::triggers(),
-                    ScenarioConfig::triggers_low(),
-                    ScenarioConfig::triggers_borrowed(),
-                    ScenarioConfig::triggers_empty_library(),
-                    ScenarioConfig::triggers_nonactive(),
-                ],
-                [
-                    ALLOWED.as_slice(),
-                    &[(PLAINS, PLAINS_DIGEST)],
-                    &[(YARGLE, YARGLE_DIGEST)],
-                    &[(TIME_EBB, TIME_EBB_DIGEST)],
-                    ACTION_EXTRA.as_slice(),
-                    STACK_EXTRA.as_slice(),
-                    DAMAGE_LIFE_EXTRA.as_slice(),
-                    TRIGGER_EXTRA.as_slice(),
-                ]
-                .concat(),
-            ),
-            (
-                vec![
-                    ScenarioConfig::damage_life(),
-                    ScenarioConfig::damage_life_low(),
-                    ScenarioConfig::damage_life_borrowed(),
-                    ScenarioConfig::damage_life_empty_library(),
-                    ScenarioConfig::damage_life_library(),
-                ],
-                [
-                    ALLOWED.as_slice(),
-                    &[(PLAINS, PLAINS_DIGEST)],
-                    &[(YARGLE, YARGLE_DIGEST)],
-                    &[(TIME_EBB, TIME_EBB_DIGEST)],
-                    ACTION_EXTRA.as_slice(),
-                    STACK_EXTRA.as_slice(),
-                    DAMAGE_LIFE_EXTRA.as_slice(),
-                ]
-                .concat(),
-            ),
-            (
-                vec![
-                    ScenarioConfig::stack_costs(),
-                    ScenarioConfig::stack_costs_borrowed(),
-                    ScenarioConfig::stack_costs_empty_library(),
-                    ScenarioConfig::stack_costs_library(),
-                ],
-                [
-                    ALLOWED.as_slice(),
-                    &[(PLAINS, PLAINS_DIGEST)],
-                    &[(YARGLE, YARGLE_DIGEST)],
-                    &[(TIME_EBB, TIME_EBB_DIGEST)],
-                    ACTION_EXTRA.as_slice(),
-                    STACK_EXTRA.as_slice(),
                 ]
                 .concat(),
             ),

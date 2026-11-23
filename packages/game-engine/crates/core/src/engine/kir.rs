@@ -344,29 +344,12 @@ impl RulesTxn {
         amount: &Amount,
         source_block: u32,
     ) -> Result<(), String> {
-        let computed = !matches!(amount, Amount::Fixed { .. });
         let amount = self.kernel_amount(&frame, amount)?;
         let skipped = |game: &mut Self, frame| {
             game.finish_instruction(frame, InstructionOutcome::Life { actual: None })
         };
-        // CR 119.8, 107.1b: a change of zero is no life event. An announced X
-        // may be zero. A fixed zero is the tail of the complete
-        // permanent-grant family and nothing else: any other fixed zero
-        // reaches the life event, which rejects it.
-        if amount == Quantity::zero()
-            && (computed
-                || (gain
-                    && player.is_you()
-                    && source_block == 0
-                    && frame.cursor == 1
-                    && self.entry(frame.stack_id)?.kind.is_spell()
-                    && self
-                        .program_for(self.entry(frame.stack_id)?)
-                        .is_ok_and(|program| {
-                            temporary_permanent_keyword_program(program)
-                                .is_some_and(|family| family.controller_life == Some(&amount))
-                        })))
-        {
+        // CR 119.8: changing life by zero produces no event.
+        if amount == Quantity::zero() {
             return skipped(self, frame);
         }
         let player = match self.kernel_players(&frame, player)? {

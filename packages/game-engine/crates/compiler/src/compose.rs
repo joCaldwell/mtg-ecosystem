@@ -254,7 +254,7 @@ fn append_effects(
             }
             Part::Table(steps) => {
                 for step in &steps {
-                    let instruction = steps::lower(step, program, slots, context, label)?;
+                    let instruction = steps::lower(step, context, label)?;
                     program.instructions.push(instruction);
                 }
             }
@@ -434,27 +434,6 @@ fn numbers_printed(line: &str, ast: &str) -> Result<(), Failure> {
     Ok(())
 }
 
-// Unit tests of the block tables lower hand-built rows whose text is a
-// placeholder; no parser resolution can certify them. Only `cfg(test)` code
-// can select this, and the resolution checks have their own tests.
-#[cfg(test)]
-thread_local! {
-    static SYNTHETIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-#[cfg(test)]
-pub(super) fn synthetic<T>(run: impl FnOnce() -> T) -> T {
-    SYNTHETIC.set(true);
-    let result = run();
-    SYNTHETIC.set(false);
-    result
-}
-fn synthetic_rows() -> bool {
-    #[cfg(test)]
-    return SYNTHETIC.get();
-    #[cfg(not(test))]
-    false
-}
-
 /// What keeps one record out of composition, for the gap report.
 #[derive(Default)]
 pub(super) struct Blockers {
@@ -514,19 +493,13 @@ fn compose(
     } = ingest::read_single_face(record)?;
     // Archive R4: the parser's resolution, not the diagnostic graph, says how
     // every reference, step and printed token of each block is accounted for.
-    let resolution = if synthetic_rows() {
-        None
-    } else {
-        Some(resolution::Resolution::read(
-            r.resolution.as_deref(),
-            r.resolution_sha256.as_deref(),
-        )?)
-    };
+    let resolution =
+        resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;
     // The complete typed AST: an unknown shape is named, never an opaque
     // untagged-enum failure further down.
     decode::<Vec<ast::Ability>>(result.abilities.get(), "abilities")?;
     let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
-    if let Some(resolution) = &resolution {
+    {
         binding_gate(resolution.complete(), &mut deferred)?;
         binding_gate(resolution.ordinary_antecedents(&printed), &mut deferred)?;
         binding_gate(resolution.covers(&printed), &mut deferred)?;
@@ -541,10 +514,7 @@ fn compose(
         CardKind::Land => "land",
         CardKind::Instant | CardKind::Sorcery => "spell",
     };
-    let canonical = match &resolution {
-        Some(resolution) => resolution.canonical_abilities(result.abilities.get(), noun)?,
-        None => resolution::synthetic_canonical(result.abilities.get(), noun),
-    };
+    let canonical = resolution.canonical_abilities(result.abilities.get(), noun)?;
     // The normalized source must be exactly the parsed blocks, and each line
     // must carry the same AST as the aggregate; nothing may be unaccounted.
     let normalized = source_lines(&source.oracle_text, &source.name, &source.type_line)?;
@@ -595,7 +565,7 @@ fn compose(
         let ability: Block =
             serde_json::from_str(raw.get()).map_err(|e| block_mirror_gap(raw.get(), &e))?;
         let label = source_block(block)?;
-        if let Some(resolution) = &resolution {
+        {
             resolution.spans(block, &result.lines[block].text, &printed[block])?;
         }
         numbers_printed(&result.lines[block].text, raw.get())?;
@@ -619,9 +589,7 @@ fn compose(
             } => {
                 ability_word(&word, &result.lines[block].text)?;
                 labels.statics.push(label);
-                definition
-                    .static_abilities
-                    .push(lower_static(&effect, label)?);
+                definition.static_abilities.push(lower_static(&effect)?);
             }
             Block::Spell {
                 ability_word: word,
@@ -716,7 +684,7 @@ fn compose(
         }
         // CR 601.2c: the block's announced targets are the resolution's
         // block-relative slots.
-        if let Some(resolution) = &resolution {
+        {
             let (program, first) = if definition.activated.len() > activated {
                 (definition.activated.last().map(|a| &a.program), 0)
             } else if definition.triggered.len() > triggered {

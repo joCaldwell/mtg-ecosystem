@@ -469,7 +469,7 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
 }
 
 #[test]
-fn timing_and_step_tables_lower_sorcery_speed_and_combat_restrictions() {
+fn timing_table_lowers_printed_sorcery_speed() {
     // CR 602.5d: a sorcery-speed activation announces at main-phase timing.
     let restrict = |row: &mut serde_json::Value| {
         row["faces"][0]["result"]["abilities"][0]["restriction"] = json!({"restriction":"sorcery"});
@@ -511,33 +511,6 @@ fn timing_and_step_tables_lower_sorcery_speed_and_combat_restrictions() {
     );
     assert_eq!(timing(None).unwrap().0, SpellTiming::Instant);
     assert!(timing(Some(json!({"restriction":"sorcery","turn":"your"}))).is_err());
-    // CR 509.1b: one announced creature, restricted until cleanup.
-    let step = json!({"effect":"cant","action":"block","duration":{"duration":"this-turn"},
-        "what":{"ref":"target","filter":{"types":["creature"]},
-            "count":{"amount":"fixed","value":1},"selectionId":"line:0:3"}});
-    assert!(steps::claims(&step));
-    let mut program = SpellProgram::instructions(SpellTiming::Instant);
-    let instruction =
-        steps::lower(&step, &mut program, &mut BTreeMap::new(), Context::Spell, 0).unwrap();
-    assert_eq!(
-        instruction,
-        Instruction::GrantCreatureRestriction {
-            target_slot: 0,
-            restriction: CreatureRestriction::CantBlock,
-            source_block: 0
-        }
-    );
-    assert_eq!(program.targets[0].domain, TargetDomain::BattlefieldCreature);
-    for unclaimed in [
-        json!({"effect":"cant","action":"attack","duration":{"duration":"this-turn"},"what":step["what"]}),
-        json!({"effect":"cant","action":"block","duration":{"duration":"end-of-turn"},"what":step["what"]}),
-        json!({"effect":"cant","action":"block","duration":{"duration":"this-turn"},"what":step["what"],"extra":1}),
-        json!({"effect":"cant","action":"block","duration":{"duration":"this-turn"},
-            "what":{"ref":"target","filter":{"types":["creature"],"control":"opponent"},
-                "count":{"amount":"fixed","value":1},"selectionId":"line:0:3"}}),
-    ] {
-        assert!(!steps::claims(&unclaimed), "{unclaimed}");
-    }
 }
 
 /// Archive R4 negative mutations: each changes the resolution, the printed
@@ -637,43 +610,24 @@ const GALVANIC: &str =
 /// diagnostic-graph fallback.
 #[test]
 fn records_without_an_r4_resolution_reject() {
-    let pre_r4 = include_str!("../../../../tests/fixtures/grizzly-bears.json");
+    let pre_r4 = changed(STRIP, |row| {
+        row.as_object_mut().unwrap().remove("resolution");
+        row.as_object_mut().unwrap().remove("resolutionSha256");
+    });
     assert!(matches!(
-        compile(crate::fixtures::MANIFEST, pre_r4),
+        compile(R4, &pre_r4),
         CompileResult::Unsupported { ref path, .. } if path == "resolution"
     ));
 }
 
-/// CR 121.2: "draw two cards" is two single draws, the same canonical form
-/// for every block kind; Read the Bones keeps its printed order around them.
 #[test]
-fn fixed_draws_lower_to_ordered_single_draws() {
-    let definition = composed(BONES);
-    let spell = definition.spell.as_ref().unwrap();
-    let draw = Instruction::draw(kir::PlayerExpr::you(kir::Context::Spell), 1.into(), 0);
-    assert_eq!(spell.instructions.len(), 4);
-    assert!(matches!(spell.instructions[0], Instruction::Scry { .. }));
-    assert_eq!(spell.instructions[1..3], [draw.clone(), draw]);
-    assert!(
-        definition
-            .capabilities
-            .contains(&Capability::ControllerDrawV1)
-    );
-}
-
-/// "Search ... for a basic land card, put that card onto the battlefield
-/// tapped, then shuffle" is the one-card tapped basic land search, whatever
-/// cost pays for it.
-#[test]
-fn paid_basic_land_search_is_the_tapped_search() {
-    let definition = composed(BAUBLE);
-    assert_eq!(
-        definition.activated[0].program.instructions,
-        [Instruction::SearchBasicLands {
-            maximum: 1,
-            source_block: 0,
-        }]
-    );
+fn unaudited_library_procedures_reject_the_entire_record() {
+    for raw in [BONES, BAUBLE] {
+        assert!(matches!(
+            compile(R4, raw),
+            CompileResult::Unsupported { .. }
+        ));
+    }
 }
 
 /// The parser keeps an ability-word rider ("Metalcraft — ... instead") in
@@ -702,7 +656,9 @@ fn rider_blocks_reject_without_claiming_unaccounted_text() {
 /// edge, rejects instead of being read by shape.
 #[test]
 fn contradictory_or_missing_r4_edges_reject() {
-    assert!(matches!(compile(R4, BAUBLE), CompileResult::Lowered { .. }));
+    assert!(
+        matches!(compile(R4, BAUBLE), CompileResult::Unsupported { ref path, .. } if path == "effects.steps")
+    );
     let refs = |row: &mut serde_json::Value| -> serde_json::Value {
         row["resolution"]["faces"][0]["blocks"][0]["refs"].clone()
     };

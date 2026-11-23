@@ -244,8 +244,10 @@ mod tests {
             },
         );
         let target = TargetSpec::new(0, "line:0:0", TargetDomain::StackSpell);
-        let instruction = Instruction::CounterStackObject {
-            target_slot: 0,
+        let instruction = Instruction::Kernel {
+            node: kir::Node::Do(kir::Verb::Counter {
+                what: kir::Ref::Target { slot: 0 },
+            }),
             source_block: 0,
         };
         same(

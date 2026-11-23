@@ -1,7 +1,7 @@
 //! Trusted post-game analysis of verified, terminal bench journals. This module
 //! does not provide any inputs to live play or persist private replay material.
 use crate::match_games::can_fund;
-use mtg_contracts::{CardKind, Catalog, Definition, Instruction, Quantity, StaticEffect, digest};
+use mtg_contracts::{CardKind, Catalog, Quantity, StaticEffect, digest};
 use mtg_core::{
     Advance, BatchCause, Budget, CardId, DeckRole, Decklist, DynamicDeckEntry, Event, EventGroup,
     EventOutcome, EvidenceRecord, Game, MoveOutcome, PlayerId, Prepared, QueryResult, QueryValue,
@@ -254,13 +254,6 @@ enum DrawKind {
     Unresolved,
 }
 
-fn is_look_top(definition: &Definition, cursor: u32, source_block: u32) -> bool {
-    definition.triggered.iter().any(|ability| {
-        matches!(ability.program.instructions.get(cursor as usize),
-            Some(Instruction::LookTopMayRevealForMana { source_block: block, .. }) if *block == source_block)
-    })
-}
-
 fn collect(
     game: &Game,
     catalog: &Catalog,
@@ -362,11 +355,7 @@ fn collect(
                                             DrawKind::Draw
                                         }
                                         BatchCause::Instruction {
-                                            stack_id,
-                                            source,
-                                            cursor,
-                                            source_block,
-                                            ..
+                                            stack_id, source, ..
                                         } if matches!(
                                             batch.group,
                                             EventGroup::Occurrence { .. }
@@ -377,7 +366,6 @@ fn collect(
                                                 .copied()
                                                 .unwrap_or(source.card);
                                             match cards.get(&id).and_then(|card| catalog.definition_by_oracle_id(&card.oracle_id)) {
-                                                Some(d) if is_look_top(d, cursor, source_block) => DrawKind::Acquisition,
                                                 // Entry copies can change triggered text while retaining
                                                 // the original physical Oracle identity.
                                                 Some(d) if !d.static_abilities.iter().any(|a|
@@ -399,12 +387,7 @@ fn collect(
                                 note_hand(&mut facts, movement, draw);
                             }
                         }
-                        EventOutcome::LibrarySelected {
-                            hand: Some(movement),
-                            ..
-                        } if opening_complete => {
-                            note_hand(&mut facts, movement, DrawKind::Acquisition);
-                        }
+
                         _ => {}
                     }
                 }

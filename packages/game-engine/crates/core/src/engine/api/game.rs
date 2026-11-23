@@ -15,7 +15,6 @@ testkit_fields! {
         pub(in crate::engine) catalog_has_land_type_grant: bool,
         pub(in crate::engine) catalog_has_land_reclamation: bool,
         pub(in crate::engine) catalog_has_nonland_color_grant: bool,
-        pub(in crate::engine) catalog_has_target_color_set: bool,
         pub(in crate::engine) catalog_has_mana_tap_observer: bool,
         // Admitted metadata is immutable for this executor and all staged forks.
         pub(in crate::engine) prepared: Arc<Prepared>,
@@ -210,7 +209,6 @@ impl RulesTxn {
                 .iter()
                 .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
             catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
-            catalog_has_target_color_set: prepared.has_target_color_set(),
             catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
             definition_index: Self::definition_index(&prepared.catalog, &state.rules.cards),
             prepared: Arc::new(prepared),
@@ -246,7 +244,6 @@ impl RulesTxn {
             catalog_has_land_type_grant: self.catalog_has_land_type_grant,
             catalog_has_land_reclamation: self.catalog_has_land_reclamation,
             catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
-            catalog_has_target_color_set: self.catalog_has_target_color_set,
             catalog_has_mana_tap_observer: self.catalog_has_mana_tap_observer,
             prepared: self.prepared.clone(),
             definition_index: self.definition_index.clone(),

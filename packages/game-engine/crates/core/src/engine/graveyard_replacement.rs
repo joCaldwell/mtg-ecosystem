@@ -21,15 +21,6 @@ pub struct GraveyardReplacement {
 #[serde(tag = "completion", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum GraveyardCompletion {
     Library,
-    Counter {
-        target: StackId,
-        source: ObjectId,
-        controller: PlayerId,
-        mill: Option<Quantity>,
-    },
-    MillAfterCounter {
-        outcome: Box<InstructionOutcome>,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,30 +37,14 @@ enum ReplacementPhase {
 fn library_members(proposed: &ProposedEvent) -> Option<(PlayerId, &[ObjectId])> {
     match proposed {
         ProposedEvent::Mill { player, cards, .. } => Some((*player, cards)),
-        ProposedEvent::Surveil {
-            player, graveyard, ..
-        } => Some((*player, graveyard)),
-        ProposedEvent::LibrarySelect {
-            player,
-            destination: LibraryRemainder::Graveyard,
-            remainder,
-            ..
-        } => Some((*player, remainder)),
+
         _ => None,
     }
 }
 
 impl GraveyardReplacement {
-    fn counter_target_left(&self, game: &RulesTxn) -> bool {
-        matches!(&self.completion, GraveyardCompletion::Counter { target, source, .. }
-            if !game.state.rules.stack.iter().any(|entry| entry.id == *target && entry.source == *source))
-    }
-
     fn request(&self, game: &RulesTxn) -> Option<Request> {
-        if !matches!(self.phase, ReplacementPhase::BeforeMovement)
-            || !game.is_live(self.owner)
-            || self.counter_target_left(game)
-        {
+        if !matches!(self.phase, ReplacementPhase::BeforeMovement) || !game.is_live(self.owner) {
             return None;
         }
         let object = *self.commanders.get(self.choices.len())?;
@@ -92,7 +67,6 @@ impl GraveyardReplacement {
 
     pub(super) fn reserved_top(&self) -> &[ObjectId] {
         match &self.proposed {
-            ProposedEvent::Surveil { top, .. } => top,
             _ => &[],
         }
     }
@@ -167,7 +141,7 @@ impl RulesTxn {
             }
         }
         let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
-        self.finish_graveyard_effect(frame, source_block, Some(actual), completion)
+        self.finish_graveyard_effect(frame, Some(actual), completion)
     }
 
     pub(super) fn begin_graveyard_effect(
@@ -210,27 +184,12 @@ impl RulesTxn {
     fn finish_graveyard_effect(
         &mut self,
         frame: Resolving,
-        source_block: u32,
         actual: Option<EventOutcome>,
         completion: GraveyardCompletion,
     ) -> Result<(), String> {
         match completion {
             GraveyardCompletion::Library => {
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual })
-            }
-            GraveyardCompletion::MillAfterCounter { outcome } => {
-                self.finish_instruction(frame, *outcome)
-            }
-            GraveyardCompletion::Counter {
-                target,
-                controller,
-                mill,
-                ..
-            } => {
-                self.rules_mut().frame = Frame::Resolve {
-                    frame: frame.clone(),
-                };
-                self.complete_counter_outcome(frame, source_block, target, controller, mill, actual)
             }
         }
     }
@@ -312,21 +271,11 @@ impl RulesTxn {
             return match tx.phase {
                 ReplacementPhase::Shuffling { actual, .. } => self.finish_graveyard_effect(
                     tx.frame,
-                    tx.source_block,
                     actual.map(|event| *event),
                     tx.completion,
                 ),
                 ReplacementPhase::BeforeMovement => {
                     let outcome = match tx.completion {
-                        completion @ GraveyardCompletion::Counter { .. } => {
-                            return self.finish_graveyard_effect(
-                                tx.frame,
-                                tx.source_block,
-                                None,
-                                completion,
-                            );
-                        }
-                        GraveyardCompletion::MillAfterCounter { outcome } => *outcome,
                         GraveyardCompletion::Library => {
                             InstructionOutcome::PlayerActionSkipped { player: tx.owner }
                         }
@@ -337,14 +286,6 @@ impl RulesTxn {
         }
         let cause = self.instruction_cause(&tx.frame, tx.source_block)?;
         match &tx.phase {
-            ReplacementPhase::BeforeMovement if tx.counter_target_left(self) => {
-                self.rules_mut().pending = None;
-                tx.phase = ReplacementPhase::Shuffling {
-                    actual: None,
-                    remaining: tx.revealed.len(),
-                    index: tx.last_index(self)?,
-                };
-            }
             ReplacementPhase::BeforeMovement if tx.choices.len() < tx.commanders.len() => {
                 let input = self
                     .rules_mut()
@@ -384,7 +325,6 @@ impl RulesTxn {
                 if *remaining == 1 {
                     return self.finish_graveyard_effect(
                         tx.frame,
-                        tx.source_block,
                         actual.clone().map(|event| *event),
                         tx.completion,
                     );
@@ -417,10 +357,7 @@ impl RulesTxn {
     }
 
     pub(super) fn replacement_charge(&self) -> usize {
-        let frame = spell_cascade_grants::retained_effect_frame(
-            &self.state.rules.frames,
-            &self.state.rules.frame,
-        );
+        let frame = frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame);
         if matches!(
             frame,
             Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
@@ -432,17 +369,13 @@ impl RulesTxn {
     }
 
     pub(super) fn validate_graveyard_replacement(&self) -> Result<(), String> {
-        if let Frame::GraveyardGroup { tx } = spell_cascade_grants::retained_effect_frame(
-            &self.state.rules.frames,
-            &self.state.rules.frame,
-        ) {
+        if let Frame::GraveyardGroup { tx } =
+            frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame)
+        {
             return tx.validate(self);
         }
         let Frame::GraveyardReplacement { transaction: tx } =
-            spell_cascade_grants::retained_effect_frame(
-                &self.state.rules.frames,
-                &self.state.rules.frame,
-            )
+            frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame)
         else {
             return Ok(());
         };
@@ -453,72 +386,6 @@ impl RulesTxn {
             .get(tx.frame.cursor as usize)
             .ok_or("missing replacement-producing instruction")?;
         let (owner, members, from) = match (&tx.completion, &tx.proposed) {
-            (
-                GraveyardCompletion::Counter {
-                    target,
-                    source,
-                    controller,
-                    mill,
-                },
-                ProposedEvent::CounterStackObject {
-                    target: proposed,
-                    countering,
-                    domain,
-                },
-            ) if *target == *proposed
-                && *countering == tx.frame.stack_id
-                && *domain == TargetDomain::StackSpell =>
-            {
-                let (slot, count) = match instruction {
-                    Instruction::CounterSpellAndMillController {
-                        target_slot, count, ..
-                    } => (*target_slot, Some(count)),
-                    Instruction::CounterStackObject { target_slot, .. }
-                    | Instruction::CounterSpellUnlessPays { target_slot, .. } => {
-                        (*target_slot, None)
-                    }
-                    _ => return Err("replacement counter source".into()),
-                };
-                if mill.as_ref() != count
-                    || self
-                        .entry(tx.frame.stack_id)?
-                        .stack_targets
-                        .get(slot as usize)
-                        != Some(target)
-                    || tx.frame.legal_targets.get(slot as usize) != Some(&true)
-                {
-                    return Err("counter replacement announcement invariant".into());
-                }
-                if matches!(tx.phase, ReplacementPhase::BeforeMovement)
-                    && self.is_live(tx.owner)
-                    && !tx.counter_target_left(self)
-                {
-                    let entry = self
-                        .state
-                        .rules
-                        .stack
-                        .iter()
-                        .find(|s| s.id == *target)
-                        .ok_or("missing replaced counter target")?;
-                    if !entry.kind.is_spell()
-                        || entry.source != *source
-                        || entry.controller != *controller
-                        || self.spell_cannot_be_countered(entry)?
-                    {
-                        return Err("counter replacement target invariant".into());
-                    }
-                }
-                (
-                    self.state
-                        .rules
-                        .cards
-                        .get(&source.card)
-                        .ok_or("missing countered card")?
-                        .owner,
-                    std::slice::from_ref(source),
-                    Zone::Stack,
-                )
-            }
             _ => {
                 let (owner, members) = library_members(&tx.proposed)
                     .ok_or("unsupported retained graveyard proposal")?;
@@ -551,14 +418,6 @@ impl RulesTxn {
             || !matches!(
                 (instruction, &tx.proposed),
                 (
-                    Instruction::CounterSpellAndMillController { .. }
-                        | Instruction::CounterSpellUnlessPays { .. }
-                        | Instruction::CounterStackObject { .. },
-                    ProposedEvent::CounterStackObject { .. }
-                ) | (
-                    Instruction::CounterSpellAndMillController { .. },
-                    ProposedEvent::Mill { .. }
-                ) | (
                     kernel!(Mill {
                         amount: fixed!(_),
                         ..
@@ -567,11 +426,7 @@ impl RulesTxn {
                         amount: announced_x!()
                     }),
                     ProposedEvent::Mill { .. }
-                ) | (Instruction::Surveil { .. }, ProposedEvent::Surveil { .. })
-                    | (
-                        Instruction::SelectLibraryCard { .. },
-                        ProposedEvent::LibrarySelect { .. }
-                    )
+                )
             )
         {
             return Err("snapshot graveyard replacement producer invariant".into());
@@ -579,8 +434,7 @@ impl RulesTxn {
         if self.is_live(owner) {
             match &tx.phase {
                 ReplacementPhase::BeforeMovement
-                    if !tx.counter_target_left(self)
-                        && members.iter().any(|id| self.zone(*id) != Some(from)) =>
+                    if members.iter().any(|id| self.zone(*id) != Some(from)) =>
                 {
                     return Err("stale replacement proposal".into());
                 }
@@ -589,7 +443,7 @@ impl RulesTxn {
                     index,
                     actual,
                 } if (actual.is_some() && tx.choices.len() != tx.commanders.len())
-                    || (actual.is_none() && !tx.counter_target_left(self))
+                    || actual.is_none()
                     || *remaining == 0
                     || *remaining > expected.len()
                     || *index > tx.last_index(self)? =>

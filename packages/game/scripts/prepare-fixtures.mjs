@@ -22,7 +22,9 @@ const protocolBytes = await readFile(new URL('../../game-server/sdk/generated/pr
 if (hash(protocolBytes) !== qualification.protocol_schema_sha256) throw new Error('SDK schema is not the qualified integration schema; prepare SDK explicitly first');
 const protocol = JSON.parse(protocolBytes);
 const sdkRoot = new URL('../../game-server/sdk/', import.meta.url);
-const sdkBuild = JSON.parse(await readFile(new URL('dist/build.json', sdkRoot)));
+const sdkBuildBytes = await readFile(new URL('dist/build.json', sdkRoot));
+if (hash(sdkBuildBytes) !== qualification.sdk_build_manifest_sha256) throw new Error('SDK browser build manifest differs from the qualified export');
+const sdkBuild = JSON.parse(sdkBuildBytes);
 const generationBytes = await readFile(new URL('generated/generation.json', sdkRoot));
 if (hash(generationBytes) !== sdkBuild.generation_sha256) throw new Error('SDK browser build has stale generation inputs');
 if (JSON.parse(generationBytes).bootstrap_schema_sha256 !== qualification.bootstrap_schema_sha256) throw new Error('SDK bootstrap schema is not the qualified integration schema');

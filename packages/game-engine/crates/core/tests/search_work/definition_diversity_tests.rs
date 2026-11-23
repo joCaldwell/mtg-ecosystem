@@ -4,8 +4,6 @@
 use super::*;
 use std::{hint::black_box, time::Instant};
 
-mod heterogeneous;
-
 const CONTRACT: &str = r#"{
  "schema":"definition-diversity-diagnostic-v1",
  "synthetic_counts":[0,8,64,256],"selector_partitions":4,
@@ -15,8 +13,6 @@ const CONTRACT: &str = r#"{
  "synthetic_scope":"pure existing modifier evaluator; generated constants are not authentic card text or cast invocations; normal restore rejects nonempty domains; above-capacity domains never advance",
  "cold_warm":"fresh generic State decode resets immutable history-byte memo, exact full generic bytes/SHA checked before and after repeat; characteristics currently has no memo, first/repeat calls are labeled accordingly",
  "invalidation":"fork a warmed domain, change one modifier power/toughness without changing identities, verify changed arithmetic and full State bytes/SHA and unchanged sibling; cleanup uses existing production typed event",
- "heterogeneous_sources":["Blood Artist","Essence Warden","Elvish Visionary","Slaughterhouse Bouncer","Furnace of Rath","Giant Growth","Disfigure","Fog"],
- "heterogeneous_scope":"private rejected configuration; three complete archived spells actually paid/resolved; typed fixture movements collect actual trigger matches/nonmatches; exact condition results; cleanup expires three resolved effects while static provider remains",
  "warmups":1,"measured_repetitions":5,"horizon_or_pool_changes":false,
  "outer_guard":"120s-2gib-v1 must be proved by independent host, env alone is not proof",
  "capacity_claim":"no admission or supported invocation creation above effect capacity; authentic256different Oracle abilities unavailable in finite catalog",
@@ -74,7 +70,7 @@ fn canonical_state(state: &State) -> Vec<u8> {
 fn payloads(count: usize) -> Vec<Payload> {
     assert!([0, 8, 64, 256].contains(&count));
     let template = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-effects-ir.json"
+        "../../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
     let source = template
@@ -139,10 +135,10 @@ fn unique_payloads(rows: &[Payload]) -> Vec<String> {
 }
 fn fixture() -> (Game, Vec<ObjectId>, ObjectId) {
     let catalog = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-effects-ir.json"
+        "../../../../tests/fixtures/expected-match-ir.json"
     ))
     .unwrap();
-    let prepared = Prepared::admit(catalog, ScenarioConfig::effects()).unwrap();
+    let prepared = witness_scenario(catalog, ScenarioConfig::effects());
     let mut game = Game::with_trace(prepared, TraceMode::Off);
     for _ in 0..1000 {
         match game.advance(Budget::new(64)) {
@@ -427,14 +423,7 @@ fn definition_diversity_duplicate_payload_with_different_identity_is_not_diversi
     rows[7] = rows[0].clone();
     unique_payloads(&rows);
 }
-#[test]
-fn definition_diversity_heterogeneous_source_programs_and_actual_events() {
-    for enabled in [false, true] {
-        for empty_hand in [false, true] {
-            heterogeneous::row(enabled, empty_hand, 0, false);
-        }
-    }
-}
+
 fn semantic_bytes(row: &serde_json::Value) -> String {
     let mut value = row.clone();
     let object = value.as_object_mut().unwrap();
@@ -502,18 +491,6 @@ fn definition_diversity_host_diagnostic() {
             println!("DEFINITION_DIVERSITY_ROW_START={}", canonical(&serde_json::json!({"row":"synthetic_unique_modifier_payloads","count":count,"repetition":repetition})).unwrap());
             let row = modifier_row(count, repetition, true);
             append_row(&mut rows, &mut first, format!("modifier-{count}"), row);
-        }
-        for enabled in [false, true] {
-            for empty in [false, true] {
-                println!("DEFINITION_DIVERSITY_ROW_START={}", canonical(&serde_json::json!({"row":"source_backed_heterogeneous","enabled":enabled,"bouncer_controller_hand_empty":empty,"repetition":repetition})).unwrap());
-                let row = heterogeneous::row(enabled, empty, repetition, true);
-                append_row(
-                    &mut rows,
-                    &mut first,
-                    format!("heterogeneous-{enabled}-{empty}"),
-                    row,
-                );
-            }
         }
     }
     let report = serde_json::json!({"schema":"definition-diversity-diagnostic-v1","status":"all_declared_rows_verified","expected_rows":48,"build_id":build_id(),

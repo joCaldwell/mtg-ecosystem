@@ -227,11 +227,7 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let top = self.top()?;
         let program = self.program()?;
-        if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(program) {
-            return self
-                .announced_graveyard_group(top.controller, player, maximum, entities)
-                .map(|_| ());
-        }
+
         if player != top.controller
             || entities.len() != program.targets.len()
             || entities.iter().enumerate().any(|(slot, target)| {
@@ -367,7 +363,7 @@ impl RulesTxn {
             if entry.kind.is_spell()
                 && mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_some()
             {
-                let bestowed = entry.alternative_cost == Some(cascade::AlternativeCost::Bestow);
+                let bestowed = entry.alternative_cost == Some(AlternativeCost::Bestow);
                 if fact.zone != Zone::Stack
                     || fact.characteristics
                         != self.proposed_cast_characteristics(entry.source.card, bestowed)?
@@ -391,14 +387,6 @@ impl RulesTxn {
         }
         let program = self.program_for(entry)?;
         let mixed = self.mixed_mode_children(entry)?;
-        let graveyard = mixed
-            .as_ref()
-            .and_then(|children| {
-                children
-                    .iter()
-                    .find_map(|p| mtg_contracts::graveyard_shuffle::offered_by(p))
-            })
-            .or_else(|| mtg_contracts::graveyard_shuffle::offered_by(program));
         let damage = program
             .targets
             .iter()
@@ -423,15 +411,11 @@ impl RulesTxn {
             }
         }
         if !entry.entity_targets.is_empty() {
-            if (!damage && graveyard.is_none())
+            if !damage
                 || (mixed.is_none() && !entry.targets.is_empty())
                 || (mixed.is_none() && !entry.player_targets.is_empty())
                 || (mixed.is_none() && !entry.stack_targets.is_empty())
-                || if let Some(maximum) = graveyard {
-                    !self.graveyard_group_structure(&entry.entity_targets, maximum)
-                } else {
-                    entry.entity_targets.len() > program.targets.len()
-                }
+                || entry.entity_targets.len() > program.targets.len()
                 || entry.announced_entity_targets.len() != 4
                 || entry.announced_entity_targets.iter().any(|row| {
                     row.len() != entry.entity_targets.len()
@@ -453,7 +437,7 @@ impl RulesTxn {
             return Err("snapshot entity announcement invariant".into());
         }
         if mixed.is_none()
-            && (damage || graveyard.is_some())
+            && damage
             && (!entry.targets.is_empty()
                 || (mixed.is_none() && !entry.player_targets.is_empty())
                 || (mixed.is_none() && !entry.stack_targets.is_empty()))
@@ -513,22 +497,7 @@ impl RulesTxn {
                     .get(index)
                     .ok_or("missing creature damage binding")?,
             },
-            Some(TargetDomain::BattlefieldPermanent)
-                if matches!(
-                    spell.kind,
-                    StackKind::Triggered {
-                        witness: TriggerEventWitness::LoreAdded { .. },
-                        ..
-                    }
-                ) && spec.is_some_and(mtg_contracts::saga_damage_target) =>
-            {
-                TargetEntity::Object {
-                    object: *spell
-                        .targets
-                        .get(index)
-                        .ok_or("missing chapter damage binding")?,
-                }
-            }
+
             _ => return Err("unsupported directed damage target domain".into()),
         };
         Ok((slot, amount, block, target))

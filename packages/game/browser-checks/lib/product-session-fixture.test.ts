@@ -41,7 +41,7 @@ test("disposable public hosted factory verifies real signed BetterAuth cookies a
 test("coqualified native/SDK inputs verify the compiled closure and reject stale source/build/receipt pins before native I/O", {
   skip: process.env.MULTIVERSE_TEST_BROWSER_QUALIFICATION !== "1",
 }, () => {
-  const qualification = join(repository, "packages/game/sdk-qualification.json");
+  const qualification = join(repository, "packages/game/fixtures/native21-hosted-qualification.json");
   const pins = JSON.parse(readFileSync(qualification, "utf8"));
   const inputs = { qualification, nativeRoot: join(pins.evidence_root, "native"), sdkRoot: join(pins.sdk_evidence_root, "sdk"),
     // This gate hashes an opaque input; it does not ingest cards or start a host.

@@ -1,15 +1,6 @@
 //! Printed basic subtype landwalk on creatures, CR 702.14 and 305.6.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use serde_json::{Value, json};
-
-const WORDS: [&str; 5] = [
-    "plainswalk",
-    "islandwalk",
-    "swampwalk",
-    "mountainwalk",
-    "forestwalk",
-];
 
 impl KeywordAbility {
     pub fn basic_landwalk_type(self) -> Option<BasicLandType> {
@@ -22,43 +13,4 @@ impl KeywordAbility {
             _ => return None,
         })
     }
-}
-
-pub(super) fn without_reminder(line: &str) -> Option<String> {
-    let mut depth = 0_usize;
-    let mut text = String::new();
-    for ch in line.chars() {
-        match ch {
-            '(' => depth += 1,
-            ')' => depth = depth.checked_sub(1)?,
-            _ if depth == 0 => text.push(ch),
-            _ => {}
-        }
-    }
-    (depth == 0).then_some(text)
-}
-
-pub(super) fn extend_schema(schema: &mut Value) {
-    let landwalk = json!({"contains":{"enum":WORDS}});
-    let cap = json!({"contains":{"const":Capability::BasicLandwalkV1}});
-    schema["$defs"]["Definition"]["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({
-            "if":{"required":["keywords"],"properties":{"keywords":landwalk}},
-            "then":{"properties":{
-                "characteristics":{"properties":{"kind":{"const":"creature"}}},
-                "capabilities":cap
-            }},
-            "else":{"properties":{"capabilities":{"not":cap}}}
-        }));
-    let no_landwalk = json!({"items":{"not":{"enum":WORDS}}});
-    schema["$defs"]["CreatureToken"]["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"properties":{"keywords":no_landwalk}}));
-    schema["$defs"]["StaticEffect"]["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"properties":{"modify_creatures":{"properties":{"keywords":no_landwalk}}}}));
 }

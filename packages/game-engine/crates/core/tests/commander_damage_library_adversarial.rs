@@ -9,7 +9,7 @@ const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
 fn library_prepared() -> Prepared {
     Prepared::admit(
         Catalog::read(include_str!(
-            "../../../tests/fixtures/expected-library-ir.json"
+            "../../../tests/fixtures/expected-action-ir.json"
         ))
         .unwrap(),
         ScenarioConfig::commander_library(),
@@ -19,7 +19,7 @@ fn library_prepared() -> Prepared {
 fn damage_prepared(borrowed: bool) -> Prepared {
     Prepared::admit(
         Catalog::read(include_str!(
-            "../../../tests/fixtures/expected-damage-ir.json"
+            "../../../tests/fixtures/expected-action-ir.json"
         ))
         .unwrap(),
         if borrowed {

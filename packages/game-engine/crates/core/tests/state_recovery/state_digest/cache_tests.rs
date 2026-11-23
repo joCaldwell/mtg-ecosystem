@@ -5,10 +5,10 @@ fn fixture() -> Game {
     Game::new(
         Prepared::admit(
             Catalog::read(include_str!(
-                "../../../../../tests/fixtures/expected-effects-ir.json"
+                "../../../../../tests/fixtures/expected-ir.json"
             ))
             .unwrap(),
-            ScenarioConfig::effects_two_furnaces(),
+            ScenarioConfig::combat_game(),
         )
         .unwrap(),
     )
@@ -32,6 +32,33 @@ fn base_view() -> PermittedView {
         })
         .unwrap()
         .clone();
+    // Add populated public rows to the serialization-only fixture.
+    let target = VisibleTarget {
+        announced: object.handle.clone(),
+        current: Some(object.handle.clone()),
+    };
+    view.effects.push(VisibleEffect::ModifyPowerToughness {
+        handle: EffectHandle("v0-effect-1".into()),
+        origin: VisibleEffectSource {
+            source: target.clone(),
+            oracle_id: object.oracle_id.clone(),
+            controller: object.controller,
+        },
+        target,
+        power: 1.into(),
+        toughness: 1.into(),
+        expires_in_cleanup_of_turn: 1,
+    });
+    view.commanders.push(VisibleCommander {
+        designation: "cache-test-commander".into(),
+        oracle_id: object.oracle_id.clone(),
+        history: CommanderHistory {
+            owner: object.owner,
+            color_identity: vec![],
+            command_casts: BTreeMap::new(),
+            combat_damage: BTreeMap::new(),
+        },
+    });
     view.objects = vec![object];
     view
 }

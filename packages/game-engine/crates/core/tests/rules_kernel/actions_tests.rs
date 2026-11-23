@@ -80,18 +80,6 @@ fn pass_round(g: &mut Game) {
     }
     settle(g);
 }
-fn ability(g: &mut Game) {
-    answer(g, Response::Pass);
-    let source = g.object_id(CardId(5)).unwrap();
-    answer(
-        g,
-        Response::ActivateAbility {
-            object: source,
-            ability: 0,
-        },
-    );
-    settle(g);
-}
 
 #[test]
 fn opponent_announcement_and_resolution_sacrifice_have_distinct_choosers() {
@@ -186,131 +174,21 @@ fn sacrificing_commander_waits_until_whole_spell_finishes_before_return_sba() {
     settle(&mut g);
     recover(&g);
 }
-#[test]
-fn sacrifice_source_ability_has_own_stack_identity_and_historical_reference() {
-    let mut g = Game::new(prepared(ScenarioConfig::actions()));
-    let before_source = view(&g, 1)
-        .view
-        .objects
-        .into_iter()
-        .find(|object| object.oracle_id == HAPLESS)
-        .unwrap()
-        .handle;
-    let source = g.object_id(CardId(5)).unwrap();
-    ability(&mut g);
-    recover(&g);
-    assert_eq!(
-        g.state.rules.objects[&CardId(5)].zone,
-        Zone::Graveyard { owner: PlayerId(1) }
-    );
-    assert_eq!(g.state.rules.stack.len(), 1);
-    assert!(!g.top().unwrap().kind.is_spell());
-    assert_eq!(g.top().unwrap().source, source);
-    let own = view(&g, 1);
-    let entry = &own.view.stack[0];
-    assert!(entry.spell.is_none());
-    let ability = entry.ability.as_ref().unwrap();
-    assert_eq!(ability.source.announced, before_source);
-    assert!(ability.source.current.is_none());
-    assert!(ability.handle.0.starts_with("v1-s"));
-    assert!(
-        g.resolve_handle(PlayerId(1), &ability.source.announced)
-            .is_err()
-    );
-    assert_eq!(
-        g.events()
-            .iter()
-            .filter(|event| matches!(event, Event::AbilityActivated { .. }))
-            .count(),
-        1
-    );
-    assert!(
-        !g.events()
-            .iter()
-            .any(|event| matches!(event, Event::SpellCast { .. }))
-    );
-    pass_round(&mut g);
-    let Request::ResolveDiscard {
-        player,
-        count,
-        candidates,
-        ..
-    } = settle(&mut g)
-    else {
-        panic!("discard")
-    };
-    assert_eq!(player, PlayerId(1));
-    assert_eq!(count, 1);
-    let drawn = *candidates
-        .iter()
-        .find(|object| object.card == CardId(17))
-        .unwrap();
-    answer(
-        &mut g,
-        Response::ResolveDiscard {
-            objects: vec![drawn],
-        },
-    );
-    settle(&mut g);
-    recover(&g);
-    assert!(g.state.rules.stack.is_empty());
-    assert_eq!(
-        g.object_id(CardId(5)).unwrap().incarnation,
-        1,
-        "ability completion must not move sacrificed source again"
-    );
-    assert_eq!(
-        g.state.rules.objects[&CardId(17)].zone,
-        Zone::Graveyard { owner: PlayerId(1) }
-    );
-    assert!(
-        g.events()
-            .iter()
-            .any(|event| matches!(event, Event::AbilityCompleted { .. }))
-    );
-}
-#[test]
-fn accepted_activation_is_discarded_if_source_owner_leaves_before_cost() {
-    let mut g = Game::new(prepared(ScenarioConfig::actions_borrowed()));
-    answer(&mut g, Response::Pass);
-    let source = g.object_id(CardId(5)).unwrap();
-    answer(
-        &mut g,
-        Response::ActivateAbility {
-            object: source,
-            ability: 0,
-        },
-    );
-    g.concede(PlayerId(2)).unwrap();
-    assert!(matches!(
-        settle(&mut g),
-        Request::Priority {
-            player: PlayerId(1),
-            ..
-        }
-    ));
-    assert!(g.state.rules.stack.is_empty());
-    assert!(
-        !g.events()
-            .iter()
-            .any(|event| matches!(event, Event::AbilityActivated { .. }))
-    );
-    recover(&g);
-}
+
 #[test]
 fn resolution_choice_query_sidecar_recovers_and_does_not_authorize_foreign_forks() {
     let mut g = Game::new(prepared(ScenarioConfig::actions()));
-    ability(&mut g);
+    cast_edict(&mut g, 1);
     pass_round(&mut g);
     let request = view(&g, 1).decision.unwrap();
-    let PlayerRequest::ResolveDiscard { candidates, .. } = &request else {
-        panic!("discard")
+    let PlayerRequest::Sacrifice { candidates, .. } = &request else {
+        panic!("sacrifice")
     };
     let QueryResult::Incomplete { work, .. } = g.check_player_response(
         PlayerId(1),
         request.token().clone(),
-        PlayerResponse::ResolveDiscard {
-            objects: vec![candidates[0].clone()],
+        PlayerResponse::Sacrifice {
+            object: candidates[0].clone(),
         },
         Budget::new(1),
     ) else {
@@ -331,47 +209,11 @@ fn resolution_choice_query_sidecar_recovers_and_does_not_authorize_foreign_forks
     };
     assert!(g.submit(receipt).is_err());
     let object = g.resolve_handle(PlayerId(1), &candidates[0]).unwrap();
-    answer(
-        &mut g,
-        Response::ResolveDiscard {
-            objects: vec![object],
-        },
-    );
+    answer(&mut g, Response::Sacrifice { object });
     settle(&mut g);
     recover(&g);
     assert!(matches!(
         g.resume_work(work, Budget::unlimited()),
         QueryResult::Rejected(QueryRejection::StaleOrForeignWork)
     ));
-}
-#[test]
-fn rehashed_ability_and_resolution_metadata_cannot_forge_recovery() {
-    let mut g = Game::new(prepared(ScenarioConfig::actions()));
-    ability(&mut g);
-    for mutation in 0..4 {
-        let mut snapshot: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
-        match mutation {
-            0 => snapshot.state.rules.stack[0].controller = PlayerId(2),
-            1 => snapshot.state.rules.stack[0].source.incarnation = 10,
-            2 => snapshot.state.rules.stack[0].kind = StackKind::Spell,
-            _ => {
-                if let StackKind::Activated { ability, .. } =
-                    &mut snapshot.state.rules.stack[0].kind
-                {
-                    *ability = 3;
-                }
-            }
-        }
-        snapshot.state_sha256 = digest(&snapshot.state).unwrap();
-        assert!(
-            Game::restore(g.prepared.as_ref().clone(), &canonical(&snapshot).unwrap()).is_err()
-        );
-    }
-    pass_round(&mut g);
-    let mut snapshot: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
-    if let Frame::ResolutionChoice { frame, .. } = &mut snapshot.state.rules.frame {
-        frame.cursor = 0;
-    }
-    snapshot.state_sha256 = digest(&snapshot.state).unwrap();
-    assert!(Game::restore(g.prepared.as_ref().clone(), &canonical(&snapshot).unwrap()).is_err());
 }

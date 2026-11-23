@@ -10,7 +10,6 @@ pub struct FrameLink(pub usize);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Casting {
-    pub completion: CastCompletion,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrifices: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "AnnouncementOrigin::is_spell")]
@@ -90,9 +89,7 @@ pub enum Frame {
     GraveyardReplacement {
         transaction: Box<GraveyardReplacement>,
     },
-    PlayHideawayLinked {
-        progress: Box<LinkedPlayProgress>,
-    },
+
     LandEntry {
         origin: EntryOrigin,
         objects: Vec<ObjectId>,
@@ -105,16 +102,7 @@ pub enum Frame {
         scope: ManaSourceScope,
         resume: FrameLink,
     },
-    RevealAndCast {
-        progress: Box<RevealAndCastProgress>,
-    },
-    HandCast {
-        frame: Box<Resolving>,
-        child: Option<StackId>,
-    },
-    Cascade {
-        progress: Box<CascadeProgress>,
-    },
+
     LegendRule {
         resume: FrameLink,
         groups: Vec<Vec<ObjectId>>,
@@ -142,17 +130,12 @@ pub enum Frame {
         frame: Resolving,
         payment: ResolutionPayment,
     },
-    OptionalDamage {
-        frame: Resolving,
-    },
+
     ManaAbility {
         activation: Box<ManaActivation>,
     },
     Setup,
-    DamageAllocation {
-        transaction: DamageTransaction,
-        effect: EffectKey,
-    },
+
     Modes {
         cast: Casting,
     },

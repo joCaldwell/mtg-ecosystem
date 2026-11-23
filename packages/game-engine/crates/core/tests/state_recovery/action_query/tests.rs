@@ -497,9 +497,6 @@ fn pod(profile: &str) -> Game {
         "commander-foundations-v1" => {
             include_str!("../../../../../tests/fixtures/expected-match-ir.json")
         }
-        "commander-attachments-v1" => {
-            include_str!("../../../../../tests/fixtures/expected-attachments-ir.json")
-        }
         _ => unreachable!(),
     };
     Game::new(
@@ -512,7 +509,7 @@ fn pod(profile: &str) -> Game {
 }
 #[test]
 fn admitted_hosted_profiles_cover_opening_main_land_cast_and_mana() {
-    for profile in ["commander-foundations-v1", "commander-attachments-v1"] {
+    for profile in ["commander-foundations-v1"] {
         let mut game = pod(profile);
         let mut main = false;
         for _ in 0..100 {
@@ -736,141 +733,10 @@ fn public_schema_and_outcomes_exclude_trusted_native_state() {
 
 // Same exact compiled source as hosted attachments, with a private witness board.
 // This bypasses deck construction only in tests; public admission is unchanged.
-fn attachment_witness() -> Game {
-    let catalog = Catalog::read(include_str!(
-        "../../../../../tests/fixtures/expected-attachments-ir.json"
-    ))
-    .unwrap();
-    let rows = [
-        ("Golgari Signet", false),
-        ("Forest", false),
-        ("Short Sword", false),
-        ("Grizzly Bears", false),
-        ("Azure Mage", false),
-        ("Samite Healer", false),
-        ("Sol Ring", false),
-        ("Llanowar Elves", false),
-        ("Commander's Sphere", false),
-        ("Grizzly Bears", true),
-    ];
-    let mut cards = rows
-        .iter()
-        .enumerate()
-        .map(|(i, (name, hand))| CardSetup {
-            id: CardId(i as u32),
-            oracle_id: catalog
-                .definitions
-                .iter()
-                .find(|d| d.name == *name)
-                .unwrap()
-                .oracle_id
-                .clone(),
-            owner: PlayerId(0),
-            controller: PlayerId(0),
-            zone: if *hand {
-                Zone::Hand { owner: PlayerId(0) }
-            } else {
-                Zone::Battlefield
-            },
-        })
-        .collect::<Vec<_>>();
-    for p in 0..4 {
-        for _ in 0..4 {
-            cards.push(CardSetup {
-                id: CardId(cards.len() as u32),
-                oracle_id: FOREST.into(),
-                owner: PlayerId(p),
-                controller: PlayerId(p),
-                zone: Zone::Library { owner: PlayerId(p) },
-            });
-        }
-    }
-    let config = ScenarioConfig {
-        initial: ScenarioInitial {
-            turn_step: TurnStep::Untap,
-            ..ScenarioInitial::default()
-        },
-        mode: Mode::CommanderMatch,
-        players: 4,
-        profile: "commander-attachments-v1".into(),
-        commanders: vec![],
-        cards,
-    };
-    let prepared = Prepared {
-        catalog_digest: digest(&catalog).unwrap(),
-        profile_digest: digest(&config).unwrap(),
-        catalog: Arc::new(catalog),
-        config,
-        match_config: None,
-    };
-    let mut game = Game::new(prepared);
-    for _ in 0..100 {
-        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
-            panic!("priority")
-        };
-        if game.turn().step == TurnStep::PrecombatMain {
-            return game;
-        }
-        game.respond(request.player(), request.decision_id(), Response::Pass)
-            .unwrap();
-    }
-    panic!("main not reached")
-}
-fn handle(game: &Game, id: u32) -> ObjectHandle {
-    game.handle_for(PlayerId(0), game.object_id(CardId(id)).unwrap())
-        .unwrap()
-}
-#[test]
-fn attachments_and_nested_mana_have_validated_beginnings_and_permitted_source() {
-    let mut game = attachment_witness();
-    let all = check_agreement(&game, PlayerId(0));
-    for id in [2, 4, 5, 8] {
-        assert!(all.iter().any(|b| b.initiation
-            == ActionInitiation::ActivateAbility {
-                object: handle(&game, id),
-                ability: 0
-            }));
-    }
-    for id in [0, 1, 6, 7] {
-        assert!(all.iter().any(|b| b.initiation
-            == ActionInitiation::ActivateMana {
-                object: handle(&game, id)
-            }));
-    }
-    let source = handle(&game, 0);
-    answer(
-        &mut game,
-        PlayerResponse::ActivateMana {
-            object: source.clone(),
-        },
-    );
-    let before = game.snapshot().unwrap();
-    let actual = check_agreement(&game, PlayerId(0));
-    assert!(!actual.iter().any(|b| b.initiation
-        == ActionInitiation::ActivateMana {
-            object: source.clone()
-        }));
-    let (_, pages) = collect(&game, PlayerId(0), ActionScope::Window, 1, 1);
-    let ActionQueryOutcome::Complete { page } = pages.last().unwrap() else {
-        unreachable!()
-    };
-    assert!(
-        matches!(&page.context, Some(ActionDecisionContext::Mana { source: ActionSourceContext::Available { object }, .. }) if object == &source)
-    );
-    assert_eq!(game.snapshot().unwrap(), before);
-    let forest = handle(&game, 1);
-    answer(&mut game, PlayerResponse::ActivateMana { object: forest });
-    check_agreement(&game, PlayerId(0));
-    eprintln!(
-        "attachments nested mana: {} beginnings, {} one-unit resumes",
-        actual.len(),
-        pages.len() - 1
-    );
-}
 
 #[test]
 fn supported_beginnings_survive_restore_but_query_continuations_do_not() {
-    let game = attachment_witness();
+    let game = scenario();
     let work = game
         .player_session(PlayerId(0))
         .action_beginnings(

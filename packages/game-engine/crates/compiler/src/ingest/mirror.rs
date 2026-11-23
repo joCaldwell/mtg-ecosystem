@@ -288,17 +288,6 @@ pub(crate) struct SourceProperty {
 // ordinary captured-target grant operation. The complete program is validated
 // by contracts; this decoder must never discard an unreviewed ability or field.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-#[derive(Deserialize)]
-#[serde(tag = "gained", rename_all = "kebab-case", deny_unknown_fields)]
-pub(crate) enum GainedAbility {
-    Keyword { keyword: GainedKeyword },
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct GainedKeyword {
-    pub(crate) keyword: KeywordAbility,
-}
 
 // Deliberately separate from SourceCost: entry replacement is no casting cost.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -688,12 +677,6 @@ pub(crate) enum DrawAmount {
     X {},
     Fixed { value: u32 },
     ThatMuch {},
-}
-
-impl DrawAmount {
-    pub(crate) fn fixed_one(&self) -> bool {
-        matches!(self, Self::Fixed { value: 1 })
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

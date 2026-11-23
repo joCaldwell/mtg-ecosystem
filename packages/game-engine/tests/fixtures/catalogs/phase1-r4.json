@@ -11,9 +11,7 @@
     "../phase1-r4/compose-icatian-priest.json",
     "../phase1-r4/compose-kamahl-pit-fighter.json",
     "../phase1-r4/compose-marble-chalice.json",
-    "../phase1-r4/compose-rishadan-port.json",
-    "../phase1-r4/compose-read-the-bones.json",
-    "../phase1-r4/compose-wayfarers-bauble.json"
+    "../phase1-r4/compose-rishadan-port.json"
   ],
   "expected_ir": "../expected-phase1-r4-ir.json",
   "expected_digest": "phase1-r4.sha256",

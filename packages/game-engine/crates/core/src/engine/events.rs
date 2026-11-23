@@ -302,7 +302,7 @@ enum BatchAuthority<'a> {
         &'a [regeneration::ShieldMember],
     ),
     CreateRegenerationShield,
-    CreateExilePlayGrant,
+
     CounterReplacement,
     PlaceCounters,
 }
@@ -404,9 +404,6 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
             | ProposedEvent::Sacrifice { .. }
             | ProposedEvent::DiscardCard { .. }
             | ProposedEvent::PutOnTopOwnerLibrary { .. }
-            | ProposedEvent::PutInLibraryAtPosition { .. }
-            | ProposedEvent::CascadeLandEntry { .. }
-            | ProposedEvent::SearchLandEntry { .. }
             | ProposedEvent::EnterAttached { .. }
             | ProposedEvent::Attach { .. }
             | ProposedEvent::ReversePermanentMana { .. }
@@ -415,23 +412,11 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
 
 fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
     let (mut reads, mut writes) = match event {
-        ProposedEvent::HandReturn {
-            player, objects, ..
-        } => {
-            let mut keys = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
-            keys.extend(objects.iter().map(|o| FactKey::Object(o.card)));
-            (keys.clone(), keys)
-        }
-        ProposedEvent::OrderLibraryTop { player, looked, .. }
-        | ProposedEvent::Hideaway { player, looked, .. }
-        | ProposedEvent::LibrarySelect { player, looked, .. }
-        | ProposedEvent::Mill {
+        ProposedEvent::Mill {
             player,
             cards: looked,
             ..
-        }
-        | ProposedEvent::Scry { player, looked, .. }
-        | ProposedEvent::Surveil { player, looked, .. } => {
+        } => {
             let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
             read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
             (read, BTreeSet::from([FactKey::Libraries]))
@@ -440,33 +425,13 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             BTreeSet::from([FactKey::Object(card.card), FactKey::Life(*player)]),
             BTreeSet::new(),
         ),
-        ProposedEvent::RevealLibraryCard { object, .. } => (
-            BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]),
-            BTreeSet::new(),
-        ),
-        ProposedEvent::BottomRevealedCards { order, .. } => (
-            order
-                .iter()
-                .map(|o| FactKey::Object(o.card))
-                .chain([FactKey::Libraries])
-                .collect(),
-            BTreeSet::from([FactKey::Libraries]),
-        ),
-        ProposedEvent::RevealSearchLands { objects, .. } => (
-            objects
-                .iter()
-                .map(|o| FactKey::Object(o.card))
-                .chain([FactKey::Libraries])
-                .collect(),
-            BTreeSet::new(),
-        ),
+
         ProposedEvent::CreateCreatureTokens { .. }
         | ProposedEvent::CreatePredefinedTokens { .. } => {
             let keys = BTreeSet::from([FactKey::TokenAllocation]);
             (keys.clone(), keys)
         }
-        ProposedEvent::ProliferateCounters { object, .. }
-        | ProposedEvent::PutPlusOneCounters { object, .. } => {
+        ProposedEvent::PutPlusOneCounters { object, .. } => {
             // The complete, pure placement group is authorized once against
             // the common prior. Each final leaf writes only its incarnation.
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
@@ -490,7 +455,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             (keys.clone(), keys)
         }
         ProposedEvent::ApplyCounterPlacementEffect { .. }
-        | ProposedEvent::AllocateDamageEffect { .. }
         | ProposedEvent::CreateEffect { .. }
         | ProposedEvent::ApplyDamageEffect { .. }
         | ProposedEvent::CommitDamage { .. }
@@ -622,12 +586,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
         }
-        ProposedEvent::PutInLibraryAtPosition { object, player, .. } => {
-            let writes = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
-            let mut reads = writes.clone();
-            reads.insert(FactKey::Life(*player));
-            (reads, writes)
-        }
+
         ProposedEvent::Move {
             object,
             destination: Zone::Library { .. },
@@ -635,10 +594,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
         }
-        ProposedEvent::CascadeLandEntry { object, .. }
-        | ProposedEvent::SearchLandEntry { object, .. }
-        | ProposedEvent::Move { object, .. }
-        | ProposedEvent::LeaveGame { object, .. } => {
+        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             let mut reads = keys.clone();
             // Zone membership is authoritative (CR 400.7). A battlefield Aura
@@ -719,9 +675,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             }
             if let Some(damage) = &receipt.damage {
                 keys.extend(damage.life.iter().map(|entry| FactKey::Life(entry.player)));
-                if !damage.shields.is_empty() {
-                    keys.insert(FactKey::Effects);
-                }
             }
             keys.insert(FactKey::PendingTriggers);
             (keys.clone(), keys)
@@ -822,7 +775,6 @@ fn collect<'a>(
                         ProposedEvent::Setup { .. }
                             | ProposedEvent::ApplyCounterPlacementEffect { .. }
                             | ProposedEvent::EnterAttached { .. }
-                            | ProposedEvent::AllocateDamageEffect { .. }
                             | ProposedEvent::CreateEffect { .. }
                             | ProposedEvent::ApplyDamageEffect { .. }
                             | ProposedEvent::CommitDamage { .. }
@@ -963,8 +915,7 @@ impl RulesTxn {
         let effects_event = events.iter().any(|e| {
             matches!(
                 e,
-                ProposedEvent::AllocateDamageEffect { .. }
-                    | ProposedEvent::CreateEffect { .. }
+                ProposedEvent::CreateEffect { .. }
                     | ProposedEvent::ApplyDamageEffect { .. }
                     | ProposedEvent::CommitDamage { .. }
                     | ProposedEvent::CleanupEffects
@@ -973,21 +924,12 @@ impl RulesTxn {
         let effects = if effects_event {
             self.state.rules.effects.to_vec()
         } else {
-            let reversed_shields = events
-                .iter()
-                .filter_map(|event| match event {
-                    ProposedEvent::ReversePermanentMana { receipt } => receipt.damage.as_deref(),
-                    _ => None,
-                })
-                .flat_map(|damage| damage.shields.iter().map(|shield| shield.effect))
-                .collect::<BTreeSet<_>>();
             self.state
                 .rules
                 .effects
                 .iter()
                 .filter(|effect| {
-                    reversed_shields.contains(&effect.id)
-                        || events.iter().any(|event| {
+                    events.iter().any(|event| {
                             (matches!(effect.kind, ResolvedEffectKind::RegenerationShield) &&
                                 regeneration::destruction_object(event) == Some(effect.origin.source)) ||
                             matches!(event, ProposedEvent::LandPlayed { player }
@@ -1033,36 +975,12 @@ impl RulesTxn {
                     objects.insert(*card);
                     players.insert(*player);
                 }
-                ProposedEvent::RevealLibraryCard { player, object } => {
-                    objects.insert(*object);
-                    libraries.insert(*player);
-                }
-                ProposedEvent::BottomRevealedCards {
-                    player,
-                    order: selected,
-                }
-                | ProposedEvent::RevealSearchLands {
-                    player,
-                    objects: selected,
-                } => {
-                    objects.extend(selected.iter().copied());
-                    libraries.insert(*player);
-                }
-                ProposedEvent::HandReturn {
-                    player,
-                    objects: looked,
-                    ..
-                }
-                | ProposedEvent::OrderLibraryTop { player, looked, .. }
-                | ProposedEvent::Hideaway { player, looked, .. }
-                | ProposedEvent::LibrarySelect { player, looked, .. }
-                | ProposedEvent::Mill {
+
+                ProposedEvent::Mill {
                     player,
                     cards: looked,
                     ..
-                }
-                | ProposedEvent::Scry { player, looked, .. }
-                | ProposedEvent::Surveil { player, looked, .. } => {
+                } => {
                     libraries.insert(*player);
                     players.insert(*player);
                     objects.extend(looked.iter().copied());
@@ -1076,8 +994,7 @@ impl RulesTxn {
                 ProposedEvent::ApplyCounterPlacementEffect { effect } => {
                     objects.insert(effect.source);
                 }
-                ProposedEvent::ProliferateCounters { object, .. }
-                | ProposedEvent::PutPlusOneCounters { object, .. } => {
+                ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
                 }
                 ProposedEvent::CeaseToken { object } | ProposedEvent::CeaseSpellCopy { object } => {
@@ -1091,9 +1008,7 @@ impl RulesTxn {
                     libraries.insert(*player);
                 }
                 ProposedEvent::DestroyPermanent { object }
-                | ProposedEvent::DestroyCreature { object }
-                | ProposedEvent::CascadeLandEntry { object, .. }
-                | ProposedEvent::SearchLandEntry { object, .. } => {
+                | ProposedEvent::DestroyCreature { object } => {
                     objects.insert(*object);
                     if let Zone::Library { owner } = self.current(*object)?.zone {
                         libraries.insert(owner);
@@ -1162,28 +1077,14 @@ impl RulesTxn {
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
-                        | ResolvedEffectKind::CombatRestriction { target, .. }
-                        | ResolvedEffectKind::ModifyPowerToughness { target, .. }
-                        | ResolvedEffectKind::SetColor { target, .. } => {
+                        | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                             objects.insert(*target);
                         }
-                        ResolvedEffectKind::PreventNextDamage {
-                            target: TargetEntity::Object { object },
-                            ..
-                        } => {
-                            objects.insert(*object);
-                        }
-                        ResolvedEffectKind::PreventNextDamage {
-                            target: TargetEntity::Player { player },
-                            ..
-                        } => {
-                            players.insert(*player);
-                        }
+
                         _ => {}
                     }
                 }
-                ProposedEvent::AllocateDamageEffect { .. }
-                | ProposedEvent::ApplyDamageEffect { .. }
+                ProposedEvent::ApplyDamageEffect { .. }
                 | ProposedEvent::CommitDamage { .. }
                 | ProposedEvent::CleanupEffects => {
                     if let Ok(tx) = self.damage_transaction() {
@@ -1283,11 +1184,7 @@ impl RulesTxn {
                     objects.insert(*object);
                     players.insert(*player);
                 }
-                ProposedEvent::PutInLibraryAtPosition { object, player, .. } => {
-                    objects.insert(*object);
-                    libraries.insert(*player);
-                    players.insert(*player);
-                }
+
                 ProposedEvent::PutOnTopOwnerLibrary { object } => {
                     objects.insert(*object);
                     libraries.insert(
@@ -1645,14 +1542,6 @@ impl RulesTxn {
         self.commit_batch_inner(cause, group, false)
     }
 
-    pub(super) fn commit_graveyard_shuffle_moves(
-        &mut self,
-        moves: super::graveyard_targets::GraveyardShuffleMoves,
-    ) -> Result<CommittedBatch, String> {
-        let (cause, group) = moves.into_batch();
-        self.commit_batch_inner(cause, group, true)
-    }
-
     fn commit_batch_inner(
         &mut self,
         cause: BatchCause,
@@ -1749,36 +1638,6 @@ impl RulesTxn {
                 .instructions
                 .get(frame.cursor as usize);
             let authorized_block = match (&group, instruction) {
-                (
-                    EventGroup::Occurrence {
-                        proposed: ProposedEvent::PhaseOutControlled { controller },
-                    },
-                    Some(Instruction::PhaseOutControllerPermanents { source_block }),
-                ) if *controller == self.entry(frame.stack_id)?.controller => Some(*source_block),
-                (
-                    EventGroup::Occurrence {
-                        proposed: ProposedEvent::PhaseOutTarget { object },
-                    },
-                    Some(Instruction::PhaseOutTargetPermanent {
-                        target_slot,
-                        source_block,
-                    }),
-                ) if self
-                    .bound_object_target(self.entry(frame.stack_id)?, *target_slot as usize)
-                    == Some(object)
-                    && frame.legal_targets.get(*target_slot as usize) == Some(&true)
-                    && self
-                        .current(*object)
-                        .is_ok_and(|o| o.present_on_battlefield()) =>
-                {
-                    Some(*source_block)
-                }
-                (
-                    EventGroup::Occurrence {
-                        proposed: ProposedEvent::FreezeLifeUntilNextTurn { player },
-                    },
-                    Some(Instruction::FreezeControllerLifeUntilNextTurn { source_block }),
-                ) if *player == self.entry(frame.stack_id)?.controller => Some(*source_block),
                 _ => None,
             };
             if !self.entry(frame.stack_id)?.kind.is_spell()
@@ -1792,54 +1651,7 @@ impl RulesTxn {
                 return Err("status change requires the matching paid spell instruction".into());
             }
         }
-        if events.iter().any(|event| {
-            matches!(
-                event,
-                ProposedEvent::Lose {
-                    reason: PlayerLossReason::TargetedEffect,
-                    ..
-                }
-            )
-        }) {
-            let (expected_cause, target) = self.targeted_loss_authority()?;
-            if cause != expected_cause
-                || !matches!(&group, EventGroup::Occurrence { proposed: ProposedEvent::Lose { player, reason: PlayerLossReason::TargetedEffect } } if *player == target)
-            {
-                return Err("invalid targeted loss batch".into());
-            }
-        }
-        if events
-            .iter()
-            .any(|e| matches!(e, ProposedEvent::Hideaway { .. }))
-        {
-            let EventGroup::Occurrence { proposed } = &group else {
-                return Err("hideaway requires its single authorized occurrence".into());
-            };
-            self.authorize_hideaway_event(&cause, proposed)?;
-        }
-        if events.iter().any(|event| {
-            matches!(event, ProposedEvent::CreateEffect {effect}
-            if matches!(effect.kind, ResolvedEffectKind::SetColor {..}))
-        }) {
-            let (
-                Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::SetColor { source_block },
-                },
-                EventGroup::Occurrence {
-                    proposed: ProposedEvent::CreateEffect { .. },
-                },
-            ) = (&self.state.rules.frame, &group)
-            else {
-                return Err(
-                    "a color effect requires its resolving choice and a single occurrence".into(),
-                );
-            };
-            self.validate_resolving(frame)?;
-            if cause != self.instruction_cause(frame, *source_block)? {
-                return Err("color effect creation cause mismatch".into());
-            }
-        }
+
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
         let authority = if placing
@@ -1847,7 +1659,6 @@ impl RulesTxn {
                 matches!(
                     e,
                     ProposedEvent::PutPlusOneCounters { .. }
-                        | ProposedEvent::ProliferateCounters { .. }
                         | ProposedEvent::ApplyCounterPlacementEffect { .. }
                 )
             }) {
@@ -1880,12 +1691,6 @@ impl RulesTxn {
                 return Err("regeneration shield creation cause mismatch".into());
             }
             BatchAuthority::CreateRegenerationShield
-        } else if events
-            .iter()
-            .any(|event| impulse_play::creates_permission(event))
-        {
-            self.authorize_impulse_batch(&cause, &group)?;
-            BatchAuthority::CreateExilePlayGrant
         } else if let Some(proof) = &replacement {
             regeneration_members = match &self.state.rules.frame {
                 Frame::GraveyardGroup { tx } if tx.is_publication(&cause, &group) => {
@@ -2155,9 +1960,7 @@ impl RulesTxn {
 impl RulesTxn {
     fn conditional_entry(&self, event: &ProposedEvent) -> Option<EntryLandCount> {
         let object = match event {
-            ProposedEvent::CascadeLandEntry { object, .. }
-            | ProposedEvent::SearchLandEntry { object, .. }
-            | ProposedEvent::Move {
+            ProposedEvent::Move {
                 object,
                 destination: Zone::Battlefield,
             } => object,
@@ -2578,18 +2381,7 @@ impl RulesTxn {
         ) {
             return Err("phase-out requires an authorized instruction batch".into());
         }
-        if matches!(
-            proposed,
-            ProposedEvent::Lose {
-                reason: PlayerLossReason::TargetedEffect,
-                ..
-            }
-        ) {
-            return Err("targeted loss requires an authorized instruction batch".into());
-        }
-        if matches!(proposed, ProposedEvent::Hideaway { .. }) {
-            return Err("hideaway requires an authorized instruction batch".into());
-        }
+
         self.apply_prepared_occurrence(proposed, before, BatchAuthority::Ordinary)
     }
     fn apply_prepared_occurrence(
@@ -2611,82 +2403,25 @@ impl RulesTxn {
         {
             return Err("regeneration shield requires authenticated creation".into());
         }
-        if impulse_play::creates_permission(proposed)
-            && !matches!(authority, BatchAuthority::CreateExilePlayGrant)
-        {
-            return Err("exile play permission requires an authenticated library batch".into());
-        }
+
         let entry = authority.entry();
         let actual = match proposed {
             ProposedEvent::RevealHandCardForEntry { player, card } => {
                 self.apply_entry_hand_reveal(*player, *card, entry)?
             }
-            ProposedEvent::RevealLibraryCard { player, object } => {
-                self.apply_reveal_library_card(*player, *object)?
-            }
-            ProposedEvent::BottomRevealedCards { player, order } => {
-                self.apply_bottom_revealed(*player, order)?
-            }
-            ProposedEvent::RevealSearchLands { player, objects } => {
-                if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Search { player: p, split: true, maximum: 2, .. }, .. } if p == *player)
-                    || objects.len() > 2
-                    || !objects.windows(2).all(|w| w[0] < w[1])
-                    || !objects
-                        .iter()
-                        .all(|o| self.search_lands(*player).contains(o))
-                {
-                    return Err("invalid searched land reveal".into());
-                }
-                EventOutcome::SearchLandsRevealed {
-                    player: *player,
-                    objects: objects.clone(),
-                }
-            }
 
-            ProposedEvent::OrderLibraryTop {
-                player,
-                amount,
-                looked,
-                order,
-            } => self.apply_library_order(*player, amount, looked, order)?,
-            ProposedEvent::HandReturn { .. } => self.apply_hand_return(proposed, before)?,
-            ProposedEvent::Hideaway {
-                player,
-                selected,
-                bottom,
-                ..
-            } => self.apply_hideaway(*player, *selected, bottom, before)?,
-            ProposedEvent::LibrarySelect { .. } => {
-                self.apply_library_selection(proposed, before, replacement)?
-            }
             ProposedEvent::Mill {
                 player,
                 count,
                 cards,
             } => self.apply_mill(*player, count, cards, before, replacement)?,
-            ProposedEvent::Surveil {
-                player,
-                amount,
-                looked,
-                top,
-                graveyard,
-            } => {
-                self.apply_surveil(*player, amount, looked, top, graveyard, before, replacement)?
-            }
-            ProposedEvent::Scry {
-                player,
-                amount,
-                looked,
-                top,
-                bottom,
-            } => self.apply_scry(*player, amount, looked, top, bottom)?,
+
             ProposedEvent::FinishLibraryShuffle { player } => {
                 let group_shuffle =
                     replacement.is_some() && self.publish_group_permutation(*player)?;
                 if !group_shuffle
                     && (replacement.is_none()
                         || self.replacement_shuffle_offset(*player, 0).is_none())
-                    && !matches!(self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Shuffle {player:p,index:0,..},..} if p==*player)
                 {
                     return Err("invalid shuffle completion".into());
                 }
@@ -2863,31 +2598,7 @@ impl RulesTxn {
                     authority,
                 )?
             }
-            ProposedEvent::CascadeLandEntry { object, player } => {
-                entry.ok_or("cascade land entry requires prepared transaction authority")?;
-                self.apply_move(
-                    *object,
-                    Zone::Battlefield,
-                    Some(*player),
-                    true,
-                    before,
-                    authority,
-                )?
-            }
-            ProposedEvent::SearchLandEntry { object, player } => {
-                let force_tapped = self.searched_land_force_tapped(*player)?;
-                if !self.search_lands(*player).contains(object) {
-                    return Err("invalid searched land entry".into());
-                }
-                self.apply_move(
-                    *object,
-                    Zone::Battlefield,
-                    Some(*player),
-                    force_tapped,
-                    before,
-                    authority,
-                )?
-            }
+
             ProposedEvent::ShuffleLibraryWord { player, index } => self.apply_search_shuffle_word(
                 *player,
                 *index,
@@ -2899,16 +2610,7 @@ impl RulesTxn {
                 }
                 self.apply_counter_placement_effect(effect)?
             }
-            ProposedEvent::ProliferateCounters {
-                object,
-                plus_one,
-                lore,
-            } => {
-                if !matches!(authority, BatchAuthority::PlaceCounters) {
-                    return Err("proliferation requires complete batch authority".into());
-                }
-                self.apply_proliferate(*object, plus_one, *lore)?
-            }
+
             ProposedEvent::PutPlusOneCounters { object, amount } => {
                 if !matches!(authority, BatchAuthority::PlaceCounters) {
                     return Err("counter placement requires complete batch authority".into());
@@ -2937,8 +2639,7 @@ impl RulesTxn {
             ProposedEvent::Setup { action } => EventOutcome::Setup {
                 actual: self.apply_setup_action(action)?,
             },
-            event @ (ProposedEvent::AllocateDamageEffect { .. }
-            | ProposedEvent::CreateEffect { .. }
+            event @ (ProposedEvent::CreateEffect { .. }
             | ProposedEvent::ApplyDamageEffect { .. }
             | ProposedEvent::CommitDamage { .. }
             | ProposedEvent::CleanupEffects) => self.apply_effect_event(event)?,
@@ -3114,11 +2815,7 @@ impl RulesTxn {
                     movement,
                 }
             }
-            ProposedEvent::PutInLibraryAtPosition {
-                object,
-                player,
-                position,
-            } => self.apply_successor_tuck(*object, *player, *position, before)?,
+
             ProposedEvent::PutOnTopOwnerLibrary { object } => {
                 let owner = self
                     .state
@@ -3162,7 +2859,6 @@ impl RulesTxn {
                     || match reason {
                         // The singleton instruction and target were checked at the
                         // batch boundary before any occurrence could change state.
-                        PlayerLossReason::TargetedEffect => false,
                         PlayerLossReason::Life => {
                             self.state.rules.players[player.0 as usize].life > Quantity::zero()
                         }
@@ -3464,27 +3160,8 @@ impl RulesTxn {
                     owner: *owner,
                 }
             }
-            ProposedEvent::Transform { object } => {
-                let Frame::Resolve { frame } = &self.state.rules.frame else {
-                    return Err("transform requires its resolving activation".into());
-                };
-                if self.entry(frame.stack_id)?.source != *object
-                    || !matches!(
-                        self.entry(frame.stack_id)?.kind,
-                        StackKind::Activated { .. }
-                    )
-                    || !matches!(
-                        self.program_for(self.entry(frame.stack_id)?)?
-                            .instructions
-                            .get(frame.cursor as usize),
-                        Some(Instruction::TransformSource { .. })
-                    )
-                    || !self.may_transform_source(*object)
-                {
-                    return Err("invalid transform invocation".into());
-                }
-                self.record_back_face(*object)?;
-                EventOutcome::Transformed { object: *object }
+            ProposedEvent::Transform { .. } => {
+                return Err("unsupported transform invocation".into());
             }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;
@@ -3506,7 +3183,6 @@ impl RulesTxn {
                 restriction,
             } => {
                 if self.current(*source).is_err()
-                    && !self.retained_look_top_mana_source(*player, *source)
                     && !(self
                         .state
                         .rules

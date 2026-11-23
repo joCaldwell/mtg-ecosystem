@@ -40,11 +40,14 @@ const generationBytes = fs.readFileSync(path.join(output, 'generation.json'));
 const generation = JSON.parse(generationBytes);
 const schemas = JSON.parse(fs.readFileSync(path.join(output, 'protocol.schema.json')));
 const expectedResponses = [
-  'legend_rule', 'announce_x', 'sacrifice_cost', 'forced_sacrifice', 'mana_color', 'search_lands', 'optional_recursion', 'optional_effect', 'mulligan', 'bottom_opening',
-  'damage_allocation', 'modes', 'damage_effect', 'order_triggers', 'entity_targets',
-  'stack_targets', 'activate_ability', 'player_targets', 'sacrifice', 'resolve_discard',
-  'spend_mana', 'commander_return', 'attackers', 'blockers', 'damage', 'trample_damage',
-  'discard', 'play_land', 'activate_mana', 'cast', 'pass', 'targets', 'finish_mana',
+  'opening_placement', 'additional_costs', 'entry_copy', 'entry_attachment', 'legend_rule', 'hybrid_cost',
+  'announce_x', 'sacrifice_cost', 'forced_sacrifice', 'choose_mana_ability', 'mana_combination', 'mana_color',
+  'entry_reveal', 'optional_effect', 'mulligan', 'bottom_opening', 'mode_subset', 'modes',
+  'counter_placement_effect', 'damage_effect', 'order_triggers', 'entity_targets', 'stack_targets', 'activate_ability',
+  'player_targets', 'sacrifice', 'resolve_discard', 'spend_mana', 'spend_mana_allocated', 'commander_return',
+  'attackers', 'blockers', 'damage', 'trample_damage', 'discard', 'play_land',
+  'play_back_land', 'activate_mana', 'bestow', 'cast', 'pass', 'targets',
+  'finish_mana',
 ].sort();
 const actualResponses = schemas.command.definitions.PlayerResponse.oneOf.map(row => row.properties.response.const).sort();
 if (JSON.stringify(actualResponses) !== JSON.stringify(expectedResponses)) throw new Error('Review exhaustive hosted response variants');
@@ -52,7 +55,7 @@ const responseVariants = actualResponses.length;
 const executionVariants = schemas.execution.definitions.CommandExecutionStatus.oneOf.length;
 const logBytes = fs.readFileSync(logPath);
 const tests = Number(/^# tests (\d+)$/m.exec(logBytes.toString('utf8'))?.[1]);
-if (!Number.isInteger(tests) || tests < 1 || responseVariants !== 33 || executionVariants !== 5 || schemas.routes.length !== 9) throw new Error('Expected test/response contract counters missing');
+if (!Number.isInteger(tests) || tests < 1 || executionVariants !== 5 || schemas.routes.length !== 9) throw new Error('Expected test/response contract counters missing');
 for (const file of generation.files) if (sha(fs.readFileSync(path.join(output, file.path))) !== file.sha256) throw new Error('Generated declaration hash mismatch');
 if (sha(fs.readFileSync(path.join(output, 'protocol.schema.json'))) !== generation.schema_sha256) throw new Error('Rust schema hash mismatch');
 const packages = Object.fromEntries(['ajv', 'json-schema-to-typescript', 'typescript', 'esbuild', 'playwright'].map(name => [name, JSON.parse(fs.readFileSync(path.join(sdk, 'node_modules', name, 'package.json'))).version]));
@@ -62,7 +65,7 @@ const result = {
   node: process.version, platform: process.platform, architecture: process.arch,
   tool_versions: packages, generation_manifest_sha256: sha(generationBytes), generation,
   strict_typescript: true, exhaustive_player_response_variants: responseVariants, player_response_names: actualResponses, exhaustive_command_execution_variants: executionVariants,
-  tuple_contracts: ['damage', 'damage_allocation', 'attackers', 'blockers'],
+  tuple_contracts: ['damage', 'attackers', 'blockers'],
   required_nullable_reference_contract: true,
   route_authority: 'Rust protocol::ROUTES', route_manifest: schemas.routes,
   route_manifest_sha256: sha(Buffer.from(JSON.stringify(schemas.routes))),

@@ -9,7 +9,7 @@ const RING: &str = "6ad8011d-3471-4369-9d68-b264cc027487";
 const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 fn catalog() -> Catalog {
     let mut c = Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-wipes-ir.json"
+        "../../../../tests/fixtures/expected-witness-r4-ir.json"
     ))
     .unwrap();
     let manifest = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
@@ -26,7 +26,11 @@ fn catalog() -> Catalog {
         else {
             panic!("complete filtered-damage source must lower");
         };
-        c.definitions.push(*definition);
+        if let Some(existing) = c.definition_by_oracle_id(&definition.oracle_id) {
+            assert_eq!(existing, definition.as_ref());
+        } else {
+            c.definitions.push(*definition);
+        }
     }
     c.schema_version = mtg_contracts::CURRENT_IR_VERSION;
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));

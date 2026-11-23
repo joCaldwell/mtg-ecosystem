@@ -1,14 +1,17 @@
 # Supported engine mechanics
 
-This is the current semantic map, not a claim of general Magic support. Read
-the runtime invariants below before editing rules. Exact Rust IR validation in
-`crates/contracts`, lowering in `crates/compiler` (Archive R4 composition only)
-and complete archived source fixtures define executable shapes; committed catalogs
-keep reviewed IR from retired whole-card families as runtime data;
-[profiles](game-engine-catalogs.md#match-profile-data) independently admit decks
-and consumers. Source/compiler support, private runtime witnesses, accepted-pod
-prefixes, completion games, hosting/search review and browser acceptance are
-separate.
+Every executable card lowers completely from Archive R4 to schema-1 KIR.
+`contracts/src/composition.rs` validates the card shell and ability context.
+`kir::check` validates the node and bindings. Match profiles independently
+select decks and consumer capabilities. The rules descriptions below also
+document shared primitives and historical witnesses. Current card admission
+requires a fresh complete lowering and a matching catalog identity.
+
+A spell can deal damage as its own source. Object operands that modify or put
+counters on the source require a permanent ability. Temporary source keyword
+grants require an activated ability and the exact supported keyword list.
+An announced player can draw one card per KIR draw. Targeted counted draws
+reject at admission until their executor can skip an illegal target.
 
 The rules baseline is the frozen [2026-09-25 Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt),
 SHA-256 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
@@ -354,14 +357,8 @@ creatures. Additive Golem stats apply in the creature power/toughness layer.
 
 ### Continuous permanent control from Auras
 
-Pure Aura sources may grant their current controller control of an enchanted
-creature, artifact, land or general permanent (CR 109.5, 110.2, 613.1b). Only
-creature control may carry one bounded modifier; unions, qualifiers and extra
-abilities or costs reject. General control still needs dependency-aware and
-paid-recovery qualification before publication, and source admission grants no
-catalog or consumer admission. Shapes live in `crates/contracts`, probes in the
-[schema harness](../packages/game-engine/crates/contracts/tests/aura-control-schema-probes.mjs)
-and qualification in [evidence](game-engine-evidence.md#atomic-temporary-keyword-qualification).
+Aura programs from the retired catalogs require fresh R4 lowering. The shared
+control rules retain the following invariants for attachment state.
 
 The current source, exact attached target incarnation and attachment timestamp
 determine authority. Acyclic attachment graphs reevaluate CR 613.8 dependencies
@@ -392,66 +389,23 @@ remove protection mid-event.
 
 ### Shared temporary creature keyword family
 
-Targeted temporary grants cover one complete ordinary nonmodal instant/sorcery
-with one creature target (unfiltered or controlled by the invocation controller)
-and one atomic grant until end of turn, optionally with a fixed signed P/T
-modifier. A permanent form grants keywords to one controlled permanent, without
-stats, optionally followed by fixed life gain. Older single-keyword and compound
-capabilities keep their exact subset meanings; other combinations require the
-general family capability. Split stat/grant sequences, modes, X, extra costs and
-extra operations reject.
-
-One captured incarnation receives both stat and keyword layers (CR 611.2c,
-613.5–613.6), including departure LKI during concessions (CR 104.3a). Vectors are
-nonempty, duplicate-free and limited to Flying, Deathtouch, Indestructible,
-Lifelink, Hexproof, Haste, Trample, Reach, Vigilance, First Strike and Double
-Strike, which reuse existing rules (CR 702.4, 702.7, 702.10, 702.17, 702.19,
-702.20). Each keyword, modifier and target domain requires its own capability.
-“You control” means current control at announcement and resolution, not
-ownership. Hexproof uses existing targetability. Grants keep their captured
-incarnation despite later control changes and expire atomically with cleanup.
-[Schema probes](../packages/game-engine/crates/contracts/tests/temporary-creature-keyword-schema-probes.mjs)
-hold synthetic controls; qualification is in
-[evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
+The retired instruction families and their conditional schema probes have been
+removed. Intrinsic keywords still participate in combat, targeting and state-based
+actions. A temporary effect requires a checked KIR operation and runtime support
+for its exact target, duration and modifier.
 
 ### Temporary set keyword families
 
-Set families grant the [shared vocabulary](#shared-temporary-creature-keyword-family)
-to the invocation controller's creatures, all attacking creatures, or the
-invocation controller's permanents. Each is one complete ordinary instant/sorcery
-without targets, modes or additional costs, creating one end-of-turn effect with
-an optional fixed P/T modifier (forbidden for permanents). Each requires keyword
-primitives, the shared board-wipe set machinery and exactly its selector's family
-capability; split pump/grant pairs reject.
-
-The instruction captures one full set and creates all properties atomically:
-CR 611.2c fixes membership and CR 613.5–613.6 applies both parts to the same
-exact incarnations, so departure LKI never observes half an effect and later
-entry or control changes never reselect (CR 608.2h). Restore and replay
-authenticate captured membership. The compiler lowers one complete sentence and
-never coalesces separate sentences.
-[Creature](../packages/game-engine/crates/contracts/tests/creature-set-keyword-schema-probes.mjs)
-and [permanent](../packages/game-engine/crates/contracts/tests/permanent-set-keyword-schema-probes.mjs)
-probes hold the synthetic controls.
+Historical set-grant qualifications remain tied to their original source and
+build. Current set modifications use the KIR selector and the executor's captured
+incarnations. See [historical evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
 
 <a id="abilities-targets-and-triggers"></a>
 
 ## Trigger families and event witnesses
 
-Single-face noncreature Sagas can compose up to four consecutive chapters,
-including a printed clause shared by consecutive chapter symbols. Fixed token
-creation, counters and temporary stat and trample grants share the existing
-effect programs. Filtered chapter damage and destruction check opposing control
-at target announcement and resolution. Fixed mana chapters grant mana on
-resolution. An untargeted exile-play chapter uses the existing exact-successor
-permission. A delayed cast chapter registers a controlled-creature counter
-trigger for each spell the registration controller successfully casts that
-turn. It survives the Saga leaving the battlefield, and announces its target
-when placed on the stack (CR 603.3d, 603.7, 608.2b).
-The complete printed text, AST and ordered binding graph determine each
-program. Lore entry and advancement follow CR 714.3a and 714.3c. The Saga is
-sacrificed after the final threshold once every pending or stacked chapter
-from that incarnation has left the stack (CR 714.4).
+Historical Saga chapter programs require fresh R4 lowering. The shared trigger
+pipeline operates on the events admitted by composition.
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
@@ -476,12 +430,8 @@ interchanged. Optional “may” is an actual decision; unsupported source
 explanation blocks a browser control. Compiler presence does not expand
 host/search allowlists.
 
-Static grants add independent cascade instances to completed spells of the
-source's current controller. A four-seat ledger tracks completed casts and mana
-values each turn. Caster and grant provenance freeze at collection, surviving
-grantor departure; whole batches preflight IDs, fanout, ledger and retained
-payloads atomically. Cast witnesses freeze pre-completion firstness; failed
-payments never consume it.
+The per-turn cast ledger records completed casts. The retired cascade instruction
+and its reveal-and-cast continuation have no executable R4 form.
 
 A source-relative combat-damage trigger can place fixed +1/+1 counters on
 the creature that dealt the damage. The instruction retains that battlefield
@@ -499,43 +449,34 @@ completed proposal (CR 601.6).
 
 Every compiled card is lowered one printed block at a time and admitted by the
 tables in `crates/contracts/src/composition.rs`. Its definition carries
-`composed: true` and `composed_ability_v1`; the marker and the capability are
-inseparable in validation and in the published schema. The capability names the
-pipeline, not a mechanic, so the hosted and search sets admit it while every
-mechanic still needs its own reviewed capability. Committed catalog IR from
-retired whole-card families stays runtime data without the marker; the shapes
-below that mention a family describe that frozen IR.
+`composed: true` and `composed_ability_v1`. Rust checks the complete capability
+set and rejects an unsupported combination. The schema describes the structural
+form of the single `Kernel` instruction.
 
 Each table decides one independent question (CR 113.3, 602.1, 603.1, 608.2):
 
 | Row | Admits |
 | --- | --- |
-| Instruction × stack object | An instruction whose executor and recovery read only the frozen controller, announced targets, exact source and its own operands. Event data, announced X, a resolving card or a sibling instruction keep their family. |
+| Instruction × stack object | A checked KIR node with operands bound in its spell, activated or triggered context. Unsupported operands and verbs reject. |
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
 | Cost × route | Tap, mana, source sacrifice, one sacrificed permanent of a type, type union or subtype, and tap/mana/sacrifice combinations, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | Self entry of any permanent type, self dies, becomes tapped, beginning steps, casts, attacks, damage to a player, other creature entries, creature deaths and controlled land entries, without intervening conditions. |
 | Static, mana, keyword | Own entry tapped, uncounterable spells, controller creature modifiers; tap-only fixed/any/commander-color mana; evergreen keywords without parameters. |
-| Step table | Target creature can't block or be blocked this turn; Treasure, Food and Clue tokens; countering a spell of one card type. |
-| Kernel verb | A [kernel node](game-engine-catalogs.md#kernel-ir) that `kir::check` admits for that stack object, except operands bound to a family's event data. |
-| Card shell | Single-face normal cards with fixed costs and a completely bound, diagnostic-free reference graph that covers every AST step; nonbasic lands with only basic land types or only descriptive subtypes. Hybrid/X costs, snow, Auras, Equipment, Sagas and basic lands keep their families. |
+| Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
+| Card shell | A single-face normal card with a fixed cost and complete bound source. Unsupported shells and keywords reject. |
 
 Sentences resolve in printed order (CR 608.2c). A pronoun must be bound by the
 archive to a target of its own block or to an earlier step of that block;
 `its controller` and `its power` require the sole announced target (CR 608.2h).
 Sorcery-speed activations use main-phase announcement timing (CR 602.5d).
 Tokens recover from the creating recipe of a spell, activation or trigger.
-Private R3 witnesses cover noncreature tap abilities, paid and unpaid
-tap/sacrifice land and enchantment activations, creature tap damage, mana
-pumps, land entry triggers, a dies trigger and an ordered spell sequence; they
-qualify those paths only, not full games or consumers. The lowering-side
-integrity rules are owned by
+The R4 source and binding checks are described under
 [compositional lowering](game-engine-catalogs.md#compositional-lowering).
 
 ## Admission and policy boundaries
 
-Foundations and attachments remain the only hosted profiles; foundations alone
-is search-reviewed. Headless damage, blocking and sacrifice pools are development
-admissions whose membership comes from strict profile/catalog JSON.
+The Foundations profile supplies the retained hosted and search decklists.
+Other R4 fixture catalogs exercise private rules and compiler tests.
 
 Develop policy uses permitted observations and public IR features. It may
 estimate value but never determines legality or inspects hidden state; new

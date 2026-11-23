@@ -88,7 +88,7 @@ impl fmt::Display for MatchAdmissionError {
         write!(f, "{self:?}")
     }
 }
-impl std::error::Error for MatchAdmissionError {}
+
 testkit_fields! {
     /// Construction is private; successful validation is the only way to produce
     /// this immutable initialization description. It is not deserialized from a client.
@@ -628,3 +628,5 @@ mod tests {
         assert!(strict_read::<MatchConfig>(&canonical(&raw).unwrap()).is_err());
     }
 }
+
+impl std::error::Error for MatchAdmissionError {}

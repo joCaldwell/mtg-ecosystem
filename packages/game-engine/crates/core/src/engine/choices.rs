@@ -1,28 +1,10 @@
 //! Finite mode selection, independent target occurrences and intervening-if.
-//! Exact44-card bounds:10 creatures *2 Artists +one Bouncer self-death
-//! <=21 triggers per nonempty-stack episode; <=14 ordinary entries gives35
-//! <128. Main-phase permanent recasts require empty stack; no recursion/untap
-//! is admitted. Seeds3 +two Salves +Bouncer +Healer <=7 resolved effects <16.
 //! CR 601.2b-c, 603.3d/603.4/603.10a and 608.2a-b, pinned official rules:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+#[cfg(feature = "testkit")]
 pub const SEEDS: &str = "dd3d4d96-1e88-49e1-8276-7f62c22ad91a";
-pub const SALVE: &str = "8da8644c-75a1-4fe9-8e94-900d948d631c";
-pub const BOUNCER: &str = "82076865-7917-4d3b-8fe8-c21bfcd64d29";
-pub(super) const CHOICE_EXTRA: [(&str, &str); 3] = [
-    (
-        SEEDS,
-        definition_digest!("MTG_DEFINITION_choices_dd3d4d96-1e88-49e1-8276-7f62c22ad91a"),
-    ),
-    (
-        SALVE,
-        definition_digest!("MTG_DEFINITION_choices_8da8644c-75a1-4fe9-8e94-900d948d631c"),
-    ),
-    (
-        BOUNCER,
-        definition_digest!("MTG_DEFINITION_choices_82076865-7917-4d3b-8fe8-c21bfcd64d29"),
-    ),
-];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceInformation {
@@ -162,117 +144,7 @@ pub enum InterveningStage {
 pub enum TriggerPlacementFailure {
     NoLegalTargets,
 }
-impl ScenarioConfig {
-    pub fn choices() -> Self {
-        let cards = (0..44)
-            .map(|id| {
-                let owner = PlayerId(match id {
-                    0..=15 => 0,
-                    16..=31 => 1,
-                    32..=39 => 2,
-                    _ => 3,
-                });
-                CardSetup {
-                    id: CardId(id),
-                    owner,
-                    controller: owner,
-                    oracle_id: match id {
-                        0 => ISAMARU,
-                        1 => OX,
-                        2 => BOUNCER,
-                        3 => AZURE,
-                        4 => SEEDS,
-                        5 | 14 => SALVE,
-                        6 | 19 | 20 => SPELL,
-                        7 | 13 | 29 | 31 | 37 | 39 | 41..=43 => FOREST,
-                        8 | 9 | 15 => PLAINS,
-                        12 => SWAMP,
-                        16 | 17 | 35 => BEARS,
-                        18 | 27 => BOLT,
-                        21 => COUNTERSPELL,
-                        22 => STIFLE,
-                        23 | 28 | 36 | 38 => MOUNTAIN,
-                        32 | 40 => BLOOD_ARTIST,
-                        33 => HEALER,
-                        34 => FURNACE,
-                        _ => ISLAND,
-                    }
-                    .into(),
-                    zone: match id {
-                        4..=6 | 18..=22 | 27 | 34 => Zone::Hand { owner },
-                        14 | 15 | 30 | 31 | 38 | 39 | 42 | 43 => Zone::Library { owner },
-                        _ => Zone::Battlefield,
-                    },
-                }
-            })
-            .collect();
-        Self {
-            initial: ScenarioInitial {
-                turn_step: TurnStep::PrecombatMain,
-                ..ScenarioInitial::default()
-            },
-            mode: Mode::Scenario,
-            players: 4,
-            profile: "four-seat-choices-v1".into(),
-            commanders: vec![CardId(0)],
-            cards,
-        }
-    }
-    pub fn choices_furnace() -> Self {
-        let mut c = Self::choices();
-        c.profile = "four-seat-choices-furnace-v1".into();
-        c.cards[34].zone = Zone::Battlefield;
-        c
-    }
-    pub fn conditions() -> Self {
-        let mut c = Self::choices();
-        c.profile = "four-seat-conditions-v1".into();
-        c.cards
-            .retain(|c| !matches!(c.id, CardId(4) | CardId(5) | CardId(6)));
-        c
-    }
-    pub fn conditions_nonempty() -> Self {
-        let mut c = Self::choices();
-        c.profile = "four-seat-conditions-nonempty-v1".into();
-        c.cards.retain(|c| !matches!(c.id, CardId(4) | CardId(6)));
-        c
-    }
-    pub fn conditions_borrowed() -> Self {
-        let mut c = Self::conditions();
-        c.profile = "four-seat-conditions-borrowed-v1".into();
-        c.cards
-            .iter_mut()
-            .find(|c| c.id == CardId(2))
-            .expect("exact Bouncer")
-            .owner = PlayerId(2);
-        c.cards
-            .iter_mut()
-            .find(|c| c.id == CardId(39))
-            .expect("exact Forest")
-            .zone = Zone::Hand { owner: PlayerId(2) };
-        c
-    }
-    pub fn conditions_no_targets() -> Self {
-        let mut c = Self::conditions();
-        c.profile = "four-seat-conditions-no-targets-v1".into();
-        c.commanders.clear();
-        c.cards.retain(|c| {
-            !matches!(
-                c.id,
-                CardId(0)
-                    | CardId(1)
-                    | CardId(3)
-                    | CardId(16)
-                    | CardId(17)
-                    | CardId(32)
-                    | CardId(33)
-                    | CardId(35)
-                    | CardId(40)
-            )
-        });
-        c
-    }
-}
+
 // Only canonical indices enter the snapshot and replay identity. The selected
 // instruction sequence is derived afresh from the build-fenced catalog after restore.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -287,7 +159,7 @@ impl PartialEq for BoundModeSubset {
         self.indices == other.indices
     }
 }
-impl Eq for BoundModeSubset {}
+
 impl BoundModeSubset {
     fn build(root: &SpellProgram, chosen: &[u32]) -> Result<Self, String> {
         let indices = mtg_contracts::modal_targets::ModeCount::for_root(root)
@@ -329,8 +201,7 @@ impl BoundModeSubset {
                     let mut instruction = instruction.clone();
                     match (&mut instruction, child.targets.as_slice()) {
                         (_, []) => {}
-                        (Instruction::ShufflePlayerGraveyard { .. }, _)
-                            if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() => {}
+
                         (
                             kernel!(GainLife {
                                 player: target_player!(target_slot),
@@ -364,8 +235,6 @@ impl BoundModeSubset {
                                 what: target_object!(target_slot),
                                 ..
                             })
-                            | Instruction::PhaseOutTargetPermanent { target_slot, .. }
-                            | Instruction::CounterStackObject { target_slot, .. }
                             | kernel!(Move {
                                 what: target_object!(target_slot),
                                 to: mtg_contracts::kir::Destination::OwnerHand
@@ -480,7 +349,6 @@ impl RulesTxn {
         let mut entities = entry.entity_targets.len();
         let mut objects = entry.targets.len();
         let mut stack = entry.stack_targets.len();
-        let mut group = usize::from(!entry.entity_targets.is_empty());
         for child in children {
             let used = match child.targets.first().map(|t| t.domain) {
                 None => continue,
@@ -490,11 +358,7 @@ impl RulesTxn {
                     | TargetDomain::CreatureOrPlaneswalker,
                 ) => &mut objects,
                 Some(TargetDomain::StackSpell) => &mut stack,
-                Some(TargetDomain::AnyPlayer)
-                    if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() =>
-                {
-                    &mut group
-                }
+
                 Some(TargetDomain::AnyPlayer) => &mut players,
                 Some(TargetDomain::AnyDamageTarget) => &mut entities,
                 _ => return Err("unsupported selected-mode target group".into()),
@@ -532,18 +396,7 @@ impl RulesTxn {
                 ) => (0, 1),
                 Some(TargetDomain::StackSpell) => (1, 1),
                 Some(TargetDomain::AnyDamageTarget) => (3, 1),
-                Some(TargetDomain::AnyPlayer) => {
-                    if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(child) {
-                        if !entry.entity_targets.is_empty()
-                            && !self.graveyard_group_structure(&entry.entity_targets, maximum)
-                        {
-                            return Ok(false);
-                        }
-                        (3, entry.entity_targets.len().max(1))
-                    } else {
-                        (2, 1)
-                    }
-                }
+                Some(TargetDomain::AnyPlayer) => (2, 1),
                 _ => return Ok(false),
             };
             if found[bucket] == actual[bucket] {
@@ -685,19 +538,11 @@ impl RulesTxn {
         let root = self.root_program_for(top)?;
         // CR 601.2b, 700.2a, 903.3: choose both at announcement using the
         // current controller of a physically designated battlefield commander.
-        let may_choose_both = !top.kind.is_spell()
-            || !commander_choose_both(root)
-            || self.state.rules.commanders.records.keys().any(|card| {
-                self.state.rules.objects.get(card).is_some_and(|object| {
-                    object.zone == Zone::Battlefield && object.controller == top.controller
-                })
-            });
         let source = self.targeting_characteristics(top)?;
         let candidates = root
             .modes
             .iter()
             .enumerate()
-            .filter(|(i, _)| *i != 2 || may_choose_both)
             .filter(|(_, m)| self.has_target_domain(&m.program, top.controller, &source))
             .map(|(i, _)| i as u32)
             .collect();
@@ -980,7 +825,7 @@ impl RulesTxn {
         if let Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::LandEntry {
-            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
+            origin: EntryOrigin::Copy { frame, .. },
             ..
         } = &self.state.rules.frame
         {
@@ -1129,18 +974,6 @@ impl RulesTxn {
             .chain(d.triggered.iter().map(|a| &a.program))
             .collect())
     }
-    pub(crate) fn shield_limit(&self, effect: &ResolvedEffect) -> Result<Quantity, String> {
-        for p in self.origin_programs(&effect.origin)? {
-            if let Some(Instruction::PreventNextDamage {
-                amount,
-                source_block,
-                ..
-            }) = p.instructions.get(effect.origin.cursor as usize)
-                && *source_block == effect.origin.source_block
-            {
-                return Ok(amount.clone());
-            }
-        }
-        Err("missing shield origin quantity".into())
-    }
 }
+
+impl Eq for BoundModeSubset {}

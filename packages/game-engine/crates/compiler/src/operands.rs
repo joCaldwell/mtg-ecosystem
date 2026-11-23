@@ -172,31 +172,6 @@ pub(crate) fn lower_attack_subject(what: &SourceAttacker) -> Result<AttackSubjec
     }
 }
 
-pub(crate) fn lower_temporary_creature_keywords(
-    abilities: &[serde_json::Value],
-) -> Result<Vec<KeywordAbility>, Failure> {
-    let keywords = abilities
-        .iter()
-        .map(|ability| {
-            let GainedAbility::Keyword { keyword } = serde_json::from_value(ability.clone())
-                .map_err(|_| {
-                    unsupported(
-                        "effects.gain-abilities",
-                        "unsupported gained keyword ability",
-                    )
-                })?;
-            Ok(keyword.keyword)
-        })
-        .collect::<Result<Vec<_>, Failure>>()?;
-    if !supported_temporary_keywords(&keywords) {
-        return Err(unsupported(
-            "effects.gain-abilities",
-            "expected nonempty unique reviewed temporary creature keywords",
-        ));
-    }
-    Ok(keywords)
-}
-
 pub(crate) fn fixed_one(count: &Count) -> bool {
     count.amount == "fixed" && count.value == 1
 }
@@ -745,69 +720,6 @@ pub(crate) fn bind_permanent_target(
     Ok(slot)
 }
 
-pub(crate) fn target_reference(p: &SpellProgram, v: &serde_json::Value) -> Result<u32, Failure> {
-    if p.targets.len() != 1
-        || !matches!(
-            p.targets[0].domain,
-            TargetDomain::BattlefieldPermanent | TargetDomain::StackSpell
-        )
-    {
-        return Err(unsupported("reference", "requires bound removal target"));
-    }
-    let valid = *v == serde_json::json!({"ref":"it"})
-        || *v == serde_json::json!({"ref":"that","filter":{"cls":"permanent"}})
-        || (*v == serde_json::json!({"ref":"that","filter":{"types":["artifact"]}})
-            && p.targets[0]
-                .filter
-                .as_ref()
-                .is_some_and(|f| f.types == [CardKind::Artifact]));
-    if !valid {
-        return Err(unsupported(
-            "reference",
-            "unsupported complete target reference",
-        ));
-    }
-    Ok(0)
-}
-
-pub(crate) fn removal_recipient(
-    p: &SpellProgram,
-    v: &serde_json::Value,
-) -> Result<EffectRecipient, Failure> {
-    if *v == serde_json::json!({"player":"you"}) {
-        return Ok(EffectRecipient::Controller);
-    }
-    if v.as_object().is_none_or(|o| o.len() != 2) || v["player"] != "controller" {
-        return Err(unsupported("recipient", "unsupported target controller"));
-    }
-    Ok(EffectRecipient::TargetController {
-        target_slot: target_reference(p, &v["of"])?,
-    })
-}
-
-pub(crate) fn removal_amount(
-    p: &SpellProgram,
-    v: &serde_json::Value,
-) -> Result<TargetAmount, Failure> {
-    if v["amount"] == "attribute" && v.as_object().is_some_and(|o| o.len() == 3) {
-        let attribute = match v["attribute"].as_str() {
-            Some("power") => TargetAttribute::Power,
-            Some("mana-value") => TargetAttribute::ManaValue,
-            _ => return Err(unsupported("amount", "unsupported attribute")),
-        };
-        return Ok(TargetAmount::Attribute {
-            target_slot: target_reference(p, &v["of"])?,
-            attribute,
-        });
-    }
-    Ok(TargetAmount::Fixed {
-        amount: fixed_positive(
-            &serde_json::from_value(v.clone())
-                .map_err(|_| unsupported("amount", "unsupported amount"))?,
-        )?,
-    })
-}
-
 pub(crate) fn signed_fixed(value: &SignedAmount) -> Result<Quantity, Failure> {
     if value.amount.amount != "fixed" || !matches!(value.sign, -1 | 1) {
         return Err(unsupported(
@@ -892,63 +804,6 @@ pub(crate) fn bind_pump_target(
         );
     }
     bind_temporary_creature_target(program, slots, what)
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ControlledPermanentTarget {
-    #[serde(rename = "ref")]
-    pub(crate) reference: String,
-    pub(crate) filter: ControlledPermanentFilter,
-    pub(crate) count: Count,
-    #[serde(rename = "selectionId")]
-    pub(crate) selection_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ControlledPermanentFilter {
-    pub(crate) cls: String,
-    pub(crate) control: String,
-}
-
-pub(crate) fn bind_temporary_permanent_target(
-    program: &mut SpellProgram,
-    slots: &mut BTreeMap<String, u32>,
-    what: &serde_json::Value,
-) -> Result<u32, Failure> {
-    let target: ControlledPermanentTarget = serde_json::from_value(what.clone())
-        .map_err(|_| unsupported("targets", "requires complete controlled permanent target"))?;
-    if target.reference != "target"
-        || target.filter.cls != "permanent"
-        || target.filter.control != "you"
-        || !fixed_one(&target.count)
-    {
-        return Err(unsupported(
-            "targets",
-            "requires exact controlled permanent target",
-        ));
-    }
-    let filter = Some(PermanentFilter::any());
-    if let Some(slot) = slots.get(&target.selection_id)
-        && program
-            .targets
-            .get(*slot as usize)
-            .is_none_or(|t| t.filter != filter)
-    {
-        return Err(unsupported(
-            "targets",
-            "inconsistent reused permanent selection",
-        ));
-    }
-    let slot = bind_target(
-        program,
-        slots,
-        &target.selection_id,
-        TargetDomain::ControlledBattlefieldPermanent,
-    )?;
-    program.targets[slot as usize].filter = filter;
-    Ok(slot)
 }
 
 // CR 109.5/601.2c/608.2b: “you” is the invocation controller and remains a

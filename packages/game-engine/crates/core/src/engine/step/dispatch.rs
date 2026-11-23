@@ -36,19 +36,16 @@ impl RulesTxn {
                 self.graveyard_replacement_step(transaction)?
             }
             Frame::LandEntry { .. } => self.land_entry_step()?,
-            Frame::PlayHideawayLinked { progress } => self.linked_play_step(progress)?,
-            Frame::RevealAndCast { progress } => self.reveal_and_cast_step(progress)?,
-            Frame::HandCast { frame, child } => self.hand_cast_step(frame, child)?,
-            Frame::Cascade { progress } => self.cascade_step(*progress)?,
+
             Frame::ResolutionPayment { frame, payment } => {
                 self.resolution_payment_step(frame, payment)?
             }
             frame @ Frame::LegendRule { .. } => self.legend_step(frame)?,
-            frame @ (Frame::SacrificeCost { .. }
-            | Frame::ForcedSacrifice { .. }
-            | Frame::OptionalDamage { .. }) => self.sacrifice_step(frame)?,
+            frame @ (Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. }) => {
+                self.sacrifice_step(frame)?
+            }
             Frame::Setup => self.setup_step()?,
-            frame @ Frame::DamageAllocation { .. } => self.damage_allocation_step(frame)?,
+
             Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,
             Frame::HybridCost { cast } => {
                 let input = self
@@ -208,7 +205,7 @@ impl RulesTxn {
                     .is_some_and(|check| !check.passed())
                     || (!frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l))
                 {
-                    if stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                    if stack.alternative_cost == Some(AlternativeCost::Bestow)
                         && frame.condition_check.is_none()
                         && frame.legal_targets == [false]
                     {
@@ -218,31 +215,6 @@ impl RulesTxn {
                     }
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
-                        Instruction::OfferHandCastWithoutManaCost { .. } => {
-                            self.rules_mut().frame = Frame::HandCast {
-                                frame: Box::new(frame),
-                                child: None,
-                            };
-                            return Ok(());
-                        }
-                        Instruction::ExileResolvingSpell { .. } => {
-                            if !stack.kind.is_spell()
-                                || stack.paid.is_none()
-                                || frame.cursor as usize + 1 != program.instructions.len()
-                            {
-                                return Err(
-                                    "self exile requires the final instruction of a paid spell"
-                                        .into(),
-                                );
-                            }
-                            return self.finish_spell(stack.id, true);
-                        }
-                        Instruction::Cascade { source_block, .. } => {
-                            return Ok(self.begin_cascade(frame, *source_block)?);
-                        }
-                        Instruction::MoveTriggeredSuccessor { .. } => {
-                            return Ok(self.resolve_successor_tuck(frame)?);
-                        }
                         kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerHand } @ source_block)
                         | kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerLibraryTop } @ source_block) =>
                         {
@@ -293,7 +265,9 @@ impl RulesTxn {
                             };
                             frame.outcomes.push(outcome);
                         }
-                        other => return Ok(self.execute_action_instruction(frame, other.clone())?),
+                        Instruction::Kernel { node, source_block } => {
+                            return Ok(self.execute_kernel(frame, node.clone(), *source_block)?);
+                        }
                     }
                     frame.cursor = frame
                         .cursor

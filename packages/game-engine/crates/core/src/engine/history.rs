@@ -163,6 +163,8 @@ impl<T: Clone> IndexMut<usize> for History<T> {
         &mut entry.value
     }
 }
+impl<T: Eq> Eq for History<T> {}
+
 impl<T: Eq> History<T> {
     /// Identity is a sufficient equality proof only for reflexive entries.
     /// Keep the generic PartialEq implementation below unchanged: NaN and
@@ -194,7 +196,7 @@ impl<T: PartialEq> PartialEq for History<T> {
         self.len == other.len && self.iter().eq(other.iter())
     }
 }
-impl<T: Eq> Eq for History<T> {}
+
 impl<T: fmt::Debug> fmt::Debug for History<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()

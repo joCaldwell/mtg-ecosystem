@@ -123,7 +123,7 @@ impl RulesTxn {
     pub(super) fn construct_spell_cost(
         &self,
         card: CardId,
-        alternative: Option<cascade::AlternativeCost>,
+        alternative: Option<AlternativeCost>,
         x: Option<&Quantity>,
         selected: &[String],
         hybrid: Option<&[HybridPayment]>,
@@ -182,13 +182,11 @@ impl RulesTxn {
                     }
                     cost
                 }
-                Some(cascade::AlternativeCost::WithoutManaCost) => zero_mana_cost(),
-                Some(cascade::AlternativeCost::Bestow) => {
-                    mtg_contracts::bestow_alternative(definition)
-                        .ok_or("missing printed bestow cost")?
-                        .0
-                        .clone()
-                }
+                Some(AlternativeCost::WithoutManaCost) => zero_mana_cost(),
+                Some(AlternativeCost::Bestow) => mtg_contracts::bestow_alternative(definition)
+                    .ok_or("missing printed bestow cost")?
+                    .0
+                    .clone(),
             },
             x,
             &additional,
