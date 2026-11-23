@@ -83,12 +83,11 @@ if(nativeInfo.engine_build_id!==engine.build_id||nativeInfo.target!==native.targ
 check(source,sourceBefore);check(vendor,engine.dependency_files);authoritativeSources();
 // Preserve the exact native-authority fixtures and presentation build inputs at
 // their repository-relative paths. Never copy the whole tools or fixture tree.
-const clientLayoutVersion='sdk-repository-relative-inputs-v2';
+const clientLayoutVersion='sdk-repository-relative-inputs-v3';
 const clientLayoutRoot=path.join(evidence,'client-source');
 const sdk=path.join(root,'packages/game-server/sdk'),client=path.join(clientLayoutRoot,'packages/game-server/sdk');fs.mkdirSync(client,{recursive:true});
 const clientNativeInputPaths=[
  'packages/game-engine/tests/fixtures/expected-match-ir.json',
- 'packages/game-engine/tests/fixtures/expected-attachments-ir.json',
  'packages/game-server/tools/client-artifacts.ts',
  'packages/game-server/tools/presentation.schema.json',
 ];

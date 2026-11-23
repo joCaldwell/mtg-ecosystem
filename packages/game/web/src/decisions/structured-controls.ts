@@ -29,9 +29,10 @@ export function structuredDecisionSurface(request: PlayerRequest, labels: readon
       ? supported({ kind: 'quantity', title: 'Choose X', description: `${explanation}\nEnter X explicitly. The table validates its meaning and value.`, maxDigits }) : unavailable();
     case 'mana_color': return source && context?.source?.kind === 'mana_ability'
       ? choice('Choose mana color', explanation, request.colors.map(color => ({ id: color, label: colorNames[color], detail: '' }))) : unavailable();
-    case 'optional_effect': case 'optional_recursion': return source && instruction
+    case 'optional_effect': return source && instruction
       ? choice('Choose whether to perform the effect', explanation, [{ id: 'perform', label: 'Perform this effect', detail: '' }, { id: 'decline', label: 'Decline this effect', detail: '' }]) : unavailable();
     case 'modes': {
+      if (request.one_or_more || request.allow_repeat || (request.exactly != null && request.exactly !== 1)) return unavailable();
       if (!source || !request.candidates.every(mode => context?.modes?.filter(label => label.mode === mode && label.text).length === 1)) return unavailable();
       return choice('Choose a mode', explanation, request.candidates.map(mode => ({ id: String(mode), label: context!.modes!.find(label => label.mode === mode)!.text, detail: '' })));
     }
@@ -42,11 +43,7 @@ export function structuredDecisionSurface(request: PlayerRequest, labels: readon
     case 'damage_effect': {
       if (!request.candidates.every(candidate => candidate.label)) return unavailable();
       const recipient = request.recipient.entity === 'player' ? player(request.recipient.player).label : `${object(request.recipient.object, labels).label} (${request.recipient.object})`;
-      return choice('Choose a damage effect', `Recipient: ${recipient}. Choose from the supplied effects. The table validates the selected effect and damage occurrence.`, request.candidates.map(candidate => ({ id: JSON.stringify([candidate.effect, candidate.damage]), label: candidate.label!, detail: `${candidate.effect_source.announced} · Amount ${candidate.amount_before} → ${candidate.amount_after}${candidate.budget_remaining === null ? '' : ` · Remaining ${candidate.budget_remaining}`}` })));
-    }
-    case 'damage_allocation': {
-      if (!source || !instruction || context?.source?.kind !== 'effect') return unavailable();
-      return quantities('Allocate the supplied damage prevention', `${explanation}\nSupplied required allocation: ${request.required}. Enter every amount, including zero. The table validates the complete allocation.`, request.candidates.map(candidate => ({ id: candidate.damage, label: object(candidate.source.current ?? candidate.source.announced, labels).label, detail: `${candidate.damage} · Source ${candidate.source.announced} · Supplied amount ${candidate.amount}`, maximum: candidate.amount })), request.required);
+      return choice('Choose a damage effect', `Recipient: ${recipient}. Choose from the supplied effects. The table validates the selected effect and damage occurrence.`, request.candidates.map(candidate => ({ id: JSON.stringify([candidate.effect, candidate.damage]), label: candidate.label!, detail: `${candidate.effect_source.announced} · Amount ${candidate.amount_before} → ${candidate.amount_after}` })));
     }
     case 'commander_return': {
       const label = request.object === null ? `Commander ${request.designation}` : `${object(request.object, labels).label} (${request.object})`;
@@ -54,7 +51,7 @@ export function structuredDecisionSurface(request: PlayerRequest, labels: readon
       return choice('Choose the commander destination', `${label}. Destination: ${request.destination.zone}.${previous ? ` Previous choices: ${previous}.` : ''}`, [{ id: 'command', label: 'Move to the command zone', detail: '' }, { id: 'destination', label: `Keep the destination: ${request.destination.zone}`, detail: '' }]);
     }
     case 'spend_mana': {
-      if (!context?.source) return unavailable();
+      if (!context?.source || request.restricted_available?.length) return unavailable();
       const fields = colors.filter(color => request.available[color] !== undefined).map(color => ({ id: color, label: colorNames[color], detail: `Available: ${request.available[color]}`, maximum: request.available[color]! }));
       return quantities('Choose mana to spend', `${explanation}\nSupplied cost: generic ${request.cost.generic}; colored ${request.cost.colored.join(', ') || 'none'}. Enter every amount, including zero. The table validates the complete payment.`, fields);
     }
@@ -73,7 +70,7 @@ export function structuredDecisionSurface(request: PlayerRequest, labels: readon
       return quantities('Assign combat damage', `Source: ${object(request.source, labels).label} (${request.source}). Supplied power: ${request.power}. Enter every amount, including zero. The table validates assignment order and lethal requirements.`, fields, request.power);
     }
     case 'targets': case 'entity_targets': case 'player_targets': case 'stack_targets': {
-      if (!source) return unavailable();
+      if (!source || (request.request === 'targets' && request.counter_division)) return unavailable();
       const options: Option[] = request.request === 'player_targets' ? request.candidates.map(player)
         : request.request === 'entity_targets' ? request.candidates.map(candidate => candidate.entity === 'player' ? player(candidate.player) : object(candidate.object, labels))
         : request.candidates.map(handle => ({ ...object(handle, labels), label: request.request === 'stack_targets' ? `Stack entry ${handle}` : object(handle, labels).label }));
@@ -88,14 +85,13 @@ export function completeStructuredDecision(request: PlayerRequest, draft: LocalD
   switch (request.request) {
     case 'announce_x': return { response: 'announce_x', value: draft.quantity };
     case 'mana_color': return { response: 'mana_color', color: request.colors.find(color => color === draft.selected[0])! };
-    case 'optional_effect': case 'optional_recursion': return { response: request.request, perform: draft.selected[0] === 'perform' };
+    case 'optional_effect': return { response: request.request, perform: draft.selected[0] === 'perform' };
     case 'modes': return { response: 'modes', mode: request.candidates.find(mode => String(mode) === draft.selected[0])! };
     case 'order_triggers': return { response: 'order_triggers', order: [...draft.selected] };
     case 'damage_effect': {
       const candidate = request.candidates.find(value => JSON.stringify([value.effect, value.damage]) === draft.selected[0])!;
       return { response: 'damage_effect', effect: candidate.effect, damage: candidate.damage };
     }
-    case 'damage_allocation': return { response: 'damage_allocation', allocations: request.candidates.map(candidate => [candidate.damage, read(draft, candidate.damage)]) };
     case 'commander_return': return { response: 'commander_return', to_command: draft.selected[0] === 'command' };
     // Native selected_payment_pool requires sparse, strictly positive entries.
     // Explicit zero inputs remain visible draft intent but add no wire entry.

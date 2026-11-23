@@ -35,14 +35,12 @@ test("legacy browser exports preserve the clean public declaration surface", () 
   assert.equal(output, "");
 });
 
-test("product launch admits the exact qualified foundations identity", () => {
-  const { engine_build_id, server_build_id } = JSON.parse(readFileSync(join(repo, "packages/game/sdk-qualification.json"), "utf8"));
-  const identity = { profile: "commander-foundations-v1", catalog_sha256: "ff307bd50c7714f3ad99c1bd558217cd38b0223c1fe48dfd200d2b611abc8b56", engine_build_id, server_build_id };
-  assert.equal(isQualifiedProductSession(identity), true);
+test("SDK verification alone cannot admit a product launch", () => {
+  const current = JSON.parse(readFileSync(join(repo, "packages/game/sdk-qualification.json"), "utf8"));
+  assert.equal(isQualifiedProductSession(current), false);
+  const historical = JSON.parse(readFileSync(join(repo, "packages/game/fixtures/native21-hosted-qualification.json"), "utf8"));
+  assert.equal(isQualifiedProductSession({ ...historical, profile: "commander-foundations-v1", catalog_sha256: "ff307bd50c7714f3ad99c1bd558217cd38b0223c1fe48dfd200d2b611abc8b56" }), false);
   assert.equal(isQualifiedProductSession(undefined), false);
-  for (const field of Object.keys(identity)) {
-    assert.equal(isQualifiedProductSession({ ...identity, [field]: "different" }), false, field);
-  }
 });
 
 test("both public package names typecheck in an isolated consumer with no SDK or generated files", () => {

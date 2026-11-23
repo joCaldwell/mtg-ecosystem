@@ -109,7 +109,6 @@ for(const mutation of ['none','source-mismatch','missing-tool-pin','changed-copy
    const checkout=path.join(root,'checkout'),source=path.join(root,'native'),evidence=path.join(root,'evidence');
    const inputs:Record<string,string>={
     'packages/game-engine/tests/fixtures/expected-match-ir.json':'{"schema_version":1,"definitions":[]}\n',
-    'packages/game-engine/tests/fixtures/expected-attachments-ir.json':'{"schema_version":1,"definitions":[],"profile":"attachments"}\n',
     'packages/game-server/tools/client-artifacts.ts':'// exact native producer source\n',
     'packages/game-server/tools/presentation.schema.json':'{"type":"object"}\n',
    };
@@ -119,7 +118,7 @@ for(const mutation of ['none','source-mismatch','missing-tool-pin','changed-copy
    const sdk=path.join(checkout,'packages/game-server/sdk');
    fs.mkdirSync(path.join(sdk,'tests'),{recursive:true});fs.mkdirSync(evidence);
    // Probe actual SDK-relative sibling lookup, not a flattened test-only layout.
-   fs.writeFileSync(path.join(sdk,'tests/probe.mjs'),"import fs from 'node:fs';const read=p=>fs.readFileSync(new URL(p,import.meta.url),'utf8');console.log(JSON.stringify([read('../../../game-engine/tests/fixtures/expected-match-ir.json'),read('../../../game-engine/tests/fixtures/expected-attachments-ir.json'),read('../../tools/client-artifacts.ts'),read('../../tools/presentation.schema.json')]));\n");
+   fs.writeFileSync(path.join(sdk,'tests/probe.mjs'),"import fs from 'node:fs';const read=p=>fs.readFileSync(new URL(p,import.meta.url),'utf8');console.log(JSON.stringify([read('../../../game-engine/tests/fixtures/expected-match-ir.json'),read('../../tools/client-artifacts.ts'),read('../../tools/presentation.schema.json')]));\n");
    fs.writeFileSync(path.join(sdk,'package.json'),'{"type":"module"}');
    fs.mkdirSync(path.join(sdk,'dist'));fs.writeFileSync(path.join(sdk,'dist/stale.js'),'stale output must not copy');
    const retainer=fs.readFileSync(path.join(scripts,'retain-server-evidence.ts'),'utf8');
@@ -144,7 +143,7 @@ for(const mutation of ['none','source-mismatch','missing-tool-pin','changed-copy
    if(mutation==='none'||mutation==='browser-dist'){
     assert.equal(result.status,0,result.stderr);const record=JSON.parse(result.stdout);
     assert.equal(record.client,path.join(evidence,'client-source/packages/game-server/sdk'));
-    assert.equal(record.clientLayoutVersion,'sdk-repository-relative-inputs-v2');
+    assert.equal(record.clientLayoutVersion,'sdk-repository-relative-inputs-v3');
     assert.deepEqual(record.clientNativeInputFiles,expectedNative);
     const probe=spawnSync(process.execPath,[path.join(record.client,'tests/probe.mjs')],{encoding:'utf8',timeout:5000});
     assert.equal(probe.status,0,probe.stderr);assert.deepEqual(JSON.parse(probe.stdout),Object.values(inputs));

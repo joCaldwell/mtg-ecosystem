@@ -262,8 +262,10 @@ Keep Chromium/Firefox versions, exact source/schema/build hashes, failed attempt
 and explicit omissions. No full native matrix follows a docs/client-only edit.
 
 [`sdk-qualification.json`](../packages/game/sdk-qualification.json) owns current
-native/SDK qualification, separate from historical capture provenance. Use one
-qualified SDK throughout checks; never substitute historical schemas to pass fixtures.
+native build and schema pins for SDK generation and local decision checks. The
+R4 client reads observation 56. Product launch requires a hosted browser proof
+for the same consumer and native identity. The earlier Native21 proof belongs
+to its [retained qualification](../packages/game/fixtures/native21-hosted-qualification.json).
 
 [Client evidence](game-client-evidence.md) retains exact identities, checks, proof
 locations, failures and omissions; read it before reusing acceptance.

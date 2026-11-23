@@ -27,8 +27,7 @@ export interface NativeLifecycleOptions { executable: string; identity: GameIden
 const same = (a: GameIdentity, b: GameIdentity) => ["catalog_sha256", "profile", "engine_build_id", "server_build_id"].every(key => a[key as keyof GameIdentity] === b[key as keyof GameIdentity]);
 const unavailable = () => new Error("Native lifecycle unavailable");
 /** Actual offline registry/native process bridge. Default browser qualification
- * remains false in composition. Only foundations' existing finite policy runs;
- * attachments remain separately admitted but unavailable for automated launch. */
+ * remains false in composition. Foundations supplies the finite launch policy. */
 export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGameAdapter {
   if (!isAbsolute(options.executable) || !isAbsolute(options.directory)) throw new Error("Native lifecycle requires absolute paths");
   const publicOrigin = new URL(options.humanOrigin);
