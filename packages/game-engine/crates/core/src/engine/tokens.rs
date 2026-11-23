@@ -505,17 +505,8 @@ impl RulesTxn {
                     }
                     predefined_token_templates::definition(source, *id, *kind)
                 }
-                TokenTemplate::SpellCopy { original, stack_id } => {
-                    let original_definition = self.copiable_definition(original)?;
-                    if (self.state.rules.tokens.contains_key(&original.card)
-                        && original.card >= *id)
-                        || stack_id.0 >= self.state.rules.next_stack_id
-                    {
-                        return Err("snapshot spell copy identity order".into());
-                    }
-                    {
-                        return Err("snapshot spell copy source invariant".into());
-                    }
+                TokenTemplate::SpellCopy { .. } => {
+                    return Err("unsupported spell copy source".into());
                 }
             };
             if t.definition != expected

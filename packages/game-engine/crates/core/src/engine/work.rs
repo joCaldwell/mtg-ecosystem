@@ -193,8 +193,6 @@ pub enum Task {
         converted: Vec<ObjectId>,
         converted_entities: Vec<TargetEntity>,
         converted_triggers: Vec<TriggerId>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        converted_allocations: Vec<(DamageId, Quantity)>,
         value: Option<Response>,
     },
     Search {
@@ -381,7 +379,6 @@ impl RulesTxn {
                 converted: vec![],
                 converted_entities: vec![],
                 converted_triggers: vec![],
-                converted_allocations: vec![],
                 value: None,
             },
             Query::Search { .. } => Task::Search {
@@ -760,7 +757,6 @@ impl RulesTxn {
                     converted,
                     converted_entities,
                     converted_triggers,
-                    converted_allocations,
                     value,
                 },
             ) => {

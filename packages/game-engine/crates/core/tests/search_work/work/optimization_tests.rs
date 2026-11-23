@@ -274,7 +274,6 @@ impl ReferenceQuery for Game {
                     converted,
                     converted_entities,
                     converted_triggers,
-                    converted_allocations,
                     value,
                 },
             ) => {

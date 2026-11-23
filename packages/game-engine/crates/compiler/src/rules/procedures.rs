@@ -28,8 +28,7 @@ pub(crate) mod controller_library {
         block: u32,
         program: &mut SpellProgram,
     ) -> Result<Option<Instruction>, Failure> {
-        // The complete printed block, operand and scoped graph were checked by
-        // validate_fixed_cast_effects before lowering any abilities.
+        // Trigger lowering has already bound the damage source to the invocation.
         let TriggerCondition::SpellCast {
             caster: CasterRelation::Controller,
             spell: TypePredicate::SpellColor { .. },
@@ -65,6 +64,14 @@ pub(crate) mod controller_library {
         let selection = reference["selectionId"]
             .as_str()
             .ok_or_else(|| unsupported("damage.target", "missing bound opponent occurrence"))?;
+        if selection.is_empty()
+            || *reference != json!({"player":"target-opponent", "selectionId":selection})
+        {
+            return Err(unsupported(
+                "damage.target",
+                "unexpected opponent selector fields",
+            ));
+        }
         Ok(Some(Instruction::damage_target(
             bind_target(
                 program,

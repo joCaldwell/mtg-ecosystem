@@ -1,14 +1,8 @@
 //! Finite mode selection, independent target occurrences and intervening-if.
-//! Exact44-card bounds:10 creatures *2 Artists +one Bouncer self-death
-//! <=21 triggers per nonempty-stack episode; <=14 ordinary entries gives35
-//! <128. Main-phase permanent recasts require empty stack; no recursion/untap
-//! is admitted. Seeds3 +two Salves +Bouncer +Healer <=7 resolved effects <16.
 //! CR 601.2b-c, 603.3d/603.4/603.10a and 608.2a-b, pinned official rules:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 pub const SEEDS: &str = "dd3d4d96-1e88-49e1-8276-7f62c22ad91a";
-pub const SALVE: &str = "8da8644c-75a1-4fe9-8e94-900d948d631c";
-pub const BOUNCER: &str = "82076865-7917-4d3b-8fe8-c21bfcd64d29";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

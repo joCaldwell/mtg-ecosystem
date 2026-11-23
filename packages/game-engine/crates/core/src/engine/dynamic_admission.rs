@@ -21,9 +21,10 @@ const PHYSICAL_SOURCES: usize = 400;
 const POLICY_SHA256: &str = "71b1aa15189c83820fe654933e5ad28d79897b7e46c3f71155a16cd3430424da";
 const POLICY: &str = include_str!("../../../../tests/fixtures/commander-banned-2026-10-15.json");
 
-// The exact 21-definition Foundations projection exercises these requirements.
+// The active Foundations decks exercise exactly these requirements.
 // Expanding this set needs dynamic capacity and runtime qualification.
 const REVIEWED: &[Capability] = &[
+    Capability::ComposedAbilityV1,
     Capability::AnyPlayerTargetV1,
     Capability::BaseCreatureV1,
     Capability::BasicLandManaV1,

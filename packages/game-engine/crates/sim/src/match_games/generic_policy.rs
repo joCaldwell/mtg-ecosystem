@@ -9,6 +9,7 @@ use mtg_contracts::{
     source_object, target_object, target_player,
 };
 use mtg_core::query::{self, Tri};
+use std::collections::BTreeSet;
 
 /// CR 613.4c: the kernel set and negative toughness of an end-of-turn set
 /// shrink.
@@ -940,7 +941,7 @@ impl Strategy<'_> {
     }
     fn wipe_score(&self, v: &PermittedView, p: &SpellProgram, x: &Quantity) -> Option<Quantity> {
         let mut found = false;
-        let mut lost = std::collections::BTreeSet::new();
+        let mut lost = BTreeSet::new();
         let mut wins = false;
         for i in &p.instructions {
             let (sets, damage): (Vec<SetExpr>, _) = match i {
@@ -1218,29 +1219,6 @@ impl Strategy<'_> {
         self.program_ready(v, d, p)
             && (reactive_program(p) || tapped_destroy_spell(d, p) || defensive_untap_spell(d, p))
     }
-    pub(super) fn supported_cast_target(&self, v: &PermittedView, handle: &ObjectHandle) -> bool {
-        v.objects
-            .iter()
-            .find(|o| &o.handle == handle)
-            .and_then(|o| definition(self.catalog, &o.oracle_id).ok())
-            .is_some_and(|d| !requires_copy_entry_choice(d))
-    }
-
-    fn revealed_cast_ready(&self, v: &PermittedView) -> bool {
-        // The optional request does not identify its candidate. Exclude
-        // ambiguous exile offers when a publicly visible possibility
-        // requires an entry choice the permitted view cannot expose.
-        let mut candidates = v.objects.iter().filter(|o| {
-            o.zone == Zone::Exile
-                && o.owner == v.viewer
-                && !o.face_down
-                && o.characteristics
-                    .as_ref()
-                    .is_some_and(|c| !c.has_type(CardKind::Land))
-        });
-        let supported = |o: &VisibleObject| self.supported_cast_target(v, &o.handle);
-        candidates.next().is_some_and(supported) && candidates.all(supported)
-    }
 
     fn cast(
         &mut self,
@@ -1355,46 +1333,21 @@ impl Strategy<'_> {
         let Some(s) = v.stack.last() else {
             return false;
         };
-        if s.controller == v.viewer
-            && let Some(origin) = s.triggered.as_ref().map(|t| &t.ability)
-        {
-            use mtg_core::VisibleTriggerAbility;
-            let grants_cascade = match origin {
-                VisibleTriggerAbility::Granted {
-                    oracle_id,
-                    static_ability_index,
-                    ..
-                } => definition(self.catalog, oracle_id)
-                    .ok()
-                    .and_then(|d| d.static_abilities.get(*static_ability_index as usize))
-                    .is_some_and(|a| matches!(a.effect, StaticEffect::GrantSpellCascade { .. })),
-                VisibleTriggerAbility::TemporaryGrant { oracle_id, .. } => {
-                    definition(self.catalog, oracle_id).is_ok_and(|d| false)
-                }
-                _ => false,
-            };
-            if grants_cascade {
-                return self.revealed_cast_ready(v);
-            }
-        }
         let Some((d, p)) = self.top_program(v) else {
             return false;
         };
 
-        let instruction = block
-            .and_then(|block| p.instructions.iter().find(|i| i.source_block() == block))
-            .or_else(|| match p.instructions.as_slice() {
-                [instruction] => Some(instruction),
-                _ => None,
-            });
-        match instruction {
-            _ => {}
-        }
-        // Optional damage uses entity targets; optional removal uses object targets.
-
+        let optional_slots = p
+            .instructions
+            .iter()
+            .filter(|i| block.is_none_or(|b| i.source_block() == b))
+            .filter_map(|i| i.target_destroy())
+            .filter_map(|(slot, optional, _, _)| optional.then_some(slot))
+            .collect::<BTreeSet<_>>();
         s.targets
             .iter()
             .enumerate()
+            .filter(|(slot, _)| optional_slots.contains(&(*slot as u32)))
             .filter_map(|(slot, t)| Some((slot, t.current.as_ref()?)))
             .any(|(slot, h)| {
                 v.objects.iter().any(|o| {
@@ -1869,27 +1822,6 @@ impl Strategy<'_> {
             }
         }
         funds
-    }
-    #[cfg(test)]
-    fn opposing_stack(
-        &self,
-        v: &PermittedView,
-        ability: bool,
-        candidates: Option<&[StackHandle]>,
-    ) -> Option<StackHandle> {
-        let t = TargetSpec {
-            slot: 0,
-            selection_id: "test".into(),
-            chooser: mtg_contracts::Chooser::Controller,
-            stage: mtg_contracts::EvaluationStage::Announcement,
-            domain: if ability {
-                TargetDomain::StackActivatedOrTriggeredAbility
-            } else {
-                TargetDomain::StackSpell
-            },
-            filter: None,
-        };
-        self.stack_target(v, &t, candidates)
     }
 }
 #[cfg(test)]

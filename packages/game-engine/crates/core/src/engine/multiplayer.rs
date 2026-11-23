@@ -322,7 +322,6 @@ impl RulesTxn {
         };
         self.rules_mut().players[player.0 as usize].last_known = Some(last);
         self.expire_player_protection(player);
-        self.rules_mut().effects.retain(|effect| true);
         self.rules_mut().players[player.0 as usize].life_frozen_until_next_turn = false;
         self.rules_mut().players[player.0 as usize].status = PlayerStatus::Left;
         self.record_event(Event::PlayerDeparted { player })?;
