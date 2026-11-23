@@ -38,9 +38,13 @@ fi
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 cd "$root"
 # engine-env selects the target and its lock; only commands sharing that target
-# wait. check runs under the lock, so an over-budget target is evicted first.
+# wait. Descriptor 9 holds the lock through admission and the exec'd Cargo;
+# engine-cache.py verifies that descriptor before evicting an over-budget target.
 exec sh scripts/engine-env.sh sh -ec '
     lock=$(python3 -B scripts/engine-cache.py lock)
     mkdir -p "$(dirname -- "$lock")"
-    exec flock "$lock" sh -ec "python3 -B scripts/engine-cache.py check --locked >&2; exec cargo \"\$@\"" engine-dev "$@"
+    exec 9>>"$lock"
+    flock 9
+    MTG_ENGINE_LOCK_FD=9 python3 -B scripts/engine-cache.py check >&2
+    exec cargo "$@"
 ' engine-dev "$action" --locked "$@"

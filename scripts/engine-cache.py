@@ -4,8 +4,9 @@
 `check` admits a native command. When the target exceeds its budget it evicts
 inside that target only, while holding the target's lock: incremental state
 first, then profile directories the gate does not use, then the whole target.
-A target is a reproducible cache: nothing may reference a file inside it, and
-generated/ output and external evidence are never touched."""
+Only the checkout's own target/engine is evicted, and only while its lock is
+verifiably held. A target is a reproducible cache: nothing may reference a file
+inside it, and generated/ output and external evidence are never touched."""
 import argparse
 import contextlib
 import fcntl
@@ -122,16 +123,25 @@ def status(root=ROOT, environ=None):
             'errors': errors, 'policy': 'over budget, check evicts within this target under its lock; nothing outside it is touched'}
 
 
-def evictable(target):
-    """The target, if it is a real Cargo cache directory this tool may evict."""
-    target = Path(target)
-    if target.is_symlink() or not target.is_dir():
+def owned_target(root, target):
+    """The target, resolved, only if it is this checkout's own Cargo cache.
+
+    Ownership is positive: the path must be exactly `<checkout>/target/engine`
+    with no symlinked component below the checkout root and must carry Cargo's
+    CACHEDIR.TAG. An explicit CARGO_TARGET_DIR elsewhere (a shared target,
+    generated/ output, external evidence) is never evicted."""
+    top = toplevel(root)
+    if Path(os.path.abspath(Path(target))) != top / DEFAULT_TARGET:
         return None
-    resolved = target.resolve()
-    home = Path.home().resolve()
-    if resolved in (Path('/'), home) or resolved in home.parents or not (resolved / 'CACHEDIR.TAG').is_file():
+    entry = top
+    for part in DEFAULT_TARGET.parts:
+        entry = entry / part
+        if entry.is_symlink() or not entry.is_dir():
+            return None
+    expected = top.resolve() / DEFAULT_TARGET
+    if entry.resolve() != expected or not (expected / 'CACHEDIR.TAG').is_file():
         return None
-    return resolved
+    return expected
 
 
 def eviction_stages(target):
@@ -167,10 +177,30 @@ def evict(target, maximum, storage):
 
 
 @contextlib.contextmanager
-def held_lock(lock, already_held):
-    """Yield whether this process may mutate the target: the caller holds the
-    target lock (`--locked`), or this call acquires it without waiting."""
-    if already_held:
+def held_lock(lock, environ):
+    """Yield whether this process holds the target's canonical lock.
+
+    A runner that already holds it passes the locked descriptor's number in
+    MTG_ENGINE_LOCK_FD. That descriptor must be the canonical lock file, and a
+    non-blocking flock on it must succeed: flock is per open file description,
+    so this confirms the inherited description holds (or now takes) the lock.
+    Without it, this call takes the lock itself without waiting. Busy or
+    unverifiable locks fail closed."""
+    if lock.is_symlink():
+        yield False
+        return
+    inherited = environ.get('MTG_ENGINE_LOCK_FD')
+    if inherited is not None:
+        try:
+            descriptor = int(inherited)
+            held, canonical = os.fstat(descriptor), os.stat(lock)
+            if (held.st_dev, held.st_ino) != (canonical.st_dev, canonical.st_ino):
+                yield False
+                return
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (ValueError, OSError):
+            yield False
+            return
         yield True
         return
     lock.parent.mkdir(parents=True, exist_ok=True)
@@ -183,19 +213,19 @@ def held_lock(lock, already_held):
         yield True
 
 
-def check(root=ROOT, environ=None, locked=False):
+def check(root=ROOT, environ=None):
     """Admit a native command, evicting an over-budget target under its lock."""
     env = os.environ if environ is None else environ
     report = status(root, env)
     if report['allocated_bytes'] <= report['maximum_bytes']:
         return report
-    target = evictable(report['target_dir'])
+    target = owned_target(root, report['target_dir'])
     if target is None:
-        report['errors'].append('target is not an evictable Cargo cache (missing CACHEDIR.TAG, symlink or protected path)')
+        report['errors'].append("target is not this checkout's own Cargo cache (target/engine with CACHEDIR.TAG, no symlinks); nothing evicted")
         return report
-    with held_lock(Path(report['lock']), locked) as owned:
+    with held_lock(Path(report['lock']), env) as owned:
         if not owned:
-            report['errors'].append('target lock is busy; eviction requires the lock (run under it with --locked)')
+            report['errors'].append('target lock is busy or the inherited MTG_ENGINE_LOCK_FD is not its held lock; nothing evicted')
             return report
         removed = evict(target, report['maximum_bytes'], storage_module())
     after = status(root, env)
@@ -232,8 +262,6 @@ def listing(root=ROOT, environ=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['path', 'lock', 'status', 'check', 'list'])
-    parser.add_argument('--locked', action='store_true',
-                        help='check: the caller already holds this target\'s lock')
     args = parser.parse_args()
     try:
         if args.command == 'path':
@@ -245,7 +273,7 @@ def main():
         if args.command == 'list':
             print(json.dumps(listing(), indent=2))
             return 0
-        report = check(locked=args.locked) if args.command == 'check' else status()
+        report = check() if args.command == 'check' else status()
         print(json.dumps(report, indent=2))
         return bool(report['errors']) if args.command == 'check' else 0
     except (OSError, ValueError, subprocess.CalledProcessError) as error:

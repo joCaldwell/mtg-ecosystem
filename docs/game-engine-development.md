@@ -118,7 +118,7 @@ Prefix with `sh scripts/engine-env.sh`. `--plan` prints commands and omissions
 without executing them. Every debug command shares one feature shape
 (`--workspace --features mtg-core/testkit`) and one `dev`/`test` profile:
 dependencies at opt-level 2 without debug info, `mtg-core`/`mtg-contracts` at
-opt-level 1 (the measured fastest rebuild-plus-test setting), other members
+opt-level 1 (the fastest measured rebuild-plus-test setting), other members
 unoptimized, all with line tables, assertions and overflow checks. The production check builds
 the host and simulator without `testkit`, so dead code stays visible. No plan
 builds release or runs `mtg-sim`. Compiler-coverage PRs add one whole-archive
@@ -149,8 +149,8 @@ twice; select integration binaries with `--test '*'` or `--test NAME`. The gate
 runs every core, witness and host integration binary, in the same feature shape,
 through `scripts/engine-test-binaries.py`: built once, at most four at a time, each with
 `--test-threads` so binaries x threads stays within `--workers` (default
-min(CPUs, 16)). A binary that runs zero tests fails unless its only tests are
-ignored opt-in witnesses. Test helpers must not
+min(CPUs, 16)). A selection that executes no test fails, as does a binary that
+runs zero tests without declaring an ignored opt-in witness. Test helpers must not
 spawn their own thread pools; nested pools multiplied resident 400-card games
 past 13 GiB in one binary.
 

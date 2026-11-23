@@ -176,6 +176,8 @@ def schedule(report):
 
 def bench(args):
     require(args.games > 0 and args.games % 4 == 0, '--games must be a positive multiple of four (seats rotate)')
+    for flag, value in (('--threads', args.threads), ('--decision-limit', args.decision_limit)):
+        require(value is None or value > 0, f'{flag} must be positive')
     arms = {'a': Path(args.a).resolve()}
     pods = {'a': normalized_pod(arms['a'])}
     if args.b:
@@ -192,9 +194,10 @@ def bench(args):
         command = [str(args.sim), 'bench-pods', '--bulk-artifact', str(Path(args.bulk_artifact).resolve()),
                    '--manifest-sha', args.manifest_sha, '--pod-decks', str(path), '--games', str(args.games),
                    '--seed-start', str(args.seed_start), '--rotate-seats', '--analytics-out', str(out / f'{arm}-analytics')]
-        if args.threads:
+        # Explicit values always reach bench-pods, which owns their validation.
+        if args.threads is not None:
             command += ['--threads', str(args.threads)]
-        if args.decision_limit:
+        if args.decision_limit is not None:
             command += ['--decision-limit', str(args.decision_limit)]
         result = subprocess.run(command, capture_output=True, text=True)
         (out / f'{arm}.stdout.json').write_text(result.stdout)
@@ -230,6 +233,13 @@ def bench(args):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    # stage and play forward every argument verbatim (including their own
+    # --decklist/--decks/--archive flags) to the wrapped tools.
+    if argv[:1] == ['stage']:
+        return subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/stage-deck.py'), *argv[1:]]).returncode
+    if argv[:1] == ['play']:
+        return subprocess.run(['bash', str(ROOT / 'scripts/play-deck.sh'), *argv[1:]]).returncode
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
     cov = commands.add_parser('coverage')
@@ -239,10 +249,8 @@ def main(argv=None):
     cov.add_argument('--archive', type=Path, default=shared_generated('oracle-ast-phase1-r4.jsonl'))
     cov.add_argument('--all', action='store_true', help='scan the whole archive, not only snapshot IDs')
     cov.add_argument('--baseline', type=Path)
-    stage = commands.add_parser('stage', add_help=False)
-    stage.add_argument('rest', nargs=argparse.REMAINDER)
-    play = commands.add_parser('play', add_help=False)
-    play.add_argument('rest', nargs=argparse.REMAINDER)
+    commands.add_parser('stage', help='forwarded verbatim to stage-deck.py')
+    commands.add_parser('play', help='forwarded verbatim to play-deck.sh')
     pods = commands.add_parser('bench')
     pods.add_argument('sim', type=Path)
     pods.add_argument('--bulk-artifact', required=True)
@@ -255,10 +263,6 @@ def main(argv=None):
     pods.add_argument('--decision-limit', type=int)
     pods.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
-    if args.command == 'stage':
-        return subprocess.run([sys.executable, '-B', str(ROOT / 'scripts/stage-deck.py'), *args.rest]).returncode
-    if args.command == 'play':
-        return subprocess.run(['bash', str(ROOT / 'scripts/play-deck.sh'), *args.rest]).returncode
     try:
         return coverage(args) if args.command == 'coverage' else bench(args)
     except (OSError, ValueError, KeyError) as error:

@@ -31,11 +31,11 @@ const options = { cwd: root, record, env };
 const lock = needsCargo ? nativeLock(root, env) : null;
 console.error(`Engine timing evidence: ${report}`);
 try {
-  const run = async () => {
+  const run = async (lockFd?: number) => {
     const source = sourceIdentity(root);
     record({ kind: "freeze", mode, coverage: plan.coverage, omitted: plan.omitted, phases, source, driver_sha256: digest(fs.readFileSync(fileURLToPath(import.meta.url))), node: process.version, rust: version, cargo_incremental: env.CARGO_INCREMENTAL ?? "profile default", cargo_build_jobs: env.CARGO_BUILD_JOBS ?? "cargo default", cargo_target_dir: env.CARGO_TARGET_DIR ?? path.join(root, "target"), cargo_lock: lock });
     try {
-      const result = await runCheckPhases(phases, options);
+      const result = await runCheckPhases(phases, { ...options, lockFd });
       record({ kind: "phases-complete", mode, ...result });
       process.exitCode = result.code;
     } finally {

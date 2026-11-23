@@ -45,6 +45,9 @@ class TestBinaryRunnerTests(unittest.TestCase):
         self.assertEqual(['a', 'b'], runner.empty_selection({'a': ok(0), 'b': ok(0)}, ['FILTER']))
         opt_in = (0, 'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out', 0.1)
         self.assertEqual([], runner.empty_selection({'full': ok(2), 'witness': opt_in}, []))
+        # ...but a selection of only ignored opt-in witnesses executes nothing.
+        self.assertEqual(['a', 'b'], runner.empty_selection({'a': opt_in, 'b': opt_in}, []))
+        self.assertEqual(['a'], runner.empty_selection({'a': opt_in}, ['FILTER']))
         # A failed binary is reported as failed, not as empty.
         self.assertEqual([], runner.empty_selection({'bad': (101, 'panicked', 0.1)}, []))
 

@@ -48,9 +48,11 @@ debug = "line-tables-only"
 opt-level = 2
 debug = false
 
-# The rules hot path. Measured once at 9dc23a95+2D-1 (jobs 8, 32 threads):
-# member rebuild + unit + all 27 integration binaries took 305 s at opt-level 0,
-# 136 s at 1 and 200 s at 2 (opt 2 rebuilds 5x slower; opt 0 tests 5x slower).
+# The rules hot path. Measured once in the single gate shape (jobs 8, 32
+# threads; generated/phase2d-1/opt-trial2.txt): build + unit + all 27
+# integration binaries took 304.8 s at opt-level 0 (30.3+101.8+172.7), 80.6 s at
+# 1 (29.3+19.2+32.1; its lib/bin artifacts were already built, a full member
+# rebuild measured 84.7 s in opt-trial.txt) and 199.2 s at 2 (153.6+16.8+28.8).
 [profile.dev.package.mtg-core]
 opt-level = 1
 

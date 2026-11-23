@@ -63,17 +63,21 @@ run=$(mktemp -d "$root/generated/deck-play.XXXXXXXX")
 echo "Evidence: $run" >&2
 git worktree add --detach "$run/source" HEAD >&2
 cd "$run/source"
+# The detached checkout builds in its own target: never the invoking checkout's
+# (engine-env/npm export CARGO_TARGET_DIR), whose gate cache it would grow or evict.
+CARGO_TARGET_DIR="$run/source/target/engine"
+export CARGO_TARGET_DIR
 lock=$(sh scripts/engine-env.sh python3 -B scripts/engine-cache.py lock)
 mkdir -p "$(dirname -- "$lock")"
 # build_sim LABEL DESTINATION: one admitted, locked release build and copy.
 build_sim() {
     (
         flock -x 9
-        sh scripts/engine-env.sh python3 -B scripts/engine-cache.py check --locked > "$run/$1-cache.json"
+        MTG_ENGINE_LOCK_FD=9 sh scripts/engine-env.sh python3 -B scripts/engine-cache.py check > "$run/$1-cache.json"
         sh scripts/engine-env.sh cargo build --locked --release -p mtg-sim --message-format=json > "$run/$1.jsonl"
         executable=$(jq -rs '[.[] | select(.reason=="compiler-artifact" and .target.name=="mtg-sim" and .executable!=null) | .executable] | last // error("missing sim executable")' "$run/$1.jsonl")
         cp "$executable" "$2"
-    ) 9>"$lock"
+    ) 9>>"$lock"
 }
 build_sim compiler-build "$run/compiler"
 profile=$(python3 -B scripts/stage-deck.py "$run/compiler" "$run/stage" "${select[@]}" "${inputs[@]}")

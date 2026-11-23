@@ -126,6 +126,64 @@ class DeckHarnessTests(unittest.TestCase):
         self.assertEqual(2, decks.main(['bench', str(self.sim), '--bulk-artifact', '.', '--manifest-sha', 'f',
                                         '--a', str(self.dir / 'a.json'), '--games', '6', '--out', str(self.dir / 'x')]))
 
+    def test_play_builds_in_the_detached_checkouts_own_target(self):
+        # Stub git/engine-env record every native call's CARGO_TARGET_DIR; the
+        # stubbed build fails, so play stops before staging.
+        root = self.dir / 'repo'
+        (root / 'scripts').mkdir(parents=True)
+        play = Path(__file__).with_name('play-deck.sh')
+        (root / 'scripts/play-deck.sh').write_text(play.read_text())
+        trace, stubs = self.dir / 'trace', self.dir / 'bin'
+        stubs.mkdir()
+        (stubs / 'git').write_text(f"""#!/bin/sh
+case "$*" in
+  'rev-parse --show-toplevel') echo {root} ;;
+  'worktree add --detach '*) mkdir -p "$4/scripts"; cp {self.dir}/engine-env.sh "$4/scripts/engine-env.sh" ;;
+  *) exit 3 ;;
+esac
+""")
+        (self.dir / 'engine-env.sh').write_text(f"""#!/bin/sh
+echo "$CARGO_TARGET_DIR|$MTG_ENGINE_LOCK_FD|$*" >> {trace}
+case "$*" in
+  *'engine-cache.py lock') echo {self.dir}/locks/cargo.lock ;;
+  *'engine-cache.py check') echo '{{}}' ;;
+  *) exit 7 ;;
+esac
+""")
+        (stubs / 'git').chmod(0o755)
+        for name in ('archive.jsonl', 'deck.json'):
+            (self.dir / name).write_text('{}')
+        result = __import__('subprocess').run(
+            ['bash', str(root / 'scripts/play-deck.sh'), '--decklist', str(self.dir / 'deck.json'), '--archive', str(self.dir / 'archive.jsonl')],
+            cwd=root, capture_output=True, text=True,
+            env={**os.environ, 'PATH': f"{stubs}:{os.environ['PATH']}", 'CARGO_TARGET_DIR': str(self.dir / 'caller-target')})
+        self.assertNotEqual(0, result.returncode)
+        calls = [line.split('|', 2) for line in trace.read_text().splitlines()]
+        run = next((root / 'generated').glob('deck-play.*'))
+        self.assertEqual(['lock', 'check', 'build'], [c[2].split()[-1] if 'engine-cache' in c[2] else 'build' for c in calls])
+        self.assertTrue(all(c[0] == str(run / 'source/target/engine') for c in calls), calls)
+        self.assertEqual('9', calls[1][1])
+
+    def test_stage_and_play_forward_every_argument_verbatim(self):
+        from unittest.mock import patch
+        calls = []
+        fake = lambda command, **_: (calls.append(command), type('R', (), {'returncode': 0})())[1]
+        with patch.object(decks.subprocess, 'run', fake):
+            self.assertEqual(0, decks.main(['play', '--decklist', 'deck.json', '3', '--archive', 'r4.jsonl']))
+            self.assertEqual(0, decks.main(['stage', 'SIM', 'OUT', '--decklist', 'deck.json', '--decks', 'd.json']))
+        self.assertEqual(['--decklist', 'deck.json', '3', '--archive', 'r4.jsonl'], calls[0][2:])
+        self.assertTrue(calls[0][1].endswith('play-deck.sh'))
+        self.assertEqual(['SIM', 'OUT', '--decklist', 'deck.json', '--decks', 'd.json'], calls[1][3:])
+
+    def test_explicit_zero_threads_or_decision_limit_is_never_dropped(self):
+        self.write('a.json', pod('x', 'y', 'z', 'w'))
+        for flag in ('--threads', '--decision-limit'):
+            self.assertEqual(2, self.bench(f'zero{flag}', flag, '0'))
+            self.assertFalse((self.dir / f'zero{flag}').exists())
+        self.assertEqual(0, self.bench('explicit', '--threads', '2', '--decision-limit', '50'))
+        command = json.loads((self.dir / 'explicit/pair.json').read_text())['arms']['a']['command']
+        self.assertEqual(['2', '50'], [command[command.index('--threads') + 1], command[command.index('--decision-limit') + 1]])
+
     def test_stage_template_is_the_reviewed_current_profile(self):
         stage = importlib.util.spec_from_file_location('stage', Path(__file__).with_name('stage-deck.py'))
         module = importlib.util.module_from_spec(stage)

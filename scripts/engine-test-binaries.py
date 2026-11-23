@@ -13,9 +13,9 @@ lowers the binary cap instead. Arguments after `--` go to every binary
 (filters, --ignored). Output is buffered per binary: passing binaries print
 their summary line, failing ones print everything. The run reports wall time
 and the peak total resident memory of concurrently running binaries. Exits
-nonzero if the build or any binary fails, or if a binary runs zero tests and
-declares no ignored opt-in test (with a filter, if the whole selection runs
-zero tests). Run under the
+nonzero if the build or any binary fails, if the whole selection executes zero
+tests, or (without a filter) if a binary runs zero tests and declares no
+ignored opt-in test. Run under the
 target's native lock (check-engine owns it).
 """
 import json
@@ -91,10 +91,13 @@ def passed(output):
 def empty_selection(results, test_args):
     """Binaries that executed no test; any filter allows per-binary zeros."""
     found = {name: counts(output) or (0, 0) for name, (code, output, _) in results.items() if not code}
-    filtered = any(not arg.startswith('-') for arg in test_args)
-    if filtered:
-        return sorted(found) if found and sum(ran for ran, _ in found.values()) == 0 else []
-    # An all-ignored binary is an explicit opt-in witness, not an empty selection.
+    # A selection that executes nothing fails as a whole, even if every binary
+    # only declares ignored tests.
+    if found and sum(ran for ran, _ in found.values()) == 0:
+        return sorted(found)
+    if any(not arg.startswith('-') for arg in test_args):
+        return []
+    # An all-ignored binary is an explicit opt-in witness beside executing ones.
     return sorted(name for name, (ran, ignored) in found.items() if ran == 0 and ignored == 0)
 
 

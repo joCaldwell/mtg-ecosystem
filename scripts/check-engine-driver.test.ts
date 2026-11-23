@@ -54,7 +54,9 @@ test("native plans admit the cache under their lock; gate and tooling retain eve
     const selfTests = mode !== "check";
     assert.equal(plan.needsCargo, native);
     assert.equal(plan.phases.filter(phase => phase.label === "cache-preflight").length, native ? 1 : 0);
-    if (native) assert.deepEqual(plan.phases[0], { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check", "--locked"] });
+    if (native) assert.deepEqual(plan.phases[0], { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check"], lock: true });
+    // Only cache admission may receive the held lock descriptor.
+    assert.deepEqual(plan.phases.filter(phase => phase.lock).map(phase => phase.label), native ? ["cache-preflight"] : []);
     assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/engine-structure-check.py")).length, 1);
     assert.equal(plan.phases.filter(phase => phase.args.includes("scripts/check-docs.py")).length, 1);
     assert.deepEqual(plan.phases.filter(phase => suites.some(([label]) => label === phase.label)).map(phase => [phase.label, phase.command, phase.args]), selfTests ? suites : []);
@@ -212,6 +214,29 @@ test("phase failure stops subsequent work and the caller environment passes thro
   }
   const result = await runCheckPhases(engineCheckPlans.check.phases, { cwd: process.cwd(), record: () => {} }, async () => ({ code: 0, signal: null }));
   assert.deepEqual(result, { code: 0, completed: engineCheckPlans.check.phases.map(phase => phase.label), failed: null });
+});
+
+test("only lock phases inherit the held descriptor, as a verifiable fd 3", async () => {
+  const seen: any[] = [];
+  await runCheckPhases(engineCheckPlans.check.phases, { cwd: process.cwd(), record: () => {}, env: {}, lockFd: 99 }, async (label, command, args, options) => {
+    seen.push([label, options.lockFd, options.env?.MTG_ENGINE_LOCK_FD]);
+    return { code: 0, signal: null };
+  });
+  assert.deepEqual(seen.filter(([, fd]) => fd !== undefined), [["cache-preflight", 99, "3"]]);
+  assert.ok(seen.filter(([label]) => label !== "cache-preflight").every(([, fd, env]) => fd === undefined && env === undefined));
+  // End to end: the measured child (through the rusage wrapper) receives the
+  // exact held description and can re-flock it without blocking.
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mtg-engine-lockfd-test-"));
+  const filename = path.join(directory, "cargo.lock");
+  const probe = `import fcntl,os,sys\na,b=os.fstat(3),os.stat(sys.argv[1])\nassert (a.st_dev,a.st_ino)==(b.st_dev,b.st_ino)\nfcntl.flock(3,fcntl.LOCK_EX|fcntl.LOCK_NB)`;
+  try {
+    await withAdvisoryLock(filename, { cwd: directory, record: () => {} }, async descriptor => {
+      const held = await measuredCommand("held", "python3", ["-c", probe, filename], { cwd: directory, record: () => {}, lockFd: descriptor });
+      assert.equal(held.code, 0);
+      const missing = await measuredCommand("missing", "python3", ["-c", probe, filename], { cwd: directory, record: () => {} });
+      assert.notEqual(missing.code, 0);
+    });
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("command measurement retains nonzero exit, CPU, scoped RSS and exact identities", async () => {

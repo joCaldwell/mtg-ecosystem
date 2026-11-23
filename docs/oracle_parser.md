@@ -124,10 +124,11 @@ temporary outputs.
 
 Rust contracts own Card IR schema 1, evolved in place with strict capability
 and shape validation; archive schema 4 is independent. `mtg-sim schema` and
-`catalog build MANIFEST [--write]` are the implemented schema/catalog path.
-Bulk/per-set `build-ir` is unimplemented and fails explicitly; future bulk output
-needs complete set membership, reproducible source/rules/corpus identity,
-lossless faces, strict binding and stable encoding, and is not append-only.
+`catalog build MANIFEST [--write]` are the reviewed schema/catalog path;
+`mtg-sim catalog build-ir ARCHIVE --out DIR` publishes the whole-archive bulk
+IR, index and pinned manifest ([bulk admission](game-engine-catalogs.md#bulk-headless-admission)).
+Per-set output would additionally need complete set membership and is not
+append-only.
 Generated `packages/card-data/sets/` is never hand-edited or committed; engine
 catalogs remain small reviewed source fixtures.
 

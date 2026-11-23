@@ -625,6 +625,18 @@ mod tests {
             64
         );
         let offensive_names = policy["offensive_policy"]["names"].as_array().unwrap();
+        // Every named ban and offensive-policy record binds its archive row index.
+        let items = policy["named_bans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(policy["offensive_policy"]["records"].as_array().unwrap());
+        for item in items {
+            let record: serde_json::Value =
+                serde_json::from_str(item["record_json"].as_str().unwrap()).unwrap();
+            assert_eq!(record["sourceIndex"], item["source_index"]);
+            assert!(item["source_index"].is_u64());
+        }
         assert!(!profile.bans.is_empty());
         for ban in &profile.bans {
             let record: serde_json::Value = serde_json::from_str(&ban.record_json).unwrap();

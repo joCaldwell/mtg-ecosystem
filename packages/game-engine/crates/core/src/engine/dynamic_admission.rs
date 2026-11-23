@@ -571,6 +571,17 @@ impl DynamicPodTemplate {
                 decks: Vec::from(inspections),
             });
         }
+        Self::project(catalog, decks, artifact.manifest_sha256(), policy)
+    }
+
+    /// Normalize inspected decks and build their shared projection and
+    /// capacity proof. Row order never reaches the template.
+    fn project(
+        catalog: &Catalog,
+        decks: &[Vec<DynamicDeckEntry>; 4],
+        bulk_manifest_sha256: &str,
+        policy: &DynamicPolicy,
+    ) -> Result<Self, DynamicAdmissionError> {
         let decks = decks.each_ref().map(|rows| NormalizedDeck::new(rows));
         let mut selected = BTreeMap::<&str, &Definition>::new();
         let mut native_triggers = 0usize;
@@ -596,7 +607,7 @@ impl DynamicPodTemplate {
         Ok(Self {
             decks,
             projection: ValidatedCatalog::new(projection).map_err(unavailable)?,
-            bulk_manifest_sha256: artifact.manifest_sha256().into(),
+            bulk_manifest_sha256: bulk_manifest_sha256.into(),
             policy_digest: policy.digest.clone(),
         })
     }
@@ -946,7 +957,7 @@ mod tests {
             if unreviewed.is_empty() {
                 continue;
             }
-            for role in [DeckRole::Main, DeckRole::Commander] {
+            for role in [DeckRole::Main, DeckRole::Commander, DeckRole::Companion] {
                 let mut issues = Vec::new();
                 inspect_definition(definition, None, role, 1, &names, &mut issues);
                 let reported = issues
@@ -960,37 +971,96 @@ mod tests {
         assert!(checked > 0, "fixture must include unreviewed capabilities");
     }
 
+    fn foundations_rows() -> [Vec<DynamicDeckEntry>; 4] {
+        let config =
+            MatchConfig::for_profile("commander-foundations-v1", [0; 32], PlayerId(0)).unwrap();
+        DynamicMatchConfig::from_match_config(&config).decks
+    }
+
     #[test]
     fn foundations_decks_still_pass_definition_and_capacity_admission() {
         let profile = match_profile("commander-foundations-v1").unwrap();
         let catalog = profile.catalog();
-        for deck in &profile.decks {
+        let rows = foundations_rows();
+        for deck in &rows {
             let names = BTreeMap::new();
-            let mut colors = Vec::new();
-            let commander = catalog.definition_by_oracle_id(&deck.commander).unwrap();
-            colors.extend(commander.characteristics.color_identity.iter().copied());
-            let mut native_triggers = 0;
-            for row in &deck.cards {
+            let commander = deck.iter().find(|r| r.role == DeckRole::Commander).unwrap();
+            let colors = catalog
+                .definition_by_oracle_id(&commander.oracle_id)
+                .unwrap()
+                .characteristics
+                .color_identity
+                .clone();
+            for row in deck {
                 let definition = catalog.definition_by_oracle_id(&row.oracle_id).unwrap();
-                let role = if row.oracle_id == deck.commander {
-                    DeckRole::Commander
-                } else {
-                    DeckRole::Main
-                };
                 let mut issues = Vec::new();
                 inspect_definition(
                     definition,
                     Some(&colors),
-                    role,
-                    u64::from(row.count),
+                    row.role,
+                    u64::from(row.quantity),
                     &names,
                     &mut issues,
                 );
                 assert!(issues.is_empty(), "{}: {issues:?}", definition.name);
-                native_triggers += row.count as usize * definition.triggered.len();
             }
-            assert!(capacity_supported(catalog, native_triggers));
         }
+        // The production projection accumulates trigger slots over all four
+        // seats and proves the pod's capacity bound.
+        let template =
+            DynamicPodTemplate::project(catalog, &rows, "test-bulk", policy().unwrap()).unwrap();
+        let distinct: BTreeSet<_> = rows.iter().flatten().map(|row| &row.oracle_id).collect();
+        assert_eq!(
+            template.catalog().catalog().definitions.len(),
+            distinct.len()
+        );
+    }
+
+    /// Ported from the retired `dynamic-witness`: deck row order changes
+    /// neither the admission identity nor the opening journal and state.
+    #[test]
+    fn deck_row_order_never_changes_admission_or_the_opening() {
+        let catalog = match_profile("commander-foundations-v1").unwrap().catalog();
+        let policy = policy().unwrap();
+        let rows = foundations_rows();
+        let mut reversed = rows.clone();
+        for deck in &mut reversed {
+            deck.reverse();
+        }
+        assert_ne!(rows, reversed);
+        let opening = |rows: &[Vec<DynamicDeckEntry>; 4]| {
+            let template = DynamicPodTemplate::project(catalog, rows, "test-bulk", policy).unwrap();
+            let pod = template.prepare(PlayerId(0), [0; 32], 0).unwrap();
+            let identity = pod.identity.clone();
+            let normalized = pod.normalized_config().clone();
+            let mut game = Game::with_trace(pod.prepared, TraceMode::Off);
+            for _ in 0..100 {
+                let Advance::AwaitingDecision(request) = game.advance(Budget::new(100_000)) else {
+                    panic!("opening must reach an ordinary decision");
+                };
+                if matches!(request, Request::Priority { player, .. } if player == PlayerId(0))
+                    && game.turn().step == TurnStep::PrecombatMain
+                {
+                    return (
+                        identity,
+                        normalized,
+                        game.replay_journal(),
+                        game.state_digest().unwrap(),
+                    );
+                }
+                let response = match &request {
+                    Request::Mulligan { .. } => Response::Mulligan { take: false },
+                    Request::Priority { .. } => Response::Pass,
+                    other => panic!("unexpected opening decision {other:?}"),
+                };
+                game.respond(request.player(), request.decision_id(), response)
+                    .unwrap();
+            }
+            panic!("opening exceeded its decision bound")
+        };
+        let (first, second) = (opening(&rows), opening(&reversed));
+        assert!(!first.2.decisions.is_empty());
+        assert_eq!(first, second);
     }
 
     #[test]

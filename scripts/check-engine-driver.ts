@@ -82,12 +82,16 @@ export interface MeasurementOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   record: (value: any) => void;
+  /** The held target-lock descriptor; passed as fd 3 only to `lock` phases. */
+  lockFd?: number;
 }
 
 export interface CheckPhase {
   label: string;
   command: string;
   args: string[];
+  /** Receives the held lock as fd 3 (MTG_ENGINE_LOCK_FD=3), so it may mutate the target. */
+  lock?: boolean;
 }
 
 // These verify the verifier against tiny fixtures/fake workers. Routine engine
@@ -110,7 +114,7 @@ const liveGuards: CheckPhase[] = [
   { label: "generated-ast-guard", command: "node", args: ["scripts/generate-rust-ast.ts", "--check"] },
 ];
 // Runs under the target lock this driver holds, so it may evict an over-budget target.
-export const cachePreflight: CheckPhase = { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check", "--locked"] };
+export const cachePreflight: CheckPhase = { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check"], lock: true };
 
 // Each worktree selects its own target (explicit CARGO_TARGET_DIR wins). Cargo
 // profiles own incrementality: dev/test/quick are incremental and release is
@@ -198,9 +202,13 @@ export function parseCheckArguments(args: string[]) {
 export async function runCheckPhases(phases: readonly CheckPhase[], options: MeasurementOptions, execute = measuredCommand) {
   const completed: string[] = [];
   for (const phase of phases) {
+    // Only a lock phase inherits the held descriptor; engine-cache.py verifies it.
+    const held = phase.lock && options.lockFd !== undefined;
+    const env = options.env ?? process.env;
     const result = await execute(phase.label, phase.command, [...phase.args], {
       ...options,
-      env: options.env ?? process.env,
+      lockFd: held ? options.lockFd : undefined,
+      env: held ? { ...env, MTG_ENGINE_LOCK_FD: "3" } : env,
     });
     if (result.code !== 0) return { code: result.code ?? 1, completed, failed: phase.label };
     completed.push(phase.label);
@@ -229,7 +237,7 @@ export async function measuredCommand(label: string, command: string, args: stri
   }
 }
 
-export async function withAdvisoryLock<T>(filename: string, options: MeasurementOptions, work: () => Promise<T>): Promise<T> {
+export async function withAdvisoryLock<T>(filename: string, options: MeasurementOptions, work: (descriptor: number) => Promise<T>): Promise<T> {
   fs.mkdirSync(path.dirname(filename), { recursive: true });
   const descriptor = fs.openSync(filename, "a");
   const started = performance.now();
@@ -239,6 +247,6 @@ export async function withAdvisoryLock<T>(filename: string, options: Measurement
     const result = await child("flock", ["--exclusive", "3"], { cwd: options.cwd, lockFd: descriptor });
     options.record({ kind: "lock", path: filename, wait_wall_seconds: (performance.now() - started) / 1000, ...result });
     if (result.code !== 0) throw new Error(`Lock acquisition interrupted: ${result.signal ?? result.code}`);
-    return await work();
+    return await work(descriptor);
   } finally { fs.closeSync(descriptor); }
 }
