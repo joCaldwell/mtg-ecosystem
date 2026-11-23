@@ -1,0 +1,259 @@
+{
+  "format_version": 1,
+  "schema_sha256": "b191d97401a2ff548ff8acfc4ff9c588e3fcf6bde2f2cec42238f47e42af0dfd",
+  "generation_sha256": "0051592eaabcdbfe1e74b2cf33aaeb37e16cb4b4086d2631f54bbfdc78c46eab",
+  "node": "v26.11.1",
+  "esbuild": "0.28.2",
+  "typescript": "5.9.3",
+  "sources": [
+    {
+      "path": "../tools/client-artifacts.ts",
+      "sha256": "9a1304423d9d6133d7ba4fab51fc86d1c81bb9c877d4c57745908ef617675b35"
+    },
+    {
+      "path": "../tools/presentation.schema.json",
+      "sha256": "a7045da3459cd5b6a126ca804ea22716062c63ce3127017bb5f3637c840231a6"
+    },
+    {
+      "path": "generated/presentation-identity.ts",
+      "sha256": "7d3d7dea1de0d21929ad122065a548175d478afe6d92c00d33386109eb7c324b"
+    },
+    {
+      "path": "generated/protocol.ts",
+      "sha256": "45ddf2795d5d87405f6c170338b38e1d5a4cf291dfe911622a22f7796b6e7b74"
+    },
+    {
+      "path": "generated/routes.ts",
+      "sha256": "d871ee1ba4d8a29a6f4bece4f35ba463ffba1797fcb405f61086b02752d4e56c"
+    },
+    {
+      "path": "generated/validators.js",
+      "sha256": "0c22814613b0a8f8ea9bf14c74279469f33b648bfc3c9eb64b5d0fba83b69a47"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "e5034526be40dc01509df43489d7a4e7dd6bf259e7258a1ad76868cd925480d9"
+    },
+    {
+      "path": "package.json",
+      "sha256": "fee56f8287661cf8e3c144aed84238eef8a867b4b69580b02d9b2869db61ec48"
+    },
+    {
+      "path": "scripts/build-browser.mjs",
+      "sha256": "e36fbd8bb8cdde0a92b1f6e4c4f9d6d9ab6cbc2ea75b447c1f7afb5bbc31e600"
+    },
+    {
+      "path": "src/browser.ts",
+      "sha256": "503497173a7751bec1397addd677b692e25ca07b550f684a379335298f328c0d"
+    },
+    {
+      "path": "src/client.ts",
+      "sha256": "e331549d6767ef8c66a81312deb8e5eda5284c1d8bd3b0d7a60c412d5b4cf298"
+    },
+    {
+      "path": "src/presentation-producer.d.ts",
+      "sha256": "ed076e66f724ca0fc85599489e6a89149cb3f7d37f9b424c50b4688d96700685"
+    },
+    {
+      "path": "src/presentation-producer.mjs",
+      "sha256": "af7b055d6b88c1e29c7554dc32f657fa56f08687981c64f656aa7a8a602cdc80"
+    },
+    {
+      "path": "src/public.ts",
+      "sha256": "ee67602814399fddada4bb7c70fa3c7fb2657541d8a081975d49e926dfcf4cdb"
+    },
+    {
+      "path": "src/strict-json.ts",
+      "sha256": "02cecb71b8dbd24c7fd2d24f90c2a671ea903b098f457d6686eafee8c5966c3b"
+    },
+    {
+      "path": "src/transport.ts",
+      "sha256": "9a28db76868c022ebde28bb5f2b09cfb614076580023b2e20fb7ebe9f38b0cad"
+    },
+    {
+      "path": "src/validation.ts",
+      "sha256": "e334cc80c042a14d70b9c411b3be69f41eba86f8b3c9e7e6298426fe6ba5494b"
+    },
+    {
+      "path": "tsconfig.json",
+      "sha256": "c0bb900dd9b655626c3e84de941170e47d791e38601d3a81a4f84b7c01b8d4b4"
+    }
+  ],
+  "node_runtime_inputs": [
+    "../tools/client-artifacts.ts",
+    "generated/presentation-identity.ts",
+    "generated/protocol.ts",
+    "generated/routes.ts",
+    "generated/validators.js",
+    "src/presentation-producer.mjs",
+    "src/public.ts",
+    "src/strict-json.ts",
+    "src/transport.ts",
+    "src/validation.ts"
+  ],
+  "node_runtime_exports": [
+    "producePresentation"
+  ],
+  "runtime_inputs": [
+    "generated/presentation-identity.ts",
+    "generated/protocol.ts",
+    "generated/routes.ts",
+    "generated/validators.js",
+    "src/browser.ts",
+    "src/client.ts",
+    "src/public.ts",
+    "src/strict-json.ts",
+    "src/transport.ts",
+    "src/validation.ts"
+  ],
+  "runtime_exports": [
+    "GameClient",
+    "HttpError",
+    "PROTOCOL_VERSION",
+    "ProtocolError",
+    "TransportError",
+    "counter",
+    "parseClientConfig",
+    "parsePreparedCommand",
+    "parseSeatBootstrap",
+    "prepareCommand",
+    "readClientConfig"
+  ],
+  "files": [
+    {
+      "path": "browser.d.ts",
+      "sha256": "820a2edc57572e0a32a72505a22a4e921163c25ae570f9e6692e499105d613bf",
+      "bytes": 40
+    },
+    {
+      "path": "browser.js",
+      "sha256": "828654010b801bfa6187bcd825d2effd7aa3030302540b1dd04600000dd0205a",
+      "bytes": 1404697
+    },
+    {
+      "path": "presentation-producer.d.ts",
+      "sha256": "8a35009c07e8350465685faafad7ee9092151df3943539f2c787664ca8f4ba58",
+      "bytes": 437
+    },
+    {
+      "path": "presentation-producer.js",
+      "sha256": "10ffaf27de8ffff642dc22c29e65641ddc166f9faa9ac2d817a6b0ecffc7c812",
+      "bytes": 1263471
+    },
+    {
+      "path": "presentation.schema.json",
+      "sha256": "a7045da3459cd5b6a126ca804ea22716062c63ce3127017bb5f3637c840231a6",
+      "bytes": 1174
+    },
+    {
+      "path": "types/generated/action_query.d.ts",
+      "sha256": "d3b459d2dde41b552e258551ac395d719d1881d6cd39dc42ff18533def4c1aa3",
+      "bytes": 4876
+    },
+    {
+      "path": "types/generated/action_request.d.ts",
+      "sha256": "bd36b99092723412f0672ff8a90a038f933e6ba64c6478d8a71e270c7c7bd3f6",
+      "bytes": 486
+    },
+    {
+      "path": "types/generated/bootstrap.d.ts",
+      "sha256": "07dd4d7155f41af830c88083f44e0961b003aaf21c7cb08055b7584d5fc4263e",
+      "bytes": 397
+    },
+    {
+      "path": "types/generated/client_config.d.ts",
+      "sha256": "57bfbb9d3d11c690e116bd0a199a73b65775c83734d7b0684f1b06ee91661167",
+      "bytes": 151
+    },
+    {
+      "path": "types/generated/command.d.ts",
+      "sha256": "3d0a810b12fefb637d9da9031984a3d13f966665b81d8ef06812a9205c14e61a",
+      "bytes": 3919
+    },
+    {
+      "path": "types/generated/execution.d.ts",
+      "sha256": "c6ab41cdb6ce561c5d0cfce8f6b7439acb974c28469bfa6f4b60d1592c11cab3",
+      "bytes": 809
+    },
+    {
+      "path": "types/generated/manifest.d.ts",
+      "sha256": "a91d256237913d168d3db46bb15e6f82e245b433c550e4e37982c6ef9c99cee0",
+      "bytes": 28769
+    },
+    {
+      "path": "types/generated/presentation_descriptor.d.ts",
+      "sha256": "0558f4ee01d6634f7fbb6fef2b5061404f9381d949778dbe11583a589b223b52",
+      "bytes": 360
+    },
+    {
+      "path": "types/generated/presentation-identity.d.ts",
+      "sha256": "3658c26f171a02041c9364fb0f85730d35c2d2148bdf41643cf8258ba5624f73",
+      "bytes": 238
+    },
+    {
+      "path": "types/generated/presentation.d.ts",
+      "sha256": "898e42a45f0cf945e7469371f9135f3a394cb437c5cf20237e3f06c5b48e5497",
+      "bytes": 9084
+    },
+    {
+      "path": "types/generated/protocol.d.ts",
+      "sha256": "d85ed1a160501079c4a0ea72961cd48e33968beae1327c420b694d62210a72d8",
+      "bytes": 42
+    },
+    {
+      "path": "types/generated/resume.d.ts",
+      "sha256": "12fc933dcede72144e18d455ca9da092b4d26d1585ad725eaa124284434213a6",
+      "bytes": 22660
+    },
+    {
+      "path": "types/generated/routes.d.ts",
+      "sha256": "5a655bd6c5e85af3031372da4adb83fd52092af0232dd16689254ff277973f70",
+      "bytes": 1652
+    },
+    {
+      "path": "types/generated/stream.d.ts",
+      "sha256": "1eb88f284b0b5533833d950a1fe6aedd597611ad7d08cadbd69a3b713abb0193",
+      "bytes": 22535
+    },
+    {
+      "path": "types/generated/submission.d.ts",
+      "sha256": "e99aec6459f17dd3f4f0abc3019e8a172565832e03f8da984dc82a5c5bb4bb71",
+      "bytes": 376
+    },
+    {
+      "path": "types/generated/validators.d.ts",
+      "sha256": "a6f4f9492d089befe7214b0a69dbf93f3d66953ddabe13b7a4916d6609a52f74",
+      "bytes": 1896
+    },
+    {
+      "path": "types/src/browser.d.ts",
+      "sha256": "e8f76c98d4ad1e080155c93ff29eb75d80515bcf991a27153f283ddd4c288476",
+      "bytes": 29
+    },
+    {
+      "path": "types/src/client.d.ts",
+      "sha256": "78f32f47233c8225bb19453b342481aa8cc53934ca1c91a03ff7ceff82b27c4e",
+      "bytes": 4976
+    },
+    {
+      "path": "types/src/public.d.ts",
+      "sha256": "8673e6ac03653fee587ba2d8c03ede2e7e443aa7e338211e69f18b3a5f1624e9",
+      "bytes": 760
+    },
+    {
+      "path": "types/src/strict-json.d.ts",
+      "sha256": "b99dd1194b2ec6bea147217643e7918e4e3ece1f9797d29046f1128b2d41a809",
+      "bytes": 137
+    },
+    {
+      "path": "types/src/transport.d.ts",
+      "sha256": "e5414979784cabd11067bc213178bf238804d69826916192167c7d77ad0cf789",
+      "bytes": 492
+    },
+    {
+      "path": "types/src/validation.d.ts",
+      "sha256": "493a9f0cf51913b0eeb72966b172a1f360396e685e4b0f98cc28d4d67a1ae457",
+      "bytes": 1482
+    }
+  ]
+}
