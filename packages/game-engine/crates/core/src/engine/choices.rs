@@ -2,6 +2,7 @@
 //! CR 601.2b-c, 603.3d/603.4/603.10a and 608.2a-b, pinned official rules:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+#[cfg(feature = "testkit")]
 pub const SEEDS: &str = "dd3d4d96-1e88-49e1-8276-7f62c22ad91a";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -1274,7 +1274,7 @@ impl RulesTxn {
             self.reverse_mana_life(r.player, life)?;
         }
         if let Some(damage) = &r.damage {
-            self.reverse_mana_damage(r.player, damage)?;
+            self.reverse_mana_damage(damage)?;
         }
         let p = &mut self.rules_mut().players[r.player.0 as usize];
         for unit in &r.produced_restricted {

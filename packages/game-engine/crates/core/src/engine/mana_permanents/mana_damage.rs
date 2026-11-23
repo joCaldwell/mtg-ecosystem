@@ -108,7 +108,6 @@ impl RulesTxn {
     pub(in crate::engine) fn finish_mana_damage(
         &mut self,
         mut a: ManaActivation,
-        applications: Vec<DamageApplication>,
         actual: EventOutcome,
         first_trigger: u64,
         departed: bool,
@@ -171,11 +170,7 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn reverse_mana_damage(
-        &mut self,
-        payer: PlayerId,
-        damage: &ManaDamageUndo,
-    ) -> Result<(), String> {
+    pub(super) fn reverse_mana_damage(&mut self, damage: &ManaDamageUndo) -> Result<(), String> {
         for &(id, controller) in &damage.triggers {
             if let Some(index) = self
                 .state

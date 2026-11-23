@@ -156,19 +156,6 @@ impl RulesTxn {
         }
     }
 
-    pub(super) fn validate_staples_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Option<Result<(), String>> {
-        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
-            return None;
-        };
-        match (choice, response) {
-            _ => None,
-        }
-    }
-
     pub(super) fn apply_search_shuffle_word(
         &mut self,
         player: PlayerId,

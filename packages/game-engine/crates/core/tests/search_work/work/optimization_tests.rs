@@ -770,19 +770,6 @@ fn match_root() -> Game {
     }
     panic!("opening did not finish")
 }
-fn fixture(catalog: &str, config: ScenarioConfig) -> Game {
-    Game::with_trace(
-        Prepared::admit(Catalog::read(catalog).unwrap(), config).unwrap(),
-        TraceMode::Off,
-    )
-}
-fn answer(game: &mut Game, response: Response) {
-    let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
-        panic!("fixture decision")
-    };
-    game.respond(request.player(), request.decision_id(), response)
-        .unwrap();
-}
 #[test]
 fn optimized_work_matches_original_every_unit_for_four_three_two_seat_roots() {
     let mut game = match_root();

@@ -179,7 +179,7 @@ impl RulesTxn {
     // payer or counter target leaves. Keep completed activations and abandon
     // unpaid windows. Losing the resolving source alone leaves the offer intact.
     pub(super) fn revalidate_resolution_payment_departure(&mut self) -> Result<(), String> {
-        let Frame::ResolutionPayment { frame, payment } =
+        let Frame::ResolutionPayment { payment, .. } =
             frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame)
         else {
             return Ok(());

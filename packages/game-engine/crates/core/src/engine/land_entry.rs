@@ -490,7 +490,7 @@ impl RulesTxn {
             };
             return self.finish_copy_entry(frame.clone(), &batch);
         }
-        let batch = self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
+        self.commit_batch(self.entry_cause()?, self.entry_group()?)?;
         match origin {
             EntryOrigin::LandPlay { .. } => {
                 self.rules_mut().frame = Frame::Priority;

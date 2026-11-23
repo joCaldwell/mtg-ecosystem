@@ -17,18 +17,6 @@ pub(crate) enum SetMove {
 // Shared resource bounds: docs/game-engine-capacity-policy.md.
 
 impl RulesTxn {
-    // CR 109.5, 205.2b, 608.2h, 806.1: current control, and every card type.
-    pub(crate) fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
-        self.state
-            .rules
-            .objects
-            .values()
-            .filter(|o| {
-                crate::query::matches_object_set(&self.object_facts(o), controller, set).is_yes()
-            })
-            .map(|o| o.id)
-            .collect()
-    }
     pub(crate) fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String> {
         let mut q = self
             .copiable_definition(entry.source)?

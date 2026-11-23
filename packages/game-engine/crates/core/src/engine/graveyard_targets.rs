@@ -13,19 +13,4 @@ impl RulesTxn {
                 .get(&object.id.card)
                 .is_some_and(|c| c.owner == player)
     }
-
-    pub(crate) fn remaining_graveyard_targets(
-        &self,
-        owner: PlayerId,
-        cards: &[ObjectId],
-    ) -> Vec<ObjectId> {
-        cards
-            .iter()
-            .copied()
-            .filter(|id| {
-                self.current(*id)
-                    .is_ok_and(|o| self.player_graveyard_card(o, owner))
-            })
-            .collect()
-    }
 }

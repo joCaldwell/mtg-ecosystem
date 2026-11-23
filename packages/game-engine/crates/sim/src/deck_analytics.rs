@@ -1,7 +1,7 @@
 //! Trusted post-game analysis of verified, terminal bench journals. This module
 //! does not provide any inputs to live play or persist private replay material.
 use crate::match_games::can_fund;
-use mtg_contracts::{CardKind, Catalog, Definition, Quantity, StaticEffect, digest};
+use mtg_contracts::{CardKind, Catalog, Quantity, StaticEffect, digest};
 use mtg_core::{
     Advance, BatchCause, Budget, CardId, DeckRole, Decklist, DynamicDeckEntry, Event, EventGroup,
     EventOutcome, EvidenceRecord, Game, MoveOutcome, PlayerId, Prepared, QueryResult, QueryValue,

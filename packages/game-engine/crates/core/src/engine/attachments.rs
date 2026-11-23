@@ -379,21 +379,6 @@ impl RulesTxn {
             })
             .flatten()
             .copied()
-            .chain(
-                self.state
-                    .rules
-                    .effects
-                    .iter()
-                    .filter_map(move |effect| match effect.kind {
-                        ResolvedEffectKind::CombatRestriction {
-                            target,
-                            restriction,
-                        } if target == object && self.target_is_creature(object) => {
-                            Some(restriction)
-                        }
-                        _ => None,
-                    }),
-            )
     }
 
     pub(crate) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {

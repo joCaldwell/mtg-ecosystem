@@ -114,10 +114,6 @@ pub enum ResolvedEffectKind {
         keywords: Vec<KeywordAbility>,
     },
 
-    CombatRestriction {
-        target: ObjectId,
-        restriction: CreatureRestriction,
-    },
     ModifyPowerToughness {
         target: ObjectId,
         power: Quantity,
@@ -153,8 +149,6 @@ pub struct DamageApplication {
     pub before: Quantity,
     pub after: Quantity,
     pub prevented: Quantity,
-    pub budget_before: Option<Quantity>,
-    pub budget_after: Option<Quantity>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -641,7 +635,6 @@ impl RulesTxn {
         };
         let target_handles = match &kind {
             ResolvedEffectKind::GrantKeywords { target, .. }
-            | ResolvedEffectKind::CombatRestriction { target, .. }
             | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                 self.capture_trigger_source_handles(*target)?
             }
@@ -995,7 +988,7 @@ impl RulesTxn {
             return Err("damage effect no longer applicable".into());
         }
         let mut qualification = None;
-        let (after, prevented, budget_before, budget_after) = match &pair.effect {
+        let (after, prevented) = match &pair.effect {
             EffectKey::IntrinsicProtectionFromEverything { source } => {
                 if d.recipient != (DamageRecipient::Creature { object: *source })
                     || !self
@@ -1005,7 +998,7 @@ impl RulesTxn {
                 {
                     return Err("wrong intrinsic protection source".into());
                 }
-                (Quantity::zero(), d.amount.clone(), None, None)
+                (Quantity::zero(), d.amount.clone())
             }
             EffectKey::IntrinsicProtectionFromColor { source, color } => {
                 if d.recipient != (DamageRecipient::Creature { object: *source })
@@ -1026,7 +1019,7 @@ impl RulesTxn {
                     effect_source: self.object_before(*source)?,
                     damage_source,
                 }));
-                (Quantity::zero(), d.amount.clone(), None, None)
+                (Quantity::zero(), d.amount.clone())
             }
             EffectKey::Static { source, ability } => {
                 let o = self.current(*source)?;
@@ -1059,7 +1052,7 @@ impl RulesTxn {
                 }
                 let mut after = d.amount.clone();
                 after.add(&d.amount);
-                (after, Quantity::zero(), None, None)
+                (after, Quantity::zero())
             }
             EffectKey::Resolved { id } => {
                 let effect = self
@@ -1076,15 +1069,15 @@ impl RulesTxn {
                                 player: effect.origin.controller,
                             }) =>
                     {
-                        (Quantity::zero(), d.amount.clone(), None, None)
+                        (Quantity::zero(), d.amount.clone())
                     }
                     ResolvedEffectKind::GrantKeywordsSet {
                         targets, keywords, ..
                     } if Self::grant_prevents_damage(targets, keywords, d) => {
-                        (Quantity::zero(), d.amount.clone(), None, None)
+                        (Quantity::zero(), d.amount.clone())
                     }
                     ResolvedEffectKind::PreventCombatDamage if tx.kind == DamageKind::Combat => {
-                        (Quantity::zero(), d.amount.clone(), None, None)
+                        (Quantity::zero(), d.amount.clone())
                     }
 
                     _ => return Err("resolved effect not applicable".into()),
@@ -1098,8 +1091,6 @@ impl RulesTxn {
             before: d.amount.clone(),
             after,
             prevented,
-            budget_before,
-            budget_after,
         })
     }
     pub(crate) fn damage_effect_group(
@@ -1235,13 +1226,7 @@ impl RulesTxn {
                 DamageContinuation::Mana {
                     activation,
                     departed,
-                } => self.finish_mana_damage(
-                    *activation,
-                    tx.applications,
-                    actual,
-                    first_trigger,
-                    departed,
-                )?,
+                } => self.finish_mana_damage(*activation, actual, first_trigger, departed)?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
                     *frame,
                     InstructionOutcome::Damage {
@@ -1400,7 +1385,6 @@ impl RulesTxn {
                             })
                     }
                     ResolvedEffectKind::GrantKeywords { target, .. }
-                    | ResolvedEffectKind::CombatRestriction { target, .. }
                     | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
@@ -1636,17 +1620,12 @@ impl RulesTxn {
                 return Err("effect origin stack identity invariant".into());
             }
 
-            if matches!(e.kind, ResolvedEffectKind::CombatRestriction { .. }) {
-                return Err("unsupported historical combat restriction".into());
-            }
             let programs = self.origin_programs(&e.origin)?;
-            let instructions = programs.iter().filter_map(|p| {
-                p.instructions
-                    .get(e.origin.cursor as usize)
-                    .map(|i| (*p, i))
-            });
+            let instructions = programs
+                .iter()
+                .filter_map(|p| p.instructions.get(e.origin.cursor as usize));
             let mut bound = false;
-            for (program, instruction) in instructions {
+            for instruction in instructions {
                 bound |= match (instruction, &e.kind) {
                     (
                         kernel!(ModifyUntil { what: mtg_contracts::kir::SetExpr::Matching { .. }, change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
@@ -1773,7 +1752,6 @@ pub struct DamageHandle(pub String);
 pub enum DamageEffectKind {
     DoubleDamage,
     PreventCombatDamage,
-    PreventNextDamage,
     ProtectionFromEachColor,
     ProtectionFromEverything,
     ProtectionFromColor,
@@ -1783,8 +1761,6 @@ pub enum DamageEffectKind {
 pub struct VisibleDamageEffectCandidate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub allocation_required: bool,
     pub effect: EffectHandle,
     pub damage: DamageHandle,
     pub kind: DamageEffectKind,
@@ -1795,7 +1771,6 @@ pub struct VisibleDamageEffectCandidate {
     pub damage_oracle_id: String,
     pub amount_before: Quantity,
     pub amount_after: Quantity,
-    pub budget_remaining: Option<Quantity>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1898,18 +1873,6 @@ visible_effects! {
         keywords: Vec<KeywordAbility>,
         expires_in_cleanup_of_turn: u64,
     },
-    SetColor(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        target: VisibleTarget<O> => nested,
-        color: Color,
-        expires_in_cleanup_of_turn: u64,
-    },
-    CombatRestriction(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        target: VisibleTarget<O> => nested,
-        restriction: CreatureRestriction,
-        expires_in_cleanup_of_turn: u64,
-    },
     ModifyPowerToughness(handle) {
         origin: VisibleEffectSource<O> => nested,
         target: VisibleTarget<O> => nested,
@@ -1924,21 +1887,6 @@ visible_effects! {
     AdditionalLandPlays(handle) {
         origin: VisibleEffectSource<O> => nested,
         count: Quantity,
-        expires_in_cleanup_of_turn: u64,
-    },
-    PlayExiled(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        cards: Vec<O> => handles,
-        window: mtg_contracts::PlayWindow,
-    },
-    GrantHandCastCascade(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        expires_in_cleanup_of_turn: u64,
-    },
-    PreventNextDamage(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        target: VisibleEntityTarget<O> => nested,
-        remaining: Quantity,
         expires_in_cleanup_of_turn: u64,
     },
     DoubleDamageToPermanentOrPlayer(handle) {
@@ -2222,16 +2170,6 @@ impl RulesTxn {
                 keywords: keywords.clone(),
                 expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
             },
-            ResolvedEffectKind::CombatRestriction {
-                target,
-                restriction,
-            } => VisibleEffect::CombatRestriction {
-                handle,
-                origin,
-                target: target_view(*target)?,
-                restriction: *restriction,
-                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
-            },
             ResolvedEffectKind::ModifyPowerToughness {
                 target,
                 power,
@@ -2376,7 +2314,6 @@ impl RulesTxn {
         };
         Ok(VisibleDamageEffectCandidate {
             label,
-            allocation_required: false,
             effect: self.effect_handle(viewer, &pair.effect)?,
             damage: self
                 .state
@@ -2412,7 +2349,6 @@ impl RulesTxn {
                 .clone(),
             amount_before: a.before.clone(),
             amount_after: a.after,
-            budget_remaining: a.budget_before,
         })
     }
     pub(crate) fn resolve_damage_effect_pair(
@@ -2804,8 +2740,6 @@ impl RulesTxn {
                     if d.recipient != (DamageRecipient::Creature { object: *source })
                         || !self.printed_protection_from_everything(*source)
                         || a.qualification.is_some()
-                        || a.budget_before.is_some()
-                        || a.budget_after.is_some()
                     {
                         return Err("invalid intrinsic prevention prefix".into());
                     }
@@ -2847,8 +2781,6 @@ impl RulesTxn {
                             .characteristics
                             .colors
                             .contains(color)
-                        || a.budget_before.is_some()
-                        || a.budget_after.is_some()
                     {
                         return Err("invalid fixed-color prevention prefix".into());
                     }
@@ -2860,9 +2792,6 @@ impl RulesTxn {
                         .static_abilities
                         .get(*ability as usize)
                         .ok_or("unknown applied static effect")?;
-                    if a.budget_before.is_some() || a.budget_after.is_some() {
-                        return Err("invalid doubling prefix facts".into());
-                    }
                     match (&effect.effect, &a.qualification) {
                         (StaticEffect::DoubleDamageToPermanentOrPlayer, None) => {}
                         (
@@ -2919,26 +2848,19 @@ impl RulesTxn {
                     match &e.kind {
                         ResolvedEffectKind::GrantKeywordsSet {
                             targets, keywords, ..
-                        } if a.budget_before.is_none()
-                            && a.budget_after.is_none()
-                            && Self::grant_prevents_damage(targets, keywords, d) =>
-                        {
+                        } if Self::grant_prevents_damage(targets, keywords, d) => {
                             (Quantity::zero(), a.before.clone())
                         }
                         ResolvedEffectKind::ProtectControllerUntilNextTurn
                             if d.recipient
                                 == (DamageRecipient::Player {
                                     player: e.origin.controller,
-                                })
-                                && a.budget_before.is_none()
-                                && a.budget_after.is_none() =>
+                                }) =>
                         {
                             (Quantity::zero(), a.before.clone())
                         }
                         ResolvedEffectKind::PreventCombatDamage
-                            if tx.kind == DamageKind::Combat
-                                && a.budget_before.is_none()
-                                && a.budget_after.is_none() =>
+                            if tx.kind == DamageKind::Combat =>
                         {
                             (Quantity::zero(), a.before.clone())
                         }

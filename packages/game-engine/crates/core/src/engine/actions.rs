@@ -420,7 +420,7 @@ impl RulesTxn {
         self.announce_ability(player, decision_id, object, ability)
     }
     pub(crate) fn actions_request(&self) -> Result<Option<Request>, String> {
-        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
+        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
             return Ok(None);
         };
         let decision_id = self.state.rules.revision;
@@ -475,9 +475,6 @@ impl RulesTxn {
             });
         }
 
-        if let Some(result) = self.validate_staples_response(player, response) {
-            return Some(result);
-        }
         if let Some(result) = self.validate_trigger_response(player, response) {
             return Some(result);
         }

@@ -67,11 +67,7 @@ pub use setup::*;
 // Oracle identities and definition digests of the frozen scenario catalogs:
 // admission data for `Prepared::admit` and for tools that read the exact
 // constructors. No rule reads them.
-pub const GROWTH: &str = "5748ebf1-24e3-499d-ab7c-c2cebd462a24";
-pub const DISFIGURE: &str = "77eafe49-b9c5-461d-89c5-cec217dd2974";
-pub const FOG: &str = "27e9db49-7af7-4bef-ad4c-bf5dfb92030d";
-pub const HEALER: &str = "95a0ca48-d924-47f4-86ed-42c673ee778c";
-pub const FURNACE: &str = "68715465-6cf9-4006-87e9-31f227fe9ed3";
+#[cfg(any(test, feature = "testkit"))]
 pub const OX: &str = "19b4cf0b-e1e4-4e50-80bc-673bc6ef8bb8";
 
 pub const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
@@ -88,7 +84,6 @@ pub const YARGLE: &str = "980e1721-3717-4425-95a4-938dbf2ac661";
 pub const YARGLE_DIGEST: &str =
     definition_digest!("MTG_DEFINITION_action_980e1721-3717-4425-95a4-938dbf2ac661");
 pub const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
-pub const HAPLESS: &str = "240a349a-79f8-4e11-9a05-a78148e70a62";
 pub const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 pub const ACTION_EXTRA: [(&str, &str); 2] = [
     (
@@ -100,10 +95,6 @@ pub const ACTION_EXTRA: [(&str, &str); 2] = [
         definition_digest!("MTG_DEFINITION_action_56719f6a-1a6c-4c0a-8d21-18f7d7350b68"),
     ),
 ];
-pub const LOOTER: &str = "67362406-b1ca-49e2-800d-9050bfe8742a";
-pub const STIFLE: &str = "b3b00911-ece7-4484-bc36-f211ce72b6cc";
-pub const AZURE: &str = "bbf9fd47-10e1-4749-b06f-4fe72200afc7";
-pub const COUNTERSPELL: &str = "cc187110-1148-4090-bbb8-e205694a39f5";
 
 pub const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 pub const ALLOWED: [(&str, &str); 5] = [
@@ -128,16 +119,6 @@ pub const ALLOWED: [(&str, &str); 5] = [
         definition_digest!("MTG_DEFINITION_base_14c8f55d-d177-4c25-a931-ebeb9e6062a0"),
     ),
 ];
-pub const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
-pub const PRODIGAL: &str = "5e961d15-5972-4e4b-9385-1cd7cd7c6bbe";
-pub const SOUL_FEAST: &str = "8186fd80-015f-470c-9e1c-cbf45764a057";
-pub const HEALING_HANDS: &str = "3cc48835-3ac0-4774-b380-f9b21d2dc974";
-pub const NECTAR: &str = "30870ee5-6ad7-48a9-983e-d3b018f2344f";
-pub const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
-
-pub const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
-pub const VISIONARY: &str = "c6a3a882-a127-4590-93d7-679ef4313efe";
-pub const WARDEN: &str = "6ca2a89e-7032-4864-b4e9-66f3178f90ab";
 
 pub mod choices;
 pub mod graveyard_targets;

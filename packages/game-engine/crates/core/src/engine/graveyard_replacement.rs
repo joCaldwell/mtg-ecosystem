@@ -141,7 +141,7 @@ impl RulesTxn {
             }
         }
         let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
-        self.finish_graveyard_effect(frame, source_block, Some(actual), completion)
+        self.finish_graveyard_effect(frame, Some(actual), completion)
     }
 
     pub(super) fn begin_graveyard_effect(
@@ -184,7 +184,6 @@ impl RulesTxn {
     fn finish_graveyard_effect(
         &mut self,
         frame: Resolving,
-        source_block: u32,
         actual: Option<EventOutcome>,
         completion: GraveyardCompletion,
     ) -> Result<(), String> {
@@ -272,7 +271,6 @@ impl RulesTxn {
             return match tx.phase {
                 ReplacementPhase::Shuffling { actual, .. } => self.finish_graveyard_effect(
                     tx.frame,
-                    tx.source_block,
                     actual.map(|event| *event),
                     tx.completion,
                 ),
@@ -327,7 +325,6 @@ impl RulesTxn {
                 if *remaining == 1 {
                     return self.finish_graveyard_effect(
                         tx.frame,
-                        tx.source_block,
                         actual.clone().map(|event| *event),
                         tx.completion,
                     );

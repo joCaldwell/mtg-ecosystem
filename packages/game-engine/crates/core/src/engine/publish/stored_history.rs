@@ -156,6 +156,7 @@ impl StoredStack {
             .map(|n| n.value.clone().map_handles(|h| StackHandle::from(&h)))
             .collect()
     }
+    #[cfg(any(debug_assertions, feature = "testkit"))]
     fn matches_public(&self, rows: &[VisibleStackEntry]) -> bool {
         self.len == rows.len()
             && self

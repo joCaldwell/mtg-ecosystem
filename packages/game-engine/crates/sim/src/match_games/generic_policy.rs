@@ -250,15 +250,8 @@ fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
                     if costs.tap && !costs.sacrifice && costs.mana.is_some())
         })
 }
-fn ordinary_hand_or_granted_exile(view: &PermittedView, object: &VisibleObject) -> bool {
+fn in_viewers_hand(view: &PermittedView, object: &VisibleObject) -> bool {
     object.zone == (Zone::Hand { owner: view.viewer })
-        || (object.zone == Zone::Exile
-            && view.effects.iter().any(|effect| {
-                matches!(effect,
-                    mtg_core::VisibleEffect::PlayExiled { origin, cards, .. }
-                        if origin.controller == view.viewer && cards.contains(&object.handle)
-                )
-            }))
 }
 
 impl Strategy<'_> {
@@ -1313,11 +1306,7 @@ impl Strategy<'_> {
         &mut self,
         v: &PermittedView,
     ) -> Result<Option<PlayerResponse>, String> {
-        for o in v
-            .objects
-            .iter()
-            .filter(|o| ordinary_hand_or_granted_exile(v, o))
-        {
+        for o in v.objects.iter().filter(|o| in_viewers_hand(v, o)) {
             let d = definition(self.catalog, &o.oracle_id)?;
             let Some(p) = &d.spell else { continue };
             if p.timing == SpellTiming::Instant
@@ -1623,11 +1612,7 @@ impl Strategy<'_> {
         // CR 702.8: develop flash permanents in an opponent's end step.
         // Core retains all timing, target and payment authority.
         if v.active != Some(v.viewer) && v.turn.step == TurnStep::End && v.stack.is_empty() {
-            for o in v
-                .objects
-                .iter()
-                .filter(|o| ordinary_hand_or_granted_exile(v, o))
-            {
+            for o in v.objects.iter().filter(|o| in_viewers_hand(v, o)) {
                 let d = definition(self.catalog, &o.oracle_id)?;
                 if d.keywords.contains(&KeywordAbility::Flash)
                     && let Some(r) = self.cast(v, o, d)
@@ -1716,7 +1701,7 @@ impl Strategy<'_> {
         }
         if Quantity::from(i64::from(v.turn.lands_played)) < land_allowance
             && let Some(o) = v.objects.iter().find(|o| {
-                (ordinary_hand_or_granted_exile(v, o)
+                (in_viewers_hand(v, o)
                     || (graveyard_lands && o.zone == (Zone::Graveyard { owner: v.viewer })))
                     && definition(self.catalog, &o.oracle_id)
                         .is_ok_and(|d| d.characteristics.kind == CardKind::Land)
@@ -1742,7 +1727,7 @@ impl Strategy<'_> {
         for stage in 0..5 {
             for o in &v.objects {
                 let command = o.zone == (Zone::Command { owner: v.viewer });
-                if !command && !ordinary_hand_or_granted_exile(v, o) {
+                if !command && !in_viewers_hand(v, o) {
                     continue;
                 }
                 let d = definition(self.catalog, &o.oracle_id)?;

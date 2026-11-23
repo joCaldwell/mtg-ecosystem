@@ -4,6 +4,17 @@
 //! the engine namespace that in-source tests previously saw through
 //! `use super::*`, so scenario and witness binaries build outside `--lib`.
 pub use crate::engine::*;
+
+pub const GROWTH: &str = "5748ebf1-24e3-499d-ab7c-c2cebd462a24";
+pub const DISFIGURE: &str = "77eafe49-b9c5-461d-89c5-cec217dd2974";
+pub const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
+pub const SOUL_FEAST: &str = "8186fd80-015f-470c-9e1c-cbf45764a057";
+pub const HEALING_HANDS: &str = "3cc48835-3ac0-4774-b380-f9b21d2dc974";
+pub const NECTAR: &str = "30870ee5-6ad7-48a9-983e-d3b018f2344f";
+pub const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
+pub const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
+pub const VISIONARY: &str = "c6a3a882-a127-4590-93d7-679ef4313efe";
+pub const WARDEN: &str = "6ca2a89e-7032-4864-b4e9-66f3178f90ab";
 // Engine modules shadow same-named contracts modules, as inside the engine.
 pub use crate::engine::mana_tap_observer;
 use crate::engine::{
@@ -319,7 +330,6 @@ pub trait GameTestkit {
     fn land_entry_step(&mut self) -> Result<(), String>;
     fn lethal_requirement(&self, source: ObjectId, blocker: ObjectId) -> Result<Quantity, String>;
     fn library_prefix(&self, player: PlayerId, amount: &Quantity) -> Result<Vec<ObjectId>, String>;
-    fn linked_hideaway_cards(&self, source: ObjectId, source_block: u32) -> Vec<ObjectId>;
     fn live_effect_keys(&self) -> Vec<EffectKey>;
     fn main_phase_action(&self, player: PlayerId) -> bool;
     fn mana_ability_used(&self, source: ObjectId) -> bool;
@@ -408,7 +418,6 @@ pub trait GameTestkit {
     fn record_entry_copy(&mut self, entering: ObjectId, donor: ObjectId) -> Result<(), String>;
     fn refresh_effect_handles(&mut self) -> Result<Vec<EffectKey>, String>;
     fn refresh_visibility(&mut self) -> Result<(), String>;
-    fn remaining_graveyard_targets(&self, owner: PlayerId, cards: &[ObjectId]) -> Vec<ObjectId>;
     fn replacement_reveals(&self, object: ObjectId) -> bool;
     fn replay_to(
         prepared: Prepared,
@@ -436,7 +445,6 @@ pub trait GameTestkit {
         viewer: PlayerId,
         handle: &TriggerHandle,
     ) -> Result<TriggerId, String>;
-    fn restore_hideaway_link(&mut self, receipt: HideawayLink) -> Result<(), String>;
 
     fn retain_source_facts(&mut self, fact: &ObjectBefore);
     fn retain_source_lki(&mut self, object: ObjectId) -> Result<(), String>;
@@ -487,12 +495,6 @@ pub trait GameTestkit {
         source: ObjectId,
         ability: EffectiveTriggerAbility,
     ) -> Option<&str>;
-    fn turn_up_linked_hideaway(
-        &mut self,
-        source: ObjectId,
-        source_block: u32,
-        card: ObjectId,
-    ) -> Result<HideawayLink, String>;
     fn update_library_position_memory(&mut self, event: &ProposedEvent, actual: &EventOutcome);
     fn valid_set_effect_targets(
         &self,
@@ -969,9 +971,6 @@ impl GameTestkit for Game {
     fn library_prefix(&self, player: PlayerId, amount: &Quantity) -> Result<Vec<ObjectId>, String> {
         RulesTxn::library_prefix(self, player, amount)
     }
-    fn linked_hideaway_cards(&self, source: ObjectId, source_block: u32) -> Vec<ObjectId> {
-        RulesTxn::linked_hideaway_cards(self, source, source_block)
-    }
     fn live_effect_keys(&self) -> Vec<EffectKey> {
         RulesTxn::live_effect_keys(self)
     }
@@ -1026,8 +1025,17 @@ impl GameTestkit for Game {
     fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
         RulesTxn::object_target_legal(self, entry, object)
     }
+    // CR 109.5, 205.2b, 608.2h, 806.1: current control, and every card type.
     fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {
-        RulesTxn::objects_in_set(self, set, controller)
+        self.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| {
+                crate::query::matches_object_set(&self.object_facts(o), controller, set).is_yes()
+            })
+            .map(|o| o.id)
+            .collect()
     }
     fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
         RulesTxn::observation_work_units(self, viewer)
@@ -1142,9 +1150,6 @@ impl GameTestkit for Game {
     fn refresh_visibility(&mut self) -> Result<(), String> {
         RulesTxn::refresh_visibility(self)
     }
-    fn remaining_graveyard_targets(&self, owner: PlayerId, cards: &[ObjectId]) -> Vec<ObjectId> {
-        RulesTxn::remaining_graveyard_targets(self, owner, cards)
-    }
     fn replacement_reveals(&self, object: ObjectId) -> bool {
         RulesTxn::replacement_reveals(self, object)
     }
@@ -1185,9 +1190,6 @@ impl GameTestkit for Game {
         handle: &TriggerHandle,
     ) -> Result<TriggerId, String> {
         RulesTxn::resolve_trigger_handle(self, viewer, handle)
-    }
-    fn restore_hideaway_link(&mut self, receipt: HideawayLink) -> Result<(), String> {
-        RulesTxn::restore_hideaway_link(self, receipt)
     }
 
     fn retain_source_facts(&mut self, fact: &ObjectBefore) {
@@ -1286,14 +1288,6 @@ impl GameTestkit for Game {
         ability: EffectiveTriggerAbility,
     ) -> Option<&str> {
         RulesTxn::trigger_source_label(self, source, ability)
-    }
-    fn turn_up_linked_hideaway(
-        &mut self,
-        source: ObjectId,
-        source_block: u32,
-        card: ObjectId,
-    ) -> Result<HideawayLink, String> {
-        RulesTxn::turn_up_linked_hideaway(self, source, source_block, card)
     }
     fn update_library_position_memory(&mut self, event: &ProposedEvent, actual: &EventOutcome) {
         RulesTxn::update_library_position_memory(self, event, actual)

@@ -7,6 +7,12 @@ select decks and consumer capabilities. The rules descriptions below also
 document shared primitives and historical witnesses. Current card admission
 requires a fresh complete lowering and a matching catalog identity.
 
+A spell can deal damage as its own source. Object operands that modify or put
+counters on the source require a permanent ability. Temporary source keyword
+grants require an activated ability and the exact supported keyword list.
+An announced player can draw one card per KIR draw. Targeted counted draws
+reject at admission until their executor can skip an illegal target.
+
 The rules baseline is the frozen [2026-09-25 Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt),
 SHA-256 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
 Use exact `tests/fixtures` records/provenance under `packages/game-engine`, never

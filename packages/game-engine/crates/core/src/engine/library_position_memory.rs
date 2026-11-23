@@ -13,7 +13,7 @@ impl RulesTxn {
             Frame::GraveyardReplacement { transaction } => transaction.reserved_top(),
             _ => &[],
         };
-        for (seat, knowledge) in self.state.knowledge.visibility.iter_mut().enumerate() {
+        for knowledge in &mut self.state.knowledge.visibility {
             // A secret choice from hand into a hidden zone cannot identify
             // which previously revealed card stayed. Forget that hand's rows.
             let concealed_hand = match (event, actual) {
