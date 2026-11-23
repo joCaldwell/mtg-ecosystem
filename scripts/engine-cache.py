@@ -141,20 +141,24 @@ def open_owned_target(root, target, lock):
     (opened without following links) carrying Cargo's signature, and the lock
     must lie strictly outside the target. Every later read or delete is
     relative to the returned descriptor, so a swapped path cannot redirect it."""
-    top = toplevel(root)
-    if Path(os.path.abspath(Path(target))) != top / DEFAULT_TARGET:
+    top = Path(os.path.abspath(toplevel(root)))
+    expected = top / DEFAULT_TARGET
+    if Path(os.path.abspath(Path(target))) != expected:
         raise Refused("target is not this checkout's own target/engine")
-    descriptor = os.open(top, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    # Every component from / is opened without following a link.
+    descriptor = os.open('/', DIRECTORY)
     try:
-        for part in DEFAULT_TARGET.parts:
+        for part in expected.parts[1:]:
             try:
                 child = os.open(part, DIRECTORY, dir_fd=descriptor)
             except OSError as error:
-                raise Refused(f'{part}/ is missing, not a directory or a symlink') from error
+                raise Refused(f'{part}/ on the target path is missing, not a directory or a symlink') from error
             os.close(descriptor)
             descriptor = child
         try:
-            tag = os.open('CACHEDIR.TAG', os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
+            # O_NONBLOCK: a FIFO tag can never block while the lock is held.
+            tag = os.open('CACHEDIR.TAG', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                          dir_fd=descriptor)
         except OSError as error:
             raise Refused('CACHEDIR.TAG is missing or a symlink') from error
         try:
@@ -178,18 +182,27 @@ def entries(descriptor):
         return sorted((entry.name, entry.is_dir(follow_symlinks=False)) for entry in listing)
 
 
-def usage_at(descriptor):
-    """Allocated bytes below a pinned directory, without following links."""
-    total = os.fstat(descriptor).st_blocks * 512
+def usage_at(descriptor, seen=None):
+    """Allocated bytes below a pinned directory, without following links and
+    counting each hard-linked inode once (as engine-storage.py usage does)."""
+    seen = set() if seen is None else seen
+    info = os.fstat(descriptor)
+    if (info.st_dev, info.st_ino) in seen:
+        return 0
+    seen.add((info.st_dev, info.st_ino))
+    total = info.st_blocks * 512
     for name, is_directory in entries(descriptor):
         if is_directory:
             child = os.open(name, DIRECTORY, dir_fd=descriptor)
             try:
-                total += usage_at(child)
+                total += usage_at(child, seen)
             finally:
                 os.close(child)
         else:
-            total += os.stat(name, dir_fd=descriptor, follow_symlinks=False).st_blocks * 512
+            info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+            if (info.st_dev, info.st_ino) not in seen:
+                seen.add((info.st_dev, info.st_ino))
+                total += info.st_blocks * 512
     return total
 
 
@@ -208,12 +221,19 @@ def remove_at(parent, name):
 
 
 def has_directory(descriptor, *parts):
+    """Whether descriptor/parts... is a real directory, one O_NOFOLLOW step at a time."""
+    current = os.dup(descriptor)
     try:
-        child = os.open(os.path.join(*parts), DIRECTORY, dir_fd=descriptor)
-    except OSError:
-        return False
-    os.close(child)
-    return True
+        for part in parts:
+            try:
+                child = os.open(part, DIRECTORY, dir_fd=current)
+            except OSError:
+                return False
+            os.close(current)
+            current = child
+        return True
+    finally:
+        os.close(current)
 
 
 def eviction_stages(target):
@@ -262,18 +282,43 @@ def evict(target, maximum):
     return removed
 
 
+def holds_exclusive_flock(descriptor, inode):
+    """Whether this exact open file description holds an exclusive flock on
+    inode, read from /proc/self/fdinfo without acquiring anything. Linux lists
+    the description's locks as `lock: N: FLOCK ADVISORY WRITE <pid>
+    <maj>:<min>:<ino> 0 EOF` (device numbers in hex). The pid may be the
+    parent that took it, so it is not compared. Unreadable means no."""
+    try:
+        with open(f'/proc/self/fdinfo/{descriptor}') as info:
+            lines = info.read().splitlines()
+    except OSError:
+        return False
+    wanted = (os.major(inode.st_dev), os.minor(inode.st_dev), inode.st_ino)
+    for line in lines:
+        fields = line.split()
+        if not fields or fields[0] != 'lock:' or '->' in fields:
+            continue
+        try:
+            kind, _, mode, _, device = fields[2:7]
+            major, minor, ino = device.split(':')
+            found = (int(major, 16), int(minor, 16), int(ino))
+        except ValueError:
+            continue
+        if kind == 'FLOCK' and mode == 'WRITE' and found == wanted:
+            return True
+    return False
+
+
 @contextlib.contextmanager
 def held_lock(lock, environ):
     """Yield whether this process verifiably holds the target's exclusive lock.
 
     A runner that holds it passes its descriptor's number in MTG_ENGINE_LOCK_FD.
-    flock(2) locks belong to open file descriptions, so the proof has two
-    steps: the descriptor must be the canonical lock inode; a fresh probe of
-    that inode must fail to take even LOCK_SH (so some description holds
-    LOCK_EX); and LOCK_EX|LOCK_NB on the inherited descriptor must then
-    succeed (so that holder is the inherited description). An idle, shared-only
-    or contended descriptor is refused. Without one, this call takes the lock
-    itself without waiting. Every failure fails closed."""
+    That descriptor must be the canonical lock inode, and /proc/self/fdinfo must
+    show its own open file description holding an exclusive FLOCK on that
+    inode; nothing here locks an inherited descriptor, so an idle, shared-only
+    or contended descriptor can never turn into a fresh lock. Without one, this
+    call takes the lock itself without waiting. Every failure fails closed."""
     try:
         canonical = os.lstat(lock)
     except FileNotFoundError:
@@ -286,29 +331,12 @@ def held_lock(lock, environ):
         try:
             descriptor = int(inherited)
             held = os.fstat(descriptor)
-            if canonical is None or (held.st_dev, held.st_ino) != (canonical.st_dev, canonical.st_ino):
-                yield False
-                return
-            probe = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-            try:
-                seen = os.fstat(probe)
-                if (seen.st_dev, seen.st_ino) != (canonical.st_dev, canonical.st_ino):
-                    yield False
-                    return
-                try:
-                    fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    pass  # Some description holds LOCK_EX.
-                else:
-                    yield False  # Nobody holds LOCK_EX: the caller's claim is false.
-                    return
-            finally:
-                os.close(probe)
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (ValueError, OSError):
             yield False
             return
-        yield True
+        yield (canonical is not None
+               and (held.st_dev, held.st_ino) == (canonical.st_dev, canonical.st_ino)
+               and holds_exclusive_flock(descriptor, canonical))
         return
     lock.parent.mkdir(parents=True, exist_ok=True)
     with lock.open('a') as handle:
@@ -321,32 +349,42 @@ def held_lock(lock, environ):
 
 
 def check(root=ROOT, environ=None):
-    """Admit a native command, evicting an over-budget target under its lock."""
+    """Admit a native command; evict an over-budget target under its lock.
+
+    The eviction decision uses the size measured through the pinned target
+    descriptor, under the verified lock. The unlocked path-based status only
+    reports, and may admit without eviction when another owner holds the lock."""
     env = os.environ if environ is None else environ
     report = status(root, env)
-    if report['allocated_bytes'] <= report['maximum_bytes']:
-        return report
+    maximum = report['maximum_bytes']
+    budget_error = lambda error: 'ENGINE_CACHE_MAX_GIB' in error
     lock = Path(report['lock'])
     with held_lock(lock, env) as owned:
         if not owned:
-            report['errors'].append('target lock is busy or the inherited MTG_ENGINE_LOCK_FD does not hold it; nothing evicted')
+            if env.get('MTG_ENGINE_LOCK_FD') is not None or report['allocated_bytes'] > maximum:
+                report['errors'].append('target lock is busy or the inherited MTG_ENGINE_LOCK_FD does not hold it; nothing evicted')
             return report
-        # Ownership is established under the lock and pinned through deletion.
         try:
             target = open_owned_target(root, report['target_dir'], lock)
         except Refused as error:
-            report['errors'].append(f"not this checkout's own Cargo cache: {error}; nothing evicted")
+            if report['allocated_bytes'] > maximum:
+                report['errors'].append(f"not this checkout's own Cargo cache: {error}; nothing evicted")
             return report
         try:
-            removed = evict(target, report['maximum_bytes'])
+            pinned = usage_at(target)
+            report['pinned_allocated_bytes'] = pinned
+            if pinned <= maximum:
+                report['errors'] = [e for e in report['errors'] if not budget_error(e)]
+                return report
+            removed = evict(target, maximum)
         finally:
             os.close(target)
     after = status(root, env)
     if any(row['stage'] == 'target-reset' for row in removed):
         # An emptied target holds only its tag: the budget cannot go lower.
-        after['errors'] = [e for e in after['errors'] if 'ENGINE_CACHE_MAX_GIB' not in e]
+        after['errors'] = [e for e in after['errors'] if not budget_error(e)]
     after['evicted'] = removed
-    after['allocated_before_bytes'] = report['allocated_bytes']
+    after['allocated_before_bytes'] = pinned
     return after
 
 

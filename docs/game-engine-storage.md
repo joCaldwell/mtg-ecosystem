@@ -28,12 +28,14 @@ allocated** (`ENGINE_CACHE_MAX_GIB`) it evicts inside the target, under the
 target's lock, until it fits: every `incremental/` directory first, then profile
 directories other than the gate's `debug/` (for example `release/`), then the
 whole target except `CACHEDIR.TAG`. A runner that holds the lock passes its
-descriptor in `MTG_ENGINE_LOCK_FD`; `check` proves that descriptor already holds
-the exclusive lock (an idle, shared-only or contended descriptor is refused),
-otherwise it takes the lock itself without waiting. Only then does it pin the
-checkout's own `target/engine` with `O_NOFOLLOW` directory descriptors, require a
-regular Cargo `CACHEDIR.TAG`, refuse a lock inside the target, and delete
-relative to those descriptors without following links. An explicit
+descriptor in `MTG_ENGINE_LOCK_FD`; `check` reads `/proc/self/fdinfo` to prove
+that exact description already holds the exclusive lock, never locking it (an
+idle, shared-only or contended descriptor is refused). Otherwise `check` takes
+the lock itself without waiting. Only then does it pin the checkout's own
+`target/engine` with `O_NOFOLLOW` directory descriptors from `/`, require a
+regular Cargo `CACHEDIR.TAG`, refuse a lock inside the target, measure through
+the pinned descriptor (hard links once) to decide, and delete relative to those
+descriptors without following links. An explicit
 `CARGO_TARGET_DIR` elsewhere, `generated/` and external evidence are never
 touched.
 Below **16 GiB free** (`ENGINE_CACHE_MIN_FREE_GIB`) it fails without deleting.

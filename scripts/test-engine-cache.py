@@ -220,6 +220,62 @@ class CacheTests(unittest.TestCase):
                 self.assertIn('lock is busy', report['errors'][-1])
             self.assertTrue((target / 'debug/incremental').exists())
 
+    def test_pinned_size_decides_counts_hard_links_once_and_fifo_tags_never_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            os.link(target / 'debug/deps/mtg-sim', target / 'release/hard-link')
+            descriptor = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                once = cache.usage_at(descriptor)
+            finally:
+                os.close(descriptor)
+            self.assertEqual(cache.storage_module().usage(target), once)
+            (target / 'release/hard-link').unlink()
+            # The unlocked path-based status may under-report; the pinned scan
+            # under the lock still decides and evicts.
+            env['ENGINE_CACHE_MAX_GIB'] = str(65536 / cache.GIB)
+            real = cache.status
+            with patch.object(cache, 'status', lambda *a: {**real(*a), 'allocated_bytes': 0}):
+                report = cache.check(repo, env)
+            self.assertEqual([], report['errors'])
+            self.assertTrue(report['evicted'])
+            # A FIFO tag (no writer) is rejected without blocking.
+            (target / 'debug').mkdir()
+            (target / 'debug/data').write_bytes(b'x' * 65536)
+            (target / 'CACHEDIR.TAG').unlink()
+            os.mkfifo(target / 'CACHEDIR.TAG')
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            self.assertIn('CACHEDIR.TAG', cache.check(repo, env)['errors'][-1])
+            self.assertTrue((target / 'debug/data').exists())
+
+    def test_symlinked_checkout_ancestor_refuses_eviction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            link = Path(tmp) / 'linked-checkout'
+            link.symlink_to(repo, target_is_directory=True)
+            env = {**env, 'ENGINE_CACHE_MAX_GIB': '0', 'CARGO_TARGET_DIR': str(link / 'target/engine')}
+            with patch.object(cache, 'toplevel', return_value=link):
+                report = cache.check(repo, env)
+            self.assertIn('symlink', report['errors'][-1])
+            self.assertTrue((target / 'debug/incremental').exists())
+
+    def test_fdinfo_proof_reads_only_the_exact_exclusive_description(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / 'cargo.lock'
+            lock.write_text('')
+            inode = os.stat(lock)
+            with lock.open('a') as held, lock.open('a') as other:
+                self.assertFalse(cache.holds_exclusive_flock(held.fileno(), inode))
+                fcntl.flock(held, fcntl.LOCK_EX)
+                self.assertTrue(cache.holds_exclusive_flock(held.fileno(), inode))
+                # Another description of the same inode shows no lock of its own.
+                self.assertFalse(cache.holds_exclusive_flock(other.fileno(), inode))
+                self.assertFalse(cache.holds_exclusive_flock(10**6, inode))
+            # Unreadable fdinfo fails closed.
+            with lock.open('a') as held, patch('builtins.open', side_effect=OSError):
+                fcntl.flock(held, fcntl.LOCK_EX)
+                self.assertFalse(cache.holds_exclusive_flock(held.fileno(), inode))
+
     def test_eviction_requires_a_verified_held_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, _, env = self.cargo_target(tmp)
