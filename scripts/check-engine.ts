@@ -8,8 +8,8 @@ const { mode, planOnly, help } = parseCheckArguments(process.argv.slice(2));
 const plan = engineCheckPlans[mode];
 const { phases, needsCargo } = plan;
 if (help) {
-  console.log("Usage: npm run check:engine -- [--quick|--fast|--core|--source|--tooling|--contracts|--full] [--plan]");
-  console.log("Default: --quick. --plan prints commands and omissions without executing them.");
+  console.log("Usage: npm run check:engine -- [--check|--gate|--tooling] [--plan]");
+  console.log("Default: --check. --plan prints commands and omissions without executing them.");
   for (const [name, value] of Object.entries(engineCheckPlans)) console.log(`${name}: ${value.coverage}\n  Omits: ${value.omitted}`);
   process.exit(0);
 }
@@ -46,7 +46,7 @@ try {
     }
   };
   // Own the selected target's lock across nested Node Cargo calls; never wrap
-  // check:engine in another acquisition of it. Source/tooling modes need no lock.
+  // check:engine in another acquisition of it. The tooling mode needs no lock.
   if (lock) await withAdvisoryLock(lock, options, run);
   else await run();
 } finally { fs.closeSync(reportFd); }

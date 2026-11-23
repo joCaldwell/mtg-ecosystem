@@ -358,3 +358,80 @@ fn zone_intrinsics_and_corrupt_snapshot_fail_closed() {
     snapshot.state_sha256 = digest(&snapshot.state).unwrap();
     assert!(Game::restore(p, &canonical(&snapshot).unwrap()).is_err());
 }
+
+/// Ported from the retired Node CLI contract: player projections and search
+/// contexts keep private cards, recovery and executor fields out, and one
+/// seat's handles never appear in another seat's view.
+#[test]
+fn player_projections_keep_private_cards_and_recovery_fields_out() {
+    let game = Game::new(prepared());
+    let observe = |viewer| {
+        let QueryResult::Complete(QueryValue::Observation(o)) =
+            game.observe(PlayerId(viewer), Budget::unlimited())
+        else {
+            panic!("observation")
+        };
+        serde_json::to_value(o).unwrap()
+    };
+    let (own, other) = (observe(0), observe(1));
+    let catalog = Catalog::read(include_str!(
+        "../../../../../tests/fixtures/expected-ir.json"
+    ))
+    .unwrap();
+    let unsummon = catalog
+        .definitions
+        .iter()
+        .find(|d| d.name == "Unsummon")
+        .unwrap()
+        .oracle_id
+        .clone();
+    let objects = |v: &serde_json::Value| v["view"]["objects"].as_array().unwrap().clone();
+    assert!(objects(&own).iter().any(|o| o["oracle_id"] == unsummon));
+    assert!(!objects(&other).iter().any(|o| o["oracle_id"] == unsummon));
+    assert_eq!(other["view"]["players"][0]["hand_count"], 1);
+    let QueryResult::Complete(QueryValue::SearchContext(context)) =
+        game.search_context(PlayerId(1), "independent-seed".into(), Budget::unlimited())
+    else {
+        panic!("search context")
+    };
+    let context = serde_json::to_value(context).unwrap();
+    assert_eq!(context["sampling_seed"], "independent-seed");
+    const FORBIDDEN: [&str; 15] = [
+        "state_sha256",
+        "state",
+        "initial_snapshot",
+        "journal",
+        "incarnation",
+        "rule_steps",
+        "source_json",
+        "frame",
+        "game_seed",
+        "trace",
+        "verification",
+        "batch_id",
+        "next_batch_id",
+        "next_event_sequence",
+        "before",
+    ];
+    fn check(value: &serde_json::Value) {
+        match value {
+            serde_json::Value::Array(items) => items.iter().for_each(check),
+            serde_json::Value::Object(fields) => {
+                for (key, child) in fields {
+                    assert!(!FORBIDDEN.contains(&key.as_str()), "{key}");
+                    check(child);
+                }
+            }
+            _ => {}
+        }
+    }
+    for value in [&own, &other, &context] {
+        check(value);
+    }
+    let own_handles: Vec<_> = objects(&own).iter().map(|o| o["handle"].clone()).collect();
+    assert!(
+        !objects(&other)
+            .iter()
+            .any(|o| own_handles.contains(&o["handle"]))
+    );
+}

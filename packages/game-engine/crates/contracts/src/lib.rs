@@ -2810,6 +2810,8 @@ impl<'de> Deserialize<'de> for UniqueJson {
 
 #[cfg(test)]
 mod catalog_lookup_tests;
+#[cfg(test)]
+mod schema_tests;
 
 #[cfg(test)]
 mod tests {

@@ -4,11 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "cargo check --workspace --locked",
-    "test": "cargo test --workspace --locked",
+    "build": "cargo check --workspace --all-targets --locked --features mtg-core/testkit",
+    "test": "cargo test --workspace --locked --features mtg-core/testkit",
     "check": "node ../../scripts/check-engine.ts"
-  },
-  "devDependencies": {
-    "ajv": "8.20.0"
   }
 }

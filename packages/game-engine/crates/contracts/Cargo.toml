@@ -15,3 +15,8 @@ sha2.workspace = true
 
 [lints]
 workspace = true
+
+# The published Catalog JSON Schema is validated by the host's pinned validator
+# (already locked for mtg-server); test-only, never a runtime dependency.
+[dev-dependencies]
+jsonschema = { version = "=0.58.6", default-features = false }

@@ -88,19 +88,19 @@ export interface CheckPhase {
   label: string;
   command: string;
   args: string[];
-  preflight?: boolean;
 }
 
 // These verify the verifier against tiny fixtures/fake workers. Routine engine
 // behavior checks retain the live guards below without rerunning these suites.
 const harnessSelfTests: CheckPhase[] = [
-  { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/capture-json-output.test.ts", "scripts/retain-policy-sources.test.ts", "scripts/retain-server-evidence.test.ts", "scripts/retention-workspace.test.ts", "scripts/run-selected-tests.test.ts", "scripts/engine-environment.test.ts"] },
+  { label: "tooling-tests", command: "node", args: ["--test", "scripts/check-engine-driver.test.ts", "scripts/engine-environment.test.ts"] },
   { label: "storage-safety", command: "python3", args: ["-B", "scripts/test-engine-storage.py"] },
-  { label: "retention-safety", command: "python3", args: ["-B", "scripts/test-retention-workspace.py"] },
   { label: "worktree-safety", command: "python3", args: ["-B", "scripts/test-engine-worktrees.py"] },
   { label: "structure-tests", command: "python3", args: ["-B", "scripts/test-engine-structure.py"] },
   { label: "cache-tests", command: "python3", args: ["-B", "scripts/test-engine-cache.py"] },
   { label: "test-binary-tests", command: "python3", args: ["-B", "scripts/test-engine-test-binaries.py"] },
+  { label: "deck-harness-tests", command: "python3", args: ["-B", "scripts/test-engine-decks.py"] },
+  { label: "stage-deck-tests", command: "python3", args: ["-B", "scripts/test-stage-deck.py"] },
   { label: "documentation-tests", command: "python3", args: ["-B", "scripts/test-check-docs.py"] },
 ];
 const liveGuards: CheckPhase[] = [
@@ -109,7 +109,8 @@ const liveGuards: CheckPhase[] = [
   // The compiler's typed archive AST is generated from the parser's TypeScript.
   { label: "generated-ast-guard", command: "node", args: ["scripts/generate-rust-ast.ts", "--check"] },
 ];
-export const cachePreflight: CheckPhase = { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check"] };
+// Runs under the target lock this driver holds, so it may evict an over-budget target.
+export const cachePreflight: CheckPhase = { label: "cache-preflight", command: "python3", args: ["-B", "scripts/engine-cache.py", "check", "--locked"] };
 
 // Each worktree selects its own target (explicit CARGO_TARGET_DIR wins). Cargo
 // profiles own incrementality: dev/test/quick are incremental and release is
@@ -136,78 +137,49 @@ export function pinnedRust(root: string) {
   return version.stdout.trim();
 }
 
-export function smokePhases(args: string[]): CheckPhase[] {
-  const [mode, ...rest] = args;
-  const valid = mode === "smoke" ? rest.length === 0 || (rest.length === 2 && rest[0] === "--artifact" && !!rest[1])
-    : mode === "smoke-replay" && rest.length === 1 && !!rest[0];
-  if (!valid) throw new Error("Usage: engine:smoke [-- --artifact NEW.json] or engine:smoke:replay -- FILE");
-  return [cachePreflight, { label: mode!, command: "cargo", args: ["run", "--quiet", "--locked", "-p", "mtg-sim", "--", mode!, ...rest] }];
-}
-const archive: CheckPhase = { label: "archive-parser", command: "node", args: ["scripts/run-selected-tests.ts", "--name", "^retained archive hashes agree with JavaScript and source parser$", "packages/game-engine/tests/contracts.test.ts"], preflight: true };
+// One feature shape for every debug Cargo command, so check, Clippy and tests
+// share one compiled engine. A separate metadata-only check of the host without
+// `testkit` keeps dead-code warnings visible to the production feature set.
+const SHAPE = ["--locked", "--workspace", "--features", "mtg-core/testkit"];
 const format: CheckPhase = { label: "format", command: "cargo", args: ["fmt", "--all", "--", "--check"] };
-const omittedSelfTests = "Verifier harness self-tests (run --tooling or --full).";
-// Unit tests only; `--tests` would also rerun every `--lib` unit binary.
-const libTests: CheckPhase = { label: "lib-tests", command: "cargo", args: ["test", "--locked", "-p", "mtg-contracts", "-p", "mtg-compiler", "-p", "mtg-core", "--lib"] };
-// Integration binaries only (`--test '*'`), built once and run concurrently:
-// `cargo test` would run the shards of the former core monolith one by one.
-const coreIntegration: CheckPhase = { label: "core-integration", command: "python3", args: ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-core", "-p", "mtg-witness", "--features", "mtg-core/testkit", "--test", "*"] };
+const productionCheck: CheckPhase = { label: "production-check", command: "cargo", args: ["check", "--locked", "-p", "mtg-server", "-p", "mtg-sim"] };
+const archiveAgreement: CheckPhase = { label: "archive-parser", command: "node", args: ["--test", "packages/oracle-parser/test/engine-archive-agreement.test.ts"] };
 
-// Development coverage is deliberately smaller than historical acceptance.
-// No default phase launches the simulator, release build, demo or profile matrix.
 export const engineCheckPlans = {
-  quick: {
+  check: {
     needsCargo: true,
     phases: [cachePreflight, ...liveGuards, format,
-      { label: "rust-lib-check", command: "cargo", args: ["check", "--workspace", "--lib", "--locked"] }],
-    coverage: "Live structure/documentation guards and cache preflight, Rust formatting, workspace library compilation check.",
-    omitted: `${omittedSelfTests} Archived-source parser agreement; compilation of binaries (including mtg-sim and mtg-server), tests and other non-library targets; all tests and Clippy; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.`,
+      { label: "rust-check", command: "cargo", args: ["check", ...SHAPE, "--all-targets"] },
+      productionCheck],
+    coverage: "Live structure/documentation/generated-AST guards and cache admission, Rust formatting, all-target workspace compilation (testkit shape), production host/simulator compilation.",
+    omitted: "Clippy; all tests; parser archive agreement; verifier harness self-tests (run check:engine:gate).",
   },
-  source: {
-    needsCargo: false,
-    phases: [...liveGuards, archive],
-    coverage: "Live structure/documentation guards and archived-source parser agreement; no Cargo or lock.",
-    omitted: `${omittedSelfTests} Rust formatting, compilation and tests; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.`,
+  gate: {
+    needsCargo: true,
+    phases: [cachePreflight, ...liveGuards, archiveAgreement, format,
+      { label: "clippy", command: "cargo", args: ["clippy", ...SHAPE, "--all-targets", "--", "-D", "warnings"] },
+      productionCheck,
+      // Unit tests of every library and binary (`--tests` would rerun them).
+      { label: "unit-tests", command: "cargo", args: ["test", ...SHAPE, "--lib", "--bins"] },
+      { label: "doc-tests", command: "cargo", args: ["test", ...SHAPE, "--doc"] },
+      // Core/witness integration binaries, built once and run concurrently.
+      { label: "core-integration", command: "python3", args: ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-core", "-p", "mtg-witness", "--features", "mtg-core/testkit", "--test", "*"] },
+      { label: "host-integration", command: "python3", args: ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-server", "--features", "mtg-core/testkit", "--test", "*"] },
+      ...harnessSelfTests],
+    coverage: "Everything in check:engine plus parser archive agreement, Clippy with warnings denied, every workspace unit, doc and integration test, and all verifier harness self-tests.",
+    omitted: "Opt-in host witnesses that need external services; whole-archive coverage; release builds; deck benches (engine:decks).",
   },
   tooling: {
     needsCargo: false,
     phases: [...harnessSelfTests, ...liveGuards],
-    coverage: "Complete verifier harness self-tests and live structure/documentation guards; no native setup, cache admission, Cargo or lock.",
-    omitted: "Archived-source parser agreement; Rust formatting, compilation, lints and tests; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.",
-  },
-  fast: {
-    needsCargo: true,
-    phases: [cachePreflight, ...liveGuards, archive, format,
-      { label: "rust-check", command: "cargo", args: ["check", "--workspace", "--all-targets", "--locked"] },
-      libTests],
-    coverage: "Live structure/documentation guards and cache preflight, archived-source parser agreement, Rust formatting, all-target compilation, contracts/compiler/core unit tests.",
-    omitted: `${omittedSelfTests} Core/witness integration binaries (run --core); simulator/server runtime tests; Clippy; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.`,
-  },
-  core: {
-    needsCargo: true,
-    phases: [cachePreflight, ...liveGuards, libTests, coreIntegration],
-    coverage: "Live guards/cache preflight, contracts/compiler/core unit tests, every mtg-core testkit scenario binary and every mtg-witness binary.",
-    omitted: `${omittedSelfTests} Archived-source parser agreement; formatting; Clippy; simulator/server tests; executable schema/catalog checks; runtime demo; SDK; release/profile/replay/retention gates.`,
-  },
-  contracts: {
-    needsCargo: true,
-    phases: [cachePreflight, ...liveGuards, { label: "contract-preflight", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"], preflight: true }],
-    coverage: "Live structure/documentation guards and cache preflight, all source/schema/catalog Node contracts, including strict semantic/header negatives; may build release mtg-sim.",
-    omitted: `${omittedSelfTests} Rust formatting/lints/unit tests; runtime-backed Node contracts/demo; SDK; release test/profile/replay/retention gates.`,
-  },
-  full: {
-    needsCargo: true,
-    phases: [cachePreflight, format, ...harnessSelfTests, ...liveGuards,
-      { label: "clippy", command: "cargo", args: ["clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"] },
-      { label: "rust-tests", command: "cargo", args: ["test", "--workspace", "--locked"] },
-      { label: "node-tests", command: "node", args: ["--test", "packages/game-engine/tests/contracts.test.ts"] }],
-    coverage: "Live guards/cache preflight, complete verifier harness self-tests, formatting, Clippy, workspace Rust tests and all Node contracts including demo. Cheap contracts run once.",
-    omitted: "Ignored Rust diagnostics; SDK; separate release test/profile matrix/explicit CLI replay/retention gates. This is not universal acceptance.",
+    coverage: "Verifier harness self-tests and live structure/documentation guards; no Cargo, cache admission or lock.",
+    omitted: "Rust formatting, compilation, Clippy and tests; parser archive agreement.",
   },
 } satisfies Record<string, { needsCargo: boolean; phases: CheckPhase[]; coverage: string; omitted: string }>;
 export type CheckMode = keyof typeof engineCheckPlans;
 
 export function parseCheckArguments(args: string[]) {
-  let mode: CheckMode = "quick";
+  let mode: CheckMode = "check";
   let selected = false;
   let planOnly = false;
   let help = false;
@@ -228,7 +200,7 @@ export async function runCheckPhases(phases: readonly CheckPhase[], options: Mea
   for (const phase of phases) {
     const result = await execute(phase.label, phase.command, [...phase.args], {
       ...options,
-      env: { ...(options.env ?? process.env), MTG_ENGINE_CONTRACT_PREFLIGHT: phase.preflight ? "1" : "0" },
+      env: options.env ?? process.env,
     });
     if (result.code !== 0) return { code: result.code ?? 1, completed, failed: phase.label };
     completed.push(phase.label);

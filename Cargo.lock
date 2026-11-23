@@ -631,6 +631,7 @@ dependencies = [
 name = "mtg-contracts"
 version = "0.1.0"
 dependencies = [
+ "jsonschema",
  "num-bigint",
  "num-traits",
  "schemars",

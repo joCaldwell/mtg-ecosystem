@@ -691,6 +691,65 @@ mod guard_tests {
             }
         }
     }
+    /// Ported from the retired Node contract: every on-disk data manifest
+    /// regenerates its committed IR bytes and digest (check mode, no writes).
+    #[test]
+    fn all_data_catalog_manifests_regenerate_their_committed_ir_and_digests() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/catalogs");
+        let mut manifests: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|e| e == "json"))
+            .collect();
+        manifests.sort();
+        let names: Vec<_> = manifests
+            .iter()
+            .map(|p| p.file_stem().unwrap().to_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            names,
+            ["action", "base", "match", "phase1-r4", "witness-r4"]
+        );
+        for path in manifests {
+            let manifest: CatalogManifest = strict_read(&read_file(&path).unwrap()).unwrap();
+            let report = generate_catalog(&path, false).unwrap();
+            assert_eq!(report["definitions"], manifest.records.len());
+            assert_eq!(report["schema_version"], manifest.schema_version);
+            assert_eq!(report["schema_version"], CURRENT_IR_VERSION);
+        }
+    }
+    /// Ported from the retired Node contract: Rust lowering reproduces the
+    /// reviewed base IR, with the fixed creature-spell and land shapes.
+    #[test]
+    fn rust_lowering_matches_reviewed_base_ir() {
+        let catalog = embedded_catalog("base").unwrap();
+        let reviewed: serde_json::Value =
+            serde_json::from_str(include_str!("../../../tests/fixtures/expected-ir.json")).unwrap();
+        assert_eq!(serde_json::to_value(&catalog).unwrap(), reviewed);
+        assert_eq!(catalog.schema_version, CURRENT_IR_VERSION);
+        for definition in &catalog.definitions {
+            let value = serde_json::to_value(definition).unwrap();
+            match definition.characteristics.kind {
+                CardKind::Creature => {
+                    assert_eq!(
+                        value["spell"],
+                        serde_json::json!({"timing": "main_phase", "resolution": "permanent",
+                            "functioning_zone": "stack", "targets": [], "instructions": []})
+                    );
+                    assert!(
+                        definition
+                            .capabilities
+                            .contains(&Capability::CastCreatureV1)
+                    );
+                }
+                CardKind::Land => {
+                    assert!(definition.spell.is_none());
+                    assert!(definition.capabilities.contains(&Capability::LandPlayV1));
+                }
+                _ => {}
+            }
+        }
+    }
     #[test]
     fn malformed_catalog_is_a_serializable_runtime_error() {
         let error = build_with(Path::new("catalogs/broken.json"), |_| Ok("{".into())).unwrap_err();

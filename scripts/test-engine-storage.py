@@ -20,106 +20,40 @@ class StorageTests(unittest.TestCase):
         self.cache = self.root / 'target/debug/incremental'
         self.cache.mkdir(parents=True)
         (self.cache / 'cache').write_bytes(b'x' * 8192)
-        self.binary = self.root / 'target/debug/mtg-sim'
-        self.binary.write_bytes(b'preserve executable')
         self.lock = Path(self.temp.name) / 'cargo.lock'
 
     def tearDown(self):
         self.temp.cleanup()
 
-    def prune(self, apply=False):
-        return storage.prune_incremental(self.root, 0, apply, self.lock, allow_uninspectable=True)
-
-    def test_dry_run_and_budget_then_apply_preserves_executable(self):
-        dev = self.root / 'target/engine-dev/quick'
-        incremental = dev / 'incremental'
-        incremental.mkdir(parents=True)
-        (incremental / 'cache').write_bytes(b'x' * 8192)
-        executable = dev / 'mtg-sim'
-        executable.write_bytes(b'preserve development executable')
-        self.assertEqual(storage.incremental_plan(self.root, 1024**2), [])
-        report = self.prune()
-        self.assertGreater(report['candidate_bytes'], 0)
-        self.assertTrue(self.cache.exists())
-        self.assertTrue(incremental.exists())
-        report = self.prune(True)
-        self.assertGreater(report['reclaimed_bytes'], 0)
-        self.assertFalse(self.cache.exists())
-        self.assertFalse(incremental.exists())
-        self.assertEqual(self.binary.read_bytes(), b'preserve executable')
-        self.assertEqual(executable.read_bytes(), b'preserve development executable')
-
-    def test_unregistered_nested_path_rejected(self):
-        with self.assertRaises(ValueError):
-            storage.prune_incremental(self.root / 'target', 0, True, self.lock)
-        self.assertTrue(self.cache.exists())
-
-    def test_tracked_cache_refused(self):
-        subprocess.run(['git', '-C', str(self.root), 'add', 'target'], check=True)
-        with self.assertRaisesRegex(ValueError, 'Tracked'):
-            self.prune(True)
-        self.assertTrue(self.cache.exists())
-
-    def test_symlink_inside_cache_refused(self):
+    def test_symlink_ancestor_and_nested_symlink_refused(self):
+        link = Path(self.temp.name) / 'linked'
+        link.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'Symlink'):
+            storage.no_symlinks(link / 'target')
         outside = Path(self.temp.name) / 'unique-source'
         outside.write_text('keep')
         (self.cache / 'link').symlink_to(outside)
         with self.assertRaisesRegex(ValueError, 'Symlink'):
-            self.prune(True)
+            storage.no_symlinks(self.root / 'target', recursive=True)
         self.assertEqual(outside.read_text(), 'keep')
 
-    def test_symlink_target_and_ancestor_refused(self):
-        link = Path(self.temp.name) / 'linked'
-        link.symlink_to(self.root, target_is_directory=True)
-        with self.assertRaisesRegex(ValueError, 'Symlink'):
-            storage.prune_incremental(link, 0, True, self.lock)
-        self.assertTrue(self.cache.exists())
-
-    def test_busy_cargo_lock_refused(self):
+    def test_busy_cargo_lock_refused_and_default_lock_is_the_worktree_target_lock(self):
         with storage.cargo_lock(self.lock):
             with self.assertRaisesRegex(RuntimeError, 'busy'):
-                self.prune(True)
-        self.assertTrue(self.cache.exists())
-
-    def test_default_lock_is_the_worktree_target_lock_and_covers_quick(self):
-        quick = self.root / 'target/engine/quick/incremental'
-        quick.mkdir(parents=True)
-        (quick / 'cache').write_bytes(b'x' * 8192)
-        self.assertIn(str(quick), [row['path'] for row in storage.incremental_plan(self.root, 0)])
+                with storage.cargo_lock(self.lock):
+                    pass
         with patch.dict(os.environ, {'MTG_ENGINE_LOCK_DIR': str(Path(self.temp.name) / 'locks')}):
-            lock = storage.worktree_lock(self.root)
-            self.assertEqual(Path(self.temp.name) / 'locks', lock.parent)
-            with storage.cargo_lock(lock):
-                with self.assertRaisesRegex(RuntimeError, 'busy'):
-                    storage.prune_incremental(self.root, 0, True, allow_uninspectable=True)
-        self.assertTrue(quick.exists())
+            self.assertEqual(Path(self.temp.name) / 'locks', storage.worktree_lock(self.root).parent)
 
-    def test_active_open_file_refused(self):
+    def test_open_file_counts_as_activity(self):
         # Activity need not have a cwd/executable in target: open fds count too.
         with (self.cache / 'cache').open() as handle:
             child = subprocess.Popen(['sleep', '30'], pass_fds=(handle.fileno(),))
             try:
-                with self.assertRaisesRegex(RuntimeError, 'active'):
-                    self.prune(True)
+                self.assertIn(child.pid, storage.active_processes(self.root / 'target')['active'])
             finally:
                 child.terminate()
                 child.wait()
-        self.assertTrue(self.cache.exists())
-
-    def test_uninspectable_activity_requires_explicit_acknowledgement(self):
-        with patch.object(storage, 'active_processes', return_value={'active': [], 'uninspectable': [42]}):
-            with self.assertRaisesRegex(RuntimeError, 'Cannot inspect'):
-                storage.prune_incremental(self.root, 0, True, self.lock)
-        self.assertTrue(self.cache.exists())
-
-    def test_target_symlink_refused(self):
-        target = self.root / 'target'
-        outside = Path(self.temp.name) / 'outside'
-        target.rename(outside)
-        target.symlink_to(outside, target_is_directory=True)
-        with self.assertRaisesRegex(ValueError, 'Symlink'):
-            self.prune(True)
-        self.assertTrue((outside / 'debug/incremental/cache').exists())
 
     def test_inventory_does_not_follow_links(self):
         outside = Path(self.temp.name) / 'large'
@@ -127,6 +61,8 @@ class StorageTests(unittest.TestCase):
         before = storage.usage(self.cache)
         (self.cache / 'link').symlink_to(outside)
         self.assertLess(storage.usage(self.cache) - before, 16384)
+        rows = storage.inventory(self.root)['rows']
+        self.assertIn(str(self.root / 'target'), [row['path'] for row in rows])
 
 
 if __name__ == '__main__':

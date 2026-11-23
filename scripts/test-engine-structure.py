@@ -44,6 +44,13 @@ class StructureTests(unittest.TestCase):
             self.assertIn('dev-dependencies mtg-compiler', structure.dependency_errors(root)[0])
             path.write_text('[package]\nname="mtg-core"\n[dev-dependencies]\nmtg-contracts = {path="../contracts"}\n')
             self.assertEqual([], structure.dependency_errors(root))
+            # A dev-only validator is reviewed per layer, never as a runtime edge.
+            contracts = root / structure.CRATES / 'contracts/Cargo.toml'
+            contracts.write_text('[package]\nname="mtg-contracts"\n[dev-dependencies]\njsonschema = "1"\n')
+            self.assertEqual([], structure.dependency_errors(root))
+            contracts.write_text('[package]\nname="mtg-contracts"\n[dependencies]\njsonschema = "1"\n')
+            self.assertIn('jsonschema', structure.dependency_errors(root)[0])
+            contracts.write_text('[package]\nname="mtg-contracts"\n')
             # The generated AST layer may not reach upward into contracts either.
             ast = root / structure.CRATES / 'oracle-ast/Cargo.toml'
             ast.write_text('[package]\nname="mtg-oracle-ast"\n[dependencies]\nmtg-contracts = {path="../contracts"}\n')

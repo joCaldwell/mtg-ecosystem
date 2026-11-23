@@ -13,8 +13,9 @@ lowers the binary cap instead. Arguments after `--` go to every binary
 (filters, --ignored). Output is buffered per binary: passing binaries print
 their summary line, failing ones print everything. The run reports wall time
 and the peak total resident memory of concurrently running binaries. Exits
-nonzero if the build or any binary fails. Run under the target's native lock
-(check-engine owns it).
+nonzero if the build or any binary fails, or if a binary executes zero tests
+(with a filter, if the whole selection executes zero tests). Run under the
+target's native lock (check-engine owns it).
 """
 import json
 import os
@@ -66,6 +67,26 @@ def executables(messages):
 def summary(output):
     lines = [line for line in output.splitlines() if line.startswith('test result:')]
     return lines[-1] if lines else 'no test result line'
+
+
+def passed(output):
+    """Executed (passed) tests from libtest's final summary, or None."""
+    line = summary(output)
+    if not line.startswith('test result:'):
+        return None
+    try:
+        return int(line.split('.', 1)[1].split('passed')[0].strip())
+    except (IndexError, ValueError):
+        return None
+
+
+def empty_selection(results, test_args):
+    """Binaries that executed no test; any filter allows per-binary zeros."""
+    counts = {name: passed(output) or 0 for name, (code, output, _) in results.items() if not code}
+    filtered = any(not arg.startswith('-') for arg in test_args)
+    if filtered:
+        return sorted(counts) if counts and sum(counts.values()) == 0 else []
+    return sorted(name for name, count in counts.items() if count == 0)
 
 
 def resident_bytes(pid):
@@ -130,6 +151,7 @@ def main(argv):
         thread.join()
     sampler.join()
     failed = sorted(name for name, (code, _, _) in results.items() if code)
+    empty = empty_selection(results, test_args)
     for name, _, _ in binaries:
         code, output, wall = results[name]
         if code:
@@ -137,8 +159,8 @@ def main(argv):
         print(f'{"FAIL" if code else "ok  "} {name} ({wall:.1f}s): {summary(output)}')
     print(f'{len(binaries)} binaries, {concurrent} at a time with {" ".join(binary_args)}, '
           f'in {time.monotonic() - started:.1f}s; peak total RSS {peak[0] / 2**30:.2f} GiB; '
-          f'failed: {", ".join(failed) or "none"}')
-    return 1 if failed else 0
+          f'failed: {", ".join(failed) or "none"}; executed no tests: {", ".join(empty) or "none"}')
+    return 1 if failed or empty else 0
 
 
 if __name__ == '__main__':

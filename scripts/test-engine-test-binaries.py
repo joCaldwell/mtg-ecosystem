@@ -35,6 +35,17 @@ class TestBinaryRunnerTests(unittest.TestCase):
                 self.assertLessEqual(binaries * threads, workers)
                 self.assertLessEqual(binaries, cap)
 
+    def test_zero_executed_tests_fail_unless_a_filter_selects_others(self):
+        ok = lambda n: (0, f'running {n} tests\ntest result: ok. {n} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out', 0.1)
+        self.assertEqual(3, runner.passed(ok(3)[1]))
+        self.assertIsNone(runner.passed('no summary'))
+        self.assertEqual(['empty'], runner.empty_selection({'full': ok(2), 'empty': ok(0)}, []))
+        self.assertEqual(['empty'], runner.empty_selection({'full': ok(2), 'empty': ok(0)}, ['--test-threads=4']))
+        self.assertEqual([], runner.empty_selection({'full': ok(2), 'empty': ok(0)}, ['FILTER']))
+        self.assertEqual(['a', 'b'], runner.empty_selection({'a': ok(0), 'b': ok(0)}, ['FILTER']))
+        # A failed binary is reported as failed, not as empty.
+        self.assertEqual([], runner.empty_selection({'bad': (101, 'panicked', 0.1)}, []))
+
     def test_only_test_profile_executables_are_selected(self):
         artifact = lambda name, test, exe: json.dumps({
             'reason': 'compiler-artifact', 'target': {'name': name}, 'profile': {'test': test},
