@@ -2,14 +2,6 @@
 //! cards in that player's graveyard. Recheck the announced incarnations only.
 use super::*;
 
-/// The paid target instruction alone can authorize appending multiple
-/// graveyard cards before shuffling. The bound group is kept private here.
-pub(super) struct GraveyardShuffleMoves {
-    cause: BatchCause,
-    group: EventGroup,
-}
-impl GraveyardShuffleMoves {}
-
 impl RulesTxn {
     pub(crate) fn player_graveyard_card(&self, object: &Object, player: PlayerId) -> bool {
         object.zone == (Zone::Graveyard { owner: player })
@@ -37,5 +29,3 @@ impl RulesTxn {
             .collect()
     }
 }
-
-impl RulesTxn {}

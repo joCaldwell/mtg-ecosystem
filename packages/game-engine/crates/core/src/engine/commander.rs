@@ -3,10 +3,6 @@ use super::*;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CommanderContinuation {
-    CascadeBottom {
-        progress: Box<CascadeProgress>,
-    },
-
     BoardReturn {
         frame: Resolving,
         objects: Vec<ObjectId>,
@@ -101,7 +97,7 @@ impl RulesTxn {
         card: CardId,
         caster: PlayerId,
         from: Zone,
-        alternative: Option<cascade::AlternativeCost>,
+        alternative: Option<AlternativeCost>,
     ) -> Result<ManaCost, String> {
         self.announcement_cost_with_additional(card, caster, from, alternative, &[])
     }
@@ -110,7 +106,7 @@ impl RulesTxn {
         card: CardId,
         caster: PlayerId,
         from: Zone,
-        alternative: Option<cascade::AlternativeCost>,
+        alternative: Option<AlternativeCost>,
         selected: &[String],
     ) -> Result<ManaCost, String> {
         let lock = self.cost_lock_inputs(card, caster, from)?;
@@ -240,10 +236,6 @@ impl RulesTxn {
             destination
         };
         match continuation {
-            CommanderContinuation::CascadeBottom { progress } => {
-                self.resume_cascade_commander(progress, object, to_command)?
-            }
-
             CommanderContinuation::BoardReturn {
                 frame,
                 objects,
@@ -449,16 +441,6 @@ impl RulesTxn {
             }
             let current = self.current(*object)?;
             match continuation {
-                CommanderContinuation::CascadeBottom { progress } => {
-                    self.validate_cascade_commander_choice(progress, *object, *destination)?;
-                    if *destination != (Zone::Library { owner })
-                        || current.zone != Zone::Exile
-                        || progress.stage != cascade::CascadeStage::Bottom
-                    {
-                        return Err("snapshot cascade commander replacement invariant".into());
-                    }
-                }
-
                 CommanderContinuation::BoardReturn {
                     frame,
                     objects,

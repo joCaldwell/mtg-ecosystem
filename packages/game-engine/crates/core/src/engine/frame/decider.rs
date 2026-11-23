@@ -45,22 +45,7 @@ impl Frame {
                 choices: _,
                 source_block: _,
             } => Decider::requested(game.sacrifice_request()?, 17),
-            Frame::HandCast { frame: _, child: _ } => {
-                Decider::requested(game.hand_cast_request()?, 45)
-            }
-            Frame::PlayHideawayLinked { progress: _ }
-            | Frame::RevealAndCast { progress: _ }
-            | Frame::Cascade { progress: _ } => match game.resolution_cast_request()? {
-                Some(request) => {
-                    let kind = match request {
-                        Request::CascadeLandEntry { .. } => 23,
-                        Request::PlayHideawayLinked { .. } => 46,
-                        _ => 22,
-                    };
-                    Decider::of(request.player(), kind)
-                }
-                None => None,
-            },
+
             Frame::Modes { cast: _ } => Decider::requested(game.modes_request()?, 13),
             Frame::CounterPlacement { transaction: _ } => {
                 Decider::requested(game.counter_placement_request()?, 22)

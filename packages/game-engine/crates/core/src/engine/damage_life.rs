@@ -363,7 +363,7 @@ impl RulesTxn {
             if entry.kind.is_spell()
                 && mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_some()
             {
-                let bestowed = entry.alternative_cost == Some(cascade::AlternativeCost::Bestow);
+                let bestowed = entry.alternative_cost == Some(AlternativeCost::Bestow);
                 if fact.zone != Zone::Stack
                     || fact.characteristics
                         != self.proposed_cast_characteristics(entry.source.card, bestowed)?
@@ -497,22 +497,7 @@ impl RulesTxn {
                     .get(index)
                     .ok_or("missing creature damage binding")?,
             },
-            Some(TargetDomain::BattlefieldPermanent)
-                if matches!(
-                    spell.kind,
-                    StackKind::Triggered {
-                        witness: TriggerEventWitness::LoreAdded { .. },
-                        ..
-                    }
-                ) && spec.is_some_and(mtg_contracts::saga_damage_target) =>
-            {
-                TargetEntity::Object {
-                    object: *spell
-                        .targets
-                        .get(index)
-                        .ok_or("missing chapter damage binding")?,
-                }
-            }
+
             _ => return Err("unsupported directed damage target domain".into()),
         };
         Ok((slot, amount, block, target))

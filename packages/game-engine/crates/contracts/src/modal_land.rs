@@ -1,8 +1,6 @@
 //! Complete modal land back faces and graveyard-return fronts, CR 712.8d/f, 712.12 and 712.14.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use crate::bulk_catalog::{is_oracle_id, is_sha256};
-use serde_json::{Value, json};
 use std::sync::OnceLock;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -38,7 +36,6 @@ impl PartialEq for ModalLand {
         self.front_name == other.front_name && self.back == other.back
     }
 }
-impl Eq for ModalLand {}
 
 impl LandFace {
     fn text(&self) -> String {
@@ -48,57 +45,6 @@ impl LandFace {
             ""
         };
         format!("{prefix}{{T}}: Add {{{:?}}}.", self.color)
-    }
-
-    fn read(face: &Value) -> Option<Self> {
-        if face["type_line"] != "Land"
-            || face["mana_cost"] != ""
-            || face["colors"] != json!([])
-            || [
-                "power",
-                "toughness",
-                "defense",
-                "loyalty",
-                "color_indicator",
-            ]
-            .iter()
-            .any(|field| face.get(*field).is_some())
-        {
-            return None;
-        }
-        let name = face["name"].as_str()?.to_owned();
-        if name.is_empty() {
-            return None;
-        }
-        let text = face["oracle_text"].as_str()?;
-        let (text, tapped) = text
-            .strip_prefix("This land enters tapped.\n")
-            .map_or((text, false), |s| (s, true));
-        let color = match text.strip_prefix("{T}: Add {")?.strip_suffix("}.")? {
-            "W" => Color::W,
-            "U" => Color::U,
-            "B" => Color::B,
-            "R" => Color::R,
-            "G" => Color::G,
-            "C" => Color::C,
-            _ => return None,
-        };
-        Some(Self {
-            name,
-            color,
-            tapped,
-        })
-    }
-
-    fn abilities(&self) -> Value {
-        let mut abilities = vec![];
-        if self.tapped {
-            abilities.push(json!({"kind":"static","effect":{"static":"enters-tapped","what":{"ref":"this","noun":"land"}}}));
-        }
-        abilities.push(json!({"kind":"activated","costs":[{"cost":"tap-self"}],
-            "effects":[{"steps":[{"effect":"add-mana","who":{"player":"you"},
-                "mana":{"mana":"fixed","symbols":[self.color]}}]}]}));
-        Value::Array(abilities)
     }
 
     fn definition(
@@ -210,3 +156,5 @@ impl Definition {
             .unwrap_or(self.name.as_str())
     }
 }
+
+impl Eq for ModalLand {}

@@ -5,20 +5,10 @@ import { GameClient, ProtocolError } from '../src/client.ts';
 import { manifest } from '../src/validation.ts';
 
 const catalog = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/expected-match-ir.json', import.meta.url), 'utf8'));
-// Wire fixture uses the actual compiled catalog and the source-backed white
-// deck recipe from core/match_admission.rs; no engine admission claim is made.
-const oracle = name => {
-  const card = catalog.definitions.find(card => card.name === name);
-  assert(card, `missing source-backed fixture ${name}`);
-  return card.oracle_id;
-};
-const deck = {
-  commander: oracle('Isamaru, Hound of Konda'),
-  cards: ['Isamaru, Hound of Konda', 'Yoked Ox', 'Samite Healer', 'Sacred Nectar', 'Healing Hands', 'Healing Salve', 'Plains'].map(name => ({ oracle_id: oracle(name), count: name === 'Plains' ? 94 : 1 })),
-};
+const deck = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/profiles/commander-foundations-v1.json', import.meta.url), 'utf8')).decks[0];
 const fixture = () => ({
   protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64),
-  catalog_sha256: 'd00ee2cf3760ddaf9a807af0c79764f4bea2f21177c350a30d2d4f0a087c9ef0',
+  catalog_sha256: fs.readFileSync(new URL('../../../game-engine/tests/fixtures/catalogs/match.sha256', import.meta.url), 'utf8').trim(),
   profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => structuredClone(deck)),
   starting_player: 0, catalog: structuredClone(catalog),
 });
@@ -31,7 +21,7 @@ test('manifest route returns precise public catalog and four decklists through R
   const sdk = client(async (url, init) => { call = { url, init }; return json(expected); });
   assert.deepEqual(await sdk.manifest(), expected);
   assert.equal(JSON.stringify(expected), before);
-  assert.equal(expected.catalog.definitions.length, 34);
+  assert.equal(expected.catalog.definitions.length, catalog.definitions.length);
   assert.equal(call.url, 'https://engine.example/v1/matches/abc/manifest');
   assert(!call.url.includes(capability));
   assert.equal(call.init.method, 'GET');

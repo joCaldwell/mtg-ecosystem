@@ -5,11 +5,9 @@ use std::collections::BTreeMap;
 
 const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
 const RESEARCHER: &str = "240a349a-79f8-4e11-9a05-a78148e70a62";
-const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
-const TIME_EBB: &str = "30cc8f7b-3c28-40f5-8f8f-157e8212280b";
+
 const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
-const ISLAND: &str = "b2c6aa39-2d2a-459c-a555-fb48ba993373";
 
 fn prepared(config: ScenarioConfig) -> Prepared {
     Prepared::admit(

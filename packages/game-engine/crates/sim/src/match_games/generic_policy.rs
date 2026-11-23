@@ -3,9 +3,8 @@
 use super::*;
 use mtg_contracts::{
     ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
-    KeywordAbility, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
-    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, announced_x, fixed,
-    kernel,
+    KeywordAbility, ObjectSet, SacrificeFilter, SpellProgram, SpellResolution, SpellTiming,
+    StaticEffect, TargetDomain, TargetSpec, announced_x, fixed, kernel,
     kir::{self, Context, SetExpr},
     source_object, target_object, target_player,
 };
@@ -92,7 +91,7 @@ fn blocking_pump_program(p: &SpellProgram) -> bool {
 /// that forbids regeneration, and the wave that first removes indestructible.
 /// Those are the same kernel verb now, so the exclusion is stated here; pod
 /// decisions stay exactly what they were. Widen it as a policy change.
-fn scored_wipe<'a>(p: &SpellProgram, i: &'a I) -> Option<&'a SetExpr> {
+fn scored_wipe(i: &I) -> Option<&SetExpr> {
     match i {
         kernel!(Destroy {
             what: what @ SetExpr::Matching { .. },
@@ -127,7 +126,7 @@ fn reactive_program(p: &SpellProgram) -> bool {
     blocking_pump_program(p)
         || p.additional_sacrifice.is_some()
         || p.instructions.iter().any(|i| {
-            scored_wipe(p, i)
+            scored_wipe(i)
                 .is_some_and(|what| *what == ObjectSet::AttackingCreatures.kernel(Context::Spell))
         })
         || p.modes.iter().any(|m| reactive_program(&m.program))
@@ -138,11 +137,6 @@ fn sole_target_destruction(p: &SpellProgram, slot: u32) -> bool {
         && p.targets.len() == 1
         && matches!(p.instructions.as_slice(),
         [i] if i.target_destroy().is_some_and(|(target_slot, ..)| target_slot == slot))
-}
-// Pure protection needs an incremental benefit. Match public semantics rather
-// than a card or profile identity; buff/restriction equipment keeps its policy.
-fn pure_indestructible_equipment(d: &Definition, p: &SpellProgram) -> bool {
-    false
 }
 fn tapped_destroy_program(d: &Definition, p: &SpellProgram) -> bool {
     matches!(
@@ -450,16 +444,6 @@ impl Strategy<'_> {
             return self.defensive_untap_target(v, d, p, t, candidates);
         }
 
-        if pure_indestructible_equipment(d, p) {
-            let source = v
-                .stack
-                .last()
-                .and_then(|s| s.ability.as_ref())
-                .filter(|a| a.oracle_id == d.oracle_id)
-                .and_then(|a| a.source.current.as_ref())
-                .and_then(|h| v.objects.iter().find(|o| &o.handle == h));
-            return self.protection_equipment_target(v, t, candidates, source);
-        }
         let own = self.target_beneficial(d, p, t.slot)
             || t.domain == TargetDomain::OwnGraveyardCreatureCard;
         // A paid source-tap activation should change its target's status.
@@ -486,36 +470,6 @@ impl Strategy<'_> {
     // unambiguous one-on-one combat with no intervening stack. No hidden facts,
     // speculative future targets, multi-block allocation or outcome search.
 
-    fn protection_equipment_target(
-        &self,
-        v: &PermittedView,
-        t: &TargetSpec,
-        candidates: Option<&[ObjectHandle]>,
-        source: Option<&VisibleObject>,
-    ) -> Option<ObjectHandle> {
-        let current = source
-            .filter(|s| s.zone == Zone::Battlefield && s.controller == v.viewer)
-            .and_then(|s| s.attached_to.as_ref());
-        v.objects
-            .iter()
-            .filter(|o| {
-                o.controller == v.viewer
-                && candidates.is_none_or(|cs| cs.contains(&o.handle))
-                && self.object_matches(v, o, t, candidates.is_some())
-                // Keep this source's current recipient in the comparison. Removing
-                // it as "already protected" would alternate between two creatures.
-                && (current == Some(&o.handle)
-                    || !o.keywords.contains(&KeywordAbility::Indestructible))
-            })
-            .max_by_key(|o| {
-                (
-                    self.value(o),
-                    current == Some(&o.handle),
-                    o.handle.0.clone(),
-                )
-            })
-            .map(|o| o.handle.clone())
-    }
     fn defensive_untap_target(
         &self,
         v: &PermittedView,
@@ -770,8 +724,8 @@ impl Strategy<'_> {
                         .get(target_slot as usize)
                         .is_some_and(|t| t.current.as_ref() == Some(&o.handle)),
                     i if destroys_all_creatures(i) => self.in_set(v, o, &ObjectSet::Creatures),
-                    i if scored_wipe(p, i).is_some() => {
-                        scored_wipe(p, i).is_some_and(|what| self.in_kernel_set(v, o, what))
+                    i if scored_wipe(i).is_some() => {
+                        scored_wipe(i).is_some_and(|what| self.in_kernel_set(v, o, what))
                     }
                     i if set_shrink(i).is_some() => {
                         let (what, toughness) = set_shrink(i).unwrap();
@@ -990,8 +944,8 @@ impl Strategy<'_> {
         let mut wins = false;
         for i in &p.instructions {
             let (sets, damage): (Vec<SetExpr>, _) = match i {
-                i if scored_wipe(p, i).is_some() => {
-                    (scored_wipe(p, i).into_iter().cloned().collect(), None)
+                i if scored_wipe(i).is_some() => {
+                    (scored_wipe(i).into_iter().cloned().collect(), None)
                 }
                 i if set_shrink(i).is_some() => {
                     let (what, toughness) = set_shrink(i).unwrap();
@@ -1251,26 +1205,7 @@ impl Strategy<'_> {
     pub(super) fn definition_ready(&self, v: &PermittedView, d: &Definition) -> bool {
         d.spell.as_ref().is_none_or(|p| self.program_ready(v, d, p))
     }
-    fn friendly_entities(&self, v: &PermittedView) -> Vec<PlayerTargetEntity> {
-        std::iter::once(PlayerTargetEntity::Player { player: v.viewer })
-            .chain(
-                v.objects
-                    .iter()
-                    .filter(|o| {
-                        self.targetable(v, o)
-                            && query::matches_target_domain(
-                                &query::in_view(v, o),
-                                v.viewer,
-                                TargetDomain::ControlledBattlefieldCreature,
-                            )
-                            .is_yes()
-                    })
-                    .map(|o| PlayerTargetEntity::Object {
-                        object: o.handle.clone(),
-                    }),
-            )
-            .collect()
-    }
+
     fn reactive_ready(&self, v: &PermittedView, d: &Definition, p: &SpellProgram) -> bool {
         if !p.modes.is_empty() {
             return p
@@ -1602,12 +1537,7 @@ impl Strategy<'_> {
             return None;
         }
         let (tap, sac, cost) = match &a.cost {
-            ActivationCost::TapPayLifeSacrificeSource { life } => {
-                {
-                    return None;
-                }
-                (true, true, zero_cost())
-            }
+            ActivationCost::TapPayLifeSacrificeSource { .. } => return None,
             ActivationCost::DiscardSource { mana } => {
                 if self.library_count(v) < 2
                     || !a.program.instructions.iter().any(|i| {
@@ -1905,60 +1835,6 @@ impl Strategy<'_> {
             }
         }
         Ok(PlayerResponse::Pass)
-    }
-    pub(super) fn search_lands(
-        &self,
-        view: &PermittedView,
-        candidates: &[mtg_core::VisibleSearchLand],
-        maximum: usize,
-    ) -> Vec<ObjectHandle> {
-        let colors = |d: &Definition| {
-            d.characteristics
-                .subtypes
-                .iter()
-                .filter_map(|subtype| mtg_contracts::basic_land_color(subtype))
-                .collect::<std::collections::BTreeSet<_>>()
-        };
-        let mut covered = view
-            .objects
-            .iter()
-            .filter(|o| o.zone == Zone::Battlefield && o.controller == view.viewer && !o.phased_out)
-            .filter_map(|o| o.characteristics.as_ref())
-            .filter(|c| c.has_type(CardKind::Land))
-            .flat_map(|c| {
-                c.subtypes
-                    .iter()
-                    .filter_map(|s| mtg_contracts::basic_land_color(s))
-            })
-            .collect::<std::collections::BTreeSet<_>>();
-        let mut offered: Vec<_> = candidates
-            .iter()
-            .enumerate()
-            .map(|(index, candidate)| {
-                let production = definition(self.catalog, &candidate.oracle_id)
-                    .ok()
-                    .map_or_else(Default::default, colors);
-                (index, candidate, production)
-            })
-            .collect();
-        let mut chosen = Vec::with_capacity(maximum.min(offered.len()));
-        while chosen.len() < maximum && !offered.is_empty() {
-            let next = offered
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, (order, _, production))| {
-                    (
-                        production.difference(&covered).count(),
-                        std::cmp::Reverse(*order),
-                    )
-                })
-                .map(|(index, _)| index)
-                .unwrap();
-            let (_, candidate, production) = offered.swap_remove(next);
-            covered.extend(production);
-            chosen.push(candidate.handle.clone());
-        }
-        chosen
     }
 
     fn library_count(&self, v: &PermittedView) -> usize {

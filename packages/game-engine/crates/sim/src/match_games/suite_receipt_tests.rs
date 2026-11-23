@@ -219,19 +219,6 @@ fn receipt_domain_binds_catalog_and_profile() {
 }
 
 #[test]
-fn receipt_domain_binds_each_evidence_profile_even_when_slot_bytes_match() {
-    let mut fixture = Fixture::new();
-    let mut e = synthetic_evidence(1);
-    let other = mtg_core::match_profile("commander-data-admission-v1").unwrap();
-    e.config =
-        MatchConfig::for_profile(&other.name, seed_for(&other.name, 1), PlayerId(1)).unwrap();
-    apply_completion_layout(other, 1, &mut e.config);
-    verify_suite_entry(1, &e).unwrap();
-    fixture.replace(1, &e);
-    assert_eq!(fixture.error(), BINDING_ERROR);
-}
-
-#[test]
 fn receipt_domain_still_strict_decodes_saved_evidence() {
     let mut fixture = Fixture::new();
     let mut value = serde_json::to_value(synthetic_evidence(1)).unwrap();

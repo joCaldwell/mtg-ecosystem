@@ -9,20 +9,7 @@ fn catalog() -> Catalog {
 fn game() -> Game {
     Game::new(witness_scenario(catalog(), ScenarioConfig::damage_life()))
 }
-fn settle(g: &mut Game) -> Request {
-    for _ in 0..500 {
-        match g.advance(Budget::new(1)) {
-            Advance::AwaitingDecision(r) => return r,
-            Advance::Suspended { .. } => (),
-            other => panic!("unexpected boundary {other:?}"),
-        }
-    }
-    panic!("decision budget exhausted")
-}
-fn answer(g: &mut Game, response: Response) {
-    let r = settle(g);
-    g.respond(r.player(), r.decision_id(), response).unwrap();
-}
+
 fn hit(g: &Game, source: u32, recipient: DamageRecipient, amount: i64) -> ProposedEvent {
     let fact = g
         .object_before(g.object_id(CardId(source)).unwrap())
@@ -38,14 +25,6 @@ fn hit(g: &Game, source: u32, recipient: DamageRecipient, amount: i64) -> Propos
 }
 fn leaf(proposed: ProposedEvent) -> EventGroup {
     EventGroup::Occurrence { proposed }
-}
-fn recover(g: &Game) {
-    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
-    let replayed = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
-    assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
-    assert_eq!(replayed.state_digest().unwrap(), g.state_digest().unwrap());
-    assert_eq!(restored.trace(), g.trace());
-    assert_eq!(replayed.trace(), g.trace());
 }
 
 #[test]

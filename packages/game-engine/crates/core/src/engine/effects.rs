@@ -174,8 +174,6 @@ pub struct ActualDamage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DamageTransaction {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub allocation_groups: Vec<DamageAllocationRecord>,
     pub id: DamageTransactionId,
     pub kind: DamageKind,
     pub entries: Vec<PreparedDamage>,
@@ -302,12 +300,7 @@ impl RulesTxn {
         }
         let all_colors = self.static_all_colors_timestamp(&base, target.controller, sources)?;
         let mut base = base;
-        if self.catalog_has_target_color_set
-            && let Some((timestamp, color)) = self.latest_color_set(object)
-            && all_colors.is_none_or(|static_timestamp| timestamp > static_timestamp)
-        {
-            base.to_mut().colors = vec![color];
-        } else if all_colors.is_some() {
+        if all_colors.is_some() {
             base.to_mut().colors = MANA_COMBINATION_COLORS.to_vec();
         }
         Ok(base)
@@ -349,9 +342,6 @@ impl RulesTxn {
                     })
                 {
                     let timestamp = source.keyword_timestamp.unwrap_or(0);
-                    if !self.catalog_has_target_color_set {
-                        return Ok(Some(timestamp));
-                    }
                     latest = latest.max(Some(timestamp));
                 }
             }
@@ -562,7 +552,6 @@ impl RulesTxn {
             .rules
             .effects
             .iter()
-            .filter(|e| true)
             .map(|e| EffectKey::Resolved { id: e.id })
             .chain(self.static_damage_effects())
             .collect()
@@ -699,14 +688,6 @@ impl RulesTxn {
     }
     // CR 608.2b / 611.2c: creation rechecks current control; the captured
     // effect subsequently follows only the exact incarnation, never control.
-
-    pub(super) fn scalar_keyword_effect_applies(
-        &self,
-        effect: &ResolvedEffect,
-        object: ObjectId,
-    ) -> bool {
-        self.is_battlefield_creature(object)
-    }
 
     pub(super) fn validate_combat_player_members<'a>(
         members: impl Iterator<Item = (ObjectId, &'a DamageRecipient)>,
@@ -895,7 +876,6 @@ impl RulesTxn {
             .ok_or("damage transaction limit")?;
         self.rules_mut().frame = Frame::DamageEffects {
             transaction: DamageTransaction {
-                allocation_groups: vec![],
                 id,
                 kind,
                 entries,
@@ -1656,23 +1636,9 @@ impl RulesTxn {
                 return Err("effect origin stack identity invariant".into());
             }
 
-            if let ResolvedEffectKind::CombatRestriction {
-                target,
-                restriction,
-            } = &e.kind
-            {
-                let source = self.copiable_definition(e.origin.source)?;
-                let program = if let Some(index) = e.origin.activated_ability {
-                    source.activated.get(index as usize).map(|a| &a.program)
-                } else {
-                    source.spell.as_ref()
-                };
-                {
-                    return Err("invalid historical combat restriction".into());
-                }
-                continue;
+            if matches!(e.kind, ResolvedEffectKind::CombatRestriction { .. }) {
+                return Err("unsupported historical combat restriction".into());
             }
-
             let programs = self.origin_programs(&e.origin)?;
             let instructions = programs.iter().filter_map(|p| {
                 p.instructions
@@ -1780,8 +1746,6 @@ impl RulesTxn {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DamageTransactionBefore {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub allocation_groups: Vec<DamageAllocationRecord>,
     pub id: DamageTransactionId,
     pub kind: DamageKind,
     pub entries: Vec<PreparedDamage>,
@@ -1790,7 +1754,6 @@ pub struct DamageTransactionBefore {
 impl From<&DamageTransaction> for DamageTransactionBefore {
     fn from(tx: &DamageTransaction) -> Self {
         Self {
-            allocation_groups: tx.allocation_groups.clone(),
             id: tx.id,
             kind: tx.kind,
             entries: tx.entries.clone(),
@@ -2535,20 +2498,6 @@ impl RulesTxn {
             Self::add_basic_land_types(&mut base);
         }
         // Replay authenticates which provider existed at the original capture.
-        if base.colors != c.colors
-            && self.catalog_has_nonland_color_grant
-            && zone == Zone::Battlefield
-            && !base.has_type(CardKind::Land)
-        {
-            base.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
-        }
-        if base.colors != c.colors
-            && zone == Zone::Battlefield
-            && matches!(c.colors.as_slice(), [color] if *color != Color::C)
-            && self.catalog_has_target_color_set
-        {
-            base.colors.clone_from(&c.colors);
-        }
         base.power = c.power.clone();
         base.toughness = c.toughness.clone();
         if base != *c {
@@ -2628,7 +2577,7 @@ impl RulesTxn {
                 !matches!(a.effect, EffectKey::IntrinsicProtectionFromEverything { .. }
                     | EffectKey::IntrinsicProtectionFromColor { .. })
             ).count() > existing_limit)
-            || !tx.allocation_groups.is_empty()
+
             || tx.id.0 >= self.state.rules.next_damage_transaction_id
         {
             return Err("damage transaction resource/identity invariant".into());
@@ -3015,5 +2964,3 @@ impl RulesTxn {
         Ok(())
     }
 }
-
-impl RulesTxn {}

@@ -44,7 +44,6 @@ impl Frame {
                 Frame::Kernel { task: _ }
                 | Frame::GraveyardGroup { tx: _ }
                 | Frame::GraveyardReplacement { transaction: _ }
-                | Frame::PlayHideawayLinked { progress: _ }
                 | Frame::LandEntry {
                     origin: _,
                     objects: _,
@@ -56,9 +55,6 @@ impl Frame {
                     scope: _,
                     resume: _,
                 }
-                | Frame::RevealAndCast { progress: _ }
-                | Frame::HandCast { frame: _, child: _ }
-                | Frame::Cascade { progress: _ }
                 | Frame::LegendRule {
                     resume: _,
                     groups: _,

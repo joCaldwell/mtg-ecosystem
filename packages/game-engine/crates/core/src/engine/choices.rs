@@ -164,7 +164,7 @@ impl PartialEq for BoundModeSubset {
         self.indices == other.indices
     }
 }
-impl Eq for BoundModeSubset {}
+
 impl BoundModeSubset {
     fn build(root: &SpellProgram, chosen: &[u32]) -> Result<Self, String> {
         let indices = mtg_contracts::modal_targets::ModeCount::for_root(root)
@@ -354,7 +354,6 @@ impl RulesTxn {
         let mut entities = entry.entity_targets.len();
         let mut objects = entry.targets.len();
         let mut stack = entry.stack_targets.len();
-        let mut group = usize::from(!entry.entity_targets.is_empty());
         for child in children {
             let used = match child.targets.first().map(|t| t.domain) {
                 None => continue,
@@ -981,3 +980,5 @@ impl RulesTxn {
             .collect())
     }
 }
+
+impl Eq for BoundModeSubset {}

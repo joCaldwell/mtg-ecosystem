@@ -3,7 +3,6 @@ import type { CommandEnvelope, PlayerResponse, ExactQuantity, StreamPage, Player
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 type Assert<T extends true> = T;
 type DamagePair = Assert<Equal<Extract<PlayerResponse, { response: 'damage' }>['assignments'][number], [string, ExactQuantity]>>;
-type AllocationPair = Assert<Equal<Extract<PlayerResponse, { response: 'damage_allocation' }>['allocations'][number], [string, ExactQuantity]>>;
 type AttackPair = Assert<Equal<Extract<PlayerResponse, { response: 'attackers' }>['attacks'][number], [string, number]>>;
 type BlockPair = Assert<Equal<Extract<PlayerResponse, { response: 'blockers' }>['blocks'][number], [string, string]>>;
 const damage: PlayerResponse = { response: 'damage', assignments: [['current-handle', '90071992547409931234567890']] };
@@ -30,7 +29,6 @@ export function exhaustive(response: PlayerResponse): string {
     case 'announce_x': return response.value;
     case 'mulligan': return String(response.take);
     case 'bottom_opening': return response.objects.join(',');
-    case 'damage_allocation': return String(response.allocations.length);
     case 'modes': return String(response.mode);
     case 'damage_effect': return response.effect;
     case 'order_triggers': return response.order.join(',');
@@ -53,12 +51,24 @@ export function exhaustive(response: PlayerResponse): string {
     case 'targets': return response.objects.join(',');
     case 'finish_mana': return String(response.undo_mana);
     case 'trample_damage': return `${response.player}:${response.amount}:${response.assignments.length}`;
-    case 'search_lands': return response.objects.join(',');
     case 'sacrifice_cost': return response.object;
     case 'forced_sacrifice': return response.object;
     case 'optional_effect': return String(response.perform);
-    case 'optional_recursion': return String(response.perform);
     case 'mana_color': return String(response.color);
+    case 'opening_placement':
+    case 'additional_costs':
+    case 'entry_copy':
+    case 'entry_attachment':
+    case 'hybrid_cost':
+    case 'choose_mana_ability':
+    case 'mana_combination':
+    case 'entry_reveal':
+    case 'mode_subset':
+    case 'counter_placement_effect':
+    case 'spend_mana_allocated':
+    case 'play_back_land':
+    case 'bestow':
+      return response.response;
     default: { const unhandled: never = response; return unhandled; }
   }
 }
@@ -66,7 +76,7 @@ export function exhaustive(response: PlayerResponse): string {
 type ReturnRequest = Extract<PlayerRequest, { request: 'commander_return' }>;
 type RequiredNullableObject = Assert<Equal<ReturnRequest['object'], string | null>>;
 void [damage, numericQuantity, shortTuple, longTuple, physicalCast, numericRevision, numericCursor, rawReceipt];
-export type TupleProofs = [DamagePair, AllocationPair, AttackPair, BlockPair, RequiredNullableObject];
+export type TupleProofs = [DamagePair, AttackPair, BlockPair, RequiredNullableObject];
 
 // Host pause/fault cannot be presented as a rules win or draw.
 export function exhaustiveRulesResult(result: RulesResult): string {
@@ -124,16 +134,12 @@ export type ForbiddenManifestDigest = PublicManifest['profile_digest'];
 
 // Newer hosted profiles retain exact tuples, private search handles and nested mana sources.
 const trample: PlayerResponse = { response: 'trample_damage', assignments: [['blocker', '1']], player: 2, amount: '9007199254740993' };
-const search: PlayerResponse = { response: 'search_lands', objects: ['private-resolution-handle'] };
-const recursion: PlayerResponse = { response: 'optional_recursion', perform: true };
 const color: PlayerResponse = { response: 'mana_color', color: 'C' };
-// @ts-expect-error search responses use offered handles, never catalog IDs/rows.
-const rawSearch: PlayerResponse = { response: 'search_lands', objects: [{ oracle_id: 'public-card' }] };
 // @ts-expect-error color choices use the generated finite color enum.
 const badColor: PlayerResponse = { response: 'mana_color', color: 'colorless' };
 // @ts-expect-error trample quantities cannot be imprecise JSON numbers.
 const numericTrample: PlayerResponse = { response: 'trample_damage', assignments: [], player: 1, amount: 3 };
-void [trample, search, recursion, color, rawSearch, badColor, numericTrample];
+void [trample, color, badColor, numericTrample];
 
 const x: PlayerResponse = {response: 'announce_x', value: '90071992547409931234567890'};
 // @ts-expect-error X is an exact quantity.

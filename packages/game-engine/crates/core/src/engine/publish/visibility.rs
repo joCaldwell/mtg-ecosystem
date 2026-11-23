@@ -477,40 +477,13 @@ pub enum PlayerRequest {
         player: PlayerId,
         object: ObjectHandle,
     },
-    HandCast {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
+
     AdditionalCosts {
         token: DecisionToken,
         player: PlayerId,
         candidates: Vec<AdditionalCostChoice>,
     },
-    HandReturn {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-        count: usize,
-    },
-    LibraryOrder {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-        count: usize,
-    },
-    Hideaway {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
-    PlayHideawayLinked {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        back_land_candidates: Vec<ObjectHandle>,
-    },
+
     EntryCopy {
         token: DecisionToken,
         player: PlayerId,
@@ -523,22 +496,7 @@ pub enum PlayerRequest {
         source: ObjectHandle,
         candidates: Vec<ObjectHandle>,
     },
-    LibrarySelect {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-        remainder: LibraryRemainder,
-    },
-    Surveil {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
-    Scry {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
+
     LegendRule {
         token: DecisionToken,
         player: PlayerId,
@@ -584,63 +542,19 @@ pub enum PlayerRequest {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana_ability_source: Option<ObjectHandle>,
     },
-    CascadeLandEntry {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
+
     EntryReveal {
         token: DecisionToken,
         player: PlayerId,
         source: ObjectHandle,
         candidates: Vec<ObjectHandle>,
     },
-    SearchLandBattlefield {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
-    ColoredSearch {
-        token: DecisionToken,
-        player: PlayerId,
-        library: Vec<String>,
-        colors: Vec<Color>,
-        candidates: Vec<ColoredCardCandidate>,
-    },
-    SearchLands {
-        token: DecisionToken,
-        player: PlayerId,
-        maximum: u32,
-        /// The searching player's private view of all searched card identities.
-        /// CR 701.23a permits inspection. Sorting preserves library order privacy.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        library: Vec<String>,
-        candidates: Vec<VisibleSearchLand>,
-    },
-    ChooseOpponent {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<PlayerId>,
-    },
+
     OptionalEffect {
         token: DecisionToken,
         player: PlayerId,
     },
-    ChooseColor {
-        token: DecisionToken,
-        player: PlayerId,
-        target: ObjectHandle,
-        colors: Vec<Color>,
-    },
-    Proliferate {
-        token: DecisionToken,
-        player: PlayerId,
-        candidate: ObjectHandle,
-    },
-    OptionalRecursion {
-        token: DecisionToken,
-        player: PlayerId,
-    },
+
     Mulligan {
         token: DecisionToken,
         player: PlayerId,
@@ -791,30 +705,13 @@ pub enum PlayerRequest {
 impl PlayerRequest {
     pub fn token(&self) -> &DecisionToken {
         match self {
-            Self::HandCast { token, .. }
-            | Self::HandReturn { token, .. }
-            | Self::LibraryOrder { token, .. }
-            | Self::Hideaway { token, .. }
-            | Self::PlayHideawayLinked { token, .. }
-            | Self::EntryCopy { token, .. }
-            | Self::EntryAttachment { token, .. }
-            | Self::LibrarySelect { token, .. }
-            | Self::Scry { token, .. }
-            | Self::Surveil { token, .. } => token,
+            Self::EntryCopy { token, .. } | Self::EntryAttachment { token, .. } => token,
             Self::LegendRule { token, .. }
             | Self::ChooseManaAbility { token, .. }
             | Self::ManaCombination { token, .. }
             | Self::ManaColor { token, .. }
-            | Self::ColoredSearch { token, .. }
-            | Self::SearchLands { token, .. }
-            | Self::CascadeLandEntry { token, .. }
             | Self::EntryReveal { token, .. }
-            | Self::SearchLandBattlefield { token, .. }
-            | Self::ChooseOpponent { token, .. }
             | Self::OptionalEffect { token, .. }
-            | Self::ChooseColor { token, .. }
-            | Self::Proliferate { token, .. }
-            | Self::OptionalRecursion { token, .. }
             | Self::Mulligan { token, .. }
             | Self::OpeningPlacement { token, .. }
             | Self::BottomOpening { token, .. }
@@ -863,39 +760,14 @@ pub enum PlayerResponse {
     AdditionalCosts {
         selected: Vec<String>,
     },
-    HandReturn {
-        objects: Vec<ObjectHandle>,
-    },
-    LibraryOrder {
-        objects: Vec<ObjectHandle>,
-    },
-    Hideaway {
-        object: ObjectHandle,
-    },
-    PlayHideawayLinked {
-        object: Option<ObjectHandle>,
-    },
-    PlayHideawayLinkedBackLand {
-        object: ObjectHandle,
-    },
+
     EntryCopy {
         object: Option<ObjectHandle>,
     },
     EntryAttachment {
         object: ObjectHandle,
     },
-    LibrarySelect {
-        hand: Vec<ObjectHandle>,
-        remainder: Vec<ObjectHandle>,
-    },
-    Surveil {
-        top: Vec<ObjectHandle>,
-        graveyard: Vec<ObjectHandle>,
-    },
-    Scry {
-        top: Vec<ObjectHandle>,
-        bottom: Vec<ObjectHandle>,
-    },
+
     LegendRule {
         keep: ObjectHandle,
     },
@@ -920,37 +792,15 @@ pub enum PlayerResponse {
     ManaColor {
         color: Color,
     },
-    ColoredSearch {
-        assignments: Vec<ColoredCardAssignment>,
-    },
-    SearchLands {
-        objects: Vec<ObjectHandle>,
-    },
-    CascadeLandEntry {
-        object: Option<ObjectHandle>,
-    },
+
     EntryReveal {
         card: Option<ObjectHandle>,
     },
-    SearchLandBattlefield {
-        object: ObjectHandle,
-    },
-    ChooseOpponent {
-        opponent: PlayerId,
-    },
+
     OptionalEffect {
         perform: bool,
     },
-    ChooseColor {
-        color: Color,
-    },
-    Proliferate {
-        object: ObjectHandle,
-        include: bool,
-    },
-    OptionalRecursion {
-        perform: bool,
-    },
+
     Mulligan {
         take: bool,
     },
@@ -1372,17 +1222,6 @@ impl RulesTxn {
         }
         index
     }
-    pub(in crate::engine) fn search_decision_token(
-        &self,
-        player: PlayerId,
-    ) -> Result<&DecisionToken, String> {
-        self.state
-            .knowledge
-            .visibility
-            .get(player.0 as usize)
-            .and_then(|k| k.decision_token.as_ref())
-            .ok_or_else(|| "missing private search token".into())
-    }
 
     pub(crate) fn capture_trigger_source_handles(
         &mut self,
@@ -1456,55 +1295,21 @@ impl RulesTxn {
                 current: self.handle_for(viewer, trigger.source).ok(),
             },
             oracle_id: self.visible_ability_oracle_id(trigger.source)?.into(),
-            ability: self.visible_trigger_ability(
-                viewer,
-                trigger.ability,
-                trigger.grant.as_ref(),
-            )?,
+            ability: Self::visible_trigger_ability(trigger.ability),
         })
     }
 
-    fn visible_trigger_ability<
-        O: for<'a> From<&'a HandleId<b'o'>>,
-        E: for<'a> From<&'a HandleId<b'e'>>,
-    >(
-        &self,
-        viewer: PlayerId,
+    fn visible_trigger_ability<O, E>(
         ability: EffectiveTriggerAbility,
-        grant: Option<&CascadeGrantProvenance>,
-    ) -> Result<VisibleTriggerAbility<O, E>, String> {
-        let grant_source = match ability {
+    ) -> VisibleTriggerAbility<O, E> {
+        match ability {
             EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
-                return Ok(VisibleTriggerAbility::DelayedChapter { chapter });
+                VisibleTriggerAbility::DelayedChapter { chapter }
             }
             EffectiveTriggerAbility::Intrinsic { index } => {
-                return Ok(VisibleTriggerAbility::Intrinsic { index });
+                VisibleTriggerAbility::Intrinsic { index }
             }
-        };
-        let grant = grant.ok_or("missing public grant provenance")?;
-        let source = VisibleTarget {
-            announced: grant
-                .source_handles
-                .get(viewer.0 as usize)
-                .ok_or("missing grant source handle")?
-                .into(),
-            current: self
-                .object_handle_id(viewer, grant_source)
-                .ok()
-                .map(O::from),
-        };
-        let oracle_id = self
-            .state
-            .rules
-            .cards
-            .get(&grant_source.card)
-            .ok_or("missing grant physical source")?
-            .oracle_id
-            .clone();
-        Ok(match ability {
-            EffectiveTriggerAbility::Intrinsic { .. }
-            | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
-        })
+        }
     }
     pub(crate) fn player_entity(
         &self,
@@ -1990,7 +1795,6 @@ impl RulesTxn {
             ),
             StackKind::Triggered {
                 ability,
-                grant,
                 source_handles,
                 ..
             } => (
@@ -2009,7 +1813,7 @@ impl RulesTxn {
                             .ok(),
                     },
                     oracle_id: self.visible_ability_oracle_id(instance.source)?.into(),
-                    ability: self.visible_trigger_ability(viewer, *ability, grant.as_ref())?,
+                    ability: Self::visible_trigger_ability(*ability),
                 }),
             ),
             StackKind::Activated {
@@ -2075,7 +1879,7 @@ impl RulesTxn {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
-            bestowed: instance.alternative_cost == Some(cascade::AlternativeCost::Bestow),
+            bestowed: instance.alternative_cost == Some(AlternativeCost::Bestow),
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),
@@ -2396,39 +2200,8 @@ impl RulesTxn {
                 _ => return Err("unknown battlefield entry decision".into()),
             }));
         }
-        if let Frame::HandCast { frame, child: None } = &self.state.rules.frame {
-            return Ok(
-                (self.entry(frame.stack_id)?.controller == viewer).then_some(
-                    PlayerRequest::HandCast {
-                        token,
-                        player: viewer,
-                        candidates: vec![],
-                    },
-                ),
-            );
-        }
-        if let Some(request) = self.resolution_cast_request()? {
-            if request.player() != viewer {
-                return Ok(None);
-            }
-            return Ok(Some(match request {
-                Request::PlayHideawayLinked { player, .. } => PlayerRequest::PlayHideawayLinked {
-                    token,
-                    player,
-                    candidates: vec![],
-                    back_land_candidates: vec![],
-                },
-                Request::CascadeLandEntry { player, .. } => PlayerRequest::CascadeLandEntry {
-                    token,
-                    player,
-                    candidates: vec![],
-                },
-                Request::OptionalEffect { player, .. } => {
-                    PlayerRequest::OptionalEffect { token, player }
-                }
-                _ => return Err("unknown cascade decision".into()),
-            }));
-        }
+
+        {}
         if let Some(Request::Modes {
             player,
             one_or_more,
@@ -2486,72 +2259,6 @@ impl RulesTxn {
                     .collect::<Result<Vec<_>, _>>()
             };
             return Ok(Some(match request {
-                Request::SearchLandBattlefield { candidates, .. } => {
-                    PlayerRequest::SearchLandBattlefield {
-                        token,
-                        player: viewer,
-                        candidates: handles(candidates)?,
-                    }
-                }
-                Request::HandReturn { count, .. } => PlayerRequest::HandReturn {
-                    token,
-                    player: viewer,
-                    candidates: vec![],
-                    count,
-                },
-                Request::LibraryOrder { count, .. } => PlayerRequest::LibraryOrder {
-                    token,
-                    player: viewer,
-                    candidates: vec![],
-                    count,
-                },
-                Request::LibrarySelect { remainder, .. } => PlayerRequest::LibrarySelect {
-                    token,
-                    player: viewer,
-                    candidates: vec![],
-                    remainder,
-                },
-                Request::Surveil { .. } => PlayerRequest::Surveil {
-                    token,
-                    player: viewer,
-                    candidates: vec![],
-                },
-                Request::Scry { .. } => PlayerRequest::Scry {
-                    token,
-                    player: viewer,
-                    candidates: vec![],
-                },
-                Request::ColoredSearch {
-                    library,
-                    colors,
-                    candidates,
-                    ..
-                } => PlayerRequest::ColoredSearch {
-                    token,
-                    player: viewer,
-                    library,
-                    colors,
-                    candidates,
-                },
-                Request::SearchLands {
-                    maximum,
-                    candidates,
-                    ..
-                } => PlayerRequest::SearchLands {
-                    token,
-                    player: viewer,
-                    maximum,
-                    library: self.search_library_identities(viewer)?,
-                    candidates: candidates
-                        .into_iter()
-                        .map(|o| {
-                            Ok(VisibleSearchLand {
-                                handle: self.search_handle(viewer, o)?,
-                                oracle_id: self.definition(o.card)?.oracle_id.clone(),
-                            })
-                        })
-                        .collect::<Result<_, String>>()?,
-                },
                 Request::ManaCombination { total, colors, .. } => PlayerRequest::ManaCombination {
                     token,
                     player: viewer,
@@ -2562,26 +2269,7 @@ impl RulesTxn {
                     token,
                     player: viewer,
                 },
-                Request::ChooseOpponent { candidates, .. } => PlayerRequest::ChooseOpponent {
-                    token,
-                    player: viewer,
-                    candidates,
-                },
-                Request::ChooseColor { target, .. } => PlayerRequest::ChooseColor {
-                    token,
-                    player: viewer,
-                    target: self.handle_for(viewer, target)?,
-                    colors: MANA_COMBINATION_COLORS.to_vec(),
-                },
-                Request::Proliferate { candidate, .. } => PlayerRequest::Proliferate {
-                    token,
-                    player: viewer,
-                    candidate: self.handle_for(viewer, candidate)?,
-                },
-                Request::OptionalRecursion { .. } => PlayerRequest::OptionalRecursion {
-                    token,
-                    player: viewer,
-                },
+
                 Request::Sacrifice { candidates, .. } => PlayerRequest::Sacrifice {
                     token,
                     player: viewer,
@@ -3093,9 +2781,10 @@ impl RulesTxn {
                     && Shared::same(&rules.effects, &old.rules.effects)
                     && Shared::same(&rules.stack, &old.rules.stack)
                     && (rules.frame == old.rules.frame
-                        || !rules.stack.iter().any(|entry| {
-                            entry.alternative_cost == Some(cascade::AlternativeCost::Bestow)
-                        }))
+                        || !rules
+                            .stack
+                            .iter()
+                            .any(|entry| entry.alternative_cost == Some(AlternativeCost::Bestow)))
                     && rules.turn.number == old.rules.turn.number
                     && rules.mana_ability_uses == old.rules.mana_ability_uses
                     && rules.combat == old.rules.combat
@@ -3308,21 +2997,12 @@ impl RulesTxn {
     ) -> Result<Response, String> {
         let size = match response {
             PlayerResponse::AdditionalCosts { selected } => selected.len(),
-            PlayerResponse::LibrarySelect {
-                hand: top,
-                remainder: bottom,
-            }
-            | PlayerResponse::Scry { top, bottom }
-            | PlayerResponse::Surveil {
-                top,
-                graveyard: bottom,
-            } => top.len().saturating_add(bottom.len()),
+
             PlayerResponse::Attackers { attacks } => attacks.len(),
             PlayerResponse::Blockers { blocks } => blocks.len(),
             PlayerResponse::Damage { assignments }
             | PlayerResponse::TrampleDamage { assignments, .. } => assignments.len(),
-            PlayerResponse::HandReturn { objects }
-            | PlayerResponse::BottomOpening { objects }
+            PlayerResponse::BottomOpening { objects }
             | PlayerResponse::Discard { objects }
             | PlayerResponse::ResolveDiscard { objects } => objects.len(),
 
@@ -3336,52 +3016,6 @@ impl RulesTxn {
             return Err("oversized player declaration".into());
         }
         match response {
-            PlayerResponse::HandReturn { objects } => Ok(Response::HandReturn {
-                objects: objects
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-            }),
-            PlayerResponse::LibraryOrder { objects } => Ok(Response::LibraryOrder {
-                objects: objects
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-            }),
-            PlayerResponse::Hideaway { object } => Ok(Response::Hideaway {
-                object: self.resolve_handle(viewer, object)?,
-            }),
-            PlayerResponse::LibrarySelect { hand, remainder } => Ok(Response::LibrarySelect {
-                hand: hand
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-                remainder: remainder
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-            }),
-            PlayerResponse::Surveil { top, graveyard } => Ok(Response::Surveil {
-                top: top
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-                graveyard: graveyard
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-            }),
-            PlayerResponse::Scry { top, bottom } => Ok(Response::Scry {
-                top: top
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-                bottom: bottom
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-            }),
-
             PlayerResponse::AdditionalCosts { selected } => {
                 let choices = self.public_additional_cost_choices(viewer)?;
                 let selected = selected
@@ -3451,57 +3085,18 @@ impl RulesTxn {
             PlayerResponse::EntryAttachment { object } => Ok(Response::EntryAttachment {
                 object: self.resolve_handle(viewer, object)?,
             }),
-            PlayerResponse::PlayHideawayLinkedBackLand { object } => {
-                Ok(Response::PlayHideawayLinkedBackLand {
-                    object: self.resolve_handle(viewer, object)?,
-                })
-            }
-            PlayerResponse::PlayHideawayLinked { object } => Ok(Response::PlayHideawayLinked {
-                object: object
-                    .as_ref()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .transpose()?,
-            }),
-            PlayerResponse::CascadeLandEntry { object } => Ok(Response::CascadeLandEntry {
-                object: object
-                    .as_ref()
-                    .map(|handle| self.resolve_handle(viewer, handle))
-                    .transpose()?,
-            }),
+
             PlayerResponse::EntryReveal { card } => Ok(Response::EntryReveal {
                 card: card
                     .as_ref()
                     .map(|handle| self.resolve_handle(viewer, handle))
                     .transpose()?,
             }),
-            PlayerResponse::SearchLandBattlefield { object } => {
-                Ok(Response::SearchLandBattlefield {
-                    object: self.resolve_handle(viewer, object)?,
-                })
-            }
-            PlayerResponse::ColoredSearch { assignments } => Ok(Response::ColoredSearch {
-                assignments: assignments.clone(),
-            }),
-            PlayerResponse::SearchLands { objects } => Ok(Response::SearchLands {
-                objects: objects
-                    .iter()
-                    .map(|h| self.resolve_search_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-            }),
+
             PlayerResponse::OptionalEffect { perform } => {
                 Ok(Response::OptionalEffect { perform: *perform })
             }
-            PlayerResponse::ChooseOpponent { opponent } => Ok(Response::ChooseOpponent {
-                opponent: *opponent,
-            }),
-            PlayerResponse::ChooseColor { color } => Ok(Response::ChooseColor { color: *color }),
-            PlayerResponse::Proliferate { object, include } => Ok(Response::Proliferate {
-                object: self.resolve_handle(viewer, object)?,
-                include: *include,
-            }),
-            PlayerResponse::OptionalRecursion { perform } => {
-                Ok(Response::OptionalRecursion { perform: *perform })
-            }
+
             PlayerResponse::SacrificeCost { object } => Ok(Response::SacrificeCost {
                 object: self.resolve_handle(viewer, object)?,
             }),

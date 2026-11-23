@@ -45,12 +45,8 @@ impl RulesTxn {
         if let Some(req) = self.combat_request()? {
             return Ok(Some(req));
         }
-        if let Some(req) = self.hand_cast_request()? {
-            return Ok(Some(req));
-        }
-        if let Some(req) = self.resolution_cast_request()? {
-            return Ok(Some(req));
-        }
+        {}
+        {}
         let req = match &self.state.rules.frame {
             Frame::LegendRule { .. } => {
                 return Ok(self.legend_request()?);
@@ -243,18 +239,7 @@ impl RulesTxn {
         if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
             return self.validate_resolution_payment_response(payment, player, response);
         }
-        if matches!(self.state.rules.frame, Frame::PlayHideawayLinked { .. }) {
-            return self.validate_linked_play_response(player, response);
-        }
-        if let Frame::RevealAndCast { progress } = &self.state.rules.frame {
-            return self.validate_reveal_offer(progress, player, response);
-        }
-        if matches!(&self.state.rules.frame, Frame::HandCast { .. }) {
-            return self.validate_hand_cast_response(player, response);
-        }
-        if let Frame::Cascade { progress } = &self.state.rules.frame {
-            return self.validate_cascade_response(progress, player, response);
-        }
+
         if matches!(self.state.rules.frame, Frame::LegendRule { .. }) {
             return self.validate_legend_response(player, response);
         }

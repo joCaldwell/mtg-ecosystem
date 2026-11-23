@@ -11,12 +11,11 @@ impl RulesTxn {
                 .retained_auxiliary_charge
                 .saturating_add(self.kernel_charge())
                 .saturating_add(self.cost_lock_charge())
-                .saturating_add(self.cascade_charge())
                 .saturating_add(self.mana_continuation_charge()?)
                 .saturating_add(self.land_entry_charge())
                 .saturating_add(self.replacement_charge())
                 .saturating_add(self.counter_placement_charge())
-                .saturating_add(self.grant_payload_charge()),
+                .saturating_add(self.trigger_payload_charge()),
             |n, k| n.saturating_add(k.history.retention_charge()),
         ))
     }
@@ -157,9 +156,7 @@ impl RulesTxn {
     ) -> Result<&SpellProgram, RuleError> {
         let definition = self.copiable_definition(stack.source)?;
         match &stack.kind {
-            StackKind::Spell
-                if stack.alternative_cost == Some(cascade::AlternativeCost::Bestow) =>
-            {
+            StackKind::Spell if stack.alternative_cost == Some(AlternativeCost::Bestow) => {
                 Ok(mtg_contracts::bestow_alternative(definition)
                     .map(|(_, program)| program)
                     .ok_or_else(|| "missing bestow cast program".to_owned())?)

@@ -1,9 +1,6 @@
 //! CR 201.5, 400.7, 602.2, 611.2c: a fixed paid self grant on one incarnation.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use serde_json::{Value, json};
-
-const INVALID: &str = "requires complete printed mana-only self keyword grants";
 
 pub fn keywords(a: &ActivatedAbility) -> Option<&[KeywordAbility]> {
     let p = &a.program;

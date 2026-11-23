@@ -43,34 +43,3 @@ impl BasicLandType {
         }
     }
 }
-
-/// All found cards enter together, then the controller shuffles. Hidden quality
-/// searches may find zero even when singular (CR 701.23b). `force_tapped=false`
-/// preserves ordinary entry effects; it never forces an untapped permanent.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct TypedLandSearch {
-    pub any_basic_land_types: Vec<BasicLandType>,
-    pub maximum: Quantity,
-    pub force_tapped: bool,
-}
-impl TypedLandSearch {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.maximum <= Quantity::zero()
-            || self.any_basic_land_types.is_empty()
-            || !self.any_basic_land_types.windows(2).all(|w| w[0] < w[1])
-        {
-            return Err(
-                "typed land search requires positive maximum and canonical nonempty types".into(),
-            );
-        }
-        Ok(())
-    }
-    pub fn accepts(&self, c: &Characteristics) -> bool {
-        c.has_type(CardKind::Land)
-            && self
-                .any_basic_land_types
-                .iter()
-                .any(|t| c.subtypes.iter().any(|s| s == t.subtype()))
-    }
-}

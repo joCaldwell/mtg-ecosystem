@@ -1,7 +1,6 @@
 //! Intrinsic creature protection from named colors, CR 702.16a–g.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use serde_json::{Value, json};
 
 const COLORS: [(Color, &str, KeywordAbility); 5] = [
     (Color::W, "white", KeywordAbility::ProtectionFromWhite),

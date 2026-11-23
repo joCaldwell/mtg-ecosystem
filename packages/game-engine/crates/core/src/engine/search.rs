@@ -120,26 +120,6 @@ fn unsupported(s: impl Into<String>) -> SearchRejection {
 }
 
 impl RulesTxn {
-    fn remembered_library_cards(
-        &self,
-        player: PlayerId,
-        objects: &[ObjectId],
-        offset: usize,
-    ) -> Result<Vec<RememberedCard>, String> {
-        let sequence = self.state.knowledge.visibility[player.0 as usize]
-            .own_knowledge
-            .len();
-        objects
-            .iter()
-            .enumerate()
-            .map(|(i, o)| {
-                Ok(RememberedCard {
-                    memory_ref: format!("memory-{sequence}-{}", offset + i),
-                    oracle_id: self.definition(o.card)?.oracle_id.clone(),
-                })
-            })
-            .collect()
-    }
     pub(super) fn remember_library_action(
         &mut self,
         player: PlayerId,

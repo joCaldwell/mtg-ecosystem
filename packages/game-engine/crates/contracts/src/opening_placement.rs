@@ -2,7 +2,6 @@
 //! before normal play, with the static ability functioning only from hand.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use serde_json::{Value, json};
 
 pub fn opening_placement_ability() -> StaticAbility {
     StaticAbility {

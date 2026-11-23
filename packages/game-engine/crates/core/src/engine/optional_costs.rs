@@ -63,14 +63,7 @@ impl RulesTxn {
             })
             .collect())
     }
-    pub(super) fn has_selected_additional_mana(&self, entry: &StackInstance) -> bool {
-        // The supported declarations are typed mana costs. A selected {0} is
-        // still a mana payment (CR 118.5/601.2g), unlike no mana payment.
-        entry
-            .selected_additional_costs
-            .as_ref()
-            .is_some_and(|s| !s.is_empty())
-    }
+
     pub(super) fn validate_additional_cost_entry(
         &self,
         entry: &StackInstance,

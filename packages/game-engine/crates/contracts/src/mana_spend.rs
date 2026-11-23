@@ -5,7 +5,7 @@ use super::*;
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaSpendRestriction {
     ActivatedAbility,
     ColorlessSpellOrActivatedAbility,
@@ -111,30 +111,5 @@ pub struct RestrictedMana {
 impl RestrictedMana {
     pub fn key(&self) -> (ManaSpendRestriction, Color) {
         (self.restriction, self.color)
-    }
-}
-
-use serde_json::{Value, json};
-
-const PREFIX: &str = "{T}: Add ";
-
-const INVALID: &str = "requires complete fixed tap mana and exact printed spending predicate";
-
-pub(super) fn present(d: &Definition) -> bool {
-    d.mana_abilities
-        .iter()
-        .any(|a| matches!(a.production, ManaProduction::RestrictedFixed { .. }))
-}
-
-fn permanent_spell() -> SpellProgram {
-    SpellProgram {
-        functioning_zone: FunctioningZone::Stack,
-        timing: SpellTiming::MainPhase,
-        resolution: SpellResolution::Permanent,
-        targets: vec![],
-        instructions: vec![],
-        modes: vec![],
-        optional_additional_costs: vec![],
-        additional_sacrifice: None,
     }
 }

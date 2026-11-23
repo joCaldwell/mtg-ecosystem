@@ -196,9 +196,7 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
         .spell
         .as_mut()
         .unwrap();
-    let Instruction::Kernel { node, .. } = &mut program.instructions[0] else {
-        panic!("expected the admitted sacrifice verb")
-    };
+    let Instruction::Kernel { node, .. } = &mut program.instructions[0];
     let candidates = SetExpr::battlefield(Pred::creatures());
     let size = Amount::Count {
         set: candidates.clone(),

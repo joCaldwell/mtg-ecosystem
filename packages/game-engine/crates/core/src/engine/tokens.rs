@@ -108,11 +108,6 @@ impl TokenIdentity {
     }
 }
 
-pub(super) fn copied_creature_definition(original: &Definition) -> Definition {
-    let mut definition = original.clone();
-    definition.characteristics.legendary = false;
-    definition
-}
 fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> Definition {
     let mut d = source.clone();
     d.oracle_id = format!("token:{}", id.0);

@@ -2,7 +2,6 @@
 //! CR 107.4e-f, 119.4, 202.3d, 601.2b and 601.2f–h.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use serde_json::{Value, json};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

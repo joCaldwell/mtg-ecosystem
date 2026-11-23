@@ -9,8 +9,6 @@ pub enum StackKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         match_condition: Option<InterveningCheck>,
         ability: EffectiveTriggerAbility,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        grant: Option<CascadeGrantProvenance>,
         source_handles: Vec<publish::StoredObjectHandle>,
         trigger_id: TriggerId,
         event: TriggerOccurrenceId,
@@ -1223,17 +1221,7 @@ impl RulesTxn {
     /// completed children above it; `None` once a departure detached it.
     pub(super) fn resolving_entry_index(&self, id: StackId) -> Result<Option<usize>, String> {
         if let Some(index) = self.state.rules.stack.iter().position(|s| s.id == id) {
-            let children = match &self.state.rules.frame {
-                Frame::Resolve { frame } if frame.stack_id == id => Vec::new(),
-                Frame::PlayHideawayLinked { progress } if progress.frame.stack_id == id => {
-                    self.linked_play_children(progress)
-                }
-                _ => self.resolution_child(id).into_iter().collect(),
-            };
-            let suffix = &self.state.rules.stack[index + 1..];
-            if !suffix.iter().map(|s| s.id).eq(children)
-                || !suffix.iter().all(|s| self.stack_entry_complete(s))
-            {
+            if index + 1 != self.state.rules.stack.len() {
                 return Err("exact resolving owner completion invariant".into());
             }
             return Ok(Some(index));
@@ -1256,13 +1244,7 @@ impl RulesTxn {
     pub(crate) fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
         self.validate_resolving_children(frame, &[])
     }
-    pub(super) fn validate_resolving_owned(
-        &self,
-        frame: &Resolving,
-        child: Option<StackId>,
-    ) -> Result<(), String> {
-        self.validate_resolving_children(frame, child.as_slice())
-    }
+
     pub(super) fn validate_resolving_children(
         &self,
         frame: &Resolving,
@@ -1280,32 +1262,14 @@ impl RulesTxn {
         self.validate_group_discard_progress(frame)?;
         let entry = self.entry(frame.stack_id)?;
         let program = self.program_for(entry)?;
-        if let Some(fact) = &frame.entrant_draw {
-            let StackKind::Triggered {
-                witness:
-                    TriggerEventWitness::CreatureEnteredWithPower {
-                        entrant,
-                        last_appearance: Some(_),
-                        ..
-                    },
-                ..
-            } = &entry.kind
-            else {
-                return Err("detached entrant choice".into());
-            };
-            {
-                return Err("invalid resolving entrant identity".into());
-            }
-            self.validate_characteristic_identity(fact.object, fact.zone, &fact.characteristics)?;
+        if frame.entrant_draw.is_some() {
+            return Err("unsupported resolving entrant choice".into());
         }
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
             || !self.announced_target_count_valid(program, entry)
             || !self.stack_entry_complete(entry)
-            // Immediate loss and completion of its activated ability share one
-            // atomic rule step. There is no post-loss resolving continuation.
-            || false
             || frame.cursor as usize > program.instructions.len()
             || frame.outcomes.len() != frame.cursor as usize
             || frame.legal_targets.len() != self.bound_target_count(entry)
@@ -1341,18 +1305,6 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn revalidate_actions_departure(&mut self) -> Result<(), String> {
-        if let Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::OptionalEffect { target, .. },
-        } = &self.state.rules.frame
-            && self.current(*target).is_err()
-            && false
-        {
-            let outcome = InstructionOutcome::ObjectNoLongerPresent { target: *target };
-            let frame = frame.clone();
-            self.rules_mut().pending = None;
-            return self.finish_instruction(frame, outcome);
-        }
         if matches!(
             self.state.rules.frame,
             Frame::ResolutionChoice { .. }

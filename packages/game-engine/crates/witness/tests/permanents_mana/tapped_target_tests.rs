@@ -484,32 +484,7 @@ fn tapped_target_private_kernel_untap_during_mana_preserves_cast_then_fizzles() 
 }
 
 #[test]
-fn tapped_target_private_attachment_targetability_and_feature_admission_remain_strict() {
-    for equipment in ["Swiftfoot Boots", "Lightning Greaves"] {
-        let p = prepared(&[
-            ("Grizzly Bears", 0, false),
-            (equipment, 0, false),
-            ("Swift Response", 1, true),
-        ]);
-        let mut g = Game::new(p);
-        let target = object(&g, 0);
-        g.commit(ProposedEvent::Tap { object: target }, BatchCause::Fixture)
-            .unwrap();
-        g.commit(
-            ProposedEvent::Attach {
-                object: object(&g, 1),
-                target: Some(target),
-            },
-            BatchCause::Fixture,
-        )
-        .unwrap();
-        let d = g.definition(CardId(2)).unwrap();
-        assert!(!g.has_target_domain(d.spell.as_ref().unwrap(), PlayerId(1), &d.characteristics));
-        assert_eq!(
-            g.has_target_domain(d.spell.as_ref().unwrap(), PlayerId(0), &d.characteristics),
-            equipment == "Swiftfoot Boots"
-        );
-    }
+fn tapped_target_feature_admission_remains_strict() {
     let p = prepared(&[("Swift Response", 0, true)]);
     let mut single = p.catalog.as_ref().clone();
     single.definitions.retain(|d| d.name == "Swift Response");

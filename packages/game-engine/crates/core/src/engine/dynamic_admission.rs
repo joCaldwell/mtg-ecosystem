@@ -24,32 +24,24 @@ const POLICY: &str = include_str!("../../../../tests/fixtures/commander-banned-2
 // The exact 21-definition Foundations projection exercises these requirements.
 // Expanding this set needs dynamic capacity and runtime qualification.
 const REVIEWED: &[Capability] = &[
-    Capability::ActivatedAbilityV1,
-    Capability::AnyDamageTargetV1,
     Capability::AnyPlayerTargetV1,
     Capability::BaseCreatureV1,
     Capability::BasicLandManaV1,
     Capability::CastCreatureV1,
     Capability::CastInstantV1,
     Capability::CastSorceryV1,
-    Capability::CombatDamagePreventionV1,
     Capability::CommanderIdentityV1,
     Capability::ControllerDrawV1,
     Capability::CreatureDiesV1,
     Capability::CreatureTargetV1,
-    Capability::DamageBudgetPreventionV1,
     Capability::DefenderV1,
-    Capability::InterveningIfV1,
     Capability::LandPlayV1,
     Capability::LifeGainV1,
     Capability::LifeLossV1,
-    Capability::ModalChoiceV1,
     Capability::NormalLayoutV1,
     Capability::OpponentTargetV1,
     Capability::OtherCreatureEntersBattlefieldV1,
-    Capability::SelfDiesV1,
     Capability::SelfEntersBattlefieldV1,
-    Capability::TapSourceCostV1,
     Capability::TargetPlayerSacrificeCreatureV1,
     Capability::TemporaryPowerToughnessV1,
     Capability::TriggeredAbilityV1,
@@ -513,7 +505,6 @@ impl std::fmt::Display for DynamicAdmissionError {
         write!(f, "{self:?}")
     }
 }
-impl std::error::Error for DynamicAdmissionError {}
 
 fn unavailable(detail: String) -> DynamicAdmissionError {
     DynamicAdmissionError::Unavailable { detail }
@@ -954,3 +945,5 @@ mod tests {
         assert_eq!(requirements, REVIEWED.iter().copied().collect());
     }
 }
+
+impl std::error::Error for DynamicAdmissionError {}

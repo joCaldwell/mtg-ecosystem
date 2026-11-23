@@ -10,18 +10,14 @@ pub use bestow::{BestowCastPlan, BestowForm, bestow_alternative};
 mod opening_placement;
 pub use opening_placement::opening_placement_ability;
 
-mod colored_library_search;
-pub use colored_library_search::{ColoredLibrarySearch, ColoredSearchAssignment};
 mod color_hybrid_cost;
 pub use color_hybrid_cost::{ColorHybridSymbol, HybridPayment, color_hybrid_cost};
-mod checkland_entry;
 mod cycling;
 pub mod paid_restricted_land;
 
 pub use cycling::hand_discard_draw_activation;
 
 mod hybrid_filter_mana;
-mod mana_life_gain;
 mod mana_spend;
 
 pub use mana_spend::{ManaSpellSubtype, ManaSpellTraits, ManaSpendRestriction, RestrictedMana};
@@ -32,18 +28,15 @@ pub use pain_mana::disjoint_pain_mana_family;
 
 pub mod cast_subtype;
 
-mod entry_copy;
-pub mod modal_land;
-mod saga;
-pub mod transform_face;
-pub use saga::saga_damage_target;
 pub mod fixed_color_protection;
+pub mod modal_land;
+pub mod transform_face;
 
 mod successor_tuck;
 pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
 
 mod typed_land_search;
-pub use typed_land_search::{BasicLandType, TypedLandSearch};
+pub use typed_land_search::BasicLandType;
 mod build_input;
 pub use build_input::engine_build_input;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -51,12 +44,6 @@ mod activated_artifact_draw;
 
 pub mod activated_source_keyword;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
-
-mod controlled_land_entry;
-
-mod land_entry_gain_life;
-
-mod opponent_count_entry;
 
 pub mod attachment_modifiers;
 
@@ -73,21 +60,15 @@ pub mod resolution_mana;
 pub use resolution_mana::ManaResolutionQuantity;
 pub mod predefined_tokens;
 pub use predefined_tokens::PredefinedToken;
-mod fixed_mill;
 
-mod group_discard;
 pub mod modal_targets;
 
 pub mod scoped_static;
 
-mod source_dies_nonland_destroy;
-
-mod self_spell_protection;
-
 pub mod source_combat_restrictions;
 pub use controller_library::matches_fixed_amount;
 
-use kir::{Amount, Context, Destination, PlayerExpr, SetExpr, Verb};
+use kir::{Context, PlayerExpr, SetExpr, Verb};
 
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
@@ -304,7 +285,7 @@ pub enum Capability {
     ActivatedCreatureTapV1,
     TapSourceDestroyV1,
     TapSourceUntapCreatureV1,
-    ActivatedSpellCounterV1,
+
     ActivatedPermanentOwnerHandV1,
     ActivatedArtifactDrawV1,
     OwnerHandMoveV1,
@@ -375,8 +356,6 @@ pub enum Capability {
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
 
-    TargetColorSetV1,
-
     DestroyCreatureV1,
     GraveyardRecursionV1,
 
@@ -424,7 +403,7 @@ pub enum EvaluationStage {
     Announcement,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TargetDomain {
     CreatureOrPlaneswalker,
     PlayerGraveyardCards {
@@ -1021,9 +1000,7 @@ impl Instruction {
     /// The slot, optionality, regeneration prohibition and block of a destroy
     /// of one announced target.
     pub fn target_destroy(&self) -> Option<(u32, bool, bool, u32)> {
-        let Self::Kernel { node, source_block } = self else {
-            return None;
-        };
+        let Self::Kernel { node, source_block } = self;
         if let Some((_, slot, regeneration_forbidden)) = node.optional_target_destroy() {
             return Some((slot, true, regeneration_forbidden, *source_block));
         }
@@ -1512,7 +1489,7 @@ pub enum SpellTiming {
 }
 /// Permanent resolution is distinct from an empty instruction program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum SpellResolution {
     ChooseModes { exactly: u32 },
     ChooseRepeatedModes { exactly: u32 },

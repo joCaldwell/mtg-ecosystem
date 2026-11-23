@@ -11,8 +11,6 @@ pub struct CounterDivision {
     pub maximum_targets: u32,
 }
 
-impl CounterDivision {}
-
 impl RulesTxn {
     pub(super) fn object_target_number_valid(program: &SpellProgram, count: usize) -> bool {
         count == program.targets.len()

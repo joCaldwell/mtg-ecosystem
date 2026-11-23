@@ -87,20 +87,3 @@ pub fn printed(text: &str) -> Option<(Value, TriggeredAbility)> {
         },
     ))
 }
-
-fn uses(program: &SpellProgram) -> bool {
-    program.instructions.iter().any(|i| {
-        matches!(
-            i,
-            kernel!(Damage {
-                to: kir::DamageTo::Ref {
-                    who: kir::Ref::EventPlayer {
-                        role: kir::EventPlayerRole::ActivatingPlayer
-                    }
-                },
-                amount: fixed!(_),
-                ..
-            })
-        )
-    }) || program.modes.iter().any(|m| uses(&m.program))
-}

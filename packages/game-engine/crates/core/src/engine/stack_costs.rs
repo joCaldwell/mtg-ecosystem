@@ -149,7 +149,7 @@ impl RulesTxn {
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost: None,
-            hand_cast_permission: None,
+
             x: None,
             death_controller: None,
             sacrificed: None,
@@ -190,7 +190,6 @@ impl RulesTxn {
                 return Err("unsupported targeted activation cost".into());
             }
             let cast = Casting {
-                completion: CastCompletion::Priority,
                 sacrifices: vec![],
                 origin: AnnouncementOrigin::Activated,
                 spending: None,
@@ -222,7 +221,6 @@ impl RulesTxn {
         } else if mana {
             self.rules_mut().frame = Frame::Mana {
                 cast: Casting {
-                    completion: CastCompletion::Priority,
                     sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: None,
@@ -238,7 +236,6 @@ impl RulesTxn {
             // CR 602.2b/601.2g-h: no mana opportunity for a cost with no mana.
             self.rules_mut().frame = Frame::SacrificeCost {
                 cast: Casting {
-                    completion: CastCompletion::Priority,
                     sacrifices: vec![],
                     origin: AnnouncementOrigin::Activated,
                     spending: Some(BTreeMap::new()),
@@ -431,25 +428,17 @@ impl RulesTxn {
         self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
-        self.validate_hand_cast_child(entry)?;
-        if entry.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+
+        if entry.alternative_cost == Some(AlternativeCost::Bestow)
             && (!entry.kind.is_spell()
                 || mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_none()
                 || (!self.is_spell_copy(entry)
-                    && (entry.hand_cast_permission.is_some()
-                        || (!matches!(entry.cast_from,Zone::Hand{owner}|Zone::Command{owner} if owner==entry.controller)))))
+                    && !matches!(entry.cast_from,Zone::Hand{owner}|Zone::Command{owner} if owner==entry.controller)))
         {
             return Err("invalid bestow casting authority".into());
         }
-        if entry.alternative_cost == Some(cascade::AlternativeCost::WithoutManaCost)
-            && (!entry.kind.is_spell()
-                || (!self.is_spell_copy(entry)
-                    && entry.cast_from != Zone::Exile
-                    && entry.hand_cast_permission.is_none())
-                || entry.x.as_ref().is_some_and(|x| *x != Quantity::zero()))
-            || (entry.kind.is_spell()
-                && entry.cast_from == Zone::Exile
-                && entry.alternative_cost != Some(cascade::AlternativeCost::WithoutManaCost))
+        if entry.alternative_cost == Some(AlternativeCost::WithoutManaCost)
+            || (entry.kind.is_spell() && entry.cast_from == Zone::Exile)
         {
             return Err("snapshot alternative casting cost/origin invariant".into());
         }

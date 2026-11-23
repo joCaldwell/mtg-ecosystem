@@ -2,7 +2,6 @@
 //! the permanent's mana ability. The tap is the sole activation cost.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use serde_json::{Value, json};
 
 pub(super) fn present(definition: &Definition) -> bool {
     matches!(

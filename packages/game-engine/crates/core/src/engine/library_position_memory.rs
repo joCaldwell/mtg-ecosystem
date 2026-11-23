@@ -1,12 +1,6 @@
 use super::*;
 
 impl RulesTxn {
-    pub(super) fn remember_public_library_position(&mut self, successor: ObjectId) {
-        for knowledge in &mut self.state.knowledge.visibility {
-            knowledge.public_tucked_cards.insert(successor);
-        }
-    }
-
     pub(crate) fn update_library_position_memory(
         &mut self,
         event: &ProposedEvent,
@@ -73,10 +67,6 @@ impl RulesTxn {
                     // The chooser sees the reordered prefix. Other viewers
                     // can still track the untouched tail through these actions,
                     // whose order-preserving shift follows from public sizes.
-                    ProposedEvent::BottomRevealedCards { order, .. } => {
-                        order.len() <= 1 || !order.contains(id)
-                    }
-
                     ProposedEvent::Setup { .. } => false,
                     _ => true,
                 }
@@ -127,5 +117,30 @@ impl RulesTxn {
             self.known_library_positions(PlayerId(seat))?;
         }
         Ok(())
+    }
+}
+
+impl RulesTxn {
+    /// Publicly known identities in hand. No targetable handle or hand position
+    /// is disclosed. A subsequent zone change invalidates that incarnation.
+    pub fn publicly_searched_hand(
+        &self,
+        viewer: PlayerId,
+    ) -> Result<Vec<(PlayerId, String)>, String> {
+        let k = self
+            .state
+            .knowledge
+            .visibility
+            .get(viewer.0 as usize)
+            .ok_or("invalid viewer")?;
+        let mut cards = vec![];
+        for id in &k.revealed_hand {
+            let Some(Zone::Hand { owner }) = self.zone(*id) else {
+                return Err("stale revealed hand memory".into());
+            };
+            cards.push((owner, self.definition(id.card)?.oracle_id.clone()));
+        }
+        cards.sort();
+        Ok(cards)
     }
 }

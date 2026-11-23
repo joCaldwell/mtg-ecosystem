@@ -73,8 +73,7 @@ pub struct WorkCache {
     modes: Option<Option<Vec<u32>>>,
     counter_placement: Option<Vec<CounterPlacementEffectKey>>,
     damage: Option<Vec<DamageEffectCandidate>>,
-    allocation: Option<Option<Vec<DamageAllocationCandidate>>>,
-    linked_play: Option<Vec<ObjectId>>,
+
     entry_candidates: Option<Vec<ObjectId>>,
 }
 impl WorkCache {
@@ -119,19 +118,7 @@ impl WorkCache {
         }
         Ok(self.modes.as_ref().and_then(|ids| ids.as_deref()))
     }
-    fn linked_play(
-        &mut self,
-        game: &RulesTxn,
-        viewer: PlayerId,
-    ) -> Result<&[ObjectId], QueryRejection> {
-        if self.linked_play.is_none() {
-            self.linked_play = Some(
-                game.linked_play_work_candidates(viewer)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
-        }
-        Ok(self.linked_play.as_deref().unwrap_or_default())
-    }
+
     fn entry_candidates(
         &mut self,
         game: &RulesTxn,
@@ -459,13 +446,6 @@ impl RulesTxn {
                     .visible_object_indexed(viewer, object, cache.projection(self))
                     .map_err(|_| QueryRejection::Invariant)?
             {
-                if let Some(PlayerRequest::HandCast { candidates, .. }) = &mut b.decision
-                    && self
-                        .eligible_hand_spell(object, viewer)
-                        .map_err(|_| QueryRejection::Invariant)?
-                {
-                    candidates.push(visible.handle.clone());
-                }
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = &mut b.decision
                     && object.zone == (Zone::Hand { owner: viewer })
                 {
@@ -544,40 +524,7 @@ impl RulesTxn {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
-        if let Some(PlayerRequest::PlayHideawayLinked {
-            candidates,
-            back_land_candidates,
-            ..
-        }) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(object) = cache
-                .linked_play(self, viewer)?
-                .get(cursor - base - effect_count)
-        {
-            let handle = self
-                .handle_for(viewer, *object)
-                .map_err(|_| QueryRejection::Invariant)?;
-            if self
-                .linked_land_face_playable(viewer, *object, true)
-                .map_err(|_| QueryRejection::Invariant)?
-            {
-                back_land_candidates.push(handle.clone());
-            }
-            if self
-                .linked_front_choice_available(viewer, *object)
-                .map_err(|_| QueryRejection::Invariant)?
-            {
-                candidates.push(handle);
-            }
-        }
-        if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(handle) = self
-                .cascade_land_query_row(viewer, cursor - base - effect_count)
-                .map_err(|_| QueryRejection::Invariant)?
-        {
-            candidates.push(handle);
-        }
+
         if let Some(PlayerRequest::CounterPlacementEffect { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(key) = cache
@@ -616,10 +563,6 @@ impl RulesTxn {
                 )
             ) {
                 cache.entry_candidates(self, viewer)?.len()
-            } else if matches!(b.decision, Some(PlayerRequest::PlayHideawayLinked { .. })) {
-                cache.linked_play(self, viewer)?.len()
-            } else if matches!(b.decision, Some(PlayerRequest::CascadeLandEntry { .. })) {
-                self.cascade_land_query_len()
             } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
                 cache.modes(self)?.map_or(0, |ids| ids.len())
             } else if matches!(
@@ -694,45 +637,7 @@ impl RulesTxn {
                     return Ok((*cursor as usize >= objects.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
-                if let Some(PlayerRequest::PlayHideawayLinked {
-                    candidates,
-                    back_land_candidates,
-                    ..
-                }) = request
-                {
-                    let objects = cache.linked_play(self, *viewer)?;
-                    if let Some(&object) = objects.get(*cursor as usize) {
-                        let handle = self
-                            .handle_for(*viewer, object)
-                            .map_err(|_| QueryRejection::Invariant)?;
-                        if self
-                            .linked_land_face_playable(*viewer, object, true)
-                            .map_err(|_| QueryRejection::Invariant)?
-                        {
-                            back_land_candidates.push(handle.clone());
-                        }
-                        if self
-                            .linked_front_choice_available(*viewer, object)
-                            .map_err(|_| QueryRejection::Invariant)?
-                        {
-                            candidates.push(handle);
-                        }
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= objects.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
-                if let Some(PlayerRequest::CascadeLandEntry { candidates, .. }) = request {
-                    if let Some(handle) = self
-                        .cascade_land_query_row(*viewer, *cursor as usize)
-                        .map_err(|_| QueryRejection::Invariant)?
-                    {
-                        candidates.push(handle);
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= self.cascade_land_query_len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
+
                 if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
                     let ids = cache.triggers(self);
                     if let Some(id) = ids.get(*cursor as usize) {
@@ -811,21 +716,7 @@ impl RulesTxn {
                     return Ok((*cursor as usize >= 4 + self.state.rules.objects.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
-                if let Some(PlayerRequest::HandCast { candidates, .. }) = request {
-                    if let Some(object) = cache.next_object(self)
-                        && self
-                            .eligible_hand_spell(object, *viewer)
-                            .map_err(|_| QueryRejection::Invariant)?
-                    {
-                        candidates.push(
-                            self.handle_for(*viewer, object.id)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= self.state.rules.objects.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
+
                 if let Some(PlayerRequest::BottomOpening { candidates, .. }) = request {
                     if let Some(o) = cache.next_object(self)
                         && o.zone == (Zone::Hand { owner: *viewer })
@@ -936,25 +827,7 @@ impl RulesTxn {
                             | PlayerResponse::EntryAttachment { .. }
                             | PlayerResponse::EntryReveal { .. },
                         ) => true,
-                        (
-                            Frame::HandCast { child: None, .. },
-                            PlayerResponse::Cast { .. } | PlayerResponse::Pass,
-                        ) => true,
-                        (
-                            Frame::PlayHideawayLinked { .. },
-                            PlayerResponse::PlayHideawayLinked { .. }
-                            | PlayerResponse::PlayHideawayLinkedBackLand { .. },
-                        ) => true,
-                        (Frame::Cascade { progress }, PlayerResponse::CascadeLandEntry { .. }) => {
-                            matches!(progress.stage, cascade::CascadeStage::LandOffer { .. })
-                        }
-                        (
-                            Frame::RevealAndCast { progress },
-                            PlayerResponse::OptionalEffect { .. },
-                        ) => progress.permission(self).is_ok(),
-                        (Frame::Cascade { progress }, PlayerResponse::OptionalEffect { .. }) => {
-                            progress.stage == cascade::CascadeStage::Offer
-                        }
+
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true
                         }
@@ -992,13 +865,7 @@ impl RulesTxn {
                         | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
                         | (
                             Frame::ResolutionChoice { .. },
-                            PlayerResponse::ColoredSearch { .. }
-                            | PlayerResponse::SearchLands { .. }
-                            | PlayerResponse::SearchLandBattlefield { .. }
-                            | PlayerResponse::OptionalEffect { .. }
-                            | PlayerResponse::OptionalRecursion { .. }
-                            | PlayerResponse::ChooseColor { .. }
-                            | PlayerResponse::Proliferate { .. }
+                            PlayerResponse::OptionalEffect { .. }
                             | PlayerResponse::Sacrifice { .. }
                             | PlayerResponse::ResolveDiscard { .. },
                         )
@@ -1064,36 +931,8 @@ impl RulesTxn {
                     converted.push(object);
                     return Ok(None);
                 }
-                if let PlayerResponse::LibrarySelect {
-                    hand: top,
-                    remainder: bottom,
-                }
-                | PlayerResponse::Scry { top, bottom }
-                | PlayerResponse::Surveil {
-                    top,
-                    graveyard: bottom,
-                } = response
-                    && converted.len() < top.len().saturating_add(bottom.len())
-                {
-                    let index = converted.len();
-                    let handle = if index < top.len() {
-                        &top[index]
-                    } else {
-                        &bottom[index - top.len()]
-                    };
-                    converted.push(self.resolve_handle(*viewer, handle).map_err(invalid)?);
-                    return Ok(None);
-                }
-                if let PlayerResponse::HandReturn { objects }
-                | PlayerResponse::LibraryOrder { objects } = response
-                    && converted.len() < objects.len()
-                {
-                    converted.push(
-                        self.resolve_handle(*viewer, &objects[converted.len()])
-                            .map_err(invalid)?,
-                    );
-                    return Ok(None);
-                }
+                {}
+                {}
                 if let PlayerResponse::Targets { objects } = response
                     && converted.len() < objects.len()
                 {
@@ -1135,48 +974,27 @@ impl RulesTxn {
                 }
 
                 if value.is_none() {
-                    *value = Some(if let PlayerResponse::HandReturn { .. } = response {
-                        Response::HandReturn {
-                            objects: converted.clone(),
-                        }
-                    } else if let PlayerResponse::LibraryOrder { .. } = response {
-                        Response::LibraryOrder {
-                            objects: converted.clone(),
-                        }
-                    } else if let PlayerResponse::LibrarySelect { hand, .. } = response {
-                        Response::LibrarySelect {
-                            hand: converted[..hand.len()].to_vec(),
-                            remainder: converted[hand.len()..].to_vec(),
-                        }
-                    } else if let PlayerResponse::Scry { top, .. } = response {
-                        Response::Scry {
-                            top: converted[..top.len()].to_vec(),
-                            bottom: converted[top.len()..].to_vec(),
-                        }
-                    } else if let PlayerResponse::Surveil { top, .. } = response {
-                        Response::Surveil {
-                            top: converted[..top.len()].to_vec(),
-                            graveyard: converted[top.len()..].to_vec(),
-                        }
-                    } else if matches!(response, PlayerResponse::BottomOpening { .. }) {
-                        Response::BottomOpening {
-                            objects: converted.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::Targets { .. }) {
-                        Response::Targets {
-                            objects: converted.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
-                        Response::EntityTargets {
-                            entities: converted_entities.clone(),
-                        }
-                    } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
-                        Response::OrderTriggers {
-                            order: converted_triggers.clone(),
-                        }
-                    } else {
-                        self.convert_response(*viewer, response).map_err(invalid)?
-                    });
+                    *value = Some(
+                        if matches!(response, PlayerResponse::BottomOpening { .. }) {
+                            Response::BottomOpening {
+                                objects: converted.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::Targets { .. }) {
+                            Response::Targets {
+                                objects: converted.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
+                            Response::EntityTargets {
+                                entities: converted_entities.clone(),
+                            }
+                        } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
+                            Response::OrderTriggers {
+                                order: converted_triggers.clone(),
+                            }
+                        } else {
+                            self.convert_response(*viewer, response).map_err(invalid)?
+                        },
+                    );
                     return Ok(None);
                 }
                 let receipt = self
@@ -1308,10 +1126,7 @@ impl RulesTxn {
                 | PlayerRequest::EntryAttachment { .. }
                 | PlayerRequest::EntryReveal { .. },
             ) => self.entry_work_candidates(viewer)?.len() as u64,
-            Some(PlayerRequest::PlayHideawayLinked { .. }) => {
-                self.linked_play_work_candidates(viewer)?.len() as u64
-            }
-            Some(PlayerRequest::CascadeLandEntry { .. }) => self.cascade_land_query_len() as u64,
+
             Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
             Some(PlayerRequest::Modes { .. }) => {
                 if let Some(Request::Modes { candidates, .. }) = self.modes_request()? {
@@ -1346,14 +1161,7 @@ impl RulesTxn {
             _ => vec![],
         })
     }
-    fn linked_play_work_candidates(&self, viewer: PlayerId) -> Result<Vec<ObjectId>, String> {
-        Ok(match self.linked_play_request()? {
-            Some(Request::PlayHideawayLinked {
-                player, candidates, ..
-            }) if player == viewer => candidates,
-            _ => vec![],
-        })
-    }
+
     pub(crate) fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
         4u64.checked_add(self.state.rules.objects.len() as u64)
             .and_then(|n| n.checked_add(self.state.rules.stack.len() as u64))
@@ -1367,27 +1175,17 @@ impl RulesTxn {
         let body_units: Result<u64, String> = match query {
             Query::Observe { viewer } => self.observation_work_units(*viewer),
             Query::Decision { viewer } => Ok(match self.request_header(*viewer)? {
-                Some(
-                    PlayerRequest::HandCast { .. }
-                    | PlayerRequest::Targets { .. }
-                    | PlayerRequest::BottomOpening { .. },
-                ) => std::cmp::max(1, self.state.rules.objects.len() as u64),
+                Some(PlayerRequest::Targets { .. } | PlayerRequest::BottomOpening { .. }) => {
+                    std::cmp::max(1, self.state.rules.objects.len() as u64)
+                }
                 Some(PlayerRequest::EntityTargets { .. }) => 4u64
                     .checked_add(self.state.rules.objects.len() as u64)
                     .ok_or("decision work resource limit")?,
                 Some(
                     PlayerRequest::OrderTriggers { .. }
-                    | PlayerRequest::CascadeLandEntry { .. }
-                    | PlayerRequest::PlayHideawayLinked { .. }
                     | PlayerRequest::EntryCopy { .. }
                     | PlayerRequest::EntryAttachment { .. }
                     | PlayerRequest::EntryReveal { .. }
-                    | PlayerRequest::HandReturn { .. }
-                    | PlayerRequest::LibraryOrder { .. }
-                    | PlayerRequest::Hideaway { .. }
-                    | PlayerRequest::LibrarySelect { .. }
-                    | PlayerRequest::Scry { .. }
-                    | PlayerRequest::Surveil { .. }
                     | PlayerRequest::Modes { .. }
                     | PlayerRequest::CounterPlacementEffect { .. }
                     | PlayerRequest::DamageEffect { .. },
@@ -1396,18 +1194,7 @@ impl RulesTxn {
             }),
             Query::Check { response, .. } => {
                 let entries = match response {
-                    PlayerResponse::LibrarySelect {
-                        hand: top,
-                        remainder: bottom,
-                    }
-                    | PlayerResponse::Scry { top, bottom }
-                    | PlayerResponse::Surveil {
-                        top,
-                        graveyard: bottom,
-                    } => top.len().saturating_add(bottom.len()),
-                    PlayerResponse::HandReturn { objects }
-                    | PlayerResponse::LibraryOrder { objects }
-                    | PlayerResponse::Targets { objects }
+                    PlayerResponse::Targets { objects }
                     | PlayerResponse::BottomOpening { objects } => objects.len(),
                     PlayerResponse::ModeSubset { modes } => modes.len(),
                     PlayerResponse::EntityTargets { entities } => entities.len(),

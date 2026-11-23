@@ -73,7 +73,6 @@ impl RulesTxn {
                 .contains(&branch.color)
             || a.ability.self_damage.as_ref() != Some(&damage.original_amount)
             || tx.cause != a.cause()
-            || !tx.allocation_groups.is_empty()
             || damage.recipient != (DamageRecipient::Player { player: a.player })
             || damage.controller != a.player
             || damage.source.object != a.source
@@ -155,29 +154,13 @@ impl RulesTxn {
             // Its legal paid activation stands, with any invalid damage cancelled
             // by the ordinary transaction. Leave their last-known state alone.
             if let frame @ Frame::ResolutionPayment { .. } =
-                spell_cascade_grants::retained_effect_frame(
-                    &self.state.rules.frames,
-                    self.saved_frame(a.resume)?,
-                )
+                frame::retained_effect_frame(&self.state.rules.frames, self.saved_frame(a.resume)?)
             {
                 self.rules_mut().frame = frame.clone();
                 return self.revalidate_resolution_payment_departure();
             }
             self.rules_mut().passes.clear();
-            if let Frame::Mana { cast } = spell_cascade_grants::retained_effect_frame(
-                &self.state.rules.frames,
-                self.saved_frame(a.resume)?,
-            ) && let CastCompletion::Resolution {
-                progress: CastOwner::LinkedPlay { progress, .. },
-                ..
-            } = &cast.completion
-                && self.is_live(self.entry(progress.frame.stack_id)?.controller)
-            {
-                self.rules_mut().frame = Frame::PlayHideawayLinked {
-                    progress: progress.clone(),
-                };
-                return Ok(());
-            }
+            {}
             self.rules_mut().frame = Frame::Priority;
             return Ok(self.stabilize()?);
         }

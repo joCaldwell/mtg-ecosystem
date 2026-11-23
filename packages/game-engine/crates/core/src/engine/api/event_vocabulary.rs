@@ -8,14 +8,7 @@ pub enum ProposedEvent {
     Transform {
         object: ObjectId,
     },
-    RevealLibraryCard {
-        player: PlayerId,
-        object: ObjectId,
-    },
-    BottomRevealedCards {
-        player: PlayerId,
-        order: Vec<ObjectId>,
-    },
+
     FreezeLifeUntilNextTurn {
         player: PlayerId,
     },
@@ -56,10 +49,6 @@ pub enum ProposedEvent {
     },
     DestroyCreature {
         object: ObjectId,
-    },
-    CascadeLandEntry {
-        object: ObjectId,
-        player: PlayerId,
     },
 
     ShuffleLibraryWord {
@@ -242,14 +231,7 @@ pub enum EventOutcome {
     CounterPlacementModified {
         application: CounterPlacementApplication,
     },
-    LibraryCardRevealed {
-        player: PlayerId,
-        object: ObjectId,
-    },
-    RevealedCardsBottomed {
-        player: PlayerId,
-        order: Vec<ObjectId>,
-    },
+
     HandCardRevealedForEntry {
         player: PlayerId,
         card: ObjectId,
@@ -591,8 +573,6 @@ pub enum Event {
         source: ObjectId,
         player: PlayerId,
         ability: EffectiveTriggerAbility,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        grant: Option<CascadeGrantProvenance>,
         occurrence: TriggerOccurrenceId,
         witness: TriggerEventWitness,
         source_facts: Box<ObjectBefore>,

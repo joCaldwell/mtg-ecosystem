@@ -33,41 +33,4 @@ impl RulesTxn {
         }
         Ok(looked)
     }
-
-    pub(super) fn validate_library_partition(
-        &self,
-        player: PlayerId,
-        looked: &[ObjectId],
-        top: &[ObjectId],
-        bottom: &[ObjectId],
-    ) -> Result<(), String> {
-        if !self.is_live(player)
-            || top.len().checked_add(bottom.len()) != Some(looked.len())
-            || top.iter().chain(bottom).copied().collect::<BTreeSet<_>>()
-                != looked.iter().copied().collect::<BTreeSet<_>>()
-            || looked.iter().collect::<BTreeSet<_>>().len() != looked.len()
-        {
-            return Err("invalid scry partition".into());
-        }
-        Ok(())
-    }
-
-    pub(super) fn reorder_library_prefix(
-        &mut self,
-        player: PlayerId,
-        looked: &[ObjectId],
-        top: &[ObjectId],
-        bottom: &[ObjectId],
-    ) -> Result<(), String> {
-        self.validate_library_partition(player, looked, top, bottom)?;
-        if let Some(library) = self.rules_mut().libraries.get_mut(&player) {
-            *library = top
-                .iter()
-                .map(|o| o.card)
-                .chain(library[looked.len()..].iter().copied())
-                .chain(bottom.iter().map(|o| o.card))
-                .collect();
-        }
-        Ok(())
-    }
 }

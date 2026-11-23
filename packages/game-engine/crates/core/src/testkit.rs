@@ -5,9 +5,7 @@
 //! `use super::*`, so scenario and witness binaries build outside `--lib`.
 pub use crate::engine::*;
 // Engine modules shadow same-named contracts modules, as inside the engine.
-pub use crate::engine::{
-    impulse_play, mana_tap_observer, optional_block, proliferate, resolution_mana, target_color,
-};
+pub use crate::engine::mana_tap_observer;
 use crate::engine::{
     keywords::KeywordSource, object_facts::DerivedObject, payments::AnnouncementPayment,
     phasing::PhaseSelection, stored_history::StoredPermittedView,
@@ -172,7 +170,7 @@ pub trait GameTestkit {
         &mut self,
         object: ObjectId,
     ) -> Result<Vec<publish::StoredObjectHandle>, String>;
-    fn cascade_charge(&self) -> usize;
+
     fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String>;
     fn casting_cost(&self, card: CardId, caster: PlayerId, from: Zone) -> Result<ManaCost, String>;
     fn check_history_capacity(&mut self) -> Result<(), String>;
@@ -277,7 +275,7 @@ pub trait GameTestkit {
     fn execute_wipes_instruction(&mut self, frame: Resolving, i: Instruction)
     -> Result<(), String>;
     fn finish_committed_player_losses(&mut self, batch: &CommittedBatch) -> Result<bool, String>;
-    fn grant_payload_charge(&self) -> usize;
+    fn trigger_payload_charge(&self) -> usize;
     fn granted_land_mana_colors() -> [Color; 5];
     fn graveyard_target_legal(
         &self,
@@ -425,37 +423,24 @@ pub trait GameTestkit {
         effect: &EffectHandle,
         damage: &DamageHandle,
     ) -> Result<(EffectKey, DamageId), String>;
-    fn resolve_damage_handle(
-        &self,
-        viewer: PlayerId,
-        handle: &DamageHandle,
-    ) -> Result<DamageId, String>;
+
     fn resolve_entity(
         &self,
         viewer: PlayerId,
         target: &PlayerTargetEntity,
     ) -> Result<TargetEntity, String>;
     fn resolve_handle(&self, viewer: PlayerId, handle: &ObjectHandle) -> Result<ObjectId, String>;
-    fn resolve_search_handle(
-        &self,
-        player: PlayerId,
-        handle: &ObjectHandle,
-    ) -> Result<ObjectId, String>;
+
     fn resolve_trigger_handle(
         &self,
         viewer: PlayerId,
         handle: &TriggerHandle,
     ) -> Result<TriggerId, String>;
     fn restore_hideaway_link(&mut self, receipt: HideawayLink) -> Result<(), String>;
-    fn resulting_permission_matches(
-        &self,
-        permission: &CastPermission,
-        stack: &StackInstance,
-    ) -> Result<bool, String>;
+
     fn retain_source_facts(&mut self, fact: &ObjectBefore);
     fn retain_source_lki(&mut self, object: ObjectId) -> Result<(), String>;
     fn sacrifice_candidates(&self, player: PlayerId, filter: &SacrificeFilter) -> Vec<ObjectId>;
-    fn search_lands(&self, player: PlayerId) -> Vec<ObjectId>;
 
     fn selected_payment_pool(
         &self,
@@ -688,9 +673,7 @@ impl GameTestkit for Game {
     ) -> Result<Vec<publish::StoredObjectHandle>, String> {
         RulesTxn::capture_trigger_source_handles(self, object)
     }
-    fn cascade_charge(&self) -> usize {
-        RulesTxn::cascade_charge(self)
-    }
+
     fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
         RulesTxn::cast_is_prohibited(self, player)
     }
@@ -876,9 +859,7 @@ impl GameTestkit for Game {
         frame: Resolving,
         instruction: Instruction,
     ) -> Result<(), String> {
-        let Instruction::Kernel { node, source_block } = instruction else {
-            return Err("expected a kernel instruction".into());
-        };
+        let Instruction::Kernel { node, source_block } = instruction;
         RulesTxn::execute_kernel(self, frame, node, source_block)
     }
     fn execute_effect_instruction(
@@ -898,8 +879,8 @@ impl GameTestkit for Game {
     fn finish_committed_player_losses(&mut self, batch: &CommittedBatch) -> Result<bool, String> {
         RulesTxn::finish_committed_player_losses(self, batch)
     }
-    fn grant_payload_charge(&self) -> usize {
-        RulesTxn::grant_payload_charge(self)
+    fn trigger_payload_charge(&self) -> usize {
+        RulesTxn::trigger_payload_charge(self)
     }
     fn granted_land_mana_colors() -> [Color; 5] {
         RulesTxn::granted_land_mana_colors()
@@ -1186,13 +1167,7 @@ impl GameTestkit for Game {
     ) -> Result<(EffectKey, DamageId), String> {
         RulesTxn::resolve_damage_effect_pair(self, viewer, effect, damage)
     }
-    fn resolve_damage_handle(
-        &self,
-        viewer: PlayerId,
-        handle: &DamageHandle,
-    ) -> Result<DamageId, String> {
-        RulesTxn::resolve_damage_handle(self, viewer, handle)
-    }
+
     fn resolve_entity(
         &self,
         viewer: PlayerId,
@@ -1203,13 +1178,7 @@ impl GameTestkit for Game {
     fn resolve_handle(&self, viewer: PlayerId, handle: &ObjectHandle) -> Result<ObjectId, String> {
         RulesTxn::resolve_handle(self, viewer, handle)
     }
-    fn resolve_search_handle(
-        &self,
-        player: PlayerId,
-        handle: &ObjectHandle,
-    ) -> Result<ObjectId, String> {
-        RulesTxn::resolve_search_handle(self, player, handle)
-    }
+
     fn resolve_trigger_handle(
         &self,
         viewer: PlayerId,
@@ -1220,13 +1189,7 @@ impl GameTestkit for Game {
     fn restore_hideaway_link(&mut self, receipt: HideawayLink) -> Result<(), String> {
         RulesTxn::restore_hideaway_link(self, receipt)
     }
-    fn resulting_permission_matches(
-        &self,
-        permission: &CastPermission,
-        stack: &StackInstance,
-    ) -> Result<bool, String> {
-        RulesTxn::resulting_permission_matches(self, permission, stack)
-    }
+
     fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         RulesTxn::retain_source_facts(self, fact)
     }
@@ -1235,9 +1198,6 @@ impl GameTestkit for Game {
     }
     fn sacrifice_candidates(&self, player: PlayerId, filter: &SacrificeFilter) -> Vec<ObjectId> {
         RulesTxn::sacrifice_candidates(self, player, filter)
-    }
-    fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
-        RulesTxn::search_lands(self, player)
     }
 
     fn selected_payment_pool(

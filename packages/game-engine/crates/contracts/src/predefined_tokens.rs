@@ -19,17 +19,7 @@ impl PredefinedToken {
             Self::Clue => "Clue",
         }
     }
-    fn reminder(self) -> &'static str {
-        match self {
-            Self::Treasure => {
-                r#"It's an artifact with "{T}, Sacrifice this token: Add one mana of any color.""#
-            }
-            Self::Food => {
-                r#"It's an artifact with "{2}, {T}, Sacrifice this token: You gain 3 life.""#
-            }
-            Self::Clue => r#"It's an artifact with "{2}, Sacrifice this token: Draw a card.""#,
-        }
-    }
+
     pub fn appears(text: &str) -> bool {
         Self::ALL
             .into_iter()
@@ -60,11 +50,4 @@ pub fn printed(
             source_block,
         ),
     ))
-}
-
-pub(crate) fn reminder(text: &str, instructions: &[Instruction]) -> bool {
-    instructions.iter().any(|i| {
-        matches!(i,kernel!(CreateTokens { token: kir::TokenSpec::Predefined { kind }, .. })
-        if text.strip_suffix(')')==Some(kind.reminder()))
-    })
 }

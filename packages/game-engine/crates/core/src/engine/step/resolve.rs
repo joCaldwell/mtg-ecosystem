@@ -37,7 +37,7 @@ impl RulesTxn {
             };
             if destination == Zone::Battlefield
                 && !bestow_fallback
-                && (stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                && (stack.alternative_cost == Some(AlternativeCost::Bestow)
                     || self.copiable_definition(source)?.characteristics.subtypes == ["Aura"])
             {
                 let target = stack

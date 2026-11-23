@@ -1,5 +1,5 @@
 use mtg_compiler::fixtures;
-use mtg_contracts::{Catalog, accepted_manifest, canonical, sha256, strict_read};
+use mtg_contracts::{Catalog, canonical, sha256, strict_read};
 use mtg_core::{
     Advance, Budget, CardId, Game, ObjectId, Observation, PlayerId, Prepared, QueryResult,
     QueryValue, ReplayJournal, Response, ScenarioConfig, SearchContext, SnapshotVerifier,

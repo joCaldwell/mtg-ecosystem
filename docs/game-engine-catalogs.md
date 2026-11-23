@@ -58,7 +58,7 @@ mismatches reject; other origins are reported separately. Build inputs embed
 manifests, provenance, accepted headers/pins and records, excluding expected IR,
 policy copies and evidence. Malformed catalog/group data yields `CatalogError`;
 missing scenario digests fail admission without preventing diagnostic CLI builds.
-`record-groups.json` is historical ordering, never catalog membership authority.
+Catalog manifests define record membership and order.
 
 ## IR and build identity
 
@@ -154,10 +154,8 @@ Every flat effect is a kernel verb; the audited cells are:
 | `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source or one announced creature |
 | `modify_until` | End-of-turn fixed P/T change of the source, one announced creature or a matching battlefield set; the source's own keyword grant |
 
-The core interpreter routes each cell to the executor whose events, choices,
-effects and recovery facts the legacy variant used, so state and journals are
-unchanged. Board-wide sets evaluate directly via the general battlefield or
-graveyard query.
+The interpreter routes admitted leaves through the shared rules operations.
+Board-wide sets evaluate through the battlefield and graveyard queries.
 
 `Seq` follows written order. `If` supports `Compare`, `Exists`, `CostPaid`,
 `Not` and `All`. `ForEach` binds a player or a singleton object.
@@ -195,18 +193,11 @@ destroy retain their standalone routes. `Delayed` and `Reflexive` remain
 unaudited. Control nodes derive capabilities from their leaves, including
 target- and program-sensitive requirements. Continuation-based nodes also
 require `KernelControlV1`, which is outside the reviewed hosting and search
-sets. Catalog family admission still applies.
+sets. Composition and profile admission check each complete definition.
 
-Other linked and multi-step procedures stay legacy variants (optional blocks
-and draws, cascade, hideaway, impulse and library selection, searches,
-scry/surveil, demonstrate, reveal-and-cast, counterspells, copies, bestow and
-attachment returns, damage/sacrifice riders), as do three flat effects whose
-complete forms need new algebra: `AddResolutionMana` (a scaled per-permanent
-count) and `GrantKeywords`/`GrantKeywordsSet` (one effect changing two
-layers). Migrate a variant by adding its cell and route, moving each emitter,
-guard and schema twin to the kernel shape, deleting the variant, regenerating
-catalogs, proving whole-archive IR equal to a converted base and comparing
-Foundations and Ramos pod digests.
+A procedure without an audited node and execution path rejects during lowering.
+Adding a mechanic requires a typed operand, a capability and a tested rules
+operation wherever the current algebra cannot already express it.
 
 ## Compositional lowering
 
@@ -253,7 +244,7 @@ Adding a primitive touches the row that owns it, not every card:
 | --- | --- |
 | Cost term, self event, keyword or step shape that lowers to existing IR | One `compose/*.rs` table row and its test; a frozen fixture when it opens a new runtime path |
 | Existing instruction, target route or cost in another kind of stack object | One `contracts/src/composition.rs` row, a witness in `witness/tests/permanents_mana/composition_tests.rs`, and the core fix if recovery assumed a shape |
-| New instruction | A [kernel](#kernel-ir) cell in `kir::check` with its capability, the executor in `core/src/engine/kir.rs`, a `composition.rs` kernel row, the emitting row and a witness. Add a legacy `Instruction` variant only for a whole procedure the algebra does not express |
+| New instruction | A [kernel](#kernel-ir) cell in `kir::check` with its capability, the executor in `core/src/engine/kir.rs`, a `composition.rs` kernel row, the emitting row and a witness. |
 
 Capabilities, schema, labels and source blocks come from the shared assembly;
 no per-card capability, schema branch or family validator is added.

@@ -36,10 +36,7 @@ impl RulesTxn {
                 self.graveyard_replacement_step(transaction)?
             }
             Frame::LandEntry { .. } => self.land_entry_step()?,
-            Frame::PlayHideawayLinked { progress } => self.linked_play_step(progress)?,
-            Frame::RevealAndCast { progress } => self.reveal_and_cast_step(progress)?,
-            Frame::HandCast { frame, child } => self.hand_cast_step(frame, child)?,
-            Frame::Cascade { progress } => self.cascade_step(*progress)?,
+
             Frame::ResolutionPayment { frame, payment } => {
                 self.resolution_payment_step(frame, payment)?
             }
@@ -208,7 +205,7 @@ impl RulesTxn {
                     .is_some_and(|check| !check.passed())
                     || (!frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l))
                 {
-                    if stack.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                    if stack.alternative_cost == Some(AlternativeCost::Bestow)
                         && frame.condition_check.is_none()
                         && frame.legal_targets == [false]
                     {

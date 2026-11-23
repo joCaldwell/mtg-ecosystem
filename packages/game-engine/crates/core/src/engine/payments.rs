@@ -225,46 +225,11 @@ impl RulesTxn {
     // resumes is reconciled with its live stack entry when the step commits
     // its frame lease (CR 608.2h/113.7a).
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
-        let during_resolution = !matches!(cast.completion, CastCompletion::Priority);
         match self.pay_announcement_costs(&cast)? {
-            AnnouncementPayment::Completed(completed) => match cast.completion {
-                CastCompletion::Priority => {
-                    self.rules_mut().priority = completed.controller;
-                    self.rules_mut().frame = Frame::Priority;
-                }
-                CastCompletion::HandTrigger { frame } => {
-                    self.rules_mut().frame = Frame::HandCast {
-                        frame,
-                        child: Some(completed.stack_id),
-                    };
-                }
-                CastCompletion::Resolution {
-                    permission,
-                    mut progress,
-                } => {
-                    if completed.stack_id != cast.stack_id
-                        || completed.controller != permission.caster
-                    {
-                        return Err("resolution payment completion identity".into());
-                    }
-                    match &mut progress {
-                        CastOwner::LinkedPlay {
-                            progress, object, ..
-                        } => {
-                            progress.complete_cast(*object, completed.stack_id);
-                        }
-                        CastOwner::Cascade(progress) => {
-                            progress.child = Some(completed.stack_id);
-                            progress.stage = cascade::CascadeStage::Randomize;
-                            self.prepare_cascade_remainder(progress)?;
-                        }
-                        CastOwner::RevealAndCast(progress) => {
-                            progress.complete_cast(permission.object, completed.stack_id)?
-                        }
-                    }
-                    self.rules_mut().frame = progress.resume();
-                }
-            },
+            AnnouncementPayment::Completed(completed) => {
+                self.rules_mut().priority = completed.controller;
+                self.rules_mut().frame = Frame::Priority;
+            }
             AnnouncementPayment::Deferred => return Ok(()),
             AnnouncementPayment::Unpayable => {
                 let undo = cast.undo_mana;
@@ -278,11 +243,7 @@ impl RulesTxn {
                 self.reverse_cast(cast, reason, undo)?;
             }
         }
-        if during_resolution {
-            Ok(())
-        } else {
-            Ok(self.stabilize()?)
-        }
+        Ok(self.stabilize()?)
     }
 
     // CR 601.2h-i / 608.2g: payment and cast-trigger collection do not grant
@@ -294,7 +255,7 @@ impl RulesTxn {
         cast: &Casting,
     ) -> Result<AnnouncementPayment, String> {
         let stack = self.top()?.clone();
-        self.validate_hand_cast_child(&stack)?;
+
         self.validate_cost_lock(&stack)?;
         self.validate_additional_cost_entry(&stack)?;
         if stack.id != cast.stack_id
@@ -303,11 +264,7 @@ impl RulesTxn {
         {
             return Err("announcement payment binding invariant".into());
         }
-        if let CastCompletion::Resolution { permission, .. } = &cast.completion
-            && !self.resulting_permission_matches(permission, &stack)?
-        {
-            return Ok(AnnouncementPayment::Unpayable);
-        }
+
         let cost = stack.total_cost.clone();
         if let StackKind::Activated { ability, .. } = &stack.kind
             && matches!(

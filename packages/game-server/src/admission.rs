@@ -120,7 +120,8 @@ mod tests {
     }
     #[test]
     fn exact_hosted_decks_and_identity_fences() {
-        for profile in ["commander-foundations-v1", "commander-attachments-v1"] {
+        {
+            let profile = "commander-foundations-v1";
             assert!(matches!(
                 admit(request(profile)),
                 AdmissionResponse::Admitted { .. }

@@ -151,8 +151,7 @@ impl RulesTxn {
         self.validate_choices_state()?;
         self.validate_commander_state()?;
         self.validate_actions_state()?;
-        self.validate_cascade_state()?;
-        self.validate_hand_cast_state()?;
+
         for p in &s.rules.players {
             if (p.status == PlayerStatus::Left) != p.last_known.is_some()
                 || p.last_known.as_ref().is_some_and(|last| {
@@ -254,7 +253,7 @@ impl RulesTxn {
         // Paid mana damage can retain the resolving instruction even after its
         // payer departs and the activation no longer has a live mana window.
         if let Frame::ResolutionPayment { frame, payment } =
-            spell_cascade_grants::retained_effect_frame(&self.state.rules.frames, &s.rules.frame)
+            frame::retained_effect_frame(&self.state.rules.frames, &s.rules.frame)
         {
             self.validate_resolution_payment(frame, payment)?;
         }

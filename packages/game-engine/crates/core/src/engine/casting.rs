@@ -10,10 +10,21 @@ struct SpellAnnouncement {
     player: PlayerId,
     original_object: ObjectId,
     cast_from: Zone,
-    completion: CastCompletion,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlternativeCost {
+    Bestow,
+    WithoutManaCost,
 }
 
 impl RulesTxn {
+    pub(super) fn announcement_mana_frame(&mut self, cast: Casting) -> Result<Frame, String> {
+        self.lock_spell_cost()?;
+        Ok(Frame::Mana { cast })
+    }
+
     fn priority_spell_announcement(
         &self,
         player: PlayerId,
@@ -60,7 +71,6 @@ impl RulesTxn {
             player,
             original_object: object.id,
             cast_from: object.zone,
-            completion: CastCompletion::Priority,
         })
     }
 
@@ -134,7 +144,7 @@ impl RulesTxn {
         self.state.rules.stack.iter().any(|s| {
             s.source == object
                 && s.kind.is_spell()
-                && s.alternative_cost == Some(cascade::AlternativeCost::Bestow)
+                && s.alternative_cost == Some(AlternativeCost::Bestow)
         })
     }
     pub(super) fn proposed_cast_characteristics(
@@ -153,54 +163,6 @@ impl RulesTxn {
                 .characteristics(mtg_contracts::BestowForm::Aura),
         )
     }
-    pub(super) fn announce_resolution_spell(&mut self, progress: CastOwner) -> Result<(), String> {
-        let permission = progress.permission(self)?;
-        let legal = match &progress {
-            CastOwner::LinkedPlay {
-                progress,
-                object,
-                receipt,
-            } => {
-                self.validate_linked_play(progress, None)?;
-                matches!(&self.state.rules.frame, Frame::PlayHideawayLinked { progress: current } if current == progress)
-                    && progress.receipt_matches(self, receipt, *object)?
-                    && self.current(*object)?.zone == Zone::Exile
-                    && self.resolution_spell_proposable(permission.caster, *object)?
-            }
-            _ => self.resolution_offer_legal(&permission)?,
-        };
-        if !legal {
-            return Err("no legal resolution cast".into());
-        }
-        self.begin_spell_announcement(SpellAnnouncement {
-            bestow: false,
-            player: permission.caster,
-            original_object: permission.object,
-            cast_from: Zone::Exile,
-            completion: CastCompletion::Resolution {
-                permission,
-                progress,
-            },
-        })
-    }
-
-    pub(super) fn announce_combat_hand_spell(
-        &mut self,
-        frame: Box<Resolving>,
-        object: ObjectId,
-    ) -> Result<(), String> {
-        let player = self.entry(frame.stack_id)?.controller;
-        if !self.hand_cast_candidates(&frame)?.contains(&object) {
-            return Err("unavailable hand spell".into());
-        }
-        self.begin_spell_announcement(SpellAnnouncement {
-            bestow: false,
-            player,
-            original_object: object,
-            cast_from: Zone::Hand { owner: player },
-            completion: CastCompletion::HandTrigger { frame },
-        })
-    }
 
     // CR 601.2a-i: one proposal constructor owns the move, fresh stack identity
     // and unfinished payment marker. No cast occurrence is emitted here.
@@ -210,15 +172,10 @@ impl RulesTxn {
             player,
             original_object,
             cast_from,
-            completion,
         } = announcement;
         let card = original_object.card;
         self.check_stack_capacity(1)?;
-        let alternative_cost = match &completion {
-            CastCompletion::Priority => bestow.then_some(cascade::AlternativeCost::Bestow),
-            CastCompletion::HandTrigger { .. } => Some(cascade::AlternativeCost::WithoutManaCost),
-            CastCompletion::Resolution { permission, .. } => Some(permission.alternative_cost),
-        };
+        let alternative_cost = bestow.then_some(AlternativeCost::Bestow);
         let total_cost = match alternative_cost {
             None => self.casting_cost(card, player, cast_from)?,
             Some(alternative) => {
@@ -226,13 +183,6 @@ impl RulesTxn {
             }
         };
         let id = StackId(self.state.rules.next_stack_id);
-        let hand_cast_permission =
-            match &completion {
-                CastCompletion::HandTrigger { frame } => Some(Box::new(
-                    self.hand_cast_permission(frame, original_object, id)?,
-                )),
-                _ => None,
-            };
         self.rules_mut().next_stack_id = self
             .state
             .rules
@@ -261,7 +211,6 @@ impl RulesTxn {
             cost_lock: None,
             selected_additional_costs: None,
             alternative_cost,
-            hand_cast_permission,
             x: (alternative_cost.is_some() && self.definition(card)?.x_mana_cost)
                 .then(Quantity::zero),
             death_controller: None,
@@ -288,7 +237,6 @@ impl RulesTxn {
         };
         self.rules_mut().stack.push(entry);
         let cast = Casting {
-            completion,
             sacrifices: vec![],
             origin: AnnouncementOrigin::Spell,
             spending: None,
@@ -578,29 +526,7 @@ impl RulesTxn {
         } else {
             vec![]
         };
-        self.rules_mut().frame = match cast.completion {
-            CastCompletion::Priority => Frame::Priority,
-            CastCompletion::HandTrigger { frame } => Frame::HandCast { frame, child: None },
-            CastCompletion::Resolution {
-                permission,
-                progress,
-            } => {
-                if permission.object != cast.original_object
-                    || permission.caster != stack.controller
-                {
-                    return Err("resolution cast reversal permission invariant".into());
-                }
-                if let CastOwner::LinkedPlay {
-                    receipt, progress, ..
-                } = progress
-                {
-                    self.restore_hideaway_link(receipt)?;
-                    Frame::PlayHideawayLinked { progress }
-                } else {
-                    progress.resume()
-                }
-            }
-        };
+        self.rules_mut().frame = Frame::Priority;
         self.record_event(Event::CastReversed {
             stack_id: cast.stack_id,
             reason: reason.into(),

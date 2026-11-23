@@ -43,15 +43,8 @@ fn library_members(proposed: &ProposedEvent) -> Option<(PlayerId, &[ObjectId])> 
 }
 
 impl GraveyardReplacement {
-    fn counter_target_left(&self, game: &RulesTxn) -> bool {
-        false
-    }
-
     fn request(&self, game: &RulesTxn) -> Option<Request> {
-        if !matches!(self.phase, ReplacementPhase::BeforeMovement)
-            || !game.is_live(self.owner)
-            || self.counter_target_left(game)
-        {
+        if !matches!(self.phase, ReplacementPhase::BeforeMovement) || !game.is_live(self.owner) {
             return None;
         }
         let object = *self.commanders.get(self.choices.len())?;
@@ -295,14 +288,6 @@ impl RulesTxn {
         }
         let cause = self.instruction_cause(&tx.frame, tx.source_block)?;
         match &tx.phase {
-            ReplacementPhase::BeforeMovement if tx.counter_target_left(self) => {
-                self.rules_mut().pending = None;
-                tx.phase = ReplacementPhase::Shuffling {
-                    actual: None,
-                    remaining: tx.revealed.len(),
-                    index: tx.last_index(self)?,
-                };
-            }
             ReplacementPhase::BeforeMovement if tx.choices.len() < tx.commanders.len() => {
                 let input = self
                     .rules_mut()
@@ -375,10 +360,7 @@ impl RulesTxn {
     }
 
     pub(super) fn replacement_charge(&self) -> usize {
-        let frame = spell_cascade_grants::retained_effect_frame(
-            &self.state.rules.frames,
-            &self.state.rules.frame,
-        );
+        let frame = frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame);
         if matches!(
             frame,
             Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
@@ -390,17 +372,13 @@ impl RulesTxn {
     }
 
     pub(super) fn validate_graveyard_replacement(&self) -> Result<(), String> {
-        if let Frame::GraveyardGroup { tx } = spell_cascade_grants::retained_effect_frame(
-            &self.state.rules.frames,
-            &self.state.rules.frame,
-        ) {
+        if let Frame::GraveyardGroup { tx } =
+            frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame)
+        {
             return tx.validate(self);
         }
         let Frame::GraveyardReplacement { transaction: tx } =
-            spell_cascade_grants::retained_effect_frame(
-                &self.state.rules.frames,
-                &self.state.rules.frame,
-            )
+            frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame)
         else {
             return Ok(());
         };
@@ -459,8 +437,7 @@ impl RulesTxn {
         if self.is_live(owner) {
             match &tx.phase {
                 ReplacementPhase::BeforeMovement
-                    if !tx.counter_target_left(self)
-                        && members.iter().any(|id| self.zone(*id) != Some(from)) =>
+                    if members.iter().any(|id| self.zone(*id) != Some(from)) =>
                 {
                     return Err("stale replacement proposal".into());
                 }
@@ -469,7 +446,7 @@ impl RulesTxn {
                     index,
                     actual,
                 } if (actual.is_some() && tx.choices.len() != tx.commanders.len())
-                    || (actual.is_none() && !tx.counter_target_left(self))
+                    || actual.is_none()
                     || *remaining == 0
                     || *remaining > expected.len()
                     || *index > tx.last_index(self)? =>

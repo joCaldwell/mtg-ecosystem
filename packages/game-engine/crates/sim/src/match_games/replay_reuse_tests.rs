@@ -102,11 +102,7 @@ fn paired_sealed_replay_reporting_probe() {
     let root = std::path::PathBuf::from(
         std::env::var_os("MTG_REPLAY_PROBE_ROOT").expect("MTG_REPLAY_PROBE_ROOT is required"),
     );
-    for (profile, catalog_name) in [
-        ("commander-attachments-v1", "attachments"),
-        ("commander-removal-v1", "removal"),
-        ("commander-wipes-v1", "wipes"),
-    ] {
+    for (profile, catalog_name) in [("commander-foundations-v1", "match")] {
         let catalog = mtg_compiler::catalog::embedded_catalog(catalog_name).unwrap();
         let directory = root.join("batches").join(profile);
         let path = directory.join("game-01.json");

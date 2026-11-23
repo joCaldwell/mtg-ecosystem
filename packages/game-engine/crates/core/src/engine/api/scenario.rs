@@ -166,12 +166,6 @@ testkit_fields! {
     }
 }
 impl Prepared {
-    pub(in crate::engine) fn has_target_color_set(&self) -> bool {
-        self.catalog
-            .definitions
-            .iter()
-            .any(|d| d.capabilities.contains(&Capability::TargetColorSetV1))
-    }
     pub(in crate::engine) fn has_nonland_color_grant(&self) -> bool {
         self.catalog.definitions.iter().any(|d| {
             d.capabilities

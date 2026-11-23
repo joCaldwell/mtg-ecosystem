@@ -1,7 +1,6 @@
 //! Equipment-owned triggered blocks. CR 109.5, 301.5, 603.3, 603.10a.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use serde_json::{Value, json};
 
 pub fn count(text: &str) -> Option<u32> {
     if text == "a" || text == "an" {

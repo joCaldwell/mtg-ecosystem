@@ -177,12 +177,7 @@ impl RulesTxn {
                 modes: vec![],
             });
         }
-        if let PlayerRequest::CascadeLandEntry { .. } = request
-            && let Frame::Cascade { progress } = &self.state.rules.frame
-        {
-            return self
-                .effect_decision_context(viewer, &self.cascade_land_source(progress).ok()??);
-        }
+
         if matches!(
             request,
             PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. }
@@ -232,15 +227,6 @@ impl RulesTxn {
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
-            (Frame::PlayHideawayLinked { progress }, PlayerRequest::PlayHideawayLinked { .. }) => {
-                self.entry(progress.frame.stack_id).ok()?
-            }
-            (Frame::RevealAndCast { progress }, PlayerRequest::OptionalEffect { .. }) => {
-                self.entry(progress.frame.stack_id).ok()?
-            }
-            (Frame::HandCast { frame, .. }, PlayerRequest::HandCast { .. }) => {
-                self.entry(frame.stack_id).ok()?
-            }
             (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
                     .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)
@@ -306,8 +292,6 @@ impl RulesTxn {
                 .collect();
         }
         let block = match &self.state.rules.frame {
-            Frame::RevealAndCast { progress } => Some(progress.source_block),
-            Frame::PlayHideawayLinked { progress } => Some(progress.source_block),
             Frame::ResolutionPayment { frame, .. } | Frame::ResolutionChoice { frame, .. } => {
                 // source_block is a typed instruction provenance index, not text parsing.
                 self.program_for(self.entry(frame.stack_id).ok()?)

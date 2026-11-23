@@ -1,7 +1,7 @@
 //! Equipped-indestructible witness drivers shared by keyword, aura and
 //! permanent binaries: source preparation, paid casts and recovery checks.
 use mtg_core::testkit::*;
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 pub fn object(g: &Game, id: u32) -> ObjectId {
     g.object_id(CardId(id)).unwrap()

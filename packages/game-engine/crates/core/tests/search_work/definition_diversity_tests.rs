@@ -13,8 +13,6 @@ const CONTRACT: &str = r#"{
  "synthetic_scope":"pure existing modifier evaluator; generated constants are not authentic card text or cast invocations; normal restore rejects nonempty domains; above-capacity domains never advance",
  "cold_warm":"fresh generic State decode resets immutable history-byte memo, exact full generic bytes/SHA checked before and after repeat; characteristics currently has no memo, first/repeat calls are labeled accordingly",
  "invalidation":"fork a warmed domain, change one modifier power/toughness without changing identities, verify changed arithmetic and full State bytes/SHA and unchanged sibling; cleanup uses existing production typed event",
- "heterogeneous_sources":["Blood Artist","Essence Warden","Elvish Visionary","Slaughterhouse Bouncer","Furnace of Rath","Giant Growth","Disfigure","Fog"],
- "heterogeneous_scope":"private rejected configuration; three complete archived spells actually paid/resolved; typed fixture movements collect actual trigger matches/nonmatches; exact condition results; cleanup expires three resolved effects while static provider remains",
  "warmups":1,"measured_repetitions":5,"horizon_or_pool_changes":false,
  "outer_guard":"120s-2gib-v1 must be proved by independent host, env alone is not proof",
  "capacity_claim":"no admission or supported invocation creation above effect capacity; authentic256different Oracle abilities unavailable in finite catalog",

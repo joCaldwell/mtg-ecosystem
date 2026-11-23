@@ -309,102 +309,9 @@ fn indestructible_targeted_destruction_retains_both_kinds_and_destroys_control()
         },
     );
 }
+
 #[test]
-fn indestructible_fumigate_counts_only_actual_destroyed_creatures() {
-    both(
-        prepared(&[
-            ("Darksteel Myr", false),
-            ("Darksteel Relic", false),
-            ("Grizzly Bears", false),
-            ("Fumigate", true),
-            ("Plains", false),
-            ("Plains", false),
-            ("Plains", false),
-            ("Plains", false),
-            ("Plains", false),
-        ]),
-        |g, q| {
-            let life = g.state.rules.players[0].life.clone();
-            cast(g, q, 3, vec![]);
-            let mut expected = life;
-            expected.add(&1.into());
-            assert_eq!(g.state.rules.players[0].life, expected);
-            assert_eq!(g.current(object(g, 0)).unwrap().zone, Zone::Battlefield);
-            assert_eq!(g.current(object(g, 1)).unwrap().zone, Zone::Battlefield);
-            assert!(matches!(
-                g.current(object(g, 2)).unwrap().zone,
-                Zone::Graveyard { .. }
-            ));
-        },
-    );
-}
-#[test]
-fn indestructible_anger_failed_destroy_then_sacrifice_exiles_and_zero_toughness_dies() {
-    both(
-        prepared(&[
-            ("Darksteel Myr", false),
-            ("Anger of the Gods", true),
-            ("Murder", true),
-            ("Innocent Blood", true),
-            ("Mountain", false),
-            ("Mountain", false),
-            ("Mountain", false),
-            ("Swamp", false),
-            ("Swamp", false),
-            ("Swamp", false),
-            ("Swamp", false),
-        ]),
-        |g, q| {
-            cast(g, q, 1, vec![]);
-            let myr = object(g, 0);
-            assert_eq!(g.current(myr).unwrap().marked_damage, 3.into());
-            cast(g, q, 2, vec![TargetEntity::Object { object: myr }]);
-            assert_eq!(g.current(myr).unwrap().zone, Zone::Battlefield);
-            // Complete sacrifice invocation answers the real forced-sacrifice choice.
-            answer(g, q, Response::Cast { card: CardId(3) });
-            loop {
-                let r = request(g, q);
-                let a = match r {
-                    Request::Mana { .. } => {
-                        let land = g
-                            .state
-                            .rules
-                            .objects
-                            .values()
-                            .find(|o| {
-                                o.zone == Zone::Battlefield
-                                    && !o.tapped
-                                    && g.definition(o.id.card).unwrap().name == "Swamp"
-                            })
-                            .unwrap()
-                            .id;
-                        Response::ActivateMana { object: land }
-                    }
-                    Request::SpendMana { .. } => Response::SpendMana {
-                        spending: BTreeMap::from([(Color::B, 1.into())]),
-                    },
-                    Request::Priority { .. } => break,
-                    x => panic!("{x:?}"),
-                };
-                answer(g, q, a);
-                if matches!(request(g, q), Request::Mana { .. }) {
-                    answer(g, q, Response::FinishMana { undo_mana: false });
-                }
-            }
-            while !g.state.rules.stack.is_empty() {
-                let r = request(g, q);
-                match r {
-                    Request::Priority { .. } => answer(g, q, Response::Pass),
-                    Request::ForcedSacrifice { .. } => {
-                        answer(g, q, Response::ForcedSacrifice { object: myr })
-                    }
-                    x => panic!("{x:?}"),
-                };
-            }
-            request(g, q);
-            assert_eq!(g.current(object(g, 0)).unwrap().zone, Zone::Exile);
-        },
-    );
+fn indestructible_zero_toughness_dies() {
     both(
         prepared(&[
             ("Darksteel Myr", false),
@@ -420,55 +327,25 @@ fn indestructible_anger_failed_destroy_then_sacrifice_exiles_and_zero_toughness_
             ));
         },
     );
+}
+#[test]
+fn indestructible_bounce_moves_exact_incarnation() {
     both(
         prepared(&[
             ("Darksteel Myr", false),
-            ("Anger of the Gods", true),
-            ("Disfigure", true),
-            ("Mountain", false),
-            ("Mountain", false),
-            ("Mountain", false),
-            ("Swamp", false),
+            ("Unsummon", true),
+            ("Island", false),
         ]),
         |g, q| {
-            cast(g, q, 1, vec![]);
             let myr = object(g, 0);
-            cast(g, q, 2, vec![TargetEntity::Object { object: myr }]);
-            assert_eq!(g.current(object(g, 0)).unwrap().zone, Zone::Exile);
+            cast(g, q, 1, vec![TargetEntity::Object { object: myr }]);
+            assert!(g.current(myr).is_err());
+            assert_eq!(
+                g.current(object(g, 0)).unwrap().zone,
+                Zone::Hand { owner: PlayerId(0) }
+            );
         },
     );
-}
-#[test]
-fn indestructible_exile_and_bounce_still_move_exact_incarnations() {
-    for spell in ["Unsummon", "Swords to Plowshares"] {
-        both(
-            prepared(&[
-                ("Darksteel Myr", false),
-                (spell, true),
-                (
-                    if spell == "Unsummon" {
-                        "Island"
-                    } else {
-                        "Plains"
-                    },
-                    false,
-                ),
-            ]),
-            |g, q| {
-                let myr = object(g, 0);
-                cast(g, q, 1, vec![TargetEntity::Object { object: myr }]);
-                assert!(g.current(myr).is_err());
-                assert_eq!(
-                    g.current(object(g, 0)).unwrap().zone,
-                    if spell == "Unsummon" {
-                        Zone::Hand { owner: PlayerId(0) }
-                    } else {
-                        Zone::Exile
-                    }
-                );
-            },
-        );
-    }
 }
 #[test]
 fn indestructible_typed_nonlethal_deathtouch_lifelink_and_atomic_fault_control() {

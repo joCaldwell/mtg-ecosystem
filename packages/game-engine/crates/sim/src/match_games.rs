@@ -146,51 +146,7 @@ fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::D
 }
 // One distinct card per color. Reassign flexible cards when a later slot
 // has no other candidate. The search depth is bounded by the five colors.
-fn colored_library_choices(
-    colors: &[Color],
-    candidates: &[mtg_core::ColoredCardCandidate],
-) -> Vec<mtg_core::ColoredCardAssignment> {
-    fn assign(
-        slot: usize,
-        colors: &[Color],
-        candidates: &[mtg_core::ColoredCardCandidate],
-        owners: &mut [Option<usize>],
-        seen: &mut [bool],
-    ) -> bool {
-        for (index, card) in candidates.iter().enumerate() {
-            if seen[index] || !card.slots.contains(&colors[slot]) {
-                continue;
-            }
-            seen[index] = true;
-            if owners[index].is_none_or(|prior| assign(prior, colors, candidates, owners, seen)) {
-                owners[index] = Some(slot);
-                return true;
-            }
-        }
-        false
-    }
-    let mut owners = vec![None; candidates.len()];
-    for slot in 0..colors.len() {
-        assign(
-            slot,
-            colors,
-            candidates,
-            &mut owners,
-            &mut vec![false; candidates.len()],
-        );
-    }
-    colors
-        .iter()
-        .enumerate()
-        .filter_map(|(slot, color)| {
-            let card = owners.iter().position(|owner| *owner == Some(slot))?;
-            Some(mtg_core::ColoredCardAssignment {
-                slot: *color,
-                handle: candidates[card].handle.clone(),
-            })
-        })
-        .collect()
-}
+
 struct Strategy<'a> {
     catalog: &'a Catalog,
     policy: Policy,
@@ -263,35 +219,10 @@ impl Strategy<'_> {
                         .clone(),
                 }
             }
-            PlayerRequest::HandCast { candidates, .. } => candidates
-                .iter()
-                .find(|card| self.supported_cast_target(v, card))
-                .cloned()
-                .map(|card| PlayerResponse::Cast { card })
-                .unwrap_or(PlayerResponse::Pass),
-            PlayerRequest::HandReturn {
-                candidates, count, ..
-            } => PlayerResponse::HandReturn {
-                objects: candidates.iter().rev().take(*count).cloned().collect(),
-            },
-            PlayerRequest::LibraryOrder { candidates, .. } => PlayerResponse::LibraryOrder {
-                objects: candidates.clone(),
-            },
-            PlayerRequest::LibrarySelect { candidates, .. } => PlayerResponse::LibrarySelect {
-                hand: candidates.first().cloned().into_iter().collect(),
-                remainder: candidates.iter().skip(1).cloned().collect(),
-            },
+
             // The same owner-only look payload is used by the optional
             // reveal-for-mana continuation. Resolve the choice using its
             // public IR and the ordinary decision token.
-            PlayerRequest::Scry { candidates, .. } => PlayerResponse::Scry {
-                top: candidates.clone(),
-                bottom: vec![],
-            },
-            PlayerRequest::Surveil { candidates, .. } => PlayerResponse::Surveil {
-                top: candidates.clone(),
-                graveyard: vec![],
-            },
             PlayerRequest::LegendRule { candidates, .. } => self.legend_choice(candidates)?,
             PlayerRequest::AdditionalCosts { .. } => {
                 PlayerResponse::AdditionalCosts { selected: vec![] }
@@ -379,11 +310,7 @@ impl Strategy<'_> {
             PlayerRequest::EntryReveal { candidates, .. } => PlayerResponse::EntryReveal {
                 card: candidates.first().cloned(),
             },
-            PlayerRequest::CascadeLandEntry { candidates, .. } => {
-                PlayerResponse::CascadeLandEntry {
-                    object: candidates.first().cloned(),
-                }
-            }
+
             PlayerRequest::EntryCopy { candidates, .. } => PlayerResponse::EntryCopy {
                 object: self.best_permanent(v, candidates),
             },
@@ -395,67 +322,14 @@ impl Strategy<'_> {
             PlayerRequest::GraveyardReplacementOrder { .. } => {
                 PlayerResponse::OptionalEffect { perform: true }
             }
-            PlayerRequest::Hideaway { candidates, .. } => PlayerResponse::Hideaway {
-                object: candidates
-                    .first()
-                    .cloned()
-                    .ok_or("empty hideaway selection")?,
-            },
-            PlayerRequest::PlayHideawayLinked {
-                candidates,
-                back_land_candidates,
-                ..
-            } => {
-                let front = candidates
-                    .iter()
-                    .find(|card| self.supported_cast_target(v, card))
-                    .cloned();
-                match (front, back_land_candidates.first()) {
-                    (None, Some(object)) => PlayerResponse::PlayHideawayLinkedBackLand {
-                        object: object.clone(),
-                    },
-                    (object, _) => PlayerResponse::PlayHideawayLinked { object },
-                }
-            }
-            PlayerRequest::ChooseOpponent { candidates, .. } => PlayerResponse::ChooseOpponent {
-                opponent: *candidates.first().ok_or("empty opponent selection")?,
-            },
-            PlayerRequest::SearchLandBattlefield { candidates, .. } => {
-                PlayerResponse::SearchLandBattlefield {
-                    object: candidates
-                        .first()
-                        .cloned()
-                        .ok_or("empty revealed land partition")?,
-                }
-            }
-            PlayerRequest::ColoredSearch {
-                colors, candidates, ..
-            } => PlayerResponse::ColoredSearch {
-                assignments: colored_library_choices(colors, candidates),
-            },
-            PlayerRequest::SearchLands {
-                maximum,
-                candidates,
-                ..
-            } => PlayerResponse::SearchLands {
-                objects: self.search_lands(v, candidates, *maximum as usize),
-            },
+
             PlayerRequest::SacrificeCost { candidates, .. } => PlayerResponse::SacrificeCost {
                 object: self.sacrifice_choice(v, candidates)?,
             },
             PlayerRequest::ForcedSacrifice { candidates, .. } => PlayerResponse::ForcedSacrifice {
                 object: self.sacrifice_choice(v, candidates)?,
             },
-            PlayerRequest::ChooseColor { colors, .. } => PlayerResponse::ChooseColor {
-                color: *colors.first().ok_or("no legal color")?,
-            },
-            PlayerRequest::Proliferate { candidate, .. } => PlayerResponse::Proliferate {
-                object: candidate.clone(),
-                include: v
-                    .objects
-                    .iter()
-                    .any(|o| o.handle == *candidate && o.controller == v.viewer),
-            },
+
             PlayerRequest::OptionalEffect { .. } => PlayerResponse::OptionalEffect {
                 perform: self.optional_effect(
                     v,
@@ -465,9 +339,7 @@ impl Strategy<'_> {
                         .map(|instruction| instruction.source_block),
                 ),
             },
-            PlayerRequest::OptionalRecursion { .. } => {
-                PlayerResponse::OptionalRecursion { perform: true }
-            }
+
             PlayerRequest::OpeningPlacement { candidates, .. } => {
                 PlayerResponse::OpeningPlacement {
                     object: candidates.first().cloned(),

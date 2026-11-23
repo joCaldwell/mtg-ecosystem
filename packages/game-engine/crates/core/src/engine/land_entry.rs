@@ -39,13 +39,6 @@ pub(super) enum EntryCost {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EntryOrigin {
-    LinkedPlay {
-        progress: Box<LinkedPlayProgress>,
-        object: ObjectId,
-        receipt: HideawayLink,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        back_face: bool,
-    },
     Copy {
         frame: Resolving,
         selection: entry_copy::EntryCopySelection,
@@ -56,19 +49,12 @@ pub enum EntryOrigin {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         back_face: bool,
     },
-
-    Cascade {
-        progress: Box<CascadeProgress>,
-    },
 }
 impl EntryOrigin {
     fn back_face(&self) -> bool {
         matches!(
             self,
             Self::LandPlay {
-                back_face: true,
-                ..
-            } | Self::LinkedPlay {
                 back_face: true,
                 ..
             }
@@ -79,9 +65,6 @@ impl EntryOrigin {
         Ok(match self {
             Self::LandPlay { player, .. } => *player,
             Self::Copy { frame, .. } => game.entry(frame.stack_id)?.controller,
-
-            Self::Cascade { progress } => game.entry(progress.frame.stack_id)?.controller,
-            Self::LinkedPlay { progress, .. } => game.entry(progress.frame.stack_id)?.controller,
         })
     }
 }
@@ -216,37 +199,9 @@ impl RulesTxn {
                     return Err("optional entry choice precedes copy or attachment".into());
                 }
             }
-
-            EntryOrigin::LinkedPlay {
-                progress,
-                object,
-                receipt,
-                back_face,
-            } => {
-                self.validate_linked_play(progress, None)?;
-                if !progress.receipt_matches(self, receipt, *object)?
-                    || objects != [*object]
-                    || !self.linked_land_face_playable(player, *object, *back_face)?
-                {
-                    return Err("invalid linked land play".into());
-                }
-            }
-            EntryOrigin::Cascade { progress } => {
-                self.validate_cascade_state()?;
-                if objects.len() != 1 || !self.cascade_land_available(progress, objects[0])? {
-                    return Err("invalid cascade land entry origin".into());
-                }
-            }
         }
         let offers = self.entry_offers(objects)?;
-        if (offers.is_empty()
-            && !origin.back_face()
-            && !matches!(
-                origin,
-                EntryOrigin::Cascade { .. }
-                    | EntryOrigin::LinkedPlay { .. }
-                    | EntryOrigin::Copy { .. }
-            ))
+        if (offers.is_empty() && !origin.back_face() && !matches!(origin, EntryOrigin::Copy { .. }))
             || choices.len() > offers.len()
         {
             return Err("invalid entry choice prefix".into());
@@ -283,10 +238,8 @@ impl RulesTxn {
         mut objects: Vec<ObjectId>,
     ) -> Result<bool, String> {
         objects.sort();
-        if !matches!(
-            origin,
-            EntryOrigin::Cascade { .. } | EntryOrigin::LinkedPlay { .. } | EntryOrigin::Copy { .. }
-        ) && !origin.back_face()
+        if !matches!(origin, EntryOrigin::Copy { .. })
+            && !origin.back_face()
             && self.entry_offers(&objects)?.is_empty()
         {
             return Ok(false);
@@ -382,13 +335,6 @@ impl RulesTxn {
                 source: *objects.first().ok_or("empty entry")?,
             }),
             EntryOrigin::Copy { frame, .. } => self.copy_entry_cause(frame, objects[0]),
-
-            EntryOrigin::LinkedPlay { progress, .. } => {
-                Ok(self.instruction_cause(&progress.frame, progress.source_block)?)
-            }
-            EntryOrigin::Cascade { progress } => {
-                Ok(self.instruction_cause(&progress.frame, progress.source_block)?)
-            }
         }
     }
     fn entry_group(&self) -> Result<EventGroup, String> {
@@ -433,24 +379,15 @@ impl RulesTxn {
             occurrences: objects
                 .iter()
                 .map(|object| match origin {
-                    EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. } => {
-                        ProposedEvent::Move {
-                            object: *object,
-                            destination: Zone::Battlefield,
-                        }
-                    }
-                    EntryOrigin::Copy { .. } => unreachable!(),
-                    EntryOrigin::Cascade { .. } => ProposedEvent::CascadeLandEntry {
+                    EntryOrigin::LandPlay { .. } => ProposedEvent::Move {
                         object: *object,
-                        player,
+                        destination: Zone::Battlefield,
                     },
+                    EntryOrigin::Copy { .. } => unreachable!(),
                 })
                 .collect(),
         });
-        if matches!(
-            origin,
-            EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. }
-        ) {
+        if matches!(origin, EntryOrigin::LandPlay { .. }) {
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::LandPlayed { player },
             });
@@ -481,13 +418,6 @@ impl RulesTxn {
                 | BatchCause::Instruction { stack_id, .. },
             ) => *stack_id == frame.stack_id,
 
-            (
-                EntryOrigin::LinkedPlay { progress, .. },
-                BatchCause::Instruction { stack_id, .. },
-            ) => *stack_id == progress.frame.stack_id,
-            (EntryOrigin::Cascade { progress }, BatchCause::Instruction { stack_id, .. }) => {
-                *stack_id == progress.frame.stack_id
-            }
             _ => false,
         };
         if !originating {
@@ -505,20 +435,14 @@ impl RulesTxn {
             entries.insert(*object, Some(choice.accepted()));
         }
         let (put_by_effect, force_tapped) = match origin {
-            EntryOrigin::LandPlay { .. }
-            | EntryOrigin::LinkedPlay { .. }
-            | EntryOrigin::Copy { .. } => (false, false),
-            EntryOrigin::Cascade { .. } => (true, true),
+            EntryOrigin::LandPlay { .. } | EntryOrigin::Copy { .. } => (false, false),
         };
         // No Basic+Land scan here. The single simultaneous capture follows ONLY
         // life losses; no battlefield, control or entry can change its prior facts.
         Ok(Some(PreparedEntryAuthority {
             donor: self.entry_copy_model(objects[0]),
             back_face: origin.back_face(),
-            from_land_play: matches!(
-                origin,
-                EntryOrigin::LandPlay { .. } | EntryOrigin::LinkedPlay { .. }
-            ),
+            from_land_play: matches!(origin, EntryOrigin::LandPlay { .. }),
             player: origin.player(self)?,
             put_by_effect,
             force_tapped,
@@ -573,13 +497,8 @@ impl RulesTxn {
                 self.rules_mut().passes.clear();
                 Ok(self.stabilize()?)
             }
-            EntryOrigin::LinkedPlay { progress, .. } => {
-                self.rules_mut().frame = Frame::PlayHideawayLinked { progress };
-                Ok(())
-            }
-            EntryOrigin::Copy { .. } => unreachable!(),
 
-            EntryOrigin::Cascade { progress } => self.resume_cascade_land(progress, Some(first)),
+            EntryOrigin::Copy { .. } => unreachable!(),
         }
     }
     pub(super) fn land_entry_visible_to(&self, viewer: PlayerId, object: ObjectId) -> bool {
@@ -590,10 +509,8 @@ impl RulesTxn {
         if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
             return self.validate_entry_plan();
         }
-        let retained = spell_cascade_grants::retained_effect_frame(
-            &self.state.rules.frames,
-            &self.state.rules.frame,
-        );
+        let retained =
+            frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame);
         if matches!(retained, Frame::LandEntry { .. }) {
             let mut validation = self.fork();
             validation.rules_mut().frame = retained.clone();
@@ -609,26 +526,7 @@ impl RulesTxn {
             return Ok(());
         };
         let (origin, objects) = (origin.clone(), objects.clone());
-        if let EntryOrigin::LinkedPlay {
-            progress,
-            object,
-            receipt,
-            back_face,
-        } = &origin
-            && (!self.is_live(origin.player(self)?)
-                || !self.linked_land_face_playable(origin.player(self)?, *object, *back_face)?)
-        {
-            self.rules_mut().pending = None;
-            // Entry has not committed. A surviving land returns to its
-            // original face-down exile state, preserving all prior lookers.
-            if self.current(*object).is_ok_and(|o| o.zone == Zone::Exile) {
-                self.restore_hideaway_link(receipt.clone())?;
-            }
-            self.rules_mut().frame = Frame::PlayHideawayLinked {
-                progress: progress.clone(),
-            };
-            return Ok(());
-        }
+
         if let EntryOrigin::Copy { frame, selection } = &origin {
             self.revalidate_copy_entry_departure(frame, objects[0], selection)?;
             if !matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
@@ -642,10 +540,7 @@ impl RulesTxn {
                     self.rules_mut().frame = Frame::Priority;
                     Ok(())
                 }
-                EntryOrigin::LinkedPlay { .. } => unreachable!("departed linked land was unwound"),
-                EntryOrigin::Cascade { progress } => {
-                    self.finish_ability(progress.frame.stack_id, false)
-                }
+
                 EntryOrigin::Copy { .. } => unreachable!(),
             };
         }
@@ -664,12 +559,7 @@ impl RulesTxn {
                 return Ok(());
             }
         }
-        if let EntryOrigin::Cascade { progress } = origin
-            && !self.cascade_land_available(&progress, objects[0])?
-        {
-            self.rules_mut().pending = None;
-            return self.resume_cascade_land(progress, None);
-        }
+
         // A departed SPELL SOURCE OWNER does not cancel a live controller's
         // frozen paid invocation. Existing resolving validation/LKI owns that case.
         self.validate_entry_plan()?;
@@ -690,10 +580,7 @@ impl RulesTxn {
         self.entry_group().unwrap()
     }
     pub(crate) fn land_entry_charge(&self) -> usize {
-        let frame = spell_cascade_grants::retained_effect_frame(
-            &self.state.rules.frames,
-            &self.state.rules.frame,
-        );
+        let frame = frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame);
         if !matches!(frame, Frame::LandEntry { .. }) {
             return 0;
         }

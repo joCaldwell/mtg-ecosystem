@@ -3,61 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct VisibleSearchLand {
-    pub handle: ObjectHandle,
-    pub oracle_id: String,
-}
-// Derived authority only; never serialized alongside a resolution choice.
-struct LandSearch<'a> {
-    typed: Option<&'a TypedLandSearch>,
-    maximum: u32,
-    split: bool,
-    force_tapped: bool,
-    source_block: u32,
-}
-impl<'a> LandSearch<'a> {
-    fn instruction(instruction: &'a Instruction) -> Option<Self> {
-        let (typed, maximum, split, force_tapped, source_block) = match instruction {
-            _ => return None,
-        };
-        Some(Self {
-            typed,
-            maximum,
-            split,
-            force_tapped,
-            source_block,
-        })
-    }
-    fn accepts(&self, c: &Characteristics) -> bool {
-        self.typed
-            .map_or_else(|| c.kind == CardKind::Land && c.basic, |s| s.accepts(c))
-    }
-    fn force_tapped(&self) -> bool {
-        self.force_tapped
-    }
-}
 impl RulesTxn {
-    fn land_search_for<'a>(&'a self, frame: &'a Resolving) -> Option<LandSearch<'a>> {
-        LandSearch::instruction(
-            self.program_for(self.entry(frame.stack_id).ok()?)
-                .ok()?
-                .instructions
-                .get(frame.cursor as usize)?,
-        )
-    }
-
-    fn active_land_search(&self) -> Option<LandSearch<'_>> {
-        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
-            return None;
-        };
-        {
-            return None;
-        }
-        self.land_search_for(frame)
-    }
-
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         let instruction = self
             .program_for(self.entry(frame.stack_id)?)?
@@ -176,83 +122,6 @@ impl RulesTxn {
             }
         }
     }
-    /// CR 701.23a/401.2: private search inspection is distinct from the
-    /// selectable subset. No selectable handle or library position is created.
-    pub(super) fn search_library_identities(
-        &self,
-        player: PlayerId,
-    ) -> Result<Vec<String>, String> {
-        let mut cards = self
-            .state
-            .rules
-            .libraries
-            .get(&player)
-            .into_iter()
-            .flatten()
-            .map(|id| Ok(self.definition(*id)?.oracle_id.clone()))
-            .collect::<Result<Vec<_>, String>>()?;
-        cards.sort();
-        Ok(cards)
-    }
-    pub(crate) fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
-        let descriptor = self.active_land_search();
-        // CardId order is physical order, never library order (CR 401.2).
-        let mut cards = self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| {
-                o.zone == (Zone::Library { owner: player })
-                    && self.definition(o.id.card).is_ok_and(|d| {
-                        descriptor.as_ref().map_or_else(
-                            || d.characteristics.kind == CardKind::Land && d.characteristics.basic,
-                            |s| s.accepts(&d.characteristics),
-                        )
-                    })
-            })
-            .map(|o| o.id)
-            .collect::<Vec<_>>();
-        cards.sort_by_key(|o| (self.definition(o.card).unwrap().oracle_id.clone(), o.card));
-        cards
-    }
-    pub(super) fn search_handle(
-        &self,
-        player: PlayerId,
-        object: ObjectId,
-    ) -> Result<ObjectHandle, String> {
-        {
-            return Err("no private land search".into());
-        }
-        let index = self
-            .search_lands(player)
-            .iter()
-            .position(|o| *o == object)
-            .ok_or("not a search candidate")?;
-        let token = self.search_decision_token(player)?;
-        Ok(ObjectHandle(format!("{}:search:{index}", token.0)))
-    }
-    pub(crate) fn resolve_search_handle(
-        &self,
-        player: PlayerId,
-        handle: &ObjectHandle,
-    ) -> Result<ObjectId, String> {
-        let prefix = format!("{}:search:", self.search_decision_token(player)?.0);
-        let index = handle
-            .0
-            .strip_prefix(&prefix)
-            .and_then(|n| n.parse::<usize>().ok())
-            .ok_or("stale or foreign search handle")?;
-        let object = self
-            .search_lands(player)
-            .get(index)
-            .copied()
-            .ok_or("invalid search handle")?;
-        if self.search_handle(player, object)? != *handle {
-            return Err("noncanonical search handle".into());
-        }
-        Ok(object)
-    }
 
     pub(super) fn execute_staples_instruction(
         &mut self,
@@ -287,37 +156,6 @@ impl RulesTxn {
         }
     }
 
-    pub(super) fn return_target_to_owner_hand(
-        &mut self,
-        frame: Resolving,
-        target: ObjectId,
-        block: u32,
-    ) -> Result<(), String> {
-        if self.current(target).is_err() {
-            return self
-                .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
-        }
-        let owner = self.state.rules.cards[&target.card].owner;
-        // CR903.9b offers the owner the hand-move replacement from ANY zone.
-        // Declining leaves an ordinary hand card (still the physical Commander).
-        if self.state.rules.commanders.history(target.card).is_some() {
-            self.rules_mut().frame = Frame::CommanderReturn {
-                object: target,
-                destination: Zone::Hand { owner },
-                continuation: CommanderContinuation::SpellMove {
-                    frame,
-                    source_block: block,
-                },
-            };
-            return Ok(());
-        }
-        let movement = self.move_object_for(
-            target,
-            Zone::Hand { owner },
-            self.instruction_cause(&frame, block)?,
-        )?;
-        self.finish_instruction(frame, InstructionOutcome::Moved { movement })
-    }
     pub(super) fn validate_staples_response(
         &self,
         player: PlayerId,

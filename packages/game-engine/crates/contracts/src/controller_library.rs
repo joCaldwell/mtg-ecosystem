@@ -1,6 +1,5 @@
 //! Controller-only ordinary library choices. CR 109.5,608.2c,701.22/701.25.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-use super::*;
 
 // Match the archive producer's spelled-number vocabulary and canonical decimal text.
 pub fn matches_fixed_amount(text: &str, amount: i64) -> bool {
@@ -45,8 +44,3 @@ pub fn matches_fixed_amount(text: &str, amount: i64) -> bool {
 
 // Source provenance and executable IR must each account for every fixed cast
 // block. The source list also fixes its ordinal among printed triggered abilities.
-
-#[cfg(test)]
-mod combined_cost_fences {
-    use super::*;
-}

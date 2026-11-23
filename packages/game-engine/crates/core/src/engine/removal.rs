@@ -3,7 +3,7 @@
 //! 903.9a and 903.10a:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::{EffectRecipient, PermanentFilter, TargetAmount, TargetAttribute};
+use mtg_contracts::PermanentFilter;
 
 // See docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
 // Historical derivations remain linked from docs/game-engine-evidence.md.
@@ -37,13 +37,6 @@ impl RulesTxn {
         }
 
         match frame {
-            Frame::RevealAndCast { progress } => Some(&mut progress.frame),
-            Frame::HandCast { frame, .. } => Some(frame.as_mut()),
-            Frame::Cascade { progress }
-            | Frame::LandEntry {
-                origin: EntryOrigin::Cascade { progress },
-                ..
-            } => Some(&mut progress.frame),
             Frame::LandEntry {
                 origin: EntryOrigin::Copy { frame, .. },
                 ..
@@ -64,7 +57,7 @@ impl RulesTxn {
                 | CommanderContinuation::ResolutionDraw { frame, .. } => Some(frame),
                 CommanderContinuation::StateBased { .. }
                 | CommanderContinuation::StateBasedBatch { .. } => None,
-                CommanderContinuation::CascadeBottom { progress } => Some(&mut progress.frame),
+
                 CommanderContinuation::Draw { .. } => None,
             },
             _ => None,
@@ -268,13 +261,6 @@ impl RulesTxn {
         Ok(())
     }
 
-    fn target_facts<'a>(&self, frame: &'a Resolving, slot: u32) -> Result<&'a TargetFacts, String> {
-        frame
-            .target_facts
-            .get(slot as usize)
-            .and_then(Option::as_ref)
-            .ok_or_else(|| "missing legal target LKI".into())
-    }
     pub(super) fn execute_removal_instruction(
         &mut self,
         frame: Resolving,

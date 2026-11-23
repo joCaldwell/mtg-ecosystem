@@ -99,9 +99,7 @@ pub struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub alternative_cost: Option<cascade::AlternativeCost>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hand_cast_permission: Option<Box<HandCastPermission>>,
+    pub alternative_cost: Option<AlternativeCost>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

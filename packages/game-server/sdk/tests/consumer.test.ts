@@ -10,8 +10,8 @@ import { CONSUMER_LIMITS, foundationsPolicy, parseBootstrap, runFoundationsConsu
 
 const catalog = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/expected-match-ir.json', import.meta.url), 'utf8'));
 const oracle = name => catalog.definitions.find(card => card.name === name).oracle_id;
-const deck = { commander: oracle('Isamaru, Hound of Konda'), cards: ['Isamaru, Hound of Konda', 'Yoked Ox', 'Samite Healer', 'Sacred Nectar', 'Healing Hands', 'Healing Salve', 'Plains'].map(name => ({ oracle_id: oracle(name), count: name === 'Plains' ? 94 : 1 })) };
-const publicManifest = () => ({ protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64), catalog_sha256: 'ff307bd50c7714f3ad99c1bd558217cd38b0223c1fe48dfd200d2b611abc8b56', profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => structuredClone(deck)), starting_player: 0, catalog: structuredClone(catalog) });
+const deck = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/profiles/commander-foundations-v1.json', import.meta.url), 'utf8')).decks[0];
+const publicManifest = () => ({ protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64), catalog_sha256: fs.readFileSync(new URL('../../../game-engine/tests/fixtures/catalogs/match.sha256', import.meta.url), 'utf8').trim(), profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => structuredClone(deck)), starting_player: 0, catalog: structuredClone(catalog) });
 const bootstrap = viewer => ({ baseURL: 'http://127.0.0.1:3000', matchId: 'abc', capability: 'c'.repeat(64), viewer });
 const observation = (viewer, decision) => ({ observation_version: 15, decision, view: { viewer, active: 0, turn_owner: 0, turn: { number: 1, step: 'precombat_main', lands_played: 0 }, live_turn_order: [0, 1, 2, 3], commanders: [], priority: 0, players: [], objects: [], stack: [], combat: [] } });
 const view = (viewer, token, request = 'priority', extra = {}) => ({ kind: 'view_replaced', observation: observation(viewer, { request, player: viewer, token, ...extra }) });
@@ -142,15 +142,12 @@ test('private bootstrap is closed and validation errors never echo bearer materi
   }
 });
 
-test('foundations profile pin stays the default and attachment consumers opt in explicitly', async () => {
+test('foundations consumer rejects an unavailable hosted profile', async () => {
   const attachments = () => ({ ...publicManifest(), profile: 'commander-attachments-v1' });
   const wrong = transport([], undefined, attachments);
   assert.equal((await runFoundationsConsumer(bootstrap(0), { fetch: wrong.fetch })).reason, 'manifest_identity');
   assert.deepEqual(wrong.polls, []);
-  const explicit = transport([page(1, outcome())], undefined, attachments);
-  assert.equal((await runFoundationsConsumer(bootstrap(0), {
-    fetch: explicit.fetch, expectedProfile: 'commander-attachments-v1',
-  })).status, 'completed');
+
 });
 
 test('CLI malformed private stdin emits only a scrubbed failure report', { timeout: 10_000 }, async () => {

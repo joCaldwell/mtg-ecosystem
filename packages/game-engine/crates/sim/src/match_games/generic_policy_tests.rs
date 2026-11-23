@@ -1,8 +1,6 @@
 use super::*;
 #[cfg(test)]
-mod reactive_tests {
-    use super::*;
-}
+mod reactive_tests {}
 
 #[cfg(test)]
 mod board {
@@ -95,7 +93,6 @@ fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
 #[test]
 fn tap_cantrip_policy_consumes_admitted_program_and_offered_candidates() {
     let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
-    let baseline = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
     let mut v = board::view();
     v.active = Some(v.viewer);
     v.turn.step = TurnStep::PrecombatMain;
@@ -1173,7 +1170,6 @@ mod untap_activation_policy_tests {
 fn indestructible_policy_sole_destruction_declines_and_announced_choice_falls_back() {
     use mtg_contracts::KeywordAbility;
     let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
-    let baseline = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
     for (spell, protected, ordinary) in [
         ("Murder", "Darksteel Myr", "Grizzly Bears"),
         ("Shatter", "Darksteel Relic", "Sol Ring"),

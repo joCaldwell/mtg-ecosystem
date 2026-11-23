@@ -479,15 +479,7 @@ impl RulesTxn {
         {
             let cast = cast.clone();
             self.rules_mut().pending = None;
-            self.rules_mut().frame = match cast.completion {
-                CastCompletion::Resolution {
-                    progress: CastOwner::LinkedPlay { progress, .. },
-                    ..
-                } if self.is_live(self.entry(progress.frame.stack_id)?.controller) => {
-                    Frame::PlayHideawayLinked { progress }
-                }
-                _ => Frame::Priority,
-            };
+            self.rules_mut().frame = Frame::Priority;
             // The departure removes the unfinished spell, but does not undo
             // legal casting-time mana activations. Those interrupt CR 117.4's
             // consecutive pass round even if their controller has now left.
@@ -606,10 +598,7 @@ impl RulesTxn {
         self.revalidate_land_entry_departure()?;
         self.remove_group_discard_recipient(player);
         self.revalidate_actions_departure()?;
-        self.revalidate_cascade_departure()?;
-        self.revalidate_reveal_departure()?;
-        self.revalidate_linked_play_departure()?;
-        self.revalidate_hand_cast_departure()?;
+
         if !self.state.rules.simultaneous_losses {
             self.revalidate_combat_departure()?;
         }

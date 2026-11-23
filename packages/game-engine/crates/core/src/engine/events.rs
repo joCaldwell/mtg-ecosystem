@@ -404,7 +404,6 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
             | ProposedEvent::Sacrifice { .. }
             | ProposedEvent::DiscardCard { .. }
             | ProposedEvent::PutOnTopOwnerLibrary { .. }
-            | ProposedEvent::CascadeLandEntry { .. }
             | ProposedEvent::EnterAttached { .. }
             | ProposedEvent::Attach { .. }
             | ProposedEvent::ReversePermanentMana { .. }
@@ -425,18 +424,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
         ProposedEvent::RevealHandCardForEntry { player, card } => (
             BTreeSet::from([FactKey::Object(card.card), FactKey::Life(*player)]),
             BTreeSet::new(),
-        ),
-        ProposedEvent::RevealLibraryCard { object, .. } => (
-            BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]),
-            BTreeSet::new(),
-        ),
-        ProposedEvent::BottomRevealedCards { order, .. } => (
-            order
-                .iter()
-                .map(|o| FactKey::Object(o.card))
-                .chain([FactKey::Libraries])
-                .collect(),
-            BTreeSet::from([FactKey::Libraries]),
         ),
 
         ProposedEvent::CreateCreatureTokens { .. }
@@ -607,9 +594,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
         }
-        ProposedEvent::CascadeLandEntry { object, .. }
-        | ProposedEvent::Move { object, .. }
-        | ProposedEvent::LeaveGame { object, .. } => {
+        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             let mut reads = keys.clone();
             // Zone membership is authoritative (CR 400.7). A battlefield Aura
@@ -990,17 +975,7 @@ impl RulesTxn {
                     objects.insert(*card);
                     players.insert(*player);
                 }
-                ProposedEvent::RevealLibraryCard { player, object } => {
-                    objects.insert(*object);
-                    libraries.insert(*player);
-                }
-                ProposedEvent::BottomRevealedCards {
-                    player,
-                    order: selected,
-                } => {
-                    objects.extend(selected.iter().copied());
-                    libraries.insert(*player);
-                }
+
                 ProposedEvent::Mill {
                     player,
                     cards: looked,
@@ -1033,8 +1008,7 @@ impl RulesTxn {
                     libraries.insert(*player);
                 }
                 ProposedEvent::DestroyPermanent { object }
-                | ProposedEvent::DestroyCreature { object }
-                | ProposedEvent::CascadeLandEntry { object, .. } => {
+                | ProposedEvent::DestroyCreature { object } => {
                     objects.insert(*object);
                     if let Zone::Library { owner } = self.current(*object)?.zone {
                         libraries.insert(owner);
@@ -1987,8 +1961,7 @@ impl RulesTxn {
 impl RulesTxn {
     fn conditional_entry(&self, event: &ProposedEvent) -> Option<EntryLandCount> {
         let object = match event {
-            ProposedEvent::CascadeLandEntry { object, .. }
-            | ProposedEvent::Move {
+            ProposedEvent::Move {
                 object,
                 destination: Zone::Battlefield,
             } => object,
@@ -2437,12 +2410,6 @@ impl RulesTxn {
             ProposedEvent::RevealHandCardForEntry { player, card } => {
                 self.apply_entry_hand_reveal(*player, *card, entry)?
             }
-            ProposedEvent::RevealLibraryCard { player, object } => {
-                self.apply_reveal_library_card(*player, *object)?
-            }
-            ProposedEvent::BottomRevealedCards { player, order } => {
-                self.apply_bottom_revealed(*player, order)?
-            }
 
             ProposedEvent::Mill {
                 player,
@@ -2628,17 +2595,6 @@ impl RulesTxn {
                             owner: self.state.rules.cards[&object.card].owner,
                         },
                     },
-                    before,
-                    authority,
-                )?
-            }
-            ProposedEvent::CascadeLandEntry { object, player } => {
-                entry.ok_or("cascade land entry requires prepared transaction authority")?;
-                self.apply_move(
-                    *object,
-                    Zone::Battlefield,
-                    Some(*player),
-                    true,
                     before,
                     authority,
                 )?
@@ -3205,15 +3161,8 @@ impl RulesTxn {
                     owner: *owner,
                 }
             }
-            ProposedEvent::Transform { object } => {
-                let Frame::Resolve { frame } = &self.state.rules.frame else {
-                    return Err("transform requires its resolving activation".into());
-                };
-                {
-                    return Err("invalid transform invocation".into());
-                }
-                self.record_back_face(*object)?;
-                EventOutcome::Transformed { object: *object }
+            ProposedEvent::Transform { .. } => {
+                return Err("unsupported transform invocation".into());
             }
             ProposedEvent::Tap { object } => {
                 let o = self.current(*object)?;

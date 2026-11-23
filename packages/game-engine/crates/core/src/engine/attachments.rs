@@ -324,9 +324,7 @@ impl RulesTxn {
             let grants = match &effect.kind {
                 ResolvedEffectKind::GrantKeywords {
                     target, keywords, ..
-                } if *target == object && self.scalar_keyword_effect_applies(effect, object) => {
-                    Some(keywords)
-                }
+                } if *target == object && self.is_battlefield_creature(object) => Some(keywords),
                 ResolvedEffectKind::GrantKeywordsSet {
                     targets, keywords, ..
                 } if targets.contains(&object)
@@ -411,14 +409,6 @@ impl RulesTxn {
         })
     }
     pub(super) fn entity_target_legal(&self, target: TargetEntity, entry: &StackInstance) -> bool {
-        let choosing = matches!(self.state.rules.frame, Frame::EntityTargets { .. })
-            && self.top().is_ok_and(|top| top.id == entry.id);
-        let program = if choosing {
-            self.program()
-        } else {
-            self.program_for(entry)
-        };
-
         self.entity_legal(target)
             && match target {
                 TargetEntity::Player { .. } => true,

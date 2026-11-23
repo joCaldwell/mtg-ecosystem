@@ -22,8 +22,6 @@ const ACTIVATED: u8 = 2;
 const TRIGGERED: u8 = 4;
 /// Uses only the frozen controller, announced targets and its own operands.
 const ANY: u8 = SPELL | ACTIVATED | TRIGGERED;
-/// Reads the invocation's battlefield source (CR 113.7a, 400.7).
-const SOURCE: u8 = ACTIVATED | TRIGGERED;
 /// How the runtime announces a target, which decides the payment path of an
 /// activated ability (CR 601.2c, 602.2b).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -589,4 +587,216 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         triggered(d, a)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn bears() -> Definition {
+        let mut d = Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json"))
+            .unwrap()
+            .definitions
+            .into_iter()
+            .find(|d| d.name == "Grizzly Bears")
+            .unwrap();
+        d.source_labels = None;
+        d
+    }
+    fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
+        ActivatedAbility {
+            functioning_zone: FunctioningZone::Battlefield,
+            cost,
+            program,
+        }
+    }
+    fn with(change: impl FnOnce(&mut Definition)) -> Definition {
+        let mut d = bears();
+        d.composed = true;
+        change(&mut d);
+        d.capabilities = d.requirements();
+        d
+    }
+    fn target(domain: TargetDomain) -> TargetSpec {
+        TargetSpec {
+            slot: 0,
+            selection_id: "line:0:1".into(),
+            chooser: Chooser::Controller,
+            stage: EvaluationStage::Announcement,
+            domain,
+            filter: None,
+        }
+    }
+    fn damage() -> Instruction {
+        Instruction::damage_target(0, kir::Amount::Fixed { value: 1.into() }, 0)
+    }
+
+    #[test]
+    fn composed_definitions_validate_only_through_the_matrix() {
+        let tap_gain = || {
+            ability(
+                ActivationCost::TapSource,
+                program(vec![gain(Context::Activated)], vec![]),
+            )
+        };
+        let valid = with(|d| d.activated.push(tap_gain()));
+        valid.validate().unwrap();
+        assert!(valid.capabilities.contains(&Capability::ComposedAbilityV1));
+
+        // The marker and its capability are inseparable in both directions.
+        let mut hidden = valid.clone();
+        hidden.capabilities.remove(&Capability::ComposedAbilityV1);
+        assert!(hidden.validate().is_err());
+        let mut forged = bears();
+        forged.composed = false;
+        assert!(forged.validate().is_err());
+        // Without the marker the same ability is not a family shape.
+        let mut unmarked = valid.clone();
+        unmarked.composed = false;
+        unmarked.capabilities = unmarked.requirements();
+        assert!(unmarked.validate().is_err());
+
+        // Instruction row: event-bound and announced-X operations stay out.
+        for instruction in [Instruction::act(
+            Verb::Draw {
+                player: PlayerExpr::you(Context::Spell),
+                amount: kir::Amount::announced_x(),
+            },
+            0,
+        )] {
+            let d = with(|d| {
+                d.activated.push(ability(
+                    ActivationCost::TapSource,
+                    program(vec![instruction], vec![]),
+                ))
+            });
+            assert!(d.validate().is_err());
+        }
+
+        // Cost row: an entity-routed target cannot be paid with pure mana,
+        // and a stack target cannot be paid by tapping.
+        let mana = ActivationCost::Mana {
+            cost: ManaCost {
+                generic: 1.into(),
+                colored: vec![],
+            },
+        };
+        let pinger = |cost: ActivationCost| {
+            with(|d| {
+                d.activated.push(ability(
+                    cost,
+                    program(vec![damage()], vec![target(TargetDomain::AnyDamageTarget)]),
+                ))
+            })
+        };
+        pinger(ActivationCost::TapSource).validate().unwrap();
+        assert!(pinger(mana.clone()).validate().is_err());
+        let counter = |cost: ActivationCost| {
+            with(|d| {
+                d.activated.push(ability(
+                    cost,
+                    program(
+                        vec![Instruction::act(
+                            Verb::Counter {
+                                what: kir::Ref::Target { slot: 0 },
+                            },
+                            0,
+                        )],
+                        vec![target(TargetDomain::StackSpell)],
+                    ),
+                ))
+            })
+        };
+        assert!(counter(mana).validate().is_err());
+        assert!(counter(ActivationCost::TapSource).validate().is_err());
+
+        // Target row: a triggered ability cannot announce a stack target.
+        let trigger = |domain: TargetDomain, instruction: Instruction| {
+            with(|d| {
+                d.triggered.push(TriggeredAbility {
+                    functioning_zone: FunctioningZone::Battlefield,
+                    condition: TriggerCondition::SelfEntersBattlefield,
+                    intervening_if: None,
+                    death_filter: None,
+                    program: program(vec![instruction], vec![target(domain)]),
+                })
+            })
+        };
+        trigger(TargetDomain::AnyDamageTarget, damage())
+            .validate()
+            .unwrap();
+        assert!(
+            trigger(
+                TargetDomain::StackSpell,
+                Instruction::act(
+                    Verb::Counter {
+                        what: kir::Ref::Target { slot: 0 }
+                    },
+                    0
+                )
+            )
+            .validate()
+            .is_err()
+        );
+
+        // Event row: an event that carries family data is not composable.
+        let mut equipped = trigger(TargetDomain::AnyDamageTarget, damage());
+        equipped.triggered[0].condition = TriggerCondition::EquippedDies;
+        equipped.capabilities = equipped.requirements();
+        assert!(equipped.validate().is_err());
+
+        // Shell: attachments, snow, hybrid and basic nonland cards reject.
+        let aura = with(|d| {
+            d.activated.push(tap_gain());
+            d.characteristics.subtypes = vec!["Aura".into()];
+        });
+        assert!(aura.validate().is_err());
+        let snow = with(|d| {
+            d.activated.push(tap_gain());
+            d.characteristics.snow = true;
+        });
+        assert!(snow.validate().is_err());
+        let basic_nonland = with(|d| {
+            d.activated.push(tap_gain());
+            d.characteristics.basic = true;
+        });
+        assert!(basic_nonland.validate().is_err());
+
+        // Provenance is checked exactly as for a family definition.
+        let mut edited = valid.clone();
+        edited.provenance.abilities_json.push(' ');
+        assert!(edited.validate().is_err());
+    }
+
+    fn program(instructions: Vec<Instruction>, targets: Vec<TargetSpec>) -> SpellProgram {
+        SpellProgram {
+            optional_additional_costs: vec![],
+            additional_sacrifice: None,
+            timing: SpellTiming::Instant,
+            resolution: SpellResolution::Instructions,
+            functioning_zone: FunctioningZone::Stack,
+            targets,
+            instructions,
+            modes: vec![],
+        }
+    }
+    fn gain(context: Context) -> Instruction {
+        Instruction::act(
+            Verb::GainLife {
+                player: PlayerExpr::you(context),
+                amount: kir::Amount::fixed(2),
+            },
+            0,
+        )
+    }
+
+    #[test]
+    fn program_targets_must_be_bound_and_used() {
+        let mut p = program(vec![damage()], vec![target(TargetDomain::AnyDamageTarget)]);
+        super::program(&p, Context::Spell, None).unwrap();
+        p.targets.clear();
+        assert!(super::program(&p, Context::Spell, None).is_err());
+        p.targets.push(target(TargetDomain::AnyDamageTarget));
+        p.instructions = vec![gain(Context::Spell)];
+        assert!(super::program(&p, Context::Spell, None).is_err());
+    }
 }
