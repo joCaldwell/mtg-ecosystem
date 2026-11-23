@@ -114,7 +114,7 @@ fn witness(t: &PendingTrigger) -> TriggerEventWitness {
     serde_json::from_value(serde_json::to_value(t).unwrap()["witness"].clone()).unwrap()
 }
 #[test]
-fn filtered_damage_exact_sources_separate_observer_damager_owner_and_replay() {
+fn filtered_damage_exact_sources_separate_observer_damager_and_owner() {
     let mode = TraceMode::Detailed;
     let mut g = Game::with_trace(
         prepared(&[

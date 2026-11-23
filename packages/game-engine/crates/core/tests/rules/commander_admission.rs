@@ -4,15 +4,6 @@ use crate::support;
 use mtg_contracts::{Catalog, Color, Quantity};
 use mtg_core::*;
 
-fn original_catalog() -> Catalog {
-    Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json")).unwrap()
-}
-fn commander_catalog() -> Catalog {
-    Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-action-ir.json"
-    ))
-    .unwrap()
-}
 fn commander_profiles() -> [ScenarioConfig; 3] {
     [
         ScenarioConfig::command_casting(),
@@ -24,14 +15,14 @@ fn commander_profiles() -> [ScenarioConfig; 3] {
 #[test]
 fn each_profile_requires_its_exact_reviewed_catalog_closure() {
     for config in commander_profiles() {
-        assert!(Prepared::admit(commander_catalog(), config.clone()).is_ok());
-        assert!(Prepared::admit(original_catalog(), config.clone()).is_err());
-        for index in 0..commander_catalog().definitions.len() {
-            let mut missing = commander_catalog();
+        assert!(Prepared::admit(support::action_catalog(), config.clone()).is_ok());
+        assert!(Prepared::admit(support::base_catalog(), config.clone()).is_err());
+        for index in 0..support::action_catalog().definitions.len() {
+            let mut missing = support::action_catalog();
             missing.definitions.remove(index);
             assert!(Prepared::admit(missing, config.clone()).is_err());
         }
-        let mut duplicate = commander_catalog();
+        let mut duplicate = support::action_catalog();
         duplicate.definitions.push(duplicate.definitions[0].clone());
         assert!(Prepared::admit(duplicate, config).is_err());
     }
@@ -44,8 +35,8 @@ fn each_profile_requires_its_exact_reviewed_catalog_closure() {
         ScenarioConfig::combat_game(),
         ScenarioConfig::combat_interactions(),
     ] {
-        assert!(Prepared::admit(original_catalog(), config.clone()).is_ok());
-        assert!(Prepared::admit(commander_catalog(), config).is_err());
+        assert!(Prepared::admit(support::base_catalog(), config.clone()).is_ok());
+        assert!(Prepared::admit(support::action_catalog(), config).is_err());
     }
 }
 
@@ -106,7 +97,7 @@ fn structural_ir_validity_never_substitutes_for_definition_admission() {
     ];
     for config in commander_profiles() {
         for mutate in &mutations {
-            let mut catalog = commander_catalog();
+            let mut catalog = support::action_catalog();
             mutate(&mut catalog);
             catalog.validate().unwrap();
             assert!(Prepared::admit(catalog, config.clone()).is_err());
@@ -144,7 +135,7 @@ fn commander_profiles_reject_unreviewed_designations_mana_and_setup() {
             let mut changed = config.clone();
             mutate(&mut changed);
             assert_ne!(changed, config);
-            assert!(Prepared::admit(commander_catalog(), changed).is_err());
+            assert!(Prepared::admit(support::action_catalog(), changed).is_err());
         }
     }
 }
@@ -168,7 +159,8 @@ fn reject_forged_snapshot(
 
 #[test]
 fn commander_snapshot_versions_and_physical_designations_are_validated() {
-    let prepared = Prepared::admit(commander_catalog(), ScenarioConfig::command_casting()).unwrap();
+    let prepared =
+        Prepared::admit(support::action_catalog(), ScenarioConfig::command_casting()).unwrap();
     let game = Game::new(prepared.clone());
     let snapshot = game.snapshot().unwrap();
     assert!(Game::restore(prepared.clone(), &snapshot).is_ok());
@@ -212,7 +204,8 @@ fn answer(game: &mut Game, response: Response) {
 
 #[test]
 fn command_tax_is_frozen_before_completed_cast_history_changes() {
-    let prepared = Prepared::admit(commander_catalog(), ScenarioConfig::command_casting()).unwrap();
+    let prepared =
+        Prepared::admit(support::action_catalog(), ScenarioConfig::command_casting()).unwrap();
     let mut game = Game::new(prepared.clone());
     answer(&mut game, Response::Cast { card: CardId(0) });
     let Advance::AwaitingDecision(Request::Mana { cost, .. }) = game.advance(Budget::unlimited())

@@ -93,7 +93,7 @@ fn wrong_color_prepared() -> (Prepared, CardId) {
 }
 
 #[test]
-fn casting_mana_is_a_saved_decision_before_atomic_payment_in_all_trace_modes() {
+fn casting_mana_is_a_saved_decision_before_atomic_payment() {
     let mode = TraceMode::Detailed;
     let mut game = Game::with_trace(
         FixtureCatalog::Base.admit(ScenarioConfig::stack_response()),

@@ -1,6 +1,6 @@
 //! Independent player-facing regressions for the exact action profiles.
-use crate::support::{observe, request, settle, submit};
-use mtg_contracts::{Catalog, Color, Quantity};
+use crate::support::{action_scenario, observe, reject, replay_equal, request, settle, submit};
+use mtg_contracts::{Color, Quantity};
 use mtg_core::*;
 use std::collections::BTreeMap;
 
@@ -9,35 +9,10 @@ const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
 const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
 
-fn prepared(config: ScenarioConfig) -> Prepared {
-    Prepared::admit(
-        Catalog::read(include_str!(
-            "../../../../tests/fixtures/expected-action-ir.json"
-        ))
-        .unwrap(),
-        config,
-    )
-    .unwrap()
-}
 fn input(game: &mut Game, response: PlayerResponse) {
     submit(game, response);
 
     assert!(matches!(settle(game), Advance::AwaitingDecision(_)));
-}
-fn reject(game: &Game, actor: PlayerId, token: DecisionToken, response: PlayerResponse) {
-    let before = game.snapshot().unwrap();
-    let mut result = game.check_player_response(actor, token, response, Budget::new(0));
-    for _ in 0..2000 {
-        match result {
-            QueryResult::Rejected(_) => {
-                assert_eq!(before, game.snapshot().unwrap());
-                return;
-            }
-            QueryResult::Incomplete { work, .. } => result = game.resume_work(work, Budget::new(1)),
-            QueryResult::Complete(_) => panic!("illegal response accepted"),
-        }
-    }
-    panic!("rejection did not settle")
 }
 fn handle(game: &Game, viewer: PlayerId, oracle: &str, zone: Zone) -> ObjectHandle {
     observe(game, viewer)
@@ -74,10 +49,6 @@ fn activate_land(game: &mut Game, oracle: &str) {
         .expect("untapped mana source")
         .handle;
     input(game, PlayerResponse::ActivateMana { object });
-}
-fn replay_equal(game: &Game, p: &Prepared) {
-    let replay = Game::replay(p.clone(), &game.replay_journal()).unwrap();
-    assert_eq!(replay.state_digest().unwrap(), game.state_digest().unwrap());
 }
 fn pass_four(game: &mut Game) {
     for _ in 0..4 {
@@ -120,7 +91,7 @@ fn edict(game: &mut Game, target: PlayerId) {
 
 #[test]
 fn opponent_with_no_creatures_is_legal_and_sacrifice_uses_control_not_ownership() {
-    let p = prepared(ScenarioConfig::actions_borrowed());
+    let p = action_scenario(ScenarioConfig::actions_borrowed());
     let mut empty = Game::new(p.clone());
     edict(&mut empty, PlayerId(2));
     assert!(matches!(request(&empty).1, PlayerRequest::Priority { .. }));
@@ -158,7 +129,7 @@ fn opponent_with_no_creatures_is_legal_and_sacrifice_uses_control_not_ownership(
 
 #[test]
 fn sacrifice_choice_revalidates_source_and_affected_player_departure() {
-    let p = prepared(ScenarioConfig::actions_borrowed());
+    let p = action_scenario(ScenarioConfig::actions_borrowed());
     let mut game = Game::new(p.clone());
     edict(&mut game, PlayerId(1));
     for departing in [PlayerId(0), PlayerId(1), PlayerId(2)] {

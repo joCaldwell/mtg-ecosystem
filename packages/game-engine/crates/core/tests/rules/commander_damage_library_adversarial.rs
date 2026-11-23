@@ -1,53 +1,23 @@
 //! Independent player-facing regression evidence for damage and hidden draws.
-use crate::support::{complete, input, observe, receipt, request, settle, submit};
-use mtg_contracts::{Catalog, Quantity};
+use crate::support::{
+    action_scenario, complete, input, observe, receipt, reject, replay_equal, request, settle,
+    submit,
+};
+use mtg_contracts::Quantity;
 use mtg_core::*;
 
 const ISAMARU: &str = "cfb756dd-6fe1-430a-8f04-8b10cac62a86";
 const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
 
 fn library_prepared() -> Prepared {
-    Prepared::admit(
-        Catalog::read(include_str!(
-            "../../../../tests/fixtures/expected-action-ir.json"
-        ))
-        .unwrap(),
-        ScenarioConfig::commander_library(),
-    )
-    .unwrap()
+    action_scenario(ScenarioConfig::commander_library())
 }
 fn damage_prepared(borrowed: bool) -> Prepared {
-    Prepared::admit(
-        Catalog::read(include_str!(
-            "../../../../tests/fixtures/expected-action-ir.json"
-        ))
-        .unwrap(),
-        if borrowed {
-            ScenarioConfig::commander_damage_borrowed()
-        } else {
-            ScenarioConfig::commander_damage()
-        },
-    )
-    .unwrap()
-}
-fn reject(game: &Game, actor: PlayerId, token: DecisionToken, response: PlayerResponse) {
-    let before = game.snapshot().unwrap();
-    let mut result = game.check_player_response(actor, token, response, Budget::new(0));
-    for _ in 0..2000 {
-        match result {
-            QueryResult::Rejected(_) => {
-                assert_eq!(before, game.snapshot().unwrap());
-                return;
-            }
-            QueryResult::Incomplete { work, .. } => result = game.resume_work(work, Budget::new(1)),
-            QueryResult::Complete(_) => panic!("illegal response accepted"),
-        }
-    }
-    panic!("rejection did not finish")
-}
-fn replay_equal(game: &Game, prepared: &Prepared) {
-    let replay = Game::replay(prepared.clone(), &game.replay_journal()).unwrap();
-    assert_eq!(replay.state_digest().unwrap(), game.state_digest().unwrap());
+    action_scenario(if borrowed {
+        ScenarioConfig::commander_damage_borrowed()
+    } else {
+        ScenarioConfig::commander_damage()
+    })
 }
 fn passive(req: PlayerRequest) -> PlayerResponse {
     match req {

@@ -1,36 +1,11 @@
 //! Independent black-box evidence for Commander casting/return continuations.
 //! Actions use player-facing handles; physical IDs are trusted assertions only.
-use crate::support::{complete, input, observe, request, settle, submit};
-use mtg_contracts::{Catalog, Color, Quantity};
+use crate::support::{
+    action_scenario, complete, input, observe, reject, replay_equal, request, settle, submit,
+};
+use mtg_contracts::{Color, Quantity};
 use mtg_core::*;
 
-fn prepared(config: ScenarioConfig) -> Prepared {
-    Prepared::admit(
-        Catalog::read(include_str!(
-            "../../../../tests/fixtures/expected-action-ir.json"
-        ))
-        .unwrap(),
-        config,
-    )
-    .unwrap()
-}
-fn reject(game: &Game, actor: PlayerId, token: DecisionToken, response: PlayerResponse) {
-    let before = game.snapshot().unwrap();
-    let mut result = game.check_player_response(actor, token, response, Budget::new(0));
-    for _ in 0..2000 {
-        match result {
-            QueryResult::Rejected(_) => {
-                assert_eq!(before, game.snapshot().unwrap());
-                return;
-            }
-            QueryResult::Incomplete { work, .. } => {
-                result = game.resume_work(work, Budget::new(1));
-            }
-            QueryResult::Complete(_) => panic!("illegal response accepted"),
-        }
-    }
-    panic!("rejection did not finish")
-}
 fn visible(game: &Game, player: PlayerId, owner: PlayerId, zone: Zone) -> ObjectHandle {
     observe(game, player)
         .view
@@ -122,10 +97,6 @@ fn bounce_to_choice(game: &mut Game) {
         )
     ));
 }
-fn replay_equal(game: &Game, prepared: &Prepared) {
-    let replay = Game::replay(prepared.clone(), &game.replay_journal()).unwrap();
-    assert_eq!(replay.state_digest().unwrap(), game.state_digest().unwrap());
-}
 fn pass_until(game: &mut Game, wanted: fn(&PlayerRequest) -> bool) {
     for _ in 0..40 {
         let req = request(game).1;
@@ -140,7 +111,7 @@ fn pass_until(game: &mut Game, wanted: fn(&PlayerRequest) -> bool) {
 
 #[test]
 fn command_origin_failure_restores_identity_and_tax_with_keep_or_undo() {
-    let prepared = prepared(ScenarioConfig::command_casting());
+    let prepared = action_scenario(ScenarioConfig::command_casting());
     let mut game = Game::new(prepared.clone());
     let original = game.object_id(CardId(0)).unwrap();
     let card = visible(
@@ -218,7 +189,7 @@ fn command_origin_failure_restores_identity_and_tax_with_keep_or_undo() {
 
 #[test]
 fn hand_replacement_owner_authentication_and_source_departure_preserve_resolution() {
-    let prepared = prepared(ScenarioConfig::command_casting());
+    let prepared = action_scenario(ScenarioConfig::command_casting());
     let mut game = Game::new(prepared.clone());
     cast_first(&mut game);
     bounce_to_choice(&mut game);
@@ -276,7 +247,7 @@ fn departure_invalidates_accepted_return_receipt_and_never_resurrects_owner_obje
         ScenarioConfig::command_casting(),
         ScenarioConfig::commander_exile(),
     ] {
-        let prepared = prepared(config.clone());
+        let prepared = action_scenario(config.clone());
         let mut game = Game::new(prepared.clone());
         if config == ScenarioConfig::command_casting() {
             cast_first(&mut game);
@@ -313,7 +284,7 @@ fn departure_invalidates_accepted_return_receipt_and_never_resurrects_owner_obje
 
 #[test]
 fn exile_return_decline_is_one_shot_and_acceptance_has_no_cast_history() {
-    let prepared = prepared(ScenarioConfig::commander_exile());
+    let prepared = action_scenario(ScenarioConfig::commander_exile());
     let mut game = Game::new(prepared.clone());
     game.concede(PlayerId(1)).unwrap();
     assert!(matches!(settle(&mut game), Advance::AwaitingDecision(_)));
@@ -353,7 +324,7 @@ fn exile_return_decline_is_one_shot_and_acceptance_has_no_cast_history() {
 
 #[test]
 fn accepted_return_input_survives_source_departure_but_not_owner_departure() {
-    let prepared = prepared(ScenarioConfig::command_casting());
+    let prepared = action_scenario(ScenarioConfig::command_casting());
     let mut game = Game::new(prepared.clone());
     cast_first(&mut game);
     bounce_to_choice(&mut game);
@@ -379,7 +350,7 @@ fn accepted_return_input_survives_source_departure_but_not_owner_departure() {
 
 #[test]
 fn lethal_damage_graveyard_return_uses_a_separate_wave_and_decline_is_one_shot() {
-    let prepared = prepared(ScenarioConfig::commander_lifecycle());
+    let prepared = action_scenario(ScenarioConfig::commander_lifecycle());
     let mut game = Game::new(prepared.clone());
     pass_until(&mut game, |r| matches!(r, PlayerRequest::Attackers { .. }));
     let PlayerRequest::Attackers { candidates, .. } = request(&game).1 else {
@@ -441,7 +412,7 @@ fn lethal_damage_graveyard_return_uses_a_separate_wave_and_decline_is_one_shot()
 
 #[test]
 fn actual_unblocked_commander_damage_faults_without_committing_partial_damage() {
-    let prepared = prepared(ScenarioConfig::commander_lifecycle());
+    let prepared = action_scenario(ScenarioConfig::commander_lifecycle());
     let mut game = Game::new(prepared.clone());
     pass_until(&mut game, |r| matches!(r, PlayerRequest::Attackers { .. }));
     let PlayerRequest::Attackers { candidates, .. } = request(&game).1 else {
@@ -481,7 +452,7 @@ fn actual_unblocked_commander_damage_faults_without_committing_partial_damage() 
 
 #[test]
 fn nested_hand_resolution_cost_source_and_cursor_forgery_fail_independent_restore() {
-    let prepared = prepared(ScenarioConfig::command_casting());
+    let prepared = action_scenario(ScenarioConfig::command_casting());
     let mut game = Game::new(prepared.clone());
     cast_first(&mut game);
     bounce_to_choice(&mut game);

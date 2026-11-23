@@ -167,7 +167,7 @@ fn untaps(g: &Game, target: ObjectId) -> usize {
 }
 
 #[test]
-fn permanent_untap_real_response_preserves_attacking_and_fizzles_swift_with_replay() {
+fn permanent_untap_real_response_preserves_attacking_and_fizzles_swift() {
     let p = prepared(&[
         ("Grizzly Bears", 0, false),
         ("Burst of Energy", 0, true),

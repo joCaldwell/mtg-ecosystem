@@ -3,23 +3,20 @@ use crate::support;
 use mtg_contracts::{Catalog, Color, Instruction, Quantity};
 use mtg_core::*;
 
-fn damage() -> Catalog {
-    Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-action-ir.json"
-    ))
-    .unwrap()
-}
-fn library() -> Catalog {
-    Catalog::read(include_str!(
-        "../../../../tests/fixtures/expected-action-ir.json"
-    ))
-    .unwrap()
-}
 fn profiles() -> [(ScenarioConfig, Catalog); 3] {
     [
-        (ScenarioConfig::commander_damage(), damage()),
-        (ScenarioConfig::commander_damage_borrowed(), damage()),
-        (ScenarioConfig::commander_library(), library()),
+        (
+            ScenarioConfig::commander_damage(),
+            support::action_catalog(),
+        ),
+        (
+            ScenarioConfig::commander_damage_borrowed(),
+            support::action_catalog(),
+        ),
+        (
+            ScenarioConfig::commander_library(),
+            support::action_catalog(),
+        ),
     ]
 }
 
@@ -27,8 +24,7 @@ fn profiles() -> [(ScenarioConfig, Catalog); 3] {
 fn each_scenario_requires_its_exact_pool_and_current_catalog_schema() {
     for (config, catalog) in profiles() {
         assert!(Prepared::admit(catalog.clone(), config.clone()).is_ok());
-        let base =
-            Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json")).unwrap();
+        let base = support::base_catalog();
         assert!(Prepared::admit(base, config.clone()).is_err());
         for index in 0..catalog.definitions.len() {
             let mut missing = catalog.clone();
@@ -37,7 +33,7 @@ fn each_scenario_requires_its_exact_pool_and_current_catalog_schema() {
         }
     }
     for unsupported in [0, mtg_contracts::CURRENT_IR_VERSION + 1] {
-        let mut invalid = library();
+        let mut invalid = support::action_catalog();
         invalid.schema_version = unsupported;
         assert!(Catalog::read(&mtg_contracts::canonical(&invalid).unwrap()).is_err());
         assert!(Prepared::admit(invalid, ScenarioConfig::commander_library()).is_err());
@@ -93,7 +89,7 @@ fn new_profiles_reject_structurally_valid_card_or_setup_widening() {
             assert!(Prepared::admit(bad, config.clone()).is_err());
         }
     }
-    let mut changed = library();
+    let mut changed = support::action_catalog();
     let ebb = changed
         .definitions
         .iter_mut()
@@ -135,7 +131,7 @@ fn authentic_multicolor_printed_cost_fails_with_monochromatic_sources_without_gr
         ScenarioConfig::commander_damage(),
         ScenarioConfig::commander_damage_borrowed(),
     ] {
-        let prepared = Prepared::admit(damage(), config).unwrap();
+        let prepared = Prepared::admit(support::action_catalog(), config).unwrap();
         let mut game = Game::new(prepared.clone());
         answer(&mut game, Response::Pass);
         answer(&mut game, Response::Cast { card: CardId(3) });
@@ -189,7 +185,11 @@ fn authentic_multicolor_printed_cost_fails_with_monochromatic_sources_without_gr
 }
 
 fn draw_choice() -> (Prepared, Game) {
-    let prepared = Prepared::admit(library(), ScenarioConfig::commander_library()).unwrap();
+    let prepared = Prepared::admit(
+        support::action_catalog(),
+        ScenarioConfig::commander_library(),
+    )
+    .unwrap();
     let mut game = Game::new(prepared.clone());
     answer(&mut game, Response::Cast { card: CardId(0) });
     let commander = game.object_id(CardId(4)).unwrap();

@@ -156,12 +156,12 @@ systemd case shares the executing host harness. A doc-test selection must
 execute at least one example. Compiler, server and simulator iteration can
 select a single package without qualifying the other suites.
 
-On the eight-job topology measurement host, focused rules (193 tests), cards
-(67), and the eight-endpoint recovery corpus took 2.97 s, 0.18 s, and 0.10 s
-respectively after compilation. The full cold gate, three warm runs, single-line
-core rebuild, peak RSS and individual test timings are recorded in the
+With eight Cargo jobs, the consolidated gate at `0151fb7c` measured 177.6 s
+cold (6.72 GiB target, 3.06 GiB largest-process peak RSS), 37.2 s warm
+(median of three), and 49.4 s after a one-line core edit. The
 [topology PR](https://github.com/joCaldwell/mtg-ecosystem/pulls?q=is%3Apr+head%3Afeat%2Fphase2d-2-test-topology-sim-lib)
-and its worktree receipts under `generated/phase2d-2/`.
+records the final measurements after tuning individual witnesses. Raw gate
+and per-test timings are retained under `generated/phase2d-2/` in that worktree.
 
 ## Cargo coordination and cache integration
 

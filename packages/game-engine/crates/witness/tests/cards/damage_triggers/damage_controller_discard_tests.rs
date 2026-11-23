@@ -159,7 +159,7 @@ fn hand(g: &Game, p: u8) -> usize {
         .count()
 }
 #[test]
-fn damage_controller_discard_draws_before_private_controller_choice_and_replays() {
+fn damage_controller_discard_draws_before_private_controller_choice() {
     let mode = TraceMode::Detailed;
     let mut g = Game::with_trace(prepared(false, false), mode);
     let r = discard(&mut g);

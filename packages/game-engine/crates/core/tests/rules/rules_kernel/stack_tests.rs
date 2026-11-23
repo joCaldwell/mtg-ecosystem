@@ -403,7 +403,7 @@ fn timing_ownership_and_rehashed_stack_metadata_reject_without_changing_state() 
     }
 }
 #[test]
-fn empty_stack_transition_works_and_restores_in_all_trace_modes() {
+fn empty_stack_pass_round_advances_without_ending_the_game() {
     let mode = TraceMode::Detailed;
     let mut game = Game::with_trace(
         FixtureCatalog::Base.admit(ScenarioConfig::stack_response()),

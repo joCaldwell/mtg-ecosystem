@@ -234,7 +234,7 @@ fn exercise(case: Case) {
     run(case, u64::MAX, TraceMode::Detailed);
 }
 #[test]
-fn tap_cantrip_paid_untapped_creature_taps_then_draws_with_replay() {
+fn tap_cantrip_paid_untapped_creature_taps_then_draws() {
     exercise(Case::Untapped);
 }
 #[test]

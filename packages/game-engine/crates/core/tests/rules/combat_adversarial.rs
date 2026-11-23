@@ -1,15 +1,11 @@
 //! Independent black-box checks for the frozen G/I configurations. Decisions use
 //! player projections; physical IDs are used only by trusted test assertions.
 use crate::support::{complete, input, observe, request, submit};
-use mtg_contracts::{Catalog, Quantity};
+use mtg_contracts::Quantity;
 use mtg_core::*;
 
 fn prepared(config: ScenarioConfig) -> Prepared {
-    Prepared::admit(
-        Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json")).unwrap(),
-        config,
-    )
-    .unwrap()
+    Prepared::admit(crate::support::base_catalog(), config).unwrap()
 }
 fn settle(game: &mut Game, units: u64) -> Advance {
     for _ in 0..100 {

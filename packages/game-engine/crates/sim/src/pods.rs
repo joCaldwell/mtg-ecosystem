@@ -782,23 +782,33 @@ mod tests {
     #[test]
     fn terminal_analytics_replay_preserves_state_and_journal() {
         let profile = mtg_core::match_profile("commander-foundations-v1").unwrap();
-        let mut options =
-            Options::parse(&["--games", "1", "--threads", "1"].map(String::from)).unwrap();
-        let (plain, verified) = run(crate::BUILD, PodSource::Embedded(profile), &options).unwrap();
-        assert!(verified);
-        assert_eq!(plain["unfinished"], 0);
-
+        let source = PodSource::Embedded(profile);
+        let mut options = Options::parse(
+            &["--games", "1", "--threads", "1", "--seed-start", "14"].map(String::from),
+        )
+        .unwrap();
+        // Capture an independent uninstrumented game's row and both proof hashes.
+        // The instrumented run performs its own policy rerun and terminal replay.
+        let case = options.case(0);
+        let plain = play(source, case, options.decision_limit, true, false).unwrap();
+        let (_, game) = plain.proof.unwrap();
+        let proof = Proof {
+            case,
+            state_sha256: Some(game.state_digest().unwrap()),
+            journal_sha256: Some(mtg_contracts::digest(&game.replay_journal()).unwrap()),
+            error: None,
+        };
         let directory = test_output("terminal");
         options.analytics_out = Some(directory.clone());
-        let (enabled, verified) =
-            run(crate::BUILD, PodSource::Embedded(profile), &options).unwrap();
+        let (enabled, verified) = run(crate::BUILD, source, &options).unwrap();
         let analytics: serde_json::Value =
             serde_json::from_slice(&fs::read(directory.join("analytics.json")).unwrap()).unwrap();
         let markdown = fs::read_to_string(directory.join("summary.md")).unwrap();
         fs::remove_dir_all(&directory).unwrap();
         assert!(verified);
-        assert_eq!(enabled["rows"], plain["rows"]);
-        assert_eq!(enabled["proofs"], plain["proofs"]);
+        assert_eq!(enabled["unfinished"], 0);
+        assert_eq!(enabled["rows"], serde_json::json!([plain.row]));
+        assert_eq!(enabled["proofs"], serde_json::json!([proof]));
         assert_eq!(analytics["verified_terminal_replays"], 1);
         assert!(markdown.contains("OH WR") && markdown.contains("GIH WR"));
 

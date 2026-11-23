@@ -1,10 +1,11 @@
 //! Drive adversarial witnesses through public player projections and validated receipts.
-use mtg_contracts::Quantity;
+use mtg_contracts::{Catalog, Quantity};
 use mtg_core::{
-    Advance, Budget, Game, Observation, PlayerId, PlayerRequest, PlayerResponse, QueryResult,
-    QueryValue, ValidatedResponse,
+    Advance, Budget, DecisionToken, Game, Observation, PlayerId, PlayerRequest, PlayerResponse,
+    Prepared, QueryResult, QueryValue, ScenarioConfig, ValidatedResponse,
 };
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 pub fn complete_mana(game: &mut Game) {
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
@@ -100,4 +101,50 @@ pub fn input(game: &mut Game, response: PlayerResponse) {
         complete_mana(game);
     }
     assert!(matches!(settle(game), Advance::AwaitingDecision(_)));
+}
+
+pub fn replay_equal(game: &Game, prepared: &Prepared) {
+    let replay = Game::replay(prepared.clone(), &game.replay_journal()).unwrap();
+    assert_eq!(replay.state_digest().unwrap(), game.state_digest().unwrap());
+}
+
+pub fn reject(game: &Game, actor: PlayerId, token: DecisionToken, response: PlayerResponse) {
+    let before = game.snapshot().unwrap();
+    let mut result = game.check_player_response(actor, token, response, Budget::new(0));
+    for _ in 0..2000 {
+        match result {
+            QueryResult::Rejected(_) => {
+                assert_eq!(before, game.snapshot().unwrap());
+                return;
+            }
+            QueryResult::Incomplete { work, .. } => result = game.resume_work(work, Budget::new(1)),
+            QueryResult::Complete(_) => panic!("illegal response accepted"),
+        }
+    }
+    panic!("rejection did not finish")
+}
+
+pub fn base_catalog() -> Catalog {
+    static CATALOG: OnceLock<Catalog> = OnceLock::new();
+    CATALOG
+        .get_or_init(|| {
+            Catalog::read(include_str!("../../../../tests/fixtures/expected-ir.json")).unwrap()
+        })
+        .clone()
+}
+
+pub fn action_catalog() -> Catalog {
+    static CATALOG: OnceLock<Catalog> = OnceLock::new();
+    CATALOG
+        .get_or_init(|| {
+            Catalog::read(include_str!(
+                "../../../../tests/fixtures/expected-action-ir.json"
+            ))
+            .unwrap()
+        })
+        .clone()
+}
+
+pub fn action_scenario(config: ScenarioConfig) -> Prepared {
+    Prepared::admit(action_catalog(), config).unwrap()
 }

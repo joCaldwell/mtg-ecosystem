@@ -187,7 +187,7 @@ fn offers_cast(g: &Game, player: PlayerId, card: CardId) -> bool {
 }
 
 #[test]
-fn tapped_target_swift_response_destroys_actual_attacker_across_budget_and_trace() {
+fn tapped_target_swift_response_destroys_actual_attacker() {
     let p = prepared(&[
         ("Grizzly Bears", 0, false),
         ("Swift Response", 1, true),

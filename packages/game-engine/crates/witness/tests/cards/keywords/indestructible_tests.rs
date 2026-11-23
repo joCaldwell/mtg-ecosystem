@@ -103,7 +103,7 @@ fn cast(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
 }
 
 #[test]
-fn indestructible_paid_myr_and_zero_relic_damage_cleanup_and_replay() {
+fn indestructible_paid_myr_and_zero_relic_survive_damage_cleanup() {
     mtg_witness::equipped::exercise(
         prepared(&[
             ("Darksteel Myr", true),
