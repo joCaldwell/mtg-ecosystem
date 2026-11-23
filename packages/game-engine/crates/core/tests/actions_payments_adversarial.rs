@@ -4,7 +4,6 @@ use mtg_core::*;
 use std::collections::BTreeMap;
 
 const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
-const RESEARCHER: &str = "240a349a-79f8-4e11-9a05-a78148e70a62";
 
 const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
@@ -104,6 +103,17 @@ fn handle(game: &Game, viewer: PlayerId, oracle: &str, zone: Zone) -> ObjectHand
         .expect("visible card")
         .handle
 }
+fn borrowed_creature(game: &Game, viewer: PlayerId) -> ObjectHandle {
+    observe(game, viewer)
+        .view
+        .objects
+        .into_iter()
+        .find(|o| {
+            o.zone == Zone::Battlefield && o.owner == PlayerId(2) && o.controller == PlayerId(1)
+        })
+        .expect("borrowed creature")
+        .handle
+}
 fn activate_land(game: &mut Game, p: &Prepared, oracle: &str) {
     let actor = request(game).0;
     let object = observe(game, actor)
@@ -185,7 +195,7 @@ fn opponent_with_no_creatures_is_legal_and_sacrifice_uses_control_not_ownership(
     let (actor, req) = request(&game);
     assert_eq!(actor, PlayerId(1));
     assert!(matches!(req, PlayerRequest::Sacrifice { .. }));
-    let chosen = handle(&game, actor, RESEARCHER, Zone::Battlefield);
+    let chosen = borrowed_creature(&game, actor);
     reject(
         &game,
         PlayerId(0),
@@ -211,7 +221,7 @@ fn sacrifice_choice_revalidates_source_and_affected_player_departure() {
     for departing in [PlayerId(0), PlayerId(1), PlayerId(2)] {
         for accepted in [false, true] {
             let mut branch = game.fork();
-            let chosen = handle(&branch, PlayerId(1), RESEARCHER, Zone::Battlefield);
+            let chosen = borrowed_creature(&branch, PlayerId(1));
             if accepted {
                 submit(
                     &mut branch,

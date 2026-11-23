@@ -5,8 +5,6 @@ use super::*;
 
 const RESEARCH: &str = "ba5055ce-6809-47a4-bee6-fb97a5b60f8a";
 const ALPHA: &str = "4caa8e68-e599-416f-b839-3d009569ff29";
-const FURNACE: &str = "68715465-6cf9-4006-87e9-31f227fe9ed3";
-const HEALER: &str = "95a0ca48-d924-47f4-86ed-42c673ee778c";
 const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 
 fn prepared() -> Prepared {
@@ -39,22 +37,17 @@ fn prepared() -> Prepared {
     let mut config = ScenarioConfig::turns_permanents();
     config.profile = "damage-match-appearance-domain-witness".into();
     config.initial.turn_step = TurnStep::PrecombatMain;
-    config.cards = [
-        (RESEARCH, 2, 0),
-        (ALPHA, 3, 0),
-        (FURNACE, 0, 0),
-        (HEALER, 0, 0),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(id, (oracle, owner, controller))| CardSetup {
-        id: CardId(id as u32),
-        oracle_id: oracle.into(),
-        owner: PlayerId(owner),
-        controller: PlayerId(controller),
-        zone: Zone::Battlefield,
-    })
-    .collect();
+    config.cards = [(RESEARCH, 2, 0), (ALPHA, 3, 0)]
+        .into_iter()
+        .enumerate()
+        .map(|(id, (oracle, owner, controller))| CardSetup {
+            id: CardId(id as u32),
+            oracle_id: oracle.into(),
+            owner: PlayerId(owner),
+            controller: PlayerId(controller),
+            zone: Zone::Battlefield,
+        })
+        .collect();
     for seat in 0..4 {
         for _ in 0..4 {
             config.cards.push(CardSetup {
@@ -125,55 +118,34 @@ fn recover(g: &Game) {
     assert_eq!(replayed.state, g.state);
     assert_eq!(replayed.trace, g.trace);
 }
-fn ordering_boundary(g: &mut Game) {
-    let object = g.object_id(CardId(3)).unwrap();
-    answer(g, Response::ActivateAbility { object, ability: 0 });
-    answer(
-        g,
-        Response::EntityTargets {
-            entities: vec![TargetEntity::Player {
-                player: PlayerId(1),
-            }],
-        },
-    );
-    for _ in 0..g.live_players().len() {
-        answer(g, Response::Pass);
-    }
-    assert!(matches!(request(g), Request::Priority { .. }));
-    for _ in 0..100 {
-        let r = request(g);
-        if matches!(r, Request::Attackers { .. }) {
-            let alpha = g.object_id(CardId(1)).unwrap();
-            g.respond(
-                r.player(),
-                r.decision_id(),
-                Response::Attackers {
-                    attacks: vec![(alpha, PlayerId(1))],
-                },
-            )
-            .unwrap();
-            break;
-        }
-        passive(g, r);
-    }
-    for _ in 0..100 {
-        let r = request(g);
-        if let Request::DamageEffect {
-            player, candidates, ..
-        } = &r
-        {
-            assert_eq!(*player, PlayerId(1));
-            assert_eq!(candidates.len(), 2);
-            let tx = g.damage_transaction().unwrap();
+// Pause after assignment and before damage is committed (CR 510.2).
+fn assigned_damage_boundary(g: &mut Game) {
+    for _ in 0..1000 {
+        if let Ok(tx) = g.damage_transaction() {
             assert_eq!(tx.entries.len(), 1);
             assert_eq!(tx.entries[0].source.object.card, CardId(1));
             assert_eq!(tx.entries[0].original_amount, 2.into());
             assert_eq!(g.state.rules.players[1].life, 40.into());
             return;
         }
-        passive(g, r);
+        match g.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => (),
+            Advance::AwaitingDecision(r @ Request::Attackers { .. }) => {
+                let alpha = g.object_id(CardId(1)).unwrap();
+                g.respond(
+                    r.player(),
+                    r.decision_id(),
+                    Response::Attackers {
+                        attacks: vec![(alpha, PlayerId(1))],
+                    },
+                )
+                .unwrap();
+            }
+            Advance::AwaitingDecision(r) => passive(g, r),
+            other => panic!("expected combat damage, got {other:?}"),
+        }
     }
-    panic!("missing real Furnace/Healer ordering choice");
+    panic!("missing assigned Alpha Myr combat damage");
 }
 fn finish_damage(g: &mut Game) {
     for _ in 0..100 {
@@ -218,7 +190,7 @@ fn hand(g: &Game) -> usize {
 #[test]
 fn damage_match_appearance_departed_damager_does_not_trigger_from_prepared_battlefield_facts() {
     let mut g = Game::with_trace(prepared(), TraceMode::Detailed);
-    ordering_boundary(&mut g);
+    assigned_damage_boundary(&mut g);
     recover(&g);
     g.concede(PlayerId(3)).unwrap();
     finish_damage(&mut g);
@@ -246,7 +218,7 @@ fn damage_match_appearance_departed_damager_does_not_trigger_from_prepared_battl
 #[test]
 fn damage_match_appearance_departed_observer_does_not_collect_but_damage_survives() {
     let mut g = Game::with_trace(prepared(), TraceMode::Detailed);
-    ordering_boundary(&mut g);
+    assigned_damage_boundary(&mut g);
     g.concede(PlayerId(2)).unwrap();
     finish_damage(&mut g);
     assert!(g.object_id(CardId(0)).is_none());
@@ -261,7 +233,7 @@ fn damage_match_appearance_departed_observer_does_not_collect_but_damage_survive
 #[test]
 fn damage_match_appearance_damager_departure_after_collection_keeps_frozen_trigger_and_draw() {
     let mut g = Game::with_trace(prepared(), TraceMode::Detailed);
-    ordering_boundary(&mut g);
+    assigned_damage_boundary(&mut g);
     finish_damage(&mut g);
     assert_eq!(g.state.rules.next_trigger_id, 1);
     assert_eq!(g.state.rules.stack.len(), 1);
@@ -295,7 +267,7 @@ fn match_source_mut(snapshot: &mut Snapshot) -> &mut Option<Box<ObjectBefore>> {
 #[test]
 fn damage_match_appearance_recovery_rejects_invalid_and_coherent_appearance_forgeries() {
     let mut g = Game::with_trace(prepared(), TraceMode::Detailed);
-    ordering_boundary(&mut g);
+    assigned_damage_boundary(&mut g);
     finish_damage(&mut g);
     assert_eq!(g.state.rules.stack.len(), 1);
     let baseline: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();

@@ -1628,7 +1628,7 @@ mod tests {
             "crates/core/src/testkit.rs",
             "crates/witness/Cargo.toml",
             "crates/witness/src/lib.rs",
-            "crates/witness/tests/cascade/main.rs",
+            "crates/witness/tests/keywords/main.rs",
         ] {
             let test = files
                 .iter_mut()

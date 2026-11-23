@@ -1245,31 +1245,23 @@ fn defender_seed(index: u16) -> [u8; 32] {
 
 #[test]
 fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally() {
-    // Separate witness, not a substituted completion-batch seed. Setup-only
-    // deterministic search over0..255 first found index5/P3 withWall/Growth/Forest.
-    let c = MatchConfig::for_profile("commander-foundations-v1", defender_seed(5), PlayerId(0))
-        .unwrap();
-    assert_eq!(
-        c.seed,
-        [
-            218, 242, 173, 204, 195, 32, 115, 232, 20, 238, 116, 21, 194, 222, 15, 79, 126, 111,
-            50, 66, 12, 16, 130, 135, 143, 4, 248, 16, 154, 238, 167, 142
-        ]
-    );
-    let (p, mut g) = initial_match(c, 4096);
     let wall = oracle("Wall of Wood");
     let growth = oracle("Giant Growth");
     let forest = oracle("Forest");
     let plains = oracle("Plains");
     let commander = oracle("Isamaru, Hound of Konda");
-    let initial = observation(&g, PlayerId(3));
-    for id in [&wall, &growth, &forest] {
+    // Fixed R4 opening with Wall, Growth and Forest in seat three's private hand.
+    let c = MatchConfig::for_profile("commander-foundations-v1", defender_seed(430), PlayerId(0))
+        .unwrap();
+    let (p, mut g) = initial_match(c, 4096);
+    let opening = observation(&g, PlayerId(3));
+    for oracle in [&wall, &growth, &forest] {
         assert!(
-            initial
+            opening
                 .view
                 .objects
                 .iter()
-                .any(|o| o.zone == (Zone::Hand { owner: PlayerId(3) }) && o.oracle_id == *id)
+                .any(|o| o.zone == (Zone::Hand { owner: PlayerId(3) }) && o.oracle_id == *oracle)
         );
     }
     keep_all(&mut g);

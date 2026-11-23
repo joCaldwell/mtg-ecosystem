@@ -174,6 +174,8 @@ fn flash_and_enters_tapped_are_not_implicitly_hosted_or_search_reviewed() {
             .iter_mut()
             .find(|d| d.characteristics.kind == CardKind::Creature)
             .unwrap();
+        // This private capability probe has no printed source labels.
+        d.source_labels = None;
         let capability = if enters_tapped {
             d.static_abilities.push(StaticAbility {
                 functioning_zone: FunctioningZone::Battlefield,

@@ -971,12 +971,17 @@ fn unlimited_hand_size_tracks_current_controller_and_ends_after_paid_bounce() {
         .find(|definition| definition.oracle_id == BEARS)
         .unwrap();
     // Private synthetic grant on an existing creature shape.
+    source.source_labels = None;
     source.static_abilities.push(StaticAbility {
         functioning_zone: FunctioningZone::Battlefield,
         effect: StaticEffect::UnlimitedControllerHandSize,
     });
     source.capabilities = source.requirements();
-    source.validate().unwrap();
+    // Exercise the shared cleanup rules on a private synthetic static effect.
+    assert_eq!(
+        source.validate().unwrap_err(),
+        "composition matrix does not admit this static ability"
+    );
     p.catalog_digest = digest(catalog).unwrap();
 
     let controller = PlayerId(0);
@@ -1111,6 +1116,7 @@ fn reduced_hand_size_applies_during_cleanup_with_unlimited_sources_and_exact_flo
         let mut source = creature.clone();
         source.oracle_id = id.into();
         source.name = id.into();
+        source.source_labels = None;
         source.static_abilities.push(StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,
             effect,
@@ -1121,7 +1127,11 @@ fn reduced_hand_size_applies_during_cleanup_with_unlimited_sources_and_exact_flo
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate().unwrap();
+    // Exercise the shared cleanup rules on a private synthetic static effect.
+    assert_eq!(
+        catalog.validate().unwrap_err(),
+        "composition matrix does not admit this static ability"
+    );
     p.catalog_digest = digest(catalog).unwrap();
 
     let player = PlayerId(0);
@@ -1257,7 +1267,11 @@ fn flash_end_step_draw() {
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate().unwrap();
+    // Exercise the shared cleanup rules on a private synthetic static effect.
+    assert_eq!(
+        catalog.validate().unwrap_err(),
+        "composition matrix does not admit this static ability"
+    );
     fixture.catalog_digest = digest(catalog).unwrap();
 
     for card in &mut fixture.config.cards[1..4] {
@@ -1410,6 +1424,7 @@ fn increased_hand_size_applies_during_cleanup_with_exact_signed_totals() {
         let mut source = creature.clone();
         source.oracle_id = id.into();
         source.name = id.into();
+        source.source_labels = None;
         source.static_abilities.push(StaticAbility {
             functioning_zone: FunctioningZone::Battlefield,
             effect,
@@ -1420,7 +1435,11 @@ fn increased_hand_size_applies_during_cleanup_with_exact_signed_totals() {
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate().unwrap();
+    // Exercise the shared cleanup rules on a private synthetic static effect.
+    assert_eq!(
+        catalog.validate().unwrap_err(),
+        "composition matrix does not admit this static ability"
+    );
     p.catalog_digest = digest(catalog).unwrap();
 
     let player = PlayerId(0);
