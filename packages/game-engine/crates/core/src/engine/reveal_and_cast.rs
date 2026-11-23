@@ -229,10 +229,6 @@ impl RulesTxn {
         player: PlayerId,
         object: ObjectId,
     ) -> Result<EventOutcome, String> {
-        if self.look_top_mana_reveal_authorized(player, object) {
-            self.remember_public_library_position(object);
-            return Ok(EventOutcome::LibraryCardRevealed { player, object });
-        }
         let Frame::RevealAndCast { progress } = &self.state.rules.frame else {
             return Err("missing reveal owner".into());
         };
@@ -281,11 +277,6 @@ impl RulesTxn {
             progress.child()
         };
         self.validate_resolving_owned(frame, child)?;
-        if !self.entry(frame.stack_id)?.kind.is_spell()
-            || frame.cursor != 0
-            || !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.as_slice(), [Instruction::RevealAndCast { source_block }] if *source_block == progress.source_block)
-            || announcing.is_some_and(|p| progress.permission(self).as_ref() != Ok(p))
-            || progress.lands.len() > capacities::OWNED_LIMIT
         {
             return Err("snapshot reveal instruction ownership".into());
         }

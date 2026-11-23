@@ -32,13 +32,6 @@ impl RulesTxn {
             let program = self.program_for(stack)?;
             let destination = if resolved && program.resolution == SpellResolution::Permanent {
                 Zone::Battlefield
-            } else if resolved
-                && matches!(
-                    program.instructions.last(),
-                    Some(Instruction::ExileResolvingSpell { .. })
-                )
-            {
-                Zone::Exile
             } else {
                 Zone::Graveyard { owner }
             };

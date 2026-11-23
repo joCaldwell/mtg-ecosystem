@@ -21,15 +21,6 @@ pub struct GraveyardReplacement {
 #[serde(tag = "completion", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum GraveyardCompletion {
     Library,
-    Counter {
-        target: StackId,
-        source: ObjectId,
-        controller: PlayerId,
-        mill: Option<Quantity>,
-    },
-    MillAfterCounter {
-        outcome: Box<InstructionOutcome>,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,23 +37,14 @@ enum ReplacementPhase {
 fn library_members(proposed: &ProposedEvent) -> Option<(PlayerId, &[ObjectId])> {
     match proposed {
         ProposedEvent::Mill { player, cards, .. } => Some((*player, cards)),
-        ProposedEvent::Surveil {
-            player, graveyard, ..
-        } => Some((*player, graveyard)),
-        ProposedEvent::LibrarySelect {
-            player,
-            destination: LibraryRemainder::Graveyard,
-            remainder,
-            ..
-        } => Some((*player, remainder)),
+
         _ => None,
     }
 }
 
 impl GraveyardReplacement {
     fn counter_target_left(&self, game: &RulesTxn) -> bool {
-        matches!(&self.completion, GraveyardCompletion::Counter { target, source, .. }
-            if !game.state.rules.stack.iter().any(|entry| entry.id == *target && entry.source == *source))
+        false
     }
 
     fn request(&self, game: &RulesTxn) -> Option<Request> {
@@ -92,7 +74,6 @@ impl GraveyardReplacement {
 
     pub(super) fn reserved_top(&self) -> &[ObjectId] {
         match &self.proposed {
-            ProposedEvent::Surveil { top, .. } => top,
             _ => &[],
         }
     }
@@ -218,20 +199,6 @@ impl RulesTxn {
             GraveyardCompletion::Library => {
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual })
             }
-            GraveyardCompletion::MillAfterCounter { outcome } => {
-                self.finish_instruction(frame, *outcome)
-            }
-            GraveyardCompletion::Counter {
-                target,
-                controller,
-                mill,
-                ..
-            } => {
-                self.rules_mut().frame = Frame::Resolve {
-                    frame: frame.clone(),
-                };
-                self.complete_counter_outcome(frame, source_block, target, controller, mill, actual)
-            }
         }
     }
 
@@ -318,15 +285,6 @@ impl RulesTxn {
                 ),
                 ReplacementPhase::BeforeMovement => {
                     let outcome = match tx.completion {
-                        completion @ GraveyardCompletion::Counter { .. } => {
-                            return self.finish_graveyard_effect(
-                                tx.frame,
-                                tx.source_block,
-                                None,
-                                completion,
-                            );
-                        }
-                        GraveyardCompletion::MillAfterCounter { outcome } => *outcome,
                         GraveyardCompletion::Library => {
                             InstructionOutcome::PlayerActionSkipped { player: tx.owner }
                         }
@@ -453,72 +411,6 @@ impl RulesTxn {
             .get(tx.frame.cursor as usize)
             .ok_or("missing replacement-producing instruction")?;
         let (owner, members, from) = match (&tx.completion, &tx.proposed) {
-            (
-                GraveyardCompletion::Counter {
-                    target,
-                    source,
-                    controller,
-                    mill,
-                },
-                ProposedEvent::CounterStackObject {
-                    target: proposed,
-                    countering,
-                    domain,
-                },
-            ) if *target == *proposed
-                && *countering == tx.frame.stack_id
-                && *domain == TargetDomain::StackSpell =>
-            {
-                let (slot, count) = match instruction {
-                    Instruction::CounterSpellAndMillController {
-                        target_slot, count, ..
-                    } => (*target_slot, Some(count)),
-                    Instruction::CounterStackObject { target_slot, .. }
-                    | Instruction::CounterSpellUnlessPays { target_slot, .. } => {
-                        (*target_slot, None)
-                    }
-                    _ => return Err("replacement counter source".into()),
-                };
-                if mill.as_ref() != count
-                    || self
-                        .entry(tx.frame.stack_id)?
-                        .stack_targets
-                        .get(slot as usize)
-                        != Some(target)
-                    || tx.frame.legal_targets.get(slot as usize) != Some(&true)
-                {
-                    return Err("counter replacement announcement invariant".into());
-                }
-                if matches!(tx.phase, ReplacementPhase::BeforeMovement)
-                    && self.is_live(tx.owner)
-                    && !tx.counter_target_left(self)
-                {
-                    let entry = self
-                        .state
-                        .rules
-                        .stack
-                        .iter()
-                        .find(|s| s.id == *target)
-                        .ok_or("missing replaced counter target")?;
-                    if !entry.kind.is_spell()
-                        || entry.source != *source
-                        || entry.controller != *controller
-                        || self.spell_cannot_be_countered(entry)?
-                    {
-                        return Err("counter replacement target invariant".into());
-                    }
-                }
-                (
-                    self.state
-                        .rules
-                        .cards
-                        .get(&source.card)
-                        .ok_or("missing countered card")?
-                        .owner,
-                    std::slice::from_ref(source),
-                    Zone::Stack,
-                )
-            }
             _ => {
                 let (owner, members) = library_members(&tx.proposed)
                     .ok_or("unsupported retained graveyard proposal")?;
@@ -551,14 +443,6 @@ impl RulesTxn {
             || !matches!(
                 (instruction, &tx.proposed),
                 (
-                    Instruction::CounterSpellAndMillController { .. }
-                        | Instruction::CounterSpellUnlessPays { .. }
-                        | Instruction::CounterStackObject { .. },
-                    ProposedEvent::CounterStackObject { .. }
-                ) | (
-                    Instruction::CounterSpellAndMillController { .. },
-                    ProposedEvent::Mill { .. }
-                ) | (
                     kernel!(Mill {
                         amount: fixed!(_),
                         ..
@@ -567,11 +451,7 @@ impl RulesTxn {
                         amount: announced_x!()
                     }),
                     ProposedEvent::Mill { .. }
-                ) | (Instruction::Surveil { .. }, ProposedEvent::Surveil { .. })
-                    | (
-                        Instruction::SelectLibraryCard { .. },
-                        ProposedEvent::LibrarySelect { .. }
-                    )
+                )
             )
         {
             return Err("snapshot graveyard replacement producer invariant".into());

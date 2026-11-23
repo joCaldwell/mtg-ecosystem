@@ -140,20 +140,6 @@ impl RulesTxn {
                 after: gain.current,
             });
         }
-        let mut shields = vec![];
-        for application in applications {
-            if let (EffectKey::Resolved { id }, Some(before), Some(after)) = (
-                application.effect,
-                application.budget_before,
-                application.budget_after,
-            ) {
-                shields.push(ManaDamageShield {
-                    effect: id,
-                    before,
-                    after,
-                });
-            }
-        }
         let triggers = self
             .state
             .rules
@@ -163,11 +149,7 @@ impl RulesTxn {
             .map(|trigger| (trigger.id, trigger.controller))
             .collect();
         a.paid.as_mut().ok_or("missing mana damage receipt")?.damage =
-            Some(Box::new(ManaDamageUndo {
-                life,
-                shields,
-                triggers,
-            }));
+            Some(Box::new(ManaDamageUndo { life, triggers }));
         if !self.mana_damage_resume_available(&a)? {
             // A departure may remove the payer or the suspended announcement.
             // Its legal paid activation stands, with any invalid damage cancelled
@@ -227,22 +209,7 @@ impl RulesTxn {
                 return Err("missing pending mana damage trigger".into());
             }
         }
-        for shield in damage.shields.iter().rev() {
-            let effect = self
-                .rules_mut()
-                .effects
-                .iter_mut()
-                .find(|e| e.id == shield.effect)
-                .ok_or("missing mana damage prevention effect")?;
-            let ResolvedEffectKind::PreventNextDamage { target, remaining } = &mut effect.kind
-            else {
-                return Err("mana damage prevention effect changed kind".into());
-            };
-            if *target != (TargetEntity::Player { player: payer }) || *remaining != shield.after {
-                return Err("mana damage prevention effect changed".into());
-            }
-            *remaining = shield.before.clone();
-        }
+
         // Damage is written before lifelink, including when both affect the
         // same player. Reverse this ordered chain without touching departures.
         for entry in damage.life.iter().rev() {

@@ -39,33 +39,6 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn target_color_step(
-        &mut self,
-        frame: Resolving,
-        source_block: u32,
-    ) -> Result<(), String> {
-        let Some(target) = self.target_color_target(&frame) else {
-            self.rules_mut().pending = None;
-            return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-        };
-        let color = self.target_color_pending(&frame)?;
-        let timestamp = self
-            .state
-            .rules
-            .next_batch_id
-            .checked_add(1)
-            .ok_or("color timestamp overflow")?;
-        self.commit_resolved_effect(
-            frame,
-            ResolvedEffectKind::SetColor {
-                target,
-                color,
-                timestamp,
-            },
-            source_block,
-        )
-    }
-
     pub(super) fn target_color_pending(&self, frame: &Resolving) -> Result<Color, String> {
         let input = self
             .state
@@ -86,11 +59,6 @@ impl RulesTxn {
             .effects
             .iter()
             .filter_map(|effect| match effect.kind {
-                ResolvedEffectKind::SetColor {
-                    target: t,
-                    color,
-                    timestamp,
-                } if t == target => Some((timestamp, color)),
                 _ => None,
             })
             .max_by_key(|(timestamp, _)| *timestamp)

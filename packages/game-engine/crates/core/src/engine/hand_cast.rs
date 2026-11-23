@@ -29,16 +29,6 @@ impl RulesTxn {
         else {
             return Err("hand cast requires a printed combat damage trigger".into());
         };
-        if issuer.hand_cast_permission.is_some()
-            || issuer.alternative_cost.is_some()
-            || damage.source.object != issuer.source
-            || !matches!(damage.recipient, DamageRecipient::Player { .. })
-            || damage.amount <= Quantity::zero()
-            || self.validate_trigger_entry(issuer)?.is_none()
-            || !matches!(
-                self.program_for(issuer)?.instructions.as_slice(),
-                [Instruction::OfferHandCastWithoutManaCost { .. }]
-            )
         {
             return Err("invalid combat hand cast issuer".into());
         }

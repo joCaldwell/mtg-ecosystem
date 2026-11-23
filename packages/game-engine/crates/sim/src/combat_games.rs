@@ -115,7 +115,6 @@ impl Policy {
                 return Err("opening setup is not admitted by this historical scenario".into());
             }
             PlayerRequest::Modes { .. }
-            | PlayerRequest::DamageAllocation { .. }
             | PlayerRequest::DamageEffect { .. }
             | PlayerRequest::OrderTriggers { .. } => {
                 return Err(

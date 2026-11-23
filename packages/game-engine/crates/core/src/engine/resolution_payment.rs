@@ -13,127 +13,14 @@ pub enum ResolutionPaymentStage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResolutionPayment {
-    pub(super) purpose: PaymentPurpose,
+    pub(super) resume: FrameLink,
     pub payer: PlayerId,
     cost: ManaCost,
     pub(super) stage: ResolutionPaymentStage,
     pub(super) receipts: Vec<ManaActivationUndo>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum PaymentPurpose {
-    Kernel { resume: FrameLink },
-    Counter { target_slot: u32 },
-    CastPayerDraw,
-}
-
 impl RulesTxn {
-    fn resolution_payment_terms<'a>(
-        &'a self,
-        frame: &'a Resolving,
-    ) -> Result<(PaymentPurpose, &'a Quantity, u32), String> {
-        match self
-            .program_for(self.entry(frame.stack_id)?)?
-            .instructions
-            .get(frame.cursor as usize)
-        {
-            Some(Instruction::CounterSpellUnlessPays {
-                target_slot,
-                generic,
-                source_block,
-            }) => Ok((
-                PaymentPurpose::Counter {
-                    target_slot: *target_slot,
-                },
-                generic,
-                *source_block,
-            )),
-            Some(Instruction::OptionalDrawUnlessCasterPays {
-                generic,
-                source_block,
-            }) => Ok((PaymentPurpose::CastPayerDraw, generic, *source_block)),
-            _ => Err("missing resolution payment instruction".into()),
-        }
-    }
-
-    // A counter binds to the controller of its legal stack target. A cast
-    // trigger binds to the event caster even after that spell has left.
-    fn resolution_payer(
-        &self,
-        frame: &Resolving,
-        purpose: PaymentPurpose,
-    ) -> Result<Option<PlayerId>, String> {
-        match purpose {
-            PaymentPurpose::Kernel { resume } => Ok(Some(self.kernel_payment_terms(resume)?.0)),
-            PaymentPurpose::Counter { target_slot } => {
-                let slot = target_slot as usize;
-                let target = self
-                    .entry(frame.stack_id)?
-                    .stack_targets
-                    .get(slot)
-                    .ok_or("missing conditional counter target")?;
-                if frame.legal_targets.get(slot) != Some(&true) {
-                    return Ok(None);
-                }
-                Ok(self
-                    .state
-                    .rules
-                    .stack
-                    .iter()
-                    .find(|s| s.id == *target)
-                    .map(|s| s.controller))
-            }
-            PaymentPurpose::CastPayerDraw => match &self.entry(frame.stack_id)?.kind {
-                StackKind::Triggered {
-                    witness: TriggerEventWitness::SpellCast { cast },
-                    ..
-                } => Ok(Some(cast.caster)),
-                _ => Err("missing resolution payment cast witness".into()),
-            },
-        }
-    }
-
-    fn resolve_unpaid(
-        &mut self,
-        frame: Resolving,
-        purpose: PaymentPurpose,
-        source_block: u32,
-    ) -> Result<(), String> {
-        match purpose {
-            PaymentPurpose::Kernel { resume } => self.finish_kernel_payment(resume, false),
-            PaymentPurpose::Counter { target_slot } => {
-                self.resolve_counter_instruction(frame, target_slot, source_block, None)
-            }
-            PaymentPurpose::CastPayerDraw => self.offer_controller_draw(frame, source_block),
-        }
-    }
-
-    pub(super) fn begin_resolution_payment(&mut self, frame: Resolving) -> Result<(), String> {
-        let (purpose, generic, source_block) = self.resolution_payment_terms(&frame)?;
-        let Some(payer) = self
-            .resolution_payer(&frame, purpose)?
-            .filter(|p| self.is_live(*p))
-        else {
-            return self.resolve_unpaid(frame, purpose, source_block);
-        };
-        let generic = generic.clone();
-        self.rules_mut().frame = Frame::ResolutionPayment {
-            frame,
-            payment: ResolutionPayment {
-                purpose,
-                payer,
-                cost: ManaCost {
-                    generic,
-                    colored: vec![],
-                },
-                stage: ResolutionPaymentStage::Offer,
-                receipts: vec![],
-            },
-        };
-        Ok(())
-    }
-
     pub(super) fn begin_kernel_payment(
         &mut self,
         task: kir::Task,
@@ -150,7 +37,7 @@ impl RulesTxn {
         self.rules_mut().frame = Frame::ResolutionPayment {
             frame,
             payment: ResolutionPayment {
-                purpose: PaymentPurpose::Kernel { resume },
+                resume,
                 payer,
                 cost: ManaCost {
                     generic,
@@ -161,13 +48,6 @@ impl RulesTxn {
             },
         };
         Ok(())
-    }
-
-    fn payment_block(&self, frame: &Resolving, purpose: PaymentPurpose) -> Result<u32, String> {
-        match purpose {
-            PaymentPurpose::Kernel { resume } => Ok(self.kernel_payment_terms(resume)?.1),
-            _ => Ok(self.resolution_payment_terms(frame)?.2),
-        }
     }
 
     pub(super) fn resolution_payment_request(&self, payment: &ResolutionPayment) -> Request {
@@ -226,13 +106,13 @@ impl RulesTxn {
             .take()
             .ok_or("missing resolution payment input")?;
         self.validate_resolution_payment_response(&payment, input.player, &input.response)?;
-        let source_block = self.payment_block(&frame, payment.purpose)?;
+        let source_block = self.kernel_payment_terms(payment.resume)?.1;
         match input.response {
             Response::OptionalEffect { perform: true } => {
                 payment.stage = ResolutionPaymentStage::Mana
             }
             Response::OptionalEffect { perform: false } => {
-                return self.resolve_unpaid(frame, payment.purpose, source_block);
+                return self.finish_kernel_payment(payment.resume, false);
             }
             Response::ActivateMana { object } => {
                 return self.begin_payment_mana(
@@ -246,12 +126,12 @@ impl RulesTxn {
                     if undo_mana {
                         self.undo_mana_receipts(payment.payer, &payment.receipts)?;
                     }
-                    return self.resolve_unpaid(frame, payment.purpose, source_block);
+                    return self.finish_kernel_payment(payment.resume, false);
                 }
                 payment.stage = ResolutionPaymentStage::Spend;
             }
             Response::SpendMana { spending } => {
-                let actual = self.commit(
+                self.commit(
                     ProposedEvent::PayManaSelected {
                         player: payment.payer,
                         cost: payment.cost,
@@ -260,15 +140,7 @@ impl RulesTxn {
                     },
                     self.instruction_cause(&frame, source_block)?,
                 )?;
-                if let PaymentPurpose::Kernel { resume } = payment.purpose {
-                    return self.finish_kernel_payment(resume, true);
-                }
-                return self.finish_instruction(
-                    frame,
-                    InstructionOutcome::Effect {
-                        actual: Some(actual),
-                    },
-                );
+                return self.finish_kernel_payment(payment.resume, true);
             }
             _ => return Err("resolution payment input invariant".into()),
         }
@@ -282,26 +154,12 @@ impl RulesTxn {
         payment: &ResolutionPayment,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        let (purpose, generic) = match payment.purpose {
-            PaymentPurpose::Kernel { resume } => {
-                if frame != self.kernel_root()? || payment.cost.generic.is_negative() {
-                    return Err("invalid kernel mana payment".into());
-                }
-                self.kernel_payment_terms(resume)?;
-                (payment.purpose, &payment.cost.generic)
-            }
-            _ => {
-                let (purpose, generic, _) = self.resolution_payment_terms(frame)?;
-                (purpose, generic)
-            }
-        };
-        let payer = self.resolution_payer(frame, purpose)?;
-        if matches!(purpose, PaymentPurpose::Counter { target_slot } if frame.legal_targets.get(target_slot as usize) != Some(&true))
-            || payment.purpose != purpose
+        let (payer, _) = self.kernel_payment_terms(payment.resume)?;
+        if frame != self.kernel_root()?
+            || payment.cost.generic.is_negative()
             || payment.payer.0 >= 4
-            || payer.is_some_and(|p| p != payment.payer)
+            || payer != payment.payer
             || !payment.cost.colored.is_empty()
-            || &payment.cost.generic != generic
             || (payment.stage == ResolutionPaymentStage::Offer && !payment.receipts.is_empty())
             || payment.receipts.iter().any(|r| r.player != payment.payer)
         {
@@ -309,7 +167,6 @@ impl RulesTxn {
         }
         if matches!(self.state.rules.frame, Frame::ResolutionPayment { .. })
             && (!self.is_live(payment.payer)
-                || payer.is_none()
                 || (payment.stage == ResolutionPaymentStage::Spend
                     && !self.can_pay(payment.payer, &payment.cost)?))
         {
@@ -330,7 +187,7 @@ impl RulesTxn {
         else {
             return Ok(());
         };
-        if self.resolution_payer(frame, payment.purpose)? == Some(payment.payer)
+        if self.kernel_payment_terms(payment.resume)?.0 == payment.payer
             && self.is_live(payment.payer)
         {
             return Ok(());
@@ -350,10 +207,8 @@ impl RulesTxn {
             | Frame::ResolutionPayment { .. } => {}
             _ => return Ok(()),
         }
-        let source_block = self.payment_block(frame, payment.purpose)?;
-        let purpose = payment.purpose;
-        let frame = frame.clone();
+        let resume = payment.resume;
         self.rules_mut().pending = None;
-        self.resolve_unpaid(frame, purpose, source_block)
+        self.finish_kernel_payment(resume, false)
     }
 }

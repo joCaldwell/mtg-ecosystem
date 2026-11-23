@@ -112,9 +112,7 @@ pub enum Response {
     BottomOpening {
         objects: Vec<ObjectId>,
     },
-    DamageAllocation {
-        allocations: Vec<(DamageId, Quantity)>,
-    },
+
     ModeSubset {
         modes: Vec<u32>,
     },
@@ -396,15 +394,7 @@ pub enum Request {
         count: usize,
         candidates: Vec<ObjectId>,
     },
-    DamageAllocation {
-        decision_id: u64,
-        player: PlayerId,
-        recipient: TargetEntity,
-        effect: EffectKey,
-        remaining: Quantity,
-        required: Quantity,
-        candidates: Vec<DamageAllocationCandidate>,
-    },
+
     Modes {
         decision_id: u64,
         player: PlayerId,
@@ -557,7 +547,6 @@ impl Request {
             | Self::Mulligan { decision_id, .. }
             | Self::OpeningPlacement { decision_id, .. }
             | Self::BottomOpening { decision_id, .. }
-            | Self::DamageAllocation { decision_id, .. }
             | Self::Modes { decision_id, .. }
             | Self::CounterPlacementEffect { decision_id, .. }
             | Self::DamageEffect { decision_id, .. }
@@ -613,7 +602,6 @@ impl Request {
             | Self::Mulligan { player, .. }
             | Self::OpeningPlacement { player, .. }
             | Self::BottomOpening { player, .. }
-            | Self::DamageAllocation { player, .. }
             | Self::Modes { player, .. }
             | Self::CounterPlacementEffect { player, .. }
             | Self::DamageEffect { player, .. }

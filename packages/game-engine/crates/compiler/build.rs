@@ -1,34 +1,9 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     env, fs,
     path::{Component, Path, PathBuf},
 };
 
-// Legacy evidence/mutation-test adapters only. Their contents and lengths come
-// from record-groups.json; they never determine executable catalog membership.
-const GROUPS: &[&str] = &[
-    "WIPES_RECORDS",
-    "SACRIFICE_RECORDS",
-    "REMOVAL_RECORDS",
-    "ATTACHMENT_RECORDS",
-    "FOUR_COLORS_RECORDS",
-    "MANA_RECORDS",
-    "STAPLES_RECORDS",
-    "RECORDS",
-    "COMMANDER_RECORDS",
-    "LIBRARY_RECORDS",
-    "DAMAGE_RECORDS",
-    "ACTION_RECORDS",
-    "STACK_RECORDS",
-    "DAMAGE_LIFE_RECORDS",
-    "TRIGGER_RECORDS",
-    "EFFECT_RECORDS",
-    "CHOICE_RECORDS",
-    "MATCH_RECORDS",
-    "TOKEN_RECORDS",
-    "COMBAT_KEYWORD_RECORDS",
-    "KEYWORD_RECORDS",
-];
 fn relative(base: &Path, name: &str) -> PathBuf {
     let mut out = PathBuf::new();
     for c in base.join(name).components() {
@@ -54,9 +29,8 @@ fn main() {
     println!("cargo:rerun-if-changed={}", root.join("catalogs").display());
     let mut files: BTreeSet<PathBuf> = [
         "accepted-archives.json",
-        "record-groups.json",
         "provenance.json",
-        "archive-manifest.json",
+        "archive-manifest-phase1-r4.json",
     ]
     .into_iter()
     .map(PathBuf::from)
@@ -94,45 +68,7 @@ fn main() {
             }
         }
     }
-    let groups: Result<BTreeMap<String, Vec<String>>, String> =
-        fs::read(root.join("record-groups.json"))
-            .map_err(|e| e.to_string())
-            .and_then(|raw| serde_json::from_slice(&raw).map_err(|e| e.to_string()));
-    let mut errors = vec![];
-    let groups = groups.unwrap_or_else(|e| {
-        errors.push(e);
-        BTreeMap::new()
-    });
-    for name in groups.keys() {
-        if !GROUPS.contains(&name.as_str()) {
-            errors.push(format!("unknown evidence record group {name}"));
-        }
-    }
     let mut generated = String::new();
-    for name in GROUPS {
-        let records = groups.get(*name).cloned().unwrap_or_else(|| {
-            errors.push(format!("missing evidence record group {name}"));
-            vec![]
-        });
-        generated += &format!("pub const {name}: [(&str, &str); {}] = [\n", records.len());
-        for record in records {
-            files.insert(PathBuf::from(&record));
-            let raw = fs::read_to_string(root.join(&record)).unwrap_or_else(|e| {
-                errors.push(format!("{record}: {e}"));
-                String::new()
-            });
-            generated += &format!("({:?}, {raw:?}),\n", record.trim_end_matches(".json"));
-        }
-        generated += "];\n";
-    }
-    generated += &format!(
-        "pub const RECORD_GROUP_ERROR: Option<&str> = {:?};\n",
-        if errors.is_empty() {
-            None
-        } else {
-            Some(errors.join("; "))
-        }
-    );
     generated += "pub const FILES: &[(&str, &str)] = &[\n";
     // Embed the exact inputs needed to lower each reviewed manifest.
     for name in &files {
@@ -142,7 +78,8 @@ fn main() {
         }
     }
     generated += "];\n";
-    let header = fs::read_to_string(root.join("archive-manifest.json")).unwrap_or_default();
+    let header =
+        fs::read_to_string(root.join("archive-manifest-phase1-r4.json")).unwrap_or_default();
     generated += &format!("pub const MANIFEST: &str = {header:?};\n");
     fs::write(
         PathBuf::from(env::var("OUT_DIR").unwrap()).join("fixtures.rs"),

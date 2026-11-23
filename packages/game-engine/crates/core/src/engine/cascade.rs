@@ -839,33 +839,6 @@ impl RulesTxn {
             },
         )?;
         let program = self.program_for(self.entry(progress.frame.stack_id)?)?;
-        if !matches!(program.instructions.get(progress.frame.cursor as usize), Some(Instruction::Cascade { source_block, .. }) if *source_block == progress.source_block)
-            || self.cascade_threshold(&progress.frame)? != progress.threshold
-            || progress.exiled.len() > capacities::OWNED_LIMIT
-            || progress
-                .exiled
-                .iter()
-                .map(|x| x.card)
-                .collect::<BTreeSet<_>>()
-                .len()
-                != progress.exiled.len()
-            || progress.exiled.iter().any(|x| {
-                self.state
-                    .rules
-                    .cards
-                    .get(&x.card)
-                    .is_none_or(|c| c.owner != caster)
-            })
-            || progress.hit.is_some_and(|hit| {
-                progress.exiled.last() != Some(&hit)
-                    || !self.cascade_hit(hit, &progress.threshold).unwrap_or(false)
-            })
-            || progress.exiled.iter().any(|x| {
-                Some(*x) != progress.hit
-                    && self.cascade_hit(*x, &progress.threshold).unwrap_or(false)
-            })
-            || (announcing && (progress.stage != CascadeStage::Offer || progress.child.is_some()))
-            || permission.is_some_and(|p| progress.permission(self).as_ref() != Ok(p))
         {
             return Err("snapshot cascade source/progress invariant".into());
         }

@@ -45,28 +45,21 @@ impl RulesTxn {
                 ..
             } => Some(&mut progress.frame),
             Frame::LandEntry {
-                origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
+                origin: EntryOrigin::Copy { frame, .. },
                 ..
             }
             | Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }
-            | Frame::ForcedSacrifice { frame, .. }
-            | Frame::OptionalDamage { frame } => Some(frame),
+            | Frame::ForcedSacrifice { frame, .. } => Some(frame),
             Frame::GraveyardGroup { tx } => tx.finish.frame_mut(),
             Frame::GraveyardReplacement { transaction } => Some(&mut transaction.frame),
             Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
-            Frame::DamageEffects { transaction } | Frame::DamageAllocation { transaction, .. } => {
-                match &mut transaction.continuation {
-                    DamageContinuation::Instruction { frame } => Some(frame),
-                    DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
-                }
-            }
+            Frame::DamageEffects { transaction } => match &mut transaction.continuation {
+                DamageContinuation::Instruction { frame } => Some(frame),
+                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
+            },
             Frame::CommanderReturn { continuation, .. } => match continuation {
-                CommanderContinuation::GraveyardShuffle { frame, .. }
-                | CommanderContinuation::HandReturn { frame, .. }
-                | CommanderContinuation::LookTopMana { frame, .. }
-                | CommanderContinuation::LibrarySelect { frame, .. }
-                | CommanderContinuation::BoardReturn { frame, .. }
+                CommanderContinuation::BoardReturn { frame, .. }
                 | CommanderContinuation::SpellMove { frame, .. }
                 | CommanderContinuation::ResolutionDraw { frame, .. } => Some(frame),
                 CommanderContinuation::StateBased { .. }
@@ -346,29 +339,7 @@ impl RulesTxn {
                     source_block,
                 )
             }
-            Instruction::ReturnEntryTargetCreature {
-                target_slot,
-                optional,
-                source_block,
-            } => {
-                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
-                if frame.legal_targets.get(target_slot as usize) != Some(&true) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
-                }
-                // CR608.2b: legality was checked as resolution began. A later
-                // departure can remove that incarnation, but cannot rebind it.
-                if self.current(target).is_err() {
-                    return self.finish_instruction(
-                        frame,
-                        InstructionOutcome::ObjectNoLongerPresent { target },
-                    );
-                }
-                if optional {
-                    return self.offer_optional_target_effect(frame, target, source_block);
-                }
-                return self.return_target_to_owner_hand(frame, target, source_block);
-            }
+
             _ if instruction.target_destroy().is_some()
                 || matches!(
                     instruction,
@@ -422,79 +393,7 @@ impl RulesTxn {
                     source_block,
                 )
             }
-            Instruction::ChangeLifeFromTarget {
-                recipient,
-                amount,
-                gain,
-                source_block,
-            } => {
-                let player = self.effect_recipient(&frame, &recipient)?;
-                let amount = match amount {
-                    TargetAmount::Fixed { amount } => amount,
-                    TargetAmount::Attribute {
-                        target_slot,
-                        attribute,
-                    } => {
-                        let f = self.target_facts(&frame, target_slot)?;
-                        match attribute {
-                            TargetAttribute::Power => f.power.clone().ok_or("missing LKI power")?,
-                            TargetAttribute::ManaValue => f.mana_value.clone(),
-                        }
-                    }
-                };
-                // CR107.1b: a negative quantity is zero for an effect's result.
-                if !self.is_live(player) || amount <= Quantity::zero() {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Life { actual: None });
-                }
-                (
-                    if gain {
-                        ProposedEvent::GainLife { player, amount }
-                    } else {
-                        ProposedEvent::LoseLife { player, amount }
-                    },
-                    source_block,
-                )
-            }
-            Instruction::CreateTokensFor {
-                recipient,
-                count,
-                token,
-                source_block,
-            } => {
-                let controller = self.effect_recipient(&frame, &recipient)?;
-                if !self.is_live(controller) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                (
-                    ProposedEvent::CreateCreatureTokens {
-                        controller,
-                        source: self.entry(frame.stack_id)?.source,
-                        count,
-                        token: Box::new(token),
-                    },
-                    source_block,
-                )
-            }
-            Instruction::DamageTargetController {
-                target_slot,
-                amount,
-                source_block,
-            } => {
-                let player = self.target_facts(&frame, target_slot)?.controller;
-                if !self.is_live(player) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Damage { actual: None });
-                }
-                let damage = NoncombatDamageOccurrence {
-                    source: self.source_facts(self.entry(frame.stack_id)?)?,
-                    controller: self.entry(frame.stack_id)?.controller,
-                    recipient: DamageRecipient::Player { player },
-                    amount,
-                };
-                return self.prepare_noncombat_damage(frame, damage, source_block);
-            }
+
             _ => return Err("not removal instruction".into()),
         };
         if matches!(&event, ProposedEvent::DestroyPermanent { .. }) {
@@ -568,9 +467,6 @@ impl RulesTxn {
             .instructions
             .get(frame.cursor as usize)
         {
-            Some(Instruction::ReturnEntryTargetCreature { optional: true, .. }) => {
-                return self.return_target_to_owner_hand(frame, target, block);
-            }
             Some(i) if i.target_destroy().is_some_and(|(_, optional, ..)| optional) => {
                 if self.object_target_legal(self.entry(frame.stack_id)?, target) {
                     return self.complete_graveyard_group(

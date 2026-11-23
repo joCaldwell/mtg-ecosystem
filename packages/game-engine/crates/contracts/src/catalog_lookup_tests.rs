@@ -4,8 +4,8 @@ use super::*;
 fn catalogs() -> impl Iterator<Item = Catalog> {
     [
         include_str!("../../../tests/fixtures/expected-ir.json"),
-        include_str!("../../../tests/fixtures/expected-wipes-ir.json"),
-        include_str!("../../../tests/fixtures/cards-data-d2cd/expected-ir.json"),
+        include_str!("../../../tests/fixtures/expected-action-ir.json"),
+        include_str!("../../../tests/fixtures/expected-match-ir.json"),
     ]
     .into_iter()
     .map(|raw| Catalog::read(raw).unwrap())

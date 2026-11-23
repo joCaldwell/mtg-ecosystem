@@ -326,45 +326,7 @@ impl RulesTxn {
                     source_block,
                 )
             }
-            Instruction::PutSourcePlusOneCountersForCastColors { source_block } => {
-                let StackKind::Triggered {
-                    witness: TriggerEventWitness::SpellCast { cast },
-                    ..
-                } = &self.entry(frame.stack_id)?.kind
-                else {
-                    return Err("unbound cast color instruction".into());
-                };
-                // CR 608.2h/113.7a/201.5: inspect the exact spell incarnation
-                // currently on the stack; otherwise the bounded witness is its
-                // departure LKI in this immutable-spell-color pool. The frozen
-                // cast event is identity evidence, not a universal quantity rule.
-                // Spell-color modification has no admitted IR operation. Before
-                // adding one, refresh separate departure LKI; never rewrite cast facts.
-                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                let colors = if self.state.rules.stack.iter().any(|s| {
-                    s.id == cast.stack_id && s.source == cast.spell.object && s.kind.is_spell()
-                }) {
-                    self.characteristics(cast.spell.object)?.colors
-                } else {
-                    cast.spell.characteristics.colors.clone()
-                };
-                let n = colors
-                    .into_iter()
-                    .filter(|c| *c != Color::C)
-                    .collect::<BTreeSet<_>>()
-                    .len();
-                if n == 0 || !self.is_battlefield_creature(self.entry(frame.stack_id)?.source) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                (
-                    ProposedEvent::PutPlusOneCounters {
-                        object: self.entry(frame.stack_id)?.source,
-                        amount: Quantity::from(n as i64),
-                    },
-                    source_block,
-                )
-            }
+
             kernel!(PutCounters {
                 on,
                 counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
@@ -525,7 +487,7 @@ impl RulesTxn {
             }
             let source = self.copiable_definition(t.source)?;
             fn creates(p: &SpellProgram, spec: &CreatureToken) -> bool {
-                p.instructions.iter().any(|i| matches!(i, kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Creature { spec: token }, .. }) | Instruction::CreateTokensFor {token,..} if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
+                p.instructions.iter().any(|i| matches!(i, kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Creature { spec: token }, .. }) if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
             }
             let expected = match &t.spec {
                 TokenTemplate::Created(spec) => {
@@ -556,29 +518,7 @@ impl RulesTxn {
                     {
                         return Err("snapshot spell copy identity order".into());
                     }
-                    if t.source == *original
-                        && !self.state.rules.tokens.contains_key(&original.card)
-                        && source.triggered.iter().any(|trigger| {
-                            trigger.condition == TriggerCondition::SelfSpellCast
-                                && matches!(
-                                    trigger.program.instructions.as_slice(),
-                                    [Instruction::Demonstrate { .. }]
-                                )
-                        })
                     {
-                        original_definition.clone()
-                    } else if original_definition
-                        .characteristics
-                        .has_type(CardKind::Creature)
-                        && source.spell.as_ref().is_some_and(|p| {
-                            matches!(
-                                p.instructions.as_slice(),
-                                [Instruction::CopyControlledCreatureSpell { .. }]
-                            )
-                        })
-                    {
-                        copied_creature_definition(original_definition)
-                    } else {
                         return Err("snapshot spell copy source invariant".into());
                     }
                 }

@@ -138,17 +138,6 @@ impl RulesTxn {
             return Err("invalid counter placement members".into());
         }
         let block = match self.counter_instruction(frame)? {
-            Instruction::DistributePlusOneCounters {
-                count,
-                minimum_targets: 1,
-                maximum_targets: 2,
-                source_block,
-            } if *count == Quantity::from(2) => {
-                if allocations != self.allocated_counter_targets(frame)?.as_slice() {
-                    return Err("divided counter allocation mismatch".into());
-                }
-                source_block
-            }
             kernel!(PutCounters {
                 on,
                 counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
@@ -169,13 +158,7 @@ impl RulesTxn {
                 }
                 source_block
             }
-            Instruction::PutSourcePlusOneCountersForCastColors { source_block } => {
-                if !matches!(allocations, [(object, _)] if *object == self.entry(frame.stack_id)?.source)
-                {
-                    return Err("cast color counter allocation mismatch".into());
-                }
-                source_block
-            }
+
             _ => return Err("counter placement instruction origin".into()),
         };
         if frame.stack_id != frame.stack_id || *cause != self.instruction_cause(frame, *block)? {
@@ -402,24 +385,6 @@ impl RulesTxn {
         &self,
         tx: &CounterPlacementTransaction,
     ) -> Result<Option<EventGroup>, String> {
-        if matches!(
-            self.counter_instruction(&tx.frame)?,
-            Instruction::Proliferate { .. }
-        ) {
-            let occurrences = tx
-                .members
-                .iter()
-                .filter(|m| self.proliferate_eligible(m.object))
-                .map(|m| ProposedEvent::ProliferateCounters {
-                    object: m.object,
-                    plus_one: m.amount.clone(),
-                    lore: m.lore,
-                })
-                .collect::<Vec<_>>();
-            return Ok(
-                (!occurrences.is_empty()).then_some(EventGroup::Simultaneous { occurrences })
-            );
-        }
         let mut leaves: Vec<_> = tx
             .members
             .iter()
@@ -431,13 +396,6 @@ impl RulesTxn {
             .collect();
         if leaves.is_empty() {
             Ok(None)
-        } else if matches!(
-            self.counter_instruction(&tx.frame)?,
-            Instruction::DistributePlusOneCounters { .. }
-        ) {
-            Ok(Some(EventGroup::Simultaneous {
-                occurrences: leaves,
-            }))
         } else {
             Ok(Some(EventGroup::Occurrence {
                 proposed: leaves.remove(0),
@@ -510,14 +468,7 @@ impl RulesTxn {
             self.commit_batch(cause, group)?;
             Ok(())
         } else {
-            let outcome = if matches!(
-                self.counter_instruction(&tx.frame)?,
-                Instruction::DistributePlusOneCounters { .. } | Instruction::Proliferate { .. }
-            ) {
-                InstructionOutcome::CounterPlacements { actual: vec![] }
-            } else {
-                InstructionOutcome::Effect { actual: None }
-            };
+            let outcome = { InstructionOutcome::Effect { actual: None } };
             let frame = tx.frame.as_ref().clone();
             self.finish_instruction(frame, outcome)
         }
@@ -562,28 +513,7 @@ impl RulesTxn {
         if tx.members.is_empty() || tx.current >= tx.members.len() {
             return Err("counter placement transaction size/cursor".into());
         }
-        if let Instruction::Proliferate { source_block } = self.counter_instruction(&tx.frame)? {
-            if tx.cause != self.instruction_cause(&tx.frame, *source_block)?
-                || tx.members.len() > self.state.rules.cards.len()
-                || !tx
-                    .members
-                    .windows(2)
-                    .all(|p| p[0].object.card < p[1].object.card)
-                || tx.members.iter().any(|m| {
-                    m.original_amount < Quantity::zero()
-                        || m.original_amount > 1.into()
-                        || (m.original_amount == Quantity::zero() && !m.lore)
-                        || self.current(m.object).is_ok_and(|o| {
-                            o.present_on_battlefield()
-                                && (m.lore != (o.lore_counters > Quantity::zero())
-                                    || (m.original_amount > Quantity::zero())
-                                        != (o.plus_one_counters > Quantity::zero()))
-                        })
-                })
-            {
-                return Err("invalid proliferate placement plan".into());
-            }
-        } else {
+        {
             if tx.members.iter().any(|m| m.lore) {
                 return Err("lore outside proliferate".into());
             }

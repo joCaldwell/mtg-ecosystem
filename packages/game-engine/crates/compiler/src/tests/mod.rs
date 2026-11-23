@@ -3,8 +3,6 @@ use super::*;
 
 mod board_filter_tests;
 mod r4_binding_tests;
-mod tap_tests;
-mod untap_tests;
 
 #[test]
 fn bounded_token_types_preserve_single_type_bytes() {
@@ -43,73 +41,10 @@ pub(super) fn changed_source(raw: &str, change: impl FnOnce(&mut serde_json::Val
     r["astSha256"] = sha256(canonical(&abilities).unwrap().as_bytes()).into();
     canonical(&r).unwrap()
 }
-/// Compile a hand-built row whose placeholder text no parser resolution
-/// certifies; see `compose::synthetic`.
-pub(crate) fn synthetic_compile(manifest: &str, record: &str) -> CompileResult {
-    compose::synthetic(|| compile(manifest, record))
-}
-/// A changed, complete and self-consistent ordinary card must lower, marked
-/// composed and admitted only through the composition matrix. Callers assert
-/// the changed semantics on the returned definition.
-pub(crate) fn composed_near_miss(result: CompileResult) -> Definition {
-    let CompileResult::Lowered { definition } = result else {
-        panic!("near miss must lower: {result:?}")
-    };
-    assert!(definition.composed);
-    assert!(
-        definition
-            .capabilities
-            .contains(&Capability::ComposedAbilityV1)
-    );
-    definition.validate().unwrap();
-    *definition
-}
-/// A program's sole target as `(domain, types, non_types, non_colors,
-/// opponent, tapped)`, with an absent filter rendered as unrestricted.
-pub(crate) type TargetShape = (
-    TargetDomain,
-    Vec<CardKind>,
-    Vec<CardKind>,
-    Vec<Color>,
-    bool,
-    bool,
-);
-pub(crate) fn sole_target(program: &SpellProgram) -> TargetShape {
-    let [target] = program.targets.as_slice() else {
-        panic!("one target: {:?}", program.targets)
-    };
-    match &target.filter {
-        None => (target.domain, vec![], vec![], vec![], false, false),
-        Some(f) => {
-            assert!(f.power.is_none());
-            (
-                target.domain,
-                f.types.clone(),
-                f.non_types.clone(),
-                f.non_colors.clone(),
-                f.opponent,
-                f.tapped,
-            )
-        }
-    }
-}
-/// The program's instruction operations, in order.
-pub(crate) fn ops(program: &SpellProgram) -> Vec<String> {
-    program
-        .instructions
-        .iter()
-        .map(|i| {
-            serde_json::to_value(i).unwrap()["op"]
-                .as_str()
-                .unwrap()
-                .to_owned()
-        })
-        .collect()
-}
 
 #[test]
 fn rejects_hash_version_unknown_field_and_incomplete_face() {
-    let raw = fixtures::RECORDS[3].1;
+    let raw = include_str!("../../../../tests/fixtures/phase1-r4/unsummon.json");
     for bad in [
         raw.replace("\"status\":\"parsed\"", "\"status\":\"unsupported\""),
         raw.replacen(
@@ -125,7 +60,7 @@ fn rejects_hash_version_unknown_field_and_incomplete_face() {
             CompileResult::Lowered { .. }
         ));
     }
-    let bad = fixtures::MANIFEST.replace("\"schemaVersion\":3", "\"schemaVersion\":4");
+    let bad = fixtures::MANIFEST.replace("\"schemaVersion\":4", "\"schemaVersion\":3");
     assert!(matches!(compile(&bad, raw), CompileResult::Invalid { .. }));
 }
 

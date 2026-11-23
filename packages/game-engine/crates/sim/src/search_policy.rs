@@ -297,25 +297,7 @@ pub(super) fn choose(
                 damage: candidate.damage.clone(),
             }
         }
-        PlayerRequest::DamageAllocation {
-            required,
-            candidates,
-            ..
-        } => {
-            let mut remaining = required.clone();
-            let allocations = candidates
-                .iter()
-                .map(|candidate| {
-                    let amount = std::cmp::min(candidate.amount.clone(), remaining.clone());
-                    remaining.subtract(&amount);
-                    (candidate.damage.clone(), amount)
-                })
-                .collect();
-            if remaining != Quantity::zero() {
-                return Err("rollout allocation cannot satisfy required prevention".into());
-            }
-            PlayerResponse::DamageAllocation { allocations }
-        }
+
         PlayerRequest::OpeningPlacement { .. }
         | PlayerRequest::Mulligan { .. }
         | PlayerRequest::BottomOpening { .. } => {

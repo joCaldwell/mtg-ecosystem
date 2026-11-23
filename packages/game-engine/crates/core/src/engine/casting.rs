@@ -29,8 +29,7 @@ impl RulesTxn {
         let definition = self.definition(card)?;
         if !(object.zone == (Zone::Hand { owner: player })
             || (object.zone == (Zone::Command { owner: player })
-                && self.state.rules.commanders.history(card).is_some())
-            || self.may_play_exile(player, object.id))
+                && self.state.rules.commanders.history(card).is_some()))
             || self.state.rules.cards[&card].owner != player
             || definition.spell.is_none()
         {
@@ -358,11 +357,7 @@ impl RulesTxn {
                 | TargetDomain::ControlledCreatureSpell
                 | TargetDomain::StackActivatedOrTriggeredAbility,
             ) => Frame::StackTargets { cast },
-            Some(TargetDomain::AnyPlayer)
-                if mtg_contracts::graveyard_shuffle::offered_by(program).is_some() =>
-            {
-                Frame::EntityTargets { cast }
-            }
+
             Some(TargetDomain::PlayerGraveyardCards { .. }) => {
                 return Err("dependent targets need their player".into());
             }

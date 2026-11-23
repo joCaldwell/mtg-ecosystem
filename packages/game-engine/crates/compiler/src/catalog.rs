@@ -15,9 +15,6 @@ pub enum CatalogError {
         path: PathBuf,
         reason: String,
     },
-    InvalidRecordGroups {
-        reason: String,
-    },
     InvalidData {
         reason: String,
     },
@@ -169,17 +166,7 @@ fn origin_registry(raw: &str) -> Result<Vec<AcceptedArchive>, String> {
     }
     Ok(origins)
 }
-pub fn validate_embedded_record_groups() -> Result<(), CatalogError> {
-    let raw = embedded_file(Path::new("record-groups.json"))?;
-    let _: BTreeMap<String, Vec<String>> =
-        strict_read(&raw).map_err(|reason| CatalogError::InvalidRecordGroups { reason })?;
-    if let Some(reason) = fixtures::RECORD_GROUP_ERROR {
-        return Err(CatalogError::InvalidRecordGroups {
-            reason: reason.into(),
-        });
-    }
-    Ok(())
-}
+
 fn compiled(file: &str, header: &str, raw: &str) -> Result<Definition, CatalogError> {
     match compile(header, raw) {
         CompileResult::Lowered { definition } => Ok(*definition),
@@ -288,6 +275,17 @@ pub fn embedded_catalog(name: &str) -> Result<Catalog, CatalogError> {
 
 /// Without --write this is a check, including exact expected JSON bytes.
 /// The digest hashes canonical IR; the manifest selects the fixture encoding.
+/// Original record bytes in the retained catalog manifest's order.
+pub fn embedded_catalog_records(name: &str) -> Result<Vec<String>, CatalogError> {
+    let path = Path::new("catalogs").join(format!("{name}.json"));
+    let manifest: CatalogManifest = strict_read(&embedded_file(&path)?)?;
+    manifest
+        .records
+        .iter()
+        .map(|file| Ok(embedded_file(&relative(Path::new("catalogs"), file))?))
+        .collect()
+}
+
 pub fn generate_catalog(path: &Path, write: bool) -> Result<serde_json::Value, CatalogError> {
     let (manifest, catalog) = build_with(path, read_file)?;
     let base = path.parent().ok_or("manifest has no parent")?;
@@ -729,10 +727,9 @@ mod guard_tests {
                     && !name.ends_with(".sha256")
                     && !name.ends_with("policy.json"))
         );
-        validate_embedded_record_groups().unwrap();
     }
     #[test]
-    fn write_refuses_relabelling_a_record_with_another_accepted_header() {
+    fn write_refuses_relabelling_a_record_with_an_unregistered_header() {
         let scratch = Scratch::new();
         fs::create_dir(scratch.0.join("catalogs")).unwrap();
         let manifest_raw = embedded_file(Path::new("catalogs/base.json")).unwrap();
@@ -745,17 +742,14 @@ mod guard_tests {
             .find(|r| r.file == "phase1-r4/grizzly-bears.json")
             .unwrap()
             .archive = "archive-manifest-current.json".into();
-        for file in [
-            "accepted-archives.json",
-            "archive-manifest-phase1-r4.json",
-            "archive-manifest-current.json",
-        ] {
+        for file in ["accepted-archives.json", "archive-manifest-phase1-r4.json"] {
             fs::write(
                 scratch.0.join(file),
                 embedded_file(Path::new(file)).unwrap(),
             )
             .unwrap();
         }
+        fs::write(scratch.0.join("archive-manifest-current.json"), "{}").unwrap();
         for file in &manifest.records {
             let file = relative(Path::new("catalogs"), file);
             fs::create_dir_all(scratch.0.join(&file).parent().unwrap()).unwrap();
@@ -772,7 +766,7 @@ mod guard_tests {
             generate_catalog(&path, true)
                 .unwrap_err()
                 .to_string()
-                .contains("labelled archive origin")
+                .contains("unsupported archive version")
         );
         assert!(
             !scratch
@@ -877,7 +871,7 @@ mod guard_tests {
         let scratch = Scratch::new();
         let header = fixtures::MANIFEST.as_bytes().to_vec();
         let raw = override_raw.unwrap_or_else(|| {
-            embedded_file(Path::new("island.json"))
+            embedded_file(Path::new("phase1-r4/island.json"))
                 .unwrap()
                 .into_bytes()
         });
@@ -909,7 +903,7 @@ mod guard_tests {
     #[test]
     fn extraction_preserves_raw_bytes_and_records_archive_and_line() {
         let island: serde_json::Value =
-            strict_read(&embedded_file(Path::new("island.json")).unwrap()).unwrap();
+            strict_read(&embedded_file(Path::new("phase1-r4/island.json")).unwrap()).unwrap();
         let id = island["oracleIdentity"].as_str().unwrap();
         let (scratch, result, raw) = extraction_case(&["Island".into(), id.into()], false, None);
         let report = result.unwrap();
@@ -917,7 +911,7 @@ mod guard_tests {
         assert_eq!(fs::read(scratch.0.join(format!("{id}.json"))).unwrap(), raw);
         let p: FixtureProvenance =
             strict_read(&fs::read_to_string(scratch.0.join("provenance.json")).unwrap()).unwrap();
-        assert_eq!(p.records[0].archive, "archive-manifest.json");
+        assert_eq!(p.records[0].archive, "archive-manifest-phase1-r4.json");
         assert_eq!(
             p.records[0].record_sha256,
             sha256(std::str::from_utf8(&raw).unwrap().trim_end().as_bytes())
@@ -988,7 +982,7 @@ mod guard_tests {
     fn extraction_keeps_unparsed_records_without_inventing_an_ast_hash() {
         // Preserve the source/binding raw JSON spellings when changing only
         // these envelope fields; all are covered by the synthetic file hash.
-        let raw = embedded_file(Path::new("island.json")).unwrap();
+        let raw = embedded_file(Path::new("phase1-r4/island.json")).unwrap();
         let original: serde_json::Value = strict_read(&raw).unwrap();
         let changed = raw
             .replace(
@@ -1017,7 +1011,8 @@ mod guard_tests {
         // Preserve raw source spelling while modeling the documented excluded
         // envelope. The private stream boundary uses its own synthetic file pin.
         let mut record: std::collections::BTreeMap<String, Box<serde_json::value::RawValue>> =
-            serde_json::from_str(&embedded_file(Path::new("island.json")).unwrap()).unwrap();
+            serde_json::from_str(&embedded_file(Path::new("phase1-r4/island.json")).unwrap())
+                .unwrap();
         for key in ["binding", "bindingSha256", "astSha256", "faces"] {
             record.remove(key);
         }
@@ -1038,17 +1033,5 @@ mod guard_tests {
             compile(fixtures::MANIFEST, std::str::from_utf8(&bytes).unwrap()),
             CompileResult::Lowered { .. }
         ));
-    }
-    #[test]
-    fn historical_archive_has_no_full_file_identity_and_cannot_be_extracted() {
-        let scratch = Scratch::new();
-        let path = scratch.0.join("historical.jsonl");
-        fs::write(&path, fixtures::MANIFEST).unwrap();
-        let result = extract_records(
-            &path,
-            &scratch.0.join("provenance.json"),
-            &["Island".into()],
-        );
-        assert!(result.unwrap_err().contains("full archive file SHA-256"));
     }
 }

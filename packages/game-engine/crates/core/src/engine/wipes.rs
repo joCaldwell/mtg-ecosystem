@@ -411,23 +411,7 @@ impl RulesTxn {
                 }
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
-            Instruction::RemoveOpponentNonlandIndestructible { source_block } => {
-                let targets = self.objects_in_set(
-                    &ObjectSet::OpponentNonlandPermanents,
-                    self.entry(frame.stack_id)?.controller,
-                );
-                let timestamp = self
-                    .state
-                    .rules
-                    .next_batch_id
-                    .checked_add(1)
-                    .ok_or("batch ID resource limit")?;
-                self.create_set_effect(
-                    frame,
-                    ResolvedEffectKind::RemoveIndestructibleSet { targets, timestamp },
-                    source_block,
-                )
-            }
+
             i if mtg_contracts::ObjectSet::pumped(&i).is_some() => {
                 let (what, power, toughness, source_block) =
                     i.pumped().ok_or("pump set instruction invariant")?;
@@ -448,80 +432,7 @@ impl RulesTxn {
                     source_block,
                 )
             }
-            Instruction::GrantKeywordsSet {
-                set,
-                modifier,
-                keywords,
-                duration: Duration::UntilEndOfTurn,
-                source_block,
-            } => {
-                // CR 611.2c/613.5-6: capture once and create all layers atomically.
-                let targets = self.objects_in_set(&set, self.entry(frame.stack_id)?.controller);
-                self.create_set_effect(
-                    frame,
-                    ResolvedEffectKind::GrantKeywordsSet {
-                        targets,
-                        modifier: modifier.clone(),
-                        keywords,
-                    },
-                    source_block,
-                )
-            }
-            Instruction::ExileDamagedThisTurn { source_block } => {
-                let targets = self.anger_targets(&frame);
-                self.create_set_effect(
-                    frame,
-                    ResolvedEffectKind::ExileDamaged { targets },
-                    source_block,
-                )
-            }
-            Instruction::GainLifeDestroyed { source_block } => {
-                let count = frame
-                    .outcomes
-                    .iter()
-                    .filter_map(|o| {
-                        if let InstructionOutcome::SetMoved {
-                            destroyed_creatures,
-                            ..
-                        } = o
-                        {
-                            Some(*destroyed_creatures)
-                        } else {
-                            None
-                        }
-                    })
-                    .sum::<usize>();
-                let actual = if count > 0 && self.is_live(self.entry(frame.stack_id)?.controller) {
-                    Some(self.commit(
-                        ProposedEvent::GainLife {
-                            player: self.entry(frame.stack_id)?.controller,
-                            amount: Quantity::from(count as i64),
-                        },
-                        self.instruction_cause(&frame, source_block)?,
-                    )?)
-                } else {
-                    None
-                };
-                self.finish_instruction(frame, InstructionOutcome::Life { actual })
-            }
-            Instruction::LoseLifeDeathController {
-                amount,
-                source_block,
-            } => {
-                let player = self
-                    .entry(frame.stack_id)?
-                    .death_controller
-                    .ok_or("missing death controller LKI")?;
-                let actual = if self.is_live(player) {
-                    Some(self.commit(
-                        ProposedEvent::LoseLife { player, amount },
-                        self.instruction_cause(&frame, source_block)?,
-                    )?)
-                } else {
-                    None
-                };
-                self.finish_instruction(frame, InstructionOutcome::Life { actual })
-            }
+
             kernel!(Sacrifice { player: mtg_contracts::kir::PlayerExpr::EachPlayer, .. } @ source_block) =>
             {
                 let remaining = (0..4)

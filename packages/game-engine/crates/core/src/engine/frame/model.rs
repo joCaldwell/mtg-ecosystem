@@ -142,17 +142,12 @@ pub enum Frame {
         frame: Resolving,
         payment: ResolutionPayment,
     },
-    OptionalDamage {
-        frame: Resolving,
-    },
+
     ManaAbility {
         activation: Box<ManaActivation>,
     },
     Setup,
-    DamageAllocation {
-        transaction: DamageTransaction,
-        effect: EffectKey,
-    },
+
     Modes {
         cast: Casting,
     },

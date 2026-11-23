@@ -610,9 +610,12 @@ const GALVANIC: &str =
 /// diagnostic-graph fallback.
 #[test]
 fn records_without_an_r4_resolution_reject() {
-    let pre_r4 = include_str!("../../../../tests/fixtures/grizzly-bears.json");
+    let pre_r4 = changed(STRIP, |row| {
+        row.as_object_mut().unwrap().remove("resolution");
+        row.as_object_mut().unwrap().remove("resolutionSha256");
+    });
     assert!(matches!(
-        compile(crate::fixtures::MANIFEST, pre_r4),
+        compile(R4, &pre_r4),
         CompileResult::Unsupported { ref path, .. } if path == "resolution"
     ));
 }
@@ -653,7 +656,9 @@ fn rider_blocks_reject_without_claiming_unaccounted_text() {
 /// edge, rejects instead of being read by shape.
 #[test]
 fn contradictory_or_missing_r4_edges_reject() {
-    assert!(matches!(compile(R4, BAUBLE), CompileResult::Unsupported { ref path, .. } if path == "effects.steps"));
+    assert!(
+        matches!(compile(R4, BAUBLE), CompileResult::Unsupported { ref path, .. } if path == "effects.steps")
+    );
     let refs = |row: &mut serde_json::Value| -> serde_json::Value {
         row["resolution"]["faces"][0]["blocks"][0]["refs"].clone()
     };

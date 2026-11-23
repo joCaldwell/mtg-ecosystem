@@ -167,12 +167,6 @@ impl RulesTxn {
             return Err("delayed issuer is not a chapter".into());
         }
         match ability.program.instructions.as_slice() {
-            [Instruction::RegisterControllerCreatureEntryThisTurn { program, .. }] => {
-                Ok((TriggerCondition::DelayedControllerCreatureEntry, program))
-            }
-            [Instruction::RegisterControllerSpellCastThisTurn { program, .. }] => {
-                Ok((TriggerCondition::DelayedControllerSpellCast, program))
-            }
             _ => Err("missing printed delayed chapter instruction".into()),
         }
     }

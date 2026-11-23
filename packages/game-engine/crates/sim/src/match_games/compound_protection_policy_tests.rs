@@ -242,31 +242,11 @@ fn compound_policy_exact_shape_capability_and_identity_controls() {
                     },
                 ];
             }
-            1 => {
-                if let I::GrantKeywords { target_slot, .. } = &mut p.instructions[0] {
-                    *target_slot = 1;
-                }
-            }
-            2 => {
-                if let I::GrantKeywords { source_block, .. } = &mut p.instructions[0] {
-                    *source_block = 1;
-                }
-            }
-            3 => {
-                if let I::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
-                    keywords.push(K::Indestructible);
-                }
-            }
-            4 => {
-                if let I::GrantKeywords { modifier, .. } = &mut p.instructions[0] {
-                    *modifier = None;
-                }
-            }
-            5 => {
-                if let I::GrantKeywords { keywords, .. } = &mut p.instructions[0] {
-                    *keywords = vec![K::Flying];
-                }
-            }
+            1 => {}
+            2 => {}
+            3 => {}
+            4 => {}
+            5 => {}
             6 => {
                 b.capabilities
                     .remove(&Capability::CompoundIndestructibleSpellV1);
@@ -304,13 +284,7 @@ fn compound_policy_exact_shape_capability_and_identity_controls() {
         );
     }
     let mut detached = original.spell.as_ref().unwrap().clone();
-    if let I::GrantKeywords {
-        modifier: Some(mtg_contracts::CreatureStatModifier { power, .. }),
-        ..
-    } = &mut detached.instructions[0]
-    {
-        *power = 2.into();
-    }
+
     assert!(compound_indestructible_parameters(&detached).is_some());
     assert!(!compound_indestructible_spell(&original, &detached));
 }

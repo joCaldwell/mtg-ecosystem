@@ -162,10 +162,6 @@ macro_rules! frame_walk {
                         decision_id: _,
                         back_face: _,
                     } => {}
-                    EntryOrigin::Search { frame } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
                     EntryOrigin::Cascade { progress } => visit($Held::Invocation {
                         hold,
                         id: progress.frame.stack_id,
@@ -219,15 +215,7 @@ macro_rules! frame_walk {
                     hold,
                     id: frame.stack_id,
                 }),
-                Frame::OptionalDamage { frame } => visit($Held::Invocation {
-                    hold,
-                    id: frame.stack_id,
-                }),
                 Frame::ManaAbility { activation: _ } => {}
-                Frame::DamageAllocation {
-                    transaction,
-                    effect: _,
-                } => $walk_damage(transaction, hold, visit),
                 Frame::DamageEffects { transaction } => $walk_damage(transaction, hold, visit),
                 Frame::CounterPlacement { transaction } => visit($Held::Invocation {
                     hold,
@@ -253,41 +241,11 @@ macro_rules! frame_walk {
                             id: progress.frame.stack_id,
                         })
                     }
-                    CommanderContinuation::GraveyardShuffle {
+                    CommanderContinuation::BoardReturn {
                         frame,
                         objects: _,
                         remaining: _,
                         choices: _,
-                        source_block: _,
-                    }
-                    | CommanderContinuation::HandReturn {
-                        frame,
-                        objects: _,
-                        remaining: _,
-                        choices: _,
-                        source_block: _,
-                    }
-                    | CommanderContinuation::BoardReturn {
-                        frame,
-                        objects: _,
-                        remaining: _,
-                        choices: _,
-                        source_block: _,
-                    } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
-                    CommanderContinuation::LookTopMana { frame, revealed: _ } => {
-                        visit($Held::Invocation {
-                            hold,
-                            id: frame.stack_id,
-                        })
-                    }
-                    CommanderContinuation::LibrarySelect {
-                        frame,
-                        looked: _,
-                        hand: _,
-                        remainder: _,
                         source_block: _,
                     } => visit($Held::Invocation {
                         hold,
@@ -354,10 +312,7 @@ macro_rules! frame_parent {
     ($name:ident $(, $mutable:tt)?) => {
     fn $name(&$($mutable)? self) -> Option<(&$($mutable)? FrameLink, Hold)> {
         match self {
-            Self::ResolutionPayment {payment, ..} => match &$($mutable)? payment.purpose {
-                resolution_payment::PaymentPurpose::Kernel {resume} => Some((resume, Hold::Resolving)),
-                resolution_payment::PaymentPurpose::Counter { .. } | resolution_payment::PaymentPurpose::CastPayerDraw => None,
-            },
+            Self::ResolutionPayment {payment, ..} => Some((&$($mutable)? payment.resume, Hold::Resolving)),
             Self::Kernel { task } => Some((&$($mutable)? task.resume, Hold::Resolving)),
             Self::Stabilize { resume, .. } | Self::LegendRule { resume, .. } => {
                 Some((resume, Hold::Resolving))
@@ -378,7 +333,7 @@ macro_rules! frame_parent {
             Self::TriggerOrder { placement } | Self::TriggerTargets { placement, .. } => {
                 Some((&$($mutable)? placement.resume, Hold::Resolving))
             }
-            Self::DamageAllocation { transaction, .. } | Self::DamageEffects { transaction } => {
+            Self::DamageEffects { transaction } => {
                 match &$($mutable)? transaction.continuation {
                     DamageContinuation::Mana { activation, .. } => {
                         Some((&$($mutable)? activation.resume, Hold::Suspended))
@@ -387,10 +342,6 @@ macro_rules! frame_parent {
                 }
             }
             Self::CommanderReturn { continuation: CommanderContinuation::CascadeBottom { .. }
-                | CommanderContinuation::GraveyardShuffle { .. }
-                | CommanderContinuation::HandReturn { .. }
-                | CommanderContinuation::LookTopMana { .. }
-                | CommanderContinuation::LibrarySelect { .. }
                 | CommanderContinuation::BoardReturn { .. }
                 | CommanderContinuation::SpellMove { .. }
                 | CommanderContinuation::ResolutionDraw { .. }
@@ -406,7 +357,6 @@ macro_rules! frame_parent {
             | Self::HybridCost { .. }
             | Self::SacrificeCost { .. }
             | Self::ForcedSacrifice { .. }
-            | Self::OptionalDamage { .. }
             | Self::Setup
             | Self::Modes { .. }
             | Self::CounterPlacement { .. }
@@ -541,13 +491,8 @@ impl Frame {
                 payment: _,
             }
             | Frame::Kernel { task: _ }
-            | Frame::OptionalDamage { frame: _ }
             | Frame::ManaAbility { activation: _ }
             | Frame::Setup
-            | Frame::DamageAllocation {
-                transaction: _,
-                effect: _,
-            }
             | Frame::CounterPlacement { transaction: _ }
             | Frame::DamageEffects { transaction: _ }
             | Frame::TriggerOrder { placement: _ }

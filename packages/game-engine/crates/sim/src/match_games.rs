@@ -284,16 +284,6 @@ impl Strategy<'_> {
             // The same owner-only look payload is used by the optional
             // reveal-for-mana continuation. Resolve the choice using its
             // public IR and the ordinary decision token.
-            PlayerRequest::Scry { .. }
-                if self.top_program(v).is_some_and(|(_, program)| {
-                    matches!(
-                        program.instructions.as_slice(),
-                        [mtg_contracts::Instruction::LookTopMayRevealForMana { .. }]
-                    )
-                }) =>
-            {
-                PlayerResponse::OptionalEffect { perform: false }
-            }
             PlayerRequest::Scry { candidates, .. } => PlayerResponse::Scry {
                 top: candidates.clone(),
                 bottom: vec![],
@@ -859,25 +849,6 @@ impl Strategy<'_> {
                     effect: c.effect.clone(),
                     damage: c.damage.clone(),
                 }
-            }
-            PlayerRequest::DamageAllocation {
-                required,
-                candidates,
-                ..
-            } => {
-                let mut rest = required.clone();
-                let allocations = candidates
-                    .iter()
-                    .map(|c| {
-                        let n = std::cmp::min(c.amount.clone(), rest.clone());
-                        rest.subtract(&n);
-                        (c.damage.clone(), n)
-                    })
-                    .collect();
-                if rest != Quantity::zero() {
-                    return Err("insufficient allocation candidates".into());
-                }
-                PlayerResponse::DamageAllocation { allocations }
             }
         })
     }

@@ -56,9 +56,7 @@ pub enum EntryOrigin {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         back_face: bool,
     },
-    Search {
-        frame: Resolving,
-    },
+
     Cascade {
         progress: Box<CascadeProgress>,
     },
@@ -81,7 +79,7 @@ impl EntryOrigin {
         Ok(match self {
             Self::LandPlay { player, .. } => *player,
             Self::Copy { frame, .. } => game.entry(frame.stack_id)?.controller,
-            Self::Search { frame } => frame.entry_search_player(game)?,
+
             Self::Cascade { progress } => game.entry(progress.frame.stack_id)?.controller,
             Self::LinkedPlay { progress, .. } => game.entry(progress.frame.stack_id)?.controller,
         })
@@ -218,10 +216,7 @@ impl RulesTxn {
                     return Err("optional entry choice precedes copy or attachment".into());
                 }
             }
-            EntryOrigin::Search { frame } => {
-                self.validate_resolving(frame)?;
-                self.validate_entry_search(frame, objects)?;
-            }
+
             EntryOrigin::LinkedPlay {
                 progress,
                 object,
@@ -387,9 +382,7 @@ impl RulesTxn {
                 source: *objects.first().ok_or("empty entry")?,
             }),
             EntryOrigin::Copy { frame, .. } => self.copy_entry_cause(frame, objects[0]),
-            EntryOrigin::Search { frame } => {
-                Ok(self.instruction_cause(frame, self.entry_search_block(frame)?)?)
-            }
+
             EntryOrigin::LinkedPlay { progress, .. } => {
                 Ok(self.instruction_cause(&progress.frame, progress.source_block)?)
             }
@@ -451,10 +444,6 @@ impl RulesTxn {
                         object: *object,
                         player,
                     },
-                    EntryOrigin::Search { .. } => ProposedEvent::SearchLandEntry {
-                        object: *object,
-                        player,
-                    },
                 })
                 .collect(),
         });
@@ -491,9 +480,7 @@ impl RulesTxn {
                 BatchCause::SpellCompletion { stack_id, .. }
                 | BatchCause::Instruction { stack_id, .. },
             ) => *stack_id == frame.stack_id,
-            (EntryOrigin::Search { frame }, BatchCause::Instruction { stack_id, .. }) => {
-                *stack_id == frame.stack_id
-            }
+
             (
                 EntryOrigin::LinkedPlay { progress, .. },
                 BatchCause::Instruction { stack_id, .. },
@@ -522,7 +509,6 @@ impl RulesTxn {
             | EntryOrigin::LinkedPlay { .. }
             | EntryOrigin::Copy { .. } => (false, false),
             EntryOrigin::Cascade { .. } => (true, true),
-            EntryOrigin::Search { frame } => (true, self.entry_search_force_tapped(frame)?),
         };
         // No Basic+Land scan here. The single simultaneous capture follows ONLY
         // life losses; no battlefield, control or entry can change its prior facts.
@@ -592,7 +578,7 @@ impl RulesTxn {
                 Ok(())
             }
             EntryOrigin::Copy { .. } => unreachable!(),
-            EntryOrigin::Search { frame } => self.resume_entry_search(frame, &batch),
+
             EntryOrigin::Cascade { progress } => self.resume_cascade_land(progress, Some(first)),
         }
     }
@@ -661,9 +647,6 @@ impl RulesTxn {
                     self.finish_ability(progress.frame.stack_id, false)
                 }
                 EntryOrigin::Copy { .. } => unreachable!(),
-                EntryOrigin::Search { frame } => {
-                    self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-                }
             };
         }
         if let EntryOrigin::LandPlay {

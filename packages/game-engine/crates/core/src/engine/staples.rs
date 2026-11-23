@@ -20,41 +20,6 @@ struct LandSearch<'a> {
 impl<'a> LandSearch<'a> {
     fn instruction(instruction: &'a Instruction) -> Option<Self> {
         let (typed, maximum, split, force_tapped, source_block) = match instruction {
-            Instruction::SearchBasicLands {
-                maximum,
-                source_block,
-            } => (None, *maximum, false, true, *source_block),
-            Instruction::FetchBasicLand {
-                force_tapped,
-                source_block,
-                ..
-            } => (None, 1, false, *force_tapped, *source_block),
-            Instruction::SearchRecipientBasicLand { source_block, .. } => {
-                (None, 1, false, true, *source_block)
-            }
-            Instruction::SearchBasicLandsSplit { source_block } => {
-                (None, 2, true, true, *source_block)
-            }
-            Instruction::SearchTypedLands {
-                search,
-                source_block,
-            } => {
-                // Only the offered count is physically bounded. The exact IR
-                // quantity remains unchanged, including arbitrarily large maxima.
-                let bound = capacities::OWNED_LIMIT as u32;
-                let maximum = if search.maximum >= Quantity::from(i64::from(bound)) {
-                    bound
-                } else {
-                    search.maximum.to_string().parse().ok()?
-                };
-                (
-                    Some(search),
-                    maximum,
-                    false,
-                    search.force_tapped,
-                    *source_block,
-                )
-            }
             _ => return None,
         };
         Some(Self {
@@ -82,136 +47,17 @@ impl RulesTxn {
                 .get(frame.cursor as usize)?,
         )
     }
-    fn search_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
-        let program = self.program_for(self.entry(frame.stack_id)?)?;
-        if let Some(Instruction::SearchRecipientBasicLand { recipient, .. }) =
-            program.instructions.get(frame.cursor as usize)
-        {
-            let player = self
-                .optional_recipient(frame, recipient)?
-                .ok_or("missing search recipient")?;
-            let prior = frame
-                .cursor
-                .checked_sub(1)
-                .and_then(|i| program.instructions.get(i as usize));
-            if !matches!(prior, Some(Instruction::ChooseOptional { chooser, following: 1, .. }) if chooser == recipient)
-                || !matches!(frame.outcomes.last(), Some(InstructionOutcome::OptionalBlock { accepted_by: Some(actor) }) if *actor == player)
-            {
-                return Err("target-controller search requires its accepted optional block".into());
-            }
-            return Ok(player);
-        }
-        Ok(self.entry(frame.stack_id)?.controller)
-    }
 
     fn active_land_search(&self) -> Option<LandSearch<'_>> {
-        if let Frame::LandEntry {
-            origin: EntryOrigin::Search { frame },
-            ..
-        } = &self.state.rules.frame
-        {
-            return self.land_search_for(frame);
-        }
         let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
             return None;
         };
-        if !matches!(
-            choice,
-            ResolutionChoice::Search { .. }
-                | ResolutionChoice::SearchSplit { .. }
-                | ResolutionChoice::Shuffle { .. }
-        ) {
+        {
             return None;
         }
         self.land_search_for(frame)
     }
-    pub(crate) fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String> {
-        if let Frame::LandEntry {
-            origin: EntryOrigin::Search { frame },
-            ..
-        } = &self.state.rules.frame
-        {
-            if self.search_player(frame)? != player {
-                return Err("wrong entry search controller".into());
-            }
-            return self.entry_search_force_tapped(frame);
-        }
-        let Frame::ResolutionChoice { frame, choice } = &self.state.rules.frame else {
-            return Err("no searched land entry".into());
-        };
-        if self.search_player(frame)? != player
-            || !matches!(
-                choice,
-                ResolutionChoice::Search { .. } | ResolutionChoice::SearchSplit { .. }
-            )
-        {
-            return Err("wrong searched land entry controller or phase".into());
-        }
-        Ok(self
-            .land_search_for(frame)
-            .ok_or("not land search instruction")?
-            .force_tapped())
-    }
-    pub(crate) fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String> {
-        let search = self
-            .land_search_for(frame)
-            .ok_or("not an entry search instruction")?;
-        if search.split {
-            return Err("split search is not optional entry producer".into());
-        }
-        Ok(search.source_block)
-    }
-    pub(super) fn entry_search_force_tapped(&self, frame: &Resolving) -> Result<bool, String> {
-        self.entry_search_block(frame)?;
-        Ok(self
-            .land_search_for(frame)
-            .ok_or("missing entry search")?
-            .force_tapped())
-    }
-    pub(super) fn validate_entry_search(
-        &self,
-        frame: &Resolving,
-        objects: &[ObjectId],
-    ) -> Result<(), String> {
-        self.entry_search_block(frame)?;
-        let search = self.land_search_for(frame).ok_or("missing entry search")?;
-        let player = self.search_player(frame)?;
-        if frame.entry_search_player(self)? != player
-            || !self.is_live(player)
-            || objects.len() > search.maximum as usize
-            || objects.iter().any(|o| {
-                self.current(*o).is_err()
-                    || self.zone(*o) != Some(Zone::Library { owner: player })
-                    || !self
-                        .definition(o.card)
-                        .is_ok_and(|d| search.accepts(&d.characteristics))
-            })
-        {
-            return Err("invalid complete entry search selection".into());
-        }
-        Ok(())
-    }
-    pub(super) fn resume_entry_search(
-        &mut self,
-        frame: Resolving,
-        batch: &CommittedBatch,
-    ) -> Result<(), String> {
-        let source_block = self.entry_search_block(&frame)?;
-        let player = self.search_player(&frame)?;
-        let fetched_land = self
-            .conditional_basic_fetch_minimum(&frame)?
-            .map(|_| self.searched_basic_successor(player, batch))
-            .transpose()?;
-        self.begin_player_library_shuffle_after_search(frame, player, source_block, fetched_land)
-    }
-    pub(super) fn begin_library_shuffle(
-        &mut self,
-        frame: Resolving,
-        source_block: u32,
-    ) -> Result<(), String> {
-        let player = self.entry(frame.stack_id)?.controller;
-        self.begin_player_library_shuffle(frame, player, source_block)
-    }
+
     pub(super) fn resolution_draw_player(&self, frame: &Resolving) -> Result<PlayerId, String> {
         let instruction = self
             .program_for(self.entry(frame.stack_id)?)?
@@ -253,15 +99,7 @@ impl RulesTxn {
                 } => Ok(self.entry(frame.stack_id)?.controller),
                 _ => Err("unsupported draw recipient".into()),
             },
-            Instruction::OptionalDrawUnlessCasterPays { .. }
-            | Instruction::OptionalDrawCards { .. }
-            | Instruction::DrawCardsIfAdditionalCost { .. }
-            | Instruction::DrawDamageAmount { .. } => Ok(self.entry(frame.stack_id)?.controller),
-            Instruction::OptionalDrawForSoleGreatestEntrant { .. } => frame
-                .entrant_draw
-                .as_ref()
-                .map(|entrant| entrant.controller)
-                .ok_or_else(|| "missing resolved entrant".into()),
+
             _ => Err("not draw instruction".into()),
         }
     }
@@ -383,7 +221,6 @@ impl RulesTxn {
         player: PlayerId,
         object: ObjectId,
     ) -> Result<ObjectHandle, String> {
-        if !matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Search { player: p, .. }, .. } if p == player)
         {
             return Err("no private land search".into());
         }
@@ -445,102 +282,7 @@ impl RulesTxn {
                 }
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
-            Instruction::ReturnOwnGraveyardCreatureToBattlefield {
-                target_slot,
-                source_block,
-            } => {
-                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
-                if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.object_target_legal(self.entry(frame.stack_id)?, target)
-                {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
-                }
-                if self.begin_copy_entry(&frame, target)? {
-                    return Ok(());
-                }
-                let movement = self.move_object_for(
-                    target,
-                    Zone::Battlefield,
-                    self.instruction_cause(&frame, source_block)?,
-                )?;
-                self.finish_instruction(frame, InstructionOutcome::Moved { movement })
-            }
-            Instruction::ReturnOwnGraveyardCreatureToHand {
-                target_slot,
-                optional,
-                source_block,
-            }
-            | Instruction::ReturnOwnGraveyardCardToHand {
-                target_slot,
-                optional,
-                source_block,
-            } => {
-                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
-                if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.object_target_legal(self.entry(frame.stack_id)?, target)
-                {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
-                }
-                if optional && self.is_live(self.entry(frame.stack_id)?.controller) {
-                    self.rules_mut().frame = Frame::ResolutionChoice {
-                        choice: ResolutionChoice::OptionalRecursion {
-                            player: self.entry(frame.stack_id)?.controller,
-                            target,
-                            source_block,
-                        },
-                        frame,
-                    };
-                    Ok(())
-                } else {
-                    self.return_graveyard_card(frame, target, source_block)
-                }
-            }
-            Instruction::SearchColoredLibrary { source_block, .. } => {
-                let player = self.entry(frame.stack_id)?.controller;
-                self.rules_mut().frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::ColoredSearch {
-                        player,
-                        source_block,
-                        revealed: None,
-                    },
-                };
-                Ok(())
-            }
-            op @ (Instruction::SearchRecipientBasicLand { .. }
-            | Instruction::SearchBasicLands { .. }
-            | Instruction::SearchBasicLandsSplit { .. }
-            | Instruction::FetchBasicLand { .. }
-            | Instruction::SearchTypedLands { .. }) => {
-                let descriptor =
-                    LandSearch::instruction(&op).ok_or("invalid land search instruction")?;
-                let (maximum, source_block, split) = (
-                    descriptor.maximum,
-                    descriptor.source_block,
-                    descriptor.split,
-                );
-                let player = self.search_player(&frame)?;
-                if !self.is_live(player) {
-                    let outcome = if matches!(op, Instruction::SearchRecipientBasicLand { .. }) {
-                        InstructionOutcome::PlayerActionSkipped { player }
-                    } else {
-                        InstructionOutcome::Effect { actual: None }
-                    };
-                    return self.finish_instruction(frame, outcome);
-                }
-                self.rules_mut().frame = Frame::ResolutionChoice {
-                    choice: ResolutionChoice::Search {
-                        player,
-                        maximum,
-                        split,
-                        source_block,
-                    },
-                    frame,
-                };
-                Ok(())
-            }
+
             _ => Err("not a staples instruction".into()),
         }
     }
@@ -596,266 +338,10 @@ impl RulesTxn {
             return None;
         };
         match (choice, response) {
-            (
-                ResolutionChoice::SearchSplit {
-                    player: p, objects, ..
-                },
-                Response::SearchLandBattlefield { object },
-            ) => Some(
-                if *p == player
-                    && self.is_live(player)
-                    && objects.len() == 2
-                    && objects.contains(object)
-                    && objects
-                        .iter()
-                        .all(|o| self.search_lands(player).contains(o))
-                {
-                    Ok(())
-                } else {
-                    Err("invalid revealed land partition".into())
-                },
-            ),
-            (
-                ResolutionChoice::Search {
-                    player: p, maximum, ..
-                },
-                Response::SearchLands { objects },
-            ) => Some(
-                if *p == player
-                    && self.is_live(player)
-                    && self
-                        .active_land_search()
-                        .is_some_and(|s| s.maximum == *maximum)
-                    && objects.len() <= *maximum as usize
-                    && objects.iter().collect::<BTreeSet<_>>().len() == objects.len()
-                    && objects
-                        .iter()
-                        .all(|o| self.search_lands(player).contains(o))
-                {
-                    Ok(())
-                } else {
-                    Err("invalid private search choice".into())
-                },
-            ),
-            (
-                ResolutionChoice::OptionalRecursion { player: p, .. },
-                Response::OptionalRecursion { .. },
-            ) => Some(if *p == player && self.is_live(player) {
-                Ok(())
-            } else {
-                Err("invalid optional recursion choice".into())
-            }),
             _ => None,
         }
     }
-    pub(super) fn staples_choice_step(
-        &mut self,
-        frame: Resolving,
-        choice: ResolutionChoice,
-    ) -> Result<(), String> {
-        let player = match choice {
-            ResolutionChoice::SearchSplit { player, .. }
-            | ResolutionChoice::Search { player, .. }
-            | ResolutionChoice::Shuffle { player, .. }
-            | ResolutionChoice::OptionalRecursion { player, .. }
-            | ResolutionChoice::OptionalDraw { player, .. } => player,
-            _ => return Err("not staples choice".into()),
-        };
-        if !self.is_live(player) {
-            self.rules_mut().pending = None;
-            return self
-                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
-        }
-        match choice {
-            ResolutionChoice::Shuffle {
-                index,
-                source_block,
-                fetched_land,
-                ..
-            } => {
-                if index == 0 {
-                    self.commit(
-                        ProposedEvent::FinishLibraryShuffle { player },
-                        self.instruction_cause(&frame, source_block)?,
-                    )?;
-                    if matches!(
-                        self.program_for(self.entry(frame.stack_id)?)?
-                            .instructions
-                            .get(frame.cursor as usize),
-                        Some(Instruction::RevealAndCast { .. })
-                    ) {
-                        self.rules_mut().frame = Frame::RevealAndCast {
-                            progress: Box::new(RevealAndCastProgress::after_shuffle(
-                                frame,
-                                source_block,
-                            )),
-                        };
-                        return Ok(());
-                    }
-                    let actual =
-                        self.finish_basic_fetch_untap(&frame, source_block, fetched_land)?;
-                    return self.finish_instruction(frame, InstructionOutcome::Effect { actual });
-                }
-                let actual = self.commit(
-                    ProposedEvent::ShuffleLibraryWord { player, index },
-                    self.instruction_cause(&frame, source_block)?,
-                )?;
-                let EventOutcome::LibraryShuffledWord { selected, .. } = actual else {
-                    return Err("missing shuffle result".into());
-                };
-                self.rules_mut().frame = Frame::ResolutionChoice {
-                    frame,
-                    choice: ResolutionChoice::Shuffle {
-                        player,
-                        index: if selected.is_some() { index - 1 } else { index },
-                        source_block,
-                        fetched_land,
-                    },
-                };
-                Ok(())
-            }
-            ResolutionChoice::Search {
-                source_block,
-                split,
-                ..
-            } => {
-                let input = self
-                    .rules_mut()
-                    .pending
-                    .take()
-                    .ok_or("missing search input")?;
-                self.validate_staples_response(input.player, &input.response)
-                    .ok_or("wrong search response")??;
-                let Response::SearchLands { mut objects } = input.response else {
-                    return Err("search response invariant".into());
-                };
-                if split {
-                    objects.sort();
-                    self.commit(
-                        ProposedEvent::RevealSearchLands {
-                            player,
-                            objects: objects.clone(),
-                        },
-                        self.instruction_cause(&frame, source_block)?,
-                    )?;
-                    self.rules_mut().frame = Frame::ResolutionChoice {
-                        frame,
-                        choice: ResolutionChoice::SearchSplit {
-                            player,
-                            objects,
-                            source_block,
-                        },
-                    };
-                    return Ok(());
-                }
-                // All found cards enter together; response order is not semantic.
-                objects.sort();
-                if !objects.is_empty()
-                    && self.begin_land_entry(
-                        EntryOrigin::Search {
-                            frame: frame.clone(),
-                        },
-                        objects.clone(),
-                    )?
-                {
-                    return Ok(());
-                }
-                if !objects.is_empty() {
-                    let batch = self.commit_batch(
-                        self.instruction_cause(&frame, source_block)?,
-                        EventGroup::Simultaneous {
-                            occurrences: objects
-                                .into_iter()
-                                .map(|object| ProposedEvent::SearchLandEntry { object, player })
-                                .collect(),
-                        },
-                    )?;
-                    return self.resume_entry_search(frame, &batch);
-                }
-                self.begin_player_library_shuffle(frame, player, source_block)
-            }
-            ResolutionChoice::SearchSplit {
-                objects,
-                source_block,
-                ..
-            } => {
-                let battlefield = if objects.len() == 2 {
-                    let input = self
-                        .rules_mut()
-                        .pending
-                        .take()
-                        .ok_or("missing partition input")?;
-                    self.validate_staples_response(input.player, &input.response)
-                        .ok_or("wrong partition response")??;
-                    let Response::SearchLandBattlefield { object } = input.response else {
-                        return Err("partition response invariant".into());
-                    };
-                    Some(object)
-                } else {
-                    objects.first().copied()
-                };
-                if let Some(battlefield) = battlefield {
-                    // CR 608.2c, 121.5: partition by identity; the hand move is
-                    // not a draw. Both moves share the common-prior event group.
-                    self.commit_batch(
-                        self.instruction_cause(&frame, source_block)?,
-                        EventGroup::Simultaneous {
-                            occurrences: objects
-                                .into_iter()
-                                .map(|object| {
-                                    if object == battlefield {
-                                        ProposedEvent::SearchLandEntry { object, player }
-                                    } else {
-                                        ProposedEvent::Move {
-                                            object,
-                                            destination: Zone::Hand { owner: player },
-                                        }
-                                    }
-                                })
-                                .collect(),
-                        },
-                    )?;
-                }
-                self.begin_player_library_shuffle(frame, player, source_block)
-            }
-            ResolutionChoice::OptionalDraw { source_block, .. } => {
-                let input = self
-                    .rules_mut()
-                    .pending
-                    .take()
-                    .ok_or("missing optional draw input")?;
-                self.validate_actions_response(input.player, &input.response)
-                    .ok_or("wrong optional draw response")??;
-                if matches!(input.response, Response::OptionalEffect { perform: true }) {
-                    self.draw_one(frame, player, source_block)
-                } else {
-                    self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-                }
-            }
-            ResolutionChoice::OptionalRecursion {
-                target,
-                source_block,
-                ..
-            } => {
-                let input = self
-                    .rules_mut()
-                    .pending
-                    .take()
-                    .ok_or("missing optional recursion input")?;
-                self.validate_staples_response(input.player, &input.response)
-                    .ok_or("wrong optional response")??;
-                if matches!(
-                    input.response,
-                    Response::OptionalRecursion { perform: true }
-                ) {
-                    self.return_graveyard_card(frame, target, source_block)
-                } else {
-                    self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-                }
-            }
-            _ => Err("not staples choice".into()),
-        }
-    }
+
     pub(super) fn apply_search_shuffle_word(
         &mut self,
         player: PlayerId,
@@ -864,9 +350,6 @@ impl RulesTxn {
     ) -> Result<EventOutcome, String> {
         let offset = if let Some(offset) = replacement_offset {
             offset
-        } else if matches!(self.state.rules.frame, Frame::ResolutionChoice { choice: ResolutionChoice::Shuffle { player: p,index: i,.. },.. } if p == player && i==index)
-        {
-            0
         } else {
             return Err("shuffle continuation invariant".into());
         };
@@ -935,66 +418,6 @@ impl RulesTxn {
         };
         match (choice, instruction) {
             (
-                ResolutionChoice::ColoredSearch {
-                    player,
-                    source_block,
-                    revealed,
-                },
-                Instruction::SearchColoredLibrary {
-                    source_block: b,
-                    colors,
-                },
-            ) => {
-                *player == entry.controller
-                    && b == source_block
-                    && self.valid_colored_reveal(*player, colors, revealed.as_deref())
-            }
-            (
-                ResolutionChoice::OptionalDraw {
-                    player,
-                    source_block,
-                },
-                Instruction::OptionalDrawForSoleGreatestEntrant {
-                    source_block: expected,
-                },
-            ) => {
-                source_block == expected
-                    && self.is_live(*player)
-                    && frame
-                        .entrant_draw
-                        .as_ref()
-                        .is_some_and(|entrant| entrant.controller == *player)
-            }
-            (
-                ResolutionChoice::OptionalDraw {
-                    player,
-                    source_block,
-                },
-                Instruction::OptionalDrawCards {
-                    source_block: expected,
-                }
-                | Instruction::OptionalDrawUnlessCasterPays {
-                    source_block: expected,
-                    ..
-                },
-            ) => *player == entry.controller && source_block == expected,
-            (
-                ResolutionChoice::OptionalEffect {
-                    player,
-                    target,
-                    source_block,
-                },
-                Instruction::ReturnEntryTargetCreature {
-                    target_slot,
-                    optional: true,
-                    source_block: b,
-                },
-            ) => {
-                *player == entry.controller
-                    && source_block == b
-                    && entry.targets.get(*target_slot as usize) == Some(target)
-            }
-            (
                 ResolutionChoice::OptionalEffect {
                     player,
                     target,
@@ -1007,115 +430,7 @@ impl RulesTxn {
                     && *source_block == b
                     && entry.targets.get(target_slot as usize) == Some(target)
             }
-            (
-                ResolutionChoice::Search {
-                    player,
-                    maximum,
-                    split,
-                    source_block,
-                },
-                instruction,
-            ) => {
-                self.search_player(frame)
-                    .is_ok_and(|actor| *player == actor)
-                    && LandSearch::instruction(instruction).is_some_and(|s| {
-                        *split == s.split
-                            && *maximum == s.maximum
-                            && *source_block == s.source_block
-                    })
-            }
-            (
-                ResolutionChoice::SearchSplit {
-                    player,
-                    objects,
-                    source_block,
-                },
-                Instruction::SearchBasicLandsSplit { source_block: b },
-            ) => {
-                *player == entry.controller
-                    && source_block == b
-                    && objects.len() <= 2
-                    && objects.windows(2).all(|w| w[0] < w[1])
-                    && objects
-                        .iter()
-                        .all(|o| self.search_lands(*player).contains(o))
-            }
-            (
-                ResolutionChoice::Shuffle {
-                    player,
-                    index,
-                    source_block,
-                    fetched_land,
-                },
-                Instruction::ShufflePlayerGraveyard { source_block: b },
-            ) => {
-                fetched_land.is_none()
-                    && source_block == b
-                    && entry.entity_targets.first()
-                        == Some(&TargetEntity::Player { player: *player })
-                    && self
-                        .graveyard_legality(frame)
-                        .is_ok_and(|(legal, _)| legal.first() == Some(&true))
-                    && self.valid_shuffle_cursor(*player, *index)
-            }
-            (
-                ResolutionChoice::Shuffle {
-                    player,
-                    index,
-                    source_block,
-                    fetched_land,
-                },
-                Instruction::SearchRecipientBasicLand {
-                    source_block: b, ..
-                }
-                | Instruction::SearchBasicLands {
-                    source_block: b, ..
-                }
-                | Instruction::SearchBasicLandsSplit { source_block: b }
-                | Instruction::FetchBasicLand {
-                    source_block: b, ..
-                }
-                | Instruction::SearchTypedLands {
-                    source_block: b, ..
-                }
-                | Instruction::SearchColoredLibrary {
-                    source_block: b, ..
-                }
-                | Instruction::RevealAndCast { source_block: b }
-                | Instruction::OptionalShuffleLibrary { source_block: b },
-            ) => {
-                self.search_player(frame)
-                    .is_ok_and(|actor| *player == actor)
-                    && source_block == b
-                    && fetched_land.as_ref().is_none_or(|movement| {
-                        self.conditional_basic_fetch_minimum(frame)
-                            .is_ok_and(|m| m.is_some())
-                            && self.valid_fetched_land_movement(*player, movement)
-                            && self.zone(movement.successor) == Some(Zone::Battlefield)
-                    })
-                    && self.valid_shuffle_cursor(*player, *index)
-            }
-            (
-                ResolutionChoice::OptionalRecursion {
-                    player,
-                    target,
-                    source_block,
-                },
-                Instruction::ReturnOwnGraveyardCreatureToHand {
-                    target_slot,
-                    optional: true,
-                    source_block: b,
-                }
-                | Instruction::ReturnOwnGraveyardCardToHand {
-                    target_slot,
-                    optional: true,
-                    source_block: b,
-                },
-            ) => {
-                *player == entry.controller
-                    && source_block == b
-                    && entry.targets.get(*target_slot as usize) == Some(target)
-            }
+
             _ => false,
         }
     }

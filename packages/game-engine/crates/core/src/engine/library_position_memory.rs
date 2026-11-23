@@ -23,18 +23,6 @@ impl RulesTxn {
             // A secret choice from hand into a hidden zone cannot identify
             // which previously revealed card stayed. Forget that hand's rows.
             let concealed_hand = match (event, actual) {
-                (
-                    ProposedEvent::HandReturn { player, .. },
-                    EventOutcome::HandReturned { movements, .. },
-                ) if movements.iter().any(|m| {
-                    matches!(
-                        (m.from, m.destination),
-                        (Zone::Hand { .. }, Zone::Library { .. })
-                    )
-                }) =>
-                {
-                    Some(*player)
-                }
                 (ProposedEvent::Move { .. }, EventOutcome::Moved { movement }) => {
                     match (movement.from, movement.destination) {
                         // A printed replacement has already identified the
@@ -78,24 +66,17 @@ impl RulesTxn {
                     | ProposedEvent::ShuffleLibraryWord { player, .. } => {
                         player != owner || fixed.contains(id)
                     }
-                    ProposedEvent::SearchLandEntry { player, .. } => player != owner,
+
                     // Scry can hide the size of the portion sent to the
                     // bottom. Opponents cannot update positions from that count.
-                    ProposedEvent::Scry { player, looked, .. } => {
-                        player != owner || player.0 as usize == seat || looked.is_empty()
-                    }
+
                     // The chooser sees the reordered prefix. Other viewers
                     // can still track the untouched tail through these actions,
                     // whose order-preserving shift follows from public sizes.
-                    ProposedEvent::OrderLibraryTop { player, looked, .. }
-                    | ProposedEvent::LibrarySelect { player, looked, .. }
-                    | ProposedEvent::Surveil { player, looked, .. } => {
-                        player.0 as usize == seat || !looked.contains(id)
-                    }
                     ProposedEvent::BottomRevealedCards { order, .. } => {
                         order.len() <= 1 || !order.contains(id)
                     }
-                    ProposedEvent::Hideaway { looked, .. } => !looked.contains(id),
+
                     ProposedEvent::Setup { .. } => false,
                     _ => true,
                 }

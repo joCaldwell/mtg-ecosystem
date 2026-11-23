@@ -11,50 +11,15 @@ pub struct CounterDivision {
     pub maximum_targets: u32,
 }
 
-impl CounterDivision {
-    pub(super) fn offered_by(program: &SpellProgram) -> Option<Self> {
-        let [
-            Instruction::DistributePlusOneCounters {
-                count,
-                minimum_targets,
-                maximum_targets,
-                ..
-            },
-        ] = program.instructions.as_slice()
-        else {
-            return None;
-        };
-        Some(Self {
-            count: count.clone(),
-            minimum_targets: *minimum_targets,
-            maximum_targets: *maximum_targets,
-        })
-    }
-
-    fn allows_count(&self, count: usize) -> bool {
-        self.count == Quantity::from(2)
-            && self.minimum_targets == 1
-            && self.maximum_targets == 2
-            && matches!(count, 1 | 2)
-    }
-
-    fn accepts(&self, objects: &[ObjectId]) -> bool {
-        self.allows_count(objects.len()) && !matches!(objects, [first, second] if first == second)
-    }
-}
+impl CounterDivision {}
 
 impl RulesTxn {
     pub(super) fn object_target_number_valid(program: &SpellProgram, count: usize) -> bool {
-        CounterDivision::offered_by(program).map_or(count == program.targets.len(), |offer| {
-            offer.allows_count(count)
-        })
+        count == program.targets.len()
     }
 
     pub(super) fn object_target_count_valid(program: &SpellProgram, objects: &[ObjectId]) -> bool {
-        CounterDivision::offered_by(program)
-            .map_or(objects.len() == program.targets.len(), |offer| {
-                offer.accepts(objects)
-            })
+        objects.len() == program.targets.len()
     }
 
     pub(super) fn announced_target_count_valid(
@@ -62,50 +27,6 @@ impl RulesTxn {
         program: &SpellProgram,
         entry: &StackInstance,
     ) -> bool {
-        if self.mixed_mode_children(entry).is_ok_and(|m| m.is_some()) {
-            return self
-                .valid_mixed_target_receipt(entry, true)
-                .unwrap_or(false);
-        }
-        if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(program) {
-            return entry.kind.is_spell()
-                && self.bound_target_count(entry) == entry.entity_targets.len()
-                && self.graveyard_group_structure(&entry.entity_targets, maximum);
-        }
-        if let Some(offer) = CounterDivision::offered_by(program) {
-            entry.kind.is_spell()
-                && self.bound_target_count(entry) == entry.targets.len()
-                && offer.accepts(&entry.targets)
-        } else {
-            self.bound_target_count(entry) == program.targets.len()
-        }
-    }
-
-    pub(super) fn allocated_counter_targets(
-        &self,
-        frame: &Resolving,
-    ) -> Result<Vec<(ObjectId, Quantity)>, String> {
-        let program = self.program_for(self.entry(frame.stack_id)?)?;
-        let offer =
-            CounterDivision::offered_by(program).ok_or("missing divided counter program")?;
-        if !self.announced_target_count_valid(program, self.entry(frame.stack_id)?)
-            || frame.legal_targets.len() != self.entry(frame.stack_id)?.targets.len()
-        {
-            return Err("divided counter target binding invariant".into());
-        }
-        let amount = if self.entry(frame.stack_id)?.targets.len() == 1 {
-            offer.count
-        } else {
-            Quantity::from(1)
-        };
-        // Target loss never reallocates counters from the announced division.
-        Ok(self
-            .entry(frame.stack_id)?
-            .targets
-            .iter()
-            .zip(&frame.legal_targets)
-            .filter(|(_, legal)| **legal)
-            .map(|(&target, _)| (target, amount.clone()))
-            .collect())
+        self.bound_target_count(entry) == program.targets.len()
     }
 }

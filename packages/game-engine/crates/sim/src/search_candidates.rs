@@ -227,8 +227,7 @@ pub(super) fn beneficial(program: &SpellProgram) -> bool {
             kernel!(GainLife {
                 player: target_player!(_),
                 ..
-            })
-            | Instruction::PreventNextDamage { .. } => true,
+            }) => true,
             kernel!(ModifyUntil {
                 what: target_object!(_),
                 change: mtg_contracts::kir::Change::PowerToughness {

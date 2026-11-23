@@ -654,15 +654,7 @@ pub enum PlayerRequest {
         count: usize,
         candidates: Vec<ObjectHandle>,
     },
-    DamageAllocation {
-        token: DecisionToken,
-        player: PlayerId,
-        recipient: PlayerTargetEntity,
-        effect: EffectHandle,
-        remaining: Quantity,
-        required: Quantity,
-        candidates: Vec<VisibleDamageAllocationCandidate>,
-    },
+
     Modes {
         token: DecisionToken,
         player: PlayerId,
@@ -826,7 +818,6 @@ impl PlayerRequest {
             | Self::Mulligan { token, .. }
             | Self::OpeningPlacement { token, .. }
             | Self::BottomOpening { token, .. }
-            | Self::DamageAllocation { token, .. }
             | Self::AdditionalCosts { token, .. }
             | Self::HybridCost { token, .. }
             | Self::AnnounceX { token, .. }
@@ -966,9 +957,7 @@ pub enum PlayerResponse {
     BottomOpening {
         objects: Vec<ObjectHandle>,
     },
-    DamageAllocation {
-        allocations: Vec<(DamageHandle, Quantity)>,
-    },
+
     ModeSubset {
         modes: Vec<u32>,
     },
@@ -1491,8 +1480,6 @@ impl RulesTxn {
             EffectiveTriggerAbility::Intrinsic { index } => {
                 return Ok(VisibleTriggerAbility::Intrinsic { index });
             }
-            EffectiveTriggerAbility::Granted { grant_source, .. }
-            | EffectiveTriggerAbility::TemporaryGrant { grant_source, .. } => grant_source,
         };
         let grant = grant.ok_or("missing public grant provenance")?;
         let source = VisibleTarget {
@@ -1515,27 +1502,6 @@ impl RulesTxn {
             .oracle_id
             .clone();
         Ok(match ability {
-            EffectiveTriggerAbility::Granted {
-                static_ability_index,
-                ..
-            } => VisibleTriggerAbility::Granted {
-                source,
-                oracle_id,
-                static_ability_index,
-            },
-            EffectiveTriggerAbility::TemporaryGrant {
-                effect,
-                triggered_ability_index,
-                ..
-            } => VisibleTriggerAbility::TemporaryGrant {
-                source,
-                oracle_id,
-                triggered_ability_index,
-                effect: self
-                    .effect_handle_id(viewer, &EffectKey::Resolved { id: effect })
-                    .ok()
-                    .map(E::from),
-            },
             EffectiveTriggerAbility::Intrinsic { .. }
             | EffectiveTriggerAbility::DelayedChapter { .. } => unreachable!(),
         })
@@ -1570,9 +1536,7 @@ impl RulesTxn {
     fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
         if match object.zone {
             Zone::Hand { owner } => owner == viewer,
-            Zone::Library { owner } => {
-                owner == viewer && self.library_look_visible_to(viewer, object.id)
-            }
+            Zone::Library { .. } => false,
             _ => true,
         } {
             return true;
@@ -1593,16 +1557,7 @@ impl RulesTxn {
         }
         // CR 701.20a-b: only this selected set is temporarily public; it
         // remains in the library, without publishing positions or other candidates.
-        if matches!(&self.state.rules.frame,
-            Frame::ResolutionChoice { choice: ResolutionChoice::SearchSplit { objects, .. }, .. }
-            if objects.contains(&object.id))
-        {
-            return true;
-        }
-        if matches!(&self.state.rules.frame, Frame::ResolutionChoice{choice:ResolutionChoice::ColoredSearch{revealed:Some(cards),..},..} if cards.iter().any(|(_,id)|*id==object.id))
-        {
-            return true;
-        }
+
         if self.replacement_reveals(object.id) || self.land_entry_visible_to(viewer, object.id) {
             return true;
         }
@@ -2303,9 +2258,7 @@ impl RulesTxn {
         }
         if matches!(
             self.state.rules.frame,
-            Frame::SacrificeCost { .. }
-                | Frame::ForcedSacrifice { .. }
-                | Frame::OptionalDamage { .. }
+            Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. }
         ) {
             return Ok(match self.sacrifice_request()? {
                 Some(Request::SacrificeCost {
@@ -2379,28 +2332,7 @@ impl RulesTxn {
                 _ => None,
             });
         }
-        if let Some(Request::DamageAllocation {
-            player,
-            recipient,
-            effect,
-            remaining,
-            required,
-            ..
-        }) = self.damage_allocation_request()?
-        {
-            if player != viewer {
-                return Ok(None);
-            }
-            return Ok(Some(PlayerRequest::DamageAllocation {
-                token: token.clone(),
-                player,
-                recipient: self.player_entity(viewer, recipient)?,
-                effect: self.effect_handle(viewer, &effect)?,
-                remaining,
-                required,
-                candidates: vec![],
-            }));
-        }
+
         if let Frame::AdditionalCosts { .. } = self.state.rules.frame {
             return if self.top()?.controller == viewer {
                 Ok(Some(PlayerRequest::AdditionalCosts {
@@ -2543,71 +2475,7 @@ impl RulesTxn {
                 candidates: vec![],
             }));
         }
-        if let Frame::ResolutionChoice {
-            choice: ResolutionChoice::HandReturn { player, .. },
-            ..
-        } = &self.state.rules.frame
-            && *player == viewer
-            && self.is_live(viewer)
-        {
-            return Ok(Some(PlayerRequest::HandReturn {
-                token,
-                player: viewer,
-                candidates: vec![],
-                count: self.hand_return_count_for_current()?,
-            }));
-        }
-        if let Frame::ResolutionChoice {
-            choice: ResolutionChoice::LibraryOrder { player, looked, .. },
-            ..
-        } = &self.state.rules.frame
-            && *player == viewer
-            && self.is_live(viewer)
-        {
-            return Ok(Some(PlayerRequest::LibraryOrder {
-                token,
-                player: viewer,
-                candidates: vec![],
-                count: looked.len(),
-            }));
-        }
-        if let Frame::ResolutionChoice {
-            frame,
-            choice: ResolutionChoice::LibrarySelect { player, .. },
-        } = &self.state.rules.frame
-            && *player == viewer
-            && self.is_live(viewer)
-        {
-            return Ok(Some(PlayerRequest::LibrarySelect {
-                token,
-                player: viewer,
-                candidates: vec![],
-                remainder: self.selection_destination(frame)?,
-            }));
-        }
-        if matches!(&self.state.rules.frame,Frame::ResolutionChoice {choice:ResolutionChoice::Surveil {player,..},..} if *player==viewer && self.is_live(viewer))
-        {
-            return Ok(Some(PlayerRequest::Surveil {
-                token,
-                player: viewer,
-                candidates: vec![],
-            }));
-        }
-        if matches!(&self.state.rules.frame, Frame::ResolutionChoice {choice:ResolutionChoice::Hideaway {player,bottom:None,..},..} if *player == viewer && self.is_live(viewer))
-        {
-            return Ok(Some(PlayerRequest::Hideaway {
-                token,
-                player: viewer,
-                candidates: vec![],
-            }));
-        }
-        if self.library_looked(viewer).is_some() {
-            return Ok(Some(PlayerRequest::Scry {
-                token,
-                player: viewer,
-                candidates: vec![],
-            }));
-        }
+
         if let Some(request) = self.actions_request()?
             && request.player() == viewer
         {
@@ -2823,12 +2691,11 @@ impl RulesTxn {
         match &self.state.rules.frame {
             Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
                 if self.top()?.controller == viewer
-                    && self.program()?.targets.first().is_some_and(|t| {
-                        t.domain == TargetDomain::AnyDamageTarget
-                            || self.program().is_ok_and(|p| {
-                                mtg_contracts::graveyard_shuffle::offered_by(p).is_some()
-                            })
-                    }) =>
+                    && self
+                        .program()?
+                        .targets
+                        .first()
+                        .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
             {
                 Ok(Some(PlayerRequest::EntityTargets {
                     token,
@@ -2976,7 +2843,7 @@ impl RulesTxn {
                     token,
                     player: viewer,
                     occurrences: self.program()?.targets.clone(),
-                    counter_division: CounterDivision::offered_by(self.program()?),
+                    counter_division: None,
                     candidates: vec![],
                 }))
             }
@@ -3305,15 +3172,8 @@ impl RulesTxn {
                     .filter(|o| self.visible_to(viewer, o))
                     .collect()
             };
-            let looked = self
-                .library_looked(viewer)
-                .map(<[ObjectId]>::to_vec)
-                .unwrap_or_default();
             let ids = current.iter().map(|object| object.id);
-            let current_set = ids
-                .clone()
-                .chain(looked.iter().copied())
-                .collect::<BTreeSet<_>>();
+            let current_set = ids.clone().collect::<BTreeSet<_>>();
             {
                 // Written in place: the table is copied only if a fork
                 // still shares it.
@@ -3352,7 +3212,7 @@ impl RulesTxn {
                 let mut known = k.handles.objects();
                 // Newly looked-at cards get handles in the permitted top-to-bottom
                 // order before any other row, irrespective of physical CardId.
-                for id in looked.iter().copied().chain(ids) {
+                for id in ids {
                     if known.insert(id) {
                         let handle = HandleId::new(v, k.next_handle, k.namespace.as_deref());
                         k.next_handle = k
@@ -3465,7 +3325,7 @@ impl RulesTxn {
             | PlayerResponse::BottomOpening { objects }
             | PlayerResponse::Discard { objects }
             | PlayerResponse::ResolveDiscard { objects } => objects.len(),
-            PlayerResponse::DamageAllocation { allocations } => allocations.len(),
+
             PlayerResponse::OrderTriggers { order } => order.len(),
             PlayerResponse::PlayerTargets { players } => players.len(),
             PlayerResponse::EntityTargets { entities } => entities.len(),
@@ -3521,9 +3381,7 @@ impl RulesTxn {
                     .map(|h| self.resolve_handle(viewer, h))
                     .collect::<Result<_, _>>()?,
             }),
-            PlayerResponse::DamageAllocation { allocations } => Ok(Response::DamageAllocation {
-                allocations: self.resolve_allocation_response(viewer, allocations)?,
-            }),
+
             PlayerResponse::AdditionalCosts { selected } => {
                 let choices = self.public_additional_cost_choices(viewer)?;
                 let selected = selected

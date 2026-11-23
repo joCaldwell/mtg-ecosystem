@@ -177,7 +177,6 @@ impl RulesTxn {
                     .get(index as usize)
                     .map(|a| &a.program)
                     .ok_or_else(|| "missing triggered program".to_string())?),
-                grant => Ok(self.effective_cascade_program(grant)?),
             },
             StackKind::Activated { ability, .. } => Ok(self
                 .activation_definition(stack.source)?

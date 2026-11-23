@@ -60,9 +60,7 @@ pub fn accepted_manifest(manifest: &str) -> Result<&'static AcceptedArchive, Str
         .ok_or("unsupported archive version, source identity, or rules edition")?;
     if m["recordType"] != "manifest"
         || m["artifactKind"] != "oracle-ast-archive"
-        // Schema 4 (archive R4) adds each record's authoritative resolution;
-        // the accepted schema-3 archives remain the frozen fixture evidence.
-        || !matches!(m["schemaVersion"].as_u64(), Some(3 | 4))
+        || m["schemaVersion"].as_u64() != Some(4)
         || m["executable"] != false
         || m["parser"]["revision"] != a.parser_revision
         || m["parser"]["sourceSha256"] != a.parser_source_sha256
@@ -86,10 +84,9 @@ mod tests {
     use super::*;
     #[test]
     fn accepted_archives_require_the_matching_parser_and_exact_header() {
-        for header in [
-            include_str!("../../../tests/fixtures/archive-manifest.json"),
-            include_str!("../../../tests/fixtures/archive-manifest-current.json"),
-        ] {
+        for header in [include_str!(
+            "../../../tests/fixtures/archive-manifest-phase1-r4.json"
+        )] {
             let a = accepted_manifest(header).unwrap();
             assert!(accepted_provenance(
                 &a.manifest_sha256,

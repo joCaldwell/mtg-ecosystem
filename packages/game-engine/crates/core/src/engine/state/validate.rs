@@ -328,8 +328,7 @@ impl RulesTxn {
                     // printed order, each in the stage casting opens for its
                     // first target's domain (`RulesTxn::spell_announcement_frame`).
                     let next = self.next_mode_target(top)?;
-                    let group = next
-                        .is_some_and(|p| mtg_contracts::graveyard_shuffle::offered_by(p).is_some());
+
                     let opened = match (
                         stage,
                         next.and_then(|p| p.targets.first()).map(|t| t.domain),
@@ -346,8 +345,7 @@ impl RulesTxn {
                         | (Frame::EntityTargets { .. }, Some(TargetDomain::AnyDamageTarget)) => {
                             true
                         }
-                        (Frame::EntityTargets { .. }, Some(TargetDomain::AnyPlayer)) => group,
-                        (Frame::PlayerTargets { .. }, Some(TargetDomain::AnyPlayer)) => !group,
+                        (Frame::PlayerTargets { .. }, Some(TargetDomain::AnyPlayer)) => true,
                         _ => false,
                     };
                     if !self.valid_mixed_target_receipt(top, false)? || !opened {
@@ -378,8 +376,7 @@ impl RulesTxn {
             }
             Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }
-            | Frame::ForcedSacrifice { frame, .. }
-            | Frame::OptionalDamage { frame } => self.validate_resolving(frame)?,
+            | Frame::ForcedSacrifice { frame, .. } => self.validate_resolving(frame)?,
             _ => {}
         }
         if let Some(pending) = &s.rules.pending {

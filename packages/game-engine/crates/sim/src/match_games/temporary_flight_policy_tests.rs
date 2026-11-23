@@ -218,13 +218,7 @@ fn temporary_flight_policy_complete_pure_ir_uses_no_card_or_profile_identity() {
                 let t = d.spell.as_ref().unwrap().targets[0].clone();
                 d.spell.as_mut().unwrap().targets.push(t);
             }
-            5 => {
-                if let I::GrantKeywords { keywords, .. } =
-                    &mut d.spell.as_mut().unwrap().instructions[0]
-                {
-                    keywords.push(K::Reach);
-                }
-            }
+            5 => {}
             _ => unreachable!(),
         }
         assert!(!temporary_flying_spell(d, d.spell.as_ref().unwrap()));

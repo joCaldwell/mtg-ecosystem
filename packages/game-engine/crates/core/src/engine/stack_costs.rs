@@ -355,11 +355,10 @@ impl RulesTxn {
                 Frame::Fault { .. } | Frame::Finished { .. }
             ),
         };
-        let player_target_domain = artifact_loss_activation(activated)
-            || program
-                .targets
-                .first()
-                .is_some_and(|t| t.domain == TargetDomain::PlayerOrPlaneswalker);
+        let player_target_domain = program
+            .targets
+            .first()
+            .is_some_and(|t| t.domain == TargetDomain::PlayerOrPlaneswalker);
         if source_handles.len() != 4
             || (!entry.targets.is_empty()
                 && program.targets.first().is_none_or(|t| {
@@ -409,18 +408,7 @@ impl RulesTxn {
         {
             return Err("snapshot activated invocation invariant".into());
         }
-        if artifact_loss_activation(activated) && entry.paid.is_some() {
-            let paid_source = entry.source_facts.as_ref().is_some_and(|source| {
-                source.object == entry.source
-                    && source.controller == entry.controller
-                    && source.zone == Zone::Battlefield
-                    && source.tapped
-            });
-            if !paid_source || self.current(entry.source).is_ok() || entry.player_targets.len() != 1
-            {
-                return Err("snapshot artifact loss payment/source/target invariant".into());
-            }
-        }
+
         if activated.functioning_zone == FunctioningZone::Hand {
             let fact = entry
                 .source_facts
@@ -444,15 +432,12 @@ impl RulesTxn {
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
         self.validate_hand_cast_child(entry)?;
-        let paid_exile = entry.cast_from == Zone::Exile
-            && self.paid_exile_cast_authorized(entry.controller, entry.source);
         if entry.alternative_cost == Some(cascade::AlternativeCost::Bestow)
             && (!entry.kind.is_spell()
                 || mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_none()
                 || (!self.is_spell_copy(entry)
                     && (entry.hand_cast_permission.is_some()
-                        || (!paid_exile
-                            && !matches!(entry.cast_from,Zone::Hand{owner}|Zone::Command{owner} if owner==entry.controller)))))
+                        || (!matches!(entry.cast_from,Zone::Hand{owner}|Zone::Command{owner} if owner==entry.controller)))))
         {
             return Err("invalid bestow casting authority".into());
         }
@@ -464,7 +449,6 @@ impl RulesTxn {
                 || entry.x.as_ref().is_some_and(|x| *x != Quantity::zero()))
             || (entry.kind.is_spell()
                 && entry.cast_from == Zone::Exile
-                && !paid_exile
                 && entry.alternative_cost != Some(cascade::AlternativeCost::WithoutManaCost))
         {
             return Err("snapshot alternative casting cost/origin invariant".into());
@@ -614,121 +598,4 @@ impl RulesTxn {
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs
     // and physical Commander history are never refunded by countering it.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn resolve_counter_instruction(
-        &mut self,
-        frame: Resolving,
-        target_slot: u32,
-        source_block: u32,
-        mill_count: Option<Quantity>,
-    ) -> Result<(), String> {
-        let slot = target_slot as usize;
-        let target = *self
-            .bound_stack_target(self.entry(frame.stack_id)?, slot)
-            .ok_or("missing counter target binding")?;
-        if frame.legal_targets.get(slot) != Some(&true) {
-            return self
-                .finish_instruction(frame, InstructionOutcome::StackTargetIllegal { target });
-        }
-        let Some(entry) = self
-            .state
-            .rules
-            .stack
-            .iter()
-            .find(|entry| entry.id == target)
-        else {
-            return self.finish_instruction(
-                frame,
-                InstructionOutcome::StackObjectNoLongerPresent { target },
-            );
-        };
-        // CR 608.2h: the target may leave the stack during the counter event.
-        let controller = entry.controller;
-        let domain = self
-            .program_for(self.entry(frame.stack_id)?)?
-            .targets
-            .get(slot)
-            .ok_or("missing counter target domain")?
-            .domain;
-        if mill_count.is_some() && domain != TargetDomain::StackSpell {
-            return Err("counter and mill requires a spell target".into());
-        }
-        let source = entry.source;
-        let proposed = ProposedEvent::CounterStackObject {
-            target,
-            countering: frame.stack_id,
-            domain,
-        };
-        if entry.kind.is_spell()
-            && !self.spell_cannot_be_countered(entry)?
-            && self.has_self_graveyard_replacement(source)?
-        {
-            let owner = self.state.rules.cards[&source.card].owner;
-            return self.begin_graveyard_effect(
-                frame,
-                proposed,
-                source_block,
-                owner,
-                vec![source],
-                graveyard_replacement::GraveyardCompletion::Counter {
-                    target,
-                    source,
-                    controller,
-                    mill: mill_count,
-                },
-            );
-        }
-        let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
-        self.complete_counter_outcome(
-            frame,
-            source_block,
-            target,
-            controller,
-            mill_count,
-            Some(actual),
-        )
-    }
-
-    pub(super) fn complete_counter_outcome(
-        &mut self,
-        frame: Resolving,
-        source_block: u32,
-        target: StackId,
-        controller: PlayerId,
-        mill_count: Option<Quantity>,
-        actual: Option<EventOutcome>,
-    ) -> Result<(), String> {
-        let outcome = match actual {
-            Some(EventOutcome::StackObjectCountered { movement, .. }) => {
-                InstructionOutcome::Countered { target, movement }
-            }
-            Some(EventOutcome::CounterPrevented { .. }) => {
-                InstructionOutcome::CounterPrevented { target }
-            }
-            None => InstructionOutcome::StackObjectNoLongerPresent { target },
-            _ => return Err("missing counter outcome".into()),
-        };
-        if let Some(count) = mill_count {
-            if self.is_live(controller) && count > Quantity::zero() {
-                let cards = self.library_prefix(controller, &count)?;
-                return self.complete_library_effect_with(
-                    frame,
-                    ProposedEvent::Mill {
-                        player: controller,
-                        count,
-                        cards,
-                    },
-                    source_block,
-                    graveyard_replacement::GraveyardCompletion::MillAfterCounter {
-                        outcome: Box::new(outcome),
-                    },
-                );
-            }
-            self.commit_mill(
-                controller,
-                count,
-                self.instruction_cause(&frame, source_block)?,
-            )?;
-        }
-        self.finish_instruction(frame, outcome)
-    }
 }

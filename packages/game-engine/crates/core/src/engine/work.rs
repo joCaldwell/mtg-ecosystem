@@ -159,23 +159,6 @@ impl WorkCache {
         }
         Ok(self.damage.as_deref().unwrap_or_default())
     }
-    fn allocation(
-        &mut self,
-        game: &RulesTxn,
-    ) -> Result<Option<&[DamageAllocationCandidate]>, QueryRejection> {
-        if self.allocation.is_none() {
-            self.allocation = Some(
-                match game
-                    .damage_allocation_request()
-                    .map_err(|_| QueryRejection::Invariant)?
-                {
-                    Some(Request::DamageAllocation { candidates, .. }) => Some(candidates),
-                    _ => None,
-                },
-            );
-        }
-        Ok(self.allocation.as_ref().and_then(|ids| ids.as_deref()))
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -622,38 +605,9 @@ impl RulesTxn {
         {
             candidates.push(*id);
         }
-        if let Some(
-            PlayerRequest::HandReturn { candidates, .. }
-            | PlayerRequest::LibraryOrder { candidates, .. }
-            | PlayerRequest::Hideaway { candidates, .. }
-            | PlayerRequest::LibrarySelect { candidates, .. }
-            | PlayerRequest::Scry { candidates, .. }
-            | PlayerRequest::Surveil { candidates, .. },
-        ) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(object) = self
-                .private_library_choice_candidates(viewer)
-                .and_then(|ids| ids.get(cursor - base - effect_count))
-        {
-            candidates.push(
-                self.handle_for(viewer, *object)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
-        }
-        if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(ids) = cache.allocation(self)?
-            && let Some(c) = ids.get(cursor - base - effect_count)
-        {
-            candidates.push(
-                self.visible_allocation_candidate(viewer, c)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
-        }
+
         let extra = effect_count
-            + if matches!(b.decision, Some(PlayerRequest::DamageAllocation { .. })) {
-                cache.allocation(self)?.map_or(0, |ids| ids.len())
-            } else if matches!(
+            + if matches!(
                 b.decision,
                 Some(
                     PlayerRequest::EntryCopy { .. }
@@ -677,19 +631,6 @@ impl RulesTxn {
                 cache.damage(self)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
                 cache.triggers(self).len()
-            } else if matches!(
-                b.decision,
-                Some(
-                    PlayerRequest::HandReturn { .. }
-                        | PlayerRequest::LibraryOrder { .. }
-                        | PlayerRequest::Hideaway { .. }
-                        | PlayerRequest::LibrarySelect { .. }
-                        | PlayerRequest::Scry { .. }
-                        | PlayerRequest::Surveil { .. }
-                )
-            ) {
-                self.private_library_choice_candidates(viewer)
-                    .map_or(0, |ids| ids.len())
             } else {
                 0
             };
@@ -736,28 +677,6 @@ impl RulesTxn {
                 })))
             }
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
-                if let Some(
-                    PlayerRequest::HandReturn { candidates, .. }
-                    | PlayerRequest::LibraryOrder { candidates, .. }
-                    | PlayerRequest::Hideaway { candidates, .. }
-                    | PlayerRequest::LibrarySelect { candidates, .. }
-                    | PlayerRequest::Scry { candidates, .. }
-                    | PlayerRequest::Surveil { candidates, .. },
-                ) = request
-                {
-                    let ids = self
-                        .private_library_choice_candidates(*viewer)
-                        .ok_or(QueryRejection::Invariant)?;
-                    if let Some(object) = ids.get(*cursor as usize) {
-                        candidates.push(
-                            self.handle_for(*viewer, *object)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= ids.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
                 if let Some(
                     PlayerRequest::EntryCopy { candidates, .. }
                     | PlayerRequest::EntryAttachment { candidates, .. }
@@ -826,20 +745,7 @@ impl RulesTxn {
                     return Ok((*cursor as usize >= ids.len())
                         .then(|| QueryValue::Decision(request.take())));
                 }
-                if let Some(PlayerRequest::DamageAllocation { candidates, .. }) = request {
-                    let Some(ids) = cache.allocation(self)? else {
-                        return Err(QueryRejection::Invariant);
-                    };
-                    if let Some(candidate) = ids.get(*cursor as usize) {
-                        candidates.push(
-                            self.visible_allocation_candidate(*viewer, candidate)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        )
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= ids.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
+
                 if let Some(PlayerRequest::Modes { candidates, .. }) = request {
                     let Some(ids) = cache.modes(self)? else {
                         return Err(QueryRejection::Invariant);
@@ -971,70 +877,6 @@ impl RulesTxn {
                     self.validate_player_token(*viewer, token)
                         .map_err(invalid)?;
                     let timing_valid = match (&self.state.rules.frame, response) {
-                        (
-                            Frame::ResolutionChoice {
-                                choice: ResolutionChoice::HandReturn { player, .. },
-                                ..
-                            },
-                            PlayerResponse::HandReturn { objects },
-                        ) => {
-                            player == viewer
-                                && objects.len()
-                                    == self
-                                        .hand_return_count_for_current()
-                                        .map_err(|_| QueryRejection::Invariant)?
-                        }
-                        (
-                            Frame::ResolutionChoice {
-                                choice: ResolutionChoice::LibraryOrder { player, looked, .. },
-                                ..
-                            },
-                            PlayerResponse::HandReturn { objects }
-                            | PlayerResponse::LibraryOrder { objects },
-                        ) => player == viewer && objects.len() == looked.len(),
-                        (
-                            Frame::ResolutionChoice {
-                                choice:
-                                    ResolutionChoice::Hideaway {
-                                        player,
-                                        bottom: None,
-                                        ..
-                                    },
-                                ..
-                            },
-                            PlayerResponse::Hideaway { .. },
-                        ) => player == viewer,
-                        (
-                            Frame::ResolutionChoice {
-                                choice: ResolutionChoice::LibrarySelect { player, looked, .. },
-                                ..
-                            },
-                            PlayerResponse::LibrarySelect { hand, remainder },
-                        ) => {
-                            player == viewer
-                                && hand.len() == 1
-                                && hand.len().checked_add(remainder.len()) == Some(looked.len())
-                        }
-                        (
-                            Frame::ResolutionChoice {
-                                choice: ResolutionChoice::Surveil { player, looked, .. },
-                                ..
-                            },
-                            PlayerResponse::Surveil { top, graveyard },
-                        ) => {
-                            player == viewer
-                                && top.len().checked_add(graveyard.len()) == Some(looked.len())
-                        }
-                        (
-                            Frame::ResolutionChoice {
-                                choice: ResolutionChoice::Scry { player, looked, .. },
-                                ..
-                            },
-                            PlayerResponse::Scry { top, bottom },
-                        ) => {
-                            player == viewer
-                                && top.len().checked_add(bottom.len()) == Some(looked.len())
-                        }
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
                         (Frame::Setup, PlayerResponse::OpeningPlacement { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
@@ -1045,15 +887,9 @@ impl RulesTxn {
                             PlayerResponse::EntityTargets { entities },
                         ) => {
                             let p = self.program().map_err(|e| invalid(e.into()))?;
-                            mtg_contracts::graveyard_shuffle::offered_by(p)
-                                .map_or(entities.len() == p.targets.len(), |m| {
-                                    (1..=usize::from(m) + 1).contains(&entities.len())
-                                })
+                            entities.len() == p.targets.len()
                         }
-                        (
-                            Frame::DamageAllocation { .. },
-                            PlayerResponse::DamageAllocation { allocations },
-                        ) => allocations.len() <= self.damage_limit(),
+
                         (
                             Frame::ManaAbility { .. } | Frame::SpendMana { .. },
                             PlayerResponse::SpendManaAllocated {
@@ -1130,19 +966,13 @@ impl RulesTxn {
                         ) => true,
                         (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })
                         | (Frame::ForcedSacrifice { .. }, PlayerResponse::ForcedSacrifice { .. })
-                        | (Frame::Kernel { .. }, PlayerResponse::OptionalEffect { .. })
-                        | (Frame::OptionalDamage { .. }, PlayerResponse::OptionalEffect { .. }) => {
-                            true
-                        }
+                        | (Frame::Kernel { .. }, PlayerResponse::OptionalEffect { .. }) => true,
                         (
                             Frame::TriggerTargets { .. },
                             PlayerResponse::EntityTargets { entities },
                         ) => {
                             let p = self.program().map_err(|e| invalid(e.into()))?;
-                            mtg_contracts::graveyard_shuffle::offered_by(p)
-                                .map_or(entities.len() == p.targets.len(), |m| {
-                                    (1..=usize::from(m) + 1).contains(&entities.len())
-                                })
+                            entities.len() == p.targets.len()
                         }
                         (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
                             objects.len()
@@ -1158,14 +988,7 @@ impl RulesTxn {
                             players.len()
                                 == self.program().map_err(|e| invalid(e.into()))?.targets.len()
                         }
-                        (
-                            Frame::ResolutionChoice {
-                                choice: ResolutionChoice::Demonstrate { first: Some(_), .. },
-                                ..
-                            },
-                            PlayerResponse::ChooseOpponent { .. },
-                        )
-                        | (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
+                        (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
                         | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
                         | (
                             Frame::ResolutionChoice { .. },
@@ -1310,16 +1133,7 @@ impl RulesTxn {
                     );
                     return Ok(None);
                 }
-                if let PlayerResponse::DamageAllocation { allocations } = response
-                    && converted_allocations.len() < allocations.len()
-                {
-                    let (handle, amount) = &allocations[converted_allocations.len()];
-                    let id = self
-                        .resolve_damage_handle(*viewer, handle)
-                        .map_err(invalid)?;
-                    converted_allocations.push((id, amount.clone()));
-                    return Ok(None);
-                }
+
                 if value.is_none() {
                     *value = Some(if let PlayerResponse::HandReturn { .. } = response {
                         Response::HandReturn {
@@ -1343,10 +1157,6 @@ impl RulesTxn {
                         Response::Surveil {
                             top: converted[..top.len()].to_vec(),
                             graveyard: converted[top.len()..].to_vec(),
-                        }
-                    } else if matches!(response, PlayerResponse::DamageAllocation { .. }) {
-                        Response::DamageAllocation {
-                            allocations: converted_allocations.clone(),
                         }
                     } else if matches!(response, PlayerResponse::BottomOpening { .. }) {
                         Response::BottomOpening {
@@ -1494,16 +1304,6 @@ impl RulesTxn {
     fn request_extra_units(&self, viewer: PlayerId) -> Result<u64, String> {
         Ok(match self.request_header(viewer)? {
             Some(
-                PlayerRequest::HandReturn { .. }
-                | PlayerRequest::LibraryOrder { .. }
-                | PlayerRequest::Hideaway { .. }
-                | PlayerRequest::LibrarySelect { .. }
-                | PlayerRequest::Scry { .. }
-                | PlayerRequest::Surveil { .. },
-            ) => self
-                .private_library_choice_candidates(viewer)
-                .map_or(0, |ids| ids.len() as u64),
-            Some(
                 PlayerRequest::EntryCopy { .. }
                 | PlayerRequest::EntryAttachment { .. }
                 | PlayerRequest::EntryReveal { .. },
@@ -1526,15 +1326,7 @@ impl RulesTxn {
             Some(PlayerRequest::DamageEffect { .. }) => self
                 .damage_effect_group()?
                 .map_or(0, |(_, _, p)| p.len() as u64),
-            Some(PlayerRequest::DamageAllocation { .. }) => {
-                if let Some(Request::DamageAllocation { candidates, .. }) =
-                    self.damage_allocation_request()?
-                {
-                    candidates.len() as u64
-                } else {
-                    0
-                }
-            }
+
             _ => 0,
         })
     }
@@ -1598,8 +1390,7 @@ impl RulesTxn {
                     | PlayerRequest::Surveil { .. }
                     | PlayerRequest::Modes { .. }
                     | PlayerRequest::CounterPlacementEffect { .. }
-                    | PlayerRequest::DamageEffect { .. }
-                    | PlayerRequest::DamageAllocation { .. },
+                    | PlayerRequest::DamageEffect { .. },
                 ) => std::cmp::max(1, self.request_extra_units(*viewer)?),
                 _ => 1,
             }),
@@ -1621,7 +1412,7 @@ impl RulesTxn {
                     PlayerResponse::ModeSubset { modes } => modes.len(),
                     PlayerResponse::EntityTargets { entities } => entities.len(),
                     PlayerResponse::OrderTriggers { order } => order.len(),
-                    PlayerResponse::DamageAllocation { allocations } => allocations.len(),
+
                     _ => 0,
                 };
                 3u64.checked_add(entries as u64)

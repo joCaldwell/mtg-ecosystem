@@ -183,12 +183,7 @@ impl RulesTxn {
                     },
                 )
             }),
-            Frame::OptionalDamage { frame } => self
-                .is_live(self.entry(frame.stack_id)?.controller)
-                .then_some(Request::OptionalEffect {
-                    decision_id,
-                    player: self.entry(frame.stack_id)?.controller,
-                }),
+
             _ => None,
         })
     }
@@ -247,27 +242,7 @@ impl RulesTxn {
                 }
                 self.payment_step(cast)
             }
-            Frame::OptionalDamage { frame } => {
-                let perform = if self.is_live(self.entry(frame.stack_id)?.controller) {
-                    let input = self
-                        .rules_mut()
-                        .pending
-                        .take()
-                        .ok_or("missing optional damage input")?;
-                    self.validate_sacrifice_response(input.player, &input.response)?;
-                    let Response::OptionalEffect { perform } = input.response else {
-                        return Err("optional damage response".into());
-                    };
-                    perform
-                } else {
-                    false
-                };
-                if perform {
-                    self.start_sacrifice_damage(frame)
-                } else {
-                    self.finish_instruction(frame, InstructionOutcome::Damage { actual: None })
-                }
-            }
+
             Frame::ForcedSacrifice {
                 frame,
                 mut remaining,
@@ -372,11 +347,7 @@ impl RulesTxn {
                 };
                 Ok(())
             }
-            Instruction::SacrificeDamage { optional: true, .. } => {
-                self.rules_mut().frame = Frame::OptionalDamage { frame };
-                Ok(())
-            }
-            Instruction::SacrificeDamage { .. } => self.start_sacrifice_damage(frame),
+
             i @ kernel!(ModifyUntil {
                 what: source_object!(),
                 change: mtg_contracts::kir::Change::PowerToughness {
@@ -388,69 +359,6 @@ impl RulesTxn {
             }) => self.execute_effect_instruction(frame, i),
             _ => Err("not sacrifice instruction".into()),
         }
-    }
-    pub(super) fn sacrifice_damage_spec(
-        &self,
-        frame: &Resolving,
-    ) -> Result<(Quantity, u32, Vec<TargetEntity>), String> {
-        let Instruction::SacrificeDamage {
-            target_slot,
-            recipient,
-            amount,
-            source_block,
-            ..
-        } = &self.program_for(self.entry(frame.stack_id)?)?.instructions[frame.cursor as usize]
-        else {
-            return Err("not sacrifice damage".into());
-        };
-        let amount = match amount {
-            SacrificeDamageAmount::Fixed { value } => value.clone(),
-            SacrificeDamageAmount::SacrificedPower => std::cmp::max(
-                self.entry(frame.stack_id)?
-                    .sacrificed
-                    .as_ref()
-                    .and_then(|f| f.characteristics.power.clone())
-                    .ok_or("missing sacrificed power")?,
-                Quantity::zero(),
-            ),
-        };
-        let targets = if let Some(slot) = target_slot {
-            if frame.legal_targets.get(*slot as usize) == Some(&true) {
-                vec![
-                    *self
-                        .entry(frame.stack_id)?
-                        .entity_targets
-                        .get(*slot as usize)
-                        .ok_or("missing sacrifice damage target")?,
-                ]
-            } else {
-                vec![]
-            }
-        } else {
-            match recipient {
-                Some(LifeRecipient::Controller) => vec![TargetEntity::Player {
-                    player: self.entry(frame.stack_id)?.controller,
-                }],
-                Some(LifeRecipient::EachOpponent) => self
-                    .opponents(self.entry(frame.stack_id)?.controller)
-                    .into_iter()
-                    .map(|player| TargetEntity::Player { player })
-                    .collect(),
-                _ => return Err("invalid sacrifice damage recipient".into()),
-            }
-        };
-        Ok((amount, *source_block, targets))
-    }
-    fn start_sacrifice_damage(&mut self, frame: Resolving) -> Result<(), String> {
-        let (amount, block, targets) = self.sacrifice_damage_spec(&frame)?;
-        let targets = targets
-            .into_iter()
-            .filter(|t| self.entity_legal(*t))
-            .collect::<Vec<_>>();
-        if amount == Quantity::zero() || targets.is_empty() {
-            return self.finish_instruction(frame, InstructionOutcome::Damage { actual: None });
-        }
-        self.prepare_noncombat_set_damage(frame, amount, block, targets)
     }
 }
 impl RulesTxn {
@@ -544,16 +452,7 @@ impl RulesTxn {
                     return Err("snapshot APNAP sacrifice invariant".into());
                 }
             }
-            Frame::OptionalDamage { frame }
-                if !matches!(
-                    self.program_for(self.entry(frame.stack_id)?)?
-                        .instructions
-                        .get(frame.cursor as usize),
-                    Some(Instruction::SacrificeDamage { optional: true, .. })
-                ) =>
-            {
-                return Err("snapshot optional damage invariant".into());
-            }
+
             _ => {}
         }
         Ok(())

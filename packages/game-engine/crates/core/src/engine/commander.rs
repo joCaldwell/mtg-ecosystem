@@ -6,31 +6,7 @@ pub enum CommanderContinuation {
     CascadeBottom {
         progress: Box<CascadeProgress>,
     },
-    GraveyardShuffle {
-        frame: Resolving,
-        objects: Vec<ObjectId>,
-        remaining: Vec<ObjectId>,
-        choices: Vec<(ObjectId, bool)>,
-        source_block: u32,
-    },
-    HandReturn {
-        frame: Resolving,
-        objects: Vec<ObjectId>,
-        remaining: Vec<ObjectId>,
-        choices: Vec<(ObjectId, bool)>,
-        source_block: u32,
-    },
-    LookTopMana {
-        frame: Resolving,
-        revealed: bool,
-    },
-    LibrarySelect {
-        frame: Resolving,
-        looked: Vec<ObjectId>,
-        hand: Vec<ObjectId>,
-        remainder: Vec<ObjectId>,
-        source_block: u32,
-    },
+
     BoardReturn {
         frame: Resolving,
         objects: Vec<ObjectId>,
@@ -66,8 +42,7 @@ impl RulesTxn {
             Frame::GraveyardGroup { tx } => tx.prior_choices(self),
             Frame::GraveyardReplacement { transaction } => transaction.prior_choices(),
             Frame::CommanderReturn { continuation, .. } => match continuation {
-                CommanderContinuation::GraveyardShuffle { choices, .. }
-                | CommanderContinuation::StateBasedBatch { choices, .. }
+                CommanderContinuation::StateBasedBatch { choices, .. }
                 | CommanderContinuation::BoardReturn { choices, .. } => choices.clone(),
                 _ => vec![],
             },
@@ -268,57 +243,7 @@ impl RulesTxn {
             CommanderContinuation::CascadeBottom { progress } => {
                 self.resume_cascade_commander(progress, object, to_command)?
             }
-            CommanderContinuation::GraveyardShuffle {
-                frame,
-                objects,
-                mut remaining,
-                mut choices,
-                source_block,
-            } => {
-                if remaining.first() != Some(&object) {
-                    return Err("graveyard shuffle commander order".into());
-                }
-                remaining.remove(0);
-                if present {
-                    choices.push((object, to_command));
-                }
-                self.continue_graveyard_shuffle(frame, objects, remaining, choices, source_block)?;
-            }
-            CommanderContinuation::HandReturn {
-                frame,
-                objects,
-                mut remaining,
-                mut choices,
-                source_block,
-            } => {
-                if remaining.first() != Some(&object) {
-                    return Err("hand return commander order".into());
-                }
-                remaining.remove(0);
-                if present {
-                    choices.push((object, to_command));
-                }
-                self.continue_hand_return(frame, objects, remaining, choices, source_block)?;
-            }
-            CommanderContinuation::LookTopMana { frame, revealed } => {
-                self.finish_look_top_mana(frame, object, revealed, to_command)?;
-            }
-            CommanderContinuation::LibrarySelect {
-                frame,
-                looked,
-                hand,
-                remainder,
-                source_block,
-            } => {
-                self.complete_library_selection(
-                    frame,
-                    looked,
-                    hand,
-                    remainder,
-                    source_block,
-                    to_command,
-                )?;
-            }
+
             CommanderContinuation::BoardReturn {
                 frame,
                 objects,
@@ -339,9 +264,6 @@ impl RulesTxn {
                 mut frame,
                 source_block,
             } => {
-                if self.is_successor_tuck(&frame)? {
-                    return self.complete_successor_tuck(frame, to_command);
-                }
                 let outcome = if !present {
                     InstructionOutcome::ObjectNoLongerPresent { target: object }
                 } else {
@@ -536,75 +458,7 @@ impl RulesTxn {
                         return Err("snapshot cascade commander replacement invariant".into());
                     }
                 }
-                CommanderContinuation::GraveyardShuffle {
-                    frame,
-                    objects,
-                    remaining,
-                    choices,
-                    source_block,
-                } => {
-                    self.validate_graveyard_shuffle_continuation(
-                        frame,
-                        objects,
-                        remaining,
-                        choices,
-                        *source_block,
-                    )?;
-                    if remaining.first() != Some(object)
-                        || *destination != (Zone::Library { owner })
-                        || current.zone != (Zone::Graveyard { owner })
-                    {
-                        return Err("graveyard shuffle commander destination".into());
-                    }
-                }
-                CommanderContinuation::HandReturn {
-                    frame,
-                    objects,
-                    remaining,
-                    choices,
-                    source_block,
-                } => {
-                    self.validate_hand_return_continuation(
-                        frame,
-                        objects,
-                        remaining,
-                        choices,
-                        *source_block,
-                    )?;
-                    if remaining.first() != Some(object)
-                        || *destination != (Zone::Library { owner })
-                        || current.zone != (Zone::Hand { owner })
-                    {
-                        return Err("hand return commander destination".into());
-                    }
-                }
-                CommanderContinuation::LookTopMana { frame, revealed } => {
-                    self.validate_resolving(frame)?;
-                    self.validate_look_top_mana_move(frame, *object, *revealed)?;
-                    if owner != self.entry(frame.stack_id)?.controller
-                        || *destination != (Zone::Hand { owner })
-                        || current.zone != (Zone::Library { owner })
-                    {
-                        return Err("snapshot top card commander invariant".into());
-                    }
-                }
-                CommanderContinuation::LibrarySelect {
-                    frame,
-                    looked,
-                    hand,
-                    remainder,
-                    source_block,
-                } => {
-                    self.validate_resolving(frame)?;
-                    self.validate_selection_choice(frame, owner, looked, *source_block)?;
-                    self.validate_selection_partition(owner, looked, hand, remainder)?;
-                    if hand.as_slice() != [*object]
-                        || *destination != (Zone::Hand { owner })
-                        || current.zone != (Zone::Library { owner })
-                    {
-                        return Err("snapshot selected commander invariant".into());
-                    }
-                }
+
                 CommanderContinuation::BoardReturn {
                     frame,
                     objects,
@@ -621,39 +475,11 @@ impl RulesTxn {
                     frame,
                     source_block,
                 } => {
-                    if self.is_successor_tuck(frame)? {
-                        let (expected, _, expected_block) =
-                            self.successor_tuck_instruction(frame)?;
-                        if *object != expected
-                            || *source_block != expected_block
-                            || *destination != (Zone::Library { owner })
-                            || current.zone != (Zone::Graveyard { owner })
-                            || self.entry(frame.stack_id)?.controller != owner
-                        {
-                            return Err("snapshot commander successor tuck invariant".into());
-                        }
-                        return self.validate_resolving(frame);
-                    }
                     let program = self.program_for(self.entry(frame.stack_id)?)?;
                     let instruction = program.instructions.get(frame.cursor as usize);
                     let (slot, expected_destination, expected_block) = match instruction {
                         Some(
-                            Instruction::ReturnOwnGraveyardCreatureToHand {
-                                target_slot,
-                                source_block,
-                                ..
-                            }
-                            | Instruction::ReturnOwnGraveyardCardToHand {
-                                target_slot,
-                                source_block,
-                                ..
-                            }
-                            | Instruction::ReturnEntryTargetCreature {
-                                target_slot,
-                                source_block,
-                                ..
-                            }
-                            | kernel!(Move {
+                            kernel!(Move {
                                 what: target_object!(target_slot),
                                 to: mtg_contracts::kir::Destination::OwnerHand
                             } @ source_block),
@@ -667,14 +493,8 @@ impl RulesTxn {
                             );
                         }
                     };
-                    let valid_target = if matches!(
-                        instruction,
-                        Some(Instruction::ReturnEntryTargetCreature { .. })
-                    ) {
-                        current.zone == Zone::Battlefield
-                    } else {
-                        self.object_target_legal(self.entry(frame.stack_id)?, *object)
-                    };
+                    let valid_target =
+                        { self.object_target_legal(self.entry(frame.stack_id)?, *object) };
                     if !valid_target
                         || *destination != expected_destination
                         || *source_block != expected_block
@@ -723,19 +543,7 @@ impl RulesTxn {
                                     && (mtg_contracts::kir::single_draw(player, amount)
                                         || frame.draw_progress.is_some())
                             }
-                            Some(
-                                Instruction::OptionalDrawForSoleGreatestEntrant { source_block: b }
-                                | Instruction::OptionalDrawCards { source_block: b }
-                                | Instruction::OptionalDrawUnlessCasterPays {
-                                    source_block: b, ..
-                                },
-                            ) => b == source_block,
-                            Some(
-                                Instruction::DrawDamageAmount { source_block: b }
-                                | Instruction::DrawCardsIfAdditionalCost {
-                                    source_block: b, ..
-                                },
-                            ) => b == source_block && frame.draw_progress.is_some(),
+
                             _ => false,
                         }
                     {

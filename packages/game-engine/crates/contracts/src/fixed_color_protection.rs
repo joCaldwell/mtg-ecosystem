@@ -30,38 +30,3 @@ pub(super) fn keyword_for_color(name: &str) -> Option<KeywordAbility> {
         .iter()
         .find_map(|(_, color, keyword)| (*color == name).then_some(*keyword))
 }
-
-pub(super) fn extend_schema(schema: &mut Value) {
-    let words = COLORS.map(|(_, _, keyword)| keyword);
-    let fixed = json!({"contains":{"enum":words}});
-    let cap = json!({"contains":{"const":Capability::FixedColorProtectionV1}});
-    let attached = json!({"type":"object","required":["modify_creatures"],"properties":{"modify_creatures":{"required":["scope","keywords"],"properties":{
-        "scope":{"enum":["equipped","enchanted"]},"keywords":fixed
-    }}}});
-    let has_grant = json!({"required":["static_abilities"],"properties":{"static_abilities":{"contains":{
-        "required":["effect"],"properties":{"effect":attached}
-    }}}});
-    schema["$defs"]["Definition"]["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({
-            "if":{"required":["keywords"],"properties":{"keywords":fixed}},
-            "then":{"properties":{
-                "characteristics":{"properties":{"kind":{"const":"creature"}}},
-                "capabilities":cap
-            }},
-            "else":{"if":has_grant,"then":{"properties":{"capabilities":cap}},"else":{"properties":{"capabilities":{"not":cap}}}}
-        }));
-    let intrinsic_only = json!({"items":{"not":{"enum":words}}});
-    schema["$defs"]["CreatureToken"]["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"properties":{"keywords":intrinsic_only}}));
-    schema["$defs"]["StaticEffect"]["allOf"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"properties":{"modify_creatures":{
-            "if":{"properties":{"scope":{"enum":["equipped","enchanted"]}}},
-            "else":{"properties":{"keywords":intrinsic_only}}
-        }}}));
-}

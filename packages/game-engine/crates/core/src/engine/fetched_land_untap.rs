@@ -14,10 +14,6 @@ impl RulesTxn {
             .get(frame.cursor as usize)
             .ok_or("missing shuffle instruction")?;
         Ok(match instruction {
-            Instruction::FetchBasicLand {
-                minimum_lands_to_untap,
-                ..
-            } => *minimum_lands_to_untap,
             _ => None,
         })
     }
@@ -29,13 +25,6 @@ impl RulesTxn {
     ) -> Result<MoveOutcome, String> {
         let mut searched = batch.occurrences.iter().filter_map(|occurrence| {
             match (&occurrence.proposed, &occurrence.actual) {
-                (
-                    ProposedEvent::SearchLandEntry {
-                        object,
-                        player: owner,
-                    },
-                    EventOutcome::Moved { movement },
-                ) if *owner == player && *object == movement.previous => Some(movement),
                 _ => None,
             }
         });

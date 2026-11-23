@@ -159,7 +159,6 @@ testkit_fields! {
 #[serde(deny_unknown_fields)]
 pub struct ManaDamageUndo {
     pub(super) life: Vec<ManaDamageLife>,
-    pub(super) shields: Vec<ManaDamageShield>,
     triggers: Vec<(TriggerId, PlayerId)>,
 }
 
@@ -273,8 +272,7 @@ impl RulesTxn {
                     continue;
                 }
                 Frame::ManaAbility { activation } => activation,
-                Frame::DamageEffects { transaction }
-                | Frame::DamageAllocation { transaction, .. } => {
+                Frame::DamageEffects { transaction } => {
                     let DamageContinuation::Mana { activation, .. } = &transaction.continuation
                     else {
                         break;
@@ -367,8 +365,7 @@ impl RulesTxn {
                 },
                 Frame::ManaAbility { activation } => self.saved_frame(activation.resume)?,
                 Frame::ManaSourceChoice { resume, .. } => self.saved_frame(*resume)?,
-                Frame::DamageEffects { transaction }
-                | Frame::DamageAllocation { transaction, .. } => match &transaction.continuation {
+                Frame::DamageEffects { transaction } => match &transaction.continuation {
                     DamageContinuation::Mana { activation, .. }
                         if self.mana_damage_resume_available(activation)? =>
                     {

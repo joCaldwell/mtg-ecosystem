@@ -586,27 +586,6 @@ fn canonical(
     }
 }
 
-/// `cfg(test)` synthetic rows only: every non-damage-source `self` is this
-/// source, as an archived resolution would certify for a single-face card.
-pub(super) fn synthetic_canonical(raw: &str, noun: &str) -> String {
-    let mut value: Value = serde_json::from_str(raw).expect("synthetic abilities");
-    fn visit(value: &mut Value, path: &str, noun: &str) {
-        if *value == serde_json::json!({"ref":"self"}) && !path.ends_with("/source") {
-            *value = serde_json::json!({"ref":"this","noun":noun});
-        } else if let Some(items) = value.as_array_mut() {
-            for (i, item) in items.iter_mut().enumerate() {
-                visit(item, &format!("{path}/{i}"), noun);
-            }
-        } else if let Some(fields) = value.as_object_mut() {
-            for (key, child) in fields.iter_mut() {
-                visit(child, &format!("{path}/{key}"), noun);
-            }
-        }
-    }
-    visit(&mut value, "", noun);
-    value.to_string()
-}
-
 /// AST reference words that name an antecedent rather than a set, the
 /// source or a printed target.
 const PRONOUNS: [&str; 4] = ["it", "that", "them", "rest"];

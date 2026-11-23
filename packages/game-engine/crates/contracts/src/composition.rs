@@ -24,240 +24,6 @@ const TRIGGERED: u8 = 4;
 const ANY: u8 = SPELL | ACTIVATED | TRIGGERED;
 /// Reads the invocation's battlefield source (CR 113.7a, 400.7).
 const SOURCE: u8 = ACTIVATED | TRIGGERED;
-/// Bound to one family's event data, announcement or sibling instruction.
-const FAMILY: u8 = 0;
-
-/// The instruction row of the matrix. The match is exhaustive on purpose: a
-/// new instruction does not compile until its portability is declared here.
-///
-/// A row is opened only where the runtime executor reads nothing but the
-/// frozen controller, the announced targets, the exact source and the
-/// instruction's own operands, and where recovery re-derives the same facts
-/// for that kind of stack object.
-fn contexts(instruction: &Instruction) -> u8 {
-    use Instruction as I;
-    match instruction {
-        I::OptionalDrawCards { .. } => ANY,
-        // CR 119.3: positive life changes for the controller, each opponent
-        // or one announced player.
-        I::Kernel { node, .. } => kernel_contexts(node),
-        // Target-derived quantities read the single announced target's
-        // captured facts (CR 608.2h); `program` requires that sole target.
-        I::ChangeLifeFromTarget { .. } | I::DamageTargetController { .. } => ANY,
-        // CR 111.1-111.4, 111.10: recovery re-derives every token from the
-        // creating recipe of its source's spell, activated or triggered program.
-        I::CreateTokensFor { .. } => ANY,
-        // CR 508.1d, 509.1b: the restriction effect authenticates a spell or
-        // an activated ability as its origin.
-        I::GrantCreatureRestriction { .. } => SPELL | ACTIVATED,
-        // CR 701.19a: the shield authenticates an activated ability.
-        I::RegenerateSource { .. } => ACTIVATED,
-        // CR 701.22, 701.25, 701.17: the controller's own library prefix.
-        I::Scry { .. }
-        | I::Surveil { .. }
-        | I::OrderLibraryTop { .. }
-        | I::OptionalShuffleLibrary { .. }
-        | I::SelectLibraryCard { .. }
-        | I::PutHandOnLibrary { .. } => ANY,
-        // CR 701.6: the countered object is the announced stack target.
-        I::CounterStackObject { .. }
-        | I::CounterSpellAndMillController { .. }
-        | I::CounterSpellUnlessPays { .. } => ANY,
-        // CR 608.2h: non-targeted sets are read when the instruction is performed.
-        // CR 400.7, 608.2b: an announced graveyard card or player's graveyard.
-        I::ReturnOwnGraveyardCreatureToHand { optional, .. }
-        | I::ReturnOwnGraveyardCardToHand { optional, .. } => {
-            if *optional {
-                FAMILY
-            } else {
-                ANY
-            }
-        }
-        I::ReturnOwnGraveyardCreatureToBattlefield { .. } => ANY,
-        // CR 701.23: the controller searches their own library.
-        I::SearchBasicLands { .. }
-        | I::SearchBasicLandsSplit { .. }
-        | I::SearchTypedLands { .. }
-        | I::SearchColoredLibrary { .. } => ANY,
-        // CR 615.1: a turn-long combat damage prevention effect.
-        I::PreventCombatDamage { .. } => ANY,
-        // These effects authenticate a paid resolving spell.
-        I::GrantLandPlaysThisTurn { .. }
-        | I::PhaseOutControllerPermanents { .. }
-        | I::PhaseOutTargetPermanent { .. }
-        | I::ProtectControllerUntilNextTurn { .. }
-        | I::FreezeControllerLifeUntilNextTurn { .. } => SPELL,
-        // Everything below keeps its reviewed family: it needs trigger event
-        // data, an announced X, a resolving card, a linked sibling instruction
-        // or a whole-program shape that the tables here do not describe.
-        I::LookTopMayRevealForMana { .. }
-        | I::RegisterControllerCreatureEntryThisTurn { .. }
-        | I::Hideaway { .. }
-        | I::PlayHideawayLinked { .. }
-        | I::GrantHandCastCascade { .. }
-        | I::OfferHandCastWithoutManaCost { .. }
-        | I::Cascade { .. }
-        | I::RevealAndCast { .. }
-        | I::Demonstrate { .. }
-        | I::ShufflePlayerGraveyard { .. }
-        | I::ExileResolvingSpell { .. }
-        | I::RemoveOpponentNonlandIndestructible { .. }
-        | I::GainLifeDestroyed { .. }
-        | I::ExileDamagedThisTurn { .. }
-        | I::LoseLifeDeathController { .. }
-        | I::SacrificeDamage { .. }
-        | I::AttachEquipment { .. }
-        | I::ReturnAuraFromGraveyard { .. }
-        | I::FetchBasicLand { .. }
-        | I::ExileLibraryForPlay { .. }
-        | I::AddResolutionMana { .. }
-        | I::PutSourcePlusOneCountersForCastColors { .. }
-        | I::DistributePlusOneCounters { .. }
-        | I::GrantKeywordsSet { .. }
-        | I::GrantKeywords { .. }
-        | I::PreventNextDamage { .. }
-        | I::ReturnEntryTargetCreature { .. }
-        | I::MoveTriggeredSuccessor { .. }
-        | I::LoseGameTargetPlayer { .. }
-        | I::DrawCardsIfAdditionalCost { .. }
-        | I::OptionalDrawUnlessCasterPays { .. }
-        | I::OptionalDrawForSoleGreatestEntrant { .. }
-        | I::DrawDamageAmount { .. }
-        | I::CopyControlledCreatureSpell { .. }
-        // Optional blocks, delayed cast registration, mana-tap riders, colour
-        // changes, proliferate, recipient searches and transformation each
-        // bind a reviewed event, sibling block or second face.
-        | I::ChooseOptional { .. }
-        | I::Proliferate { .. }
-        | I::RegisterControllerSpellCastThisTurn { .. }
-        | I::SearchRecipientBasicLand { .. }
-        | I::SetTargetColor { .. }
-        | I::TransformSource { .. } => FAMILY,
-    }
-}
-
-/// The kernel row. `kir::check` decides scope, kinds and the audited cell for
-/// the actual context; this row only keeps operands that read a reviewed
-/// family's event data out of composition.
-fn kernel_contexts(node: &kir::Node) -> u8 {
-    // CR 119.3: the opponent drain pair; an announced X binds its family.
-    if let Some(amount) = kir::drain(node) {
-        return if amount.is_announced_x() { FAMILY } else { ANY };
-    }
-    match node.verb() {
-        // CR 119.3: life changes for the controller, each opponent or one
-        // announced player. An announced X binds its family.
-        Some(Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }) => {
-            if player.is_event_player() || amount.is_announced_x() {
-                FAMILY
-            } else {
-                ANY
-            }
-        }
-        // CR 121.1-121.2: a fixed draw by the controller, or by every player;
-        // one card for an announced player. An announced X, an event player
-        // and the targeted counted draw bind their families.
-        Some(Verb::Draw { player, amount }) => match (player, amount.as_fixed()) {
-            (_, None) => FAMILY,
-            (kir::PlayerExpr::EachPlayer, Some(_)) => ANY,
-            (player, Some(_)) if player.is_you() => ANY,
-            (player, Some(count))
-                if player.target_slot().is_some() && *count == Quantity::from(1) =>
-            {
-                ANY
-            }
-            _ => FAMILY,
-        },
-        // CR 120.2b: noncombat damage to one announced target, using the
-        // source's last known information if it has left (CR 608.2h). An
-        // announced X, the controller of a land's trigger and a mana
-        // ability's activator bind their families; a fixed board-wide amount
-        // is read as the instruction is performed.
-        Some(Verb::Damage { to, amount, .. }) => match to {
-            kir::DamageTo::Ref {
-                who: kir::Ref::Target { .. },
-            } if amount.as_fixed().is_some() => ANY,
-            kir::DamageTo::Ref { .. } => FAMILY,
-            _ if amount.as_fixed().is_some() => ANY,
-            _ => FAMILY,
-        },
-        // CR 701.8, 701.26, 400.3: one announced permanent, with its
-        // legality rechecked on resolution (CR 608.2b). An optional destroy
-        // is a node, not a verb, and binds its family.
-        Some(
-            Verb::Destroy {
-                what: SetExpr::One { .. },
-                ..
-            }
-            | Verb::Move {
-                what: SetExpr::One { .. },
-                ..
-            }
-            | Verb::Tap { .. }
-            | Verb::Untap { .. },
-        ) => ANY,
-        // CR 608.2h: a board-wide set is read as the instruction is performed.
-        Some(
-            Verb::Destroy {
-                what: SetExpr::Matching { .. },
-                ..
-            }
-            | Verb::Move {
-                what: SetExpr::Matching { .. },
-                ..
-            },
-        ) => ANY,
-        // CR 111.1-111.4, 111.10: recovery re-derives every token from the
-        // creating recipe of its source's spell, activated or triggered
-        // program.
-        Some(Verb::CreateTokens { .. }) => ANY,
-        // CR 122.1, 122.6: +1/+1 counters on an announced creature, or on the
-        // exact battlefield source (CR 400.7, 113.7a).
-        Some(Verb::PutCounters { on, .. }) => {
-            if *on == SetExpr::source() {
-                SOURCE
-            } else {
-                ANY
-            }
-        }
-        // CR 611.2c, 613.4c, 514.2: one captured creature or a board-wide
-        // set until cleanup; the exact battlefield source (CR 400.7). The
-        // source's keyword grant binds its family.
-        Some(Verb::ModifyUntil {
-            what,
-            change: kir::Change::PowerToughness { .. },
-            ..
-        }) => {
-            if *what == SetExpr::source() {
-                SOURCE
-            } else {
-                ANY
-            }
-        }
-        // CR 701.17a: the controller's or one announced player's own
-        // library. An announced X binds its family.
-        Some(Verb::Mill { amount, .. }) if amount.as_fixed().is_some() => ANY,
-        // CR 701.9a: hand choices stay private to each discarding player.
-        // The damaged player and a random discard bind their families.
-        Some(Verb::Discard { player, random, .. }) if !random && !player.is_event_player() => ANY,
-        // CR 701.21a: each named player chooses and sacrifices. The damaged
-        // player binds its family.
-        Some(Verb::Sacrifice { player, .. }) if !player.is_event_player() => ANY,
-        _ => FAMILY,
-    }
-}
-
-/// True when `instruction` may appear in a composed program of `context`.
-pub fn admits_instruction(instruction: &Instruction, context: Context) -> bool {
-    contexts(instruction)
-        & match context {
-            Context::Spell => SPELL,
-            Context::Activated => ACTIVATED,
-            Context::Triggered => TRIGGERED,
-        }
-        != 0
-}
-
 /// How the runtime announces a target, which decides the payment path of an
 /// activated ability (CR 601.2c, 602.2b).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -297,7 +63,11 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
 }
 
 /// One ordinary instruction program of any context.
-fn program(p: &SpellProgram, context: Context) -> Result<(), String> {
+fn program(
+    p: &SpellProgram,
+    context: Context,
+    event: Option<&TriggerCondition>,
+) -> Result<(), String> {
     if p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
         || p.instructions.is_empty()
@@ -308,19 +78,6 @@ fn program(p: &SpellProgram, context: Context) -> Result<(), String> {
         || (context == Context::Triggered && p.timing != SpellTiming::Instant)
     {
         return Err("composed program requires ordinary stack instructions".into());
-    }
-    if let Some(i) = p
-        .instructions
-        .iter()
-        .find(|i| !admits_instruction(i, context))
-    {
-        let op = serde_json::to_value(i)
-            .ok()
-            .and_then(|v| v["op"].as_str().map(str::to_owned))
-            .unwrap_or_default();
-        return Err(format!(
-            "composition matrix does not admit {op} in this context"
-        ));
     }
     let bit = match context {
         Context::Spell => SPELL,
@@ -334,29 +91,91 @@ fn program(p: &SpellProgram, context: Context) -> Result<(), String> {
     }) {
         return Err("composition matrix does not admit this target domain".into());
     }
-    // CR 608.2h: a quantity or recipient read from "that permanent" is bound
-    // to the one announced target, so the whole invocation is removed when
-    // that target is illegal instead of resolving with missing information.
-    if p.targets.len() != 1
-        && p.instructions.iter().any(|i| {
-            matches!(
-                i,
-                Instruction::ChangeLifeFromTarget { .. }
-                    | Instruction::DamageTargetController { .. }
-                    | Instruction::CreateTokensFor {
-                        recipient: EffectRecipient::TargetController { .. },
-                        ..
-                    }
-            )
-        })
-    {
-        return Err("target-derived instructions require exactly one target".into());
+    validate_target_bindings(p)?;
+    let env = kir::Env {
+        context,
+        targets: &p.targets,
+        event,
+        announced_x: false,
+    };
+    let mut used = BTreeSet::new();
+    for Instruction::Kernel { node, .. } in &p.instructions {
+        used.extend(kir::check(node, &env)?.target_slots);
     }
-    // Target slots, domains, filters and operand ranges use the one shared
-    // per-instruction binder; no whole-program family shape is consulted.
-    validate_program_bindings(p, false, false, &|_| {
-        Err("composed programs are not modal".into())
-    })
+    if used.len() != p.targets.len() {
+        return Err("unused target occurrence".into());
+    }
+    Ok(())
+}
+
+fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
+    let mut ids = BTreeSet::new();
+    for (index, target) in p.targets.iter().enumerate() {
+        if usize::try_from(target.slot).ok() != Some(index)
+            || target.selection_id.is_empty()
+            || !ids.insert(&target.selection_id)
+        {
+            return Err("unbound, duplicate, or noncontiguous target occurrence".into());
+        }
+    }
+    if p.targets
+        .windows(2)
+        .any(|targets| targets[0].domain != targets[1].domain)
+    {
+        return Err("mixed target domains are unsupported".into());
+    }
+    // Requests expose one common candidate set, and execution uses that common
+    // predicate. Distinct per-slot filters need a different request contract;
+    // accepting them here would apply the first slot's restriction to all slots.
+    if p.targets
+        .windows(2)
+        .any(|targets| targets[0].filter != targets[1].filter)
+    {
+        return Err("mixed target filters are unsupported".into());
+    }
+    for t in &p.targets {
+        if let Some(f) = &t.filter {
+            if !matches!(
+                t.domain,
+                TargetDomain::BattlefieldPermanent
+                    | TargetDomain::ControlledBattlefieldPermanent
+                    | TargetDomain::StackSpell
+            ) || (t.domain == TargetDomain::StackSpell
+                && (f.types.is_empty()
+                    || !f.non_types.is_empty()
+                    || !f.non_colors.is_empty()
+                    || f.opponent
+                    || f.power.is_some()
+                    || f.tapped))
+                || f.types
+                    .iter()
+                    .enumerate()
+                    .any(|(i, k)| f.types[..i].contains(k))
+                || f.non_types
+                    .iter()
+                    .enumerate()
+                    .any(|(i, k)| f.non_types[..i].contains(k))
+                || f.non_colors.contains(&Color::C)
+                || f.non_colors
+                    .iter()
+                    .enumerate()
+                    .any(|(i, k)| f.non_colors[..i].contains(k))
+                || (t.domain == TargetDomain::BattlefieldPermanent
+                    && f.types
+                        .iter()
+                        .chain(&f.non_types)
+                        .any(|k| matches!(k, CardKind::Instant | CardKind::Sorcery)))
+            {
+                return Err("unsupported permanent/spell target filter".into());
+            }
+        } else if matches!(
+            t.domain,
+            TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent
+        ) {
+            return Err("permanent target requires explicit filter".into());
+        }
+    }
+    Ok(())
 }
 
 /// CR 701.21a: the runtime offers every controlled permanent whose derived
@@ -458,7 +277,7 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         return Err("composed activation requires a battlefield permanent source".into());
     }
     cost(d, a)?;
-    program(&a.program, Context::Activated)
+    program(&a.program, Context::Activated, None)
 }
 
 /// The event row: conditions whose detection needs no program-specific data.
@@ -520,7 +339,7 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     {
         return Err("composition matrix does not admit this trigger".into());
     }
-    program(&a.program, Context::Triggered)
+    program(&a.program, Context::Triggered, Some(&a.condition))
 }
 
 /// The static row: effects that are complete without any sibling ability.
@@ -746,6 +565,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         program(
             d.spell.as_ref().ok_or("missing spell program")?,
             Context::Spell,
+            None,
         )?;
     }
     for a in &d.static_abilities {
@@ -763,397 +583,4 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         triggered(d, a)?;
     }
     Ok(())
-}
-
-/// Publish composed definitions in the executable schema.
-///
-/// `$defs/Definition` keeps every family shape rule and now excludes the
-/// marker and its capability. A catalog entry marked `composed` is instead
-/// checked against `$defs/ComposedDefinition`: the plain structural schema of
-/// the Rust IR types (closed enums, required fields, no unknown fields),
-/// without any family shape rule, plus the marker/capability equivalence.
-/// The matrix itself is enforced by `validate`, as family semantics are.
-pub(crate) fn extend_schema(schema: &mut serde_json::Value) {
-    use serde_json::{Value, json};
-    let cap = json!({"contains":{"const":Capability::ComposedAbilityV1}});
-    let marked = json!({"required":["composed"],"properties":{"composed":{"const":true}}});
-    schema["$defs"]["Definition"]
-        .as_object_mut()
-        .expect("definition schema")
-        .entry("allOf")
-        .or_insert_with(|| json!([]))
-        .as_array_mut()
-        .expect("definition allOf")
-        .push(json!({"not":marked,"properties":{"capabilities":{"not":cap}}}));
-    fn rename(value: &mut Value) {
-        match value {
-            Value::Object(object) => {
-                if let Some(Value::String(reference)) = object.get_mut("$ref")
-                    && let Some(name) = reference.strip_prefix("#/$defs/")
-                {
-                    *reference = format!("#/$defs/Composed{name}");
-                }
-                object.values_mut().for_each(rename);
-            }
-            Value::Array(items) => items.iter_mut().for_each(rename),
-            _ => {}
-        }
-    }
-    let plain = serde_json::to_value(schemars::schema_for!(Catalog)).expect("schema is JSON");
-    for (name, definition) in plain["$defs"].as_object().expect("derived definitions") {
-        let mut definition = definition.clone();
-        rename(&mut definition);
-        schema["$defs"][format!("Composed{name}")] = definition;
-    }
-    schema["$defs"]["ComposedDefinition"]
-        .as_object_mut()
-        .expect("composed definition schema")
-        .entry("allOf")
-        .or_insert_with(|| json!([]))
-        .as_array_mut()
-        .expect("composed definition allOf")
-        .push(json!({"properties":{"capabilities":cap}}));
-    let items = &mut schema["properties"]["definitions"]["items"];
-    assert_eq!(*items, json!({"$ref":"#/$defs/Definition"}));
-    *items = json!({
-        "if":marked,
-        "then":{"$ref":"#/$defs/ComposedDefinition"},
-        "else":{"$ref":"#/$defs/Definition"}
-    });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A complete creature definition from the frozen wipes catalog.
-    fn bears() -> Definition {
-        let mut d = Catalog::read(include_str!(
-            "../../../tests/fixtures/expected-wipes-ir.json"
-        ))
-        .unwrap()
-        .definitions
-        .into_iter()
-        .find(|d| d.name == "Grizzly Bears")
-        .unwrap();
-        d.source_labels = None;
-        d
-    }
-    fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
-        ActivatedAbility {
-            functioning_zone: FunctioningZone::Battlefield,
-            cost,
-            program,
-        }
-    }
-    fn with(change: impl FnOnce(&mut Definition)) -> Definition {
-        let mut d = bears();
-        d.composed = true;
-        change(&mut d);
-        d.capabilities = d.requirements();
-        d
-    }
-    fn target(domain: TargetDomain) -> TargetSpec {
-        TargetSpec {
-            slot: 0,
-            selection_id: "line:0:1".into(),
-            chooser: Chooser::Controller,
-            stage: EvaluationStage::Announcement,
-            domain,
-            filter: None,
-        }
-    }
-    fn damage() -> Instruction {
-        Instruction::damage_target(0, kir::Amount::Fixed { value: 1.into() }, 0)
-    }
-
-    #[test]
-    fn composed_definitions_validate_only_through_the_matrix() {
-        let tap_gain = || {
-            ability(
-                ActivationCost::TapSource,
-                program(vec![gain(Context::Activated)], vec![]),
-            )
-        };
-        let valid = with(|d| d.activated.push(tap_gain()));
-        valid.validate().unwrap();
-        assert!(valid.capabilities.contains(&Capability::ComposedAbilityV1));
-
-        // The marker and its capability are inseparable in both directions.
-        let mut hidden = valid.clone();
-        hidden.capabilities.remove(&Capability::ComposedAbilityV1);
-        assert!(hidden.validate().is_err());
-        let mut forged = bears();
-        forged.capabilities.insert(Capability::ComposedAbilityV1);
-        assert!(forged.validate().is_err());
-        // Without the marker the same ability is not a family shape.
-        let mut unmarked = valid.clone();
-        unmarked.composed = false;
-        unmarked.capabilities = unmarked.requirements();
-        assert!(unmarked.validate().is_err());
-
-        // Instruction row: event-bound and announced-X operations stay out.
-        for instruction in [
-            Instruction::DrawDamageAmount { source_block: 0 },
-            Instruction::act(
-                Verb::Draw {
-                    player: PlayerExpr::you(Context::Spell),
-                    amount: kir::Amount::announced_x(),
-                },
-                0,
-            ),
-            Instruction::RevealAndCast { source_block: 0 },
-        ] {
-            let d = with(|d| {
-                d.activated.push(ability(
-                    ActivationCost::TapSource,
-                    program(vec![instruction], vec![]),
-                ))
-            });
-            assert!(d.validate().is_err());
-        }
-
-        // Cost row: an entity-routed target cannot be paid with pure mana,
-        // and a stack target cannot be paid by tapping.
-        let mana = ActivationCost::Mana {
-            cost: ManaCost {
-                generic: 1.into(),
-                colored: vec![],
-            },
-        };
-        let pinger = |cost: ActivationCost| {
-            with(|d| {
-                d.activated.push(ability(
-                    cost,
-                    program(vec![damage()], vec![target(TargetDomain::AnyDamageTarget)]),
-                ))
-            })
-        };
-        pinger(ActivationCost::TapSource).validate().unwrap();
-        assert!(pinger(mana.clone()).validate().is_err());
-        let counter = |cost: ActivationCost| {
-            with(|d| {
-                d.activated.push(ability(
-                    cost,
-                    program(
-                        vec![Instruction::CounterStackObject {
-                            target_slot: 0,
-                            source_block: 0,
-                        }],
-                        vec![target(TargetDomain::StackSpell)],
-                    ),
-                ))
-            })
-        };
-        counter(mana).validate().unwrap();
-        assert!(counter(ActivationCost::TapSource).validate().is_err());
-
-        // Target row: a triggered ability cannot announce a stack target.
-        let trigger = |domain: TargetDomain, instruction: Instruction| {
-            with(|d| {
-                d.triggered.push(TriggeredAbility {
-                    functioning_zone: FunctioningZone::Battlefield,
-                    condition: TriggerCondition::SelfEntersBattlefield,
-                    intervening_if: None,
-                    death_filter: None,
-                    program: program(vec![instruction], vec![target(domain)]),
-                })
-            })
-        };
-        trigger(TargetDomain::AnyDamageTarget, damage())
-            .validate()
-            .unwrap();
-        assert!(
-            trigger(
-                TargetDomain::StackSpell,
-                Instruction::CounterStackObject {
-                    target_slot: 0,
-                    source_block: 0
-                }
-            )
-            .validate()
-            .is_err()
-        );
-
-        // Event row: an event that carries family data is not composable.
-        let mut equipped = trigger(TargetDomain::AnyDamageTarget, damage());
-        equipped.triggered[0].condition = TriggerCondition::EquippedDies;
-        equipped.capabilities = equipped.requirements();
-        assert!(equipped.validate().is_err());
-
-        // Shell: attachments, snow, hybrid and basic nonland cards reject.
-        let aura = with(|d| {
-            d.activated.push(tap_gain());
-            d.characteristics.subtypes = vec!["Aura".into()];
-        });
-        assert!(aura.validate().is_err());
-        let snow = with(|d| {
-            d.activated.push(tap_gain());
-            d.characteristics.snow = true;
-        });
-        assert!(snow.validate().is_err());
-        let basic_nonland = with(|d| {
-            d.activated.push(tap_gain());
-            d.characteristics.basic = true;
-        });
-        assert!(basic_nonland.validate().is_err());
-
-        // Provenance is checked exactly as for a family definition.
-        let mut edited = valid.clone();
-        edited.provenance.abilities_json.push(' ');
-        assert!(edited.validate().is_err());
-    }
-
-    #[test]
-    fn schema_publishes_the_marker_capability_equivalence() {
-        let schema = catalog_schema();
-        // A catalog entry is a composed definition exactly when it is marked.
-        let items = &schema["properties"]["definitions"]["items"];
-        assert_eq!(items["if"]["properties"]["composed"]["const"], true);
-        assert_eq!(items["then"]["$ref"], "#/$defs/ComposedDefinition");
-        assert_eq!(items["else"]["$ref"], "#/$defs/Definition");
-        // Family definitions exclude the marker and its capability.
-        let family = schema["$defs"]["Definition"]["allOf"].as_array().unwrap();
-        assert!(family.iter().any(|rule| {
-            rule["not"]["properties"]["composed"]["const"] == true
-                && rule["properties"]["capabilities"]["not"]["contains"]["const"]
-                    == "composed_ability_v1"
-        }));
-        // Composed definitions keep the strict structural IR and require it.
-        let composed = &schema["$defs"]["ComposedDefinition"];
-        assert_eq!(composed["additionalProperties"], false);
-        assert_eq!(composed["properties"]["composed"]["type"], "boolean");
-        assert!(composed["allOf"].as_array().unwrap().iter().any(|rule| {
-            rule["properties"]["capabilities"]["contains"]["const"] == "composed_ability_v1"
-        }));
-        assert_eq!(
-            composed["properties"]["activated"]["items"]["$ref"],
-            "#/$defs/ComposedActivatedAbility"
-        );
-        assert!(schema["$defs"]["ComposedInstruction"].is_object());
-    }
-
-    fn program(instructions: Vec<Instruction>, targets: Vec<TargetSpec>) -> SpellProgram {
-        SpellProgram {
-            optional_additional_costs: vec![],
-            additional_sacrifice: None,
-            timing: SpellTiming::Instant,
-            resolution: SpellResolution::Instructions,
-            functioning_zone: FunctioningZone::Stack,
-            targets,
-            instructions,
-            modes: vec![],
-        }
-    }
-    fn gain(context: Context) -> Instruction {
-        Instruction::act(
-            Verb::GainLife {
-                player: PlayerExpr::you(context),
-                amount: Amount::fixed(2),
-            },
-            0,
-        )
-    }
-
-    #[test]
-    fn instruction_rows_separate_portable_source_and_family_bound_operations() {
-        for context in [Context::Spell, Context::Activated, Context::Triggered] {
-            assert!(admits_instruction(&gain(context), context));
-            assert!(!admits_instruction(
-                &Instruction::DrawDamageAmount { source_block: 0 },
-                context
-            ));
-            assert!(!admits_instruction(
-                &Instruction::act(
-                    Verb::GainLife {
-                        player: PlayerExpr::event(kir::EventPlayerRole::Caster),
-                        amount: Amount::fixed(1)
-                    },
-                    0
-                ),
-                context
-            ));
-        }
-        let regenerate = Instruction::RegenerateSource { source_block: 0 };
-        assert!(!admits_instruction(&regenerate, Context::Spell));
-        assert!(admits_instruction(&regenerate, Context::Activated));
-        assert!(!admits_instruction(&regenerate, Context::Triggered));
-        let pump = Instruction::pump(kir::SetExpr::source(), 1.into(), 1.into(), 0);
-        assert!(!admits_instruction(&pump, Context::Spell));
-        assert!(admits_instruction(&pump, Context::Activated));
-        assert!(admits_instruction(&pump, Context::Triggered));
-        // CR 121.2: the controller's fixed draws are portable, as the counted
-        // controller draw always was; an announced player's draw is portable
-        // only as a single draw, and an announced X binds its family.
-        let draw = |player, count: i64| Instruction::draw(player, count.into(), 0);
-        let you = PlayerExpr::you(Context::Triggered);
-        assert!(admits_instruction(
-            &draw(you.clone(), 1),
-            Context::Triggered
-        ));
-        assert!(admits_instruction(&draw(you, 2), Context::Triggered));
-        assert!(admits_instruction(
-            &draw(PlayerExpr::target(0), 1),
-            Context::Spell
-        ));
-        assert!(!admits_instruction(
-            &draw(PlayerExpr::target(0), 2),
-            Context::Spell
-        ));
-        assert!(!admits_instruction(
-            &Instruction::act(
-                Verb::Draw {
-                    player: PlayerExpr::you(Context::Spell),
-                    amount: Amount::announced_x()
-                },
-                0
-            ),
-            Context::Spell
-        ));
-    }
-
-    #[test]
-    fn programs_reject_modes_empty_bodies_family_instructions_and_unbound_targets() {
-        assert!(
-            super::program(
-                &program(vec![gain(Context::Activated)], vec![]),
-                Context::Activated
-            )
-            .is_ok()
-        );
-        assert!(super::program(&program(vec![], vec![]), Context::Activated).is_err());
-        let mut modal = program(vec![], vec![]);
-        modal.modes = vec![
-            SpellMode {
-                program: program(vec![gain(Context::Activated)], vec![]),
-            },
-            SpellMode {
-                program: program(vec![gain(Context::Activated)], vec![]),
-            },
-        ];
-        assert!(super::program(&modal, Context::Spell).is_err());
-        let x = program(
-            vec![Instruction::drain(
-                Context::Spell,
-                kir::Amount::announced_x(),
-                0,
-            )],
-            vec![],
-        );
-        assert!(super::program(&x, Context::Spell).is_err());
-        let unbound = program(
-            vec![Instruction::damage_target(
-                0,
-                kir::Amount::Fixed { value: 1.into() },
-                0,
-            )],
-            vec![],
-        );
-        assert!(super::program(&unbound, Context::Triggered).is_err());
-        let mut sorcery_speed = program(vec![gain(Context::Activated)], vec![]);
-        sorcery_speed.timing = SpellTiming::MainPhase;
-        assert!(super::program(&sorcery_speed, Context::Activated).is_ok());
-        assert!(super::program(&sorcery_speed, Context::Spell).is_ok());
-        assert!(super::program(&sorcery_speed, Context::Triggered).is_err());
-    }
 }

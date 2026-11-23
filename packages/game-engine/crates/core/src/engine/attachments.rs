@@ -418,21 +418,7 @@ impl RulesTxn {
         } else {
             self.program_for(entry)
         };
-        if program.is_ok_and(|p| mtg_contracts::graveyard_shuffle::offered_by(p).is_some()) {
-            return match target {
-                TargetEntity::Player { .. } => self.entity_legal(target),
-                TargetEntity::Object { object } => self.current(object).is_ok_and(|o| {
-                    let Zone::Graveyard { owner } = o.zone else {
-                        return false;
-                    };
-                    entry
-                        .entity_targets
-                        .first()
-                        .is_none_or(|p| *p == TargetEntity::Player { player: owner })
-                        && self.player_graveyard_card(o, owner)
-                }),
-            };
-        }
+
         self.entity_legal(target)
             && match target {
                 TargetEntity::Player { .. } => true,
@@ -527,8 +513,6 @@ impl RulesTxn {
         instruction: Instruction,
     ) -> Result<(), String> {
         let block = match instruction {
-            Instruction::AttachEquipment { source_block, .. }
-            | Instruction::ReturnAuraFromGraveyard { source_block } => source_block,
             _ => return Err("not an attachment instruction".into()),
         };
         let cause = BatchCause::Instruction {
@@ -539,44 +523,6 @@ impl RulesTxn {
             source_block: block,
         };
         match instruction {
-            Instruction::AttachEquipment { target_slot, .. } => {
-                let object = self.entry(frame.stack_id)?.source;
-                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
-                if frame.legal_targets.get(target_slot as usize) == Some(&true)
-                    && self.object_target_legal(self.entry(frame.stack_id)?, target)
-                    && self
-                        .current(object)
-                        .is_ok_and(|o| o.present_on_battlefield() && o.attached_to != Some(target))
-                {
-                    self.commit(
-                        ProposedEvent::Attach {
-                            object,
-                            target: Some(target),
-                        },
-                        cause,
-                    )?;
-                }
-            }
-            Instruction::ReturnAuraFromGraveyard { .. } => {
-                // CR 400.7d: the trigger finds the new graveyard incarnation,
-                // but cannot find a later incarnation after another zone move.
-                let source = self.entry(frame.stack_id)?.source;
-                let incarnation = source
-                    .incarnation
-                    .checked_add(1)
-                    .ok_or("Aura incarnation overflow")?;
-                let object = ObjectId {
-                    card: source.card,
-                    incarnation,
-                };
-                let owner = self.state.rules.cards[&source.card].owner;
-                if self
-                    .current(object)
-                    .is_ok_and(|o| o.zone == (Zone::Graveyard { owner }))
-                {
-                    self.move_object_for(object, Zone::Hand { owner }, cause)?;
-                }
-            }
             _ => return Err("not an attachment instruction".into()),
         }
         self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })

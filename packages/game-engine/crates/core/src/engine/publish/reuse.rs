@@ -78,13 +78,8 @@ impl Frame {
                     frame: _,
                     payment: _,
                 }
-                | Frame::OptionalDamage { frame: _ }
                 | Frame::ManaAbility { activation: _ }
                 | Frame::Setup
-                | Frame::DamageAllocation {
-                    transaction: _,
-                    effect: _,
-                }
                 | Frame::Modes { cast: _ }
                 | Frame::CounterPlacement { transaction: _ }
                 | Frame::DamageEffects { transaction: _ }

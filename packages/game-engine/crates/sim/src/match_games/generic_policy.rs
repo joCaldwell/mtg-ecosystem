@@ -4,8 +4,8 @@ use super::*;
 use mtg_contracts::{
     ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
     KeywordAbility, ObjectSet, SacrificeDamageAmount, SacrificeFilter, SpellProgram,
-    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, announced_x,
-    compound_indestructible_parameters, fixed, kernel,
+    SpellResolution, SpellTiming, StaticEffect, TargetDomain, TargetSpec, announced_x, fixed,
+    kernel,
     kir::{self, Context, SetExpr},
     source_object, target_object, target_player,
 };
@@ -30,15 +30,6 @@ fn program_mode(p: &SpellProgram, mode: Option<u32>) -> &SpellProgram {
     mode.and_then(|m| p.modes.get(m as usize))
         .map(|m| &m.program)
         .unwrap_or(p)
-}
-fn develops_mana(instruction: &I) -> bool {
-    matches!(
-        instruction,
-        I::SearchBasicLands { .. }
-            | I::SearchBasicLandsSplit { .. }
-            | I::SearchTypedLands { .. }
-            | I::GrantLandPlaysThisTurn { .. }
-    )
 }
 
 fn requires_copy_entry_choice(definition: &Definition) -> bool {
@@ -106,14 +97,7 @@ fn scored_wipe<'a>(p: &SpellProgram, i: &'a I) -> Option<&'a SetExpr> {
         kernel!(Destroy {
             what: what @ SetExpr::Matching { .. },
             regeneration_forbidden: false,
-        }) if *what != ObjectSet::OpponentNonlandPermanents.kernel(Context::Spell)
-            && !p
-                .instructions
-                .iter()
-                .any(|i| matches!(i, I::RemoveOpponentNonlandIndestructible { .. })) =>
-        {
-            Some(what)
-        }
+        }) if *what != ObjectSet::OpponentNonlandPermanents.kernel(Context::Spell) => Some(what),
         kernel!(Move {
             what: what @ SetExpr::Matching { .. },
             ..
@@ -143,12 +127,7 @@ fn reactive_program(p: &SpellProgram) -> bool {
     blocking_pump_program(p)
         || p.additional_sacrifice.is_some()
         || p.instructions.iter().any(|i| {
-            matches!(
-                i,
-                I::CounterStackObject { .. }
-                    | I::PreventCombatDamage { .. }
-                    | I::PreventNextDamage { .. }
-            ) || scored_wipe(p, i)
+            scored_wipe(p, i)
                 .is_some_and(|what| *what == ObjectSet::AttackingCreatures.kernel(Context::Spell))
         })
         || p.modes.iter().any(|m| reactive_program(&m.program))
@@ -163,12 +142,7 @@ fn sole_target_destruction(p: &SpellProgram, slot: u32) -> bool {
 // Pure protection needs an incremental benefit. Match public semantics rather
 // than a card or profile identity; buff/restriction equipment keeps its policy.
 fn pure_indestructible_equipment(d: &Definition, p: &SpellProgram) -> bool {
-    matches!(p.instructions.as_slice(), [I::AttachEquipment { .. }])
-        && matches!(d.static_abilities.as_slice(), [a] if matches!(&a.effect,
-            StaticEffect::ModifyCreatures { scope: mtg_contracts::CreatureScope::Equipped,
-                power, toughness, keywords, restrictions }
-                if *power == Quantity::zero() && *toughness == Quantity::zero()
-                    && keywords == &[KeywordAbility::Indestructible] && restrictions.is_empty()))
+    false
 }
 fn tapped_destroy_program(d: &Definition, p: &SpellProgram) -> bool {
     matches!(
@@ -246,44 +220,11 @@ fn tap_source_creature_untap(d: &Definition, p: &SpellProgram) -> bool {
 }
 // Recognize only a complete ordinary pure creature keyword spell. Additional
 // benefits, modal/activated programs and other grants retain their own policy.
-fn temporary_keyword_spell(d: &Definition, p: &SpellProgram, keyword: KeywordAbility) -> bool {
-    use mtg_contracts::{Chooser, Duration, EvaluationStage, FunctioningZone};
-    d.characteristics.kind == CardKind::Instant
-        && d.spell.as_ref() == Some(p)
-        && p.timing == SpellTiming::Instant
-        && p.functioning_zone == FunctioningZone::Stack
-        && p.resolution == SpellResolution::Instructions
-        && p.modes.is_empty()
-        && p.additional_sacrifice.is_none()
-        && matches!(p.targets.as_slice(), [t] if t.slot == 0
-            && !t.selection_id.is_empty() && t.chooser == Chooser::Controller
-            && t.stage == EvaluationStage::Announcement
-            && t.domain == TargetDomain::BattlefieldCreature && t.filter.is_none())
-        && matches!(p.instructions.as_slice(), [I::GrantKeywords {
-            target_slot: 0, modifier: None, keywords, duration: Duration::UntilEndOfTurn, ..
-        }] if keywords == &[keyword])
-}
-fn temporary_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
-    temporary_keyword_spell(d, p, KeywordAbility::Indestructible)
-}
-fn temporary_flying_spell(d: &Definition, p: &SpellProgram) -> bool {
-    temporary_keyword_spell(d, p, KeywordAbility::Flying)
-}
+
 // A distinct complete compound contract: the pump must not disappear into the
 // pure keyword recognizer. CR 608.2c, 611.2a, 613.4c and 702.12:
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-fn compound_indestructible_spell(d: &Definition, p: &SpellProgram) -> bool {
-    use mtg_contracts::Capability;
-    d.capabilities
-        .contains(&Capability::CompoundIndestructibleSpellV1)
-        && d.characteristics.kind == CardKind::Instant
-        && d.spell.as_ref() == Some(p)
-        && p.timing == SpellTiming::Instant
-        && compound_indestructible_parameters(p).is_some()
-}
-fn defensive_protection_spell(d: &Definition, p: &SpellProgram) -> bool {
-    temporary_indestructible_spell(d, p) || compound_indestructible_spell(d, p)
-}
+
 fn contains_untap(p: &SpellProgram) -> bool {
     p.instructions.iter().any(|i| {
         matches!(
@@ -410,19 +351,10 @@ impl Strategy<'_> {
             if power.is_negative() || toughness.is_negative() || restrictions.contains(&CreatureRestriction::CantAttackOrBlock)))
     }
     pub(super) fn target_beneficial(&self, d: &Definition, p: &SpellProgram, slot: u32) -> bool {
-        if defensive_protection_spell(d, p) || temporary_flying_spell(d, p) {
-            return slot == 0;
-        }
         if d.characteristics.subtypes.iter().any(|s| s == "Aura") {
             return !self.harmful_attachment(d);
         }
         p.instructions.iter().any(|i| match i {
-            I::AttachEquipment { target_slot, .. }
-            | I::ReturnOwnGraveyardCreatureToHand { target_slot, .. }
-            | I::ReturnOwnGraveyardCreatureToBattlefield { target_slot, .. }
-            | I::ReturnOwnGraveyardCardToHand { target_slot, .. }
-            | I::PreventNextDamage { target_slot, .. } => *target_slot == slot,
-            I::DistributePlusOneCounters { .. } => slot == 0,
             kernel!(PutCounters {
                 on: target_object!(target_slot),
                 ..
@@ -517,34 +449,7 @@ impl Strategy<'_> {
             }
             return self.defensive_untap_target(v, d, p, t, candidates);
         }
-        if temporary_flying_spell(d, p) {
-            return v
-                .objects
-                .iter()
-                .filter(|o| {
-                    o.controller == v.viewer
-                        && !o.keywords.contains(&KeywordAbility::Flying)
-                        && candidates.is_none_or(|cs| cs.contains(&o.handle))
-                        && self.object_matches(v, o, t, candidates.is_some())
-                        && self.flight_opportunity(v, d, o)
-                })
-                .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
-                .map(|o| o.handle.clone());
-        }
-        if defensive_protection_spell(d, p) {
-            return v
-                .objects
-                .iter()
-                .filter(|o| {
-                    o.controller == v.viewer
-                        && !o.keywords.contains(&KeywordAbility::Indestructible)
-                        && candidates.is_none_or(|cs| cs.contains(&o.handle))
-                        && self.object_matches(v, o, t, candidates.is_some())
-                        && self.protection_threat(v, d, p, o)
-                })
-                .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
-                .map(|o| o.handle.clone());
-        }
+
         if pure_indestructible_equipment(d, p) {
             let source = v
                 .stack
@@ -591,18 +496,7 @@ impl Strategy<'_> {
         }
         // The only permitted intervening entry is this spell's own incomplete
         // announcement when choosing its mandatory target.
-        if !v.stack.is_empty()
-            && !(v.stack.len() == 1
-                && v.stack.last().is_some_and(|s| {
-                    !s.cast_complete
-                        && s.controller == v.viewer
-                        && s.ability.is_none()
-                        && s.triggered.is_none()
-                        && self.entry_program(v, s).is_some_and(|(top, p)| {
-                            top.oracle_id == d.oracle_id && temporary_flying_spell(top, p)
-                        })
-                }))
-        {
+        if !v.stack.is_empty() {
             return false;
         }
         let Some(attack) = v
@@ -647,35 +541,9 @@ impl Strategy<'_> {
         p: &SpellProgram,
         o: &VisibleObject,
     ) -> bool {
-        if let Some((power, bonus)) = compound_indestructible_parameters(p) {
-            // Recognition includes signed parameters, but autonomous defense
-            // does not trade away power/toughness or rescue zero toughness by
-            // indestructibility (CR 704.5f). Keep the whole compound effect.
-            if power.is_negative() || bonus.is_negative() {
-                return false;
-            }
-            let Some(mut result) = o.characteristics.as_ref().and_then(|c| c.toughness.clone())
-            else {
-                return false;
-            };
-            result.add(bonus);
-            if result <= Quantity::zero() {
-                return false;
-            }
-        }
         let mut entries = v.stack.iter().rev();
         let mut next = entries.next();
-        if next.is_some_and(|s| {
-            !s.cast_complete
-                && s.controller == v.viewer
-                && s.ability.is_none()
-                && s.triggered.is_none()
-                && self.entry_program(v, s).is_some_and(|(top, p)| {
-                    top.oracle_id == d.oracle_id && defensive_protection_spell(top, p)
-                })
-        }) {
-            next = entries.next();
-        }
+
         let damage_safe =
             !v.effects.iter().any(|e| {
                 matches!(e,
@@ -981,12 +849,7 @@ impl Strategy<'_> {
                         },
                         amount: fixed!(amount),
                         ..
-                    })
-                    | I::SacrificeDamage {
-                        target_slot: Some(target_slot),
-                        amount: SacrificeDamageAmount::Fixed { value: amount },
-                        ..
-                    } => {
+                    }) => {
                         if s.entity_targets
                             .get(*target_slot as usize)
                             .is_some_and(|t| entity_matches(t, target))
@@ -1101,22 +964,7 @@ impl Strategy<'_> {
         if o.token.is_some() || self.about_to_die(v, o) {
             return true;
         }
-        let amount = if p.instructions.iter().any(|i| {
-            matches!(
-                i,
-                I::SacrificeDamage {
-                    amount: SacrificeDamageAmount::SacrificedPower,
-                    ..
-                }
-            )
-        }) {
-            o.characteristics
-                .as_ref()
-                .and_then(|c| c.power.clone())
-                .unwrap_or_default()
-        } else {
-            self.damage_amount(v, p)
-        };
+        let amount = { self.damage_amount(v, p) };
         let amount = self.scaled_damage(v, &amount);
         v.players.iter().any(|r| {
             r.player != v.viewer && v.live_turn_order.contains(&r.player) && r.life <= amount
@@ -1195,28 +1043,7 @@ impl Strategy<'_> {
                     amount: announced_x!(),
                     ..
                 }) => v.stack.last()?.x.clone(),
-                I::SacrificeDamage {
-                    amount: SacrificeDamageAmount::Fixed { value },
-                    ..
-                } => Some(value.clone()),
-                I::SacrificeDamage {
-                    amount: SacrificeDamageAmount::SacrificedPower,
-                    ..
-                } => {
-                    // Public prepayment estimate. If the sacrifice has already left,
-                    // prefer a player rather than inventing hidden last-known facts.
-                    p.additional_sacrifice
-                        .as_ref()
-                        .and_then(|f| {
-                            self.sacrifice_objects(v, f).into_iter().min_by_key(|o| {
-                                (
-                                    !self.sacrifice_worthwhile(v, p, o),
-                                    self.sacrifice_rank(v, o),
-                                )
-                            })
-                        })
-                        .and_then(|o| o.characteristics.as_ref()?.power.clone())
-                }
+
                 _ => None,
             })
             .unwrap_or_default()
@@ -1243,36 +1070,6 @@ impl Strategy<'_> {
         p: &SpellProgram,
         candidates: &[PlayerTargetEntity],
     ) -> Option<PlayerTargetEntity> {
-        if p.instructions
-            .iter()
-            .any(|i| matches!(i, I::PreventNextDamage { .. }))
-        {
-            return candidates
-                .iter()
-                .filter(|e| match e {
-                    PlayerTargetEntity::Player { player } => *player == v.viewer,
-                    PlayerTargetEntity::Object { object } => v
-                        .objects
-                        .iter()
-                        .any(|o| &o.handle == object && o.controller == v.viewer),
-                })
-                .max_by_key(|e| self.incoming_damage(v, e))
-                .cloned()
-                .or_else(|| {
-                    v.objects
-                        .iter()
-                        .filter(|o| {
-                            o.controller == v.viewer
-                                && candidates.contains(&PlayerTargetEntity::Object {
-                                    object: o.handle.clone(),
-                                })
-                        })
-                        .max_by_key(|o| self.value(o))
-                        .map(|o| PlayerTargetEntity::Object {
-                            object: o.handle.clone(),
-                        })
-                });
-        }
         let amount = self.scaled_damage(v, &self.damage_amount(v, p));
         let player = candidates
             .iter()
@@ -1591,25 +1388,6 @@ impl Strategy<'_> {
         }
         for i in &p.instructions {
             match i {
-                I::PreventCombatDamage { .. }
-                    if !v.combat.iter().any(|a| a.defender == v.viewer)
-                        || !matches!(
-                            v.turn.step,
-                            TurnStep::DeclareAttackers
-                                | TurnStep::DeclareBlockers
-                                | TurnStep::FirstStrikeDamage
-                        ) =>
-                {
-                    return false;
-                }
-                I::PreventNextDamage { .. }
-                    if !self
-                        .friendly_entities(v)
-                        .iter()
-                        .any(|e| self.incoming_damage(v, e) > Quantity::zero()) =>
-                {
-                    return false;
-                }
                 _ => {}
             }
         }
@@ -1673,11 +1451,7 @@ impl Strategy<'_> {
         // Only the ordinary nonmodal spell is recognized here. In particular,
         // a modal child or activated program does not acquire this new policy.
         self.program_ready(v, d, p)
-            && (reactive_program(p)
-                || tapped_destroy_spell(d, p)
-                || defensive_untap_spell(d, p)
-                || defensive_protection_spell(d, p)
-                || temporary_flying_spell(d, p))
+            && (reactive_program(p) || tapped_destroy_spell(d, p) || defensive_untap_spell(d, p))
     }
     pub(super) fn supported_cast_target(&self, v: &PermittedView, handle: &ObjectHandle) -> bool {
         v.objects
@@ -1830,13 +1604,7 @@ impl Strategy<'_> {
                     .and_then(|d| d.static_abilities.get(*static_ability_index as usize))
                     .is_some_and(|a| matches!(a.effect, StaticEffect::GrantSpellCascade { .. })),
                 VisibleTriggerAbility::TemporaryGrant { oracle_id, .. } => {
-                    definition(self.catalog, oracle_id).is_ok_and(|d| {
-                        d.spell.as_ref().is_some_and(|p| {
-                            p.instructions
-                                .iter()
-                                .any(|i| matches!(i, I::GrantHandCastCascade { .. }))
-                        })
-                    })
+                    definition(self.catalog, oracle_id).is_ok_and(|d| false)
                 }
                 _ => false,
             };
@@ -1847,12 +1615,7 @@ impl Strategy<'_> {
         let Some((d, p)) = self.top_program(v) else {
             return false;
         };
-        if p.instructions.iter().any(|i| {
-            matches!(i, I::ChooseOptional { source_block, .. }
-            if block == Some(*source_block))
-        }) {
-            return true;
-        }
+
         let instruction = block
             .and_then(|block| p.instructions.iter().find(|i| i.source_block() == block))
             .or_else(|| match p.instructions.as_slice() {
@@ -1860,23 +1623,10 @@ impl Strategy<'_> {
                 _ => None,
             });
         match instruction {
-            Some(I::Cascade { .. } | I::RevealAndCast { .. }) => {
-                return self.revealed_cast_ready(v);
-            }
-            Some(I::OptionalDrawCards { .. } | I::OptionalDrawForSoleGreatestEntrant { .. })
-                if s.controller == v.viewer =>
-            {
-                return self.library_count(v) > 1;
-            }
             _ => {}
         }
         // Optional damage uses entity targets; optional removal uses object targets.
-        if p.instructions
-            .iter()
-            .any(|i| matches!(i, I::SacrificeDamage { .. }))
-        {
-            return true;
-        }
+
         s.targets
             .iter()
             .enumerate()
@@ -1983,17 +1733,16 @@ impl Strategy<'_> {
                     })
                     .min_by_key(|(index, child)| {
                         let impact = child.instructions.iter().any(|i| {
-                            develops_mana(i)
-                                || matches!(
-                                    i,
-                                    kernel!(CreateTokens {
-                                        token: kir::TokenSpec::Creature { .. },
-                                        ..
-                                    }) | kernel!(Draw {
-                                        player: kir::PlayerExpr::Is { .. },
-                                        amount: fixed!(_)
-                                    }) | I::DistributePlusOneCounters { .. }
-                                )
+                            matches!(
+                                i,
+                                kernel!(CreateTokens {
+                                    token: kir::TokenSpec::Creature { .. },
+                                    ..
+                                }) | kernel!(Draw {
+                                    player: kir::PlayerExpr::Is { .. },
+                                    amount: fixed!(_)
+                                })
+                            )
                         });
                         (!impact, *index)
                     })
@@ -2024,12 +1773,6 @@ impl Strategy<'_> {
         }
         let (tap, sac, cost) = match &a.cost {
             ActivationCost::TapPayLifeSacrificeSource { life } => {
-                if self.library_count(v) == 0
-                    || !a.program.instructions.iter().any(develops_mana)
-                    || v.players
-                        .iter()
-                        .find(|p| p.player == v.viewer)
-                        .is_none_or(|p| p.life_frozen_until_next_turn || p.life <= *life)
                 {
                     return None;
                 }
@@ -2134,32 +1877,7 @@ impl Strategy<'_> {
         {
             return None;
         }
-        if a.program
-            .instructions
-            .iter()
-            .any(|i| matches!(i, I::AttachEquipment { .. }))
-        {
-            let t = a.program.targets.first()?;
-            let target = if pure_indestructible_equipment(d, &a.program) {
-                self.protection_equipment_target(v, t, None, Some(o))?
-            } else {
-                self.object_target(v, d, &a.program, t, None)?
-            };
-            if o.attached_to.as_ref() == Some(&target) {
-                return None;
-            }
-            if let Some(current) = o
-                .attached_to
-                .as_ref()
-                .and_then(|h| v.objects.iter().find(|o| &o.handle == h))
-                && let Some(next) = v.objects.iter().find(|o| o.handle == target)
-                && (!pure_indestructible_equipment(d, &a.program)
-                    || (current.zone == Zone::Battlefield && current.controller == v.viewer))
-                && self.value(current) >= self.value(next)
-            {
-                return None;
-            }
-        }
+
         self.mana_plan = mana_policy::plan_for(
             self.catalog,
             v,
@@ -2307,9 +2025,6 @@ impl Strategy<'_> {
                             | mtg_contracts::TriggerCondition::OpponentCreatureDies
                     )
                 })
-                || d.spell
-                    .as_ref()
-                    .is_some_and(|p| p.instructions.iter().any(develops_mana))
         };
         for stage in 0..5 {
             for o in &v.objects {

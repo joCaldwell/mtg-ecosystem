@@ -39,7 +39,6 @@ pub enum CreatureLossReason {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlayerLossReason {
-    TargetedEffect,
     CommanderDamage,
     Life,
     FailedDraw,

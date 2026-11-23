@@ -255,10 +255,7 @@ enum DrawKind {
 }
 
 fn is_look_top(definition: &Definition, cursor: u32, source_block: u32) -> bool {
-    definition.triggered.iter().any(|ability| {
-        matches!(ability.program.instructions.get(cursor as usize),
-            Some(Instruction::LookTopMayRevealForMana { source_block: block, .. }) if *block == source_block)
-    })
+    false
 }
 
 fn collect(
@@ -399,12 +396,7 @@ fn collect(
                                 note_hand(&mut facts, movement, draw);
                             }
                         }
-                        EventOutcome::LibrarySelected {
-                            hand: Some(movement),
-                            ..
-                        } if opening_complete => {
-                            note_hand(&mut facts, movement, DrawKind::Acquisition);
-                        }
+
                         _ => {}
                     }
                 }

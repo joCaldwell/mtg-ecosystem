@@ -20,18 +20,12 @@ use std::{
 /// that test identity with this compiled one.
 pub(crate) const BUILD: mtg_core::BuildIdentity = mtg_core::compiled_build_identity!();
 
-mod actions_payments_games;
 mod bulk_input;
-mod choices_games;
 mod combat_games;
-mod commander_games;
 mod coverage_cli;
-mod damage_library_games;
-mod damage_life_games;
 mod deck_analytics;
 #[cfg(all(test, feature = "diagnostic-allocations"))]
 mod diagnostic_allocations;
-mod effects_games;
 mod match_games;
 mod search_candidates;
 mod search_cli;
@@ -40,10 +34,8 @@ mod search_policy;
 mod search_roots;
 mod search_sampler;
 mod smoke;
-mod stack_costs_games;
 #[cfg(test)]
 mod trace_reuse_tests;
-mod triggers_games;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,36 +57,6 @@ struct Bundle {
     mana_keep: ScenarioEvidence,
     turns: ScenarioEvidence,
     combat: Vec<combat_games::CombatEvidence>,
-    commander_catalog: Catalog,
-    commander_records: Vec<String>,
-    commander: Vec<commander_games::CommanderEvidence>,
-    damage_catalog: Catalog,
-    damage_records: Vec<String>,
-    library_catalog: Catalog,
-    library_records: Vec<String>,
-    damage_library: Vec<damage_library_games::Evidence>,
-    action_catalog: Catalog,
-    action_records: Vec<String>,
-    actions_payments: Vec<actions_payments_games::Evidence>,
-    stack_catalog: Catalog,
-    stack_records: Vec<String>,
-    stack_costs: Vec<stack_costs_games::Evidence>,
-    damage_life_catalog: Catalog,
-    damage_life_records: Vec<String>,
-    damage_life: Vec<damage_life_games::Evidence>,
-    trigger_catalog: Catalog,
-    trigger_records: Vec<String>,
-    triggers: Vec<triggers_games::Evidence>,
-    effect_catalog: Catalog,
-    effect_records: Vec<String>,
-    effects: Vec<effects_games::Evidence>,
-    choice_catalog: Catalog,
-    choice_records: Vec<String>,
-    choices: Vec<choices_games::Evidence>,
-    match_catalog: Catalog,
-    match_records: Vec<String>,
-    matches: Vec<match_games::Evidence>,
-    draw_failure: match_games::Evidence,
     build_id: String,
     catalog: Catalog,
     config: ScenarioConfig,
@@ -134,7 +96,7 @@ struct BundleMetadata {
 fn read_bundle_metadata(reader: impl Read) -> Result<BundleMetadata, String> {
     let metadata: BundleMetadata =
         serde_json::from_reader(reader).map_err(|error| error.to_string())?;
-    if metadata.bundle_version != 20 {
+    if metadata.bundle_version != 21 {
         return Err("unsupported metadata bundle version".into());
     }
     Ok(metadata)
@@ -953,101 +915,10 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         &turns_game,
     ];
     trace_games.extend(combat_games.iter());
-    let (mut trace_runs, trace_report) = trace_runs(&catalog, &trace_games)?;
+    let (trace_runs, trace_report) = trace_runs(&catalog, &trace_games)?;
     // Trace evidence and reports own their data; release completed family games.
     drop(trace_games);
     drop(combat_games);
-    let commander_catalog =
-        mtg_compiler::catalog::embedded_catalog("commander").map_err(|e| e.to_string())?;
-    let (commander, commander_games, commander_report) =
-        commander_games::suite(&commander_catalog, false)?;
-    let commander_refs = commander_games.iter().collect::<Vec<_>>();
-    let (commander_traces, commander_trace_report) =
-        crate::trace_runs(&commander_catalog, &commander_refs)?;
-    trace_runs.extend(commander_traces);
-    drop(commander_refs);
-    drop(commander_games);
-    let damage_catalog =
-        mtg_compiler::catalog::embedded_catalog("damage").map_err(|e| e.to_string())?;
-    let library_catalog =
-        mtg_compiler::catalog::embedded_catalog("library").map_err(|e| e.to_string())?;
-    let (damage_library, lifecycle_games, lifecycle_report) =
-        damage_library_games::suite(&damage_catalog, &library_catalog, false)?;
-    let mut lifecycle_trace_report = vec![];
-    for (index, reference) in lifecycle_games.iter().enumerate() {
-        let catalog = if index < 3 {
-            &damage_catalog
-        } else {
-            &library_catalog
-        };
-        let (runs, reports) = crate::trace_runs(catalog, &[reference])?;
-        trace_runs.extend(runs);
-        lifecycle_trace_report.extend(
-            reports
-                .as_array()
-                .ok_or("invalid lifecycle trace report")?
-                .iter()
-                .cloned(),
-        );
-    }
-    drop(lifecycle_games);
-    let action_catalog =
-        mtg_compiler::catalog::embedded_catalog("action").map_err(|e| e.to_string())?;
-    let (actions_payments, action_games, action_report) =
-        actions_payments_games::suite(&action_catalog, false)?;
-    let action_refs = action_games.iter().collect::<Vec<_>>();
-    let (action_traces, action_trace_report) = crate::trace_runs(&action_catalog, &action_refs)?;
-    trace_runs.extend(action_traces);
-    drop(action_refs);
-    drop(action_games);
-    let stack_catalog =
-        mtg_compiler::catalog::embedded_catalog("stack").map_err(|e| e.to_string())?;
-    let (stack_costs, stack_games, stack_report) = stack_costs_games::suite(&stack_catalog, false)?;
-    let stack_refs = stack_games.iter().collect::<Vec<_>>();
-    let (stack_traces, stack_trace_report) = crate::trace_runs(&stack_catalog, &stack_refs)?;
-    trace_runs.extend(stack_traces);
-    drop(stack_refs);
-    drop(stack_games);
-    let damage_life_catalog =
-        mtg_compiler::catalog::embedded_catalog("damage-life").map_err(|e| e.to_string())?;
-    let (damage_life, damage_life_games, damage_life_report) =
-        damage_life_games::suite(&damage_life_catalog, false)?;
-    let damage_life_refs = damage_life_games.iter().collect::<Vec<_>>();
-    let (damage_life_traces, damage_life_trace_report) =
-        crate::trace_runs(&damage_life_catalog, &damage_life_refs)?;
-    trace_runs.extend(damage_life_traces);
-    drop(damage_life_refs);
-    drop(damage_life_games);
-    let trigger_catalog =
-        mtg_compiler::catalog::embedded_catalog("trigger").map_err(|e| e.to_string())?;
-    let (triggers, trigger_games, trigger_report) = triggers_games::suite(&trigger_catalog, false)?;
-    let trigger_refs = trigger_games.iter().collect::<Vec<_>>();
-    let (trigger_traces, trigger_trace_report) =
-        crate::trace_runs(&trigger_catalog, &trigger_refs)?;
-    trace_runs.extend(trigger_traces);
-    drop(trigger_refs);
-    drop(trigger_games);
-    let effect_catalog =
-        mtg_compiler::catalog::embedded_catalog("effects").map_err(|e| e.to_string())?;
-    let (effects, effect_games, effect_report) = effects_games::suite(&effect_catalog, false)?;
-    let effect_refs = effect_games.iter().collect::<Vec<_>>();
-    let (effect_traces, effect_trace_report) = crate::trace_runs(&effect_catalog, &effect_refs)?;
-    trace_runs.extend(effect_traces);
-    drop(effect_refs);
-    drop(effect_games);
-    let choice_catalog =
-        mtg_compiler::catalog::embedded_catalog("choices").map_err(|e| e.to_string())?;
-    let (choices, choice_games, choice_report) = choices_games::suite(&choice_catalog, false)?;
-    let choice_refs = choice_games.iter().collect::<Vec<_>>();
-    let (choice_traces, choice_trace_report) = crate::trace_runs(&choice_catalog, &choice_refs)?;
-    trace_runs.extend(choice_traces);
-    drop(choice_refs);
-    drop(choice_games);
-    let match_catalog =
-        mtg_compiler::catalog::embedded_catalog("match").map_err(|e| e.to_string())?;
-    let (matches, match_report) = match_games::suite(&match_catalog)?;
-    let draw_failure = match_games::draw_failure(&match_catalog)?;
-    let draw_report = serde_json::json!({"outcome":draw_failure.outcome,"winner":draw_failure.winner,"losses":draw_failure.losses,"turns":draw_failure.turns,"decisions":draw_failure.decisions,"rule_steps":draw_failure.rule_steps,"survivor_counts":draw_failure.survivor_counts,"state_sha256":draw_failure.final_state_sha256,"elapsed_millis":draw_failure.elapsed_millis});
     let bundle = Bundle {
         trace_runs,
         departure,
@@ -1058,73 +929,13 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         mana_keep,
         turns,
         combat,
-        commander_catalog,
-        commander_records: fixtures::COMMANDER_RECORDS
-            .iter()
-            .map(|(_, record)| (*record).into())
-            .collect(),
-        commander,
-        damage_catalog,
-        damage_records: fixtures::DAMAGE_RECORDS
-            .iter()
-            .map(|(_, record)| (*record).into())
-            .collect(),
-        library_catalog,
-        library_records: fixtures::LIBRARY_RECORDS
-            .iter()
-            .map(|(_, record)| (*record).into())
-            .collect(),
-        damage_library,
-        action_catalog,
-        action_records: fixtures::ACTION_RECORDS
-            .iter()
-            .map(|(_, record)| (*record).into())
-            .collect(),
-        actions_payments,
-        stack_catalog,
-        stack_records: fixtures::STACK_RECORDS
-            .iter()
-            .map(|(_, record)| (*record).into())
-            .collect(),
-        stack_costs,
-        damage_life_catalog,
-        damage_life_records: fixtures::DAMAGE_LIFE_RECORDS
-            .iter()
-            .map(|(_, record)| (*record).into())
-            .collect(),
-        damage_life,
-        trigger_catalog,
-        trigger_records: fixtures::TRIGGER_RECORDS
-            .iter()
-            .map(|(_, record)| (*record).into())
-            .collect(),
-        triggers,
-        effect_catalog,
-        effect_records: fixtures::EFFECT_RECORDS
-            .iter()
-            .map(|(_, r)| (*r).into())
-            .collect(),
-        effects,
-        choice_catalog,
-        choice_records: fixtures::CHOICE_RECORDS
-            .iter()
-            .map(|(_, r)| (*r).into())
-            .collect(),
-        choices,
-        match_catalog,
-        match_records: fixtures::MATCH_RECORDS
-            .iter()
-            .map(|(_, r)| (*r).into())
-            .collect(),
-        matches,
-        draw_failure,
-        bundle_version: 20,
+        bundle_version: 21,
         build_id: BUILD.id.into(),
         catalog,
         config: prepared.config().clone(),
         profile_digest: prepared.profile_digest().into(),
         archive_manifest: fixtures::MANIFEST.into(),
-        records: fixtures::RECORDS.iter().map(|(_, r)| (*r).into()).collect(),
+        records: mtg_compiler::embedded_catalog_records("base").map_err(|e| e.to_string())?,
         initial_snapshot,
         announcement_snapshot,
         journal: game.replay_journal(),
@@ -1139,129 +950,22 @@ fn demo() -> Result<(Bundle, serde_json::Value), String> {
         rustflags: BUILD.rustflags.into(),
         query_sidecar,
     };
-    let mut report = serde_json::json!({"status":"scenario_verified","choices":choice_report,"choices_trace_equivalence":choice_trace_report,"effects":effect_report,"effects_trace_equivalence":effect_trace_report,"triggers":trigger_report,"triggers_trace_equivalence":trigger_trace_report,"damage_life":damage_life_report,"damage_life_trace_equivalence":damage_life_trace_report,"stack_costs":stack_report,"stack_costs_trace_equivalence":stack_trace_report,"actions_payments":action_report,"actions_payments_trace_equivalence":action_trace_report,"damage_library":lifecycle_report,"damage_library_trace_equivalence":lifecycle_trace_report,"commander":commander_report,"commander_trace_equivalence":commander_trace_report,"combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD.id,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
+    let report = serde_json::json!({"status":"scenario_verified","combat":combat_report,"turns":turns_report,"departure":departure_report,"response":response_report,"detached_response":detached_report,"mana_casting":mana_casting_report,"mana_undo":mana_undo_report,"mana_keep":mana_keep_report,"trace_equivalence":trace_report,"build_id":BUILD.id,"catalog_digest":prepared.catalog_digest(),"profile_digest":prepared.profile_digest(),
         "state_sha256":game.state_digest()?,"accepted_inputs":game.journal().len(),"events":game.events(),"restore_fork_replay_equal":true,
         "player_observations": (0..4).map(|v|observation(&game,PlayerId(v))).collect::<Result<Vec<_>,_>>()?,
         "search_context":search_context(&game,PlayerId(0),"separate-sampling-seed".into())?,
         "retained_branch_observations":retained_branch_observations,
         "timing_observations":{"four_equivalent_runs_ns":elapsed,"priority_query_mean_ns":query_ns.to_string(),"clone_and_dispose_mean_ns":fork_ns.to_string(),"representative_commander_benchmark":false}});
-    report["matches"] = match_report;
-    report["draw_failure"] = draw_report;
     Ok((bundle, report))
 }
-/// Each explicitly selected pool binds its reviewed definitions to the
-/// retained source records and declares every retained record it does not
-/// admit. Schema numbers never select pools.
-fn verify_source_catalog(
-    pool: &str,
-    manifest: &str,
-    catalog: &Catalog,
-    records: &[String],
-) -> Result<(), String> {
-    const CRUEL: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
-    const BLOOD: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
-    const FLAME: &str = "28479aa8-d1cd-421a-8bbb-0594bb4dd410";
-    const DEATHGREETER: &str = "b7ad11dc-c962-4034-b15a-a080c6fff75f";
-    const RIGHTEOUSNESS: &str = "3f6b2f76-0364-415e-a6a2-e9e5bf31b745";
-    const SALVE: &str = "8da8644c-75a1-4fe9-8e94-900d948d631c";
-    const VIOLENCE: &str = "7c340a39-4ee0-4ba1-bb66-6674f8020fda";
-    catalog.validate()?;
-    let (unadmitted, negative): (&[&str], &[&str]) = match pool {
-        "base" | "commander" | "damage" | "library" => (&[CRUEL], &[]),
-        "action" | "stack" => (&[BLOOD], &[]),
-        "damage-life" => (&[BLOOD], &[FLAME]),
-        "trigger" => (&[], &[FLAME, DEATHGREETER]),
-        "effects" => (&[SALVE, VIOLENCE, RIGHTEOUSNESS], &[FLAME, DEATHGREETER]),
-        "choices" => (
-            &[VIOLENCE, RIGHTEOUSNESS],
-            &[
-                FLAME,
-                DEATHGREETER,
-                "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496", // Boros Charm: unsupported complete modes
-                "2825ff5a-5340-4494-bfde-80f6f5bce5a2", // Lavaborn Muse: unsupported condition
-            ],
-        ),
-        "match" => (
-            // Complete source support does not widen this closed pool.
-            &[
-                "51ce0158-c9a5-4fa5-9704-46ab02f01b86",
-                VIOLENCE,
-                RIGHTEOUSNESS,
-            ],
-            &[
-                FLAME,
-                DEATHGREETER,
-                "2679d0dd-ba30-4a1c-b6a0-b3ac6c790496",
-                "2825ff5a-5340-4494-bfde-80f6f5bce5a2",
-            ],
-        ),
-        _ => return Err("unknown source coverage pool".into()),
-    };
-    // The retained records predate Archive R4, so they are not lowered again:
-    // each admitted definition must carry exactly its retained record's
-    // identity, and every other record must be one this pool declares
-    // unadmitted or unsupported.
-    let archive = accepted_manifest(manifest)?;
-    let (mut definitions, mut retained) = (vec![], vec![]);
-    for record in records {
-        let record: serde_json::Value = strict_read(record)?;
-        let identity = record["oracleIdentity"]
-            .as_str()
-            .ok_or("missing retained source identity")?;
-        match catalog.definitions.iter().find(|d| d.oracle_id == identity) {
-            Some(definition) => {
-                let p = &definition.provenance;
-                if record["sourceSha256"] != p.source_sha256.as_str()
-                    || record["astSha256"] != p.ast_sha256.as_str()
-                    || record["bindingSha256"] != p.binding_sha256.as_str()
-                    || sha256(p.source_json.as_bytes()) != p.source_sha256
-                    || sha256(format!("[{}]", p.abilities_json).as_bytes()) != p.ast_sha256
-                    || p.archive_manifest_sha256 != archive.manifest_sha256
-                {
-                    return Err("retained source and admitted definition disagree".into());
-                }
-                definitions.push(definition.clone());
-            }
-            None => retained.push(identity.to_string()),
-        }
-    }
-    definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    retained.sort();
-    let mut expected = unadmitted
-        .iter()
-        .chain(negative)
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
-    expected.sort();
-    if definitions != catalog.definitions || retained != expected {
-        return Err("retained source admission coverage mismatch".into());
-    }
-    Ok(())
-}
-
-type RecordSet<'a> = (&'a [String], &'static [(&'static str, &'static str)]);
-fn bundle_record_sets(b: &Bundle) -> [RecordSet<'_>; 11] {
-    [
-        (&b.records, &fixtures::RECORDS),
-        (&b.commander_records, &fixtures::COMMANDER_RECORDS),
-        (&b.damage_records, &fixtures::DAMAGE_RECORDS),
-        (&b.library_records, &fixtures::LIBRARY_RECORDS),
-        (&b.action_records, &fixtures::ACTION_RECORDS),
-        (&b.stack_records, &fixtures::STACK_RECORDS),
-        (&b.damage_life_records, &fixtures::DAMAGE_LIFE_RECORDS),
-        (&b.trigger_records, &fixtures::TRIGGER_RECORDS),
-        (&b.effect_records, &fixtures::EFFECT_RECORDS),
-        (&b.choice_records, &fixtures::CHOICE_RECORDS),
-        (&b.match_records, &fixtures::MATCH_RECORDS),
-    ]
-}
-fn exact_source_records(actual: &[String], expected: &[(&str, &str)]) -> Result<(), String> {
-    if !actual
-        .iter()
-        .map(String::as_str)
-        .eq(expected.iter().map(|(_, r)| *r))
-    {
+fn verify_source_catalog(catalog: &Catalog, records: &[String]) -> Result<(), String> {
+    let expected = mtg_compiler::embedded_catalog_records("base").map_err(|e| e.to_string())?;
+    if records != expected {
         return Err("retained exact source fixtures differ from this build".into());
+    }
+    let rebuilt = mtg_compiler::embedded_catalog("base").map_err(|e| e.to_string())?;
+    if *catalog != rebuilt {
+        return Err("retained source admission coverage mismatch".into());
     }
     Ok(())
 }
@@ -1346,38 +1050,15 @@ fn verify_native_source_bytes(
 
 fn verify_bundle(json: &str) -> Result<String, String> {
     let b: Bundle = strict_read(json)?;
-    if b.bundle_version != 20 || b.build_id != BUILD.id {
+    if b.bundle_version != 21 || b.build_id != BUILD.id {
         return Err("unsupported bundle version/build".into());
     }
     if b.archive_manifest != fixtures::MANIFEST {
         return Err("archive manifest differs from this build".into());
     }
-    for (actual, expected) in bundle_record_sets(&b) {
-        exact_source_records(actual, expected)?;
-    }
     verify_native_source_closure(&b)?;
-    for (pool, catalog, records) in [
-        ("base", &b.catalog, &b.records),
-        ("commander", &b.commander_catalog, &b.commander_records),
-        ("damage", &b.damage_catalog, &b.damage_records),
-        ("library", &b.library_catalog, &b.library_records),
-        ("action", &b.action_catalog, &b.action_records),
-        ("stack", &b.stack_catalog, &b.stack_records),
-        (
-            "damage-life",
-            &b.damage_life_catalog,
-            &b.damage_life_records,
-        ),
-        ("trigger", &b.trigger_catalog, &b.trigger_records),
-        ("effects", &b.effect_catalog, &b.effect_records),
-        ("choices", &b.choice_catalog, &b.choice_records),
-        ("match", &b.match_catalog, &b.match_records),
-    ] {
-        verify_source_catalog(pool, &b.archive_manifest, catalog, records)?;
-    }
-    if b.trace_runs.len()
-        != (109 + effects_games::POLICIES.len() + choices_games::POLICIES.len()) * 3
-    {
+    verify_source_catalog(&b.catalog, &b.records)?;
+    if b.trace_runs.len() != 12 * 3 {
         return Err("missing trace-mode evidence".into());
     }
     eprintln!(
@@ -1426,66 +1107,6 @@ fn verify_bundle(json: &str) -> Result<String, String> {
                 let entry = b.combat.get(n - 8).ok_or("missing combat trace group")?;
                 (&entry.config, &entry.journal, &entry.final_snapshot)
             }
-            n @ 12..=18 => {
-                let entry = b
-                    .commander
-                    .get(n - 12)
-                    .ok_or("missing commander trace group")?;
-                (
-                    &entry.scenario.config,
-                    &entry.scenario.journal,
-                    &entry.scenario.final_snapshot,
-                )
-            }
-            n @ 19..=25 => {
-                let entry = b
-                    .damage_library
-                    .get(n - 19)
-                    .ok_or("missing damage/library trace group")?;
-                (&entry.config, &entry.journal, &entry.final_snapshot)
-            }
-            n @ 26..=39 => {
-                let entry = b
-                    .actions_payments
-                    .get(n - 26)
-                    .ok_or("missing actions/payment trace group")?;
-                (&entry.config, &entry.journal, &entry.final_snapshot)
-            }
-            n @ 40..=57 => {
-                let entry = b
-                    .stack_costs
-                    .get(n - 40)
-                    .ok_or("missing stack/cost trace group")?;
-                (&entry.config, &entry.journal, &entry.final_snapshot)
-            }
-            n @ 58..=85 => {
-                let entry = b
-                    .damage_life
-                    .get(n - 58)
-                    .ok_or("missing damage/life trace group")?;
-                (&entry.config, &entry.journal, &entry.final_snapshot)
-            }
-            n @ 86..=108 => {
-                let entry = b
-                    .triggers
-                    .get(n - 86)
-                    .ok_or("missing ordinary trigger trace group")?;
-                (&entry.config, &entry.journal, &entry.final_snapshot)
-            }
-            n @ 109..=149 => {
-                let entry = b
-                    .effects
-                    .get(n - 109)
-                    .ok_or("missing effects trace group")?;
-                (&entry.config, &entry.journal, &entry.final_snapshot)
-            }
-            n if n >= 150 => {
-                let entry = b
-                    .choices
-                    .get(n - 150)
-                    .ok_or("missing choice/condition trace group")?;
-                (&entry.config, &entry.journal, &entry.final_snapshot)
-            }
             _ => return Err("unexpected trace-mode group".into()),
         };
         if run.mode != required_mode
@@ -1494,18 +1115,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         {
             return Err("trace-mode coverage/configuration mismatch".into());
         }
-        let catalog = match index / 3 {
-            0..=11 => &b.catalog,
-            12..=18 => &b.commander_catalog,
-            19..=21 => &b.damage_catalog,
-            22..=25 => &b.library_catalog,
-            26..=39 => &b.action_catalog,
-            40..=57 => &b.stack_catalog,
-            58..=85 => &b.damage_life_catalog,
-            86..=108 => &b.trigger_catalog,
-            109..=149 => &b.effect_catalog,
-            _ => &b.choice_catalog,
-        };
+        let catalog = &b.catalog;
         let p = Prepared::admit(catalog.clone(), run.config.clone())?;
         let expected = Game::restore(p.clone(), &run.final_snapshot)?;
         if index % 3 == 0 {
@@ -1533,7 +1143,7 @@ fn verify_bundle(json: &str) -> Result<String, String> {
             return Err("retained trace-mode equivalence failed".into());
         }
     }
-    eprintln!("verifying retained legacy recovery checkpoints");
+    eprintln!("verifying retained scenario recovery checkpoints");
     for scenario in [
         &b.response,
         &b.detached_response,
@@ -1555,16 +1165,6 @@ fn verify_bundle(json: &str) -> Result<String, String> {
         }
     }
     combat_games::verify(&b.catalog, &b.combat)?;
-    commander_games::verify(&b.commander_catalog, &b.commander)?;
-    damage_library_games::verify(&b.damage_catalog, &b.library_catalog, &b.damage_library)?;
-    actions_payments_games::verify(&b.action_catalog, &b.actions_payments)?;
-    stack_costs_games::verify(&b.stack_catalog, &b.stack_costs)?;
-    damage_life_games::verify(&b.damage_life_catalog, &b.damage_life)?;
-    triggers_games::verify(&b.trigger_catalog, &b.triggers)?;
-    effects_games::verify(&b.effect_catalog, &b.effects)?;
-    choices_games::verify(&b.choice_catalog, &b.choices)?;
-    match_games::verify_suite(&b.match_catalog, &b.matches)?;
-    match_games::verify_draw_failure(&b.match_catalog, &b.draw_failure)?;
     let departure_prepared = Prepared::admit(b.catalog.clone(), b.departure.config)?;
     let mut departure_verifier =
         SnapshotVerifier::new(departure_prepared.clone(), TraceMode::Detailed);
@@ -1803,74 +1403,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let metadata = read_bundle_metadata(BufReader::new(fs::File::open(&args[1])?))?;
             println!("{}", canonical(&metadata)?);
         }
-        Some("actions-payments-games")
-            if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
-        {
-            let (_, _, report) = actions_payments_games::suite(
-                &mtg_compiler::catalog::embedded_catalog("action").map_err(|e| e.to_string())?,
-                args.len() == 2,
-            )?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-        }
-        Some("stack-costs-games")
-            if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
-        {
-            let (_, _, report) = stack_costs_games::suite(
-                &mtg_compiler::catalog::embedded_catalog("stack").map_err(|e| e.to_string())?,
-                args.len() == 2,
-            )?;
-            println!("{}", canonical(&report)?)
-        }
-        Some("damage-life-games")
-            if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
-        {
-            let (_, _, report) = damage_life_games::suite(
-                &mtg_compiler::catalog::embedded_catalog("damage-life")
-                    .map_err(|e| e.to_string())?,
-                args.len() == 2,
-            )?;
-            println!("{}", canonical(&report)?)
-        }
-        Some("choices-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
-            let (_, _, report) = choices_games::suite(
-                &mtg_compiler::catalog::embedded_catalog("choices").map_err(|e| e.to_string())?,
-                args.len() == 2,
-            )?;
-            println!("{}", canonical(&report)?);
-        }
-        Some("effects-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
-            let (_, _, report) = effects_games::suite(
-                &mtg_compiler::catalog::embedded_catalog("effects").map_err(|e| e.to_string())?,
-                args.len() == 2,
-            )?;
-            println!("{}", canonical(&report)?)
-        }
-        Some("trigger-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
-            let (_, _, report) = triggers_games::suite(
-                &mtg_compiler::catalog::embedded_catalog("trigger").map_err(|e| e.to_string())?,
-                args.len() == 2,
-            )?;
-            println!("{}", canonical(&report)?)
-        }
-        Some("damage-library-games")
-            if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
-        {
-            let (_, _, report) = damage_library_games::suite(
-                &mtg_compiler::catalog::embedded_catalog("damage").map_err(|e| e.to_string())?,
-                &mtg_compiler::catalog::embedded_catalog("library").map_err(|e| e.to_string())?,
-                args.len() == 2,
-            )?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-        }
-        Some("commander-games")
-            if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") =>
-        {
-            let (_, _, report) = commander_games::suite(
-                &mtg_compiler::catalog::embedded_catalog("commander").map_err(|e| e.to_string())?,
-                args.len() == 2,
-            )?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-        }
         Some("combat-games") if args.len() == 1 || (args.len() == 2 && args[1] == "--recover") => {
             let (_, _, report) = combat_games::suite(
                 &mtg_compiler::catalog::embedded_catalog("base").map_err(|e| e.to_string())?,
@@ -1924,7 +1456,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: mtg-sim bench-pods PROFILE [OPTIONS]|choices-games [--recover]|effects-games [--recover]|trigger-games [--recover]|damage-life-games [--recover]|stack-costs-games [--recover]|bundle-metadata FILE|actions-payments-games [--recover]|combat-games [--recover]|commander-games [--recover]|damage-library-games [--recover]|schema|catalog build MANIFEST|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
+                "usage: mtg-sim bench-pods PROFILE [OPTIONS]|combat-games [--recover]|bundle-metadata FILE|schema|catalog build MANIFEST|report|observe PLAYER|context PLAYER SEED|demo [--bundle DIR]|verify-bundle FILE"
                     .into(),
             );
         }
@@ -1937,7 +1469,7 @@ mod tests {
     #[test]
     fn metadata_reader_skips_unknown_nested_strings_and_requires_typed_closure() {
         let metadata = serde_json::json!({
-            "bundle_version":20,"build_id":"historical-build",
+            "bundle_version":21,"build_id":"historical-build",
             "source_files":[{"path":"Cargo.toml","sha256":"source-digest","contents":"[workspace]\n"}],
             "rustflags":"","opt_level":"3","debug":"false","debug_assertions":"false",
             "target":"x86_64-unknown-linux-gnu","catalog":mtg_compiler::catalog::embedded_catalog("base").unwrap(),
@@ -1971,82 +1503,14 @@ mod tests {
     }
     #[test]
     fn source_coverage_binds_reviewed_definitions_to_retained_records() {
-        fn records(values: &[(&str, &str)]) -> Vec<String> {
-            values.iter().map(|(_, s)| (*s).into()).collect()
-        }
-        for (pool, catalog, source) in [
-            (
-                "base",
-                mtg_compiler::catalog::embedded_catalog("base").unwrap(),
-                records(&fixtures::RECORDS),
-            ),
-            (
-                "commander",
-                mtg_compiler::catalog::embedded_catalog("commander").unwrap(),
-                records(&fixtures::COMMANDER_RECORDS),
-            ),
-            (
-                "damage",
-                mtg_compiler::catalog::embedded_catalog("damage").unwrap(),
-                records(&fixtures::DAMAGE_RECORDS),
-            ),
-            (
-                "library",
-                mtg_compiler::catalog::embedded_catalog("library").unwrap(),
-                records(&fixtures::LIBRARY_RECORDS),
-            ),
-            (
-                "action",
-                mtg_compiler::catalog::embedded_catalog("action").unwrap(),
-                records(&fixtures::ACTION_RECORDS),
-            ),
-            (
-                "stack",
-                mtg_compiler::catalog::embedded_catalog("stack").unwrap(),
-                records(&fixtures::STACK_RECORDS),
-            ),
-            (
-                "damage-life",
-                mtg_compiler::catalog::embedded_catalog("damage-life").unwrap(),
-                records(&fixtures::DAMAGE_LIFE_RECORDS),
-            ),
-            (
-                "trigger",
-                mtg_compiler::catalog::embedded_catalog("trigger").unwrap(),
-                records(&fixtures::TRIGGER_RECORDS),
-            ),
-            (
-                "effects",
-                mtg_compiler::catalog::embedded_catalog("effects").unwrap(),
-                records(&fixtures::EFFECT_RECORDS),
-            ),
-            (
-                "choices",
-                mtg_compiler::catalog::embedded_catalog("choices").unwrap(),
-                records(&fixtures::CHOICE_RECORDS),
-            ),
-            (
-                "match",
-                mtg_compiler::catalog::embedded_catalog("match").unwrap(),
-                records(&fixtures::MATCH_RECORDS),
-            ),
-        ] {
-            verify_source_catalog(pool, fixtures::MANIFEST, &catalog, &source).unwrap();
-            assert!(
-                verify_source_catalog("unknown", fixtures::MANIFEST, &catalog, &source).is_err()
-            );
-            let mut missing = source.clone();
-            missing.pop();
-            assert!(verify_source_catalog(pool, fixtures::MANIFEST, &catalog, &missing).is_err());
-            let mut duplicate = source.clone();
-            duplicate.push(source[0].clone());
-            assert!(verify_source_catalog(pool, fixtures::MANIFEST, &catalog, &duplicate).is_err());
-            let mut forged = catalog.clone();
-            forged.definitions[0].provenance.source_sha256 = "0".repeat(64);
-            assert!(verify_source_catalog(pool, fixtures::MANIFEST, &forged, &source).is_err());
-        }
+        let catalog = mtg_compiler::embedded_catalog("base").unwrap();
+        let records = mtg_compiler::embedded_catalog_records("base").unwrap();
+        verify_source_catalog(&catalog, &records).unwrap();
+        assert!(verify_source_catalog(&catalog, &records[1..]).is_err());
+        let mut forged = catalog;
+        forged.definitions.pop();
+        assert!(verify_source_catalog(&forged, &records).is_err());
     }
-
     #[test]
     fn native_source_collection_excludes_nested_generated_and_build_artifacts() {
         struct Cleanup(std::path::PathBuf);
@@ -2252,31 +1716,6 @@ mod tests {
     #[test]
     fn bundle_contains_replayable_source_to_runtime_evidence() {
         let (bundle, report) = demo().unwrap();
-        let baseline: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../tests/fixtures/d1b3-history-scenario-digests.json"
-        ))
-        .unwrap();
-        for family in [
-            "combat",
-            "commander",
-            "damage_library",
-            "actions_payments",
-            "stack_costs",
-            "damage_life",
-            "triggers",
-            "effects",
-            "choices",
-        ] {
-            let digests = report[family]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|r| r["state_sha256"].clone())
-                .collect::<Vec<_>>();
-            assert_eq!(serde_json::json!(digests), baseline[family], "{family}");
-        }
-        assert_eq!(report["matches"]["passed"], true);
-        assert_eq!(report["matches"]["games"].as_array().unwrap().len(), 18);
         let final_snapshot: serde_json::Value =
             serde_json::from_str(&bundle.final_snapshot).unwrap();
         assert_eq!(
@@ -2289,33 +1728,10 @@ mod tests {
             report["state_sha256"].as_str().unwrap()
         );
         assert!(
-            verify_bundle(&json.replace("\"bundle_version\":20", "\"bundle_version\":21")).is_err()
+            verify_bundle(&json.replace("\"bundle_version\":21", "\"bundle_version\":22")).is_err()
         );
-        // Only exact source-byte binding rejects a mutated retained record.
-        for ((actual, expected), index) in bundle_record_sets(&bundle)
-            .into_iter()
-            .zip([5, 5, 5, 5, 11, 11, 11, 25, 34, 38, 40])
-        {
-            exact_source_records(actual, expected).unwrap();
-            let raw = &actual[index];
-            let mut record: serde_json::Value = serde_json::from_str(raw).unwrap();
-            record["source"]["artist"] = serde_json::json!("unconsumed source metadata witness");
-            record["sourceSha256"] =
-                sha256(canonical(&record["source"]).unwrap().as_bytes()).into();
-            record["bindingSha256"] =
-                sha256(canonical(&record["binding"]).unwrap().as_bytes()).into();
-            record["astSha256"] = sha256(
-                canonical(&serde_json::json!([
-                    record["faces"][0]["result"]["abilities"]
-                ]))
-                .unwrap()
-                .as_bytes(),
-            )
-            .into();
-            let changed = canonical(&record).unwrap();
-            let mut corrupt = actual.to_vec();
-            corrupt[index] = changed;
-            assert!(exact_source_records(&corrupt, expected).is_err());
-        }
+        let mut changed = bundle.records.clone();
+        changed[0].push(' ');
+        assert!(verify_source_catalog(&bundle.catalog, &changed).is_err());
     }
 }

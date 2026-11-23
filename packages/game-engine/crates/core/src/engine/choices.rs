@@ -329,8 +329,7 @@ impl BoundModeSubset {
                     let mut instruction = instruction.clone();
                     match (&mut instruction, child.targets.as_slice()) {
                         (_, []) => {}
-                        (Instruction::ShufflePlayerGraveyard { .. }, _)
-                            if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() => {}
+
                         (
                             kernel!(GainLife {
                                 player: target_player!(target_slot),
@@ -364,8 +363,6 @@ impl BoundModeSubset {
                                 what: target_object!(target_slot),
                                 ..
                             })
-                            | Instruction::PhaseOutTargetPermanent { target_slot, .. }
-                            | Instruction::CounterStackObject { target_slot, .. }
                             | kernel!(Move {
                                 what: target_object!(target_slot),
                                 to: mtg_contracts::kir::Destination::OwnerHand
@@ -490,11 +487,7 @@ impl RulesTxn {
                     | TargetDomain::CreatureOrPlaneswalker,
                 ) => &mut objects,
                 Some(TargetDomain::StackSpell) => &mut stack,
-                Some(TargetDomain::AnyPlayer)
-                    if mtg_contracts::graveyard_shuffle::offered_by(child).is_some() =>
-                {
-                    &mut group
-                }
+
                 Some(TargetDomain::AnyPlayer) => &mut players,
                 Some(TargetDomain::AnyDamageTarget) => &mut entities,
                 _ => return Err("unsupported selected-mode target group".into()),
@@ -532,18 +525,7 @@ impl RulesTxn {
                 ) => (0, 1),
                 Some(TargetDomain::StackSpell) => (1, 1),
                 Some(TargetDomain::AnyDamageTarget) => (3, 1),
-                Some(TargetDomain::AnyPlayer) => {
-                    if let Some(maximum) = mtg_contracts::graveyard_shuffle::offered_by(child) {
-                        if !entry.entity_targets.is_empty()
-                            && !self.graveyard_group_structure(&entry.entity_targets, maximum)
-                        {
-                            return Ok(false);
-                        }
-                        (3, entry.entity_targets.len().max(1))
-                    } else {
-                        (2, 1)
-                    }
-                }
+                Some(TargetDomain::AnyPlayer) => (2, 1),
                 _ => return Ok(false),
             };
             if found[bucket] == actual[bucket] {
@@ -685,19 +667,11 @@ impl RulesTxn {
         let root = self.root_program_for(top)?;
         // CR 601.2b, 700.2a, 903.3: choose both at announcement using the
         // current controller of a physically designated battlefield commander.
-        let may_choose_both = !top.kind.is_spell()
-            || !commander_choose_both(root)
-            || self.state.rules.commanders.records.keys().any(|card| {
-                self.state.rules.objects.get(card).is_some_and(|object| {
-                    object.zone == Zone::Battlefield && object.controller == top.controller
-                })
-            });
         let source = self.targeting_characteristics(top)?;
         let candidates = root
             .modes
             .iter()
             .enumerate()
-            .filter(|(i, _)| *i != 2 || may_choose_both)
             .filter(|(_, m)| self.has_target_domain(&m.program, top.controller, &source))
             .map(|(i, _)| i as u32)
             .collect();
@@ -980,7 +954,7 @@ impl RulesTxn {
         if let Frame::Resolve { frame }
         | Frame::ResolutionChoice { frame, .. }
         | Frame::LandEntry {
-            origin: EntryOrigin::Search { frame } | EntryOrigin::Copy { frame, .. },
+            origin: EntryOrigin::Copy { frame, .. },
             ..
         } = &self.state.rules.frame
         {
@@ -1128,19 +1102,5 @@ impl RulesTxn {
             .chain(d.activated.iter().map(|a| &a.program))
             .chain(d.triggered.iter().map(|a| &a.program))
             .collect())
-    }
-    pub(crate) fn shield_limit(&self, effect: &ResolvedEffect) -> Result<Quantity, String> {
-        for p in self.origin_programs(&effect.origin)? {
-            if let Some(Instruction::PreventNextDamage {
-                amount,
-                source_block,
-                ..
-            }) = p.instructions.get(effect.origin.cursor as usize)
-                && *source_block == effect.origin.source_block
-            {
-                return Ok(amount.clone());
-            }
-        }
-        Err("missing shield origin quantity".into())
     }
 }

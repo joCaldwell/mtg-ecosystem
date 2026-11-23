@@ -119,13 +119,7 @@ pub trait GameTestkit {
         ability: u32,
     ) -> Result<(), String>;
     fn announce_priority_spell(&mut self, player: PlayerId, card: CardId) -> Result<(), String>;
-    fn announced_graveyard_group(
-        &self,
-        caster: PlayerId,
-        chooser: PlayerId,
-        maximum: u8,
-        entities: &[TargetEntity],
-    ) -> Result<(PlayerId, Vec<ObjectId>), String>;
+
     fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool>;
     fn apply_departure(&mut self, player: PlayerId) -> Result<(), String>;
     fn apply_noncombat_damage(
@@ -208,7 +202,7 @@ pub trait GameTestkit {
     fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId>;
     fn current(&self, id: ObjectId) -> Result<&Object, String>;
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility>;
-    fn damage_allocation_request(&self) -> Result<Option<Request>, String>;
+
     fn damage_effect_group(
         &self,
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String>;
@@ -243,7 +237,7 @@ pub trait GameTestkit {
     fn entry_cause_for_test(&self) -> BatchCause;
     fn entry_copy_origin(&self, object: ObjectId) -> Option<(ObjectId, CardId)>;
     fn entry_group_for_test(&self) -> EventGroup;
-    fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String>;
+
     fn event_group_limit(&self) -> usize;
     fn execute_damage_life_instruction(
         &mut self,
@@ -318,7 +312,7 @@ pub trait GameTestkit {
         controller: PlayerId,
         f: &PermanentFilter,
     ) -> bool;
-    fn may_play_exile(&self, player: PlayerId, object: ObjectId) -> bool;
+
     fn mixed_mana_choices(
         &self,
         player: PlayerId,
@@ -442,7 +436,7 @@ pub trait GameTestkit {
     fn retain_source_lki(&mut self, object: ObjectId) -> Result<(), String>;
     fn sacrifice_candidates(&self, player: PlayerId, filter: &SacrificeFilter) -> Vec<ObjectId>;
     fn search_lands(&self, player: PlayerId) -> Vec<ObjectId>;
-    fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String>;
+
     fn selected_payment_pool(
         &self,
         player: PlayerId,
@@ -454,7 +448,7 @@ pub trait GameTestkit {
         root: &'a SpellProgram,
         mode: Option<u32>,
     ) -> Result<&'a SpellProgram, String>;
-    fn shield_limit(&self, effect: &ResolvedEffect) -> Result<Quantity, String>;
+
     fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String>;
     fn stabilization_wave_with_legends(
         &mut self,
@@ -474,7 +468,7 @@ pub trait GameTestkit {
     fn target_is_creature(&self, object: ObjectId) -> bool;
     fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool;
     fn targetable_player(&self, player: PlayerId) -> bool;
-    fn targeted_loss_authority(&self) -> Result<(BatchCause, PlayerId), String>;
+
     fn targeting_characteristics<'a>(
         &'a self,
         entry: &'a StackInstance,
@@ -560,11 +554,7 @@ pub trait GameTestkit {
     fn validate_tokens_state(&self) -> Result<(), String>;
     fn validate_trigger_entry(&self, entry: &StackInstance) -> Result<Option<TriggerId>, String>;
     fn validate_trigger_state(&self) -> Result<(), String>;
-    fn visible_allocation_candidate(
-        &self,
-        viewer: PlayerId,
-        c: &DamageAllocationCandidate,
-    ) -> Result<VisibleDamageAllocationCandidate, String>;
+
     fn visible_damage_effect_candidate(
         &self,
         viewer: PlayerId,
@@ -619,15 +609,7 @@ impl GameTestkit for Game {
     fn announce_priority_spell(&mut self, player: PlayerId, card: CardId) -> Result<(), String> {
         RulesTxn::announce_priority_spell(self, player, card)
     }
-    fn announced_graveyard_group(
-        &self,
-        caster: PlayerId,
-        chooser: PlayerId,
-        maximum: u8,
-        entities: &[TargetEntity],
-    ) -> Result<(PlayerId, Vec<ObjectId>), String> {
-        RulesTxn::announced_graveyard_group(self, caster, chooser, maximum, entities)
-    }
+
     fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
         RulesTxn::announced_target_legality(self, entry)
     }
@@ -785,9 +767,7 @@ impl GameTestkit for Game {
     fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
         RulesTxn::current_keywords(self, object)
     }
-    fn damage_allocation_request(&self) -> Result<Option<Request>, String> {
-        RulesTxn::damage_allocation_request(self)
-    }
+
     fn damage_effect_group(
         &self,
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String> {
@@ -860,9 +840,7 @@ impl GameTestkit for Game {
     fn entry_group_for_test(&self) -> EventGroup {
         RulesTxn::entry_group_for_test(self)
     }
-    fn entry_search_block(&self, frame: &Resolving) -> Result<u32, String> {
-        RulesTxn::entry_search_block(self, frame)
-    }
+
     fn event_group_limit(&self) -> usize {
         RulesTxn::event_group_limit(self)
     }
@@ -1013,9 +991,7 @@ impl GameTestkit for Game {
     ) -> bool {
         RulesTxn::matches_permanent_filter(self, object, controller, f)
     }
-    fn may_play_exile(&self, player: PlayerId, object: ObjectId) -> bool {
-        RulesTxn::may_play_exile(self, player, object)
-    }
+
     fn mixed_mana_choices(
         &self,
         player: PlayerId,
@@ -1243,9 +1219,7 @@ impl GameTestkit for Game {
     fn search_lands(&self, player: PlayerId) -> Vec<ObjectId> {
         RulesTxn::search_lands(self, player)
     }
-    fn searched_land_force_tapped(&self, player: PlayerId) -> Result<bool, String> {
-        RulesTxn::searched_land_force_tapped(self, player)
-    }
+
     fn selected_payment_pool(
         &self,
         player: PlayerId,
@@ -1261,9 +1235,7 @@ impl GameTestkit for Game {
     ) -> Result<&'a SpellProgram, String> {
         RulesTxn::selected_program(self, root, mode)
     }
-    fn shield_limit(&self, effect: &ResolvedEffect) -> Result<Quantity, String> {
-        RulesTxn::shield_limit(self, effect)
-    }
+
     fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         RulesTxn::source_facts(self, entry)
     }
@@ -1309,9 +1281,7 @@ impl GameTestkit for Game {
     fn targetable_player(&self, player: PlayerId) -> bool {
         RulesTxn::targetable_player(self, player)
     }
-    fn targeted_loss_authority(&self) -> Result<(BatchCause, PlayerId), String> {
-        RulesTxn::targeted_loss_authority(self)
-    }
+
     fn targeting_characteristics<'a>(
         &'a self,
         entry: &'a StackInstance,
@@ -1472,13 +1442,7 @@ impl GameTestkit for Game {
     fn validate_trigger_state(&self) -> Result<(), String> {
         RulesTxn::validate_trigger_state(self)
     }
-    fn visible_allocation_candidate(
-        &self,
-        viewer: PlayerId,
-        c: &DamageAllocationCandidate,
-    ) -> Result<VisibleDamageAllocationCandidate, String> {
-        RulesTxn::visible_allocation_candidate(self, viewer, c)
-    }
+
     fn visible_damage_effect_candidate(
         &self,
         viewer: PlayerId,

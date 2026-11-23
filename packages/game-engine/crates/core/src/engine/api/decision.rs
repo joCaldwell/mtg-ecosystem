@@ -26,9 +26,7 @@ impl RulesTxn {
         if matches!(self.state.rules.frame, Frame::Setup) {
             return Ok(self.setup_request()?);
         }
-        if let Some(req) = self.damage_allocation_request()? {
-            return Ok(Some(req));
-        }
+
         if let Some(req) = self.modes_request()? {
             return Ok(Some(req));
         }
@@ -124,9 +122,7 @@ impl RulesTxn {
                 candidates: self
                     .eligible_players(self.program()?.targets[0].domain, self.top()?.controller),
             },
-            Frame::SacrificeCost { .. }
-            | Frame::ForcedSacrifice { .. }
-            | Frame::OptionalDamage { .. } => {
+            Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. } => {
                 return Ok(self.sacrifice_request()?);
             }
             Frame::LandEntry { .. } => {
@@ -197,7 +193,7 @@ impl RulesTxn {
                 decision_id: self.state.rules.revision,
                 player: self.top()?.controller,
                 occurrences: self.program()?.targets.clone(),
-                counter_division: CounterDivision::offered_by(self.program()?),
+                counter_division: None,
                 candidates: self
                     .state
                     .rules
@@ -297,9 +293,7 @@ impl RulesTxn {
         }
         if matches!(
             self.state.rules.frame,
-            Frame::SacrificeCost { .. }
-                | Frame::ForcedSacrifice { .. }
-                | Frame::OptionalDamage { .. }
+            Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. }
         ) {
             return self.validate_sacrifice_response(player, response);
         }
@@ -321,11 +315,7 @@ impl RulesTxn {
         {
             return self.validate_damage_effect(player, effect, *damage);
         }
-        if let (Frame::DamageAllocation { .. }, Response::DamageAllocation { allocations }) =
-            (&self.state.rules.frame, response)
-        {
-            return self.validate_damage_allocation(player, allocations);
-        }
+
         if let (Frame::Modes { .. }, Response::ModeSubset { modes }) =
             (&self.state.rules.frame, response)
         {

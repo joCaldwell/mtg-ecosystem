@@ -250,15 +250,6 @@ impl RulesTxn {
         announcing: Option<(&CastPermission, ObjectId)>,
     ) -> Result<(), String> {
         let frame = &progress.frame;
-        if !matches!(
-            self.entry(frame.stack_id)?.kind,
-            StackKind::Activated { .. }
-        ) || frame.cursor != 0
-            || !frame.legal_targets.is_empty()
-            || !matches!(self.program_for(self.entry(frame.stack_id)?)?.instructions.as_slice(),
-                [Instruction::PlayHideawayLinked { source_block, hideaway_block, .. }]
-                if *source_block == progress.source_block && *hideaway_block == progress.hideaway_block)
-            || progress.children.len() > self.state.rules.cards.len()
         {
             return Err("snapshot linked play issuer".into());
         }
