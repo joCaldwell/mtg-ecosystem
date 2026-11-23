@@ -10,7 +10,9 @@ publish = false
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["raw_value"] }
+# float_roundtrip unifies serde_json with the host's jsonschema feature set, so
+# every selection (one crate or the workspace) shares one compiled copy.
+serde_json = { version = "1.0", features = ["raw_value", "float_roundtrip"] }
 schemars = "=1.2.3"
 num-bigint = "0.4"
 num-traits = "0.2"
@@ -23,24 +25,36 @@ mtg-core = { path = "packages/game-engine/crates/core" }
 [workspace.lints.rust]
 unsafe_code = "forbid"
 
+# The gate denies every other Clippy warning. These two would reshape rules
+# data (boxing snapshot-bearing enum variants) or long-standing internal call
+# signatures; neither signals a defect.
+[workspace.lints.clippy]
+large_enum_variant = "allow"
+too_many_arguments = "allow"
+
 [profile.release]
 overflow-checks = true
 
-# Optimize runtime-heavy verification while retaining development checks.
-# Line tables keep backtrace locations; full debug info cost ~18% compiler CPU
-# and ~2.6 GiB peak rustc RSS (generated/phase1-cargo-speedup receipts).
-# Incremental comes from the dev profile default.
+# One debug profile for check, Clippy, tests and the edit loop: `test` inherits
+# `dev`, so every command shares dependency artifacts and incremental state.
+# Line tables keep backtrace locations; full debug info cost ~18% compiler CPU.
 # https://doc.rust-lang.org/cargo/reference/profiles.html
-[profile.test]
-opt-level = 2
+[profile.dev]
 debug = "line-tables-only"
-debug-assertions = true
-overflow-checks = true
 
-# Focused development tests favor compile time and keep backtrace locations.
-[profile.quick]
-inherits = "dev"
-opt-level = 0
-debug = "line-tables-only"
-debug-assertions = true
-overflow-checks = true
+# External packages are optimized once per worktree and carry no debug info.
+# https://doc.rust-lang.org/cargo/reference/profiles.html#overrides
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+# The rules hot path. Measured once in the single gate shape (jobs 8, 32
+# threads; generated/phase2d-1/opt-trial2.txt): build + unit + all 27
+# integration binaries took 304.8 s at opt-level 0 (30.3+101.8+172.7), 80.6 s at
+# 1 (29.3+19.2+32.1; its lib/bin artifacts were already built, a full member
+# rebuild measured 84.7 s in opt-trial.txt) and 199.2 s at 2 (153.6+16.8+28.8).
+[profile.dev.package.mtg-core]
+opt-level = 1
+
+[profile.dev.package.mtg-contracts]
+opt-level = 1

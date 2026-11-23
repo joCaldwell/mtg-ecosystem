@@ -1599,7 +1599,7 @@ impl RulesTxn {
         let attached_to = object
             .attached_to
             .filter(|t| self.current(*t).is_ok())
-            .map(|t| handle(t))
+            .map(handle)
             .transpose()?;
         let attachments = match index {
             Some(index) => index
@@ -2201,7 +2201,6 @@ impl RulesTxn {
             }));
         }
 
-        {}
         if let Some(Request::Modes {
             player,
             one_or_more,
@@ -2223,7 +2222,7 @@ impl RulesTxn {
             player, recipient, ..
         }) = self.counter_placement_request()?
         {
-            return Ok((player == viewer)
+            return (player == viewer)
                 .then(|| {
                     self.handle_for(viewer, recipient).map(|recipient| {
                         PlayerRequest::CounterPlacementEffect {
@@ -2234,7 +2233,7 @@ impl RulesTxn {
                         }
                     })
                 })
-                .transpose()?);
+                .transpose();
         }
         if let Some(Request::DamageEffect {
             player, recipient, ..

@@ -101,10 +101,6 @@ impl SpellProgram {
         self.resolution = resolution;
         self
     }
-    pub fn with_functioning_zone(mut self, zone: FunctioningZone) -> Self {
-        self.functioning_zone = zone;
-        self
-    }
     pub fn with_targets(mut self, targets: impl IntoIterator<Item = TargetSpec>) -> Self {
         self.targets.extend(targets);
         self
@@ -114,21 +110,6 @@ impl SpellProgram {
         instructions: impl IntoIterator<Item = Instruction>,
     ) -> Self {
         self.instructions.extend(instructions);
-        self
-    }
-    pub fn with_modes(mut self, modes: impl IntoIterator<Item = SpellMode>) -> Self {
-        self.modes.extend(modes);
-        self
-    }
-    pub fn with_optional_additional_costs(
-        mut self,
-        costs: impl IntoIterator<Item = OptionalAdditionalManaCost>,
-    ) -> Self {
-        self.optional_additional_costs.extend(costs);
-        self
-    }
-    pub fn with_additional_sacrifice(mut self, sacrifice: SacrificeFilter) -> Self {
-        self.additional_sacrifice = Some(sacrifice);
         self
     }
 }

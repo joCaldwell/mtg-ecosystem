@@ -28,7 +28,7 @@ Reuse healthy dependencies. Only when missing/broken and unowned, run:
 
 ```sh
 sh scripts/engine-bootstrap.sh
-sh scripts/engine-env.sh npm run check:engine:source
+sh scripts/engine-env.sh npm run check:engine:tooling
 ```
 
 Bootstrap uses locked root/engine/parser `npm ci --include-workspace-root
@@ -97,115 +97,76 @@ with a concrete retained coverage replacement or documented obsolete contract;
 unexplained failures remain visible. Add permanent rules for demonstrated misses
 with a diff trigger, check and regression reference; prune obsolete rules.
 
-### Inner loop and single final gate
+### Inner loop and one gate
 
-While coding, run only the checks the edit touches:
+While coding, run only the selector the edit touches, then the gate once on the
+commit you publish:
 
 ```sh
-python3 scripts/phase1-fast-loop.py test -p mtg-compiler --lib FILTER
-python3 scripts/phase1-fast-loop.py coverage --save-baseline  # once, before edits
-python3 scripts/phase1-fast-loop.py coverage                  # after compiler edits
+npm run engine:dev -- test -p mtg-compiler --lib FILTER
+npm run engine:dev -- test -p mtg-core --test rules_kernel FILTER
+sh scripts/engine-env.sh npm run check:engine:gate
 ```
 
-`coverage` builds release `mtg-sim`, then runs `catalog coverage ARCHIVE
---only-deck-snapshot DECKS`. That lowers only the snapshot's distinct Oracle IDs
-(934 for Target Pool A) and still hashes the whole archive against its accepted
-manifest. `phase1-deck-coverage.py --compare` then prints compiled-slot, card and
-top-20 blocker deltas. Selected receipts carry `selection`; they are not
-whole-archive measurements. Do not scan the whole archive, compare archive
-revisions or run `check:engine:fast` at intermediate checkpoints.
+| Command | Executes |
+| --- | --- |
+| `npm run check:engine` | Live guards, formatting, `cargo check --workspace --all-targets --features mtg-core/testkit`, production `mtg-server`/`mtg-sim` check |
+| `npm run check:engine:gate` | The above with Clippy `-D warnings`, parser archive agreement, every workspace unit, doc and integration test, and all harness self-tests |
+| `npm run check:engine:tooling` | Harness self-tests and live guards; no Cargo or lock |
 
-Run `final` once, on the commit you publish. It runs `check:engine:fast`, one
-whole-archive R4 scan, selected/full deck-report parity and, with
-`--base-records`, whole-archive regressions against base receipts. Report it as
-the PR gate. Delegate at most one coding child per independent mechanic family.
-Children run the inner loop; the publisher runs the final gate.
-
-Engine commands (prefix with `sh scripts/engine-env.sh`):
-
-| Command | Executes | Omits |
-| --- | --- | --- |
-| `npm run check:engine` | Live guards, formatting, locked workspace library check | Binaries (`mtg-sim`, `mtg-server`), other non-library targets, archive agreement, all tests, Clippy, executable Node contracts/demo, SDK, release/profile/replay/retention |
-| `npm run check:engine:fast` | Live guards, archive agreement, formatting, workspace all-target check, contracts/compiler/core library tests | Harness self-tests, core/witness integration binaries, simulator/server tests, Clippy, executable Node contracts/demo, SDK, release/profile/replay/retention |
-| `npm run check:engine:core` | Live guards, contracts/compiler/core library tests, every core `testkit` and `mtg-witness` integration binary | Archive agreement, formatting, Clippy, simulator/server tests, executable Node contracts/demo, SDK, release/profile/replay/retention |
-| `npm run check:engine:source` | Live guards/archive agreement; no Cargo/lock | Harness self-tests, native/executable runtime |
-| `npm run check:engine:contracts` | Live guards/source/schema/catalog preflight and invalid-shape/version negatives | Harness self-tests, runtime Node/demo, Rust tests/lints; cold cache may compile release mtg-sim |
-| `npm run check:engine:tooling` | Harness self-tests/live guards; no Cargo/lock | Engine behavior/native/executable/SDK acceptance |
-| `npm run check:engine:full` | Formatting, Clippy, workspace tests, harness tests, complete Node contracts/demo | SDK, ignored diagnostics, separate release/profile/replay/offline-retention |
-
-`--quick` (default), `--fast`, `--core`, `--source`, `--contracts`, `--tooling`,
-`--full` are exclusive. `--plan` executes nothing. Live guards check structure/docs;
-native modes admit cache under lock. Harness suites cover environment, dependencies/artifacts, storage,
-retention, worktrees and executable preservation using tiny fixtures/fake workers.
-Run affected harness tests when their inputs change. Python suites need explicit
-filenames (discovery misses hyphens). Node wrapper rejects empty/skipped/TODO-only
-selections; archive selector must track renames. Standard Rust tests use opt-level 2
-with assertions, overflow checks and line-table debug info. Use package checks for changed binary targets.
+Prefix with `sh scripts/engine-env.sh`. `--plan` prints commands and omissions
+without executing them. Every debug command shares one feature shape
+(`--workspace --features mtg-core/testkit`) and one `dev`/`test` profile:
+dependencies at opt-level 2 without debug info, `mtg-core`/`mtg-contracts` at
+opt-level 1 (the fastest measured rebuild-plus-test setting), other members
+unoptimized, all with line tables, assertions and overflow checks. The production check builds
+the host and simulator without `testkit`, so dead code stays visible. No plan
+builds release or runs `mtg-sim`. Compiler-coverage PRs add one whole-archive
+scan through `engine:decks coverage --all` before publishing. Python suites need
+explicit filenames (discovery misses hyphens).
 
 ### Engine test topology
 
-| Target | Holds | Run |
-| --- | --- | --- |
-| `mtg-core --lib` | Production code and narrow private-field/forgery unit anchors | `cargo test --locked -p mtg-core --lib` |
-| `crates/core/tests/<bin>/main.rs` | White-box scenario binaries (`state_recovery`, `search_work`, `rules_kernel`, `trigger_kernel`) | `cargo test --locked -p mtg-core --features testkit --test '*'` |
-| `crates/core/tests/*.rs` | Public-API adversarial/admission binaries | the same command |
-| `crates/witness/tests/<bin>/main.rs` | Dev-only `mtg-witness`: exact frozen source compiled by mtg-compiler | `cargo test --locked -p mtg-witness --test '*'` |
+| Target | Holds |
+| --- | --- |
+| `mtg-contracts --lib`, `mtg-compiler --lib` | KIR checker cells, operand algebra, compose rows, Catalog JSON Schema, catalog regeneration and lowering parity |
+| `mtg-core --lib` | Production code with narrow private-field, admission and projection anchors |
+| `crates/core/tests/<bin>/main.rs` | White-box `testkit` binaries (`rules_kernel`, `state_recovery`, `search_work`, `trigger_kernel`) |
+| `crates/core/tests/*.rs` | Public-API adversarial and admission binaries |
+| `crates/witness/tests/<bin>/main.rs` | Dev-only `mtg-witness`: exact frozen R4 source compiled by mtg-compiler |
+| `mtg-sim` lib/bin | Bounded host search, policies, pods, analytics and the smoke scenario |
 
 `testkit` is never a default feature, and only test crates enable it
 (structure-checked). It exposes the namespace in-source tests saw: internals are
 `pub` inside the private engine module, `lib.rs` re-exports an explicit public
 list, and `testkit_fields!` plus generated `*Testkit` traits reach private
-fields/methods of public types without widening the production API. Add
-white-box tests to the matching binary (its `use super::*` reaches
-`mtg_core::testkit`); compiler-backed tests and shared drivers go in
-`mtg-witness`, never core dev-dependencies. Build identity excludes both.
+fields/methods of public types without widening the production API.
+Compiler-backed tests and shared drivers go in `mtg-witness`, never core
+dev-dependencies. Build identity excludes both.
 
-Each binary is one rustc unit: a test edit rebuilds only its binary, and a
-compiler edit rebuilds no mtg-core unit. Cargo's `--tests` selects every
-`test = true` target, including the lib, so `--lib --tests` runs the unit binary
-twice; select integration binaries with `--test '*'` or `--test NAME`. Without
-`--features testkit` core scenario binaries are skipped (required-features); a
-workspace build enables it through mtg-witness. `cargo test` runs binaries one at
-a time; `check:engine:core` instead builds once and runs
-`scripts/engine-test-binaries.py`: at most four binaries at once, largest first,
-each with `--test-threads` so binaries x threads stays within `--workers`
-(default min(CPUs, 16)), reporting wall time and peak total RSS. Concurrency
-comes only from separate `#[test]` functions under that budget; test helpers
-must not spawn their own thread pools, since nested pools multiplied resident
-400-card games past 13 GiB in one binary. For one test while coding:
-
-```sh
-npm run engine:dev -- test -p mtg-core --features testkit --test rules_kernel FILTER
-npm run engine:dev -- test -p mtg-witness --test cascade FILTER
-```
+Cargo's `--tests` also selects the lib, so `--lib --tests` runs the unit binary
+twice; select integration binaries with `--test '*'` or `--test NAME`. The gate
+runs every core, witness and host integration binary, in the same feature shape,
+through `scripts/engine-test-binaries.py`: built once, at most four at a time, each with
+`--test-threads` so binaries x threads stays within `--workers` (default
+min(CPUs, 16)). A selection that executes no test fails, as does a binary that
+runs zero tests without declaring an ignored opt-in witness. Test helpers must not
+spawn their own thread pools; nested pools multiplied resident 400-card games
+past 13 GiB in one binary.
 
 ## Cargo coordination and cache integration
 
 Each worktree builds in its own `target/engine` and holds that target's advisory
 lock (`python3 scripts/engine-cache.py lock`); worktrees never wait on or
 invalidate each other. Commands sharing a target, including an explicit shared
-`CARGO_TARGET_DIR`, serialize. Native check/smoke/retention/dev runners own the
-lock internally, including nested Node Cargo calls: never acquire it twice.
-Explicit multi-phase acceptance may also use `full-gate.lock`. For repeated
-edits, confirm the test selector ran:
-
-```sh
-npm run engine:dev -- test -p mtg-core --lib FILTER
-```
-
-Use `engine:dev` with Cargo `check`, `build` or `test` arguments. It selects the
-incremental `quick` profile in the same target, checks cache budgets under the
-lock and honors explicit `CARGO_TARGET_DIR`. Cargo profiles own incrementality:
-dev/test/quick are incremental and release is not, so the launcher leaves
-`CARGO_INCREMENTAL` unset unless chosen. Rust 1.99 already links x86-64 Linux
-with LLD. Unset `CARGO_BUILD_JOBS` defaults to a quarter of the CPUs (at least
-4): on 32 threads/30 GiB a cold contracts/compiler test build then peaks near
-6 GiB per worktree, so four worktrees fit; a solo cold build may pass 32. Use the
-standard profile for runtime-heavy tests. Keep receipts tied to their producer profile.
-
-Do source/docs work while busy. Freeze measured source and avoid duplicate builds.
-[Storage policy](game-engine-storage.md#cache-selection-and-lifecycle) owns cache
-defaults, budgets, freshness and protected historical caches.
+`CARGO_TARGET_DIR`, serialize. `check:engine*`, `engine:dev` and `play-deck.sh`
+own the lock internally and admit the cache under it: never acquire it twice.
+`engine:dev` accepts Cargo `check`, `build`, `test` or `clippy` arguments and
+adds `--features mtg-core/testkit` when the selection builds core. Unset
+`CARGO_BUILD_JOBS` defaults to a quarter of the CPUs (at least 4); on 32
+threads/30 GiB a cold test build then peaks near 6 GiB per worktree.
+[Storage policy](game-engine-storage.md#cache-selection-and-lifecycle) owns the
+budget and eviction.
 
 ## Bound and publish a batch
 
@@ -230,48 +191,30 @@ push. Separate implementation, verification, build and known lock-wait time;
 label unitemized time. Successors recheck identities/ownership. Propagate this
 policy and relevant receipts to current children and every new delegate brief.
 
-## Measurement and coverage reporting
+## Measurement and deck work
 
-Check/smoke stdout streams subprocess output, not one JSON document. Timing JSONL
-records source/driver/executable identity, commands/exits/coverage, wall/CPU/RSS,
-lock waits and host load. `MTG_ENGINE_TIMING_FILE` selects a create-new path;
-source mutation fails. Compare matching source/workload/cache; label cold builds
-and reduced coverage. CPU includes children; RSS is largest process, not group
-peak. Shared-host feedback is not quiet P7 acceptance.
-[Evidence](game-engine-evidence.md) owns proof locations.
+Check output streams subprocess output. Timing JSONL records source/driver
+identity, commands, exits, wall/CPU/peak RSS, lock waits and host load;
+`MTG_ENGINE_TIMING_FILE` selects a create-new path and source mutation fails.
+RSS is the largest single process. Compare only matching source, workload and
+cache state; label cold builds.
 
-## Stage and play a deck
-
-```sh
-python3 scripts/stage-deck.py MTG_SIM OUT --deck "Jo's Cascade"  # or --decklist FILE
-scripts/play-deck.sh "Jo's Cascade" 0
-```
-
-`stage-deck.py` accepts only the registered Archive R4 file and header, takes
-every card from its line-bound row, requires positive integer quantities and an
-eligible Commander deck, fails if any card does not compile and publishes a new
-output without replacement. `play-deck.sh` runs the detached HEAD's own stager
-and locked, budget-checked builds, keeping checkout, stage, game and replay
-under the printed `generated/deck-play.*`; retire that checkout as the
-[storage policy](game-engine-storage.md#worktree-lifecycle) describes.
-
-## Smoke probe
+`npm run engine:decks -- COMMAND` is the one deck harness, on a release
+`mtg-sim` built from this checkout:
 
 ```sh
-sh scripts/engine-env.sh npm run engine:smoke -- --artifact generated/NEW.json
-sh scripts/engine-env.sh npm run engine:smoke:replay -- generated/NEW.json
+npm run engine:decks -- coverage SIM --out generated/NEW [--baseline OLD/report.json] [--all]
+npm run engine:decks -- stage SIM OUT --deck "Jo's Cascade"   # or --decklist FILE
+npm run engine:decks -- play "Jo's Cascade" 0
+npm run engine:decks -- bench SIM --bulk-artifact DIR --manifest-sha SHA --a A.json [--b B.json] --games 32 --out generated/NEW
 ```
 
-Artifact is create-new, <=65,536 bytes; no parent creation/replacement/symlink
-overwrite. Seedless, tracing-off smoke loads the five reviewed base definitions, admits
-`ScenarioConfig::land_return()` (three cards/four seats), activates Island mana,
-passes priority through public observations/validation, replays every accepted
-prefix and atomically rejects stale tokens. Success artifacts are read back;
-reproduced failures exit nonzero; panic/kill may prevent capture.
-
-Artifacts contain trusted journals/checkpoints/identities, no public player data
-or retained source/binary closure; preserve matching source/executable separately.
-Replay rejects identity changes, then reports first bounded JSON-pointer divergence.
-Runtime timing includes admission/replay/I/O, excludes startup/Cargo; cold codegen
-may be expensive. This is no full-game/profile/search/host/SDK/release/retention
-acceptance and never replaces affected mechanic tests.
+`coverage` lowers only the deck snapshot's Oracle IDs (`--all`: the whole
+archive) and reports compiled slots, blocking cards, top blockers and baseline
+deltas. `stage` accepts only the registered Archive R4 file, requires every card
+to compile and templates the reviewed `commander-foundations-v1` profile.
+`play` stages and plays one seeded match from a detached HEAD under
+`generated/deck-play.*`, with live journals in its `live-journals/`. `bench` runs
+`bench-pods --rotate-seats` for A and an optional A′ that changes at most one
+deck slot, verifies an identical seed/seat schedule and writes raw paired rows;
+statistics belong to Phase 3B.

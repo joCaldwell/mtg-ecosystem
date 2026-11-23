@@ -230,7 +230,6 @@ fn tuple_shapes_and_exact_quantities_are_checked_before_typed_commands() {
         json!({"response":"attackers","attacks":[["a",1]]}),
         json!({"response":"blockers","blocks":[["b","a"]]}),
         json!({"response":"damage","assignments":[["a","3"]]}),
-        json!({"response":"damage_allocation","allocations":[["d","3"]]}),
     ] {
         decoder.decode(&envelope(response).to_string()).unwrap();
     }
@@ -238,7 +237,8 @@ fn tuple_shapes_and_exact_quantities_are_checked_before_typed_commands() {
         json!({"response":"attackers","attacks":[["a"]]}),
         json!({"response":"blockers","blocks":[["b","a","extra"]]}),
         json!({"response":"damage","assignments":[["a",3]]}),
-        json!({"response":"damage_allocation","allocations":[["d","-0"]]}),
+        // Phase 2C-2 retired the damage-allocation response with its producer.
+        json!({"response":"damage_allocation","allocations":[["d","3"]]}),
     ] {
         assert!(decoder.decode(&envelope(response).to_string()).is_err());
     }
@@ -403,8 +403,6 @@ fn attachments_profile_variants_decode_strictly_through_commands_and_publication
     for response in [
         json!({"response":"legend_rule","keep":"legend"}),
         json!({"response":"mana_color","color":"C"}),
-        json!({"response":"search_lands","objects":["private-search"]}),
-        json!({"response":"optional_recursion","perform":true}),
         json!({"response":"trample_damage","assignments":[["blocker","1"]],"player":2,"amount":"9007199254740993"}),
         json!({"response":"activate_ability","object":"equipment","ability":0}),
     ] {
@@ -418,19 +416,25 @@ fn attachments_profile_variants_decode_strictly_through_commands_and_publication
     for response in [
         json!({"response":"legend_rule","keep":{"card":1,"incarnation":0}}),
         json!({"response":"mana_color","color":"colorless"}),
-        json!({"response":"search_lands","objects":[{"oracle_id":"public"}]}),
-        json!({"response":"optional_recursion","perform":1}),
+        // Phase 2C-2 retired these responses with their producers.
+        json!({"response":"search_lands","objects":["private-search"]}),
+        json!({"response":"optional_recursion","perform":true}),
         json!({"response":"trample_damage","assignments":[["b","1","extra"]],"player":2,"amount":"0"}),
         json!({"response":"trample_damage","assignments":[],"player":2,"amount":9007199254740993_u64}),
     ] {
         assert!(decoder.decode(&envelope(response).to_string()).is_err());
     }
+    // Phase 2C-2 retired these requests with their producers.
+    for request in [
+        json!({"request":"search_lands","maximum":2,"candidates":[{"handle":"private-search","oracle_id":"public"}],"player":0,"token":"private-token"}),
+        json!({"request":"optional_recursion","player":0,"token":"private-token"}),
+    ] {
+        assert!(mtg_server::codec::exact::<mtg_core::PlayerRequest>(&request.to_string()).is_err());
+    }
     let validate = validator(serde_json::to_value(stream_schema()).unwrap());
     for request in [
         json!({"request":"mana_color","colors":["W","C"],"mana_ability_source":"rock"}),
-        json!({"request":"search_lands","maximum":2,"candidates":[{"handle":"private-search","oracle_id":"public"}]}),
         json!({"request":"legend_rule","candidates":["legend-1","legend-2"],"previous_choices":[]}),
-        json!({"request":"optional_recursion"}),
         json!({"request":"mana","cost":{"generic":"1","colored":[]},"mana_ability_source":"signet"}),
         json!({"request":"spend_mana","cost":{"generic":"1","colored":[]},"available":{"C":"1"},"mana_ability_source":"signet"}),
         json!({"request":"damage","source":"attacker","power":"3","recipients":["blocker"],"player_recipient":1,"lethal_requirements":[["blocker","1"]]}),

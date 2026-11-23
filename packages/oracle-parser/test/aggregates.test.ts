@@ -62,7 +62,7 @@ describe("aggregate values retain the measured set and characteristic", () => {
     condition("creatures you control have total power 8 or greater", { condition: "compare", value: { amount: "attribute-sum", attribute: "power", among: creatures }, comparison: { op: "ge", value: n(8) } });
   });
   it("binds Call Forth's mana value sum to the caster and excludes the resolving spell", () => {
-    const fixture = new URL("../../game-engine/tests/fixtures/ramos/0623c51a-e829-413f-a3a0-817c0902821e.json", import.meta.url);
+    const fixture = new URL("./fixtures/ramos/0623c51a-e829-413f-a3a0-817c0902821e.json", import.meta.url);
     const record = JSON.parse(readFileSync(fixture, "utf8"));
     const result = parseOracleText(record.source.oracle_text, record.source.name, {
       includeSourceProvenance: true,

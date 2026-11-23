@@ -4,7 +4,7 @@ use super::search_candidates::{self, ActionPlan, TargetPlan};
 use mtg_contracts::{Catalog, Quantity, SpellProgram};
 use mtg_core::{Observation, PlayerRequest, PlayerResponse, PlayerTargetEntity, TurnStep};
 
-pub(super) const ROLLOUT_POLICY: &str = "foundations-current-view-development-v1";
+pub const ROLLOUT_POLICY: &str = "foundations-current-view-development-v1";
 fn selected_program<'a>(
     catalog: &'a Catalog,
     observation: &Observation,
@@ -44,7 +44,7 @@ fn selected_program<'a>(
         None => Some(program),
     }
 }
-pub(super) fn initial_response(plan: &ActionPlan) -> PlayerResponse {
+pub fn initial_response(plan: &ActionPlan) -> PlayerResponse {
     match plan {
         ActionPlan::Pass => PlayerResponse::Pass,
         ActionPlan::PlayLand { object } => PlayerResponse::PlayLand {
@@ -59,7 +59,7 @@ pub(super) fn initial_response(plan: &ActionPlan) -> PlayerResponse {
         },
     }
 }
-pub(super) fn choose(
+pub fn choose(
     catalog: &Catalog,
     observation: &Observation,
     check: &mut dyn FnMut() -> Result<(), String>,
@@ -206,7 +206,7 @@ pub(super) fn choose(
             available,
             restricted_available,
             ..
-        } => crate::match_games::spend_response(cost, available, restricted_available)
+        } => crate::mana_spend::spend_response(cost, available, restricted_available)
             .ok_or("rollout explicit spending is infeasible")?,
         PlayerRequest::CommanderReturn { .. } => {
             PlayerResponse::CommanderReturn { to_command: true }
@@ -287,7 +287,7 @@ pub(super) fn choose(
         }
     })
 }
-pub(super) fn target_response(
+pub fn target_response(
     targets: &TargetPlan,
     request: &PlayerRequest,
 ) -> Result<PlayerResponse, String> {

@@ -5,7 +5,7 @@ import { it } from "node:test";
 import { analyzeCardBindings, parseOracleText, type BindingSourceCard } from "../src/index.ts";
 
 it("binds frozen Mosswort Bridge's conditional play to its own hideaway incarnation", () => {
-  const fixture = new URL("../../game-engine/tests/fixtures/ramos/7cb9e29f-835f-4155-a2a5-4b778866c773.json", import.meta.url);
+  const fixture = new URL("./fixtures/ramos/7cb9e29f-835f-4155-a2a5-4b778866c773.json", import.meta.url);
   const bytes = readFileSync(fixture);
   assert.equal(createHash("sha256").update(bytes).digest("hex"), "4aa052ccabe42cbb7088633b898dd00c99ab9fbb7a267120d5bee93e1de04a06");
   const { source, oracleIdentity: identity, faces } = JSON.parse(bytes.toString()) as {

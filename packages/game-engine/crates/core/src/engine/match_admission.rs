@@ -362,6 +362,8 @@ pub(super) fn physical_match_rosters(
     }
 }
 
+impl std::error::Error for MatchAdmissionError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -588,6 +590,84 @@ mod tests {
             Err(MatchAdmissionError::BasicLandColor { .. })
         ));
     }
+    /// Ported from the retired Node contract: the match catalog binds Wall of
+    /// Wood's sole Defender keyword, and the profile-selected dated ban policy
+    /// reviews every pooled definition against its retained source.
+    #[test]
+    fn match_catalog_binds_sole_defender_and_the_current_commander_policy() {
+        let c = catalog();
+        let wall = c
+            .definitions
+            .iter()
+            .find(|d| d.name == "Wall of Wood")
+            .unwrap();
+        assert_eq!(wall.keywords, vec![KeywordAbility::Defender]);
+        assert!(wall.capabilities.contains(&Capability::DefenderV1));
+        let value = serde_json::to_value(wall).unwrap();
+        assert_eq!(
+            value["characteristics"]["mana_cost"],
+            serde_json::json!({"generic": "0", "colored": ["G"]})
+        );
+        assert_eq!(value["characteristics"]["power"], "0");
+        assert_eq!(value["characteristics"]["toughness"], "3");
+        assert_eq!(wall.characteristics.subtypes, vec!["Wall".to_owned()]);
+        let profile = match_profile("commander-foundations-v1").unwrap();
+        assert_eq!(profile.catalog(), &c);
+        let policy: serde_json::Value = serde_json::from_str(&profile.banned_list_raw).unwrap();
+        assert_eq!(policy["policy_version"], 1);
+        assert_eq!(policy["categories"]["lutri"], "companion_only");
+        assert_eq!(policy["html_sha256"].as_str().unwrap().len(), 64);
+        assert_eq!(
+            policy["offensive_policy"]["html_sha256"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
+        let offensive_names = policy["offensive_policy"]["names"].as_array().unwrap();
+        // Every named ban and offensive-policy record binds its archive row index.
+        let items = policy["named_bans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(policy["offensive_policy"]["records"].as_array().unwrap());
+        for item in items {
+            let record: serde_json::Value =
+                serde_json::from_str(item["record_json"].as_str().unwrap()).unwrap();
+            assert_eq!(record["sourceIndex"], item["source_index"]);
+            assert!(item["source_index"].is_u64());
+        }
+        assert!(!profile.bans.is_empty());
+        for ban in &profile.bans {
+            let record: serde_json::Value = serde_json::from_str(&ban.record_json).unwrap();
+            assert_eq!(record["sourceSha256"], ban.source_sha256);
+            let source = &record["source"];
+            assert!(
+                source["name"] == ban.name
+                    || source["card_faces"]
+                        .as_array()
+                        .is_some_and(|faces| faces.iter().any(|f| f["name"] == ban.name))
+            );
+        }
+        for d in &c.definitions {
+            let source: serde_json::Value =
+                serde_json::from_str(&d.provenance.source_json).unwrap();
+            assert_eq!(source["legalities"]["commander"], "legal", "{}", d.name);
+            assert!(!source["type_line"].as_str().unwrap().contains("Conspiracy"));
+            let text = source["oracle_text"].as_str().unwrap_or("").to_lowercase();
+            assert!(
+                !text
+                    .split(|c: char| !c.is_alphanumeric())
+                    .any(|w| w == "ante")
+            );
+            assert!(profile.banned_commander_card(&d.oracle_id).is_none());
+            assert!(!offensive_names.iter().any(|n| source["name"] == *n));
+            assert_eq!(
+                mtg_contracts::sha256(d.provenance.source_json.as_bytes()),
+                d.provenance.source_sha256
+            );
+        }
+    }
     #[test]
     fn known_bans_are_distinct_from_unknown_or_unsupported_pool_and_policy_is_bound() {
         let c = catalog();
@@ -628,5 +708,3 @@ mod tests {
         assert!(strict_read::<MatchConfig>(&canonical(&raw).unwrap()).is_err());
     }
 }
-
-impl std::error::Error for MatchAdmissionError {}

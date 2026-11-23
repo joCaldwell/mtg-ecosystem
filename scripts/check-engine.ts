@@ -8,8 +8,8 @@ const { mode, planOnly, help } = parseCheckArguments(process.argv.slice(2));
 const plan = engineCheckPlans[mode];
 const { phases, needsCargo } = plan;
 if (help) {
-  console.log("Usage: npm run check:engine -- [--quick|--fast|--core|--source|--tooling|--contracts|--full] [--plan]");
-  console.log("Default: --quick. --plan prints commands and omissions without executing them.");
+  console.log("Usage: npm run check:engine -- [--check|--gate|--tooling] [--plan]");
+  console.log("Default: --check. --plan prints commands and omissions without executing them.");
   for (const [name, value] of Object.entries(engineCheckPlans)) console.log(`${name}: ${value.coverage}\n  Omits: ${value.omitted}`);
   process.exit(0);
 }
@@ -31,11 +31,11 @@ const options = { cwd: root, record, env };
 const lock = needsCargo ? nativeLock(root, env) : null;
 console.error(`Engine timing evidence: ${report}`);
 try {
-  const run = async () => {
+  const run = async (lockFd?: number) => {
     const source = sourceIdentity(root);
     record({ kind: "freeze", mode, coverage: plan.coverage, omitted: plan.omitted, phases, source, driver_sha256: digest(fs.readFileSync(fileURLToPath(import.meta.url))), node: process.version, rust: version, cargo_incremental: env.CARGO_INCREMENTAL ?? "profile default", cargo_build_jobs: env.CARGO_BUILD_JOBS ?? "cargo default", cargo_target_dir: env.CARGO_TARGET_DIR ?? path.join(root, "target"), cargo_lock: lock });
     try {
-      const result = await runCheckPhases(phases, options);
+      const result = await runCheckPhases(phases, { ...options, lockFd });
       record({ kind: "phases-complete", mode, ...result });
       process.exitCode = result.code;
     } finally {
@@ -46,7 +46,7 @@ try {
     }
   };
   // Own the selected target's lock across nested Node Cargo calls; never wrap
-  // check:engine in another acquisition of it. Source/tooling modes need no lock.
+  // check:engine in another acquisition of it. The tooling mode needs no lock.
   if (lock) await withAdvisoryLock(lock, options, run);
   else await run();
 } finally { fs.closeSync(reportFd); }

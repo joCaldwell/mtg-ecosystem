@@ -33,7 +33,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "packages" / "game-engine" / "tests" / "fixtures"
-TEMPLATE = FIXTURES / "profiles" / "commander-four-colors-v1.json"
+TEMPLATE = FIXTURES / "profiles" / "commander-foundations-v1.json"
 R4_MANIFEST = "archive-manifest-phase1-r4.json"
 
 

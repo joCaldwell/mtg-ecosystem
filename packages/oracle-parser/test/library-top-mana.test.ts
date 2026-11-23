@@ -5,7 +5,7 @@ import { it } from "node:test";
 import { analyzeCardBindings, parseOracleText, type BindingSourceCard, type ParseCardResult } from "../src/index.ts";
 
 it("reparses the frozen Omnath trigger and binds both outcomes to one looked-at card", () => {
-  const fixture = new URL("../../game-engine/tests/fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json", import.meta.url);
+  const fixture = new URL("./fixtures/ramos/26445dc7-8363-4205-aee8-1cafeb4ba4c0.json", import.meta.url);
   const { source, status, sourceSha256, oracleIdentity: identity, faces } = JSON.parse(readFileSync(fixture, "utf8")) as {
     source: BindingSourceCard & { oracle_text: string };
     status: string;

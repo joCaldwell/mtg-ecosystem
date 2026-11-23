@@ -26,10 +26,10 @@ manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semanti
   suspension, privacy and recovery. Resource faults/truncation are not rules
   outcomes; queries never mint handles/history or mutate semantics.
 - Use focused checks with actual executed selectors and explicit omissions.
-  Default compilation/compiler-contract tests do not qualify runtime games/host.
   One native owner per worktree target holds its Cargo lock; runners own it internally.
-  Compiler work uses the [inner loop](../../docs/game-engine-development.md#inner-loop-and-single-final-gate);
-  whole-archive scans and `check:engine:fast` run once, before publishing.
+  Iterate with `engine:dev` selectors and `check:engine`; run
+  [`check:engine:gate`](../../docs/game-engine-development.md#inner-loop-and-one-gate)
+  once, before publishing. Compiler-coverage work adds one whole-archive scan.
 - Preserve unrelated work and ignored source/evidence/cache paths. Commit/push
   coherent focused checkpoints; no incidental merge, mechanic or pool expansion.
   [Storage](../../docs/game-engine-storage.md) governs cleanup and retirement.
@@ -37,5 +37,5 @@ manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semanti
 [Catalogs/profiles](../../docs/game-engine-catalogs.md),
 [capacities](../../docs/game-engine-capacity-policy.md),
 [search](../../docs/game-engine-search.md) and [hosting](../../docs/game-engine-server.md)
-are topical contracts. [Evidence](../../docs/game-engine-evidence.md) retains the
-accepted D2c-d `394301d` freeze and later focused qualification separately.
+are topical contracts. [Evidence](../../docs/game-engine-evidence.md) keeps
+immutable historical locators only.

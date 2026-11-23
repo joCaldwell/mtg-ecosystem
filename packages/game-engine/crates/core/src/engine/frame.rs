@@ -614,11 +614,12 @@ pub fn retained_effect_frame<'a>(frames: &'a [Frame], mut frame: &'a Frame) -> &
             Frame::ManaSourceChoice { resume, .. }
             | Frame::Stabilize { resume, .. }
             | Frame::LegendRule { resume, .. } => &frames[resume.0],
-            Frame::CommanderReturn { continuation, .. } => match continuation {
-                CommanderContinuation::StateBased { resume }
-                | CommanderContinuation::StateBasedBatch { resume, .. } => &frames[resume.0],
-                _ => return frame,
-            },
+            Frame::CommanderReturn {
+                continuation:
+                    CommanderContinuation::StateBased { resume }
+                    | CommanderContinuation::StateBasedBatch { resume, .. },
+                ..
+            } => &frames[resume.0],
             _ => return frame,
         };
     }

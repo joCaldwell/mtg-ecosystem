@@ -1,11 +1,7 @@
 use super::*;
 
 fn prepared(config: ScenarioConfig) -> Prepared {
-    let source = if config == ScenarioConfig::commander_library() {
-        include_str!("../../../../tests/fixtures/expected-action-ir.json")
-    } else {
-        include_str!("../../../../tests/fixtures/expected-action-ir.json")
-    };
+    let source = include_str!("../../../../tests/fixtures/expected-action-ir.json");
     Prepared::admit(Catalog::read(source).unwrap(), config).unwrap()
 }
 fn settle(g: &mut Game) -> Request {

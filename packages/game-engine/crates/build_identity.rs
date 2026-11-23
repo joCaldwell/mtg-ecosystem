@@ -3,9 +3,8 @@
 // mtg-core: core receives the value through `mtg_core::install_build_identity`
 // so compiler, simulator, host and test-only edits never rebuild it.
 //
-// The hash is the native source-closure contract that
-// `mtg-sim` `verify_native_source_bytes` reproduces from retained files:
-// path NUL contents NUL for every `engine_build_input` file in path-byte order,
+// The hash covers the native source closure: path NUL contents NUL for every
+// `engine_build_input` file in path-byte order,
 // then rustc `--version` output and profile metadata separated by NUL.
 #[path = "contracts/src/build_input.rs"]
 #[allow(dead_code)]

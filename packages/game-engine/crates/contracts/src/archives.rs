@@ -84,9 +84,8 @@ mod tests {
     use super::*;
     #[test]
     fn accepted_archives_require_the_matching_parser_and_exact_header() {
-        for header in [include_str!(
-            "../../../tests/fixtures/archive-manifest-phase1-r4.json"
-        )] {
+        {
+            let header = include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
             let a = accepted_manifest(header).unwrap();
             assert!(accepted_provenance(
                 &a.manifest_sha256,

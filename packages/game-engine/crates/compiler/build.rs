@@ -72,8 +72,8 @@ fn main() {
     generated += "pub const FILES: &[(&str, &str)] = &[\n";
     // Embed the exact inputs needed to lower each reviewed manifest.
     for name in &files {
-        println!("cargo:rerun-if-changed={}", root.join(&name).display());
-        if let Ok(raw) = fs::read_to_string(root.join(&name)) {
+        println!("cargo:rerun-if-changed={}", root.join(name).display());
+        if let Ok(raw) = fs::read_to_string(root.join(name)) {
             generated += &format!("({:?}, {raw:?}),\n", name.to_str().unwrap());
         }
     }

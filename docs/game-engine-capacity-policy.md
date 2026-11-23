@@ -40,21 +40,22 @@ are deliberate resource boundaries with typed atomic faults, not claims of
 complete legal-game coverage. Damage and event-member ceilings exceed the
 656-creature group plus four players; group depth is structural IR nesting.
 
-## Cascade preflight
+<a id="cascade-preflight"></a>
 
-Self-cast cascade triggers and battlefield observers share the stack-plus-pending
-ceiling; no family/profile flag bypasses `check_stack_capacity`. Each cast visits
-each observer and its casting source once without deduplication, so fanout is at
+## Cast-trigger fanout preflight
+
+Cast triggers and battlefield observers share the stack-plus-pending ceiling; no
+family/profile flag bypasses `check_stack_capacity`. Each cast visits each
+observer and its casting source once without deduplication, so fanout is at
 most `400 * max(validated definition.triggered.len())` with checked arithmetic.
 Copied/granted token abilities must extend this proof before admission. Before
 publishing a batch, the engine preflights its entire effective emission against
 retained stack/pending count, TriggerId arithmetic and StackId headroom. Overflow
 rolls back payment, events, IDs and all siblings atomically. One resolving owner
-and one announcing child remain the execution shape. Cascade progress, exile and
-permutation lists use the 100-card bound and charge retained capacity; random
-bottom preserves the library prefix and never counts as a library shuffle. Exact
-source qualification lives in
-[evidence](game-engine-evidence.md#ramos-land-and-library-choice-integration).
+and one announcing child remain the execution shape. Cascade itself has no
+executable R4 form ([mechanics](game-engine-mechanics.md)); a future cascade
+lowering must bound its progress, exile and permutation lists by the 100-card
+library and charge retained capacity.
 
 ## Fault semantics
 

@@ -24,7 +24,7 @@ impl RulesTxn {
             return Ok(self.replacement_request());
         }
         if matches!(self.state.rules.frame, Frame::Setup) {
-            return Ok(self.setup_request()?);
+            return self.setup_request();
         }
 
         if let Some(req) = self.modes_request()? {
@@ -45,11 +45,9 @@ impl RulesTxn {
         if let Some(req) = self.combat_request()? {
             return Ok(Some(req));
         }
-        {}
-        {}
         let req = match &self.state.rules.frame {
             Frame::LegendRule { .. } => {
-                return Ok(self.legend_request()?);
+                return self.legend_request();
             }
             Frame::EntityTargets { .. } => Request::EntityTargets {
                 decision_id: self.state.rules.revision,
@@ -119,7 +117,7 @@ impl RulesTxn {
                     .eligible_players(self.program()?.targets[0].domain, self.top()?.controller),
             },
             Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. } => {
-                return Ok(self.sacrifice_request()?);
+                return self.sacrifice_request();
             }
             Frame::LandEntry { .. } => {
                 return self.land_entry_request();

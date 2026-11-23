@@ -166,9 +166,7 @@ impl RulesTxn {
         if !matches!(ability.condition, TriggerCondition::SagaChapter { .. }) {
             return Err("delayed issuer is not a chapter".into());
         }
-        match ability.program.instructions.as_slice() {
-            _ => Err("missing printed delayed chapter instruction".into()),
-        }
+        Err("missing printed delayed chapter instruction".into())
     }
     /// Freezes what the resolving chapter ability `issuer` fixes (CR 603.7e).
     fn delayed_registration(

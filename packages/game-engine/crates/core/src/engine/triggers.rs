@@ -596,12 +596,8 @@ impl RulesTxn {
                     .unwrap_or_default(),
             };
             let mut lore = vec![];
-            match &occurrence.actual {
-                EventOutcome::TurnTransitioned { lore: changes, .. } => {
-                    lore.extend(changes.iter().cloned())
-                }
-
-                _ => {}
+            if let EventOutcome::TurnTransitioned { lore: changes, .. } = &occurrence.actual {
+                lore.extend(changes.iter().cloned())
             }
             for witness in &witnesses {
                 if let TriggerEventWitness::Moved { movement } = witness
@@ -938,9 +934,7 @@ impl RulesTxn {
                     TriggerCondition::AnyCreatureDies => creature && dies,
                     TriggerCondition::SelfEntersBattlefield => enters && Some(object.id) == subject,
                     TriggerCondition::OtherCreatureEntersBattlefield => {
-                        let matched=creature && enters && Some(object.id)!=subject;
-
-                        matched
+                        creature && enters && Some(object.id) != subject
                     }
                 };
                 let matches = matches
@@ -2407,7 +2401,7 @@ impl RulesTxn {
 }
 
 fn trigger_history_charge(witness: &TriggerEventWitness) -> usize {
-    let history = match witness {
+    match witness {
         TriggerEventWitness::DelayedSpellCast { .. }
         | TriggerEventWitness::DelayedCreatureEntered { .. } => {
             stored_history::payload_charge(witness)
@@ -2415,8 +2409,7 @@ fn trigger_history_charge(witness: &TriggerEventWitness) -> usize {
         TriggerEventWitness::ManaTapped { .. } => stored_history::payload_charge(witness),
         TriggerEventWitness::SpellCast { cast } => stored_history::payload_charge(&cast.history),
         _ => 0,
-    };
-    history
+    }
 }
 pub fn entry_history_charge(entry: &StackInstance) -> usize {
     match &entry.kind {

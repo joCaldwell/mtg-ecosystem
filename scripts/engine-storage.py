@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Read-only storage inventory and deliberately narrow Cargo cache cleanup."""
+"""Read-only storage inventory and the safety primitives worktree retirement uses.
+
+Cargo targets are bounded by engine-cache.py check, never cleaned here."""
 import argparse
 import contextlib
 import fcntl
@@ -7,11 +9,9 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
-GIB = 1024 ** 3
 
 
 def worktree_lock(worktree):
@@ -112,62 +112,6 @@ def cargo_lock(filename):
         yield
 
 
-def incremental_plan(worktree, max_bytes=2 * GIB):
-    worktree = Path(worktree).absolute()
-    no_symlinks(worktree)
-    if worktree not in worktrees(worktree) or Path(git(worktree, 'rev-parse', '--show-toplevel')) != worktree:
-        raise ValueError('Select an exact registered worktree root')
-    target = worktree / 'target'
-    if not target.exists():
-        return []
-    no_symlinks(target)
-    # Cargo's standard layouts and the dedicated engine:dev cache only.
-    # Includes the default per-worktree target/engine and legacy target/engine-dev.
-    names = ('debug', 'release', 'quick')
-    profiles = [target / name for name in names]
-    profiles += [entry / name for entry in target.iterdir() if entry.is_dir()
-                 and entry.name not in names for name in names]
-    rows = []
-    for profile in profiles:
-        candidate = profile / 'incremental'
-        if not candidate.exists() and not candidate.is_symlink():
-            continue
-        no_symlinks(candidate, recursive=True)
-        if not within(candidate, target) or not candidate.is_dir():
-            raise ValueError(f'Invalid incremental cache: {candidate}')
-        if git(worktree, 'ls-files', '--', str(candidate.relative_to(worktree))):
-            raise ValueError(f'Tracked files in cache: {candidate}')
-        size = usage(candidate)
-        rows.append({'path': str(candidate), 'allocated_bytes': size})
-    # The budget applies to the sum of incremental caches in this worktree.
-    return rows if sum(row['allocated_bytes'] for row in rows) > max_bytes else []
-
-
-def prune_incremental(worktree, max_bytes=2 * GIB, apply=False, lock=None, allow_uninspectable=False):
-    if max_bytes < 0:
-        raise ValueError('max-bytes must be nonnegative')
-    with cargo_lock(lock or worktree_lock(worktree)):
-        rows = incremental_plan(worktree, max_bytes)
-        target = Path(worktree).absolute() / 'target'
-        activity = active_processes(target) if rows else {'active': [], 'uninspectable': []}
-        if activity['active']:
-            raise RuntimeError(f"Target is active in PIDs {activity['active']}; nothing removed")
-        if apply and activity['uninspectable'] and not allow_uninspectable:
-            raise RuntimeError(f"Cannot inspect PIDs {activity['uninspectable']}; establish ownership independently before --allow-uninspectable")
-        before = usage(target) if target.exists() else 0
-        if apply:
-            # Validate all candidates before mutating any; the lock protects
-            # cooperating writers, /proc catches current uncoordinated users.
-            for row in rows:
-                shutil.rmtree(row['path'])
-        after = usage(target) if target.exists() else 0
-        return {'mode': 'apply' if apply else 'dry-run', 'worktree': str(Path(worktree).absolute()),
-                'category': 'reproducible-cargo-incremental', 'candidates': rows, 'activity': activity,
-                'candidate_bytes': sum(row['allocated_bytes'] for row in rows),
-                'target_before_bytes': before, 'target_after_bytes': after,
-                'reclaimed_bytes': before - after}
-
-
 def inventory(root):
     rows = []
     for worktree in worktrees(root):
@@ -193,14 +137,8 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     audit = commands.add_parser('inventory')
     audit.add_argument('--root', type=Path, default=Path(__file__).resolve().parent.parent)
-    prune = commands.add_parser('prune-cargo', help='Drop only incremental caches exceeding budget; dry-run by default')
-    prune.add_argument('--worktree', type=Path, required=True)
-    prune.add_argument('--max-bytes', type=int, default=2 * GIB)
-    prune.add_argument('--apply', action='store_true')
-    prune.add_argument('--allow-uninspectable', action='store_true', help='Acknowledge independently checked ownership when /proc denies some same-user processes')
     args = parser.parse_args()
-    result = inventory(args.root) if args.command == 'inventory' else prune_incremental(args.worktree, args.max_bytes, args.apply, allow_uninspectable=args.allow_uninspectable)
-    print(json.dumps(result, indent=2))
+    print(json.dumps(inventory(args.root), indent=2))
 
 
 if __name__ == '__main__':

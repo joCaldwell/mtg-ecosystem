@@ -11,9 +11,9 @@
 # deck inputs. Each build holds the checkout's target lock across the cache
 # budget check, Cargo, executable selection and copy. Staging installs only new
 # fixture files (the Commander policy is compared byte for byte); the rebuilt
-# mtg-sim embeds the profile and runs match-game and match-replay with
-# MTG_ENGINE_ARTIFACT_ROOT at the evidence directory, so live journals stay
-# outside the checkout. The checkout, stage, journals, game and replay stay
+# mtg-sim embeds the profile and runs match-game with --journal-dir inside the
+# evidence directory, so live journals stay outside the checkout, then
+# match-replay. The checkout, stage, journals, game and replay stay
 # under the evidence directory, including on failure; retire the checkout as
 # docs/game-engine-storage.md describes.
 set -euo pipefail
@@ -63,17 +63,21 @@ run=$(mktemp -d "$root/generated/deck-play.XXXXXXXX")
 echo "Evidence: $run" >&2
 git worktree add --detach "$run/source" HEAD >&2
 cd "$run/source"
+# The detached checkout builds in its own target: never the invoking checkout's
+# (engine-env/npm export CARGO_TARGET_DIR), whose gate cache it would grow or evict.
+CARGO_TARGET_DIR="$run/source/target/engine"
+export CARGO_TARGET_DIR
 lock=$(sh scripts/engine-env.sh python3 -B scripts/engine-cache.py lock)
 mkdir -p "$(dirname -- "$lock")"
 # build_sim LABEL DESTINATION: one admitted, locked release build and copy.
 build_sim() {
     (
         flock -x 9
-        sh scripts/engine-env.sh python3 -B scripts/engine-cache.py check > "$run/$1-cache.json"
+        MTG_ENGINE_LOCK_FD=9 sh scripts/engine-env.sh python3 -B scripts/engine-cache.py check > "$run/$1-cache.json"
         sh scripts/engine-env.sh cargo build --locked --release -p mtg-sim --message-format=json > "$run/$1.jsonl"
         executable=$(jq -rs '[.[] | select(.reason=="compiler-artifact" and .target.name=="mtg-sim" and .executable!=null) | .executable] | last // error("missing sim executable")' "$run/$1.jsonl")
         cp "$executable" "$2"
-    ) 9>"$lock"
+    ) 9>>"$lock"
 }
 build_sim compiler-build "$run/compiler"
 profile=$(python3 -B scripts/stage-deck.py "$run/compiler" "$run/stage" "${select[@]}" "${inputs[@]}")
@@ -86,9 +90,8 @@ for policy in "$run/stage"/commander-banned-*.json; do cmp "$policy" "$fixtures/
 done
 build_sim sim-build "$run/mtg-sim"
 # Live journals (accepted inputs, the only record of an interrupted match) land
-# in $run/p5-live-journals, outside the disposable detached checkout.
-export MTG_ENGINE_ARTIFACT_ROOT=$run
-"$run/mtg-sim" match-game "$profile" "$seed" > "$run/game.json"
+# in $run/live-journals, outside the disposable detached checkout.
+"$run/mtg-sim" match-game "$profile" "$seed" --journal-dir "$run/live-journals" > "$run/game.json"
 jq -e '.outcome=="finished" or .outcome=="draw"' "$run/game.json" >/dev/null
 "$run/mtg-sim" match-replay "$profile" "$run/game.json" > "$run/replay.json"
 jq -e --slurpfile game "$run/game.json" '.status=="match_replay_verified" and .state_sha256==$game[0].final_state_sha256' "$run/replay.json"

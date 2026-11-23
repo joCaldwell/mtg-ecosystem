@@ -1,34 +1,21 @@
-//! Offline artifact loading, batch inspection and bounded replay evidence.
+//! Offline artifact loading and batch deck inspection.
 use crate::BUILD;
 use mtg_contracts::{
     JsonByteProof,
     bulk_catalog::{BulkArtifact, BulkManifest, MANIFEST_MAX_BYTES, is_sha256},
-    canonical, digest, strict_read_seekable_verified,
+    canonical, strict_read_seekable_verified,
 };
-use mtg_core::{
-    Advance, Budget, CaptureOutcome, DeckInspection, DeckRole, DynamicAdmissionIdentity,
-    DynamicDeckEntry, DynamicMatchConfig, Game, MatchAdmissionError, MatchConfig, PlayerId,
-    Prepared, ReplayJournal, Request, Response, SearchRejection, TraceMode, TurnStep,
-    admit_dynamic_pod, inspect_dynamic_deck, match_profile,
-};
+use mtg_core::{DeckInspection, DeckRole, DynamicDeckEntry, inspect_dynamic_deck};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
-    fs::{self, File, OpenOptions},
-    io::{self, Write},
-    os::unix::fs::OpenOptionsExt,
+    fs::{self, File},
     path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::Arc,
     time::Instant,
 };
 
 const SNAPSHOT_MAX: u64 = 1024 * 1024;
 const DECK_MAX: usize = 64 * 1024;
-const REPLAY_MAX: u64 = 4 * 1024 * 1024;
-const OPENING_MAX_DECISIONS: usize = 100;
-const FOUNDATIONS: &str = "commander-foundations-v1";
 
 fn read_file<T: DeserializeOwned>(path: &Path, limit: u64) -> Result<(T, JsonByteProof), String> {
     let metadata = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -168,189 +155,14 @@ fn inspect_snapshot(artifact: &BulkArtifact, path: &Path) -> Result<InspectionBa
     })
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ReplayEvidence {
-    format_version: u32,
-    runtime_build_id: String,
-    identity: DynamicAdmissionIdentity,
-    config: DynamicMatchConfig,
-    journal_sha256: String,
-    journal: ReplayJournal,
-    final_state_sha256: String,
-}
-
-fn replay(artifact: &BulkArtifact, evidence: &ReplayEvidence) -> Result<String, String> {
-    if evidence.format_version != 1
-        || evidence.runtime_build_id != BUILD.id
-        || evidence.identity.bulk_manifest_sha256 != artifact.manifest_sha256()
-        || !(1..=OPENING_MAX_DECISIONS).contains(&evidence.journal.decisions.len())
-        || !evidence.journal.concessions.is_empty()
-        || evidence.journal_sha256 != digest(&evidence.journal)?
-    {
-        return Err("dynamic replay envelope or journal identity mismatch".into());
-    }
-    let pod = admit_dynamic_pod(artifact, &evidence.config).map_err(|e| e.to_string())?;
-    if pod.identity != evidence.identity || pod.normalized_config() != &evidence.config {
-        return Err("dynamic replay admission, policy or projection identity mismatch".into());
-    }
-    let state = Game::replay(pod.prepared, &evidence.journal)?.state_digest()?;
-    if state != evidence.final_state_sha256 {
-        return Err("dynamic replay state digest mismatch".into());
-    }
-    Ok(state)
-}
-
-fn opening(prepared: Prepared, starter: PlayerId) -> Result<Game, String> {
-    let mut game = Game::with_trace(prepared, TraceMode::Off);
-    for _ in 0..OPENING_MAX_DECISIONS {
-        let Advance::AwaitingDecision(request) = game.advance(Budget::new(100_000)) else {
-            return Err("Foundations opening did not reach an ordinary decision".into());
-        };
-        if matches!(request, Request::Priority { player, .. } if player == starter)
-            && game.turn().step == TurnStep::PrecombatMain
-        {
-            return Ok(game);
-        }
-        let response = match &request {
-            Request::Mulligan { .. } => Response::Mulligan { take: false },
-            Request::Priority { .. } => Response::Pass,
-            _ => return Err("unexpected decision in Foundations opening".into()),
-        };
-        game.respond(request.player(), request.decision_id(), response)?;
-    }
-    Err("Foundations opening exceeded its decision bound".into())
-}
-
-fn foundations_witness(artifact: &BulkArtifact) -> Result<ReplayEvidence, String> {
-    let starter = PlayerId(0);
-    let embedded =
-        MatchConfig::for_profile(FOUNDATIONS, [0; 32], starter).map_err(|e| e.to_string())?;
-    let profile = match_profile(FOUNDATIONS).ok_or("Foundations profile unavailable")?;
-    let frozen = profile.catalog();
-    let mut config = DynamicMatchConfig::from_match_config(&embedded);
-    let first = admit_dynamic_pod(artifact, &config).map_err(|e| e.to_string())?;
-    for row in config.decks.iter().flatten() {
-        let prior = frozen
-            .definition_by_oracle_id(&row.oracle_id)
-            .ok_or("missing frozen definition")?;
-        let actual = artifact
-            .catalog()
-            .catalog()
-            .definition_by_oracle_id(&row.oracle_id)
-            .ok_or("missing bulk Foundations definition")?;
-        let mut actual = actual.clone();
-        if actual.provenance.ast_sha256 != prior.provenance.ast_sha256 {
-            return Err(format!("Foundations AST changed for {}", row.oracle_id));
-        }
-        actual.provenance = prior.provenance.clone();
-        if actual != *prior {
-            return Err(format!("Foundations IR changed for {}", row.oracle_id));
-        }
-    }
-
-    for deck in &mut config.decks {
-        deck.reverse();
-    }
-    let second = admit_dynamic_pod(artifact, &config).map_err(|e| e.to_string())?;
-    let config = first.normalized_config().clone();
-    if first.identity != second.identity || &config != second.normalized_config() {
-        return Err("dynamic admission identity changed with deck row order".into());
-    }
-    if !matches!(
-        Prepared::admit_pod(
-            frozen.clone(),
-            first
-                .prepared
-                .match_config()
-                .ok_or("missing config")?
-                .clone()
-        ),
-        Err(MatchAdmissionError::UnsupportedProfile)
-    ) {
-        return Err("dynamic identity bypassed reviewed profile lookup".into());
-    }
-    let baseline = opening(
-        Prepared::admit_pod(frozen.clone(), embedded).map_err(|e| e.to_string())?,
-        starter,
-    )?;
-    let game = opening(first.prepared, starter)?;
-    let reordered = opening(second.prepared, starter)?;
-    let journal = game.replay_journal();
-    let state = game.state_digest()?;
-    if journal.decisions.is_empty()
-        || journal != reordered.replay_journal()
-        || state != reordered.state_digest()?
-    {
-        return Err("dynamic opening changed with deck row order".into());
-    }
-    if !matches!(
-        baseline.capture_search(starter, Budget::unlimited()),
-        CaptureOutcome::Complete(_)
-    ) || !matches!(
-        game.capture_search(starter, Budget::unlimited()),
-        CaptureOutcome::Rejected(SearchRejection::UnsupportedRoot(reason))
-            if reason == "root needs zero marks and owner-default control"
-    ) {
-        return Err("Foundations search boundary witness failed".into());
-    }
-    let evidence = ReplayEvidence {
-        format_version: 1,
-        runtime_build_id: BUILD.id.into(),
-        identity: first.identity,
-        config,
-        journal_sha256: digest(&journal)?,
-        journal,
-        final_state_sha256: state,
-    };
-    replay(artifact, &evidence)?;
-    Ok(evidence)
-}
-
-fn write_evidence(path: &Path, evidence: &ReplayEvidence) -> Result<(), String> {
-    let bytes = canonical(evidence)?;
-    if bytes.len() as u64 > REPLAY_MAX {
-        return Err("dynamic replay output exceeds its byte limit".into());
-    }
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let parent = path.parent().ok_or("replay output has no parent")?;
-    let (stage, mut output) = loop {
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let stage = parent.join(format!(".dynamic-replay-{}-{n}", std::process::id()));
-        if stage == path {
-            continue;
-        }
-        match OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(&stage)
-        {
-            Ok(file) => break (stage, file),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e.to_string()),
-        }
-    };
-    let result = output
-        .write_all(bytes.as_bytes())
-        .and_then(|()| output.sync_all())
-        .and_then(|()| fs::hard_link(&stage, path));
-    fs::remove_file(stage).map_err(|e| e.to_string())?;
-    result.map_err(|e| e.to_string())
-}
-
 pub(super) fn cli(args: &[String]) -> Result<(), String> {
     let [command, flag1, directory, flag2, pin, flag3, file] = args else {
-        return Err("usage: deck-inspect --artifact DIR --manifest-sha SHA --decks JSON | dynamic-witness --artifact DIR --manifest-sha SHA --out NEW_JSON | dynamic-replay --artifact DIR --manifest-sha SHA --journal JSON".into());
+        return Err("usage: deck-inspect --artifact DIR --manifest-sha SHA --decks JSON".into());
     };
-    if flag1 != "--artifact"
+    if command != "deck-inspect"
+        || flag1 != "--artifact"
         || flag2 != "--manifest-sha"
-        || !matches!(
-            (command.as_str(), flag3.as_str()),
-            ("deck-inspect", "--decks")
-                | ("dynamic-witness", "--out")
-                | ("dynamic-replay", "--journal")
-        )
+        || flag3 != "--decks"
     {
         return Err("invalid bulk artifact command flags".into());
     }
@@ -358,46 +170,18 @@ pub(super) fn cli(args: &[String]) -> Result<(), String> {
         let start = Instant::now();
         let artifact = load(Path::new(directory), pin)?;
         let load_micros = start.elapsed().as_micros();
-        let path = Path::new(file);
-        match command.as_str() {
-            "deck-inspect" => {
-                let start = Instant::now();
-                let report = inspect_snapshot(&artifact, path)?;
-                let batch_inspection_micros = start.elapsed().as_micros();
-                println!("{}", canonical(&report)?);
-                eprintln!(
-                    "{}",
-                    serde_json::json!({
-                        "catalog_loads": 1, "load_micros": load_micros,
-                        "batch_inspection_micros": batch_inspection_micros,
-                        "decks": report.decks.len(),
-                    })
-                );
-            }
-            "dynamic-witness" => {
-                let evidence = foundations_witness(&artifact)?;
-                write_evidence(path, &evidence)?;
-                println!(
-                    "{}",
-                    serde_json::json!({
-                        "status":"replay_verified", "identity":evidence.identity,
-                        "decisions":evidence.journal.decisions.len(),
-                        "state_sha256":evidence.final_state_sha256,
-                        "reordered_decks_verified":true, "dynamic_reviewed_profile_rejected":true,
-                        "dynamic_search_rejected":true,
-                    })
-                );
-            }
-            "dynamic-replay" => {
-                let (evidence, _) = read_file(path, REPLAY_MAX)?;
-                let state = replay(&artifact, &evidence)?;
-                println!(
-                    "{}",
-                    serde_json::json!({"status":"replay_verified","state_sha256":state})
-                );
-            }
-            _ => unreachable!("command already checked"),
-        }
+        let start = Instant::now();
+        let report = inspect_snapshot(&artifact, Path::new(file))?;
+        let batch_inspection_micros = start.elapsed().as_micros();
+        println!("{}", canonical(&report)?);
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "catalog_loads": 1, "load_micros": load_micros,
+                "batch_inspection_micros": batch_inspection_micros,
+                "decks": report.decks.len(),
+            })
+        );
         Ok(())
     };
     if let Err(detail) = run() {

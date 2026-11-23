@@ -76,18 +76,18 @@ impl RulesTxn {
         };
         let entry = self.entry(id)?;
         let current = self
-            .program_for(&entry)?
+            .program_for(entry)?
             .targets
             .iter()
             .enumerate()
             .map(|(slot, spec)| {
                 legal.get(slot) == Some(&true)
                     && if spec.domain == TargetDomain::StackSpell {
-                        self.bound_stack_target(&entry, slot).is_some_and(|id| {
+                        self.bound_stack_target(entry, slot).is_some_and(|id| {
                             self.state.rules.stack.iter().any(|entry| entry.id == *id)
                         })
                     } else {
-                        self.bound_object_target(&entry, slot).is_some_and(|id| {
+                        self.bound_object_target(entry, slot).is_some_and(|id| {
                             self.current(*id)
                                 .is_ok_and(|object| object.present_on_battlefield())
                         })

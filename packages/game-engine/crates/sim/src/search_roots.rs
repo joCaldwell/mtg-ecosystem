@@ -1,11 +1,20 @@
 //! Trusted fixture preparation for the predeclared private-information workload.
 //! Preparation is outside search timing; the live root still counts toward RSS.
 //! Every policy choice below uses only that chooser's current Observation.
-use super::*;
-use mtg_contracts::CardKind;
-use mtg_core::{MatchConfig, PlayerRequest, PlayerResponse};
+use mtg_contracts::{CardKind, Catalog, sha256};
+use mtg_core::{
+    Advance, Budget, Game, MatchConfig, Observation, PlayerId, PlayerRequest, PlayerResponse,
+    Prepared, QueryResult, QueryValue, TraceMode, TurnStep, Zone,
+};
+use serde::{Deserialize, Serialize};
 
-pub(super) const WORKLOAD: &str = "commander-open-search-v1";
+fn observation(game: &Game, viewer: PlayerId) -> Result<Observation, String> {
+    match game.observe(viewer, Budget::unlimited()) {
+        QueryResult::Complete(QueryValue::Observation(o)) => Ok(o),
+        _ => Err("observation did not complete".into()),
+    }
+}
+
 pub(super) const ROOT_COUNT: usize = 12;
 const ROOT_SEED_DOMAIN: &str = "commander-open-search-v1/root/";
 const GENERATOR: &str = "foundations-land-only-roots-v1";
@@ -55,7 +64,6 @@ impl RootCase {
 pub(super) struct RootFixture {
     pub case: RootCase,
     pub game: Game,
-    pub land_played_at_capture: bool,
 }
 
 pub(super) fn capture(game: &Game, viewer: PlayerId) -> Result<mtg_core::SearchCapture, String> {
@@ -164,7 +172,7 @@ pub(super) fn prepare(catalog: &Catalog, index: usize) -> Result<RootFixture, St
                 ));
             }
         };
-        let observation = super::observation(&game, request.player())?;
+        let observation = observation(&game, request.player())?;
         let is_viewer_main = observation.view.viewer == case.viewer
             && observation.view.active == Some(case.viewer)
             && observation.view.turn.step == TurnStep::PrecombatMain
@@ -179,11 +187,7 @@ pub(super) fn prepare(catalog: &Catalog, index: usize) -> Result<RootFixture, St
                     || target_land_attempted
                     || basic_land(catalog, &observation).is_none()
                 {
-                    return Ok(RootFixture {
-                        case,
-                        game,
-                        land_played_at_capture: target_land_attempted,
-                    });
+                    return Ok(RootFixture { case, game });
                 }
                 target_land_attempted = true;
             }

@@ -3,7 +3,7 @@
 Read the root manual and [parser guide](../../docs/oracle_parser.md). This package
 owns the TypeScript syntax AST and diagnostic reference analysis; root scripts own
 ingestion/archive tooling. Rust owns complete-source semantic lowering/executable
-IR. Broad grammar expansion is paused; `build-ir` deliberately fails. See
+IR (`mtg-sim catalog build-ir`). Broad grammar expansion is paused. See
 [system ownership](../../README.md#system-architecture) and
 [current engine scope](../../docs/game-engine-current.md).
 

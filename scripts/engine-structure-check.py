@@ -17,6 +17,9 @@ ALLOWED = {
     'mtg-compiler': {'mtg-contracts', 'mtg-oracle-ast', 'serde', 'serde_json', 'sha2', 'regex', 'serde_path_to_error'},
     'mtg-core': {'mtg-contracts', 'serde', 'serde_json', 'schemars', 'rand_chacha', 'rand_core'},
 }
+# Test-only additions per layer: the published Catalog schema is checked with
+# the host's already-pinned validator, never linked into a runtime layer.
+DEV_ALLOWED = {'mtg-contracts': {'jsonschema'}}
 
 
 def dependency_errors(root):
@@ -29,6 +32,7 @@ def dependency_errors(root):
         for target, table in tables:
             for kind in ('dependencies', 'build-dependencies', 'dev-dependencies'):
                 permit = allowed | ({'sha2'} if kind == 'build-dependencies' else set())
+                permit |= DEV_ALLOWED.get(crate, set()) if kind == 'dev-dependencies' else set()
                 for alias, value in table.get(kind, {}).items():
                     spec = value if isinstance(value, dict) else {}
                     base = workspace.get(alias, {}) if spec.get('workspace') else spec

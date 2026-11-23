@@ -1,13 +1,7 @@
-//! Moved from mtg-core in-source tests; see docs/game-engine-development.md.
+//! Search contexts and saved query Work through the public testkit surface.
 use mtg_core::testkit::*;
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-};
-mod definition_diversity_tests;
-mod dense_kernel_tests;
-mod legal_branch_tests;
+use serde::Serialize;
+use std::{collections::BTreeMap, sync::Arc};
 mod search {
     use super::*;
     mod shared_history_tests;
@@ -16,5 +10,5 @@ mod search {
 mod work {
     use super::*;
     mod initialization_tests;
-    pub(crate) mod optimization_tests;
+    mod saved_work_tests;
 }

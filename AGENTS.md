@@ -47,9 +47,10 @@ ask only if it cannot be inferred. Read its manual before editing code.
   read [storage policy](docs/game-engine-storage.md) before cleanup.
 
 [README](README.md) is the documentation map. Engine/server work starts at the
-[current map](docs/game-engine-current.md) and [development commands](docs/game-engine-development.md).
-Accepted D2c-d `394301d` excludes later increments; [evidence](docs/game-engine-evidence.md)
-records source boundaries. Update owning canonical sections instead of creating
+[current map](docs/game-engine-current.md), then [development](docs/game-engine-development.md)
+(`check:engine`, `check:engine:gate`, `check:engine:tooling`), then
+[mechanics](docs/game-engine-mechanics.md) and [Kernel IR](docs/game-engine-catalogs.md#kernel-ir).
+Update owning canonical sections instead of creating
 per-task plans, progress logs or audit reports. Raw receipts belong in ignored or
 external evidence storage, with locations and omissions in the handoff.
 

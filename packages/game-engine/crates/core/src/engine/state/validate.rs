@@ -328,25 +328,25 @@ impl RulesTxn {
                     // first target's domain (`RulesTxn::spell_announcement_frame`).
                     let next = self.next_mode_target(top)?;
 
-                    let opened = match (
-                        stage,
-                        next.and_then(|p| p.targets.first()).map(|t| t.domain),
-                    ) {
+                    let opened = matches!(
+                        (
+                            stage,
+                            next.and_then(|p| p.targets.first()).map(|t| t.domain),
+                        ),
                         (
                             Frame::Targets { .. },
                             Some(
                                 TargetDomain::BattlefieldCreature
-                                | TargetDomain::BattlefieldPermanent
-                                | TargetDomain::CreatureOrPlaneswalker,
+                                    | TargetDomain::BattlefieldPermanent
+                                    | TargetDomain::CreatureOrPlaneswalker,
                             ),
-                        )
-                        | (Frame::StackTargets { .. }, Some(TargetDomain::StackSpell))
-                        | (Frame::EntityTargets { .. }, Some(TargetDomain::AnyDamageTarget)) => {
-                            true
-                        }
-                        (Frame::PlayerTargets { .. }, Some(TargetDomain::AnyPlayer)) => true,
-                        _ => false,
-                    };
+                        ) | (Frame::StackTargets { .. }, Some(TargetDomain::StackSpell))
+                            | (
+                                Frame::EntityTargets { .. },
+                                Some(TargetDomain::AnyDamageTarget)
+                            )
+                            | (Frame::PlayerTargets { .. }, Some(TargetDomain::AnyPlayer))
+                    );
                     if !self.valid_mixed_target_receipt(top, false)? || !opened {
                         return Err("snapshot selected-mode announcement target invariant".into());
                     }

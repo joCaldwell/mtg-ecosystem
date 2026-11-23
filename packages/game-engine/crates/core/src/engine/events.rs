@@ -332,66 +332,6 @@ fn independent_footprints(
     true
 }
 
-#[cfg(test)]
-mod footprint_tests {
-    use super::*;
-
-    #[test]
-    fn streaming_conflicts_match_pairwise_reference_exhaustively() {
-        let keys = [FactKey::Object(CardId(0)), FactKey::Mana(PlayerId(1))];
-        let sets = (0..4)
-            .map(|mask| {
-                keys.iter()
-                    .enumerate()
-                    .filter(|(index, _)| mask & (1 << index) != 0)
-                    .map(|(_, key)| *key)
-                    .collect::<BTreeSet<_>>()
-            })
-            .collect::<Vec<_>>();
-        let footprints = sets
-            .iter()
-            .flat_map(|reads| {
-                sets.iter()
-                    .map(move |writes| (reads.clone(), writes.clone()))
-            })
-            .collect::<Vec<_>>();
-        assert!(independent_footprints([]));
-        for a in &footprints {
-            assert!(independent_footprints([a.clone()]));
-            for b in &footprints {
-                for c in &footprints {
-                    let sequence = [a.clone(), b.clone(), c.clone()];
-                    let reference = (0..sequence.len()).all(|i| {
-                        (i + 1..sequence.len()).all(|j| {
-                            sequence[i].1.is_disjoint(&sequence[j].0)
-                                && sequence[j].1.is_disjoint(&sequence[i].0)
-                        })
-                    });
-                    assert_eq!(independent_footprints(sequence), reference);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn streaming_conflicts_cover_full_capacity_and_distant_dependencies() {
-        let footprints = (0..capacities::EVENT_GROUP_LIMIT)
-            .map(|index| {
-                let keys = BTreeSet::from([FactKey::Object(CardId(index as u32))]);
-                (keys.clone(), keys)
-            })
-            .collect::<Vec<_>>();
-        assert!(independent_footprints(footprints.clone()));
-        let mut conflicting = footprints;
-        conflicting
-            .last_mut()
-            .unwrap()
-            .0
-            .insert(FactKey::Object(CardId(0)));
-        assert!(!independent_footprints(conflicting));
-    }
-}
-
 fn changes_control_inputs(event: &ProposedEvent) -> bool {
     matches!(
         event,
@@ -1633,13 +1573,9 @@ impl RulesTxn {
                 return Err("phase-out requires a resolving spell".into());
             };
             self.validate_resolving(frame)?;
-            let instruction = self
-                .program_for(self.entry(frame.stack_id)?)?
-                .instructions
-                .get(frame.cursor as usize);
-            let authorized_block = match (&group, instruction) {
-                _ => None,
-            };
+            // The resolving program must still exist; no instruction authorizes a block.
+            self.program_for(self.entry(frame.stack_id)?)?;
+            let authorized_block = None;
             if !self.entry(frame.stack_id)?.kind.is_spell()
                 || self.entry(frame.stack_id)?.paid.is_none()
                 || self.top()? != self.entry(frame.stack_id)?
@@ -3464,5 +3400,65 @@ impl RulesTxn {
             results,
             commander_damage,
         })
+    }
+}
+
+#[cfg(test)]
+mod footprint_tests {
+    use super::*;
+
+    #[test]
+    fn streaming_conflicts_match_pairwise_reference_exhaustively() {
+        let keys = [FactKey::Object(CardId(0)), FactKey::Mana(PlayerId(1))];
+        let sets = (0..4)
+            .map(|mask| {
+                keys.iter()
+                    .enumerate()
+                    .filter(|(index, _)| mask & (1 << index) != 0)
+                    .map(|(_, key)| *key)
+                    .collect::<BTreeSet<_>>()
+            })
+            .collect::<Vec<_>>();
+        let footprints = sets
+            .iter()
+            .flat_map(|reads| {
+                sets.iter()
+                    .map(move |writes| (reads.clone(), writes.clone()))
+            })
+            .collect::<Vec<_>>();
+        assert!(independent_footprints([]));
+        for a in &footprints {
+            assert!(independent_footprints([a.clone()]));
+            for b in &footprints {
+                for c in &footprints {
+                    let sequence = [a.clone(), b.clone(), c.clone()];
+                    let reference = (0..sequence.len()).all(|i| {
+                        (i + 1..sequence.len()).all(|j| {
+                            sequence[i].1.is_disjoint(&sequence[j].0)
+                                && sequence[j].1.is_disjoint(&sequence[i].0)
+                        })
+                    });
+                    assert_eq!(independent_footprints(sequence), reference);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn streaming_conflicts_cover_full_capacity_and_distant_dependencies() {
+        let footprints = (0..capacities::EVENT_GROUP_LIMIT)
+            .map(|index| {
+                let keys = BTreeSet::from([FactKey::Object(CardId(index as u32))]);
+                (keys.clone(), keys)
+            })
+            .collect::<Vec<_>>();
+        assert!(independent_footprints(footprints.clone()));
+        let mut conflicting = footprints;
+        conflicting
+            .last_mut()
+            .unwrap()
+            .0
+            .insert(FactKey::Object(CardId(0)));
+        assert!(!independent_footprints(conflicting));
     }
 }

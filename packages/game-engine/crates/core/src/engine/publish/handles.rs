@@ -138,7 +138,8 @@ macro_rules! boundary_handle {
         #[cfg(feature = "testkit")]
         impl PartialEq<HandleId<$kind>> for $public {
             fn eq(&self, id: &HandleId<$kind>) -> bool {
-                HandleId::from(self) == *id
+                let own: HandleId<$kind> = self.into();
+                own == *id
             }
         }
         impl From<&$public> for $public {

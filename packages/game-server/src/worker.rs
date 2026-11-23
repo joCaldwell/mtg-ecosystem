@@ -1792,7 +1792,7 @@ mod tests {
         assert_eq!(worker.game.replay_journal(), journal);
         assert_eq!(worker.host.ready, host.ready);
         assert_eq!(worker.host.viewer_cursors, host.viewer_cursors);
-        for s in 0..4 {
+        for (s, view) in views.iter().enumerate() {
             assert_eq!(
                 worker.host.remaining_ns[s],
                 host.remaining_ns[s]
@@ -1802,7 +1802,7 @@ mod tests {
                         0
                     }
             );
-            assert_eq!(worker.resume(s as u8).unwrap(), views[s]);
+            assert_eq!(&worker.resume(s as u8).unwrap(), view);
         }
         let outcome = continue_query(&mut worker, seat, cursor);
         assert!(

@@ -51,7 +51,7 @@ test("wrong toolchain and exhausted disk give failures and repair instructions",
 
 test("missing locked dependencies fail after installation preflight", t => {
   const checks = inspectEngine({ root: fixture(t), run, freeBytes });
-  assert.deepEqual(checks.filter(check => check.name.startsWith("dependency ")).map(check => check.status), ["fail", "fail", "fail"]);
+  assert.deepEqual(checks.filter(check => check.name.startsWith("dependency ")).map(check => check.status), ["fail", "fail"]);
   assert.equal(checks.find(check => check.name === "workspace oracle-parser")?.status, "fail");
 });
 

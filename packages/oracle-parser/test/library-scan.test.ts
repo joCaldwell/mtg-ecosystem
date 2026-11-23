@@ -25,7 +25,7 @@ function abilities(text: string, name?: string, typeLine?: string) {
 
 describe('sequential library scans', () => {
   it('binds frozen Creative Technique to the first nonland and only its exile successor', () => {
-    const fixture = new URL('../../game-engine/tests/fixtures/ramos/c336b735-3e6b-471e-be7a-84d7402ae2f5.json', import.meta.url);
+    const fixture = new URL('./fixtures/ramos/c336b735-3e6b-471e-be7a-84d7402ae2f5.json', import.meta.url);
     const row = readFileSync(fixture, 'utf8').trim();
     assert.equal(createHash('sha256').update(row).digest('hex'), 'a7440993de664d72cc9c3a85a5628363e48272a4fc5b1a7208b4c394e3dba55d');
     const { source, oracleIdentity: identity, status } = JSON.parse(row);

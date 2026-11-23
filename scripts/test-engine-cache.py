@@ -92,16 +92,216 @@ class CacheTests(unittest.TestCase):
             self.assertEqual(report['incremental'], 'profile default')
             self.assertTrue(link.is_symlink())
 
-    def test_budget_failure_preserves_executable(self):
+    def test_budget_failure_outside_the_owned_cache_preserves_executable(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / 'mtg-sim'
             binary.write_bytes(b'preserved executable')
-            env = {'CARGO_TARGET_DIR': tmp, 'ENGINE_CACHE_MAX_GIB': '0', 'ENGINE_CACHE_MIN_FREE_GIB': '0'}
+            (Path(tmp) / 'CACHEDIR.TAG').write_text('Signature: 8a477f597d28d172789f06886806bc55\n')
+            env = {'CARGO_TARGET_DIR': tmp, 'ENGINE_CACHE_MAX_GIB': '0', 'ENGINE_CACHE_MIN_FREE_GIB': '0',
+                   'MTG_ENGINE_LOCK_DIR': str(Path(tmp) / 'locks')}
             self.assertTrue(cache.status(environ=env)['errors'])
+            # A tagged directory that is not this checkout's target/engine is never evicted.
+            self.assertIn('not this checkout', cache.check(environ=env)['errors'][-1])
             self.assertEqual(binary.read_bytes(), b'preserved executable')
             env['ENGINE_CACHE_MAX_GIB'] = 'nan'
             with self.assertRaises(ValueError):
                 cache.status(environ=env)
+
+    def cargo_target(self, tmp):
+        root = Path(tmp)
+        repo = root / 'worktree'
+        git('init', '-q', str(repo))
+        target = repo / 'target/engine'
+        (target / 'debug/incremental/mtg_core-1').mkdir(parents=True)
+        (target / 'debug/incremental/mtg_core-1/s.bin').write_bytes(b'x' * 65536)
+        (target / 'debug/deps').mkdir()
+        (target / 'debug/deps/mtg-sim').write_bytes(b'x' * 65536)
+        (target / 'release/incremental').mkdir(parents=True)
+        (target / 'release/mtg-sim').write_bytes(b'x' * 65536)
+        (target / 'x86_64-unknown-linux-gnu/release/deps').mkdir(parents=True)
+        (target / 'x86_64-unknown-linux-gnu/release/incremental').mkdir()
+        (target / 'CACHEDIR.TAG').write_text('Signature: 8a477f597d28d172789f06886806bc55\n')
+        evidence = repo / 'generated/receipt.json'
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text('keep')
+        env = {'CARGO_TARGET_DIR': str(target), 'ENGINE_CACHE_MIN_FREE_GIB': '0',
+               'MTG_ENGINE_LOCK_DIR': str(root / 'locks')}
+        return repo, target, evidence, env
+
+    def test_over_budget_check_evicts_in_stages_inside_the_owned_target_only(self):
+        storage = cache.storage_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, evidence, env = self.cargo_target(tmp)
+            total = storage.usage(target)
+            incremental = storage.usage(target / 'debug/incremental')
+            # Dropping incremental state alone fits: executables stay.
+            env['ENGINE_CACHE_MAX_GIB'] = str((total - incremental // 2) / cache.GIB)
+            report = cache.check(repo, env)
+            self.assertEqual([], report['errors'])
+            self.assertEqual({'incremental'}, {row['stage'] for row in report['evicted']})
+            self.assertFalse((target / 'debug/incremental').exists())
+            self.assertFalse((target / 'x86_64-unknown-linux-gnu/release/incremental').exists())
+            self.assertTrue((target / 'debug/deps/mtg-sim').exists())
+            self.assertTrue((target / 'release/mtg-sim').exists())
+            # Next, profiles the gate does not use; the gate profile survives.
+            env['ENGINE_CACHE_MAX_GIB'] = str((storage.usage(target / 'debug') + 16384) / cache.GIB)
+            report = cache.check(repo, env)
+            self.assertEqual([], report['errors'])
+            self.assertIn('non-gate-profiles', {row['stage'] for row in report['evicted']})
+            self.assertFalse((target / 'release').exists())
+            self.assertTrue((target / 'debug/deps/mtg-sim').exists())
+            # Finally the whole target resets; the cache tag and siblings remain.
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            report = cache.check(repo, env)
+            self.assertEqual([], report['errors'])
+            self.assertEqual(['CACHEDIR.TAG'], [entry.name for entry in target.iterdir()])
+            self.assertEqual('keep', evidence.read_text())
+
+    def test_unowned_targets_are_never_evicted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, evidence, env = self.cargo_target(tmp)
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            elsewhere = []
+            # A tagged cache under generated/, in external evidence, or a symlink to the real target.
+            for path in (repo / 'generated/cache', Path(tmp) / 'evidence/cache'):
+                (path / 'debug').mkdir(parents=True)
+                (path / 'debug/keep').write_bytes(b'x' * 8192)
+                (path / 'CACHEDIR.TAG').write_text('Signature: 8a477f597d28d172789f06886806bc55\n')
+                elsewhere.append(path)
+            link = Path(tmp) / 'link'
+            link.symlink_to(target, target_is_directory=True)
+            for path in [*elsewhere, link]:
+                report = cache.check(repo, {**env, 'CARGO_TARGET_DIR': str(path)})
+                self.assertIn('not this checkout', report['errors'][-1], path)
+            for path in elsewhere:
+                self.assertTrue((path / 'debug/keep').exists())
+            # A symlinked ancestor below the checkout root (target -> elsewhere) refuses too.
+            moved = Path(tmp) / 'moved-target'
+            (repo / 'target').rename(moved)
+            (repo / 'target').symlink_to(moved, target_is_directory=True)
+            self.assertIn('not this checkout', cache.check(repo, env)['errors'][-1])
+            self.assertTrue((moved / 'engine/debug/incremental').exists())
+            self.assertEqual('keep', evidence.read_text())
+
+    def test_lock_inside_the_target_or_a_symlinked_tag_refuses_eviction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            inside = {**env, 'MTG_ENGINE_LOCK_DIR': str(target / 'locks')}
+            report = cache.check(repo, inside)
+            self.assertIn('lock lies inside the target', report['errors'][-1])
+            self.assertTrue((target / 'locks').is_dir() and (target / 'debug/incremental').exists())
+            (target / 'locks').rename(Path(tmp) / 'old-locks')
+            tag = target / 'CACHEDIR.TAG'
+            real = Path(tmp) / 'real-tag'
+            real.write_bytes(tag.read_bytes())
+            tag.unlink()
+            tag.symlink_to(real)
+            self.assertIn('CACHEDIR.TAG', cache.check(repo, env)['errors'][-1])
+            tag.unlink()
+            tag.write_text('not a cargo tag\n')
+            self.assertIn('CACHEDIR.TAG', cache.check(repo, env)['errors'][-1])
+            self.assertTrue((target / 'debug/incremental').exists())
+
+    def test_inherited_descriptor_must_already_hold_the_exclusive_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            lock = cache.lock_path(target, env)
+            lock.parent.mkdir(parents=True)
+            lock.write_text('')
+            with lock.open('a') as idle:
+                # An idle description would merely acquire a fresh lock: refused.
+                report = cache.check(repo, {**env, 'MTG_ENGINE_LOCK_FD': str(idle.fileno())})
+                self.assertIn('lock is busy', report['errors'][-1])
+                # A shared-only holder does not prove exclusive ownership.
+                fcntl.flock(idle, fcntl.LOCK_SH)
+                report = cache.check(repo, {**env, 'MTG_ENGINE_LOCK_FD': str(idle.fileno())})
+                self.assertIn('lock is busy', report['errors'][-1])
+            self.assertTrue((target / 'debug/incremental').exists())
+
+    def test_pinned_size_decides_counts_hard_links_once_and_fifo_tags_never_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            os.link(target / 'debug/deps/mtg-sim', target / 'release/hard-link')
+            descriptor = os.open(target, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                once = cache.usage_at(descriptor)
+            finally:
+                os.close(descriptor)
+            self.assertEqual(cache.storage_module().usage(target), once)
+            (target / 'release/hard-link').unlink()
+            # The unlocked path-based status may under-report; the pinned scan
+            # under the lock still decides and evicts.
+            env['ENGINE_CACHE_MAX_GIB'] = str(65536 / cache.GIB)
+            real = cache.status
+            with patch.object(cache, 'status', lambda *a: {**real(*a), 'allocated_bytes': 0}):
+                report = cache.check(repo, env)
+            self.assertEqual([], report['errors'])
+            self.assertTrue(report['evicted'])
+            # A FIFO tag (no writer) is rejected without blocking.
+            (target / 'debug').mkdir()
+            (target / 'debug/data').write_bytes(b'x' * 65536)
+            (target / 'CACHEDIR.TAG').unlink()
+            os.mkfifo(target / 'CACHEDIR.TAG')
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            self.assertIn('CACHEDIR.TAG', cache.check(repo, env)['errors'][-1])
+            self.assertTrue((target / 'debug/data').exists())
+
+    def test_symlinked_checkout_ancestor_refuses_eviction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            link = Path(tmp) / 'linked-checkout'
+            link.symlink_to(repo, target_is_directory=True)
+            env = {**env, 'ENGINE_CACHE_MAX_GIB': '0', 'CARGO_TARGET_DIR': str(link / 'target/engine')}
+            with patch.object(cache, 'toplevel', return_value=link):
+                report = cache.check(repo, env)
+            self.assertIn('symlink', report['errors'][-1])
+            self.assertTrue((target / 'debug/incremental').exists())
+
+    def test_fdinfo_proof_reads_only_the_exact_exclusive_description(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / 'cargo.lock'
+            lock.write_text('')
+            inode = os.stat(lock)
+            with lock.open('a') as held, lock.open('a') as other:
+                self.assertFalse(cache.holds_exclusive_flock(held.fileno(), inode))
+                fcntl.flock(held, fcntl.LOCK_EX)
+                self.assertTrue(cache.holds_exclusive_flock(held.fileno(), inode))
+                # Another description of the same inode shows no lock of its own.
+                self.assertFalse(cache.holds_exclusive_flock(other.fileno(), inode))
+                self.assertFalse(cache.holds_exclusive_flock(10**6, inode))
+            # Unreadable fdinfo fails closed.
+            with lock.open('a') as held, patch('builtins.open', side_effect=OSError):
+                fcntl.flock(held, fcntl.LOCK_EX)
+                self.assertFalse(cache.holds_exclusive_flock(held.fileno(), inode))
+
+    def test_eviction_requires_a_verified_held_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            lock = cache.lock_path(target, env)
+            lock.parent.mkdir(parents=True)
+            other = Path(tmp) / 'other.lock'
+            other.write_text('')
+            with lock.open('a') as holder, lock.open('a') as stranger, other.open('a') as wrong:
+                fcntl.flock(holder, fcntl.LOCK_EX)
+                # Busy without an inherited descriptor; an inherited descriptor of
+                # another file, a garbage value, or an unlocked description of the
+                # lock while someone else holds it are all refused.
+                for extra in ({}, {'MTG_ENGINE_LOCK_FD': str(wrong.fileno())}, {'MTG_ENGINE_LOCK_FD': 'x'},
+                              {'MTG_ENGINE_LOCK_FD': str(stranger.fileno())}):
+                    report = cache.check(repo, {**env, **extra})
+                    self.assertIn('lock is busy', report['errors'][-1], extra)
+                self.assertTrue((target / 'debug/incremental').exists())
+                # The description that holds the lock is verified and may evict.
+                self.assertEqual([], cache.check(repo, {**env, 'MTG_ENGINE_LOCK_FD': str(holder.fileno())})['errors'])
+            self.assertFalse((target / 'debug').exists())
+            (target / 'debug').mkdir()
+            (target / 'debug/x').write_bytes(b'x' * 65536)
+            # With the lock idle, check takes it itself.
+            self.assertEqual([], cache.check(repo, env)['errors'])
+            self.assertFalse((target / 'debug').exists())
 
 
 if __name__ == '__main__':

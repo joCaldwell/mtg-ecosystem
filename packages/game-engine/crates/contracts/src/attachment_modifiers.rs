@@ -9,11 +9,6 @@ pub fn advanced(effect: &StaticEffect) -> bool {
         if power.is_negative() || toughness.is_negative() || keywords.iter().any(|k| k.fixed_protection_color().is_some()))
 }
 
-pub fn grants_protection(effect: &StaticEffect) -> bool {
-    matches!(effect, StaticEffect::ModifyCreatures { scope: CreatureScope::Equipped | CreatureScope::Enchanted, keywords, .. }
-        if keywords.iter().any(|k| k.fixed_protection_color().is_some()))
-}
-
 fn signed(text: &str) -> Option<(Quantity, Value)> {
     let (sign, n) = if let Some(n) = text.strip_prefix('+') {
         (1, n)

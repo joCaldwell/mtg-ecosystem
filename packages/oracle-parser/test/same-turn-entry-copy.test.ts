@@ -5,7 +5,7 @@ import { it } from "node:test";
 import { analyzeCardBindings, parseOracleText, type BindingSourceCard } from "../src/index.ts";
 
 it("binds the frozen Sakashima's Protege entry copy separately from Flash and Cascade", () => {
-  const fixture = new URL("../../game-engine/tests/fixtures/ramos/cf127842-5fb1-44df-8d91-8cc0f48c559a.json", import.meta.url);
+  const fixture = new URL("./fixtures/ramos/cf127842-5fb1-44df-8d91-8cc0f48c559a.json", import.meta.url);
   const { source, oracleIdentity: identity, sourceSha256, astSha256 } = JSON.parse(readFileSync(fixture, "utf8")) as {
     source: BindingSourceCard & { oracle_text: string }; oracleIdentity: string; sourceSha256: string; astSha256: string;
   };

@@ -70,6 +70,8 @@ mod tests {
                 let record: serde_json::Value = serde_json::from_str(raw).unwrap();
                 assert_eq!(record["oracleIdentity"], id);
                 assert_eq!(record["source"]["name"], name);
+                assert_eq!(record["sourceIndex"], item["source_index"]);
+                assert_eq!(record["sourceSha256"], item["source_sha256"]);
             }
         }
     }

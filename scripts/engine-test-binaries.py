@@ -13,8 +13,10 @@ lowers the binary cap instead. Arguments after `--` go to every binary
 (filters, --ignored). Output is buffered per binary: passing binaries print
 their summary line, failing ones print everything. The run reports wall time
 and the peak total resident memory of concurrently running binaries. Exits
-nonzero if the build or any binary fails. Run under the target's native lock
-(check-engine owns it).
+nonzero if the build or any binary fails, if the whole selection executes zero
+tests, or (without a filter) if a binary runs zero tests and declares no
+ignored opt-in test. Run under the
+target's native lock (check-engine owns it).
 """
 import json
 import os
@@ -66,6 +68,37 @@ def executables(messages):
 def summary(output):
     lines = [line for line in output.splitlines() if line.startswith('test result:')]
     return lines[-1] if lines else 'no test result line'
+
+
+def counts(output):
+    """(passed, ignored) from libtest's final summary, or None."""
+    line = summary(output)
+    if not line.startswith('test result:'):
+        return None
+    try:
+        fields = dict(reversed(part.strip().split(' ', 1)) for part in line.split('.', 1)[1].split(';')[:3])
+        return int(fields['passed']), int(fields['ignored'])
+    except (KeyError, IndexError, ValueError):
+        return None
+
+
+def passed(output):
+    """Executed (passed) tests from libtest's final summary, or None."""
+    found = counts(output)
+    return found and found[0]
+
+
+def empty_selection(results, test_args):
+    """Binaries that executed no test; any filter allows per-binary zeros."""
+    found = {name: counts(output) or (0, 0) for name, (code, output, _) in results.items() if not code}
+    # A selection that executes nothing fails as a whole, even if every binary
+    # only declares ignored tests.
+    if found and sum(ran for ran, _ in found.values()) == 0:
+        return sorted(found)
+    if any(not arg.startswith('-') for arg in test_args):
+        return []
+    # An all-ignored binary is an explicit opt-in witness beside executing ones.
+    return sorted(name for name, (ran, ignored) in found.items() if ran == 0 and ignored == 0)
 
 
 def resident_bytes(pid):
@@ -130,6 +163,7 @@ def main(argv):
         thread.join()
     sampler.join()
     failed = sorted(name for name, (code, _, _) in results.items() if code)
+    empty = empty_selection(results, test_args)
     for name, _, _ in binaries:
         code, output, wall = results[name]
         if code:
@@ -137,8 +171,8 @@ def main(argv):
         print(f'{"FAIL" if code else "ok  "} {name} ({wall:.1f}s): {summary(output)}')
     print(f'{len(binaries)} binaries, {concurrent} at a time with {" ".join(binary_args)}, '
           f'in {time.monotonic() - started:.1f}s; peak total RSS {peak[0] / 2**30:.2f} GiB; '
-          f'failed: {", ".join(failed) or "none"}')
-    return 1 if failed else 0
+          f'failed: {", ".join(failed) or "none"}; executed no tests: {", ".join(empty) or "none"}')
+    return 1 if failed or empty else 0
 
 
 if __name__ == '__main__':

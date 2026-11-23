@@ -21,6 +21,8 @@ class RetirementTests(unittest.TestCase):
         self.run_git('init', '-q', '-b', 'integration', str(self.root), root=False)
         self.run_git('config', 'user.email', 'test@example.invalid')
         self.run_git('config', 'user.name', 'Test')
+        # Scratch fixtures never sign: a global signing key may be unavailable.
+        self.run_git('config', 'commit.gpgsign', 'false')
         (self.root / '.gitignore').write_text('generated/\n')
         (self.root / 'source').write_text('source')
         self.run_git('add', '.')

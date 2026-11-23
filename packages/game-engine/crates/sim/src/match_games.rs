@@ -6,32 +6,11 @@ use mtg_core::{MatchConfig, ObjectHandle, PlayerRequest, PlayerResponse, PlayerT
 use std::collections::BTreeMap;
 
 pub(super) mod bench_pods;
-#[cfg(test)]
-mod current_pod_throughput;
 mod generic_policy;
-mod interactions;
 mod mana_policy;
-pub(crate) use mana_policy::spend_response;
-#[cfg(test)]
-mod ordinary_diagnostic;
+pub(crate) use mtg_sim::mana_spend::{payment, spend};
 #[cfg(test)]
 mod replay_reuse_tests;
-
-// Evidence belongs outside native crate sources regardless of Cargo's test cwd.
-fn artifact_root() -> Result<std::path::PathBuf, String> {
-    if let Some(value) = std::env::var_os("MTG_ENGINE_ARTIFACT_ROOT") {
-        let root = std::path::PathBuf::from(value);
-        if !root.is_absolute() {
-            return Err("MTG_ENGINE_ARTIFACT_ROOT must be an absolute path".into());
-        }
-        return Ok(root);
-    }
-    Ok(Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(4)
-        .expect("sim crate workspace layout")
-        .join("generated"))
-}
 
 const DECISION_LIMIT: usize = 100_000;
 const TURN_LIMIT: u64 = 1_000;
@@ -73,20 +52,6 @@ pub(super) struct Evidence {
     pub survivor_counts: Vec<usize>,
     pub elapsed_millis: u128,
 }
-pub(crate) fn spend(
-    cost: &ManaCost,
-    available: &BTreeMap<Color, Quantity>,
-) -> Option<BTreeMap<Color, Quantity>> {
-    let used = payment(cost, available)?;
-    Some(
-        PAYMENT_ORDER
-            .into_iter()
-            .zip(used)
-            .filter(|(_, n)| *n > Quantity::zero())
-            .collect(),
-    )
-}
-
 pub(crate) fn can_fund(
     catalog: &Catalog,
     view: &mtg_core::PermittedView,
@@ -96,43 +61,6 @@ pub(crate) fn can_fund(
     mana_policy::hybrid_plan(catalog, view, cost, symbols).is_some()
 }
 
-const PAYMENT_ORDER: [Color; 6] = [Color::B, Color::G, Color::W, Color::U, Color::R, Color::C];
-
-fn payment(cost: &ManaCost, available: &BTreeMap<Color, Quantity>) -> Option<[Quantity; 6]> {
-    let mut used: [Quantity; 6] = Default::default();
-    let one = Quantity::from(1);
-    for c in &cost.colored {
-        let index = match c {
-            Color::B => 0,
-            Color::G => 1,
-            Color::W => 2,
-            Color::U => 3,
-            Color::R => 4,
-            Color::C => 5,
-        };
-        let n = &mut used[index];
-        n.add(&one);
-        if &*n > available.get(c)? {
-            return None;
-        }
-    }
-    let mut rest = cost.generic.clone();
-    for (c, already) in PAYMENT_ORDER.into_iter().zip(&mut used) {
-        if rest == Quantity::zero() {
-            break;
-        }
-        let Some(mut n) = available.get(&c).cloned() else {
-            continue;
-        };
-        n.subtract(already);
-        let n = n.min(rest.clone());
-        if n > Quantity::zero() {
-            rest.subtract(&n);
-            already.add(&n);
-        }
-    }
-    (rest == Quantity::zero()).then_some(used)
-}
 fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::Definition, String> {
     let found = catalog.definition_by_oracle_id(id);
     // Policy tests deliberately exercise catalogs with permuted definitions.
@@ -539,7 +467,7 @@ impl Strategy<'_> {
                 available,
                 restricted_available,
                 ..
-            } => mana_policy::spend_response(cost, available, restricted_available)
+            } => mtg_sim::mana_spend::spend_response(cost, available, restricted_available)
                 .ok_or("cannot spend announced cost")?,
             PlayerRequest::CommanderReturn { .. } => {
                 PlayerResponse::CommanderReturn { to_command: true }
@@ -777,9 +705,18 @@ struct LiveJournal {
     file: fs::File,
 }
 impl LiveJournal {
-    fn new(config: &MatchConfig, policy: Policy, mulligans: [u8; 4]) -> Result<Self, String> {
-        let parent = artifact_root()?.join("p5-live-journals");
-        fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
+    /// Live journals are the only record of an interrupted match. The caller
+    /// names their directory explicitly; nothing defaults into a checkout.
+    fn new(
+        parent: &Path,
+        config: &MatchConfig,
+        policy: Policy,
+        mulligans: [u8; 4],
+    ) -> Result<Self, String> {
+        if !parent.is_absolute() {
+            return Err("live journal directory must be an absolute path".into());
+        }
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         for index in 0..1000 {
             let path = parent.join(format!("run-{}-{index}.jsonl", std::process::id()));
             match fs::OpenOptions::new()
@@ -812,6 +749,7 @@ pub(super) fn run(
     policy: Policy,
     mulligans: [u8; 4],
     quantum: u64,
+    journal_dir: &Path,
 ) -> Result<Evidence, String> {
     let start = Instant::now();
     if quantum == 0 {
@@ -825,7 +763,7 @@ pub(super) fn run(
         TraceMode::Off
     };
     let mut game = Game::with_trace(prepared, trace_mode);
-    let mut live_journal = LiveJournal::new(&config, policy, mulligans)?;
+    let mut live_journal = LiveJournal::new(journal_dir, &config, policy, mulligans)?;
     let mut strategy = Strategy::new(catalog, policy, mulligans);
     let selected_checkpoints =
         config.seed == seed_for(&config.profile, 0) && policy == Policy::Develop;
@@ -965,10 +903,6 @@ pub(super) fn run(
         elapsed_millis: start.elapsed().as_millis(),
     })
 }
-pub(super) fn seed(index: u32) -> [u8; 32] {
-    // Domain and index are fixed before running the acceptance batch.
-    seed_for("commander-foundations-v1", index)
-}
 pub(super) fn seed_for(profile: &str, index: u32) -> [u8; 32] {
     let hex = sha256(format!("{profile}/completion-batch/{index}").as_bytes());
     std::array::from_fn(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).expect("SHA256 hex"))
@@ -996,20 +930,11 @@ fn verify_host_metrics(e: &Evidence) -> Result<(), String> {
 pub(super) fn verify(catalog: &Catalog, e: &Evidence) -> Result<(), String> {
     verify_replay(catalog, e).map(|_| ())
 }
+// Standalone verification constructs and checks its own independent replay.
 fn verify_replay(
     catalog: &Catalog,
     e: &Evidence,
 ) -> Result<Vec<(PlayerId, mtg_core::PlayerLossReason)>, String> {
-    verify_replay_game(catalog, e).map(|verified| verified.loss_facts)
-}
-// Process-local proof ownership only: neither the Game nor a claim to having
-// verified it is serialized into retained evidence. Standalone verification
-// still constructs and checks its own independent replay.
-struct VerifiedReplay {
-    game: Game,
-    loss_facts: Vec<(PlayerId, mtg_core::PlayerLossReason)>,
-}
-fn verify_replay_game(catalog: &Catalog, e: &Evidence) -> Result<VerifiedReplay, String> {
     verify_host_metrics(e)?;
     let p = Prepared::admit_pod(catalog.clone(), e.config.clone()).map_err(|e| format!("{e:?}"))?;
     let mut verifier = SnapshotVerifier::new(p.clone(), e.trace_mode);
@@ -1069,10 +994,7 @@ fn verify_replay_game(catalog: &Catalog, e: &Evidence) -> Result<VerifiedReplay,
         return Err("match replay outcome mismatch".into());
     }
     verify_terminal_result(&g, e)?;
-    Ok(VerifiedReplay {
-        game: g,
-        loss_facts,
-    })
+    Ok(loss_facts)
 }
 fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
     let mut probe = game.fork();
@@ -1083,134 +1005,6 @@ fn verify_terminal_result(game: &Game, e: &Evidence) -> Result<(), String> {
     }
     Ok(())
 }
-pub(super) fn batch(
-    catalog: &Catalog,
-    profile_name: &str,
-    directory: &Path,
-) -> Result<serde_json::Value, String> {
-    let catalog_sha256 = mtg_contracts::digest(catalog)?;
-    let profile_spec = mtg_core::match_profile(profile_name).ok_or("unknown batch profile")?;
-    if profile_spec.catalog_sha256 != catalog_sha256 {
-        return Err("batch catalog mismatch".into());
-    }
-    let profile = profile_spec.name.as_str();
-    fs::create_dir(directory).map_err(|e| e.to_string())?;
-    let manifest = serde_json::json!({"profile":profile,"policy":"ir-develop-v2","seed_domain":format!("{profile}/completion-batch/"),"seed_indices":(0..16).collect::<Vec<u32>>(),"starting_seat":"index modulo4","mulligans":"(index+seat) modulo3","additional":{"homogeneous_seats":profile_spec.completion.homogeneous_seats},"decision_limit":DECISION_LIMIT,"turn_limit":TURN_LIMIT,"shared_work_limit":WORK_LIMIT,"quantum":1024,"required_complete":18,"allowed_faults":0,"allowed_truncations":0,"build_id":BUILD.id,"catalog_sha256":mtg_contracts::digest(catalog)?});
-    let mut manifest = manifest;
-    // The optional rotation layout and extra homogeneous decks come from data.
-    if profile_spec.completion.rotate {
-        manifest["seat_rotation"] =
-            serde_json::json!("default decks rotate left by floor(index/4), indices0..15");
-    }
-    fs::write(directory.join("manifest.json"), canonical(&manifest)?).map_err(|e| e.to_string())?;
-    let mut reports = vec![];
-    let mut failures = vec![];
-    for index in 0..18u32 {
-        let mut config = MatchConfig::for_profile(
-            profile,
-            seed_for(profile, index),
-            PlayerId((index % 4) as u8),
-        )
-        .map_err(|e| e.to_string())?;
-        apply_completion_layout(profile_spec, index as usize, &mut config);
-        eprintln!("running legal Commander batch seed{index}");
-        let e = match run(
-            catalog,
-            config,
-            Policy::Develop,
-            std::array::from_fn(|p| ((index as usize + p) % 3) as u8),
-            1024,
-        ) {
-            Ok(e) => e,
-            Err(error) => {
-                let failure = serde_json::json!({"index":index,"error":error,"phase":"before evidence construction"});
-                fs::write(
-                    directory.join(format!("failure-{index:02}.json")),
-                    canonical(&failure)?,
-                )
-                .map_err(|e| e.to_string())?;
-                failures.push(failure);
-                continue;
-            }
-        };
-        // Persist the journal even if completion or independent replay fails.
-        let evidence_text = canonical(&e)?;
-        fs::write(
-            directory.join(format!("game-{index:02}.json")),
-            &evidence_text,
-        )
-        .map_err(|e| e.to_string())?;
-        drop(evidence_text);
-        let replay =
-            verify_suite_entry(index as usize, &e).and_then(|()| verify_replay_game(catalog, &e));
-        if !matches!(e.outcome.as_str(), "finished" | "draw") || replay.is_err() {
-            failures.push(
-                serde_json::json!({"index":index,"outcome":e.outcome,"replay_error":replay.as_ref().err()}),
-            );
-        }
-        let mut report = serde_json::json!({"index":index,"outcome":e.outcome,"winner":e.winner,"survivor_counts":e.survivor_counts,"turns":e.turns,"decisions":e.decisions,"advances":e.advances,"rule_steps":e.rule_steps,"query_calls":e.query_calls,"verified_losses":replay.as_ref().ok().map(|verified| &verified.loss_facts),"elapsed_millis":e.elapsed_millis,"final_state_sha256":e.final_state_sha256});
-        report["interactions"] = match &replay {
-            Ok(verified) => interactions::verified_game(catalog, verified)?,
-            // Keep the existing independent diagnostic replay for failed or
-            // nonterminal evidence; a failed proof cannot supply this fast path.
-            Err(_) => interactions::game(catalog, &e)?,
-        };
-        reports.push(report);
-    }
-    let interaction_summary = interactions::summarize(catalog, &reports)?;
-    let report = serde_json::json!({"manifest":manifest,"games":reports,"interactions":interaction_summary,"failures":failures,"passed":failures.is_empty()});
-    fs::write(directory.join("report.json"), canonical(&report)?).map_err(|e| e.to_string())?;
-    if !failures.is_empty() {
-        return Err(format!(
-            "legal Commander batch failed; see {}",
-            directory.display()
-        ));
-    }
-    Ok(report)
-}
-fn apply_completion_layout(
-    profile: &mtg_core::MatchProfile,
-    index: usize,
-    config: &mut MatchConfig,
-) {
-    if profile.completion.rotate {
-        config.decks.rotate_left((index / 4) % 4);
-    }
-    if (16..18).contains(&index) {
-        let deck = &profile.decks[profile.completion.homogeneous_seats[index - 16]];
-        config.decks = std::array::from_fn(|_| deck.clone());
-    }
-}
-fn verify_suite_entry(index: usize, e: &Evidence) -> Result<(), String> {
-    let profile = mtg_core::match_profile(&e.config.profile).ok_or("unknown completion profile")?;
-    let mut config = MatchConfig::for_profile(
-        &profile.name,
-        seed_for(&profile.name, index as u32),
-        PlayerId((index % 4) as u8),
-    )
-    .map_err(|e| e.to_string())?;
-    apply_completion_layout(profile, index, &mut config);
-    let trace_mode = if index == 0 {
-        TraceMode::Detailed
-    } else {
-        TraceMode::Off
-    };
-    if !e.journal.concessions.is_empty()
-        || e.config != config
-        || e.policy != Policy::Develop
-        || e.mulligans != std::array::from_fn(|p| ((index + p) % 3) as u8)
-        || e.quantum != 1024
-        || e.work_limit != WORK_LIMIT
-        || e.trace_mode != trace_mode
-    {
-        return Err("fixed completion batch manifest mismatch".into());
-    }
-    if index == 0 && e.checkpoints.len() != 4 || index != 0 && !e.checkpoints.is_empty() {
-        return Err("selected checkpoint closure mismatch".into());
-    }
-    verify_host_metrics(e)
-}
-
 fn losses(game: &Game) -> Vec<(PlayerId, mtg_core::PlayerLossReason)> {
     // Detailed events contain each actual loss once. Batch trace records repeat
     // those outcomes as transaction proofs and must not be counted again.
@@ -1225,48 +1019,6 @@ fn losses(game: &Game) -> Vec<(PlayerId, mtg_core::PlayerLossReason)> {
         })
         .collect()
 }
-pub(super) fn draw_failure(catalog: &Catalog) -> Result<Evidence, String> {
-    let mut config =
-        MatchConfig::for_profile("commander-foundations-v1", seed(18), PlayerId(2)).unwrap();
-    config.decks = std::array::from_fn(|_| {
-        mtg_core::match_profile("commander-foundations-v1")
-            .unwrap()
-            .decks[0]
-            .clone()
-    });
-    let e = run(catalog, config, Policy::DrawOnly, [0; 4], 1024)?;
-    verify_draw_failure(catalog, &e)?;
-    Ok(e)
-}
-pub(super) fn verify_draw_failure(catalog: &Catalog, e: &Evidence) -> Result<(), String> {
-    let mut config =
-        MatchConfig::for_profile("commander-foundations-v1", seed(18), PlayerId(2)).unwrap();
-    config.decks = std::array::from_fn(|_| {
-        mtg_core::match_profile("commander-foundations-v1")
-            .unwrap()
-            .decks[0]
-            .clone()
-    });
-    if !e.journal.concessions.is_empty()
-        || e.config != config
-        || e.policy != Policy::DrawOnly
-        || e.mulligans != [0; 4]
-        || e.trace_mode != TraceMode::Detailed
-        || e.losses
-            != vec![
-                (PlayerId(2), mtg_core::PlayerLossReason::FailedDraw),
-                (PlayerId(3), mtg_core::PlayerLossReason::FailedDraw),
-                (PlayerId(0), mtg_core::PlayerLossReason::FailedDraw),
-            ]
-        || e.winner != Some(PlayerId(1))
-        || e.turns != 371
-        || e.survivor_counts != vec![4, 3, 2, 1]
-    {
-        return Err("natural draw-failure witness differs".into());
-    }
-    verify(catalog, e)
-}
-
 // Only newline-delimited, typed host records are executable. This is a recovery
 // format, never a player-facing observation or a general state import.
 #[derive(Deserialize)]
@@ -1505,31 +1257,6 @@ pub(super) fn replay_live(
 mod admission_and_host_tests {
     use super::*;
     use std::cell::Cell;
-
-    #[test]
-    fn frozen_completion_suite_cannot_substitute_host_concessions() {
-        let (_, _, _, game) = initial();
-        let mut e = evidence(
-            &game,
-            MatchConfig::for_profile("commander-foundations-v1", seed(1), PlayerId(1)).unwrap(),
-        );
-        e.policy = Policy::Develop;
-        e.mulligans = [1, 2, 0, 1];
-        e.quantum = 1024;
-        e.trace_mode = TraceMode::Off;
-        e.survivor_counts = vec![4];
-        verify_suite_entry(1, &e).unwrap();
-        e.journal.concessions.push(mtg_core::ExternalInput {
-            after_decisions: 0,
-            boundary: 0,
-            player: PlayerId(0),
-        });
-        assert!(
-            verify_suite_entry(1, &e)
-                .unwrap_err()
-                .contains("manifest mismatch")
-        );
-    }
 
     fn initial() -> (Catalog, MatchConfig, Prepared, Game) {
         let catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
@@ -1832,57 +1559,5 @@ mod admission_and_host_tests {
         assert!(verify_host_metrics(&retained).is_err());
         retained.advances = WORK_LIMIT - 1;
         verify_host_metrics(&retained).unwrap();
-    }
-    #[test]
-    fn fixed_batch_manifest_cannot_drop_seed_zero_trace_or_enable_unselected_traces() {
-        let (_, _, _, game) = initial();
-        for index in [0, 1, 16, 17] {
-            let mut config = MatchConfig::for_profile(
-                "commander-foundations-v1",
-                seed(index as u32),
-                PlayerId((index % 4) as u8),
-            )
-            .unwrap();
-            if index == 16 {
-                config.decks = std::array::from_fn(|_| {
-                    mtg_core::match_profile("commander-foundations-v1")
-                        .unwrap()
-                        .decks[0]
-                        .clone()
-                });
-            }
-            if index == 17 {
-                config.decks = std::array::from_fn(|_| {
-                    mtg_core::match_profile("commander-foundations-v1")
-                        .unwrap()
-                        .decks[1]
-                        .clone()
-                });
-            }
-            let mut retained = evidence(&game, config);
-            retained.quantum = 1024;
-            retained.mulligans = std::array::from_fn(|p| ((index + p) % 3) as u8);
-            retained.trace_mode = if index == 0 {
-                TraceMode::Detailed
-            } else {
-                TraceMode::Off
-            };
-            if index == 0 {
-                retained.checkpoints = (0..4)
-                    .map(|_| Checkpoint {
-                        decisions: 0,
-                        rule_boundary: 0,
-                        snapshot: String::new(),
-                    })
-                    .collect();
-            }
-            verify_suite_entry(index, &retained).unwrap();
-            retained.trace_mode = if index == 0 {
-                TraceMode::Off
-            } else {
-                TraceMode::Detailed
-            };
-            assert!(verify_suite_entry(index, &retained).is_err());
-        }
     }
 }

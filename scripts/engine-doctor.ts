@@ -48,7 +48,7 @@ export function inspectEngine(options: Options): Check[] {
   else {
     const require = createRequire(path.join(root, "package.json"));
     const lock = JSON.parse(fs.readFileSync(path.join(root, "package-lock.json"), "utf8"));
-    for (const name of ["typescript", "@types/node", "ajv"]) {
+    for (const name of ["typescript", "@types/node"]) {
       const expected = lock.packages[`node_modules/${name}`]?.version;
       let found: string | undefined;
       try { found = JSON.parse(fs.readFileSync(require.resolve(`${name}/package.json`), "utf8")).version; } catch { /* Actionable missing dependency below. */ }
