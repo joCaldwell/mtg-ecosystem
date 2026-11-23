@@ -16,15 +16,11 @@ counters/tokens are permitted projections; hands, libraries and search choices
 remain viewer-private. SDK completion policies use only their seat observation
 and public manifest/catalog; they are not browser controls or strategic proof.
 
-Historical P8.2 attachment acceptance required one real four-client default pod,
-unchanged 25-minute watchdog, natural typed win/draw at all clients, zero retries/
-CoreConcede, final state/input/turn/memory records and completed-game recovery
-within 120 seconds with durable tables/head unchanged except generation. Worker
-limits stayed 4 GiB, swap zero, tasks 32. Registry/recovery/strict decoding/search
-privacy and generated variants had separate checks. [Engine evidence](game-engine-evidence.md)
-retains original proof locators; this is not current-HEAD acceptance. Focused host/
-SDK checks follow [development](game-engine-development.md#choose-focused-checks).
-Resource/time failures never authorize weaker limits or broader admission.
+Worker limits are 4 GiB, swap zero and 32 tasks; completed-game recovery must
+finish within 120 seconds. Historical P8.2 attachment proofs keep their locators
+in [evidence](game-engine-evidence.md). Focused host/SDK checks follow
+[development](game-engine-development.md#choose-focused-checks). Resource/time
+failures never authorize weaker limits or broader admission.
 
 ## Read-only product admission
 
@@ -174,13 +170,7 @@ the owning thread. Every record receives a full hash proof, including repeated
 unchanged states; each batch is drained before more records are staged. No
 usable Worker or Ready escapes before all hashes, joins and ledger proofs pass.
 Thread startup failures, panic, channel failure or any mismatch fail closed and
-join all started threads. The original source-qualified P8 verification included production/adversarial,
-actual hosting, completed-game recovery, workspace/search and offline retention
-checks. These are historical results, not current-HEAD acceptance; exact sources,
-builds, proof locations and preserved failures are in the
-[original P8 evidence](https://github.com/joCaldwell/mtg-ecosystem/blob/1c3eca4c37b90de02decca316fefab5c8035140e/docs/game-engine-server.md#verification-status-and-retained-failures).
-This refactor does not
-relax the 120-second startup limit.
+join all started threads. This does not relax the 120-second startup limit.
 
 Immutable remembered views memoize their complete canonical JSON bytes. Cold
 initialization uses the P7 row encoder: it retains every serialized view field,
@@ -241,9 +231,8 @@ never a Magic outcome. Storage/query/publication limits have the same separation
 
 ## Source-qualified verification and recovery
 
-The original P8 completed functional, crash/retry/isolation and offline retained
-reconstruction proofs for its exact source. Later attachments, schema and transport
-increments retain separate acceptance. See [evidence](game-engine-evidence.md),
+Historical P8 proofs bind their exact source; later attachment, schema and
+transport increments retain separate acceptance. See [evidence](game-engine-evidence.md),
 [hosted profiles](#hosted-profiles), [client qualification](game-client.md#reproducibility-and-current-acceptance)
 and [SDK commands](../packages/game-server/sdk/README.md). No older test count is
 current-HEAD acceptance. Full historical proof tables are linked from evidence.
@@ -251,7 +240,7 @@ current-HEAD acceptance. Full historical proof tables are linked from evidence.
 Keep registry/ledger/credentials private (0700 directories, 0600 files). Preserve
 original executable, schemas, catalog, accepted input journal and both build IDs
 for exact recovery; replacement code cannot silently open old durable state.
-Export only permitted projections and sanitized reports. Run fresh offline
-reconstruction only for a requested release/provenance claim, through bounded
-[retention entrypoints](game-engine-storage.md#retention-defaults), never implicit
-SDK generation. Keep failed attempts and original wrapper exit statuses.
+Export only permitted projections and sanitized reports. Offline source-closure
+retention tooling was retired in Phase 2D; historical bundles stay in the
+external evidence store, and SDK generation never reconstructs them. Keep failed
+attempts and original wrapper exit statuses.

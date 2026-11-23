@@ -3,9 +3,8 @@
 Every executable card lowers completely from Archive R4 to schema-1 KIR.
 `contracts/src/composition.rs` validates the card shell and ability context.
 `kir::check` validates the node and bindings. Match profiles independently
-select decks and consumer capabilities. The rules descriptions below also
-document shared primitives and historical witnesses. Current card admission
-requires a fresh complete lowering and a matching catalog identity.
+select decks and consumer capabilities. Card admission requires a fresh
+complete lowering and a matching catalog identity.
 
 A spell can deal damage as its own source. Object operands that modify or put
 counters on the source require a permanent ability. Temporary source keyword
@@ -16,8 +15,7 @@ reject at admission until their executor can skip an illegal target.
 The rules baseline is the frozen [2026-09-25 Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt),
 SHA-256 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
 Use exact `tests/fixtures` records/provenance under `packages/game-engine`, never
-card facts from memory or live refresh. Historical IR11–33 labels are evidence
-vocabulary; the only active executable schema is 1. No name/ID/profile dispatch:
+card facts from memory or live refresh. The only executable schema is 1. No name/ID/profile dispatch:
 card names below identify source witnesses, never mechanics.
 
 <a id="source-identity-and-execution-boundaries"></a>
@@ -387,25 +385,18 @@ after protection loss; fresh deathtouch reopens a window. Simultaneous
 destruction consumes common-prior keyword facts, so departing Equipment cannot
 remove protection mid-event.
 
-### Shared temporary creature keyword family
+### Temporary keyword and set families
 
-The retired instruction families and their conditional schema probes have been
-removed. Intrinsic keywords still participate in combat, targeting and state-based
-actions. A temporary effect requires a checked KIR operation and runtime support
-for its exact target, duration and modifier.
-
-### Temporary set keyword families
-
-Historical set-grant qualifications remain tied to their original source and
-build. Current set modifications use the KIR selector and the executor's captured
-incarnations. See [historical evidence](game-engine-evidence.md#current-temporary-keyword-family-qualification).
+Intrinsic keywords participate in combat, targeting and state-based actions. A
+temporary effect requires a checked KIR operation and runtime support for its
+exact target, duration and modifier; set modifications use the KIR selector and
+the executor's captured incarnations.
 
 <a id="abilities-targets-and-triggers"></a>
 
 ## Trigger families and event witnesses
 
-Historical Saga chapter programs require fresh R4 lowering. The shared trigger
-pipeline operates on the events admitted by composition.
+The shared trigger pipeline operates on the events admitted by composition.
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze

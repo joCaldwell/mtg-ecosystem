@@ -36,19 +36,10 @@ joining and opening choices. Full decisions, automated launch, account-to-seat
 provisioning and arbitrary library-deck admission remain unfinished. Product
 sign-in grants no Rust seat; [client contracts](game-client.md) own integration.
 
-## Evidence boundaries at the platform baseline
-
-The platform baseline was `c62777b`. Historical acceptance covers D2c-c
-`a7f5571` (ordinary cast triggers) and D2c-d `394301d` (declared-attack
-triggers and reviewed demo/Bundle lifetimes). Later source-backed families retain
-separate focused qualifications; acceptance never transfers to later source or
-consumers.
-
-[Evidence](game-engine-evidence.md) owns exact producer/source identities, checked
-scopes, bridges, omissions and preserved proof locations. [Mechanics](game-engine-mechanics.md)
-owns supported shapes; [catalog/profile contracts](game-engine-catalogs.md)
-own admission.
+## History
 
 Read active snapshot/public/query formats from source. Exact build/catalog
 identity fences recovery and private artifacts; historical formats are not
-compatibility promises. Refactor history remains in Git and indexed evidence.
+compatibility promises. Historical acceptance, counts and timings bind their own
+source revisions and never transfer to HEAD; [evidence](game-engine-evidence.md)
+keeps their immutable locators. Refactor history remains in Git.

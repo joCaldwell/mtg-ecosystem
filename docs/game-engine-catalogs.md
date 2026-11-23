@@ -11,24 +11,26 @@ file, header, parser and corpus. Each provenance row pins its exact card line.
 The full archive stays outside Git. The committed extracts live in
 `tests/fixtures/phase1-r4/`.
 
-From repository root, under the shared native lock:
+From repository root (`engine:dev` builds `mtg-sim` under the target lock):
 
 ```sh
-cargo run --locked -p mtg-sim -- catalog build packages/game-engine/tests/fixtures/catalogs/phase1-r4.json
-cargo run --locked -p mtg-sim -- catalog build packages/game-engine/tests/fixtures/catalogs/phase1-r4.json --write
-cargo run --locked -p mtg-sim -- catalog extract /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json 'Exact Card Name' oracle-id
-cargo run --locked -p mtg-sim -- catalog verify /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json
+npm run engine:dev -- build -p mtg-sim
+SIM=target/engine/debug/mtg-sim
+$SIM catalog build packages/game-engine/tests/fixtures/catalogs/phase1-r4.json [--write]
+$SIM catalog extract /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json 'Exact Card Name' oracle-id
+$SIM catalog verify /path/to/accepted.jsonl packages/game-engine/tests/fixtures/provenance.json
 ```
 
 Both filesystem and embedded catalog loaders lower every selected record through
 composition. A build checks the resulting schema-1 catalog and its digest against
-the committed outputs. `--write` regenerates those outputs. The base, action
+the committed outputs; the `mtg-compiler` unit tests run that check for all five
+manifests. `--write` regenerates those outputs. The base, action
 and match manifests supply the smoke, scenario and Foundations startup fixtures.
 The phase1-r4 and witness-r4 manifests exercise individual compiler and rules
-paths. The parser tests also retain ten independent pre-R4 source records.
+paths. Oracle parser tests own their ten pre-R4 records under
+`packages/oracle-parser/test/fixtures/ramos/`.
 
-`--json-errors` emits a structured diagnostic
-on stderr. Coverage publishes both receipts together and preserves occupied
+A failed build prints its typed `CatalogError` as JSON on stderr. Coverage publishes both receipts together and preserves occupied
 destinations unless their receipts already match. Manifest fields are `schema_version: 1`,
 `provenance`, `records`, `expected_ir`, `expected_digest` and `output_order`:
 `canonical` (sorted compact JSON), `sorted` (sorted pretty), or `struct` (typed
@@ -264,7 +266,7 @@ fail the build with their input path.
 | `commanders` | Supported Oracle identities as data |
 | `commander_policy` | `color_identity: commander_subset`, `eligibility: legendary_creature`, relative dated `banned_list`; unknown policies reject |
 | `hosted`, `search` | Requests validated against reviewed capability sets in `core/src/profile_data.rs`; names/digests grant neither feature |
-| `completion` | Deterministic `rotate` and two `homogeneous_seats` indices for cases 16/17, not mechanics |
+| `completion` | Deterministic `rotate` and two `homogeneous_seats` deck indices, not mechanics |
 
 Admission checks 100 cards, singleton name, commander count/eligibility,
 color identity and basic-land mana (CR 903.3–903.5). Serialized profile, catalog,
@@ -306,12 +308,9 @@ requires executable definitions and reviewed capabilities. The two color
 identities combine for deck legality and commander-color mana. Each physical
 designation keeps its own command-zone cast and combat damage history
 ([CR 702.124, 903.3–903.10](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
-Dynamic identities carry headless admission only. The R3 copy-capable pod review
-pins both normalized roster rows and complete compiled definitions for one
-Cascade seat and three Isamaru control seats. Individual deck inspection can
-recognize the reviewed copy deck. Pod admission also checks the exact mix and
-copy-aware trigger bound before allocating a game. Changed definitions, quantities,
-or combinations require their own review.
+Dynamic identities carry headless admission only. Every deck passes the same
+reviewed capability set and trigger-capacity bound; no roster identity grants an
+exception (the former R3 copy-roster review is retired, admission domain v3).
 
 `mtg-sim bench-pods --bulk-artifact DIR --manifest-sha SHA --pod-decks JSON`
 reads an object with a `decks` array of four seat lists. Each entry contains
@@ -321,22 +320,13 @@ per-case admission digest identify the benchmark. The existing worker options,
 sampled replay checks and `--analytics-out` apply to both input modes; analytics
 group decks by sorted commander designations and physical quantities.
 
-## Generic completion batches
+## Single matches and deck work
 
-Reuse a coordinated executable rather than building merely to read a report.
-Only run the profile/game needed for the change; examples assume the selected
-Cargo target really is `target/`:
-
-```sh
-cargo build --release --locked -p mtg-sim
-target/release/mtg-sim match-batch commander-wipes-v1 generated/my-wipes-batch
-target/release/mtg-sim match-replay commander-wipes-v1 generated/my-wipes-batch/game-00.json
-```
-
-`match-batch PROFILE NEW_OUTPUT` runs/replays 18 seeded games from profile rotation
-and homogeneous data; output must not exist. `match-game PROFILE INDEX` runs one.
-`match-replay PROFILE FILE` and `match-replay-live PROFILE FILE` reject profile
-mismatches. Historical reports retain their source/catalog/policy/build qualification.
+`mtg-sim match-game PROFILE INDEX --journal-dir ABSOLUTE_DIR` plays one seeded
+game and streams its live journal under that directory; `match-replay PROFILE
+FILE` and `match-replay-live PROFILE FILE` reject profile mismatches.
+[Deck work](game-engine-development.md#measurement-and-deck-work) covers staging,
+coverage and paired benches.
 
 Develop reads public IR targets/filters/amounts/costs and permitted observations
 for attack/removal/burn/wipe estimates; core validates all proposals. No card,
@@ -345,10 +335,3 @@ witnesses. Type filters include all `additional_types`: positive type lists are
 alternatives, exclusions reject any type, sacrifice subtypes are conjunctive;
 land/creature roles retain contracts' canonical-kind invariant
 ([CR 205.2b](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
-
-`report.json` records per-game counts and aggregate interaction coverage: chosen
-invocations versus nonempty committed instruction batches/sites, mode/continuation
-counts, trigger collection/placement/resolution and keyword involvement. It lists
-unreached instruction sites and unused cards; involvement is not proof a keyword
-changed the outcome. [Evidence](game-engine-evidence.md#later-focused-engine-qualification)
-owns exact qualification.

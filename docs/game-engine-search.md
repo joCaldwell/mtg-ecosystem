@@ -5,8 +5,7 @@ under its open-decklist information policy, which is a session policy, not a
 Commander requirement. No card or Magic mechanic is admitted by search itself,
 and search correctness does not establish the performance gate. Implementation
 is in `crates/core` and `crates/sim`; exact types, versions and tests live there.
-Historical P7 acceptance covers only its exact source/build; see
-[evidence](game-engine-evidence.md#search-hosting-and-performance). Relevant rules
+Relevant rules
 are [CR 103.5, 117.3–117.4, 302.6, 400.2, 400.7, 401.2–401.3, 402.3, 701.24a,
 704.3 and 733.1–733.2](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.pdf).
 
@@ -106,27 +105,18 @@ forbidden inputs. Report the actual useful distinct assignments and any shortfal
 below 8; exhausting a retry budget is a shortfall, not proof that fewer worlds
 exist.
 
-The frozen `commander-open-search-v1` workload fixes 12 seeded roots (four-,
-three- and two-live-seat captures) and their scripted development choices before
-running; no hidden state selects a root, and unlisted requests fail that root.
-Use up to 32 visible-information candidates and 32 distinct worlds, giving every
-candidate its first 8 useful worlds before extras. The horizon is 256 accepted
-inputs (fixture key `rollout_decision_boundary_horizon`), evaluated at the next
-exposed decision or an earlier terminal result, with per-player result vectors.
-Terminal games, horizon evaluations, infeasible candidates, unsupported roots,
-faults, cancellation, resource stops and missed minimums are reported distinctly.
+Search jobs use up to 32 visible-information candidates and 32 distinct
+worlds, giving every candidate its first 8 useful worlds before extras. The
+horizon is 256 accepted inputs, evaluated at the next exposed decision or an
+earlier terminal result, with per-player result vectors. Terminal games, horizon
+evaluations, infeasible candidates, unsupported roots, faults, cancellation,
+resource stops and missed minimums are reported distinctly. The library surface
+is `mtg_sim::search`; the historical P7 benchmark CLI and its fixed workload file
+were retired in Phase 2D, and future measurement runs through `engine:decks`.
 
-Performance requirements remain a 5 s hard end-to-end limit per root, 3 s p95,
-2 GiB total process RSS with four workers on distinct physical cores, and 8
-useful worlds per candidate. All capture, sampling, validation, mapping, rollout,
-aggregation and disposal costs count; only the isolated release workload can
-close this gate.
-
-## Measurement and consumer qualification
-
-Historical measurements are linked from [evidence](game-engine-evidence.md). New
-engine/compiler support does not admit search capabilities; profile capability
-admission and exact build/catalog identity fence them, and
+New engine/compiler support does not admit search capabilities; profile
+capability admission and exact build/catalog identity fence them, and
 [build policy](game-engine-catalogs.md#ir-and-build-identity) owns the active
-schema. No current-build performance, playing-strength, arbitrary-root or
-resource-fit claim follows from older measurements or this contract.
+schema. No performance, playing-strength, arbitrary-root or resource-fit claim
+follows from this contract or from historical
+[evidence](game-engine-evidence.md#search-hosting-and-performance).

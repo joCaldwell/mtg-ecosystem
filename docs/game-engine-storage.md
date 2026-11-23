@@ -1,14 +1,13 @@
 # Engine storage and cache lifecycle
 
-Ignored paths are not disposable. In particular, `generated/final-engine-verification/`
-contains source designs, phase logs and acceptance evidence referenced by docs.
+Ignored paths are not disposable: `generated/` may hold receipts and evidence
+referenced by docs. Only per-worktree Cargo targets are caches.
 
 | Class | Examples | Policy |
 | --- | --- | --- |
 | Source/reviewed fixtures | Tracked code, card records, manifests and small results | Reviewed changes only |
 | Pinned inputs | `.scryfall-cache`, rules, source archives, paper snapshots | Preserve while referenced; fresh downloads cannot replace historical bytes |
-| Build caches | Compiler intermediates, `target/**/incremental` | Reclaim only after ownership checks; incremental first |
-| Temporary generation | Run-owned retention scratch | Supervised cleanup on success, error and ordinary cancellation |
+| Build caches | `target/engine` per worktree | Reproducible; bounded by `engine-cache.py check` |
 | Release evidence | External `engine-evidence`, selected reports/binaries | No age-based deletion; replacement/retirement requires reference review |
 | Toolchains | External `engine-toolchains` | Preserve while verification uses them |
 
@@ -24,97 +23,37 @@ Cargo owns its profile/flag/toolchain inputs inside a target.
 
 `status` reports allocated bytes, free space, selection, lock and budgets; `list`
 reports every registered worktree's target size and lock state (`absent`, `idle`,
-`busy`) plus legacy shared caches. `check` fails before native compilation above
-**24 GiB allocated** in the selected target or below **16 GiB free**, leaving room
-for concurrent worktrees that grow after admission; `ENGINE_CACHE_MAX_GIB` /
-`ENGINE_CACHE_MIN_FREE_GIB` override deliberately. This is admission, not a
-runtime disk quota. Incremental dev/test caches are expected; `prune-cargo`
-reclaims them. Retention and Cargo release builds stay non-incremental.
-
-[Native coordination](game-engine-development.md#cargo-coordination-and-cache-integration)
-holds the target's lock across admission/build. Cache path/status/list operations
-neither take locks nor delete. No automatic eviction/migration occurs. The former
-shared `$XDG_CACHE_HOME/mtg-ecosystem/cargo/<repo>/<rustc>` cache and global
-`engine-verification/cargo.lock` are no longer selected; `list` reports both, and
-reclaiming that cache requires the same ownership review. The preserved
-`perf-engine-verification-loop/target` exceeds the default budget; coordinated reuse
-requires the explicit 32 GiB override. Choosing another target leaves it intact.
+`busy`) plus legacy shared caches. `check` admits native work. Above **16 GiB
+allocated** (`ENGINE_CACHE_MAX_GIB`) it evicts inside the target, under the
+target's lock, until it fits: every `incremental/` directory first, then profile
+directories other than the gate's `debug/` (for example `release/`), then the
+whole target except `CACHEDIR.TAG`. Runners that already hold the lock pass
+`--locked`; otherwise `check` takes the lock without waiting and refuses when it
+is busy. It only evicts a real directory carrying Cargo's `CACHEDIR.TAG`, never a
+symlink, never outside the target, and never `generated/` or external evidence.
+Below **16 GiB free** (`ENGINE_CACHE_MIN_FREE_GIB`) it fails without deleting.
+A target is a cache: nothing may reference a file inside it. Copy any binary a
+receipt needs into `generated/` or the evidence store.
 
 Cargo [local-source freshness](https://doc.rust-lang.org/stable/nightly-rustc/cargo/compiler/fingerprint/index.html)
 uses mtimes; an explicitly shared target across worktree baselines has reused stale
-local crates. Preserve contradictory builds, coordinate ownership, refresh only
-relevant owned source/build script timestamps with byte hashes unchanged, then
-rebuild under the lock. Never delete a shared target as a repair. Check actual
-source identity/schema, not cache warmth.
+local crates. Prefer per-worktree targets. The former shared
+`$XDG_CACHE_HOME/mtg-ecosystem/cargo/<repo>/<rustc>` cache and global
+`engine-verification/cargo.lock` are no longer selected; `list` reports both, and
+reclaiming that cache requires ownership review.
 
-## Inventory and bounded cache cleanup
-
-From repository root:
+## Inventory
 
 ```sh
 python3 scripts/engine-storage.py inventory
-python3 scripts/engine-storage.py prune-cargo --worktree /absolute/worktree
-# Establish ownership and review dry-run JSON before applying:
-python3 scripts/engine-storage.py prune-cargo --worktree /absolute/worktree --apply
 ```
 
 Inventory visits Git-registered worktrees and standard external stores, reports
 symlinks without following them and reads no arbitrary home/secret files. Allocated
 rows deduplicate hard links internally, but summing rows can double count inodes.
-
-`prune-cargo` proposes debug/release/quick incremental directories under the
-worktree's `target`, `target/engine` and legacy `target/engine-dev` above **2 GiB** in aggregate (`--max-bytes 0` proposes all).
-It never invokes Cargo or removes deps/build/final executables, source or evidence.
-Apply checks registration, tracked-file exclusion, containment, ancestor/internal
-symlinks, the worktree's Cargo lock and same-user Linux `/proc` cwd/exe/open descriptors.
-Known active references always refuse. Uninspectable processes also refuse unless
-`--allow-uninspectable` acknowledges an independent ownership check. Cooperative
-locking cannot prevent an unrelated writer starting after the scan.
-
-## Retention defaults
-
-`npm run retain:engine` / `npm run retain:server` use `scripts/run-retention.py`;
-direct TypeScript worker invocation is unsupported. Existing replay/hash/offline
-and server/client guards still execute and their failures stay nonzero. Supervisor
-safety tests use tiny fixtures/fake workers, not fresh full acceptance.
-
-Defaults are **32 GiB scratch**, **128 GiB evidence store**, **16 GiB free** on both
-filesystems. Admission and two-second allocated-byte samples stop the owned process
-group on overflow. These are monitored bounds, not quotas: fast/concurrent writers
-can overshoot. Reviewed larger captures may use explicit overrides:
-
-```sh
-npm run retain:engine -- /absolute/evidence-store --scratch-gib 48 --store-gib 160
-npm run retain:server -- --scratch-gib 48
-```
-
-Server's evidence root comes from its verified predecessor pointer. A full store
-refuses work; no existing evidence is deleted to make room. Review pinned sources,
-rules, bundles, binaries, logs and downstream references before moving/retiring a
-specific run or raising budgets. Age alone never authorizes retirement.
-
-The supervisor holds its worktree's Cargo lock and owns fixed ignored
-`generated/.retention-work` for captures, JSON stdout, Cargo homes and build targets.
-Initial native builds override inherited target paths so shared caches cannot
-escape the scratch bound. Host-only absolute MTG_ENGINE_ARTIFACT_ROOT routes demo
-captures/journals there; relative values reject. Ordinary simulator output retains
-its generated default. Incremental compilation remains off unless opted in.
-
-Exact rebuilt binaries are copied exclusively to retained `bin/mtg-sim` or
-`bin/mtg-server`, hash-checked and executed there before manifest publication.
-Source closure/vendor/policy/bundles/proofs and failed retained outputs stay in the
-store; temporary intermediates/duplicate captures are removed. Scratch failure
-captures are not debug archives. Success/errors/SIGINT/SIGTERM stop descendants
-and remove only owned scratch, reporting `generated/retention-storage-latest.json`.
-SIGKILL/host/filesystem failures may leave it; future runs refuse existing scratch.
-Inspect owner.json, prove descendants stopped under the lock, then review before
-removing that exact directory. No generated/evidence-tree sweep is authorized.
-
-Cheap checks: `python3 scripts/test-engine-storage.py`,
-`python3 scripts/test-retention-workspace.py`, and pinned Node `--test` on
-`scripts/{retention-workspace,retain-server-evidence,capture-json-output,retain-policy-sources}.test.ts`.
-Parser publication atomically replaces named outputs and removes its own `.tmp`
-files on ordinary failures; content-addressed inputs remain preserved.
+Historical retention bundles stay in
+`~/.local/share/mtg-ecosystem/engine-evidence/`; no tracked tool rebuilds or
+deletes them.
 
 ## Worktree lifecycle
 
@@ -146,10 +85,9 @@ Uninspectable `/proc` references require independent checks before the explicit
 detached HEAD checkout, which the helper refuses by design. Its staged fixture
 files duplicate `stage/`; `compiler`, `mtg-sim`, `stage/`, the build/cache
 receipts, `game.json`, `replay.json` and the match's live journal
-(`p5-live-journals/`, the only record of an interrupted match's accepted inputs)
-sit beside it. A checkout from an older run may still hold its journal under
-`source/generated/p5-live-journals/`: move that directory beside the checkout
-first. After recording those receipts (or retaining the directory in the evidence
+(`live-journals/`, the only record of an interrupted match's accepted inputs)
+sit beside it. Older runs may hold `p5-live-journals/` there, or under
+`source/generated/p5-live-journals/`: move the latter beside the checkout first. After recording those receipts (or retaining the directory in the evidence
 store) and confirming no process or document references the checkout, its owner
 retires only the checkout with
 `git worktree remove --force generated/deck-play.ID/source`, which also deletes its
