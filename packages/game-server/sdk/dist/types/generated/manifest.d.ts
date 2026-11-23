@@ -7,9 +7,20 @@
 export type ActivationCost =
   | ("sacrifice_source" | "tap_source")
   | {
+      discard_source: {
+        mana: ManaCost;
+      };
+    }
+  | {
       sacrifice_permanent: {
+        count?: number;
         filter: SacrificeFilter;
         mana?: ManaCost | null;
+      };
+    }
+  | {
+      tap_pay_life_sacrifice_source: {
+        life: ExactQuantity;
       };
     }
   | {
@@ -24,11 +35,6 @@ export type ActivationCost =
     };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "CardKind".
- */
-export type CardKind = "land" | "creature" | "instant" | "sorcery" | "enchantment" | "artifact";
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "Color".
  */
 export type Color = "W" | "U" | "B" | "R" | "G" | "C";
@@ -39,352 +45,518 @@ export type Color = "W" | "U" | "B" | "R" | "G" | "C";
 export type ExactQuantity = string;
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CardKind".
+ */
+export type CardKind = "land" | "creature" | "instant" | "sorcery" | "enchantment" | "artifact";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "FunctioningZone".
  */
-export type FunctioningZone = "battlefield" | "stack";
+export type FunctioningZone = ("hand" | "battlefield" | "stack") | "any";
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "Instruction".
  */
-export type Instruction =
+export type Instruction = {
+  node: Node;
+  op: "kernel";
+  source_block: number;
+};
+/**
+ * Control over verbs. A node is performed in written order (CR 608.2c).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Node".
+ */
+export type Node =
   | {
-      action: SetMove;
-      op: "move_set";
-      set: ObjectSet;
-      source_block: number;
+      do: Verb;
     }
   | {
-      op: "pump_set";
-      power: ExactQuantity;
-      set: ObjectSet;
-      source_block: number;
-      toughness: ExactQuantity;
+      seq: Node[];
     }
   | {
-      amount: WipeAmount;
-      each_player: boolean;
-      op: "damage_set";
-      sets: ObjectSet[];
-      source_block: number;
+      if: {
+        condition: Cond;
+        otherwise?: Node | null;
+        then: Node;
+      };
     }
   | {
-      op: "gain_life_destroyed";
-      source_block: number;
+      optional: {
+        chooser: PlayerExpr;
+        node: Node;
+      };
     }
   | {
-      op: "exile_damaged_this_turn";
-      source_block: number;
+      for_each: {
+        body: Node;
+        over: Domain;
+        var: number;
+      };
     }
   | {
-      op: "each_player_sacrifice";
-      source_block: number;
+      choose: {
+        body: Node;
+        chooser: PlayerExpr;
+        from: SetExpr;
+        maximum: Amount;
+        minimum: Amount;
+        var: number;
+      };
     }
   | {
-      amount: ExactQuantity;
-      op: "lose_life_death_controller";
-      source_block: number;
+      unless_pays: {
+        node: Node;
+        payer: PlayerExpr;
+        payment: Payment;
+      };
     }
   | {
-      amount: SacrificeDamageAmount;
-      op: "sacrifice_damage";
-      optional: boolean;
-      recipient: LifeRecipient | null;
-      source_block: number;
-      target_slot: number | null;
+      delayed: {
+        event: DelayedEvent;
+        node: Node;
+      };
     }
   | {
-      op: "each_opponent_sacrifice";
-      source_block: number;
+      reflexive: {
+        first: Node;
+        then: Node;
+      };
+    };
+/**
+ * One game action. A verb acts on every member of its operands as one
+ * simultaneous event unless its rule says otherwise (CR 608.2c, 101.4).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Verb".
+ */
+export type Verb =
+  | {
+      amount: Amount;
+      player: PlayerExpr;
+      verb: "draw";
     }
   | {
-      duration: Duration;
-      op: "modify_source_power_toughness";
-      power: ExactQuantity;
-      source_block: number;
-      toughness: ExactQuantity;
+      amount: Amount;
+      player: PlayerExpr;
+      verb: "gain_life";
     }
   | {
-      op: "destroy_permanent";
-      optional?: boolean;
+      amount: Amount;
+      player: PlayerExpr;
+      verb: "lose_life";
+    }
+  | {
+      amount: Amount;
+      source: Ref;
+      to: DamageTo;
+      verb: "damage";
+    }
+  | {
+      /**
+       * CR 701.19c.
+       */
       regeneration_forbidden?: boolean;
-      source_block: number;
-      target_slot: number;
+      verb: "destroy";
+      what: SetExpr;
     }
   | {
-      op: "exile_permanent";
-      source_block: number;
-      target_slot: number;
+      to: Destination;
+      verb: "move";
+      what: SetExpr;
     }
   | {
-      op: "untap_permanent";
-      source_block: number;
-      target_slot: number;
+      verb: "tap";
+      what: SetExpr;
     }
   | {
-      op: "tap_permanent";
-      source_block: number;
-      target_slot: number;
+      verb: "untap";
+      what: SetExpr;
     }
   | {
-      amount: TargetAmount;
-      gain: boolean;
-      op: "change_life_from_target";
-      recipient: EffectRecipient;
-      source_block: number;
+      amount: Amount;
+      counter: CounterKind;
+      on: SetExpr;
+      verb: "put_counters";
     }
   | {
-      count: number;
-      op: "create_tokens_for";
-      recipient: EffectRecipient;
-      source_block: number;
-      token: CreatureToken;
+      controller: PlayerExpr;
+      count: Amount;
+      token: TokenSpec;
+      verb: "create_tokens";
     }
   | {
-      amount: ExactQuantity;
-      op: "damage_target_controller";
-      source_block: number;
-      target_slot: number;
+      amount: Amount;
+      player: PlayerExpr;
+      verb: "mill";
     }
   | {
-      op: "attach_equipment";
-      source_block: number;
-      target_slot: number;
+      amount: Amount;
+      player: PlayerExpr;
+      random?: boolean;
+      verb: "discard";
     }
   | {
-      op: "return_aura_from_graveyard";
-      source_block: number;
+      count: Amount;
+      filter: Pred;
+      player: PlayerExpr;
+      verb: "sacrifice";
     }
   | {
-      op: "destroy_target_creature";
-      source_block: number;
-      target_slot: number;
+      mana: ManaSpec;
+      player: PlayerExpr;
+      verb: "add_mana";
     }
   | {
-      op: "destroy_all_creatures";
-      source_block: number;
+      player: PlayerExpr;
+      search: SearchSpec;
+      verb: "search";
     }
   | {
-      op: "return_own_graveyard_creature_to_hand";
-      optional?: boolean;
-      source_block: number;
-      target_slot: number;
+      verb: "counter";
+      what: Ref;
     }
   | {
-      maximum: number;
-      op: "search_basic_lands";
-      source_block: number;
+      controller: PlayerExpr;
+      until: Until;
+      verb: "gain_control";
+      what: SetExpr;
     }
   | {
-      count: number;
-      op: "create_creature_tokens";
-      source_block: number;
-      token: CreatureToken;
+      to: Ref;
+      verb: "attach";
+      what: Ref;
     }
   | {
-      amount: ExactQuantity;
-      on: CounterRecipient;
-      op: "put_plus_one_counters";
-      source_block: number;
+      change: Change;
+      layer: Layer;
+      until: Until;
+      verb: "modify_until";
+      what: SetExpr;
     }
   | {
-      duration: Duration;
-      keywords: KeywordAbility[];
-      modifier?: CreatureStatModifier | null;
-      op: "grant_keywords_set";
-      set: ObjectSet;
-      source_block: number;
+      event: DelayedEvent;
+      node: Node;
+      verb: "create_delayed_trigger";
     }
   | {
-      duration: Duration;
-      keywords: KeywordAbility[];
-      modifier?: CreatureStatModifier | null;
-      op: "grant_keywords";
-      source_block: number;
-      target_slot: number;
+      verb: "copy_stack_object";
+      what: Ref;
     }
   | {
-      duration: Duration;
-      op: "modify_power_toughness";
-      power: ExactQuantity;
-      source_block: number;
-      target_slot: number;
-      toughness: ExactQuantity;
+      permission: Permission;
+      player: PlayerExpr;
+      until: Until;
+      verb: "play_permission";
+      what: SetExpr;
     }
   | {
-      duration: Duration;
-      op: "prevent_combat_damage";
-      source_block: number;
+      verb: "transform";
+      what: Ref;
     }
   | {
-      amount: string;
-      duration: Duration;
-      op: "prevent_next_damage";
-      source_block: number;
-      target_slot: number;
+      designation: Designation;
+      player: PlayerExpr;
+      verb: "set_designation";
     }
   | {
-      op: "return_to_owner_hand";
-      source_block: number;
-      target_slot: number;
+      amount: Amount;
+      player: PlayerExpr;
+      verb: "scry";
     }
   | {
-      op: "put_on_top_owner_library";
-      source_block: number;
-      target_slot: number;
+      amount: Amount;
+      player: PlayerExpr;
+      verb: "surveil";
     }
   | {
-      op: "target_player_sacrifice_creature";
-      source_block: number;
-      target_slot: number;
+      player: PlayerExpr;
+      verb: "shuffle";
     }
   | {
-      op: "sacrifice_creature";
-      recipient: ActionRecipient;
-      source_block: number;
+      verb: "regenerate";
+      what: SetExpr;
     }
   | {
-      count: ExactQuantity;
-      op: "draw_cards";
-      recipient?: LifeRecipient | null;
-      source_block: number;
-    }
-  | {
-      op: "optional_draw_cards";
-      source_block: number;
-    }
-  | {
-      op: "draw_damage_amount";
-      source_block: number;
-    }
-  | {
-      count: ExactQuantity;
-      op: "discard_cards";
-      recipient?: ActionRecipient | null;
-      source_block: number;
-    }
-  | {
-      op: "counter_stack_object";
-      source_block: number;
-      target_slot: number;
-    }
-  | {
-      amount: string;
-      op: "deal_damage";
-      source_block: number;
-      target_slot: number;
-    }
-  | {
-      amount: string;
-      op: "gain_life";
-      recipient: LifeRecipient;
-      source_block: number;
-    }
-  | {
-      amount: string;
-      op: "lose_life";
-      recipient: LifeRecipient;
-      source_block: number;
+      id: BuiltinId;
+      verb: "builtin";
     };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "SetMove".
+ * via the `definition` "Amount".
  */
-export type SetMove = "destroy" | "exile" | "hand";
-/**
- * Closed non-targeted sets, evaluated as an instruction is performed (CR 608.2h).
- *
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "ObjectSet".
- */
-export type ObjectSet =
-  | "controller_creatures"
-  | "creatures"
-  | "nonland_permanents"
-  | "enchantments"
-  | "attacking_creatures"
-  | "opponent_creatures"
-  | "flying_creatures"
-  | "nonflying_creatures";
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "WipeAmount".
- */
-export type WipeAmount =
+export type Amount =
   | {
       amount: "fixed";
       value: ExactQuantity;
     }
   | {
-      amount: "announced_x";
+      amount: "var";
+      of: Ref;
     }
   | {
-      amount: "creature_count";
-    };
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "SacrificeDamageAmount".
- */
-export type SacrificeDamageAmount =
-  | {
-      amount: "fixed";
-      value: ExactQuantity;
+      amount: "count";
+      set: SetExpr;
     }
   | {
-      amount: "sacrificed_power";
+      amount: "stat_of";
+      object: Ref;
+      stat: Stat;
+    }
+  | {
+      amount: "life_of";
+      player: PlayerExpr;
+    }
+  | {
+      amount: "other_casts_mana_value";
+      caster: PlayerExpr;
     };
 /**
- * Controller means the frozen invocation controller (CR 109.5), not the
- * current controller of its physical source. Target refers to AnyPlayer.
+ * The closed reference vocabulary. Every operand that is not a literal is
+ * built from these, and the reference binder emits exactly these.
  *
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "LifeRecipient".
+ * via the `definition` "Ref".
  */
-export type LifeRecipient =
-  | ("each_opponent" | "controller")
-  | "event_player"
+export type Ref =
   | {
-      target: {
-        target_slot: number;
-      };
-    };
-/**
- * Fixed-turn effects expire in the atomic cleanup action (CR 514.2).
- *
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "Duration".
- */
-export type Duration = "until_end_of_turn";
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "TargetAmount".
- */
-export type TargetAmount =
-  | {
-      fixed: {
-        amount: ExactQuantity;
-      };
+      ref: "source";
     }
   | {
-      attribute: {
-        attribute: TargetAttribute;
-        target_slot: number;
-      };
+      ref: "controller";
+      role: ControllerRole;
+    }
+  | {
+      ref: "target";
+      slot: number;
+    }
+  | {
+      ref: "attached_to";
+    }
+  | {
+      ref: "event_object";
+      role: EventObjectRole;
+    }
+  | {
+      ref: "event_player";
+      role: EventPlayerRole;
+    }
+  | {
+      ref: "entering_object";
+    }
+  | {
+      ref: "step_result";
+      role: StepRole;
+      step: number;
+    }
+  | {
+      id: number;
+      ref: "bound_var";
+    }
+  | {
+      id: number;
+      ref: "linked_pool";
+    }
+  | {
+      ref: "announced_x";
+    };
+/**
+ * Whose "you" a controller reference means (CR 109.5). The role is fixed by
+ * where the text is printed, so a reference states it instead of leaving the
+ * reader to infer it from the surrounding ability.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ControllerRole".
+ */
+export type ControllerRole =
+  | "spell_controller"
+  | "ability_controller"
+  | "static_controller"
+  | "entering_controller"
+  | "prospective_caster"
+  | "special_action_player"
+  | "card_owner"
+  | "ability_holder";
+/**
+ * The object an event reference names (CR 603.2, 603.10).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "EventObjectRole".
+ */
+export type EventObjectRole =
+  | "entered"
+  | "died"
+  | "dealt_damage"
+  | "damaged"
+  | "cast_spell"
+  | "tapped_for_mana"
+  | "attacked"
+  | "blocked"
+  | "sacrificed"
+  | "left_battlefield";
+/**
+ * The player an event reference names.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "EventPlayerRole".
+ */
+export type EventPlayerRole =
+  ("damaged_player" | "controller_of_event_object") | "caster" | "activating_player" | "active_player";
+/**
+ * What an earlier step of the same node produced.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "StepRole".
+ */
+export type StepRole = "objects" | "player" | "amount";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "SetExpr".
+ */
+export type SetExpr =
+  | {
+      object: Ref;
+      set: "one";
+    }
+  | {
+      filter: Pred;
+      set: "matching";
+      zone: ZoneExpr;
+    }
+  | {
+      pool: Ref;
+      set: "pool";
+    };
+/**
+ * One conjunct of an object predicate. Card types, supertypes and subtypes
+ * are the object's current ones (CR 205, 613.1d); colors are current colors
+ * (CR 105, 613.1e); power, toughness and keywords are fully derived
+ * (CR 613.4, 613.1f).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Atom".
+ */
+export type Atom =
+  | {
+      atom: "type";
+      kind: CardKind;
+    }
+  | {
+      atom: "not_type";
+      kind: CardKind;
+    }
+  | {
+      atom: "any_type";
+      kinds: CardKind[];
+    }
+  | {
+      atom: "subtype";
+      subtype: string;
+    }
+  | {
+      atom: "not_subtype";
+      subtype: string;
+    }
+  | {
+      atom: "legendary";
+    }
+  | {
+      atom: "not_legendary";
+    }
+  | {
+      atom: "basic";
+    }
+  | {
+      atom: "not_basic";
+    }
+  | {
+      atom: "color";
+      color: Color;
+    }
+  | {
+      atom: "not_color";
+      color: Color;
+    }
+  | {
+      atom: "controlled_by";
+      player: PlayerExpr;
+    }
+  | {
+      atom: "owned_by";
+      player: PlayerExpr;
+    }
+  | {
+      atom: "tapped";
+    }
+  | {
+      atom: "untapped";
+    }
+  | {
+      atom: "attacking";
+    }
+  | {
+      atom: "blocking";
+    }
+  | {
+      atom: "token";
+    }
+  | {
+      atom: "not_token";
+    }
+  | {
+      atom: "keyword";
+      keyword: KeywordAbility;
+    }
+  | {
+      atom: "not_keyword";
+      keyword: KeywordAbility;
+    }
+  | {
+      atom: "power";
+      cmp: Cmp;
+      value: Amount;
+    }
+  | {
+      atom: "toughness";
+      cmp: Cmp;
+      value: Amount;
+    }
+  | {
+      atom: "mana_value";
+      cmp: Cmp;
+      value: Amount;
+    }
+  | {
+      atom: "is_not";
+      object: Ref;
+    }
+  | {
+      alternatives: Pred[];
+      atom: "any_of";
     };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "TargetAttribute".
+ * via the `definition` "PlayerExpr".
  */
-export type TargetAttribute = "power" | "mana_value";
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "EffectRecipient".
- */
-export type EffectRecipient =
-  | "controller"
+export type PlayerExpr =
   | {
-      target_controller: {
-        target_slot: number;
-      };
+      player: "is";
+      who: Ref;
+    }
+  | {
+      object: Ref;
+      player: "controller_of";
+    }
+  | {
+      object: Ref;
+      player: "owner_of";
+    }
+  | {
+      player: "each_opponent";
+    }
+  | {
+      player: "each_player";
     };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
@@ -405,231 +577,234 @@ export type KeywordAbility =
   | "trample"
   | "first strike"
   | "double strike"
-  | "menace";
+  | "menace"
+  | "plainswalk"
+  | "islandwalk"
+  | "swampwalk"
+  | "mountainwalk"
+  | "forestwalk"
+  | "protection_from_white"
+  | "protection_from_blue"
+  | "protection_from_black"
+  | "protection_from_red"
+  | "protection_from_green"
+  | "protection_from_each_color"
+  | "protection_from_everything";
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "CounterRecipient".
+ * via the `definition` "Cmp".
  */
-export type CounterRecipient =
-  | {
-      recipient: "source";
-    }
-  | {
-      recipient: "target";
-      target_slot: number;
-    };
+export type Cmp = "at_least" | "at_most" | "exactly";
 /**
- * Resolution actions use a separate binding domain from draw/life. The event
- * player is the frozen damaged player of a source-damage trigger (CR 603.2c).
+ * A conjunction of atoms. The empty predicate admits every object of the
+ * zone it is evaluated in.
  *
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "ActionRecipient".
+ * via the `definition` "Pred".
  */
-export type ActionRecipient = "controller" | "event_player";
-/**
- * Permanent resolution is distinct from an empty instruction program.
- *
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "SpellResolution".
- */
-export type SpellResolution = "instructions" | "permanent";
+export type Pred = Atom[];
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "Chooser".
+ * via the `definition` "ZoneExpr".
  */
-export type Chooser = "controller";
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "TargetDomain".
- */
-export type TargetDomain =
-  | (
-      | "battlefield_permanent"
-      | "controlled_battlefield_creature"
-      | "battlefield_creature"
-      | "own_graveyard_creature_card"
-      | "opponent_player"
-      | "stack_spell"
-      | "stack_activated_or_triggered_ability"
-      | "any_player"
-    )
-  | "blocking_battlefield_creature"
-  | "any_damage_target";
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "EvaluationStage".
- */
-export type EvaluationStage = "announcement";
-/**
- * Supported announcement timing; permissions are checked by the runtime.
- *
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "SpellTiming".
- */
-export type SpellTiming = "instant" | "main_phase";
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "Capability".
- */
-export type Capability =
-  | "cast_trigger_v1"
-  | "attack_trigger_v1"
-  | "damage_trigger_v1"
-  | "source_damage_trigger_v2"
-  | "optional_controller_draw_v1"
-  | "event_player_discard_v1"
-  | "event_player_sacrifice_v1"
-  | "filtered_damage_trigger_v1"
-  | "damage_controller_discard_v1"
-  | "damage_quantity_draw_v1"
-  | "snow_supertype_v1"
-  | "attacking_creature_keywords_v1"
-  | "opponent_cast_prohibition_v1"
-  | "grouped_creature_damage_trigger_v1"
-  | "event_player_recipient_v1"
-  | "source_status_condition_v1"
-  | "step_beginning_trigger_v1"
-  | "enters_tapped_v1"
-  | "flash_v1"
-  | "cast_artifact_v1"
-  | "permanent_mana_v1"
-  | "composite_activation_cost_v1"
-  | "cast_enchantment_v1"
-  | "aura_control_v1"
-  | "temporary_power_toughness_v1"
-  | "combat_damage_prevention_v1"
-  | "damage_budget_prevention_v1"
-  | "static_damage_replacement_v1"
-  | "controlled_creature_damage_replacement_v1"
-  | "normal_layout_v1"
-  | "basic_land_mana_v1"
-  | "land_play_v1"
-  | "base_creature_v1"
-  | "commander_identity_v1"
-  | "cast_instant_v1"
-  | "cast_creature_v1"
-  | "creature_target_v1"
-  | "blocking_creature_target_v1"
-  | "tapped_permanent_target_v1"
-  | "untap_permanent_v1"
-  | "tap_permanent_v1"
-  | "activated_tap_permanent_v1"
-  | "tap_source_destroy_v1"
-  | "tap_source_untap_creature_v1"
-  | "activated_spell_counter_v1"
-  | "activated_permanent_owner_hand_v1"
-  | "owner_hand_move_v1"
-  | "permanent_owner_hand_move_v1"
-  | "cast_sorcery_v1"
-  | "owner_library_top_move_v1"
-  | "activated_ability_v1"
-  | "sacrifice_source_cost_v1"
-  | "controller_draw_v1"
-  | "controller_discard_v1"
-  | "opponent_target_v1"
-  | "target_player_sacrifice_creature_v1"
-  | "stack_spell_target_v1"
-  | "stack_ability_target_v1"
-  | "counter_stack_object_v1"
-  | "tap_source_cost_v1"
-  | "mana_activation_cost_v1"
-  | "any_damage_target_v1"
-  | "any_player_target_v1"
-  | "noncombat_damage_v1"
-  | "life_gain_v1"
-  | "life_loss_v1"
-  | "triggered_ability_v1"
-  | "self_enters_battlefield_v1"
-  | "other_creature_enters_battlefield_v1"
-  | "creature_dies_v1"
-  | "self_dies_v1"
-  | "intervening_if_v1"
-  | "modal_choice_v1"
-  | "defender_v1"
-  | "flying_v1"
-  | "reach_v1"
-  | "vigilance_v1"
-  | "haste_v1"
-  | "lifelink_v1"
-  | "deathtouch_v1"
-  | "indestructible_v1"
-  | "temporary_indestructible_spell_v1"
-  | "temporary_flying_spell_v1"
-  | "temporary_deathtouch_spell_v1"
-  | "compound_indestructible_spell_v1"
-  | "temporary_creature_keyword_program_v1"
-  | "temporary_creature_set_keyword_program_v1"
-  | "trample_v1"
-  | "first_strike_v1"
-  | "double_strike_v1"
-  | "menace_v1"
-  | "creature_tokens_v1"
-  | "plus_one_counters_v1"
-  | "destroy_creature_v1"
-  | "graveyard_recursion_v1"
-  | "basic_land_search_v1"
-  | "creature_anthem_v1"
-  | "target_player_draw_v1"
-  | "attachments_v1"
-  | "permanent_removal_v1"
-  | "sacrifice_v1"
-  | "board_wipes_v1";
-/**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "ManaProduction".
- */
-export type ManaProduction =
+export type ZoneExpr =
   | {
-      mana: "fixed";
-      symbols: Color[];
+      zone: "battlefield";
     }
   | {
-      mana: "any_color";
+      zone: "graveyards";
     }
   | {
-      mana: "commander_color";
+      of: PlayerExpr;
+      zone: "graveyard";
+    }
+  | {
+      of: PlayerExpr;
+      zone: "hand";
+    }
+  | {
+      of: PlayerExpr;
+      zone: "library";
+    }
+  | {
+      zone: "exile";
+    }
+  | {
+      zone: "stack";
     };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "StaticEffect".
+ * via the `definition` "Stat".
  */
-export type StaticEffect =
-  | (
-      | "enters_tapped"
-      | "reduce_generic_by_creature_count"
-      | "cant_be_countered"
-      | "double_damage_to_permanent_or_player"
-    )
-  | "control_enchanted_creature"
-  | "opponents_cant_cast_during_controller_turn"
-  | {
-      modify_creatures: {
-        keywords: KeywordAbility[];
-        power: ExactQuantity;
-        restrictions: CreatureRestriction[];
-        scope: CreatureScope;
-        toughness: ExactQuantity;
-      };
-    }
-  | {
-      controller_creature_anthem: {
-        power: ExactQuantity;
-        toughness: ExactQuantity;
-      };
-    }
-  | "double_controller_creature_damage_to_permanent_or_player";
+export type Stat = "power" | "toughness" | "mana_value";
 /**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "CreatureRestriction".
- */
-export type CreatureRestriction = "cant_block" | "cant_be_blocked" | "cant_attack_or_block";
-/**
- * Static scopes in the finite attachment pool (CR 611.3a, 613.1f/4c).
+ * Who or what damage is dealt to (CR 120.1-120.3).
  *
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "CreatureScope".
+ * via the `definition` "DamageTo".
  */
-export type CreatureScope = ("equipped" | "enchanted" | "controller" | "source") | "attacking_controller";
+export type DamageTo =
+  | {
+      to: "ref";
+      who: Ref;
+    }
+  | {
+      players: PlayerExpr;
+      to: "players";
+    }
+  | {
+      set: SetExpr;
+      to: "objects";
+    }
+  | {
+      parts: DamageTo[];
+      to: "all";
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Destination".
+ */
+export type Destination =
+  | {
+      to: "exile";
+    }
+  | {
+      to: "owner_hand";
+    }
+  | {
+      to: "owner_library_top";
+    }
+  | {
+      to: "owner_library_bottom";
+    }
+  | {
+      to: "owner_graveyard";
+    }
+  | {
+      controller: PlayerExpr;
+      tapped?: boolean;
+      to: "battlefield";
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CounterKind".
+ */
+export type CounterKind =
+  | {
+      counter: "plus_one_plus_one";
+    }
+  | {
+      counter: "minus_one_minus_one";
+    }
+  | {
+      counter: "named";
+      name: string;
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "TokenSpec".
+ */
+export type TokenSpec =
+  | {
+      spec: CreatureToken;
+      token: "creature";
+    }
+  | {
+      kind: PredefinedToken;
+      token: "predefined";
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "PredefinedToken".
+ */
+export type PredefinedToken = "treasure" | "food" | "clue";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ManaSpec".
+ */
+export type ManaSpec =
+  | {
+      amount: Amount;
+      color: Color;
+      mana: "color";
+    }
+  | {
+      amount: Amount;
+      colors: Color[];
+      mana: "any_combination";
+    };
+/**
+ * How long a continuous effect lasts (CR 611.2a-b).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Until".
+ */
+export type Until = "end_of_combat" | "end_of_turn" | "controller_next_turn" | "source_leaves" | "indefinite";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Change".
+ */
+export type Change =
+  | {
+      change: "power_toughness";
+      power: Amount;
+      toughness: Amount;
+    }
+  | {
+      change: "set_power_toughness";
+      power: Amount;
+      toughness: Amount;
+    }
+  | {
+      change: "add_keywords";
+      keywords: KeywordAbility[];
+    }
+  | {
+      change: "remove_keywords";
+      keywords: KeywordAbility[];
+    }
+  | {
+      change: "set_colors";
+      colors: Color[];
+    }
+  | {
+      change: "add_types";
+      kinds: CardKind[];
+    }
+  | {
+      change: "controller";
+      player: PlayerExpr;
+    };
+/**
+ * CR 613.1: the layer a continuous change applies in.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Layer".
+ */
+export type Layer =
+  "copy" | "control" | "text" | "type" | "color" | "ability" | "power_toughness_set" | "power_toughness_modify";
+/**
+ * CR 603.7: when a delayed triggered ability triggers.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "DelayedEvent".
+ */
+export type DelayedEvent =
+  | {
+      at: "next_end_step";
+    }
+  | {
+      at: "next_upkeep";
+      of: PlayerExpr;
+    }
+  | {
+      at: "end_of_combat";
+    }
+  | {
+      at: "event";
+      event: TriggerCondition;
+      until: Until;
+    };
 /**
  * Mandatory ordinary event patterns. ETB patterns inspect the event's
  * resulting battlefield, including the entering source itself (CR 603.6a).
@@ -640,7 +815,23 @@ export type CreatureScope = ("equipped" | "enchanted" | "controller" | "source")
  * via the `definition` "TriggerCondition".
  */
 export type TriggerCondition =
-  | ("opponent_creature_dies" | "self_enters_battlefield" | "self_dies" | "self_aura_to_graveyard")
+  | (
+      | "controlled_land_enters_battlefield"
+      | "delayed_controller_creature_entry"
+      | "delayed_controller_spell_cast"
+      | "opponent_creature_dies"
+      | "self_enters_battlefield"
+      | "equipped_combat_damage"
+      | "equipped_dies"
+      | "self_dies"
+      | "self_aura_to_graveyard"
+    )
+  | {
+      saga_chapter: {
+        number: number;
+      };
+    }
+  | "self_spell_cast"
   | {
       grouped_damage_dealt: {
         kind: TriggerDamageKind;
@@ -664,6 +855,18 @@ export type TriggerCondition =
   | {
       spell_cast: {
         caster: CasterRelation;
+        spell:
+          | TypePredicate
+          | {
+              color: "W" | "U" | "B" | "R" | "G";
+              predicate: "spell_color";
+            };
+      };
+    }
+  | {
+      spell_cast_with_origin: {
+        caster: CasterRelation;
+        origin: CastOriginPredicate;
         spell: TypePredicate;
       };
     }
@@ -673,8 +876,26 @@ export type TriggerCondition =
         turn_relation: TurnRelation;
       };
     }
+  | "self_becomes_tapped"
+  | {
+      mana_tapped: {
+        filter: ManaTapFilter;
+      };
+    }
   | "other_creature_enters_battlefield"
-  | "any_creature_dies";
+  | {
+      controlled_creature_enters_with_power: {
+        minimum_power: ExactQuantity;
+        other: boolean;
+      };
+    }
+  | "any_creature_dies"
+  | {
+      self_moved: {
+        from: SourceMoveOrigin;
+        to: TriggerSuccessorZone;
+      };
+    };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "TriggerDamageKind".
@@ -711,7 +932,7 @@ export type DamageTriggerSource =
 export type DamageSourceRelation = "controller";
 /**
  * Source ObjectFilter fields are conjunctive; explicit anyOf retains OR.
- * Only full card-type membership is supported, never execution-kind equality.
+ * Type membership includes additional types. Spell color uses frozen characteristics.
  *
  * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "TypePredicate".
@@ -727,6 +948,10 @@ export type TypePredicate =
   | {
       kind: CardKind;
       predicate: "not_type";
+    }
+  | {
+      predicate: "subtype";
+      subtype: string;
     }
   | {
       predicate: "all";
@@ -780,12 +1005,27 @@ export type AttackerRelation = "controller" | "any_player" | "opponent";
  */
 export type CasterRelation = "controller" | "any_player" | "opponent";
 /**
+ * CR 601.2a: compare the zone the spell left during announcement.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CastOriginPredicate".
+ */
+export type CastOriginPredicate = {
+  predicate: "outside";
+  zone: CastOriginZone;
+};
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CastOriginZone".
+ */
+export type CastOriginZone = "controller_hand";
+/**
  * Exact step predicates; phases, delayed and conditional boundaries are excluded.
  *
  * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "BeginningStep".
  */
-export type BeginningStep = "upkeep" | "draw" | "end";
+export type BeginningStep = "precombat_main" | "upkeep" | "draw" | "end";
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "TurnRelation".
@@ -793,13 +1033,667 @@ export type BeginningStep = "upkeep" | "draw" | "end";
 export type TurnRelation = "controller" | "any_player" | "opponent";
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ManaTapFilter".
+ */
+export type ManaTapFilter =
+  | {
+      filter: "land";
+    }
+  | {
+      filter: "nonbasic_land";
+    }
+  | {
+      filter: "land_subtype";
+      subtype: BasicLandType;
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "BasicLandType".
+ */
+export type BasicLandType = "plains" | "island" | "swamp" | "mountain" | "forest";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "SourceMoveOrigin".
+ */
+export type SourceMoveOrigin = "battlefield";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "TriggerSuccessorZone".
+ */
+export type TriggerSuccessorZone = "trigger_controller_graveyard" | "trigger_controller_library";
+/**
+ * What a play permission allows (CR 601.3, 305.1).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Permission".
+ */
+export type Permission = "play" | "cast" | "cast_without_paying_mana_cost";
+/**
+ * A designation a player or object carries (CR 700.6, 725, 726).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Designation".
+ */
+export type Designation = "monarch" | "initiative" | "city_blessing" | "monstrous" | "renowned";
+/**
+ * A whole reviewed procedure the algebra does not decompose. Each id names
+ * one Comprehensive Rules keyword action, never a card.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "BuiltinId".
+ */
+export type BuiltinId = "proliferate" | "cascade" | "demonstrate" | "hideaway";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Cond".
+ */
+export type Cond =
+  | {
+      cmp: Cmp;
+      cond: "compare";
+      left: Amount;
+      right: Amount;
+    }
+  | {
+      cond: "exists";
+      set: SetExpr;
+    }
+  | {
+      cond: "cost_paid";
+      identity: string;
+    }
+  | {
+      cond: "not";
+      condition: Cond;
+    }
+  | {
+      cond: "all";
+      conditions: Cond[];
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Domain".
+ */
+export type Domain =
+  | {
+      over: "players";
+      players: PlayerExpr;
+    }
+  | {
+      over: "objects";
+      set: SetExpr;
+    };
+/**
+ * CR 118: what a player may pay during resolution.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Payment".
+ */
+export type Payment =
+  | {
+      amount: Amount;
+      cost: "generic";
+    }
+  | {
+      amount: Amount;
+      cost: "life";
+    };
+/**
+ * Permanent resolution is distinct from an empty instruction program.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "SpellResolution".
+ */
+export type SpellResolution =
+  | ("one_or_more_modes" | "instructions" | "permanent")
+  | {
+      choose_modes: {
+        exactly: number;
+      };
+    }
+  | {
+      choose_repeated_modes: {
+        exactly: number;
+      };
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Chooser".
+ */
+export type Chooser = "controller";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "TargetDomain".
+ */
+export type TargetDomain =
+  | (
+      | "creature_or_planeswalker"
+      | "battlefield_permanent"
+      | "controlled_battlefield_permanent"
+      | "controlled_battlefield_creature"
+      | "battlefield_creature"
+      | "own_graveyard_creature_card"
+      | "own_graveyard_card"
+      | "opponent_player"
+      | "stack_spell"
+      | "controlled_creature_spell"
+      | "stack_activated_or_triggered_ability"
+      | "player_or_planeswalker"
+      | "any_player"
+    )
+  | {
+      player_graveyard_cards: {
+        maximum: number;
+        owner_slot: number;
+      };
+    }
+  | "blocking_battlefield_creature"
+  | "any_damage_target";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CreaturePowerFilter".
+ */
+export type CreaturePowerFilter =
+  | {
+      comparison: "at_least";
+      value: ExactQuantity;
+    }
+  | {
+      comparison: "at_most";
+      value: ExactQuantity;
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "EvaluationStage".
+ */
+export type EvaluationStage = "announcement";
+/**
+ * Supported announcement timing; permissions are checked by the runtime.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "SpellTiming".
+ */
+export type SpellTiming = "instant" | "main_phase";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Capability".
+ */
+export type Capability =
+  | "predefined_artifact_tokens_v1"
+  | "player_graveyard_shuffle_v1"
+  | "opening_placement_v1"
+  | "controller_life_freeze_v1"
+  | "protection_from_everything_v1"
+  | "basic_landwalk_v1"
+  | "fixed_color_protection_v1"
+  | "source_combat_restrictions_v1"
+  | "cast_history_v1"
+  | "cast_mana_value_sweep_v1"
+  | "cast_trigger_v1"
+  | "cast_color_predicate_v1"
+  | "cast_subtype_predicate_v1"
+  | "mana_tap_trigger_v1"
+  | "source_tap_trigger_v1"
+  | "attack_trigger_v1"
+  | "damage_trigger_v1"
+  | "source_damage_trigger_v2"
+  | "event_player_discard_v1"
+  | "event_player_sacrifice_v1"
+  | "filtered_damage_trigger_v1"
+  | "damage_controller_discard_v1"
+  | "event_player_recipient_v1"
+  | "untap_controller_lands_v1"
+  | "step_beginning_trigger_v1"
+  | "enters_tapped_v1"
+  | "typed_nonbasic_intrinsic_mana_v1"
+  | "unspent_mana_conversion_v1"
+  | "controller_land_granted_mana_v1"
+  | "controller_land_basic_types_v1"
+  | "controller_nonland_colors_v1"
+  | "flash_v1"
+  | "enter_as_copy_of_permanent_entered_this_turn_v1"
+  | "cast_artifact_v1"
+  | "permanent_mana_v1"
+  | "composite_activation_cost_v1"
+  | "cast_enchantment_v1"
+  | "temporary_power_toughness_v1"
+  | "combat_damage_prevention_v1"
+  | "damage_budget_prevention_v1"
+  | "static_damage_replacement_v1"
+  | "normal_layout_v1"
+  | "basic_land_mana_v1"
+  | "land_play_v1"
+  | "base_creature_v1"
+  | "commander_identity_v1"
+  | "cast_instant_v1"
+  | "cast_creature_v1"
+  | "creature_target_v1"
+  | "blocking_creature_target_v1"
+  | "tapped_permanent_target_v1"
+  | "power_filtered_removal_v1"
+  | "untap_permanent_v1"
+  | "tap_permanent_v1"
+  | "activated_tap_permanent_v1"
+  | "activated_creature_tap_v1"
+  | "tap_source_destroy_v1"
+  | "tap_source_untap_creature_v1"
+  | "activated_permanent_owner_hand_v1"
+  | "activated_artifact_draw_v1"
+  | "owner_hand_move_v1"
+  | "permanent_owner_hand_move_v1"
+  | "cast_sorcery_v1"
+  | "owner_library_top_move_v1"
+  | "activated_ability_v1"
+  | "sacrifice_source_cost_v1"
+  | "controller_draw_v1"
+  | "fixed_mill_program_v1"
+  | "controller_counted_draw_v1"
+  | "controller_discard_v1"
+  | "opponent_target_v1"
+  | "target_player_sacrifice_creature_v1"
+  | "stack_spell_target_v1"
+  | "stack_ability_target_v1"
+  | "counter_stack_object_v1"
+  | "controlled_creature_spell_copy_v1"
+  | "tap_source_cost_v1"
+  | "pay_life_cost_v1"
+  | "mana_activation_cost_v1"
+  | "discard_source_cost_v1"
+  | "any_damage_target_v1"
+  | "player_or_planeswalker_target_v1"
+  | "any_player_target_v1"
+  | "noncombat_damage_v1"
+  | "life_gain_v1"
+  | "life_loss_v1"
+  | "opponent_life_drain_v1"
+  | "kernel_control_v1"
+  | "triggered_ability_v1"
+  | "self_enters_battlefield_v1"
+  | "other_creature_enters_battlefield_v1"
+  | "entry_graveyard_exile_v1"
+  | "controlled_land_entry_v1"
+  | "land_reclamation_v1"
+  | "creature_dies_v1"
+  | "self_dies_v1"
+  | "intervening_if_v1"
+  | "creature_or_planeswalker_target_v1"
+  | "modal_choice_v1"
+  | "defender_v1"
+  | "flying_v1"
+  | "reach_v1"
+  | "vigilance_v1"
+  | "haste_v1"
+  | "lifelink_v1"
+  | "deathtouch_v1"
+  | "indestructible_v1"
+  | "activated_source_keyword_grant_v1"
+  | "trample_v1"
+  | "first_strike_v1"
+  | "double_strike_v1"
+  | "menace_v1"
+  | "creature_tokens_v1"
+  | "multi_type_creature_tokens_v1"
+  | "plus_one_counters_v1"
+  | "destroy_creature_v1"
+  | "graveyard_recursion_v1"
+  | "own_graveyard_card_return_v1"
+  | "basic_land_search_v1"
+  | "creature_anthem_v1"
+  | "target_player_draw_v1"
+  | "attachments_v1"
+  | "permanent_removal_v1"
+  | "sacrifice_v1"
+  | "fixed_artifact_sacrifice_cost_v1"
+  | "board_wipes_v1"
+  | "self_spell_protection_v1"
+  | "announced_x_draw_v1"
+  | "each_player_draw_v1"
+  | "announced_x_effects_v1"
+  | "target_player_discard_v1"
+  | "random_player_discard_v1"
+  | "group_hand_discard_v1"
+  | "composed_ability_v1";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "HybridPayment".
+ */
+export type HybridPayment = "pay_two_life" | Color;
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ManaProduction".
+ */
+export type ManaProduction =
+  | {
+      mana: "restricted_fixed";
+      spend: ManaSpendRestriction;
+      symbols: Color[];
+    }
+  | {
+      life: ExactQuantity;
+      mana: "fixed_with_life_gain";
+      symbols: Color[];
+    }
+  | {
+      /**
+       * @minItems 2
+       * @maxItems 2
+       */
+      colors: [Color, Color];
+      mana: "hybrid_filter";
+    }
+  | {
+      mana: "greatest_controlled_power_combination";
+    }
+  | {
+      mana: "fixed";
+      symbols: Color[];
+    }
+  | {
+      mana: "any_color";
+    }
+  | {
+      amount: SingleColorManaAmount;
+      mana: "any_one_color";
+    }
+  | {
+      mana: "commander_color";
+    }
+  | {
+      mana: "opponent_land_colors";
+    }
+  | {
+      mana: "each_permanent_color";
+      scope: PermanentColorScope;
+    }
+  | {
+      colors: Color[];
+      mana: "choice";
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ManaSpendRestriction".
+ */
+export type ManaSpendRestriction =
+  | ("activated_ability" | "colorless_spell_or_activated_ability" | "creature_spell_or_battlefield_creature_ability")
+  | {
+      spell_subtypes: {
+        /**
+         * @minItems 3
+         * @maxItems 3
+         */
+        any_of: [ManaSpellSubtype, ManaSpellSubtype, ManaSpellSubtype];
+      };
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ManaSpellSubtype".
+ */
+export type ManaSpellSubtype = "dwarf" | "equipment" | "saga";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "SingleColorManaAmount".
+ */
+export type SingleColorManaAmount =
+  | {
+      kind: "fixed";
+      quantity: ExactQuantity;
+    }
+  | {
+      kind: "controller_enchantments";
+    };
+/**
+ * CR 109.5/110.1: battlefield permanents controlled by the static source's
+ * current controller or by the player who activated the mana ability.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "PermanentColorScope".
+ */
+export type PermanentColorScope = "controller";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ManaActivationRestriction".
+ */
+export type ManaActivationRestriction = "once_each_turn";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "StaticEffect".
+ */
+export type StaticEffect =
+  | (
+      | "additional_land_play"
+      | "play_lands_from_own_graveyard"
+      | "keep_unspent_mana_as_black"
+      | "grant_controller_lands_any_color_mana"
+      | "may_begin_on_battlefield"
+      | "grant_controller_lands_all_basic_types"
+      | "controller_nonlands_all_colors"
+      | "enters_tapped"
+      | "reduce_generic_by_creature_count"
+      | "double_damage_to_permanent_or_player"
+    )
+  | {
+      bestow: {
+        cost: ManaCost;
+        program: SpellProgram;
+      };
+    }
+  | {
+      grant_spell_cascade: {
+        eligibility: SpellCascadeEligibility;
+        program: SpellProgram;
+      };
+    }
+  | "cascade_land_entry"
+  | "enter_as_copy_of_permanent_entered_this_turn"
+  | "control_enchanted_permanent"
+  | "opponents_cant_cast_during_controller_turn"
+  | "unlimited_controller_hand_size"
+  | {
+      reduce_maximum_hand_size: {
+        amount: string;
+        scope: HandSizeScope;
+      };
+    }
+  | {
+      increase_maximum_hand_size: {
+        amount: string;
+      };
+    }
+  | {
+      enters_tapped_unless_controller_basic_lands: {
+        minimum: ExactQuantity;
+      };
+    }
+  | {
+      enters_tapped_unless_controller_other_lands: {
+        comparison: LandCountComparison;
+        threshold: string;
+      };
+    }
+  | {
+      enters_tapped_unless_opponent_count: {
+        minimum: ExactQuantity;
+      };
+    }
+  | {
+      enters_tapped_unless_reveal_land_types: {
+        /**
+         * @minItems 2
+         * @maxItems 2
+         */
+        subtypes: [BasicLandType, BasicLandType];
+      };
+    }
+  | {
+      enters_tapped_unless_controller_land_type: {
+        subtype: BasicLandType;
+      };
+    }
+  | {
+      enters_tapped_unless_controller_land_types: {
+        /**
+         * @minItems 2
+         * @maxItems 2
+         */
+        subtypes: [BasicLandType, BasicLandType];
+      };
+    }
+  | {
+      enters_tapped_unless_pay_life: {
+        amount: ExactQuantity;
+      };
+    }
+  | {
+      reduce_self_generic_cost: {
+        count: BattlefieldCount;
+        per_object: ExactQuantity;
+      };
+    }
+  | "cant_be_countered"
+  | "self_graveyard_reveal_shuffle"
+  | "grant_other_controlled_permanents_indestructible"
+  | {
+      modify_creatures: {
+        keywords: KeywordAbility[];
+        power: ExactQuantity;
+        restrictions: CreatureRestriction[];
+        scope: CreatureScope;
+        toughness: ExactQuantity;
+      };
+    }
+  | {
+      modify_source_by_distinct_permanent_colors: {
+        power_per_color: ExactQuantity;
+        scope: PermanentColorScope;
+        toughness_per_color: ExactQuantity;
+      };
+    }
+  | {
+      controller_creature_anthem: {
+        power: ExactQuantity;
+        toughness: ExactQuantity;
+      };
+    }
+  | {
+      controller_scoped_creature_stats: {
+        filter: ControllerCreatureStatFilter;
+        other: boolean;
+        power: ExactQuantity;
+        toughness: ExactQuantity;
+      };
+    }
+  | {
+      controller_creature_plus_one_counter_replacement: {
+        modification: CounterPlacementModification;
+      };
+    }
+  | "double_controller_creature_damage_to_permanent_or_player";
+/**
+ * Disjoint predicates on a completed spell; history is global to its caster.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "SpellCascadeEligibility".
+ */
+export type SpellCascadeEligibility =
+  | {
+      eligibility: "mana_value_at_least";
+      minimum: ExactQuantity;
+    }
+  | {
+      eligibility: "first_cast_each_turn";
+    }
+  | {
+      eligibility: "first_cast_from_exile_each_turn";
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "HandSizeScope".
+ */
+export type HandSizeScope = "controller" | "opponents";
+/**
+ * Inclusive comparison for a common-prior land count (CR 614.12).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "LandCountComparison".
+ */
+export type LandCountComparison = "at_least" | "at_most";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CountController".
+ */
+export type CountController = "any" | "caster";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CreatureRestriction".
+ */
+export type CreatureRestriction = "cant_block" | "cant_be_blocked" | "cant_attack_or_block" | "can_block_only_flying";
+/**
+ * Static scopes in the finite attachment pool (CR 611.3a, 613.1f/4c).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CreatureScope".
+ */
+export type CreatureScope =
+  | ("equipped" | "equipped_legendary" | "enchanted" | "controller" | "source")
+  | "attacking_controller"
+  | {
+      controlled_subtype: {
+        creatures_only: boolean;
+        other: boolean;
+        subtype: Subtype;
+      };
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Subtype".
+ */
+export type Subtype = "elf" | "goblin" | "golem" | "merfolk" | "sliver" | "soldier" | "vampire" | "warrior" | "zombie";
+/**
+ * Restrictions evaluated on the affected creature's earlier-layer characteristics.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ControllerCreatureStatFilter".
+ */
+export type ControllerCreatureStatFilter =
+  | {
+      selector: "any";
+    }
+  | {
+      selector: "artifact";
+    }
+  | {
+      selector: "subtypes";
+      subtypes: string[];
+    };
+/**
+ * CR 614.1a/614.5: positive placement quantities only; removal is a cost.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CounterPlacementModification".
+ */
+export type CounterPlacementModification =
+  | {
+      amount: ExactQuantity;
+      operation: "add";
+    }
+  | {
+      factor: ExactQuantity;
+      operation: "multiply";
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "InterveningCondition".
  */
 export type InterveningCondition =
-  | "controller_hand_empty"
+  | ("controller_hand_empty" | "source_cast_by_controller")
   | {
       source_status: {
         status: TapStatus;
+      };
+    }
+  | {
+      controller_has_creature_with_power: {
+        minimum_power: ExactQuantity;
       };
     };
 /**
@@ -846,9 +1740,14 @@ export interface Definition {
   activated?: ActivatedAbility[];
   capabilities: Capability[];
   characteristics: Characteristics;
+  /**
+   * True only when `composition` admitted every ability of this definition.
+   */
+  composed?: boolean;
   intrinsic_zone: FunctioningZone | null;
   keywords?: KeywordAbility[];
   mana_abilities?: ManaAbility[];
+  modal_land?: ModalLand | null;
   name: string;
   oracle_id: string;
   provenance: SourceProvenance;
@@ -858,6 +1757,7 @@ export interface Definition {
   source_labels?: SourceLabels | null;
   spell: SpellProgram | null;
   static_abilities?: StaticAbility[];
+  transform_faces?: TransformFaces | null;
   triggered?: TriggeredAbility[];
   x_mana_cost?: boolean;
 }
@@ -872,6 +1772,14 @@ export interface ActivatedAbility {
 }
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ManaCost".
+ */
+export interface ManaCost {
+  colored: Color[];
+  generic: ExactQuantity;
+}
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "SacrificeFilter".
  */
 export interface SacrificeFilter {
@@ -882,14 +1790,6 @@ export interface SacrificeFilter {
   types: CardKind[];
 }
 /**
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "ManaCost".
- */
-export interface ManaCost {
-  colored: Color[];
-  generic: ExactQuantity;
-}
-/**
  * Finite permanent costs; costs are committed only after complete payment.
  *
  * This interface was referenced by `PublicManifest`'s JSON-Schema
@@ -897,6 +1797,7 @@ export interface ManaCost {
  */
 export interface PermanentActivationCosts {
   mana?: ManaCost | null;
+  remove_source_plus_one_counters?: ExactQuantity | null;
   sacrifice: boolean;
   tap: boolean;
 }
@@ -909,6 +1810,7 @@ export interface SpellProgram {
   functioning_zone: FunctioningZone;
   instructions: Instruction[];
   modes?: SpellMode[];
+  optional_additional_costs?: OptionalAdditionalManaCost[];
   resolution: SpellResolution;
   targets: TargetSpec[];
   timing: SpellTiming;
@@ -920,6 +1822,7 @@ export interface SpellProgram {
  * via the `definition` "CreatureToken".
  */
 export interface CreatureToken {
+  additional_types?: CardKind[];
   colors: Color[];
   keywords: KeywordAbility[];
   power: ExactQuantity;
@@ -927,14 +1830,16 @@ export interface CreatureToken {
   toughness: ExactQuantity;
 }
 /**
- * Fixed signed power/toughness changes belonging to one complete creature effect.
+ * CR 701.23: what a search looks for and where the found cards go.
  *
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "CreatureStatModifier".
+ * via the `definition` "SearchSpec".
  */
-export interface CreatureStatModifier {
-  power: ExactQuantity;
-  toughness: ExactQuantity;
+export interface SearchSpec {
+  filter: Pred;
+  maximum: Amount;
+  reveal?: boolean;
+  to: Destination;
 }
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
@@ -942,6 +1847,18 @@ export interface CreatureStatModifier {
  */
 export interface SpellMode {
   program: SpellProgram;
+}
+/**
+ * CR 702.33a/e: one source-bound optional fixed mana declaration. The
+ * identity names the exact archived keyword; conditions cannot link by position.
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "OptionalAdditionalManaCost".
+ */
+export interface OptionalAdditionalManaCost {
+  identity: string;
+  mana: ManaCost;
+  source_block: number;
 }
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
@@ -967,6 +1884,10 @@ export interface PermanentFilter {
   non_types: CardKind[];
   opponent: boolean;
   /**
+   * Derived creature power at target selection and resolution (CR 601.2c, 608.2b).
+   */
+  power?: CreaturePowerFilter;
+  /**
    * Require the current battlefield incarnation to be tapped (CR 110.5,
    * 601.2c, 608.2b). False imposes no tap-status restriction.
    */
@@ -985,6 +1906,7 @@ export interface Characteristics {
   basic: boolean;
   color_identity: Color[];
   colors: Color[];
+  hybrid_mana?: ColorHybridSymbol[];
   /**
    * Canonical execution type: creature first, then land, artifact, enchantment.
    */
@@ -1001,12 +1923,45 @@ export interface Characteristics {
 }
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ColorHybridSymbol".
+ */
+export interface ColorHybridSymbol {
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  colors: [HybridPayment, HybridPayment];
+}
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "ManaAbility".
  */
 export interface ManaAbility {
   costs: PermanentActivationCosts;
   production: ManaProduction;
+  restriction?: ManaActivationRestriction | null;
+  /**
+   * Damage dealt by the source to the activating player after producing mana.
+   */
+  self_damage?: ExactQuantity | null;
   source_block: number;
+}
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ModalLand".
+ */
+export interface ModalLand {
+  back: LandFace;
+  front_name: string;
+}
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "LandFace".
+ */
+export interface LandFace {
+  color: Color;
+  name: string;
+  tapped: boolean;
 }
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
@@ -1050,6 +2005,34 @@ export interface SourceLabels {
 export interface StaticAbility {
   effect: StaticEffect;
   functioning_zone: FunctioningZone;
+}
+/**
+ * Count current battlefield types and control, never ownership (CR 702.41).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "BattlefieldCount".
+ */
+export interface BattlefieldCount {
+  controller: CountController;
+  kind: CardKind;
+}
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "TransformFaces".
+ */
+export interface TransformFaces {
+  back: CreatureFace;
+  front_name: string;
+}
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CreatureFace".
+ */
+export interface CreatureFace {
+  name: string;
+  power: ExactQuantity;
+  subtypes: string[];
+  toughness: ExactQuantity;
 }
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema

@@ -19,8 +19,28 @@ export type CommandBody =
  */
 export type PlayerResponse =
   | {
+      object?: string | null;
+      response: "opening_placement";
+    }
+  | {
+      response: "additional_costs";
+      selected: string[];
+    }
+  | {
+      object?: string | null;
+      response: "entry_copy";
+    }
+  | {
+      object: string;
+      response: "entry_attachment";
+    }
+  | {
       keep: string;
       response: "legend_rule";
+    }
+  | {
+      colors: HybridPayment[];
+      response: "hybrid_cost";
     }
   | {
       response: "announce_x";
@@ -35,20 +55,28 @@ export type PlayerResponse =
       response: "forced_sacrifice";
     }
   | {
+      ability: ManaAbilityIdentity;
+      response: "choose_mana_ability";
+    }
+  | {
+      /**
+       * @minItems 5
+       * @maxItems 5
+       */
+      amounts: [ExactQuantity, ExactQuantity, ExactQuantity, ExactQuantity, ExactQuantity];
+      response: "mana_combination";
+    }
+  | {
       color: Color;
       response: "mana_color";
     }
   | {
-      objects: string[];
-      response: "search_lands";
+      card?: string | null;
+      response: "entry_reveal";
     }
   | {
       perform: boolean;
       response: "optional_effect";
-    }
-  | {
-      perform: boolean;
-      response: "optional_recursion";
     }
   | {
       response: "mulligan";
@@ -59,12 +87,16 @@ export type PlayerResponse =
       response: "bottom_opening";
     }
   | {
-      allocations: [string, ExactQuantity][];
-      response: "damage_allocation";
+      modes: number[];
+      response: "mode_subset";
     }
   | {
       mode: number;
       response: "modes";
+    }
+  | {
+      effect: CounterPlacementEffectHandle;
+      response: "counter_placement_effect";
     }
   | {
       damage: string;
@@ -112,6 +144,18 @@ export type PlayerResponse =
       };
     }
   | {
+      response: "spend_mana_allocated";
+      restricted: RestrictedMana[];
+      spending: {
+        B?: ExactQuantity;
+        C?: ExactQuantity;
+        G?: ExactQuantity;
+        R?: ExactQuantity;
+        U?: ExactQuantity;
+        W?: ExactQuantity;
+      };
+    }
+  | {
       response: "commander_return";
       to_command: boolean;
     }
@@ -143,7 +187,15 @@ export type PlayerResponse =
     }
   | {
       object: string;
+      response: "play_back_land";
+    }
+  | {
+      object: string;
       response: "activate_mana";
+    }
+  | {
+      card: string;
+      response: "bestow";
     }
   | {
       card: string;
@@ -162,14 +214,38 @@ export type PlayerResponse =
     };
 /**
  * This interface was referenced by `CommandEnvelope`'s JSON-Schema
- * via the `definition` "ExactQuantity".
+ * via the `definition` "HybridPayment".
  */
-export type ExactQuantity = string;
+export type HybridPayment = "pay_two_life" | Color;
 /**
  * This interface was referenced by `CommandEnvelope`'s JSON-Schema
  * via the `definition` "Color".
  */
 export type Color = "W" | "U" | "B" | "R" | "G" | "C";
+/**
+ * This interface was referenced by `CommandEnvelope`'s JSON-Schema
+ * via the `definition` "ExactQuantity".
+ */
+export type ExactQuantity = string;
+/**
+ * The intrinsic ability for a basic land type or an index into this source's printed mana abilities.
+ *
+ * This interface was referenced by `CommandEnvelope`'s JSON-Schema
+ * via the `definition` "ManaAbilityIdentity".
+ */
+export type ManaAbilityIdentity =
+  | {
+      ability: "granted_land_tap";
+      color: Color;
+    }
+  | {
+      ability: "intrinsic";
+      color: Color;
+    }
+  | {
+      ability: "printed";
+      index: number;
+    };
 /**
  * This interface was referenced by `CommandEnvelope`'s JSON-Schema
  * via the `definition` "PlayerTargetEntity".
@@ -185,6 +261,26 @@ export type PlayerTargetEntity =
     };
 /**
  * This interface was referenced by `CommandEnvelope`'s JSON-Schema
+ * via the `definition` "ManaSpendRestriction".
+ */
+export type ManaSpendRestriction =
+  | ("activated_ability" | "colorless_spell_or_activated_ability" | "creature_spell_or_battlefield_creature_ability")
+  | {
+      spell_subtypes: {
+        /**
+         * @minItems 3
+         * @maxItems 3
+         */
+        any_of: [ManaSpellSubtype, ManaSpellSubtype, ManaSpellSubtype];
+      };
+    };
+/**
+ * This interface was referenced by `CommandEnvelope`'s JSON-Schema
+ * via the `definition` "ManaSpellSubtype".
+ */
+export type ManaSpellSubtype = "dwarf" | "equipment" | "saga";
+/**
+ * This interface was referenced by `CommandEnvelope`'s JSON-Schema
  * via the `definition` "DecimalU64Counter".
  */
 export type DecimalU64Counter = string;
@@ -194,4 +290,24 @@ export interface CommandEnvelope {
   command_id: string;
   expected_revision: DecimalU64Counter;
   protocol_version: number;
+}
+/**
+ * A viewer's public provider reference plus the definition's ability index.
+ * Decision tokens bind it to one exact instruction and applied prefix.
+ *
+ * This interface was referenced by `CommandEnvelope`'s JSON-Schema
+ * via the `definition` "CounterPlacementEffectHandle".
+ */
+export interface CounterPlacementEffectHandle {
+  ability: number;
+  source: string;
+}
+/**
+ * This interface was referenced by `CommandEnvelope`'s JSON-Schema
+ * via the `definition` "RestrictedMana".
+ */
+export interface RestrictedMana {
+  amount: ExactQuantity;
+  color: Color;
+  restriction: ManaSpendRestriction;
 }
