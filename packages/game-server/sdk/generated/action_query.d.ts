@@ -40,7 +40,15 @@ export type ActionInitiation =
       object: string;
     }
   | {
+      action: "play_back_land";
+      object: string;
+    }
+  | {
       action: "cast";
+      card: string;
+    }
+  | {
+      action: "bestow";
       card: string;
     }
   | {
