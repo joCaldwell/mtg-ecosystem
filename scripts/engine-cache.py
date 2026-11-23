@@ -17,6 +17,7 @@ import math
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -123,80 +124,186 @@ def status(root=ROOT, environ=None):
             'errors': errors, 'policy': 'over budget, check evicts within this target under its lock; nothing outside it is touched'}
 
 
-def owned_target(root, target):
-    """The target, resolved, only if it is this checkout's own Cargo cache.
+CARGO_TAG = b'Signature: 8a477f597d28d172789f06886806bc55'
+DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
-    Ownership is positive: the path must be exactly `<checkout>/target/engine`
-    with no symlinked component below the checkout root and must carry Cargo's
-    CACHEDIR.TAG. An explicit CARGO_TARGET_DIR elsewhere (a shared target,
-    generated/ output, external evidence) is never evicted."""
+
+class Refused(Exception):
+    """Eviction cannot proceed safely; nothing has been deleted."""
+
+
+def open_owned_target(root, target, lock):
+    """Pin this checkout's own target/engine as a directory descriptor.
+
+    Ownership is positive: the configured path must be exactly
+    `<checkout>/target/engine`; `target` and `engine` are opened with
+    O_NOFOLLOW relative to the checkout, CACHEDIR.TAG must be a regular file
+    (opened without following links) carrying Cargo's signature, and the lock
+    must lie strictly outside the target. Every later read or delete is
+    relative to the returned descriptor, so a swapped path cannot redirect it."""
     top = toplevel(root)
     if Path(os.path.abspath(Path(target))) != top / DEFAULT_TARGET:
-        return None
-    entry = top
-    for part in DEFAULT_TARGET.parts:
-        entry = entry / part
-        if entry.is_symlink() or not entry.is_dir():
-            return None
-    expected = top.resolve() / DEFAULT_TARGET
-    if entry.resolve() != expected or not (expected / 'CACHEDIR.TAG').is_file():
-        return None
-    return expected
+        raise Refused("target is not this checkout's own target/engine")
+    descriptor = os.open(top, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        for part in DEFAULT_TARGET.parts:
+            try:
+                child = os.open(part, DIRECTORY, dir_fd=descriptor)
+            except OSError as error:
+                raise Refused(f'{part}/ is missing, not a directory or a symlink') from error
+            os.close(descriptor)
+            descriptor = child
+        try:
+            tag = os.open('CACHEDIR.TAG', os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
+        except OSError as error:
+            raise Refused('CACHEDIR.TAG is missing or a symlink') from error
+        try:
+            if not stat.S_ISREG(os.fstat(tag).st_mode) or not os.read(tag, 64).startswith(CARGO_TAG):
+                raise Refused('CACHEDIR.TAG is not a regular Cargo cache tag')
+        finally:
+            os.close(tag)
+        pinned = os.path.realpath(f'/proc/self/fd/{descriptor}')
+        for path in (os.path.realpath(lock), os.path.realpath(Path(lock).parent)):
+            if path == pinned or path.startswith(pinned + os.sep):
+                raise Refused('the target lock lies inside the target; refusing to delete it')
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def entries(descriptor):
+    """(name, is_real_directory) of a directory, never following links."""
+    with os.scandir(descriptor) as listing:
+        return sorted((entry.name, entry.is_dir(follow_symlinks=False)) for entry in listing)
+
+
+def usage_at(descriptor):
+    """Allocated bytes below a pinned directory, without following links."""
+    total = os.fstat(descriptor).st_blocks * 512
+    for name, is_directory in entries(descriptor):
+        if is_directory:
+            child = os.open(name, DIRECTORY, dir_fd=descriptor)
+            try:
+                total += usage_at(child)
+            finally:
+                os.close(child)
+        else:
+            total += os.stat(name, dir_fd=descriptor, follow_symlinks=False).st_blocks * 512
+    return total
+
+
+def remove_at(parent, name):
+    """Delete parent/name; links are unlinked, never followed."""
+    if stat.S_ISDIR(os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode):
+        child = os.open(name, DIRECTORY, dir_fd=parent)
+        try:
+            for entry, _ in entries(child):
+                remove_at(child, entry)
+        finally:
+            os.close(child)
+        os.rmdir(name, dir_fd=parent)
+    else:
+        os.unlink(name, dir_fd=parent)
+
+
+def has_directory(descriptor, *parts):
+    try:
+        child = os.open(os.path.join(*parts), DIRECTORY, dir_fd=descriptor)
+    except OSError:
+        return False
+    os.close(child)
+    return True
 
 
 def eviction_stages(target):
-    """Candidate groups in eviction order; every path lies inside target."""
-    profiles = [entry for entry in sorted(target.iterdir()) if entry.is_dir() and not entry.is_symlink()]
-    nested = [child for entry in profiles for child in sorted(entry.iterdir())
-              if child.is_dir() and not child.is_symlink() and (child / 'deps').is_dir()]
-    incremental = [entry / 'incremental' for entry in [*profiles, *nested] if (entry / 'incremental').is_dir()]
-    stale = [entry for entry in profiles if entry.name != GATE_PROFILE]
-    everything = [entry for entry in sorted(target.iterdir()) if entry.name != 'CACHEDIR.TAG']
+    """Relative candidate paths in eviction order, from the pinned target."""
+    profiles = [name for name, is_directory in entries(target) if is_directory]
+    nested = []
+    for profile in profiles:
+        child = os.open(profile, DIRECTORY, dir_fd=target)
+        try:
+            nested += [(profile, name) for name, is_directory in entries(child)
+                       if is_directory and has_directory(child, name, 'deps')]
+        finally:
+            os.close(child)
+    incremental = [(*path, 'incremental') for path in [(name,) for name in profiles] + nested
+                   if has_directory(target, *path, 'incremental')]
+    stale = [(name,) for name in profiles if name != GATE_PROFILE]
+    everything = [(name,) for name, _ in entries(target) if name != 'CACHEDIR.TAG']
     return [('incremental', incremental), ('non-gate-profiles', stale), ('target-reset', everything)]
 
 
-def remove(entry):
-    if entry.is_dir() and not entry.is_symlink():
-        shutil.rmtree(entry)
-    else:
-        entry.unlink(missing_ok=True)
+def remove_relative(target, path):
+    parent = os.dup(target)
+    try:
+        for part in path[:-1]:
+            child = os.open(part, DIRECTORY, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        remove_at(parent, path[-1])
+    finally:
+        os.close(parent)
 
 
-def evict(target, maximum, storage):
-    """Shrink target below maximum in stages; returns the removed paths."""
+def evict(target, maximum):
+    """Shrink the pinned target below maximum in stages; returns removed paths."""
     removed = []
-    for stage, entries in eviction_stages(target):
-        if storage.usage(target) <= maximum:
+    for index in range(3):
+        if usage_at(target) <= maximum:
             break
-        for entry in entries:
-            if not (entry == target or target in entry.parents):
-                raise ValueError(f'eviction candidate escapes the target: {entry}')
-            remove(entry)
-            removed.append({'stage': stage, 'path': str(entry)})
+        # Each stage lists what remains after the previous one.
+        stage, candidates = eviction_stages(target)[index]
+        for path in candidates:
+            if any(part in ('', '.', '..') or os.sep in part for part in path):
+                raise Refused(f'unsafe eviction candidate {path}')
+            remove_relative(target, path)
+            removed.append({'stage': stage, 'path': '/'.join(path)})
     return removed
 
 
 @contextlib.contextmanager
 def held_lock(lock, environ):
-    """Yield whether this process holds the target's canonical lock.
+    """Yield whether this process verifiably holds the target's exclusive lock.
 
-    A runner that already holds it passes the locked descriptor's number in
-    MTG_ENGINE_LOCK_FD. That descriptor must be the canonical lock file, and a
-    non-blocking flock on it must succeed: flock is per open file description,
-    so this confirms the inherited description holds (or now takes) the lock.
-    Without it, this call takes the lock itself without waiting. Busy or
-    unverifiable locks fail closed."""
-    if lock.is_symlink():
+    A runner that holds it passes its descriptor's number in MTG_ENGINE_LOCK_FD.
+    flock(2) locks belong to open file descriptions, so the proof has two
+    steps: the descriptor must be the canonical lock inode; a fresh probe of
+    that inode must fail to take even LOCK_SH (so some description holds
+    LOCK_EX); and LOCK_EX|LOCK_NB on the inherited descriptor must then
+    succeed (so that holder is the inherited description). An idle, shared-only
+    or contended descriptor is refused. Without one, this call takes the lock
+    itself without waiting. Every failure fails closed."""
+    try:
+        canonical = os.lstat(lock)
+    except FileNotFoundError:
+        canonical = None
+    if canonical is not None and not stat.S_ISREG(canonical.st_mode):
         yield False
         return
     inherited = environ.get('MTG_ENGINE_LOCK_FD')
     if inherited is not None:
         try:
             descriptor = int(inherited)
-            held, canonical = os.fstat(descriptor), os.stat(lock)
-            if (held.st_dev, held.st_ino) != (canonical.st_dev, canonical.st_ino):
+            held = os.fstat(descriptor)
+            if canonical is None or (held.st_dev, held.st_ino) != (canonical.st_dev, canonical.st_ino):
                 yield False
                 return
+            probe = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            try:
+                seen = os.fstat(probe)
+                if (seen.st_dev, seen.st_ino) != (canonical.st_dev, canonical.st_ino):
+                    yield False
+                    return
+                try:
+                    fcntl.flock(probe, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    pass  # Some description holds LOCK_EX.
+                else:
+                    yield False  # Nobody holds LOCK_EX: the caller's claim is false.
+                    return
+            finally:
+                os.close(probe)
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except (ValueError, OSError):
             yield False
@@ -219,15 +326,21 @@ def check(root=ROOT, environ=None):
     report = status(root, env)
     if report['allocated_bytes'] <= report['maximum_bytes']:
         return report
-    target = owned_target(root, report['target_dir'])
-    if target is None:
-        report['errors'].append("target is not this checkout's own Cargo cache (target/engine with CACHEDIR.TAG, no symlinks); nothing evicted")
-        return report
-    with held_lock(Path(report['lock']), env) as owned:
+    lock = Path(report['lock'])
+    with held_lock(lock, env) as owned:
         if not owned:
-            report['errors'].append('target lock is busy or the inherited MTG_ENGINE_LOCK_FD is not its held lock; nothing evicted')
+            report['errors'].append('target lock is busy or the inherited MTG_ENGINE_LOCK_FD does not hold it; nothing evicted')
             return report
-        removed = evict(target, report['maximum_bytes'], storage_module())
+        # Ownership is established under the lock and pinned through deletion.
+        try:
+            target = open_owned_target(root, report['target_dir'], lock)
+        except Refused as error:
+            report['errors'].append(f"not this checkout's own Cargo cache: {error}; nothing evicted")
+            return report
+        try:
+            removed = evict(target, report['maximum_bytes'])
+        finally:
+            os.close(target)
     after = status(root, env)
     if any(row['stage'] == 'target-reset' for row in removed):
         # An emptied target holds only its tag: the budget cannot go lower.

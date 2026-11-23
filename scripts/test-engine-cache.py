@@ -183,6 +183,43 @@ class CacheTests(unittest.TestCase):
             self.assertTrue((moved / 'engine/debug/incremental').exists())
             self.assertEqual('keep', evidence.read_text())
 
+    def test_lock_inside_the_target_or_a_symlinked_tag_refuses_eviction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            inside = {**env, 'MTG_ENGINE_LOCK_DIR': str(target / 'locks')}
+            report = cache.check(repo, inside)
+            self.assertIn('lock lies inside the target', report['errors'][-1])
+            self.assertTrue((target / 'locks').is_dir() and (target / 'debug/incremental').exists())
+            (target / 'locks').rename(Path(tmp) / 'old-locks')
+            tag = target / 'CACHEDIR.TAG'
+            real = Path(tmp) / 'real-tag'
+            real.write_bytes(tag.read_bytes())
+            tag.unlink()
+            tag.symlink_to(real)
+            self.assertIn('CACHEDIR.TAG', cache.check(repo, env)['errors'][-1])
+            tag.unlink()
+            tag.write_text('not a cargo tag\n')
+            self.assertIn('CACHEDIR.TAG', cache.check(repo, env)['errors'][-1])
+            self.assertTrue((target / 'debug/incremental').exists())
+
+    def test_inherited_descriptor_must_already_hold_the_exclusive_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, target, _, env = self.cargo_target(tmp)
+            env['ENGINE_CACHE_MAX_GIB'] = '0'
+            lock = cache.lock_path(target, env)
+            lock.parent.mkdir(parents=True)
+            lock.write_text('')
+            with lock.open('a') as idle:
+                # An idle description would merely acquire a fresh lock: refused.
+                report = cache.check(repo, {**env, 'MTG_ENGINE_LOCK_FD': str(idle.fileno())})
+                self.assertIn('lock is busy', report['errors'][-1])
+                # A shared-only holder does not prove exclusive ownership.
+                fcntl.flock(idle, fcntl.LOCK_SH)
+                report = cache.check(repo, {**env, 'MTG_ENGINE_LOCK_FD': str(idle.fileno())})
+                self.assertIn('lock is busy', report['errors'][-1])
+            self.assertTrue((target / 'debug/incremental').exists())
+
     def test_eviction_requires_a_verified_held_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo, target, _, env = self.cargo_target(tmp)
