@@ -382,19 +382,35 @@ test("cancellation while waiting for a lock never starts protected work", async 
   }
 });
 
-test("Cargo selections must execute tests, including beside an opt-in host case", async () => {
-  const summary = (passed: number, ignored: number) =>
+test("Cargo must execute each named harness and both authority doctests", async () => {
+  const names = ["cards", "host", "mtg_compiler", "mtg_contracts", "mtg_core", "mtg_server", "mtg_sim", "recovery", "rules"];
+  const summary = (passed: number, ignored = 0) =>
     `test result: ok. ${passed} passed; 0 failed; ${ignored} ignored; 0 measured; 0 filtered out`;
-  for (const [label, output, expected] of [
-    ["workspace-tests", summary(1, 1), 0],
-    ["workspace-tests", summary(0, 1), 1],
-    ["workspace-tests", [summary(2, 0), summary(0, 0)].join("\n"), 1],
-    ["workspace-tests", "", 1],
-    ["doc-tests", [summary(0, 0), summary(2, 0)].join("\n"), 0],
-    ["doc-tests", summary(0, 0), 1],
+  const harness = (name: string, passed = 1) => [
+    `Running ${name.startsWith("mtg_") ? "unittests src/lib.rs" : `tests/${name}/main.rs`} (target/debug/deps/${name}-abc123)`,
+    summary(passed, name === "host" ? 1 : 0),
+  ];
+  const ordinary = names.flatMap(name => harness(name));
+  const core = "Doc-tests mtg_core";
+  const example = (file: string, type: string) =>
+    `test src/engine/${file}.rs - engine::${file}::${type} (line 15) - compile fail ... ok`;
+  const action = example("action_query", "ActionContinuation");
+  const session = example("player_session", "PlayerSession");
+  for (const [label, lines, expected] of [
+    ["workspace-tests", ordinary, 0],
+    ["workspace-tests", names.filter(n => n !== "recovery").flatMap(n => harness(n)), 1],
+    ["workspace-tests", [...ordinary.slice(0, -2), ...harness("host")], 1],
+    ["workspace-tests", names.flatMap(n => harness(n, n === "host" ? 0 : 1)), 1],
+    ["workspace-tests", [...ordinary, summary(0)], 1],
+    ["workspace-tests", [], 1],
+    ["doc-tests", ["Doc-tests mtg_compiler", summary(0), core, action, session, summary(2)], 0],
+    ["doc-tests", [core, action, summary(1)], 1],
+    ["doc-tests", [core, session, session, summary(2)], 1],
+    ["doc-tests", [core, action, session, summary(1)], 1],
   ] as const) {
-    const result = await measuredCommand(label, process.execPath, ["-e", "console.log(process.argv[1])", output],
-      { cwd: process.cwd(), record() {} });
+    // Match Cargo's real split streams, including the banner/result order.
+    const emit = 'const fs = require("node:fs"); for (const line of JSON.parse(process.argv[1])) fs.writeSync(/^(Running|Doc-tests)/.test(line) ? 2 : 1, line + "\\n");';
+    const result = await measuredCommand(label, process.execPath, ["-e", emit, JSON.stringify(lines)], { cwd: process.cwd(), record() {} });
     assert.equal(result.code, expected);
   }
 });

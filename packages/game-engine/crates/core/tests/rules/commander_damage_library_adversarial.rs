@@ -1,4 +1,5 @@
 //! Independent player-facing regression evidence for damage and hidden draws.
+use crate::support::visible_controller;
 use crate::support::{
     action_scenario, complete, input, observe, receipt, reject, replay_equal, request, settle,
     submit,
@@ -76,7 +77,9 @@ fn tuck(game: &mut Game, oracle: &str) -> ObjectHandle {
             .view
             .objects
             .into_iter()
-            .find(|o| o.controller == PlayerId(0) && o.zone == Zone::Battlefield && !o.tapped)
+            .find(|o| {
+                visible_controller(o) == PlayerId(0) && o.zone == Zone::Battlefield && !o.tapped
+            })
             .unwrap()
             .handle;
         input(game, PlayerResponse::ActivateMana { object: land });

@@ -1,7 +1,5 @@
 mod actions_payments_adversarial;
 mod architecture_exploration;
-#[path = "../support/catalog.rs"]
-mod catalog;
 mod combat_adversarial;
 mod commander_admission;
 mod commander_adversarial;

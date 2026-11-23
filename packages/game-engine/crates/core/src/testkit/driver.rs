@@ -126,7 +126,9 @@ pub fn assert_recoverable(case: JournalCase) {
             let restored = Game::restore(case.prepared.clone(), &game.snapshot().unwrap()).unwrap();
             assert_eq!(restored.state, game.state);
             assert_eq!(restored.trace(), game.trace());
-            assert_eq!(restored.fork().state, game.state);
+            let fork = restored.fork();
+            assert_eq!(fork.state, game.state);
+            assert_eq!(fork.trace(), game.trace());
         }
     }
 }

@@ -1,5 +1,6 @@
 //! Independent black-box checks for the frozen G/I configurations. Decisions use
 //! player projections; physical IDs are used only by trusted test assertions.
+use crate::support::visible_controller;
 use crate::support::{complete, input, observe, request, submit};
 use mtg_contracts::Quantity;
 use mtg_core::*;
@@ -57,7 +58,7 @@ fn handle(
         .view
         .objects
         .into_iter()
-        .filter(|object| object.controller == controller && object.zone == zone)
+        .filter(|object| visible_controller(object) == controller && object.zone == zone)
         .nth(index)
         .expect("missing visible test object")
         .handle
@@ -676,7 +677,9 @@ fn nonlethal_marked_damage_does_not_reduce_toughness_and_clears_at_cleanup() {
         .view
         .objects
         .into_iter()
-        .filter(|object| object.controller == PlayerId(1) && object.zone == Zone::Battlefield)
+        .filter(|object| {
+            visible_controller(object) == PlayerId(1) && object.zone == Zone::Battlefield
+        })
         .collect();
     assert_eq!(blockers.len(), 2);
     assert!(

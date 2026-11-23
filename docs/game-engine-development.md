@@ -143,25 +143,23 @@ Core's non-default `testkit` feature supplies `FixtureCatalog` (one parse per
 catalog per process), `Board` (name-based private scenarios) and `Driver`
 (trusted request/response helpers). Public adversarial modules use the public
 API and the permitted-input helpers in `core/tests/support`. Compiler-backed
-witnesses stay in their own crate. The recovery corpus calls `assert_recoverable`
-on eight journal endpoints across all three trace modes at quanta 1 and
-`u64::MAX`. Each endpoint checks snapshot restore, replay, fork, state and trace
-against an independently reached boundary. Mechanic-specific forgery, privacy
-and saved-work assertions stay with their witnesses.
+witnesses stay in their own crate. Nine core endpoints (including surviving priority after a
+concession) and a compiled R4 combat-trigger endpoint exercise the same
+`assert_recoverable` matrix. Each checks replay, restored state, fork and trace
+at quanta 1 and `u64::MAX` in Off, Compact and Detailed modes. Mechanic-specific
+forgery, privacy and saved-work assertions stay with their witnesses.
 
 The gate runs `cargo test --tests` directly with one libtest thread budget
-(minimum of available CPUs and 16), then `cargo test --doc` for the compile-fail
-authority checks. Every ordinary harness must execute tests. The host's ignored
-systemd case shares the executing host harness. A doc-test selection must
-execute at least one example. Compiler, server and simulator iteration can
-select a single package without qualifying the other suites.
+(minimum of available CPUs and 16). Test helpers must not spawn their own thread
+pools (13 GiB nested-pool lesson). Each of the nine named harnesses must report
+a passing test. The host's opt-in systemd case shares its executing harness.
+The separate `cargo test --doc` phase requires both passing core compile-fail
+examples for action continuations and player sessions.
 
-With eight Cargo jobs, the consolidated gate at `0151fb7c` measured 177.6 s
-cold (6.72 GiB target, 3.06 GiB largest-process peak RSS), 37.2 s warm
-(median of three), and 49.4 s after a one-line core edit. The
-[topology PR](https://github.com/joCaldwell/mtg-ecosystem/pulls?q=is%3Apr+head%3Afeat%2Fphase2d-2-test-topology-sim-lib)
-records the final measurements after tuning individual witnesses. Raw gate
-and per-test timings are retained under `generated/phase2d-2/` in that worktree.
+With eight Cargo jobs, commit `173bdcf2` measured 177.354 s cold (6.71 GiB
+target, 3.01 GiB largest-process peak RSS), 32.585 s warm (median of three)
+and 43.865 s after a one-line core edit. The slowest individual test took
+4.722 s. [PR #199](https://github.com/joCaldwell/mtg-ecosystem/pull/199)
 
 ## Cargo coordination and cache integration
 

@@ -11,8 +11,13 @@ fn catalog() -> Catalog {
     ) else {
         panic!("complete Thieving Otter source must lower")
     };
-    if let Some(existing) = c.definition_by_oracle_id(&definition.oracle_id) {
+    if let Some(existing) = c
+        .definitions
+        .iter_mut()
+        .find(|row| row.oracle_id == definition.oracle_id)
+    {
         assert_eq!(existing, definition.as_ref());
+        *existing = *definition;
     } else {
         c.definitions.push(*definition);
     }
@@ -122,6 +127,31 @@ fn legacy(g: &mut Game, recipient: DamageRecipient, amount: i64) -> Result<Event
         BatchCause::Fixture,
     )
 }
+#[test]
+fn compiled_otter_combat_trigger_round_trips() {
+    let mut game = game(TraceMode::Off);
+    to_step(&mut game, 1, TurnStep::DeclareAttackers);
+    let otter = Driver::object(&game, 0);
+    Driver::answer(
+        &mut game,
+        u64::MAX,
+        Response::Attackers {
+            attacks: vec![(otter, PlayerId(1))],
+        },
+    );
+    pending(&mut game);
+    let frozen = witness(&game);
+    assert!(
+        matches!(&frozen, TriggerEventWitness::DamageDealt { damage, .. }
+        if damage.source.object == otter && damage.amount == 2.into())
+    );
+    placed(&mut game);
+    assert!(
+        matches!(&game.top().unwrap().kind, StackKind::Triggered { witness, .. } if witness == &frozen)
+    );
+    assert_recoverable((&game).into());
+}
+
 #[test]
 fn opponent_damage_exact_source_combat_and_departures() {
     let mode = TraceMode::Off;

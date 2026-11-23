@@ -1,5 +1,6 @@
 //! Independent black-box evidence for Commander casting/return continuations.
 //! Actions use player-facing handles; physical IDs are trusted assertions only.
+use crate::support::visible_controller;
 use crate::support::{
     action_scenario, complete, input, observe, reject, replay_equal, request, settle, submit,
 };
@@ -21,7 +22,7 @@ fn activate(game: &mut Game, player: PlayerId) {
         .objects
         .into_iter()
         .find(|object| {
-            object.controller == player
+            visible_controller(object) == player
                 && object.zone == Zone::Battlefield
                 && !object.tapped
                 && object.oracle_id != "cfb756dd-6fe1-430a-8f04-8b10cac62a86"

@@ -7,6 +7,14 @@ use mtg_core::{
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
+mod shared;
+pub use shared::{catalog, oracle, turn};
+
+pub fn visible_controller(object: &mtg_core::VisibleObject) -> mtg_core::PlayerId {
+    let mtg_core::VisibleObject { controller, .. } = object;
+    *controller
+}
+
 pub fn complete_mana(game: &mut Game) {
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         return;

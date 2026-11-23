@@ -122,6 +122,22 @@ fn commander_replacement() {
 }
 
 #[test]
+fn concession_advances_to_surviving_priority() {
+    let mut game = game(FixtureCatalog::Base, ScenarioConfig::commander_foundation());
+    Driver::pass(&mut game);
+    let departing = Driver::request(&mut game, u64::MAX).player();
+    let before = game.rule_boundary();
+    game.concede(departing).unwrap();
+    let next = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(next, Request::Priority { .. }));
+    assert_ne!(next.player(), departing);
+    assert_eq!(game.live_players().len(), 3);
+    assert!(!game.live_players().contains(&departing));
+    assert!(game.rule_boundary() > before);
+    assert_recoverable((&game).into());
+}
+
+#[test]
 fn terminal() {
     let mut game = game(FixtureCatalog::Base, ScenarioConfig::commander_foundation());
     Driver::pass(&mut game);

@@ -120,7 +120,10 @@ fn commander_profiles_reject_unreviewed_designations_mana_and_setup() {
         |c| c.cards[0].owner = PlayerId(1),
         |c| c.cards[0].zone = Zone::Hand { owner: PlayerId(0) },
         |c| c.cards[1].oracle_id = "b2c6aa39-2d2a-459c-a555-fb48ba993373".into(),
-        |c| c.cards[1].controller = PlayerId(1),
+        |c| {
+            let CardSetup { controller, .. } = &mut c.cards[1];
+            *controller = PlayerId(1);
+        },
         |c| c.cards[1].owner = PlayerId(1),
         |c| c.cards[1].zone = Zone::Graveyard { owner: PlayerId(0) },
         |c| c.cards[1].id = CardId(999),

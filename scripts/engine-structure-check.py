@@ -126,6 +126,49 @@ def test_module_errors(root):
     return errors
 
 
+def rust_code(text):
+    # The pinned sources use ordinary literals and hash-delimited raw strings.
+    return re.sub(r'//[^\n]*|/\*.*?\*/|r(#+)".*?"\1|"(?:\\.|[^"\\])*"', ' ', text, flags=re.S)
+
+
+def testkit_private_fields(src):
+    """Fields made public only by core's testkit_fields! macro."""
+    fields = set()
+    for source in src.rglob('*.rs'):
+        text = source.read_text()
+        if 'testkit_fields!' not in text:
+            continue
+        for body in re.findall(r'\btestkit_fields!\s*\{[^{}]*?\bpub\s+struct\b[^{}]*\{([^{}]*)\}', rust_code(text), re.S):
+            fields.update(re.findall(r'(?:^|[,\n])\s*(?:pub\s*\([^)]*\)\s*)?(\w+)\s*:(?!:)', body))
+    return fields
+
+
+def public_witness_errors(core):
+    tests = core / 'tests'
+    private = testkit_private_fields(core / 'src')
+    # Only these named roots intentionally compile white-box witnesses.
+    white_box = {'rules/rules_kernel', 'rules/trigger_kernel', 'recovery/search_work', 'recovery/state_recovery'}
+    roots = {'rules/main.rs', 'recovery/main.rs', 'recovery/corpus.rs'}
+    errors = []
+    for source in sorted(tests.rglob('*.rs')):
+        rel = source.relative_to(tests)
+        is_adversarial = any('adversarial' in part for part in rel.parts)
+        if str(rel) in roots or (not is_adversarial and '/'.join(rel.parts[:2]) in white_box):
+            continue
+        # Strip comments and string literals so fixture data and examples do
+        # not become imports or field reads. Public accessor calls are legal.
+        code = rust_code(source.read_text())
+        forbidden = re.search(
+            r'\btestkit\b|\bsuper\s*::|\bcrate\s*::\s*(?!support\b)\S'
+            r'|\b(?:super|crate)\s+as\b|\b(?:rules_kernel|trigger_kernel|search_work|state_recovery)\s*::'
+            r'|#\s*\[\s*path\b|\binclude\s*!', code)
+        accessed = {m[1] for m in re.finditer(r'(?<!\.)\.\s*(\w+)\b(?!\s*\()', code)} & private
+        if forbidden or accessed:
+            detail = ', '.join(sorted(accessed)) if accessed else forbidden[0]
+            errors.append(f'{rel}: public-API witness uses a private field or unpermitted module: {detail}')
+    return errors
+
+
 def topology_errors(root):
     """Integration targets stay together and adversarial tests use the public API."""
     errors = []
@@ -139,13 +182,7 @@ def topology_errors(root):
         actual.update(p.parent.name for p in (package / 'tests').glob('*/main.rs'))
         if actual != expected:
             errors.append(f'{directory}/tests: expected {sorted(expected)}, found {sorted(actual)}')
-    core_tests = root / CRATES / 'core/tests'
-    for suite in ('rules', 'recovery', 'support'):
-        for source in (core_tests / suite).glob('*.rs'):
-            if source.name in ('main.rs', 'corpus.rs'):
-                continue
-            if re.search(r'\btestkit\b|use (?:super|crate)::\*', source.read_text()):
-                errors.append(f'{source.relative_to(root)}: public-API witness must use permitted imports')
+    errors.extend(public_witness_errors(root / CRATES / 'core'))
     sim = root / CRATES / 'sim/src'
     library = (sim / 'lib.rs').read_text()
     for name in ('play', 'policy', 'pods', 'analytics', 'search', 'mana_spend'):

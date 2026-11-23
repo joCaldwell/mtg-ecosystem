@@ -1,11 +1,12 @@
 //! Independent legal-pod, private setup, deterministic-shuffle and full-match proofs.
 //! Pinned CR103.2c/103.3/103.5/103.5c/103.8c,702.3,903.5–.7.
+use crate::support::visible_controller;
 use mtg_contracts::{CardKind, Color, Quantity};
 use mtg_core::*;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::catalog::{catalog, oracle};
+use crate::support::{catalog, oracle, turn};
 fn config() -> MatchConfig {
     MatchConfig::for_profile("commander-foundations-v1", [17; 32], PlayerId(2)).unwrap()
 }
@@ -72,7 +73,11 @@ fn pod_normalization_constructs_exact_four_hundred_cards_without_scenario_overri
             .filter(|c| c.owner == owner)
             .collect::<Vec<_>>();
         assert_eq!(cards.len(), 100);
-        assert!(cards.iter().all(|c| c.controller == owner));
+        assert!(
+            cards
+                .iter()
+                .all(|CardSetup { controller, .. }| *controller == owner)
+        );
         assert_eq!(
             cards
                 .iter()
@@ -967,7 +972,7 @@ fn dual_yargle_returns() -> (Prepared, Game) {
             PlayerRequest::Priority { .. } => {
                 let main = view.active == Some(actor)
                     && matches!(
-                        view.turn.step,
+                        turn(&view).step,
                         TurnStep::PrecombatMain | TurnStep::PostcombatMain
                     )
                     && view.stack.is_empty();
@@ -975,14 +980,14 @@ fn dual_yargle_returns() -> (Prepared, Game) {
                     .objects
                     .iter()
                     .filter(|o| {
-                        o.controller == actor
+                        visible_controller(o) == actor
                             && o.zone == Zone::Battlefield
                             && o.characteristics
                                 .as_ref()
                                 .is_some_and(|c| c.kind == CardKind::Land)
                     })
                     .collect::<Vec<_>>();
-                if main && view.turn.lands_played == 0 {
+                if main && turn(&view).lands_played == 0 {
                     let need = if lands.iter().filter(|o| o.oracle_id == swamp).count() < 2 {
                         &swamp
                     } else {
@@ -1036,7 +1041,7 @@ fn dual_yargle_returns() -> (Prepared, Game) {
             }
             PlayerRequest::Mana { .. } => {
                 if let Some(o) = view.objects.iter().find(|o| {
-                    o.controller == actor
+                    visible_controller(o) == actor
                         && o.zone == Zone::Battlefield
                         && !o.tapped
                         && o.characteristics
@@ -1057,13 +1062,13 @@ fn dual_yargle_returns() -> (Prepared, Game) {
             },
             PlayerRequest::Attackers { candidates, .. } => {
                 let own = view.objects.iter().find(|o| {
-                    o.controller == actor
+                    visible_controller(o) == actor
                         && o.oracle_id == yargle
                         && o.zone == Zone::Battlefield
                         && o.attack_ready
                 });
                 let opposing = view.objects.iter().any(|o| {
-                    o.controller == PlayerId(0)
+                    visible_controller(o) == PlayerId(0)
                         && o.oracle_id == yargle
                         && o.zone == Zone::Battlefield
                 });
@@ -1307,7 +1312,7 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
             PlayerRequest::Priority { .. } => {
                 let main = view.active == Some(actor)
                     && matches!(
-                        view.turn.step,
+                        turn(&view).step,
                         TurnStep::PrecombatMain | TurnStep::PostcombatMain
                     )
                     && view.stack.is_empty();
@@ -1320,12 +1325,14 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                     .objects
                     .iter()
                     .filter(|o| {
-                        o.controller == actor && o.zone == Zone::Battlefield && o.oracle_id == *mana
+                        visible_controller(o) == actor
+                            && o.zone == Zone::Battlefield
+                            && o.oracle_id == *mana
                     })
                     .collect::<Vec<_>>();
                 if main && matches!(actor, PlayerId(0) | PlayerId(3)) {
                     if lands.is_empty()
-                        && view.turn.lands_played == 0
+                        && turn(&view).lands_played == 0
                         && let Some(o) = view.objects.iter().find(|o| {
                             o.zone == (Zone::Hand { owner: actor }) && o.oracle_id == *mana
                         })
@@ -1346,7 +1353,7 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                             })
                         } else if !view.objects.iter().any(|o| {
                             o.oracle_id == wall
-                                && o.controller == actor
+                                && visible_controller(o) == actor
                                 && o.zone == Zone::Battlefield
                         }) {
                             view.objects.iter().find(|o| {
@@ -1354,7 +1361,7 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                             })
                         } else if view.objects.iter().any(|o| {
                             o.oracle_id == wall
-                                && o.controller == actor
+                                && visible_controller(o) == actor
                                 && o.zone == Zone::Battlefield
                                 && o.attack_ready
                         }) {
@@ -1383,7 +1390,9 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                     .objects
                     .iter()
                     .find(|o| {
-                        o.oracle_id == wall && o.controller == actor && o.zone == Zone::Battlefield
+                        o.oracle_id == wall
+                            && visible_controller(o) == actor
+                            && o.zone == Zone::Battlefield
                     })
                     .unwrap();
                 assert!(candidates.contains(&w.handle));
@@ -1398,7 +1407,7 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                     &plains
                 };
                 if let Some(o) = view.objects.iter().find(|o| {
-                    o.controller == actor
+                    visible_controller(o) == actor
                         && o.zone == Zone::Battlefield
                         && o.oracle_id == *mana
                         && !o.tapped
@@ -1424,7 +1433,7 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                         .iter()
                         .find(|o| {
                             o.oracle_id == wall
-                                && o.controller == actor
+                                && visible_controller(o) == actor
                                 && o.zone == Zone::Battlefield
                         })
                         .unwrap();
@@ -1452,7 +1461,7 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                             .iter()
                             .find(|o| {
                                 o.oracle_id == commander
-                                    && o.controller == actor
+                                    && visible_controller(o) == actor
                                     && o.zone == Zone::Battlefield
                                     && candidates.contains(&o.handle)
                             })
@@ -1474,7 +1483,7 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                         .iter()
                         .find(|o| {
                             o.oracle_id == wall
-                                && o.controller == actor
+                                && visible_controller(o) == actor
                                 && o.zone == Zone::Battlefield
                         })
                         .unwrap();

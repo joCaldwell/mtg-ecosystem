@@ -5,6 +5,7 @@
 //! Stop after that attempt; do not enumerate empty-stack passes or cast retries.
 //! The independent outcomes below follow the retained first/payment scenarios
 //! and CR 601.2, 608.2 and 733.1 in the project's pinned rules edition.
+use crate::support::visible_controller;
 use mtg_contracts::{CardKind, Catalog, Color, Quantity, basic_land_color};
 use mtg_core::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -52,8 +53,8 @@ struct CastStart {
 }
 
 struct Laboratory {
-    catalog: Catalog,
-    prepared: Prepared,
+    definitions: Catalog,
+    scenario: Prepared,
     spell: String,
     target: String,
     nodes: usize,
@@ -87,8 +88,8 @@ impl Laboratory {
         Self {
             spell: identity(CardKind::Instant),
             target: identity(CardKind::Creature),
-            prepared: Prepared::admit(catalog.clone(), config).unwrap(),
-            catalog,
+            scenario: Prepared::admit(catalog.clone(), config).unwrap(),
+            definitions: catalog,
             nodes: 0,
             resolved: 0,
             reversed: 0,
@@ -104,10 +105,13 @@ impl Laboratory {
             .objects
             .iter()
             .filter(|object| {
-                object.zone == Zone::Battlefield && object.controller == observation.view.viewer
+                object.zone == Zone::Battlefield
+                    && visible_controller(object) == observation.view.viewer
             })
             .filter_map(|object| {
-                let definition = self.catalog.definition_by_oracle_id(&object.oracle_id)?;
+                let definition = self
+                    .definitions
+                    .definition_by_oracle_id(&object.oracle_id)?;
                 (definition.characteristics.kind == CardKind::Land).then(|| {
                     (
                         object.handle.clone(),
@@ -187,8 +191,8 @@ impl Laboratory {
 
     fn checkpoint(&mut self, game: &Game, label: &'static str) {
         if self.checkpoints.insert(label) {
-            let restored = Game::restore(self.prepared.clone(), &game.snapshot().unwrap()).unwrap();
-            let replayed = Game::replay(self.prepared.clone(), &game.replay_journal()).unwrap();
+            let restored = Game::restore(self.scenario.clone(), &game.snapshot().unwrap()).unwrap();
+            let replayed = Game::replay(self.scenario.clone(), &game.replay_journal()).unwrap();
             assert_eq!(restored.snapshot().unwrap(), game.snapshot().unwrap());
             assert_eq!(
                 replayed.state_digest().unwrap(),
@@ -254,7 +258,7 @@ impl Laboratory {
                 self.reversed += 1;
                 assert_eq!(spell.zone, Zone::Hand { owner: PlayerId(0) });
                 assert_eq!(target.zone, Zone::Battlefield);
-                assert_eq!(target.controller, PlayerId(2));
+                assert_eq!(visible_controller(target), PlayerId(2));
                 let Some(PlayerResponse::FinishMana { undo_mana }) = last else {
                     panic!("failed cast must finish through the explicit payment response");
                 };
@@ -347,7 +351,7 @@ impl Laboratory {
     }
 
     fn run(&mut self) {
-        let mut game = Game::with_trace(self.prepared.clone(), TraceMode::Off);
+        let mut game = Game::with_trace(self.scenario.clone(), TraceMode::Off);
         let viewer = settle(&mut game, 1);
         self.visit(game, viewer, 0, None, None);
     }

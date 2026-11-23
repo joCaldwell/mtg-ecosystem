@@ -1,4 +1,5 @@
 //! Independent player-facing regressions for the exact action profiles.
+use crate::support::visible_controller;
 use crate::support::{action_scenario, observe, reject, replay_equal, request, settle, submit};
 use mtg_contracts::{Color, Quantity};
 use mtg_core::*;
@@ -29,7 +30,9 @@ fn borrowed_creature(game: &Game, viewer: PlayerId) -> ObjectHandle {
         .objects
         .into_iter()
         .find(|o| {
-            o.zone == Zone::Battlefield && o.owner == PlayerId(2) && o.controller == PlayerId(1)
+            o.zone == Zone::Battlefield
+                && o.owner == PlayerId(2)
+                && visible_controller(o) == PlayerId(1)
         })
         .expect("borrowed creature")
         .handle
@@ -41,7 +44,7 @@ fn activate_land(game: &mut Game, oracle: &str) {
         .objects
         .into_iter()
         .find(|o| {
-            o.controller == actor
+            visible_controller(o) == actor
                 && o.oracle_id == oracle
                 && o.zone == Zone::Battlefield
                 && !o.tapped

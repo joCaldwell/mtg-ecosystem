@@ -7,7 +7,7 @@ use mtg_core::*;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::catalog::{catalog, oracle};
+use crate::support::{catalog, oracle, turn};
 fn source_config(index: u16) -> MatchConfig {
     let seed = sha256(format!("p7-independent-capture/{index}").as_bytes());
     let bytes = std::array::from_fn(|i| u8::from_str_radix(&seed[2 * i..2 * i + 2], 16).unwrap());
@@ -108,10 +108,10 @@ fn root(
                 let view = observe(&g, player).view;
                 if player == PlayerId(0)
                     && view.active == Some(player)
-                    && view.turn.step == TurnStep::PrecombatMain
+                    && turn(&view).step == TurnStep::PrecombatMain
                 {
-                    seen.insert(view.turn.number);
-                    if seen.len() == own_turn && view.turn.lands_played == 0 {
+                    seen.insert(turn(&view).number);
+                    if seen.len() == own_turn && turn(&view).lands_played == 0 {
                         return (p, g);
                     }
                 }
@@ -122,8 +122,8 @@ fn root(
                             .is_some_and(|c| c.kind == CardKind::Land)
                 });
                 if view.active == Some(player)
-                    && view.turn.step == TurnStep::PrecombatMain
-                    && view.turn.lands_played == 0
+                    && turn(&view).step == TurnStep::PrecombatMain
+                    && turn(&view).lands_played == 0
                 {
                     if let Some(land) = land {
                         PlayerResponse::PlayLand {
@@ -659,7 +659,7 @@ fn opening_to_main(g: &mut Game, final_takes: u8) {
             },
             PlayerRequest::Priority { .. } => {
                 let o = observe(g, player);
-                if player == PlayerId(0) && o.view.turn.step == TurnStep::PrecombatMain {
+                if player == PlayerId(0) && turn(&o.view).step == TurnStep::PrecombatMain {
                     return;
                 }
                 PlayerResponse::Pass
@@ -1151,7 +1151,7 @@ fn root_after_failed_opponent_announcement() -> (Game, String) {
             if let Some(oracle_id) = revealed.as_ref()
                 && player == PlayerId(0)
                 && view.active == Some(player)
-                && view.turn.step == TurnStep::PrecombatMain
+                && turn(&view).step == TurnStep::PrecombatMain
             {
                 return (g, oracle_id.clone());
             }
@@ -1160,7 +1160,7 @@ fn root_after_failed_opponent_announcement() -> (Game, String) {
                     if revealed.is_none()
                         && player == PlayerId(1)
                         && view.active == Some(player)
-                        && view.turn.step == TurnStep::PrecombatMain
+                        && turn(&view).step == TurnStep::PrecombatMain
                     {
                         let creature = view.objects.iter().find(|o| {
                             o.zone == (Zone::Hand { owner: player })

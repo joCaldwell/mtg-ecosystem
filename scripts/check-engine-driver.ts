@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { stripVTControlCharacters } from "node:util";
 import { createInterface } from "node:readline";
 import os from "node:os";
 import path from "node:path";
@@ -43,20 +44,57 @@ function executableIdentity(command: string, options: { cwd: string; env?: NodeJ
   throw new Error(`Executable not found: ${command}`);
 }
 
+const ordinaryHarnesses = ["cards", "host", "mtg_compiler", "mtg_contracts", "mtg_core", "mtg_server", "mtg_sim", "recovery", "rules"];
+const authorityExamples = ["engine::action_query::ActionContinuation", "engine::player_session::PlayerSession"];
+
+class CargoTestSelection {
+  readonly passed = new Map<string, number>();
+  readonly examples = new Set<string>();
+  current = "";
+
+  line(raw: string) {
+    const line = stripVTControlCharacters(raw).trimStart();
+    const ordinary = /^Running (?:unittests |tests\/).* \((?:.*\/)?([\w-]+)-[a-f0-9]+\)$/.exec(line);
+    const harness = ordinary ?? /^Doc-tests (\w+)$/.exec(line);
+    if (harness) {
+      this.current = harness[1];
+      this.passed.set(this.current, 0);
+      return;
+    }
+    const summary = /^test result: ok\. (\d+) passed;/.exec(line);
+    if (summary && this.current) {
+      // A subprocess of a server test also prints a summary. The enclosing
+      // libtest summary is the last one before Cargo starts the next harness.
+      this.passed.set(this.current, Number(summary[1]));
+    }
+    if (this.current === "mtg_core") {
+      const example = /^test .* - (\S+) \(line \d+\) - compile fail \.\.\. ok$/.exec(line);
+      if (example) this.examples.add(example[1]);
+    }
+  }
+
+  missing(label: string): string[] {
+    if (label === "doc-tests") {
+      const missing = authorityExamples.filter(name => !this.examples.has(name));
+      if ((this.passed.get("mtg_core") ?? 0) < authorityExamples.length) missing.push("two passing core doctests");
+      return missing;
+    }
+    return [...new Set([...ordinaryHarnesses, ...this.passed.keys()])]
+      .filter(name => !this.passed.get(name));
+  }
+}
+
 // Dedicated groups allow interruption to reach Cargo, test binaries and their
 // descendants. No detached execution survives a normally handled cancellation.
-async function child(command: string, args: string[], options: { cwd: string; env?: NodeJS.ProcessEnv; lockFd?: number; summaries?: number[] }) {
+async function child(command: string, args: string[], options: { cwd: string; env?: NodeJS.ProcessEnv; lockFd?: number; selection?: CargoTestSelection }) {
   const processChild = spawn(command, args, {
     cwd: options.cwd, env: options.env ?? process.env, detached: true,
-    stdio: ["inherit", options.summaries ? "pipe" : "inherit", "inherit", ...(options.lockFd === undefined ? [] : [options.lockFd])],
+    stdio: ["inherit", options.selection ? "pipe" : "inherit", "inherit", ...(options.lockFd === undefined ? [] : [options.lockFd])],
   });
-  if (processChild.stdout && options.summaries) {
-    const summaries = options.summaries;
+  const selection = options.selection;
+  if (processChild.stdout && selection) {
     processChild.stdout.pipe(process.stdout, { end: false });
-    createInterface({ input: processChild.stdout }).on("line", line => {
-      const match = /^test result: ok\. (\d+) passed;/.exec(line);
-      if (match) summaries.push(Number(match[1]));
-    });
+    createInterface({ input: processChild.stdout }).on("line", line => selection.line(line));
   }
   const handlers = new Map<NodeJS.Signals, () => void>();
   let cancelledSignal: NodeJS.Signals | undefined;
@@ -233,12 +271,12 @@ export async function measuredCommand(label: string, command: string, args: stri
   let result: Awaited<ReturnType<typeof child>> | undefined;
   let failure: unknown;
   try {
-    const workspaceTests = label === "workspace-tests";
-    const summaries = workspaceTests || label === "doc-tests" ? [] as number[] : undefined;
-    result = await child(python.path, [wrapper, output, identity.path, ...args], { ...options, summaries });
-    if (result.code === 0 && summaries &&
-        (!summaries.some(count => count > 0) || (workspaceTests && summaries.includes(0)))) {
-      console.error(`${label}: selection executed no tests in a required harness`);
+    const selection = ["workspace-tests", "doc-tests"].includes(label) ? new CargoTestSelection() : undefined;
+    const wrapperArgs = selection ? [wrapper, output, "--cargo-test-output"] : [wrapper, output];
+    result = await child(python.path, [...wrapperArgs, identity.path, ...args], { ...options, selection });
+    const missing = selection?.missing(label) ?? [];
+    if (result.code === 0 && missing.length) {
+      console.error(`${label}: missing passing tests for ${missing.join(", ")}`);
       result.code = 1;
     }
     return result;
