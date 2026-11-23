@@ -67,17 +67,17 @@ mod tests {
             "packages/game-engine/crates/core/src/engine/tokens_tests.rs",
             "packages/game-engine/crates/core/src/engine/search/tests.rs",
             "packages/game-engine/crates/core/src/engine/definition_diversity_tests/heterogeneous.rs",
-            "packages/game-engine/crates/core/tests/combat_adversarial.rs",
+            "packages/game-engine/crates/core/tests/rules/combat_adversarial.rs",
             "packages/game-engine/crates/core/tests/support/mod.rs",
             "packages/game-engine/crates/core/examples/action_query_schema.rs",
             "packages/game-engine/crates/compiler/examples/coverage.rs",
-            "packages/game-engine/crates/sim/src/match_games/generic_policy_tests.rs",
+            "packages/game-engine/crates/sim/src/policy/generic_policy_tests.rs",
             "packages/game-engine/crates/core/src/testkit.rs",
-            "packages/game-engine/crates/core/tests/search_work/work/optimization_tests/search_reference_spool.rs",
+            "packages/game-engine/crates/core/src/testkit/driver.rs",
             "packages/game-engine/crates/witness/Cargo.toml",
             "packages/game-engine/crates/witness/src/lib.rs",
             "packages/game-engine/crates/witness/src/equipped.rs",
-            "packages/game-engine/crates/witness/tests/cascade/main.rs",
+            "packages/game-engine/crates/witness/tests/cards/main.rs",
         ] {
             assert!(!engine_build_input(path), "{path}");
         }

@@ -27,21 +27,10 @@ workspace = true
 [features]
 testkit = []
 
-# White-box scenario binaries use engine internals through `testkit`; run them
-# with `--features testkit` (a workspace test build enables it via mtg-witness).
-
 [[test]]
-name = "rules_kernel"
+name = "rules"
 required-features = ["testkit"]
 
 [[test]]
-name = "search_work"
-required-features = ["testkit"]
-
-[[test]]
-name = "state_recovery"
-required-features = ["testkit"]
-
-[[test]]
-name = "trigger_kernel"
+name = "recovery"
 required-features = ["testkit"]

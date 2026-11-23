@@ -1,0 +1,9 @@
+mod action_queries;
+mod auth_adversarial;
+mod commander_history_roundtrip;
+mod protocol_adversarial;
+mod recovery_parallel_adversarial;
+mod resume_availability;
+mod store_adversarial;
+mod store_execution_adversarial;
+mod worker_identity_adversarial;

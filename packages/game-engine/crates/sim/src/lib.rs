@@ -1,6 +1,4 @@
-//! `mtg-sim` library surface. Phase 2D-1 exposes only bounded host search and
-//! the exact mana spending its rollouts share with the simulator policies; the
-//! remaining simulator modules move behind this library in Phase 2D-2.
+//! Finite Commander simulation, public-view policy, analytics and bounded search.
 pub mod mana_spend;
 mod search_candidates;
 mod search_jobs;
@@ -18,4 +16,25 @@ pub mod search {
         TrialOutcome, TrialResult, TrialTimings, WorldSpec, WorldTimings, replay_report, run,
         run_cancellable,
     };
+}
+
+pub mod analytics;
+#[cfg(test)]
+mod coverage_cli;
+pub mod play;
+pub mod pods;
+pub mod policy;
+#[cfg(test)]
+mod smoke;
+
+#[cfg(test)]
+const BUILD: mtg_core::BuildIdentity = mtg_core::compiled_build_identity!();
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recorded_debug_assertions_match_the_target_configuration() {
+        assert_eq!(BUILD.debug_assertions, cfg!(debug_assertions).to_string());
+    }
 }

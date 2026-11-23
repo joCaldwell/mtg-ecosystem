@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { createInterface } from "node:readline";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,11 +45,19 @@ function executableIdentity(command: string, options: { cwd: string; env?: NodeJ
 
 // Dedicated groups allow interruption to reach Cargo, test binaries and their
 // descendants. No detached execution survives a normally handled cancellation.
-async function child(command: string, args: string[], options: { cwd: string; env?: NodeJS.ProcessEnv; lockFd?: number }) {
+async function child(command: string, args: string[], options: { cwd: string; env?: NodeJS.ProcessEnv; lockFd?: number; summaries?: number[] }) {
   const processChild = spawn(command, args, {
     cwd: options.cwd, env: options.env ?? process.env, detached: true,
-    stdio: options.lockFd === undefined ? "inherit" : ["inherit", "inherit", "inherit", options.lockFd],
+    stdio: ["inherit", options.summaries ? "pipe" : "inherit", "inherit", ...(options.lockFd === undefined ? [] : [options.lockFd])],
   });
+  if (processChild.stdout && options.summaries) {
+    const summaries = options.summaries;
+    processChild.stdout.pipe(process.stdout, { end: false });
+    createInterface({ input: processChild.stdout }).on("line", line => {
+      const match = /^test result: ok\. (\d+) passed;/.exec(line);
+      if (match) summaries.push(Number(match[1]));
+    });
+  }
   const handlers = new Map<NodeJS.Signals, () => void>();
   let cancelledSignal: NodeJS.Signals | undefined;
   let escalation: NodeJS.Timeout | undefined;
@@ -102,7 +111,6 @@ const harnessSelfTests: CheckPhase[] = [
   { label: "worktree-safety", command: "python3", args: ["-B", "scripts/test-engine-worktrees.py"] },
   { label: "structure-tests", command: "python3", args: ["-B", "scripts/test-engine-structure.py"] },
   { label: "cache-tests", command: "python3", args: ["-B", "scripts/test-engine-cache.py"] },
-  { label: "test-binary-tests", command: "python3", args: ["-B", "scripts/test-engine-test-binaries.py"] },
   { label: "deck-harness-tests", command: "python3", args: ["-B", "scripts/test-engine-decks.py"] },
   { label: "stage-deck-tests", command: "python3", args: ["-B", "scripts/test-stage-deck.py"] },
   { label: "documentation-tests", command: "python3", args: ["-B", "scripts/test-check-docs.py"] },
@@ -149,6 +157,8 @@ const format: CheckPhase = { label: "format", command: "cargo", args: ["fmt", "-
 const productionCheck: CheckPhase = { label: "production-check", command: "cargo", args: ["check", "--locked", "-p", "mtg-server", "-p", "mtg-sim"] };
 const archiveAgreement: CheckPhase = { label: "archive-parser", command: "node", args: ["--test", "packages/oracle-parser/test/engine-archive-agreement.test.ts"] };
 
+export const testThreads = `--test-threads=${Math.min(os.availableParallelism(), 16)}`;
+
 export const engineCheckPlans = {
   check: {
     needsCargo: true,
@@ -163,12 +173,8 @@ export const engineCheckPlans = {
     phases: [cachePreflight, ...liveGuards, archiveAgreement, format,
       { label: "clippy", command: "cargo", args: ["clippy", ...SHAPE, "--all-targets", "--", "-D", "warnings"] },
       productionCheck,
-      // Unit tests of every library and binary (`--tests` would rerun them).
-      { label: "unit-tests", command: "cargo", args: ["test", ...SHAPE, "--lib", "--bins"] },
-      { label: "doc-tests", command: "cargo", args: ["test", ...SHAPE, "--doc"] },
-      // Every integration binary (core, witness, host) in the same feature
-      // shape, built once and run concurrently under one worker budget.
-      { label: "integration-tests", command: "python3", args: ["-B", "scripts/engine-test-binaries.py", ...SHAPE, "--test", "*"] },
+      { label: "workspace-tests", command: "cargo", args: ["test", ...SHAPE, "--tests", "--", testThreads] },
+      { label: "doc-tests", command: "cargo", args: ["test", ...SHAPE, "--doc", "--", testThreads] },
       ...harnessSelfTests],
     coverage: "Everything in check:engine plus parser archive agreement, Clippy with warnings denied, every workspace unit, doc and integration test, and all verifier harness self-tests.",
     omitted: "Opt-in host witnesses that need external services; whole-archive coverage; release builds; deck benches (engine:decks).",
@@ -227,7 +233,14 @@ export async function measuredCommand(label: string, command: string, args: stri
   let result: Awaited<ReturnType<typeof child>> | undefined;
   let failure: unknown;
   try {
-    result = await child(python.path, [wrapper, output, identity.path, ...args], options);
+    const workspaceTests = label === "workspace-tests";
+    const summaries = workspaceTests || label === "doc-tests" ? [] as number[] : undefined;
+    result = await child(python.path, [wrapper, output, identity.path, ...args], { ...options, summaries });
+    if (result.code === 0 && summaries &&
+        (!summaries.some(count => count > 0) || (workspaceTests && summaries.includes(0)))) {
+      console.error(`${label}: selection executed no tests in a required harness`);
+      result.code = 1;
+    }
     return result;
   } catch (error) { failure = error; throw error; }
   finally {

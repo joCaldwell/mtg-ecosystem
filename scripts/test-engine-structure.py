@@ -81,6 +81,24 @@ class StructureTests(unittest.TestCase):
             write('core', '[features]\ndefault = ["testkit"]\ntestkit = []\n')
             self.assertIn('never be a default feature', structure.testkit_errors(root)[0])
 
+    def test_integration_topology_and_public_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core = root / structure.CRATES / 'core/tests'
+            for path in (core / 'rules', core / 'recovery',
+                         root / structure.CRATES / 'witness/tests/cards', root / 'packages/game-server/tests/host'):
+                path.mkdir(parents=True)
+                (path / 'main.rs').touch()
+            sim = root / structure.CRATES / 'sim/src'
+            sim.mkdir(parents=True)
+            (sim / 'lib.rs').write_text(''.join(f'pub mod {m};\n' for m in ('policy', 'pods', 'analytics', 'play', 'mana_spend', 'search')))
+            (sim / 'main.rs').touch()
+            self.assertEqual(structure.topology_errors(root), [])
+            (core / 'rules/adversarial.rs').write_text('use mtg_core::testkit::*;')
+            (core / 'extra.rs').touch()
+            (sim / 'lib.rs').write_text((sim / 'lib.rs').read_text().replace('pub mod pods;', 'mod pods;'))
+            self.assertEqual(len(structure.topology_errors(root)), 3)
+
     def test_test_named_modules_must_be_cfg_test(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

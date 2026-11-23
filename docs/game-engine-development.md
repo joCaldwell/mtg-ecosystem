@@ -104,7 +104,7 @@ commit you publish:
 
 ```sh
 npm run engine:dev -- test -p mtg-compiler --lib FILTER
-npm run engine:dev -- test -p mtg-core --test rules_kernel FILTER
+npm run engine:dev -- test -p mtg-core --test rules FILTER
 sh scripts/engine-env.sh npm run check:engine:gate
 ```
 
@@ -127,32 +127,41 @@ explicit filenames (discovery misses hyphens).
 
 ### Engine test topology
 
-| Target | Holds |
+Cargo builds nine test executables. Five library harnesses hold local contracts,
+compiler lowering and catalog regeneration, private core anchors, simulator
+policies/search/smoke, and server unit tests. Four integration suites own the
+cross-module behavior.
+
+| Integration target | Scope |
 | --- | --- |
-| `mtg-contracts --lib`, `mtg-compiler --lib` | KIR checker cells, operand algebra, compose rows, Catalog JSON Schema, catalog regeneration and lowering parity |
-| `mtg-core --lib` | Production code with narrow private-field, admission and projection anchors |
-| `crates/core/tests/<bin>/main.rs` | White-box `testkit` binaries (`rules_kernel`, `state_recovery`, `search_work`, `trigger_kernel`) |
-| `crates/core/tests/*.rs` | Public-API adversarial and admission binaries |
-| `crates/witness/tests/<bin>/main.rs` | Dev-only `mtg-witness`: exact frozen R4 source compiled by mtg-compiler |
-| `mtg-sim` lib/bin | Bounded host search, policies, pods, analytics and the smoke scenario |
+| `mtg-core --test rules` | Turns, stack, combat, payment, commander, triggers, kernel and public adversarial inputs |
+| `mtg-core --test recovery` | Snapshots, history, query work, search privacy, trace and budget invariance |
+| `mtg-witness --test cards` | Runtime witnesses compiled from exact frozen R4 source |
+| `mtg-server --test host` | Host protocol, store, authorization and recovery, including the opt-in systemd resume case |
 
-`testkit` is never a default feature, and only test crates enable it
-(structure-checked). It exposes the namespace in-source tests saw: internals are
-`pub` inside the private engine module, `lib.rs` re-exports an explicit public
-list, and `testkit_fields!` plus generated `*Testkit` traits reach private
-fields/methods of public types without widening the production API.
-Compiler-backed tests and shared drivers go in `mtg-witness`, never core
-dev-dependencies. Build identity excludes both.
+Core's non-default `testkit` feature supplies `FixtureCatalog` (one parse per
+catalog per process), `Board` (name-based private scenarios) and `Driver`
+(trusted request/response helpers). Public adversarial modules use the public
+API and the permitted-input helpers in `core/tests/support`. Compiler-backed
+witnesses stay in their own crate. The recovery corpus calls `assert_recoverable`
+on eight journal endpoints across all three trace modes at quanta 1 and
+`u64::MAX`. Each endpoint checks snapshot restore, replay, fork, state and trace
+against an independently reached boundary. Mechanic-specific forgery, privacy
+and saved-work assertions stay with their witnesses.
 
-Cargo's `--tests` also selects the lib, so `--lib --tests` runs the unit binary
-twice; select integration binaries with `--test '*'` or `--test NAME`. The gate
-runs every core, witness and host integration binary, in the same feature shape,
-through `scripts/engine-test-binaries.py`: built once, at most four at a time, each with
-`--test-threads` so binaries x threads stays within `--workers` (default
-min(CPUs, 16)). A selection that executes no test fails, as does a binary that
-runs zero tests without declaring an ignored opt-in witness. Test helpers must not
-spawn their own thread pools; nested pools multiplied resident 400-card games
-past 13 GiB in one binary.
+The gate runs `cargo test --tests` directly with one libtest thread budget
+(minimum of available CPUs and 16), then `cargo test --doc` for the compile-fail
+authority checks. Every ordinary harness must execute tests. The host's ignored
+systemd case shares the executing host harness. A doc-test selection must
+execute at least one example. Compiler, server and simulator iteration can
+select a single package without qualifying the other suites.
+
+On the eight-job topology measurement host, focused rules (193 tests), cards
+(67), and the eight-endpoint recovery corpus took 2.97 s, 0.18 s, and 0.10 s
+respectively after compilation. The full cold gate, three warm runs, single-line
+core rebuild, peak RSS and individual test timings are recorded in the
+[topology PR](https://github.com/joCaldwell/mtg-ecosystem/pulls?q=is%3Apr+head%3Afeat%2Fphase2d-2-test-topology-sim-lib)
+and its worktree receipts under `generated/phase2d-2/`.
 
 ## Cargo coordination and cache integration
 

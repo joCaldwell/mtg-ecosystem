@@ -126,6 +126,36 @@ def test_module_errors(root):
     return errors
 
 
+def topology_errors(root):
+    """Integration targets stay together and adversarial tests use the public API."""
+    errors = []
+    for directory, expected in [
+        (f'{CRATES}/core', {'rules', 'recovery'}),
+        (f'{CRATES}/witness', {'cards'}),
+        ('packages/game-server', {'host'}),
+    ]:
+        package = root / directory
+        actual = {p.stem for p in (package / 'tests').glob('*.rs')}
+        actual.update(p.parent.name for p in (package / 'tests').glob('*/main.rs'))
+        if actual != expected:
+            errors.append(f'{directory}/tests: expected {sorted(expected)}, found {sorted(actual)}')
+    core_tests = root / CRATES / 'core/tests'
+    for suite in ('rules', 'recovery', 'support'):
+        for source in (core_tests / suite).glob('*.rs'):
+            if source.name in ('main.rs', 'corpus.rs'):
+                continue
+            if re.search(r'\btestkit\b|use (?:super|crate)::\*', source.read_text()):
+                errors.append(f'{source.relative_to(root)}: public-API witness must use permitted imports')
+    sim = root / CRATES / 'sim/src'
+    library = (sim / 'lib.rs').read_text()
+    for name in ('play', 'policy', 'pods', 'analytics', 'search', 'mana_spend'):
+        if not re.search(rf'^pub mod {name}\s*[;{{]', library, re.M):
+            errors.append(f'{sim.relative_to(root)}/lib.rs: missing simulator module {name}')
+    if len((sim / 'main.rs').read_text().splitlines()) > 300:
+        errors.append(f'{sim.relative_to(root)}/main.rs: CLI exceeds 300 lines')
+    return errors
+
+
 def artifact_reason(path, size, prefix):
     parts = Path(path).parts
     if any(p in {'target', 'node_modules', 'generated', '.scryfall-cache', 'dist', '__pycache__'} for p in parts):
@@ -173,7 +203,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
-    errors = dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + artifact_errors(args.root)
+    errors = dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + topology_errors(args.root) + artifact_errors(args.root)
     for error in errors:
         print(error, file=sys.stderr)
     if not errors:
