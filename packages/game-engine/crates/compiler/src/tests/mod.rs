@@ -1,13 +1,9 @@
 //! Compiler unit tests: exact frozen rows and targeted shape/rejection cases.
 use super::*;
 
-mod activated_spell_counter_tests;
 mod board_filter_tests;
-mod controlled_temporary_creature_keyword_tests;
 mod r4_binding_tests;
-mod ramos_m4c_tests;
 mod tap_tests;
-mod temporary_combat_keyword_tests;
 mod untap_tests;
 
 #[test]

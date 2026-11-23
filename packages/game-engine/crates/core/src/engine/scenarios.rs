@@ -341,7 +341,7 @@ impl ScenarioConfig {
                         2 => SWAMP,
                         3 => FOREST,
                         4 => EDICT,
-                        5 => HAPLESS,
+                        5 => BEARS,
                         6 => TIME_EBB,
                         10 | 17 | 18 => PLAINS,
                         14 => SPELL,

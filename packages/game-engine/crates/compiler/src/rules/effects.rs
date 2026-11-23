@@ -9,401 +9,10 @@ pub(crate) fn append_spell_effects(
     player_binding: PlayerBinding,
     context: Context,
 ) -> Result<(), Failure> {
-    if let Some((draw, count)) = hand_return::coalesce(effects)? {
-        if block != 0
-            || !program.instructions.is_empty()
-            || !program.targets.is_empty()
-            || !program.modes.is_empty()
-            || !matches!(player_binding, PlayerBinding::Unbound)
-        {
-            return Err(unsupported(
-                "hand return",
-                "requires complete ordinary source",
-            ));
-        }
-        program.instructions.extend([
-            Instruction::draw(PlayerExpr::you(context), draw, 0),
-            Instruction::PutHandOnLibrary {
-                count,
-                source_block: 0,
-            },
-        ]);
-        return Ok(());
-    }
-    if let Some(amount) = library_order::coalesce(effects)? {
-        if block != 0
-            || !program.instructions.is_empty()
-            || !program.targets.is_empty()
-            || !program.modes.is_empty()
-            || !matches!(player_binding, PlayerBinding::Unbound)
-        {
-            return Err(unsupported(
-                "library order",
-                "requires complete ordinary source",
-            ));
-        }
-        program.instructions.extend([
-            Instruction::OrderLibraryTop {
-                amount,
-                source_block: 0,
-            },
-            Instruction::OptionalShuffleLibrary { source_block: 0 },
-        ]);
-        return Ok(());
-    }
-    if let Some((amount, remainder)) = library_selection::coalesce(effects)? {
-        if block != 0
-            || !program.instructions.is_empty()
-            || !program.targets.is_empty()
-            || !program.modes.is_empty()
-            || !matches!(player_binding, PlayerBinding::Unbound)
-        {
-            return Err(unsupported(
-                "library selection",
-                "requires standalone whole source",
-            ));
-        }
-        program.instructions.push(Instruction::SelectLibraryCard {
-            amount,
-            remainder,
-            source_block: 0,
-        });
-        return Ok(());
-    }
-    if let [
-        Sentence {
-            bindings,
-            steps,
-            condition: None,
-            condition_kind: None,
-        },
-    ] = effects
-        && let [Step::Modal { count, options }] = steps.as_slice()
-    {
-        // Outer sentence bindings define executable values; recursing only
-        // into the options would bypass ordinary binding validation below.
-        if !bindings.is_empty() {
-            return Err(unsupported(
-                "bindings",
-                "bindings on standalone modal instructions are unsupported",
-            ));
-        }
-        if let ModeCount::Minimum { minimum } = count {
-            return Err(unsupported(
-                "effects.modal",
-                format!("atLeast {minimum} requires a complete supported standalone mode family"),
-            ));
-        }
-        if !matches!(count, ModeCount::Exact { exactly: 1 })
-            || options.len() < 2
-            || !program.modes.is_empty()
-            || !program.targets.is_empty()
-            || !program.instructions.is_empty()
-        {
-            return Err(unsupported(
-                "effects.modal",
-                "only a complete standalone choose-one program is supported",
-            ));
-        }
-        for option in options {
-            let mut child = SpellProgram {
-                optional_additional_costs: vec![],
-                additional_sacrifice: None,
-                timing: program.timing,
-                resolution: program.resolution,
-                functioning_zone: program.functioning_zone,
-                targets: vec![],
-                instructions: vec![],
-                modes: vec![],
-            };
-            append_spell_effects(
-                &mut child,
-                &option.effects,
-                block,
-                &mut BTreeMap::new(),
-                player_binding,
-                context,
-            )?;
-            if !child.modes.is_empty() {
-                return Err(unsupported("effects.modal", "nested modes unsupported"));
-            }
-            program.modes.push(SpellMode { program: child });
-        }
-        return Ok(());
-    }
-    if !program.modes.is_empty() {
-        return Err(unsupported(
-            "effects.modal",
-            "mixed modal and ordinary root instructions",
-        ));
-    }
     if effects.is_empty() {
         return Err(unsupported("abilities.effects", "empty spell effects"));
     }
     let source_block = source_block(block)?;
-    // CR 109.5, 601.2c, 608.2b/c, 611.2c: consume the complete ordinary
-    // controlled-permanent grant, including its optional fixed controller tail.
-    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    if let Some(Sentence { steps, .. }) = effects.first()
-        && matches!(steps.first(), Some(Step::GainAbilities { what, .. })
-            if (what["filter"]["cls"] == "permanent" || controller_library::artifact_creature_target(what)) && what["ref"] == "target")
-    {
-        if source_block != 0
-            || player_binding != PlayerBinding::Unbound
-            || program.functioning_zone != FunctioningZone::Stack
-            || program.resolution != SpellResolution::Instructions
-            || program.additional_sacrifice.is_some()
-            || !program.targets.is_empty()
-            || !program.instructions.is_empty()
-            || !slots.is_empty()
-            || !program.optional_additional_costs.is_empty()
-            || effects.iter().any(|s| {
-                !s.bindings.is_empty() || s.condition.is_some() || s.condition_kind.is_some()
-            })
-            || effects.len() > 2
-        {
-            return Err(unsupported(
-                "effects",
-                "unsupported complete permanent keyword context",
-            ));
-        }
-        let [
-            Step::GainAbilities {
-                what,
-                abilities,
-                duration,
-            },
-        ] = steps.as_slice()
-        else {
-            return Err(unsupported(
-                "effects",
-                "permanent grant must occupy its whole sentence",
-            ));
-        };
-        if duration.duration != "end-of-turn" {
-            return Err(unsupported(
-                "effects.duration",
-                "permanent grant must end this turn",
-            ));
-        }
-        let filtered = controller_library::artifact_creature_target(what);
-        let target_slot = if filtered {
-            controller_library::bind_grant_target(program, slots, what)?
-        } else {
-            bind_temporary_permanent_target(program, slots, what)?
-        };
-        let keywords = lower_temporary_creature_keywords(abilities)?;
-        let tail = if effects.len() == 2 {
-            if let [Step::Scry { amount }] = effects[1].steps.as_slice() {
-                if !filtered {
-                    return Err(unsupported(
-                        "effects",
-                        "scry tail requires artifact-or-creature family",
-                    ));
-                }
-                Some(controller_library::instruction(amount, source_block)?)
-            } else {
-                if filtered {
-                    return Err(unsupported(
-                        "effects",
-                        "artifact-or-creature grant only supports scry tail",
-                    ));
-                }
-                let [
-                    Step::GainLife {
-                        who,
-                        amount,
-                        for_each: None,
-                    },
-                ] = effects[1].steps.as_slice()
-                else {
-                    return Err(unsupported(
-                        "effects",
-                        "only fixed controller life tail supported",
-                    ));
-                };
-                Some(lower_fixed_controller_life(
-                    who,
-                    amount,
-                    source_block,
-                    context,
-                )?)
-            }
-        } else {
-            None
-        };
-        program.instructions.push(Instruction::GrantKeywords {
-            target_slot,
-            modifier: None,
-            keywords,
-            duration: Duration::UntilEndOfTurn,
-            source_block,
-        });
-        program.instructions.extend(tail);
-        return Ok(());
-    }
-    // CR 109.2/109.5, 608.2h, 611.2c: shared controller-set coalescing
-    // consumes the complete sole pure-gain sentence. Definition/activation
-    // closure separately fences its selector, source kind, cost and context.
-    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    if source_block == 0
-        && player_binding == PlayerBinding::Unbound
-        && program.functioning_zone == FunctioningZone::Stack
-        && program.resolution == SpellResolution::Instructions
-        && program.additional_sacrifice.is_none()
-        && program.optional_additional_costs.is_empty()
-        && program.targets.is_empty()
-        && program.instructions.is_empty()
-        && let [
-            Sentence {
-                bindings,
-                steps,
-                condition: None,
-                condition_kind: None,
-            },
-        ] = effects
-        && bindings.is_empty()
-        && let [
-            Step::GainAbilities {
-                what,
-                abilities,
-                duration,
-            },
-        ] = steps.as_slice()
-        && matches!(what["ref"].as_str(), Some("all" | "each"))
-        && duration.duration == "end-of-turn"
-        && matches!(
-            lower_object_set(what)?,
-            ObjectSet::ControllerPermanents | ObjectSet::ControllerCreatures
-        )
-    {
-        program.instructions.push(Instruction::GrantKeywordsSet {
-            set: lower_object_set(what)?,
-            modifier: None,
-            keywords: lower_temporary_creature_keywords(abilities)?,
-            duration: Duration::UntilEndOfTurn,
-            source_block,
-        });
-        return Ok(());
-    }
-    // CR 608.2c/h, 611.2c, 613.5–6: consume the whole typed sentence as one
-    // continuous effect, with one membership capture across all its layers.
-    // Never join distinct sentences or scan arbitrary later instruction pairs.
-    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    if source_block == 0
-        && player_binding == PlayerBinding::Unbound
-        && program.functioning_zone == FunctioningZone::Stack
-        && program.resolution == SpellResolution::Instructions
-        && program.additional_sacrifice.is_none()
-        && program.targets.is_empty()
-        && program.instructions.is_empty()
-        && let [
-            Sentence {
-                condition: None,
-                condition_kind: None,
-                bindings,
-                steps,
-            },
-        ] = effects
-        && bindings.is_empty()
-        && let [
-            Step::Pump {
-                what: pump_what,
-                power,
-                toughness,
-                duration: pump_duration,
-            },
-            Step::GainAbilities {
-                what,
-                abilities,
-                duration,
-            },
-        ] = steps.as_slice()
-        && matches!(pump_what["ref"].as_str(), Some("all" | "each"))
-        && matches!(what["ref"].as_str(), Some("all" | "each"))
-        && pump_duration == duration
-        && duration.duration == "end-of-turn"
-    {
-        let set = lower_object_set(what)?;
-        if lower_object_set(pump_what)? != set
-            || !matches!(
-                set,
-                ObjectSet::ControllerCreatures | ObjectSet::AttackingCreatures
-            )
-        {
-            return Err(unsupported(
-                "set",
-                "compound set effect requires the same reviewed selector",
-            ));
-        }
-        program.instructions.push(Instruction::GrantKeywordsSet {
-            set,
-            modifier: Some(CreatureStatModifier {
-                power: signed_fixed(power)?,
-                toughness: signed_fixed(toughness)?,
-            }),
-            keywords: lower_temporary_creature_keywords(abilities)?,
-            duration: Duration::UntilEndOfTurn,
-            source_block,
-        });
-        return Ok(());
-    }
-    // The targeted family likewise consumes the WHOLE sole typed sentence.
-    // Binding both complete expressions preserves selection and domain checks.
-    if source_block == 0
-        && player_binding == PlayerBinding::Unbound
-        && program.functioning_zone == FunctioningZone::Stack
-        && program.resolution == SpellResolution::Instructions
-        && program.additional_sacrifice.is_none()
-        && program.targets.is_empty()
-        && program.instructions.is_empty()
-        && let [
-            Sentence {
-                condition: None,
-                condition_kind: None,
-                bindings,
-                steps,
-            },
-        ] = effects
-        && bindings.is_empty()
-        && let [
-            Step::Pump {
-                what: pump_what,
-                power,
-                toughness,
-                duration: pump_duration,
-            },
-            Step::GainAbilities {
-                what,
-                abilities,
-                duration,
-            },
-        ] = steps.as_slice()
-        && pump_duration == duration
-        && duration.duration == "end-of-turn"
-    {
-        let target_slot = bind_temporary_creature_target(program, slots, pump_what)?;
-        if bind_temporary_creature_target(program, slots, what)? != target_slot
-            || target_slot != 0
-            || program.targets.len() != 1
-        {
-            return Err(unsupported(
-                "targets",
-                "compound grant requires the same one target",
-            ));
-        }
-        program.instructions.push(Instruction::GrantKeywords {
-            target_slot,
-            modifier: Some(CreatureStatModifier {
-                power: signed_fixed(power)?,
-                toughness: signed_fixed(toughness)?,
-            }),
-            keywords: lower_temporary_creature_keywords(abilities)?,
-            duration: Duration::UntilEndOfTurn,
-            source_block,
-        });
-        return Ok(());
-    }
     for sentence in effects {
         if sentence.condition.is_some() || sentence.condition_kind.is_some() {
             return Err(unsupported(
@@ -427,122 +36,6 @@ pub(crate) fn append_spell_effects(
         {
             return Err(unsupported("bindings", "unconsumed count binding"));
         }
-        if let Some(instruction) = typed_land_search::lower(&sentence.steps, source_block)? {
-            program.instructions.push(instruction);
-            continue;
-        }
-        // CR 701.20a-b, 701.23b, 701.24a/e (pinned 2026-09-25): consume
-        // the entire reveal/identity partition, never squeeze it into all-entry search.
-        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        if let [
-            Step::Search { who, zones, find },
-            Step::Reveal {
-                who: revealer,
-                what,
-            },
-            Step::Simultaneous { steps },
-            Step::Shuffle {
-                who: shuffler,
-                library,
-                optional: None,
-            },
-        ] = sentence.steps.as_slice()
-        {
-            let you = PlayerSelector {
-                player: "you".into(),
-                selection_id: None,
-                of: None,
-            };
-            let steps: Vec<Step> = serde_json::from_value(serde_json::Value::Array(steps.clone()))
-                .map_err(|_| {
-                    unsupported(
-                        "effects.simultaneous",
-                        "requires complete supported movements",
-                    )
-                })?;
-            let split = matches!(steps.as_slice(), [
-                Step::MoveZone { what: first, to: battlefield, tapped: Some(true), order: None },
-                Step::MoveZone { what: rest, to: hand, tapped: None, order: None }
-            ] if *first == serde_json::json!({"ref":"from-pool","pool":{"ref":"them"},"count":{"amount":"fixed","value":1}})
-                && *battlefield == serde_json::json!({"zone":"battlefield"})
-                && *rest == serde_json::json!({"ref":"rest"})
-                && *hand == serde_json::json!({"zone":"hand","owner":"your"}));
-            if *who != you
-                || revealer != who
-                || shuffler != who
-                || !split
-                || *zones
-                    != serde_json::json!({"selection":"all","of":[{"zone":"library","owner":"your"}]})
-                || *find
-                    != serde_json::json!({"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},"count":{"amount":"fixed","value":2},"upTo":true})
-                || *what != serde_json::json!({"ref":"that","filter":{"cls":"card"},"plural":true})
-                || *library != serde_json::json!({"zone":"library","owner":{"player":"you"}})
-            {
-                return Err(unsupported(
-                    "effects.search",
-                    "unsupported complete search/reveal/split/shuffle sequence",
-                ));
-            }
-            program
-                .instructions
-                .push(Instruction::SearchBasicLandsSplit { source_block });
-            continue;
-        }
-        if let [
-            Step::Search { who, zones, find },
-            Step::MoveZone {
-                what,
-                to,
-                tapped: Some(true),
-                order: None,
-            },
-            Step::Shuffle {
-                who: shuffler,
-                library,
-                optional: None,
-            },
-        ] = sentence.steps.as_slice()
-        {
-            let maximum = find["count"]["value"].as_u64().unwrap_or(0);
-            let up_to = maximum == 2;
-            let expected = if up_to {
-                serde_json::json!({"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},"count":{"amount":"fixed","value":2},"upTo":true})
-            } else {
-                serde_json::json!({"ref":"filter","filter":{"supertypes":["basic"],"types":["land"],"cls":"card"},"count":{"amount":"fixed","value":1}})
-            };
-            // This instruction searches and shuffles only its controller's
-            // library. Consume the complete actor, including object qualifiers.
-            let you = PlayerSelector {
-                player: "you".into(),
-                selection_id: None,
-                of: None,
-            };
-            if *who != you
-                || shuffler != who
-                || *zones
-                    != serde_json::json!({"selection":"all","of":[{"zone":"library","owner":"your"}]})
-                || *find != expected
-                || !(1..=2).contains(&maximum)
-                || *what
-                    != if up_to {
-                        serde_json::json!({"ref":"them"})
-                    } else {
-                        serde_json::json!({"ref":"that","filter":{"cls":"card"}})
-                    }
-                || *to != serde_json::json!({"zone":"battlefield"})
-                || *library != serde_json::json!({"zone":"library","owner":{"player":"you"}})
-            {
-                return Err(unsupported(
-                    "effects.search",
-                    "unsupported complete search/move/shuffle sequence",
-                ));
-            }
-            program.instructions.push(Instruction::SearchBasicLands {
-                maximum: maximum as u32,
-                source_block,
-            });
-            continue;
-        }
         if sentence.steps.is_empty() {
             return Err(invalid("effects.steps", "empty instruction group"));
         }
@@ -552,13 +45,7 @@ pub(crate) fn append_spell_effects(
             {
                 return Err(unsupported("trigger", "unbound death controller"));
             }
-            if let Some(i) = lower_wipes_step(
-                step,
-                counted,
-                source_block,
-                player_binding == PlayerBinding::DeathController,
-                context,
-            )? {
+            if let Some(i) = lower_wipes_step(step, counted, source_block, context)? {
                 program.instructions.push(i);
                 continue;
             }
@@ -664,70 +151,6 @@ pub(crate) fn append_spell_effects(
                         }
                     }
                 }
-                Step::MoveZone {
-                    what,
-                    to,
-                    tapped: None,
-                    order: None,
-                } if *to == serde_json::json!({"zone":"battlefield"}) => {
-                    let id = graveyard_battlefield_return::creature_target(what)?;
-                    Instruction::ReturnOwnGraveyardCreatureToBattlefield {
-                        target_slot: bind_target(
-                            program,
-                            slots,
-                            id,
-                            TargetDomain::OwnGraveyardCreatureCard,
-                        )?,
-                        source_block,
-                    }
-                }
-                Step::ReturnToHand { what, to, optional }
-                    if to == "your"
-                        && what["filter"]
-                            == serde_json::json!({"cls":"card","zone":{"zone":"graveyard","owner":"your"}}) =>
-                {
-                    // Definition validation binds the complete raw selector, sentence and printed block.
-                    let id = what["selectionId"].as_str().ok_or_else(|| {
-                        unsupported("effects.return", "missing graveyard card target")
-                    })?;
-                    Instruction::ReturnOwnGraveyardCardToHand {
-                        target_slot: bind_target(
-                            program,
-                            slots,
-                            id,
-                            TargetDomain::OwnGraveyardCard,
-                        )?,
-                        optional: optional.unwrap_or(false),
-                        source_block,
-                    }
-                }
-                Step::ReturnToHand { what, to, optional } if to == "your" => {
-                    let id = graveyard_battlefield_return::creature_target(what)?;
-                    Instruction::ReturnOwnGraveyardCreatureToHand {
-                        target_slot: bind_target(
-                            program,
-                            slots,
-                            id,
-                            TargetDomain::OwnGraveyardCreatureCard,
-                        )?,
-                        optional: optional.unwrap_or(false),
-                        source_block,
-                    }
-                }
-                Step::CreateToken {
-                    count,
-                    token,
-                    who: Some(who),
-                } => Instruction::CreateTokensFor {
-                    recipient: removal_recipient(program, who)?,
-                    count: if count.amount == "fixed" && count.value > 0 {
-                        count.value
-                    } else {
-                        return Err(unsupported("token", "unsupported token count"));
-                    },
-                    token: lower_creature_token(token)?,
-                    source_block,
-                },
                 Step::CreateToken {
                     count,
                     token,
@@ -740,21 +163,6 @@ pub(crate) fn append_spell_effects(
                         kir::TokenSpec::Creature { spec: token },
                         source_block,
                     )
-                }
-                Step::PutCounters {
-                    on: SourceCounterRecipient::Source(r),
-                    counter,
-                    count,
-                } if r.reference == "this"
-                    && r.noun == "creature"
-                    && counter.r#type == "+1/+1"
-                    && *count
-                        == serde_json::json!({"amount":"product","factors":[
-                            {"amount":"fixed","value":1},
-                            {"amount":"distinct-count","characteristic":"color","among":{"ref":"that","filter":{"cls":"spell"}}}
-                        ]}) =>
-                {
-                    Instruction::PutSourcePlusOneCountersForCastColors { source_block }
                 }
                 Step::PutCounters { on, counter, count } if counter.r#type == "+1/+1" => {
                     let on = match on {
@@ -782,20 +190,6 @@ pub(crate) fn append_spell_effects(
                         source_block,
                     )
                 }
-                Step::GainAbilities {
-                    what,
-                    abilities,
-                    duration,
-                } if duration.duration == "end-of-turn" => {
-                    let keywords = lower_temporary_creature_keywords(abilities)?;
-                    Instruction::GrantKeywords {
-                        modifier: None,
-                        target_slot: bind_temporary_creature_target(program, slots, what)?,
-                        keywords,
-                        duration: Duration::UntilEndOfTurn,
-                        source_block,
-                    }
-                }
                 Step::Pump {
                     what,
                     power,
@@ -822,46 +216,6 @@ pub(crate) fn append_spell_effects(
                     signed_fixed(toughness)?,
                     source_block,
                 ),
-                Step::PreventDamage {
-                    prevention,
-                    duration,
-                } => lower_prevention(program, slots, prevention, duration, source_block)?,
-                Step::Damage {
-                    source,
-                    amount,
-                    to,
-                    optional,
-                } if !matches!(source, DamageSource::SelfReference {})
-                    || optional.is_some()
-                    || amount["amount"] != "fixed" =>
-                {
-                    lower_sacrifice_damage(
-                        program,
-                        slots,
-                        source,
-                        amount,
-                        to,
-                        *optional,
-                        source_block,
-                    )?
-                }
-                Step::Damage {
-                    optional: None,
-                    source: DamageSource::SelfReference {},
-                    amount,
-                    to: DamageDestination::Player { reference },
-                } => {
-                    let EffectRecipient::TargetController { target_slot } =
-                        removal_recipient(program, reference)?
-                    else {
-                        return Err(unsupported("damage", "requires target controller"));
-                    };
-                    Instruction::DamageTargetController {
-                        target_slot,
-                        amount: fixed_positive_value(amount)?,
-                        source_block,
-                    }
-                }
                 Step::Damage {
                     optional: None,
                     source: DamageSource::SelfReference {},
@@ -879,28 +233,14 @@ pub(crate) fn append_spell_effects(
                         source_block,
                     )
                 }
-                Step::GainLife { who, amount, .. } | Step::LoseLife { who, amount }
-                    if who.of.is_some() || amount["amount"] == "attribute" =>
-                {
-                    let recipient = removal_recipient(
-                        program,
-                        &serde_json::to_value(who).map_err(|_| invalid("life", "recipient"))?,
-                    )?;
-                    Instruction::ChangeLifeFromTarget {
-                        recipient,
-                        amount: removal_amount(program, amount)?,
-                        gain: matches!(step, Step::GainLife { .. }),
-                        source_block,
-                    }
-                }
-                Step::Scry { amount } => controller_library::instruction(amount, source_block)?,
-                Step::Surveil { amount } => {
-                    controller_library::surveil_instruction(amount, source_block)?
-                }
                 Step::Mill { who, amount } => {
                     fixed_mill::instruction(program, slots, who, amount, context, source_block)?
                 }
-                Step::GainLife { who, amount, .. } => Instruction::act(
+                Step::GainLife {
+                    who,
+                    amount,
+                    for_each: None,
+                } => Instruction::act(
                     Verb::GainLife {
                         player: life_player(
                             program,
@@ -961,37 +301,6 @@ pub(crate) fn append_spell_effects(
                 }
                 Step::Draw {
                     who,
-                    amount,
-                    optional: true,
-                } => {
-                    if who.player != "you"
-                        || who.selection_id.is_some()
-                        || who.of.is_some()
-                        || !amount.fixed_one()
-                    {
-                        return Err(unsupported(
-                            "effects.draw",
-                            "optional draw requires one card for the unqualified controller",
-                        ));
-                    }
-                    Instruction::OptionalDrawCards { source_block }
-                }
-                Step::Draw {
-                    who,
-                    amount: DrawAmount::ThatMuch {},
-                    optional: false,
-                } if player_binding == PlayerBinding::DamageRecipient
-                    && who.player == "you"
-                    && who.selection_id.is_none()
-                    && who.of.is_none() =>
-                {
-                    // CR 608.2c/608.2h: bind this quantity to the actual triggering
-                    // damage event, not to current power, life change or another effect.
-                    // The archive's reference graph remains diagnostic/nonexecutable.
-                    Instruction::DrawDamageAmount { source_block }
-                }
-                Step::Draw {
-                    who,
                     amount: DrawAmount::Fixed { value },
                     optional: false,
                 } => {
@@ -1013,53 +322,6 @@ pub(crate) fn append_spell_effects(
                         ));
                     }
                     Instruction::draw(player, Quantity::from(1), source_block)
-                }
-                Step::Counter { what } if what.reference == "target" && fixed_one(&what.count) => {
-                    let domain = match &what.filter {
-                        CounterFilter::Spell { .. } => TargetDomain::StackSpell,
-                        CounterFilter::Ability { any_of }
-                            if any_of.len() == 2
-                                && any_of
-                                    .iter()
-                                    .map(|filter| filter.ability_kind.as_str())
-                                    .collect::<BTreeSet<_>>()
-                                    == BTreeSet::from(["activated", "triggered"]) =>
-                        {
-                            TargetDomain::StackActivatedOrTriggeredAbility
-                        }
-                        _ => {
-                            return Err(unsupported(
-                                "targets",
-                                "counter requires the complete spell or activated-or-triggered domain",
-                            ));
-                        }
-                    };
-                    let slot = bind_target(program, slots, &what.selection_id, domain)?;
-                    if let CounterFilter::Spell {
-                        all_of: Some(all_of),
-                    } = &what.filter
-                    {
-                        let f = lower_permanent_filter(&serde_json::json!({"allOf":all_of}))?;
-                        if f.types.is_empty()
-                            || !f.non_types.is_empty()
-                            || !f.non_colors.is_empty()
-                            || f.opponent
-                        {
-                            return Err(unsupported("counter", "unsupported typed spell filter"));
-                        }
-                        if program.targets[slot as usize]
-                            .filter
-                            .as_ref()
-                            .is_some_and(|old| old != &f)
-                        {
-                            return Err(unsupported("counter", "conflicting target filter"));
-                        }
-                        program.targets[slot as usize].filter = Some(f);
-                    }
-                    Instruction::CounterStackObject {
-                        target_slot: slot,
-                        source_block,
-                    }
                 }
                 Step::ReturnToHand {
                     what,
@@ -1172,33 +434,10 @@ pub(crate) fn lower_wipes_step(
     step: &Step,
     counted: bool,
     source_block: u32,
-    death_controller: bool,
     context: Context,
 ) -> Result<Option<Instruction>, Failure> {
     use serde_json::json;
     Ok(Some(match step {
-        Step::GainAbilities {
-            what,
-            abilities,
-            duration,
-        } if (what["ref"] == "all" || what["ref"] == "each")
-            && duration.duration == "end-of-turn" =>
-        {
-            let set = lower_object_set(what)?;
-            if set == ObjectSet::ControllerPermanents {
-                return Err(unsupported(
-                    "set",
-                    "permanent keywords require a complete ordinary pure gain",
-                ));
-            }
-            Instruction::GrantKeywordsSet {
-                set,
-                modifier: None,
-                keywords: lower_temporary_creature_keywords(abilities)?,
-                duration: Duration::UntilEndOfTurn,
-                source_block,
-            }
-        }
         Step::Exile { what } if what["ref"] == "all" || what["ref"] == "each" => Instruction::act(
             Verb::Move {
                 what: lower_board_set(what, context)?,
@@ -1300,32 +539,8 @@ pub(crate) fn lower_wipes_step(
             SetDamage::instruction(sets, each_player, amount, source_block)
         }
         Step::GainLife {
-            who,
-            amount,
-            for_each: Some(f),
-        } if who.player == "you"
-            && who.selection_id.is_none()
-            && who.of.is_none()
-            && *amount == json!({"amount":"fixed","value":1})
-            && *f
-                == json!({"types":["creature"],"relation":{"relation":"event-result","event":"destroy","scope":"this-way"}}) =>
-        {
-            Instruction::GainLifeDestroyed { source_block }
-        }
-        Step::GainLife {
             for_each: Some(_), ..
         } => return Err(unsupported("forEach", "unsupported event result")),
-        Step::LoseLife { who, amount }
-            if death_controller
-                && who.player == "that-player"
-                && who.selection_id.is_none()
-                && who.of.is_none() =>
-        {
-            Instruction::LoseLifeDeathController {
-                amount: fixed_positive_value(amount)?,
-                source_block,
-            }
-        }
         Step::Sacrifice {
             who,
             what,
@@ -1340,105 +555,6 @@ pub(crate) fn lower_wipes_step(
         {
             Instruction::sacrifice_creature(PlayerExpr::EachPlayer, source_block)
         }
-        Step::CreateReplacement {
-            replacement,
-            duration,
-        } if duration.duration == "this-turn"
-            && *replacement
-                == json!({"event":{"event":"move-zone","what":{"ref":"filter","filter":{"types":["creature"],"damageHistory":{"role":"recipient","window":{"event":"this-way"}}},"count":{"amount":"fixed","value":1}},"from":{"zone":"battlefield"},"to":{"zone":"graveyard"}},"occurrence":"each","replace":{"replacement":"effects","effects":[{"steps":[{"effect":"exile","what":{"ref":"replacement-event-object","role":"affected"}}]}]}}) =>
-        {
-            Instruction::ExileDamagedThisTurn { source_block }
-        }
         _ => return Ok(None),
     }))
-}
-
-pub(crate) fn lower_sacrifice_damage(
-    p: &mut SpellProgram,
-    slots: &mut BTreeMap<String, u32>,
-    source: &DamageSource,
-    amount: &serde_json::Value,
-    to: &DamageDestination,
-    optional: Option<bool>,
-    source_block: u32,
-) -> Result<Instruction, Failure> {
-    if !(matches!(source, DamageSource::SelfReference {} | DamageSource::It {})
-        || matches!(source, DamageSource::This { noun } if noun == "creature" || noun == "enchantment"))
-    {
-        return Err(unsupported("damage", "unsupported complete damage source"));
-    }
-    let amount = if *amount
-        == serde_json::json!({"amount":"attribute","of":{"ref":"related","number":"singular","filter":{"types":["creature"]},"relation":{"relation":"event-result","event":"sacrifice","scope":"contextual"}},"attribute":"power"})
-    {
-        if !matches!(source, DamageSource::SelfReference {}) || p.additional_sacrifice.is_none() {
-            return Err(unsupported("damage", "unbound sacrificed power"));
-        }
-        SacrificeDamageAmount::SacrificedPower
-    } else {
-        SacrificeDamageAmount::Fixed {
-            value: fixed_positive_value(amount)?,
-        }
-    };
-    let (target_slot, recipient) = match to {
-        DamageDestination::AnyTarget { selection_id } => (
-            Some(bind_target(
-                p,
-                slots,
-                selection_id,
-                TargetDomain::AnyDamageTarget,
-            )?),
-            None,
-        ),
-        DamageDestination::Player { reference }
-            if *reference == serde_json::json!({"player":"you"}) =>
-        {
-            (None, Some(LifeRecipient::Controller))
-        }
-        DamageDestination::Player { reference }
-            if *reference == serde_json::json!({"player":"each-opponent"}) =>
-        {
-            (None, Some(LifeRecipient::EachOpponent))
-        }
-        _ => {
-            return Err(unsupported(
-                "damage",
-                "unsupported complete damage recipient",
-            ));
-        }
-    };
-    Ok(Instruction::SacrificeDamage {
-        target_slot,
-        recipient,
-        amount,
-        optional: optional.unwrap_or(false),
-        source_block,
-    })
-}
-
-pub(crate) fn lower_fixed_controller_life(
-    who: &PlayerSelector,
-    amount: &serde_json::Value,
-    source_block: u32,
-    context: Context,
-) -> Result<Instruction, Failure> {
-    if who.player != "you" || who.selection_id.is_some() || who.of.is_some() {
-        return Err(unsupported(
-            "life",
-            "requires unqualified invocation controller",
-        ));
-    }
-    let count: Count = serde_json::from_value(amount.clone())
-        .map_err(|_| unsupported("life", "requires complete fixed nonnegative life amount"))?;
-    if count.amount != "fixed" {
-        return Err(unsupported("life", "requires fixed life amount"));
-    }
-    Ok(Instruction::act(
-        Verb::GainLife {
-            player: PlayerExpr::you(context),
-            amount: Amount::Fixed {
-                value: Quantity::from(i64::from(count.value)),
-            },
-        },
-        source_block,
-    ))
 }

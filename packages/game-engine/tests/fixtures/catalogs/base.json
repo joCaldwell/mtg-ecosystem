@@ -2,13 +2,13 @@
   "schema_version": 1,
   "provenance": "../provenance.json",
   "records": [
-    "../grizzly-bears.json",
-    "../unsummon.json",
-    "../island.json",
-    "../forest.json",
-    "../isamaru.json"
+    "../phase1-r4/grizzly-bears.json",
+    "../phase1-r4/unsummon.json",
+    "../phase1-r4/island.json",
+    "../phase1-r4/forest.json",
+    "../phase1-r4/isamaru.json"
   ],
   "expected_ir": "../expected-ir.json",
   "expected_digest": "base.sha256",
-  "output_order": "sorted"
+  "output_order": "canonical"
 }

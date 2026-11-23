@@ -111,24 +111,20 @@ pub const SPELL: &str = "837182db-1bf3-4a2c-bd01-1af9d9873561";
 pub const BEARS: &str = "14c8f55d-d177-4c25-a931-ebeb9e6062a0";
 pub const PLAINS: &str = "bc71ebf6-2056-41f7-be35-b2e5c34afa99";
 pub const PLAINS_DIGEST: &str =
-    definition_digest!("MTG_DEFINITION_commander_bc71ebf6-2056-41f7-be35-b2e5c34afa99");
+    definition_digest!("MTG_DEFINITION_action_bc71ebf6-2056-41f7-be35-b2e5c34afa99");
 pub const TIME_EBB: &str = "30cc8f7b-3c28-40f5-8f8f-157e8212280b";
 pub const TIME_EBB_DIGEST: &str =
-    definition_digest!("MTG_DEFINITION_library_30cc8f7b-3c28-40f5-8f8f-157e8212280b");
+    definition_digest!("MTG_DEFINITION_action_30cc8f7b-3c28-40f5-8f8f-157e8212280b");
 pub const YARGLE: &str = "980e1721-3717-4425-95a4-938dbf2ac661";
 pub const YARGLE_DIGEST: &str =
-    definition_digest!("MTG_DEFINITION_damage_980e1721-3717-4425-95a4-938dbf2ac661");
+    definition_digest!("MTG_DEFINITION_action_980e1721-3717-4425-95a4-938dbf2ac661");
 pub const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
 pub const HAPLESS: &str = "240a349a-79f8-4e11-9a05-a78148e70a62";
 pub const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
-pub const ACTION_EXTRA: [(&str, &str); 3] = [
+pub const ACTION_EXTRA: [(&str, &str); 2] = [
     (
         EDICT,
         definition_digest!("MTG_DEFINITION_action_10c585c4-bf5b-4d8f-94a9-e9a5036a688f"),
-    ),
-    (
-        HAPLESS,
-        definition_digest!("MTG_DEFINITION_action_240a349a-79f8-4e11-9a05-a78148e70a62"),
     ),
     (
         SWAMP,

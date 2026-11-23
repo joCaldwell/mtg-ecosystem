@@ -2,19 +2,18 @@
   "schema_version": 1,
   "provenance": "../provenance.json",
   "records": [
-    "../cruel-edict.json",
-    "../grizzly-bears.json",
-    "../hapless-researcher.json",
-    "../time-ebb.json",
-    "../swamp.json",
-    "../unsummon.json",
-    "../yargle-and-multani.json",
-    "../island.json",
-    "../forest.json",
-    "../plains.json",
-    "../isamaru.json"
+    "../phase1-r4/cruel-edict.json",
+    "../phase1-r4/grizzly-bears.json",
+    "../phase1-r4/time-ebb.json",
+    "../phase1-r4/swamp.json",
+    "../phase1-r4/unsummon.json",
+    "../phase1-r4/yargle-and-multani.json",
+    "../phase1-r4/island.json",
+    "../phase1-r4/forest.json",
+    "../phase1-r4/plains.json",
+    "../phase1-r4/isamaru.json"
   ],
   "expected_ir": "../expected-action-ir.json",
   "expected_digest": "action.sha256",
-  "output_order": "struct"
+  "output_order": "canonical"
 }

@@ -254,7 +254,7 @@ fn append_effects(
             }
             Part::Table(steps) => {
                 for step in &steps {
-                    let instruction = steps::lower(step, program, slots, context, label)?;
+                    let instruction = steps::lower(step, context, label)?;
                     program.instructions.push(instruction);
                 }
             }
@@ -619,9 +619,7 @@ fn compose(
             } => {
                 ability_word(&word, &result.lines[block].text)?;
                 labels.statics.push(label);
-                definition
-                    .static_abilities
-                    .push(lower_static(&effect, label)?);
+                definition.static_abilities.push(lower_static(&effect)?);
             }
             Block::Spell {
                 ability_word: word,
