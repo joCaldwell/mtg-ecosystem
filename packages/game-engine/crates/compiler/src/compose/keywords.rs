@@ -1,8 +1,8 @@
 //! Keyword table: evergreen keywords that are complete without parameters.
 //!
 //! CR 702.2-702.21 (pinned 2026-09-25). Parameterized or linked keywords
-//! (equip, enchant, cycling, kicker, cascade, bestow, affinity) keep their
-//! reviewed families; adding one here means adding one row and its runtime.
+//! (equip, enchant, cycling, kicker, cascade, bestow, affinity) reject;
+//! adding one here means adding one row and its runtime.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 

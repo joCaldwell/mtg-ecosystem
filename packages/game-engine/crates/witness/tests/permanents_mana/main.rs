@@ -7,22 +7,8 @@ use std::{
 mod activated_permanent_return_tests;
 mod activated_permanent_tap_tests;
 mod activated_spell_counter_tests;
-mod attachment_entry_tests;
 mod attachment_foundation_tests;
-mod blocking_target_tests;
-mod cast_origin_tests;
-mod combat_window_tests;
-mod composed_spell_tests;
-mod composition_tests;
-mod controller_land_type_tests;
-mod distinct_permanent_colors_tests;
-mod equipped_events_tests;
-mod impulse_play_tests;
-mod mana_tap_observer_tests;
 mod mana_tests;
-mod optional_block_tests;
-mod phase1_sequences_tests;
-mod scoped_creature_stats_tests;
 mod stack_costs_tests;
 mod tap_source_untap_tests;
 mod tap_tests;
@@ -31,14 +17,6 @@ mod untap_tests;
 mod control {
     use super::*;
     pub use mtg_core::testkit::control::*;
-    mod tests;
-}
-mod graveyard_targets {
-    use super::*;
-    mod tests;
-}
-mod opponent_mana {
-    use super::*;
     mod tests;
 }
 mod phasing {
@@ -54,11 +32,7 @@ mod unspent_mana {
     use super::*;
     mod tests;
 }
-mod granted_land_mana {
-    use super::*;
-    mod tests;
-}
-mod resolution_mana {
+mod graveyard_targets {
     use super::*;
     mod tests;
 }

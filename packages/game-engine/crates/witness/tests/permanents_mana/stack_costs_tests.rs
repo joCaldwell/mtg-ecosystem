@@ -104,14 +104,15 @@ fn recover(game: &Game) {
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 #[test]
 fn void_rend_paid_counter_attempt_and_nonland_destruction() {
-    let raw =
-        include_str!("../../../../tests/fixtures/ramos/713f16db-95ec-479e-a48c-7a69f7668d7f.json");
+    let raw = include_str!(
+        "../../../../tests/fixtures/phase1-r4/713f16db-95ec-479e-a48c-7a69f7668d7f.json"
+    );
     assert_eq!(
         sha256(raw.as_bytes()),
-        "096021d12aefd92519068bb66cd3e4d4287fa0178499858e25196685594d3eab"
+        "8c38b5c34e556ff801941fb3821ef934003b714779005b70fa407739b8fee680"
     );
     let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
         raw,
     ) else {
         panic!("complete frozen Void Rend must lower");
@@ -119,6 +120,7 @@ fn void_rend_paid_counter_attempt_and_nonland_destruction() {
     assert_eq!(
         definition.capabilities,
         BTreeSet::from([
+            Capability::ComposedAbilityV1,
             Capability::NormalLayoutV1,
             Capability::CastInstantV1,
             Capability::PermanentRemovalV1,

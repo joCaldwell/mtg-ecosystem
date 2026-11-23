@@ -18,8 +18,8 @@ pub(crate) struct Record {
     pub(crate) ast_sha256: Option<String>,
     pub(crate) binding: Box<RawValue>,
     pub(crate) binding_sha256: String,
-    /// Archive R4 (schema 4): the authoritative resolution. Absent from the
-    /// schema-3 fixture archives the whole-card families still read.
+    /// Archive R4 (schema 4): the authoritative resolution. Absent from older
+    /// archives, whose rows therefore reject.
     #[serde(default)]
     pub(crate) resolution: Option<Box<RawValue>>,
     #[serde(default)]
@@ -104,20 +104,6 @@ pub(crate) fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
         rest = token.1;
     }
     Ok(cost)
-}
-
-pub(crate) fn read_abilities(raw: &str) -> Result<Vec<Ability>, Failure> {
-    // Keep the duplicate-key pass before serde's internally tagged mirrors.
-    // serde_path_to_error reports context without accepting unknown fields.
-    let nodes: Vec<Box<RawValue>> = decode(raw, "abilities")?;
-    nodes
-        .iter()
-        .enumerate()
-        .map(|(i, node)| {
-            serde_json::from_str::<Ability>(node.get())
-                .map_err(|_| diagnostics::ability(node.get(), &format!("abilities[{i}]")))
-        })
-        .collect()
 }
 
 /// A single-face normal card record whose source and diagnostic-binding bytes

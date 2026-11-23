@@ -1,16 +1,16 @@
-//! Complete retained card definitions in synthetic public payload probes.
+//! Complete reviewed card definitions in synthetic public payload probes.
 //! These are not accepted-pod, source-pool admission or replay witnesses.
+//! The sources predate Archive R4, so the definitions are the frozen
+//! `damage-matches-v2` reviewed IR bound to the same retained records.
 use super::*;
 use std::collections::BTreeSet;
 
 fn fixture() -> (Catalog, PermittedView) {
     let mut c = mtg_compiler::catalog::embedded_catalog("wipes").unwrap();
     let mut v = wipe_tests::view(&c);
-    for (manifest, raw, name, extra) in [
+    let reviewed = mtg_compiler::catalog::embedded_catalog("damage-matches-v2").unwrap();
+    for (raw, name, extra) in [
         (
-            include_str!(
-                "../../../../tests/fixtures/cards-data-filtered-damage/archive-manifest-current.json"
-            ),
             include_str!(
                 "../../../../tests/fixtures/cards-data-filtered-damage/4caa8e68-e599-416f-b839-3d009569ff29.json"
             ),
@@ -19,9 +19,6 @@ fn fixture() -> (Catalog, PermittedView) {
         ),
         (
             include_str!(
-                "../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"
-            ),
-            include_str!(
                 "../../../../tests/fixtures/cards-data-d2ce/ba5055ce-6809-47a4-bee6-fb97a5b60f8a.json"
             ),
             "Research Thief",
@@ -29,20 +26,17 @@ fn fixture() -> (Catalog, PermittedView) {
         ),
         (
             include_str!(
-                "../../../../tests/fixtures/cards-data-d2ce/archive-manifest-current.json"
-            ),
-            include_str!(
                 "../../../../tests/fixtures/cards-data-d2ce/34fd461b-a913-4a60-9477-ce2bd5c6fc5a.json"
             ),
             "Fear of Failed Tests",
             CardKind::Enchantment,
         ),
     ] {
-        let result = mtg_compiler::compile(manifest, raw);
-        let mtg_compiler::CompileResult::Lowered { definition: d } = result else {
-            panic!("{name}: {result:?}");
-        };
         let record: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let d = reviewed
+            .definition_by_oracle_id(record["oracleIdentity"].as_str().unwrap())
+            .unwrap_or_else(|| panic!("{name}: reviewed definition"))
+            .clone();
         assert_eq!(d.name, name);
         assert_eq!(d.oracle_id, record["oracleIdentity"].as_str().unwrap());
         assert_eq!(
@@ -66,7 +60,7 @@ fn fixture() -> (Catalog, PermittedView) {
         assert!(
             d.characteristics.has_type(CardKind::Creature) && d.characteristics.has_type(extra)
         );
-        c.definitions.push(*d);
+        c.definitions.push(d);
     }
     c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
     c.validate().unwrap();

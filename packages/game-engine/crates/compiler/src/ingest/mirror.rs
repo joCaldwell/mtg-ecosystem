@@ -2,94 +2,6 @@
 //! unknown fields rejected. Lowerers consume these, never raw strings.
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum Ability {
-    #[serde(skip)]
-    ComposedSpell(SpellProgram),
-    #[serde(skip)]
-    BoundTrigger(TriggeredAbility),
-    #[serde(skip)]
-    BoundActivation(ActivatedAbility),
-    Chapter {
-        chapters: Vec<u32>,
-        effects: Vec<serde_json::Value>,
-    },
-    // The complete spell, cast trigger, and source graph are verified together.
-    #[serde(skip)]
-    Demonstrate,
-    #[serde(skip)]
-    RevealAndCast,
-    // Constructed together after closing the printed creature and replacement graph.
-    #[serde(skip)]
-    PrintedProtectionFromEverything,
-    #[serde(skip)]
-    SelfGraveyardRevealShuffle,
-    // The complete source and its exact graph are verified before emission.
-    #[serde(skip)]
-    ControlledCreatureSpellCopy,
-    #[serde(skip)]
-    LinkedHideaway,
-    // Constructed only after validating the complete raw sentence and payer graph.
-    #[serde(skip)]
-    CounterUnlessGeneric { generic: Quantity },
-    // Only the whole-source adapter can introduce this bound trigger.
-    #[serde(skip)]
-    CastPayerDraw { generic: Quantity },
-    #[serde(skip)]
-    DividedPlusOneCountersModal,
-    #[serde(skip)]
-    CommanderModalKeyword(Box<SpellProgram>),
-    #[serde(skip)]
-    PlayerGraveyardShuffle,
-    #[serde(skip)]
-    FixedTargetModes,
-    #[serde(skip)]
-    CreaturePlaneswalkerReturn,
-    #[serde(skip)]
-    HandCastCascade,
-    #[serde(skip)]
-    ControllerWindowBlock,
-    #[serde(skip)]
-    BoundKeywords(Vec<KeywordAbility>),
-    #[serde(rename = "additional-cost")]
-    AdditionalCost {
-        #[serde(rename = "abilityWord")]
-        ability_word: Option<String>,
-        costs: Vec<SourceCost>,
-    },
-    Keywords {
-        #[serde(rename = "abilityWord")]
-        ability_word: Option<String>,
-        keywords: Vec<SourceKeyword>,
-    },
-    Static {
-        #[serde(rename = "abilityWord")]
-        ability_word: Option<String>,
-        effect: SourceStaticEffect,
-    },
-    Triggered {
-        #[serde(rename = "abilityWord")]
-        ability_word: Option<String>,
-        condition: Option<SourceCondition>,
-        trigger: Box<SourceTrigger>,
-        effects: Vec<Sentence>,
-    },
-    Spell {
-        #[serde(rename = "abilityWord")]
-        ability_word: Option<String>,
-        effects: Vec<Sentence>,
-    },
-    Activated {
-        restriction: Option<SourceActivationRestriction>,
-        #[serde(rename = "abilityWord")]
-        ability_word: Option<String>,
-        costs: Vec<SourceCost>,
-        effects: Vec<Sentence>,
-    },
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SourceKeyword {
     pub(crate) keyword: String,
@@ -388,11 +300,19 @@ pub(crate) struct GainedKeyword {
     pub(crate) keyword: KeywordAbility,
 }
 
+// Deliberately separate from SourceCost: entry replacement is no casting cost.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "cost", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum SourceEntryCost {
+    PayLife { amount: serde_json::Value },
+    Reveal { what: serde_json::Value },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Sentence {
     #[serde(default, deserialize_with = "present_ast_field")]
-    pub(crate) condition: Option<KickedCondition>,
+    pub(crate) condition: Option<serde_json::Value>,
     #[serde(
         default,
         rename = "conditionKind",
@@ -869,7 +789,7 @@ pub(crate) enum SourceStaticEffect {
     EntryChoice {
         what: serde_json::Value,
         who: serde_json::Value,
-        costs: Vec<conditional_lands::SourceEntryCost>,
+        costs: Vec<SourceEntryCost>,
         declined: serde_json::Value,
     },
     EntryCopy {
@@ -941,36 +861,7 @@ pub(crate) enum AuraControlTarget {
     Permanent,
 }
 
-impl AuraControlTarget {
-    pub(crate) fn noun(self) -> &'static str {
-        match self {
-            Self::Creature => "creature",
-            Self::Artifact => "artifact",
-            Self::Land => "land",
-            Self::Permanent => "permanent",
-        }
-    }
-    pub(crate) fn kind(self) -> Option<CardKind> {
-        match self {
-            Self::Creature => Some(CardKind::Creature),
-            Self::Artifact => Some(CardKind::Artifact),
-            Self::Land => Some(CardKind::Land),
-            Self::Permanent => None,
-        }
-    }
-    pub(crate) fn from_filter(filter: &Option<serde_json::Value>) -> Option<Self> {
-        [Self::Creature, Self::Artifact, Self::Land, Self::Permanent]
-            .into_iter()
-            .find(|t| {
-                let exact = if *t == Self::Permanent {
-                    serde_json::json!({"cls":"permanent"})
-                } else {
-                    serde_json::json!({"types":[t.noun()]})
-                };
-                *filter == Some(exact)
-            })
-    }
-}
+impl AuraControlTarget {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]

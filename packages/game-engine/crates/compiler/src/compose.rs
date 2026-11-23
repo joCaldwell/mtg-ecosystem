@@ -1,13 +1,11 @@
 //! Compositional lowering: one ability block at a time.
 //!
-//! The residual matchers in `families` recognise whole cards. This pipeline is
-//! the fallback when no family claims a record: every printed block is lowered
-//! independently from its complete typed AST by small tables (`costs`,
-//! `events`, `keywords`) plus the shared step lowerer, and the resulting
-//! definition is admitted only by `mtg_contracts::composition`.
+//! The only lowering pipeline: every printed block is lowered independently
+//! from its complete typed AST by small tables (`costs`, `events`,
+//! `keywords`) plus the shared step lowerer, and the resulting definition is
+//! admitted only by `mtg_contracts::composition`.
 //!
-//! Invariants kept from the family path: the exact archived source, AST and
-//! binding hashes; the normalized line/aggregate mirror; complete typed
+//! Invariants: the exact archived source, AST, binding and resolution hashes; the normalized line/aggregate mirror; complete typed
 //! decoding with unknown fields rejected; and an explicit rejection whenever a
 //! clause, operand or reference is not consumed. Nothing here reads a card
 //! name, an Oracle identity or a profile.
@@ -149,11 +147,15 @@ fn mirror_gap(sentence: &serde_json::Value, error: &serde_json::Error) -> Failur
     }
 }
 
-/// A serde failure that names no shape: an untagged-enum mismatch or a
-/// field the mirror requires in another variant.
+/// A serde failure that names no shape: an untagged-enum mismatch, a field
+/// the mirror requires in another variant, or an operand the mirror types
+/// differently (a map where it reads a string, a string where it reads a
+/// counter).
 fn opaque(error: &serde_json::Error) -> bool {
     let message = error.to_string();
-    message.contains("untagged enum") || message.starts_with("missing field")
+    message.contains("untagged enum")
+        || message.starts_with("missing field")
+        || message.starts_with("invalid type")
 }
 
 /// The block decoded as the complete typed AST but not as the lowering
@@ -173,7 +175,7 @@ fn block_mirror_gap(raw: &str, error: &serde_json::Error) -> Failure {
     )
 }
 
-/// Sentence conditions and X bindings belong to reviewed families; the shared
+/// Sentence conditions and X bindings have no block table row; the shared
 /// step lowerer would reject them later, but reject here with a stable reason.
 fn plain_sentences(effects: &[Sentence]) -> Result<(), Failure> {
     if effects
@@ -182,14 +184,14 @@ fn plain_sentences(effects: &[Sentence]) -> Result<(), Failure> {
     {
         return Err(unsupported(
             "compose.effects",
-            "conditional or bound sentence requires a reviewed family",
+            "conditional or bound sentence outside the block tables",
         ));
     }
     Ok(())
 }
 
 /// Lower one block's sentences in printed order (CR 608.2c). A block made
-/// only of typed sentences uses the shared lowerer once, exactly as a family
+/// only of typed sentences uses the shared lowerer once, as one whole
 /// would. A block with table sentences lowers sentence by sentence; a typed
 /// damage pronoun is then rejected because its antecedent could be a table
 /// step the shared binder cannot see.
@@ -316,7 +318,7 @@ fn trigger(
     condition: Option<&SourceCondition>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
-    // The event table only adds self events the family lowerer keys to one
+    // The event table only adds self events the shared lowerer keys to one
     // card type; every other event keeps the shared trigger lowerer, which
     // also binds event players, damage quantities and intervening conditions.
     let Some(event) = events::lower(card, trigger) else {
@@ -502,7 +504,7 @@ fn compose(
     record: &str,
     mut deferred: Option<&mut Blockers>,
 ) -> Result<Definition, Failure> {
-    // Integrity: the same checks, in the same order, as the family path.
+    // Integrity: the exact record, source, parse and AST hashes.
     let SingleFace {
         record: r,
         shape,
@@ -528,6 +530,7 @@ fn compose(
         binding_gate(resolution.complete(), &mut deferred)?;
         binding_gate(resolution.ordinary_antecedents(&printed), &mut deferred)?;
         binding_gate(resolution.covers(&printed), &mut deferred)?;
+        binding_gate(resolution.referenced(&printed), &mut deferred)?;
     }
     let types = type_line::parse_source(&source.type_line, &source.layout)?;
     let kind = types.kind;
@@ -544,17 +547,24 @@ fn compose(
     };
     // The normalized source must be exactly the parsed blocks, and each line
     // must carry the same AST as the aggregate; nothing may be unaccounted.
-    if source_lines(&source.oracle_text, &source.name, &source.type_line)?
-        != result
-            .lines
-            .iter()
-            .map(|l| normalization::literal_spelling(&l.text))
-            .collect::<Vec<_>>()
-    {
-        return Err(invalid(
-            "lines",
-            "source contains unaccounted or mismatched normalized blocks",
-        ));
+    let normalized = source_lines(&source.oracle_text, &source.name, &source.type_line)?;
+    let parsed: Vec<String> = result
+        .lines
+        .iter()
+        .map(|l| normalization::literal_spelling(&l.text))
+        .collect();
+    if normalized != parsed {
+        // The same printed lines grouped into different blocks (the parser
+        // keeps a rider line such as an ability-word "instead" with the block
+        // it modifies) are accounted for, but outside the block mirror.
+        return Err(if normalized.join("\n") == parsed.join("\n") {
+            unsupported("lines", "parsed block grouping outside the block mirror")
+        } else {
+            invalid(
+                "lines",
+                "source contains unaccounted or mismatched normalized blocks",
+            )
+        });
     }
     let original: Vec<Box<RawValue>> = decode(result.abilities.get(), "abilities")?;
     let blocks: Vec<Box<RawValue>> = decode(&canonical, "abilities")?;
@@ -589,6 +599,10 @@ fn compose(
             resolution.spans(block, &result.lines[block].text, &printed[block])?;
         }
         numbers_printed(&result.lines[block].text, raw.get())?;
+        let (activated, triggered) = (definition.activated.len(), definition.triggered.len());
+        // A spell's printed blocks share one program; each announces its own
+        // targets after the earlier blocks' (CR 601.2c).
+        let spell_targets = definition.spell.as_ref().map_or(0, |p| p.targets.len());
         match ability {
             Block::Keywords {
                 ability_word: word,
@@ -662,7 +676,7 @@ fn compose(
                 } else if restriction.is_some() {
                     return Err(unsupported(
                         "restriction",
-                        "activation restriction requires a reviewed family",
+                        "activation restriction outside the block tables",
                     ));
                 } else {
                     labels.activated.push(label);
@@ -696,9 +710,37 @@ fn compose(
             _ => {
                 return Err(unsupported(
                     "compose.kind",
-                    "ability kind requires a reviewed family",
+                    "ability kind outside the block tables",
                 ));
             }
+        }
+        // CR 601.2c: the block's announced targets are the resolution's
+        // block-relative slots.
+        if let Some(resolution) = &resolution {
+            let (program, first) = if definition.activated.len() > activated {
+                (definition.activated.last().map(|a| &a.program), 0)
+            } else if definition.triggered.len() > triggered {
+                (definition.triggered.last().map(|t| &t.program), 0)
+            } else if spell_kind {
+                (definition.spell.as_ref(), spell_targets)
+            } else {
+                (None, 0)
+            };
+            let first = u32::try_from(first).map_err(|_| invalid("targets", "slot range"))?;
+            let targets: Vec<TargetSpec> = program
+                .map(|p| {
+                    p.targets
+                        .iter()
+                        .chain(p.modes.iter().flat_map(|m| &m.program.targets))
+                        .filter(|t| t.slot >= first)
+                        .map(|t| TargetSpec {
+                            slot: t.slot - first,
+                            ..t.clone()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            resolution.target_slots(block, &printed[block], &targets)?;
         }
     }
     if let Some(found) = deferred {

@@ -1,13 +1,8 @@
 //! Temporary-indestructible drivers: targets, priority passes and turn steps.
-use crate::equipped::{answer, object, request};
+use crate::equipped::{answer, request};
 use mtg_core::testkit::*;
 use std::collections::BTreeMap;
 
-pub fn target(g: &Game, id: u32) -> Vec<TargetEntity> {
-    vec![TargetEntity::Object {
-        object: object(g, id),
-    }]
-}
 pub fn pass(r: &Request) -> Response {
     match r {
         Request::Priority { .. } => Response::Pass,
@@ -20,27 +15,6 @@ pub fn pass(r: &Request) -> Response {
         },
         x => panic!("turn {x:?}"),
     }
-}
-pub fn through_cleanup(g: &mut Game, q: u64) {
-    let turn = g.state.rules.turn.number;
-    for _ in 0..200 {
-        let r = request(g, q);
-        if g.state.rules.turn.number > turn {
-            return;
-        }
-        answer(g, q, pass(&r));
-    }
-    panic!("cleanup bound")
-}
-pub fn until_player(g: &mut Game, q: u64, p: PlayerId) {
-    for _ in 0..500 {
-        let r = request(g, q);
-        if matches!(r,Request::Priority {player,..} if player==p) {
-            return;
-        }
-        answer(g, q, pass(&r));
-    }
-    panic!("priority bound")
 }
 pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
     answer(g, q, Response::Cast { card: CardId(id) });

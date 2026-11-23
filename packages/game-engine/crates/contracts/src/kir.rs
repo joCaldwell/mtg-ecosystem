@@ -19,9 +19,8 @@
 //! well-scoped node outside the audited cells is rejected with
 //! [`KirError::Unaudited`], never interpreted approximately.
 //!
-//! The capabilities a node needs are derived by the same walk, so adding a
-//! combination of existing operands adds no capability, schema branch or
-//! validation arm.
+//! The walk derives the capabilities of each leaf and the continuation
+//! surface it uses. The node's wire shape is derived from its Rust type.
 //!
 //! Pinned Comprehensive Rules 2026-09-25:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -892,6 +891,34 @@ impl Node {
             _ => None,
         }
     }
+
+    pub(crate) fn optional_target_destroy(&self) -> Option<(&Verb, u32, bool)> {
+        let Self::Optional { chooser, node } = self else {
+            return None;
+        };
+        match node.verb()? {
+            verb @ Verb::Destroy {
+                what:
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    },
+                regeneration_forbidden,
+            } if chooser.is_you() => Some((verb, *slot, *regeneration_forbidden)),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn uses_continuation(&self) -> bool {
+        match self {
+            Self::Seq(_) => drain(self).is_none(),
+            Self::Optional { .. } => self.optional_target_destroy().is_none(),
+            Self::If { .. }
+            | Self::ForEach { .. }
+            | Self::Choose { .. }
+            | Self::UnlessPays { .. } => true,
+            Self::Do(_) | Self::Delayed { .. } | Self::Reflexive { .. } => false,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1130,11 +1157,15 @@ pub fn check(node: &Node, env: &Env<'_>) -> Result<DerivedRequirements, KirError
     let mut walk = Walk {
         env,
         scan: false,
+        plain_leaf: false,
         bound: vec![],
         steps: 0,
         out: DerivedRequirements::default(),
     };
-    walk.node(node)?;
+    walk.node(node, false)?;
+    if node.uses_continuation() {
+        walk.out.capabilities.insert(Capability::KernelControlV1);
+    }
     Ok(walk.out)
 }
 
@@ -1151,13 +1182,14 @@ pub fn target_slots(node: &Node) -> BTreeSet<u32> {
     let mut walk = Walk {
         env: &env,
         scan: true,
+        plain_leaf: false,
         bound: vec![],
         steps: 0,
         out: DerivedRequirements::default(),
     };
     // A scan reports no scope or audit error; a malformed literal can only
     // end it early, and `check` reports that literal.
-    let _ = walk.node(node);
+    let _ = walk.node(node, false);
     walk.out.target_slots
 }
 
@@ -1165,6 +1197,8 @@ struct Walk<'a, 'e> {
     env: &'a Env<'e>,
     /// Collect references only: no scope, kind or audit judgement.
     scan: bool,
+    /// An ordinary leaf executor reads the invocation, without task bindings.
+    plain_leaf: bool,
     /// Variables bound by enclosing `ForEach`/`Choose` nodes, with their kind.
     bound: Vec<(u32, RefKind)>,
     /// Completed steps of the innermost enclosing `Seq`.
@@ -1207,7 +1241,7 @@ impl Walk<'_, '_> {
             }
             return Ok(RefKind::Object);
         }
-        Ok(match reference {
+        let found = match reference {
             Ref::Source => RefKind::Object,
             Ref::Controller { role } => {
                 if *role != self.env.context.controller_role() {
@@ -1287,7 +1321,21 @@ impl Walk<'_, '_> {
             }
             Ref::EnteringObject => return unaudited("entering-object reference"),
             Ref::LinkedPool { .. } => return unaudited("linked pool reference"),
-        })
+        };
+        if self.plain_leaf {
+            match reference {
+                Ref::BoundVar { .. } | Ref::StepResult { .. } => {
+                    return unaudited(
+                        "ordinary kernel leaf reads a control binding or step result",
+                    );
+                }
+                Ref::Target { .. } if self.env.targets.len() != 1 => {
+                    return unaudited("nested leaf requires a single announced target");
+                }
+                _ => {}
+            }
+        }
+        Ok(found)
     }
 
     fn expect(
@@ -1454,13 +1502,112 @@ impl Walk<'_, '_> {
         }
     }
 
+    fn control_player(&mut self, player: &PlayerExpr, single: bool) -> Result<(), KirError> {
+        self.player(player)?;
+        if self.scan {
+            return Ok(());
+        }
+        match player {
+            PlayerExpr::Is {
+                who: Ref::Controller { .. } | Ref::BoundVar { .. },
+            } => Ok(()),
+            PlayerExpr::Is {
+                who: Ref::EventPlayer { role },
+            } if Self::recipient_role(*role) => Ok(()),
+            PlayerExpr::Is {
+                who: Ref::Target { slot },
+            } if self.env.targets[..=*slot as usize].iter().all(|target| {
+                matches!(
+                    target.domain,
+                    TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer
+                )
+            }) =>
+            {
+                Ok(())
+            }
+            // CR 108.3: ownership is recorded on the physical card and
+            // survives an incarnation's departure. These references always
+            // supply one identity, including a singleton iteration binding.
+            PlayerExpr::OwnerOf {
+                object: Ref::Source | Ref::BoundVar { .. },
+            } => Ok(()),
+            PlayerExpr::EachPlayer | PlayerExpr::EachOpponent if !single => Ok(()),
+            // Object-derived players can need an absent object's last
+            // known information (CR 608.2h). The continuation has no such
+            // lookup, and a target may already be illegal at resolution.
+            _ => unaudited("control player expression"),
+        }
+    }
+
+    fn control_set(&mut self, set: &SetExpr) -> Result<(), KirError> {
+        self.set(set)?;
+        self.audit_control_set(set)
+    }
+
+    fn audit_control_set(&self, set: &SetExpr) -> Result<(), KirError> {
+        if self.scan {
+            return Ok(());
+        }
+        match set {
+            SetExpr::Matching {
+                zone: zone @ (ZoneExpr::Battlefield | ZoneExpr::Graveyards),
+                filter,
+            } => Self::audited_filter(zone, filter),
+            SetExpr::One {
+                object: Ref::Source | Ref::BoundVar { .. },
+            }
+            | SetExpr::Pool {
+                pool: Ref::BoundVar { .. },
+            } => Ok(()),
+            SetExpr::One {
+                object: Ref::Target { slot },
+            } if !matches!(
+                self.domain(*slot)?,
+                TargetDomain::AnyDamageTarget
+                    | TargetDomain::StackSpell
+                    | TargetDomain::ControlledCreatureSpell
+                    | TargetDomain::StackActivatedOrTriggeredAbility
+            ) =>
+            {
+                Ok(())
+            }
+            _ => unaudited("control object set"),
+        }
+    }
+
+    fn control_amount(&mut self, amount: &Amount) -> Result<(), KirError> {
+        self.amount(amount)?;
+        if self.scan {
+            return Ok(());
+        }
+        match amount {
+            Amount::Fixed { .. } => Ok(()),
+            Amount::Var {
+                of: Ref::AnnouncedX,
+            } => Ok(()),
+            Amount::Count { set } => self.audit_control_set(set),
+            // A life subject may be absent or have departed (CR 800.4i).
+            // Cast-history amounts require a paid spell, including when a
+            // program can also be run by a spell copy (CR 707.10).
+            _ => unaudited("control amount"),
+        }
+    }
+
+    fn nonnegative_control_amount(&mut self, amount: &Amount) -> Result<(), KirError> {
+        self.control_amount(amount)?;
+        if !self.scan && amount.as_fixed().is_some_and(Quantity::is_negative) {
+            return kind("negative control amount");
+        }
+        Ok(())
+    }
+
     fn condition(&mut self, condition: &Cond) -> Result<(), KirError> {
         match condition {
             Cond::Compare { left, right, .. } => {
-                self.amount(left)?;
-                self.amount(right)
+                self.control_amount(left)?;
+                self.control_amount(right)
             }
-            Cond::Exists { set } => self.set(set),
+            Cond::Exists { set } => self.control_set(set),
             Cond::CostPaid { identity } => {
                 if identity.is_empty() {
                     return kind("empty cost identity");
@@ -1605,7 +1752,7 @@ impl Walk<'_, '_> {
             }
             Verb::CreateDelayedTrigger { event, node } => {
                 self.delayed(event)?;
-                self.nested(node)
+                self.nested(node, false)
             }
             Verb::PlayPermission { player, what, .. } => {
                 self.player(player)?;
@@ -1618,27 +1765,41 @@ impl Walk<'_, '_> {
     }
 
     /// A child node with its own step numbering.
-    fn nested(&mut self, node: &Node) -> Result<(), KirError> {
+    fn nested(&mut self, node: &Node, in_control: bool) -> Result<(), KirError> {
         let steps = std::mem::take(&mut self.steps);
-        let result = self.node(node);
+        let result = self.node(node, in_control);
         self.steps = steps;
         result
     }
 
-    fn node(&mut self, node: &Node) -> Result<(), KirError> {
+    fn node(&mut self, node: &Node, in_control: bool) -> Result<(), KirError> {
         match node {
             Node::Do(verb) => {
-                self.operands(verb)?;
+                match verb {
+                    Verb::GainLife { player, amount } | Verb::LoseLife { player, amount }
+                        if in_control =>
+                    {
+                        self.control_player(player, false)?;
+                        self.nonnegative_control_amount(amount)?;
+                    }
+                    _ => {
+                        let enclosing_leaf = std::mem::replace(&mut self.plain_leaf, in_control);
+                        let operands = self.operands(verb);
+                        self.plain_leaf = enclosing_leaf;
+                        operands?;
+                        if !self.scan {
+                            self.audit(verb)?;
+                            if in_control {
+                                Self::audit_nested_leaf(verb)?;
+                            }
+                        }
+                    }
+                }
                 if !self.scan {
-                    self.audit(verb)?;
                     verb_capabilities(verb, &mut self.out.capabilities);
                 }
                 Ok(())
             }
-            // Control nodes are scope-checked completely, then rejected: the
-            // resolving frame carries one cursor per instruction and no
-            // nested position, so the interpreter cannot suspend and resume
-            // inside a kernel node yet.
             Node::Seq(nodes) => {
                 // CR 119.3, 608.2c: the drain pair is one resolution step
                 // with no decision between its two life events.
@@ -1648,18 +1809,22 @@ impl Walk<'_, '_> {
                         self.player(player)?;
                     }
                     if !self.scan {
+                        if in_control {
+                            return unaudited("nested drain reads a step result");
+                        }
                         Self::fixed_or_announced_x(amount, 1, "drain amount")?;
                         self.out.capabilities.extend(DRAIN_CAPABILITIES);
                     }
                     return Ok(());
                 }
                 let steps = std::mem::take(&mut self.steps);
-                for node in nodes {
-                    self.node_unaudited(node)?;
+                let result = nodes.iter().try_for_each(|node| {
+                    self.node(node, true)?;
                     self.steps += 1;
-                }
+                    Ok(())
+                });
                 self.steps = steps;
-                missing_cell!(self, "sequence node")
+                result
             }
             Node::If {
                 condition,
@@ -1667,55 +1832,53 @@ impl Walk<'_, '_> {
                 otherwise,
             } => {
                 self.condition(condition)?;
-                self.nested_unaudited(then)?;
+                self.nested(then, true)?;
                 if let Some(otherwise) = otherwise {
-                    self.nested_unaudited(otherwise)?;
+                    self.nested(otherwise, true)?;
                 }
-                missing_cell!(self, "conditional node")
+                Ok(())
             }
-            Node::Optional { chooser, node } => {
-                self.player(chooser)?;
+            Node::Optional {
+                chooser,
+                node: child,
+            } => {
+                self.control_player(chooser, true)?;
                 // CR 608.2d: "you may destroy target permanent", a choice the
                 // resolving frame offers at this instruction's cursor.
-                if let Node::Do(
-                    verb @ Verb::Destroy {
-                        what:
-                            SetExpr::One {
-                                object: Ref::Target { slot },
-                            },
-                        regeneration_forbidden: false,
-                    },
-                ) = &**node
-                    && chooser.is_you()
-                {
+                if let Some((verb, slot, regeneration_forbidden)) = node.optional_target_destroy() {
                     self.operands(verb)?;
                     if !self.scan {
-                        if self.domain(*slot)? != TargetDomain::BattlefieldPermanent {
+                        if in_control {
+                            return unaudited(
+                                "nested optional target destroy uses a different choice route",
+                            );
+                        }
+                        if regeneration_forbidden
+                            || self.domain(slot)? != TargetDomain::BattlefieldPermanent
+                        {
                             return unaudited("optional destroy target domain");
                         }
                         verb_capabilities(verb, &mut self.out.capabilities);
                     }
                     return Ok(());
                 }
-                self.nested_unaudited(node)?;
-                missing_cell!(self, "optional node")
+                self.nested(child, true)
             }
             Node::ForEach { var, over, body } => {
                 let bound = match over {
                     Domain::Players { players } => {
-                        self.player(players)?;
+                        self.control_player(players, false)?;
                         RefKind::Player
                     }
                     Domain::Objects { set } => {
-                        self.set(set)?;
+                        self.control_set(set)?;
                         RefKind::Object
                     }
                 };
                 self.bound.push((*var, bound));
-                let result = self.nested_unaudited(body);
+                let result = self.nested(body, true);
                 self.bound.pop();
-                result?;
-                missing_cell!(self, "for-each node")
+                result
             }
             Node::Choose {
                 var,
@@ -1725,29 +1888,30 @@ impl Walk<'_, '_> {
                 maximum,
                 body,
             } => {
-                self.player(chooser)?;
-                self.set(from)?;
-                self.amount(minimum)?;
-                self.amount(maximum)?;
-                self.bound.push((*var, RefKind::Object));
-                let result = self.nested_unaudited(body);
+                self.control_player(chooser, true)?;
+                self.control_set(from)?;
+                self.nonnegative_control_amount(minimum)?;
+                self.nonnegative_control_amount(maximum)?;
+                if !self.scan {
+                    Self::audit_choice(from, minimum, maximum)?;
+                }
+                self.bound.push((*var, RefKind::Pool));
+                let result = self.nested(body, true);
                 self.bound.pop();
-                result?;
-                missing_cell!(self, "choose node")
+                result
             }
             Node::UnlessPays {
                 payer,
                 payment,
                 node,
             } => {
-                self.player(payer)?;
+                self.control_player(payer, true)?;
                 match payment {
                     Payment::Generic { amount } | Payment::Life { amount } => {
-                        self.amount(amount)?
+                        self.nonnegative_control_amount(amount)?
                     }
                 }
-                self.nested_unaudited(node)?;
-                missing_cell!(self, "unless-pays node")
+                self.nested(node, true)
             }
             Node::Delayed { event, node } => {
                 self.delayed(event)?;
@@ -1762,19 +1926,53 @@ impl Walk<'_, '_> {
         }
     }
 
-    /// Scope-checks a child of a control node. The child's own audit result
-    /// is dropped: the enclosing control node reports the missing cell.
-    fn node_unaudited(&mut self, node: &Node) -> Result<(), KirError> {
-        match self.node(node) {
+    /// Scope-check the child of an unsupported trigger control. Only an
+    /// audited parent may rely on a successful child audit.
+    fn nested_unaudited(&mut self, node: &Node) -> Result<(), KirError> {
+        match self.nested(node, true) {
             Err(KirError::Unaudited(_)) => Ok(()),
-            other => other,
+            result => result,
         }
     }
-    fn nested_unaudited(&mut self, node: &Node) -> Result<(), KirError> {
-        let steps = std::mem::take(&mut self.steps);
-        let result = self.node_unaudited(node);
-        self.steps = steps;
-        result
+
+    fn audit_choice(from: &SetExpr, minimum: &Amount, maximum: &Amount) -> Result<(), KirError> {
+        if let (Some(min), Some(max)) = (minimum.as_fixed(), maximum.as_fixed())
+            && min > max
+        {
+            return kind("reversed choice bounds");
+        }
+        if !matches!(from, SetExpr::Matching { .. }) {
+            return unaudited("choice needs a current public object set");
+        }
+        // CR 800.4a/g: an interactive choice stores candidates and a chooser
+        // across concessions. Core cannot replace a departed chooser or
+        // refresh candidates. These bounds force the empty or entire set.
+        if minimum == maximum
+            && (minimum.as_fixed() == Some(&Quantity::zero())
+                || matches!(minimum, Amount::Count { set } if set == from))
+        {
+            return Ok(());
+        }
+        unaudited("choice can suspend with stale candidates")
+    }
+
+    fn audit_nested_leaf(verb: &Verb) -> Result<(), KirError> {
+        match verb {
+            // These executors authenticate against top-level instructions
+            // after the temporary leaf program has been removed.
+            Verb::CreateTokens { .. } | Verb::ModifyUntil { .. } => {
+                unaudited("nested leaf needs persistent provenance")
+            }
+            Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
+                unaudited("nested set damage leaves top-level cursor facts")
+            }
+            // CR 121.2: counted draws retain attempt progress and finish
+            // with an outcome that must match a top-level draw instruction.
+            Verb::Draw { player, amount } if !single_draw(player, amount) => {
+                unaudited("nested counted draw needs a top-level draw instruction")
+            }
+            _ => Ok(()),
+        }
     }
 
     /// A fixed amount of at least `minimum`.
@@ -1949,7 +2147,7 @@ impl Walk<'_, '_> {
                     },
                 regeneration_forbidden,
             } => {
-                Self::audited_filter(filter)?;
+                Self::audited_filter(&ZoneExpr::Battlefield, filter)?;
                 if *regeneration_forbidden && *filter != Pred::nonland_permanents() {
                     return unaudited("regeneration prohibition for this set");
                 }
@@ -1964,7 +2162,7 @@ impl Walk<'_, '_> {
                         filter,
                     },
                 to: Destination::Exile | Destination::OwnerHand,
-            } => Self::audited_filter(filter),
+            } => Self::audited_filter(&ZoneExpr::Battlefield, filter),
             Verb::Move {
                 what:
                     SetExpr::Matching {
@@ -2112,7 +2310,7 @@ impl Walk<'_, '_> {
                     kind: CardKind::Creature,
                 }) =>
                 {
-                    Self::audited_filter(filter)
+                    Self::audited_filter(&ZoneExpr::Battlefield, filter)
                 }
                 _ => unaudited("pump set"),
             },
@@ -2199,7 +2397,7 @@ impl Walk<'_, '_> {
                             kind: CardKind::Creature,
                         }) =>
                 {
-                    Self::audited_filter(filter)?
+                    Self::audited_filter(&ZoneExpr::Battlefield, filter)?
                 }
                 DamageTo::Players {
                     players: PlayerExpr::EachPlayer,
@@ -2210,11 +2408,16 @@ impl Walk<'_, '_> {
         Ok(())
     }
 
-    /// The atoms the core evaluates for a board-wide set (CR 608.2h). Every
-    /// one reads only the object and the invocation's controller.
-    fn audited_filter(filter: &Pred) -> Result<(), KirError> {
+    /// The atoms the core can evaluate for a set in this zone (CR 608.2h).
+    fn audited_filter(zone: &ZoneExpr, filter: &Pred) -> Result<(), KirError> {
         for atom in &filter.0 {
             match atom {
+                // CR 110.5d, 506.3–4, 109.4: graveyard cards have no
+                // permanent status, combat participation, or controller.
+                Atom::Tapped | Atom::Untapped | Atom::Attacking | Atom::Blocking
+                | Atom::ControlledBy { .. } if *zone != ZoneExpr::Battlefield => {
+                    return unaudited("battlefield predicate outside the battlefield");
+                }
                 Atom::Type { .. }
                 | Atom::NotType { .. }
                 | Atom::AnyType { .. }
@@ -2229,6 +2432,8 @@ impl Walk<'_, '_> {
                 | Atom::Tapped
                 | Atom::Untapped
                 | Atom::Attacking
+                // CR 111.6: tokenhood is identity. Graveyard card sets
+                // already exclude tokens regardless of this predicate.
                 | Atom::Token
                 | Atom::NotToken
                 | Atom::Keyword { .. }
@@ -2246,7 +2451,9 @@ impl Walk<'_, '_> {
                     }
                 }
                 Atom::AnyOf { alternatives } => {
-                    alternatives.iter().try_for_each(Self::audited_filter)?
+                    alternatives
+                        .iter()
+                        .try_for_each(|alternative| Self::audited_filter(zone, alternative))?;
                 }
                 Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } => {
                     return unaudited("set filter atom");
@@ -2257,9 +2464,8 @@ impl Walk<'_, '_> {
     }
 }
 
-/// The capabilities one verb needs. This is the whole capability mapping for
-/// kernel nodes: a verb names the reviewed runtime surface it uses, and no
-/// card, family or operand combination adds a capability of its own.
+/// A verb names the reviewed runtime surface it uses. The program adds any
+/// requirements that also depend on its targets or family.
 fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
     let event_player = |player: &PlayerExpr, out: &mut BTreeSet<Capability>| {
         if player.is_event_player() {
@@ -2483,6 +2689,9 @@ pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
         out.extend(DRAIN_CAPABILITIES);
     } else {
         visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
+        if node.uses_continuation() {
+            out.insert(Capability::KernelControlV1);
+        }
     }
     out
 }
@@ -2842,7 +3051,7 @@ mod tests {
     }
 
     #[test]
-    fn the_drain_pair_is_the_one_audited_sequence() {
+    fn the_drain_pair_uses_the_top_level_executor() {
         let pair = |amount| Node::drain(Context::Spell, amount);
         let requirements = check(&pair(Amount::fixed(2)), &spell(&[])).unwrap();
         assert_eq!(
@@ -2882,18 +3091,28 @@ mod tests {
             ),
             Err(KirError::Scope(_))
         ));
-        // Every other sequence is scope-checked and then unaudited.
         let Node::Seq(steps) = pair(Amount::fixed(2)) else {
             unreachable!()
         };
-        for other in [
+        for ordinary in [
             Node::Seq(vec![steps[0].clone()]),
             Node::Seq(vec![steps[0].clone(), steps[0].clone()]),
-            Node::Seq(vec![steps[0].clone(), steps[1].clone(), steps[0].clone()]),
         ] {
-            assert_eq!(drain(&other), None);
+            assert_eq!(drain(&ordinary), None);
+            let required = check(&ordinary, &spell(&[])).unwrap();
+            assert_eq!(required.capabilities, node_capabilities(&ordinary));
+            assert!(
+                !required
+                    .capabilities
+                    .contains(&Capability::OpponentLifeDrainV1)
+            );
+        }
+        for unaudited in [
+            Node::Seq(vec![steps[0].clone(), steps[1].clone(), steps[0].clone()]),
+            Node::Seq(vec![pair(Amount::fixed(2))]),
+        ] {
             assert!(matches!(
-                check(&other, &spell(&[])),
+                check(&unaudited, &spell(&[])),
                 Err(KirError::Unaudited(_))
             ));
         }
@@ -2920,8 +3139,15 @@ mod tests {
             check(&bound, &spell(&[])),
             Err(KirError::Scope(_))
         ));
+        assert!(check(&each(bound), &spell(&[])).is_ok());
+        let bound_draw = Node::Do(Verb::Draw {
+            player: PlayerExpr::Is {
+                who: Ref::BoundVar { id: 7 },
+            },
+            amount: Amount::fixed(1),
+        });
         assert!(matches!(
-            check(&each(bound.clone()), &spell(&[])),
+            check(&each(bound_draw), &spell(&[])),
             Err(KirError::Unaudited(_))
         ));
         let other = gain(
@@ -2951,6 +3177,19 @@ mod tests {
             check(&Node::Seq(vec![first.clone(), result(0)]), &spell(&[])),
             Err(KirError::Unaudited(_))
         ));
+        let step_draw = Node::Do(Verb::Draw {
+            player: you.clone(),
+            amount: Amount::Var {
+                of: Ref::StepResult {
+                    step: 0,
+                    role: StepRole::Amount,
+                },
+            },
+        });
+        assert!(matches!(
+            check(&Node::Seq(vec![first.clone(), step_draw]), &spell(&[])),
+            Err(KirError::Unaudited(_))
+        ));
         for forward in [
             Node::Seq(vec![result(0), first.clone()]),
             Node::Seq(vec![first.clone(), result(1)]),
@@ -2960,6 +3199,293 @@ mod tests {
                 check(&forward, &spell(&[])),
                 Err(KirError::Scope(_))
             ));
+        }
+    }
+
+    #[test]
+    fn control_checks_branches_bindings_payments_and_capabilities() {
+        let you = PlayerExpr::you(Context::Spell);
+        let set = SetExpr::Matching {
+            zone: ZoneExpr::Graveyards,
+            filter: Pred::default(),
+        };
+        let size = Amount::Count { set: set.clone() };
+        let body = Node::ForEach {
+            var: 2,
+            over: Domain::Objects {
+                set: SetExpr::Pool {
+                    pool: Ref::BoundVar { id: 1 },
+                },
+            },
+            body: Box::new(gain(
+                PlayerExpr::OwnerOf {
+                    object: Ref::BoundVar { id: 2 },
+                },
+                Amount::Count {
+                    set: SetExpr::One {
+                        object: Ref::BoundVar { id: 2 },
+                    },
+                },
+            )),
+        };
+        let choose = Node::Choose {
+            var: 1,
+            chooser: you.clone(),
+            from: set.clone(),
+            minimum: size.clone(),
+            maximum: size,
+            body: Box::new(body),
+        };
+        let pay = |payment| Node::UnlessPays {
+            payer: you.clone(),
+            payment,
+            node: Box::new(Node::Do(Verb::LoseLife {
+                player: you.clone(),
+                amount: Amount::fixed(1),
+            })),
+        };
+        let control = Node::If {
+            condition: Cond::All {
+                conditions: vec![
+                    Cond::Exists { set },
+                    Cond::Not {
+                        condition: Box::new(Cond::CostPaid {
+                            identity: "kicker".into(),
+                        }),
+                    },
+                    Cond::Compare {
+                        left: Amount::announced_x(),
+                        cmp: Cmp::AtLeast,
+                        right: Amount::fixed(1),
+                    },
+                ],
+            },
+            then: Box::new(Node::Optional {
+                chooser: you.clone(),
+                node: Box::new(choose),
+            }),
+            otherwise: Some(Box::new(Node::Seq(vec![
+                pay(Payment::Life {
+                    amount: Amount::fixed(1),
+                }),
+                pay(Payment::Generic {
+                    amount: Amount::announced_x(),
+                }),
+            ]))),
+        };
+        let env = Env {
+            announced_x: true,
+            ..spell(&[])
+        };
+        let requirements = check(&control, &env).unwrap();
+        assert!(requirements.announced_x);
+        assert_eq!(
+            requirements.capabilities,
+            BTreeSet::from([
+                Capability::KernelControlV1,
+                Capability::LifeGainV1,
+                Capability::LifeLossV1,
+            ])
+        );
+        assert_eq!(requirements.capabilities, node_capabilities(&control));
+    }
+
+    #[test]
+    fn control_rejects_unsupported_operands_and_children() {
+        let you = PlayerExpr::you(Context::Spell);
+        let child = || Box::new(gain(you.clone(), Amount::fixed(1)));
+        let choice = |minimum, maximum| Node::Choose {
+            var: 0,
+            chooser: you.clone(),
+            from: SetExpr::battlefield(Pred::creatures()),
+            minimum: Amount::fixed(minimum),
+            maximum: Amount::fixed(maximum),
+            body: child(),
+        };
+        assert!(check(&choice(0, 0), &spell(&[])).is_ok());
+        assert!(matches!(
+            check(&choice(2, 1), &spell(&[])),
+            Err(KirError::Type(_))
+        ));
+        assert!(matches!(
+            check(
+                &Node::UnlessPays {
+                    payer: you.clone(),
+                    payment: Payment::Life {
+                        amount: Amount::fixed(-1)
+                    },
+                    node: child(),
+                },
+                &spell(&[])
+            ),
+            Err(KirError::Type(_))
+        ));
+        for node in [
+            Node::Delayed {
+                event: DelayedEvent::NextEndStep,
+                node: child(),
+            },
+            Node::Reflexive {
+                first: child(),
+                then: child(),
+            },
+            Node::ForEach {
+                var: 0,
+                over: Domain::Objects {
+                    set: SetExpr::Matching {
+                        zone: ZoneExpr::Exile,
+                        filter: Pred::default(),
+                    },
+                },
+                body: child(),
+            },
+            Node::Optional {
+                chooser: PlayerExpr::EachOpponent,
+                node: child(),
+            },
+            Node::If {
+                condition: Cond::Exists {
+                    set: SetExpr::source(),
+                },
+                then: child(),
+                otherwise: Some(Box::new(Node::Do(Verb::Shuffle {
+                    player: you.clone(),
+                }))),
+            },
+            Node::Seq(vec![gain(
+                you.clone(),
+                Amount::LifeOf {
+                    player: you.clone(),
+                },
+            )]),
+            Node::Seq(vec![gain(
+                PlayerExpr::ControllerOf {
+                    object: Ref::Source,
+                },
+                Amount::fixed(1),
+            )]),
+            Node::Seq(vec![Node::Do(Verb::ModifyUntil {
+                what: SetExpr::source(),
+                layer: Layer::PowerToughnessModify,
+                change: Change::PowerToughness {
+                    power: Amount::fixed(1),
+                    toughness: Amount::fixed(1),
+                },
+                until: Until::EndOfTurn,
+            })]),
+            choice(1, 1),
+        ] {
+            assert!(
+                matches!(check(&node, &spell(&[])), Err(KirError::Unaudited(_))),
+                "{node:?}"
+            );
+        }
+        let optional_destroy = Node::Optional {
+            chooser: you,
+            node: Box::new(Node::Do(Verb::Destroy {
+                what: SetExpr::target(0),
+                regeneration_forbidden: false,
+            })),
+        };
+        let targets = [TargetSpec::new(
+            0,
+            "line:0:0",
+            TargetDomain::BattlefieldPermanent,
+        )];
+        let env = spell(&targets);
+        assert!(
+            !check(&optional_destroy, &env)
+                .unwrap()
+                .capabilities
+                .contains(&Capability::KernelControlV1)
+        );
+        assert!(matches!(
+            check(&Node::Seq(vec![optional_destroy]), &env),
+            Err(KirError::Unaudited(_))
+        ));
+    }
+
+    #[test]
+    fn control_rejects_counted_draw_leaves() {
+        let targets = [TargetSpec::new(0, "line:0:0", TargetDomain::AnyPlayer)];
+        let env = Env {
+            announced_x: true,
+            ..spell(&targets)
+        };
+        let you = PlayerExpr::you(Context::Spell);
+        let target = PlayerExpr::Is {
+            who: Ref::Target { slot: 0 },
+        };
+        for (player, amount) in [
+            (you.clone(), Amount::fixed(0)),
+            (you.clone(), Amount::fixed(2)),
+            (you.clone(), Amount::announced_x()),
+            (target.clone(), Amount::fixed(2)),
+            (PlayerExpr::EachPlayer, Amount::fixed(1)),
+        ] {
+            let leaf = Node::Do(Verb::Draw { player, amount });
+            assert!(check(&leaf, &env).is_ok());
+            assert!(matches!(
+                check(&Node::Seq(vec![leaf]), &env),
+                Err(KirError::Unaudited(reason)) if reason.contains("nested counted draw")
+            ));
+        }
+        for player in [you, target] {
+            let leaf = Node::Do(Verb::Draw {
+                player,
+                amount: Amount::fixed(1),
+            });
+            assert!(check(&Node::Seq(vec![leaf]), &env).is_ok());
+        }
+    }
+
+    #[test]
+    fn graveyard_control_sets_reject_battlefield_predicates() {
+        let you = PlayerExpr::you(Context::Spell);
+        let child = || Box::new(gain(you.clone(), Amount::fixed(1)));
+        for atom in [
+            Atom::Tapped,
+            Atom::Untapped,
+            Atom::Attacking,
+            Atom::Blocking,
+            Atom::ControlledBy {
+                player: you.clone(),
+            },
+        ] {
+            let set = SetExpr::Matching {
+                zone: ZoneExpr::Graveyards,
+                filter: Pred(vec![Atom::AnyOf {
+                    alternatives: vec![Pred::creatures(), Pred(vec![atom.clone()])],
+                }]),
+            };
+            let amount = Amount::Count { set: set.clone() };
+            for node in [
+                Node::If {
+                    condition: Cond::Exists { set: set.clone() },
+                    then: child(),
+                    otherwise: None,
+                },
+                Node::ForEach {
+                    var: 0,
+                    over: Domain::Objects { set: set.clone() },
+                    body: child(),
+                },
+                Node::Seq(vec![gain(you.clone(), amount.clone())]),
+                Node::Choose {
+                    var: 0,
+                    chooser: you.clone(),
+                    from: set,
+                    minimum: amount.clone(),
+                    maximum: amount,
+                    body: child(),
+                },
+            ] {
+                assert!(
+                    matches!(check(&node, &spell(&[])), Err(KirError::Unaudited(reason))
+                        if reason == "battlefield predicate outside the battlefield"),
+                    "{atom:?} in {node:?}"
+                );
+            }
         }
     }
 
@@ -3231,7 +3757,7 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_are_derived_from_verbs_alone() {
+    fn capabilities_include_the_continuation_and_its_leaves() {
         let caps = |node: &Node| node_capabilities(node);
         assert_eq!(
             caps(&gain(PlayerExpr::you(Context::Spell), Amount::fixed(1))),
@@ -3263,7 +3789,11 @@ mod tests {
         };
         assert_eq!(
             caps(&nested),
-            BTreeSet::from([Capability::LifeGainV1, Capability::LifeLossV1])
+            BTreeSet::from([
+                Capability::KernelControlV1,
+                Capability::LifeGainV1,
+                Capability::LifeLossV1,
+            ])
         );
     }
 

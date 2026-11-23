@@ -56,7 +56,7 @@ impl RulesTxn {
         node: Node,
         source_block: u32,
     ) -> Result<(), String> {
-        // CR 119.3: the drain pair is the one audited sequence.
+        // CR 119.3: the standalone drain pair uses the actual loss total.
         if let Some(amount) = mtg_contracts::kir::drain(&node) {
             let amount = self.kernel_amount(&frame, amount)?;
             return self.drain_opponents(frame, amount, source_block);

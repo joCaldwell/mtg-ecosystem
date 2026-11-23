@@ -139,7 +139,7 @@ pub(crate) fn extend_schema(schema: &mut Value) {
     );
     let x_amount = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{"anyOf":[
         instruction_schema::set_damage(json!({"const":kir::Amount::announced_x()})),
-        instruction_schema::kernel_seq_announced_x()
+        instruction_schema::kernel_drain(instruction_schema::announced_x())
     ]}}}}}});
     let counted_x = json!({"required":["spell"],"properties":{"spell":{"type":"object","properties":{"instructions":{"contains":{
         "anyOf":[

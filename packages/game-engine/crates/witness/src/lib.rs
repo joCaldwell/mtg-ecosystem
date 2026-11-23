@@ -7,7 +7,10 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-pub mod aura;
+/// The Archive R4 header every witness source row is pinned to.
+pub const R4_MANIFEST: &str =
+    include_str!("../../../tests/fixtures/archive-manifest-phase1-r4.json");
+
 pub mod equipped;
 pub mod temporary;
 

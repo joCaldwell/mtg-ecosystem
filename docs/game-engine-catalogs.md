@@ -22,7 +22,19 @@ cargo run --locked -p mtg-sim -- catalog verify /path/to/accepted.jsonl packages
 ```
 
 `build` checks complete supported records, provenance pins, IR bytes and digest.
-`--write` regenerates both outputs. `--json-errors` emits a structured diagnostic
+`--write` regenerates both outputs by lowering every record, so it requires
+Archive R4 rows. Every committed catalog predates R4: its expected IR is frozen
+reviewed data that the compiler no longer reproduces. `build` without `--write`
+and `mtg_compiler::catalog::embedded_catalog` admit that IR instead, but only
+for the 30 manifests listed with their frozen digests in `catalog.rs`
+(`FROZEN_CATALOGS`), byte for byte the committed manifest and with no R4 row.
+Each record must be pinned by a committed accepted-archive registry, each
+definition must carry exactly the oracle, source, AST, binding and archive
+identity of its pinned record, and the catalog must validate and hash to the
+frozen digest. Any other manifest, embedded or on disk, lowers its source;
+`catalogs/phase1-r4.json` is the committed Archive R4 catalog that proves it. Core embeds the same IR for
+profiles. Converting or retiring these catalogs belongs with the legacy
+`Instruction` variants they use. `--json-errors` emits a structured diagnostic
 on stderr. Coverage publishes both receipts together and preserves occupied
 destinations unless their receipts already match. Manifest fields are `schema_version: 1`,
 `provenance`, `records`, `expected_ir`, `expected_digest` and `output_order`:
@@ -131,17 +143,18 @@ is in scope and of the right kind for the context, targets and event; rejects a
 filtered count of a hand or library (CR 400.2); and admits a verb only in an
 audited cell, one the core interpreter (`core/src/engine/kir.rs`) executes and
 recovers. `Definition::kernel_check` runs it for every program; the capability
-walker derives capabilities from verbs, and the published schema branch for a
-kernel node is the plain derived shape. A family schema twin names a kernel
-verb only to recognise its own programs. A well-scoped node without a cell is
-rejected as unaudited; control nodes are scope-checked but have no cell until
-the resolving frame can resume inside a node.
+walker derives capabilities from verbs. The published schema uses the derived
+node shape and requires the continuation capability where a program uses it.
+A family schema twin names a kernel verb only to recognise its own programs.
+A well-scoped node without a cell is rejected as unaudited. The resolving
+frame can resume at an audited control node, with bindings and progress tied
+to its address in the admitted program.
 
 Every flat effect is a kernel verb; the audited cells are:
 
 | Verb | Audited operands |
 | --- | --- |
-| `gain_life`, `lose_life` | Controller (fixed or X), each opponent, one announced player (fixed or X), or the caster/active event player; the drain pair is the one audited `seq` |
+| `gain_life`, `lose_life` | Controller (fixed or X), each opponent, one announced player (fixed or X), or the caster/active event player; the standalone drain pair uses a dedicated executor |
 | `draw` | Controller, every player, one announced player (fixed or X), or the caster/active event player |
 | `damage` | From the source: one announced target (fixed or X for any target or creature), the controller, a mana ability's activator, or creature sets plus optionally each player (fixed, X, creature count or other casts' mana value) |
 | `destroy`, `move`, `tap`, `untap` | One announced target by domain (destroy; exile, owner's hand, top of owner's library; tap; untap), an optional target destroy, matching battlefield sets, your lands (untap), one player's graveyard or every graveyard (exile) |
@@ -153,8 +166,47 @@ The core interpreter routes each cell to the executor whose events, choices,
 effects and recovery facts the legacy variant used, so state and journals are
 unchanged. Board-wide sets evaluate directly via the general battlefield or
 graveyard query.
-Control, linked and multi-step procedures stay legacy variants (optional
-blocks and draws, cascade, hideaway, impulse and library selection, searches,
+
+`Seq` follows written order. `If` supports `Compare`, `Exists`, `CostPaid`,
+`Not` and `All`. `ForEach` binds a player or a singleton object.
+`Optional` and `UnlessPays` take a singleton player expression, and
+`UnlessPays` supports life and generic mana. The continuation skips an optional
+effect with no live chooser and takes the unpaid branch with no live payer.
+`Choose` binds a pool from a matching public set when both bounds force zero
+or the size of that set. Interactive object choice remains unaudited because
+the saved candidates and chooser are not refreshed on departure (CR 800.4a/g).
+
+Controls read fixed amounts, announced X and counts of audited sets. Life
+changes, payments and choice bounds require nonnegative amounts. Object sets
+are matching battlefield permanents or cards across graveyards with the
+audited set predicates, single source or announced object identities, a bound
+singleton, or a bound choice pool. Tapped and untapped status, combat
+participation and controller filters require the battlefield in these sets
+(CR 110.5d, 506.3–4, 109.4), including in predicate alternatives. Graveyard
+card sets exclude tokens (CR 111.6). Player expressions name the invocation's
+controller, a bound player, the caster or active event player, or a player
+target in a prefix of ordinary player slots. They can also read the recorded
+owner of the source or a singleton iteration object. Player loops and life
+leaves can read each player or each opponent. Target owners, object controllers
+and life totals can require missing or last-known facts the continuation cannot
+always read. Object stats and cast-history amounts remain outside the control
+cells.
+
+Every branch and leaf needs its own audited cell. Non-life leaves use the flat
+executor without task bindings, with a single announced target when they read a
+target. A nested draw must draw exactly one fixed card for one player. Counted
+draws, including each-player and announced-X draws, require a top-level draw
+instruction for their saved attempts and outcome. Token creation and
+temporary effects need persistent leaf provenance, and set damage retains
+facts tied to the top-level cursor. The specialized drain and optional target
+destroy retain their standalone routes. `Delayed` and `Reflexive` remain
+unaudited. Control nodes derive capabilities from their leaves, including
+target- and program-sensitive requirements. Continuation-based nodes also
+require `KernelControlV1`, which is outside the reviewed hosting and search
+sets. Catalog family admission still applies.
+
+Other linked and multi-step procedures stay legacy variants (optional blocks
+and draws, cascade, hideaway, impulse and library selection, searches,
 scry/surveil, demonstrate, reveal-and-cast, counterspells, copies, bestow and
 attachment returns, damage/sacrifice riders), as do three flat effects whose
 complete forms need new algebra: `AddResolutionMana` (a scaled per-permanent
@@ -168,34 +220,50 @@ Foundations and Ramos pod digests.
 
 The compiler is one pipeline: `ingest/` (hash-bound record, source, parse and
 typed AST mirror), `operands.rs` (total operand lowerers), `rules/` (effect,
-static, trigger and activation lowerers), `shells/` (Saga, modal/transforming
-faces, Bestow, optional costs, linked Hideaway) and `assemble.rs` (definition
-shell and admission), driven block by block by `compose.rs`. `families/` holds
-the residual whole-card families and the legacy diagnostic-graph builders
-(`bindings.rs`, `self_reference.rs`) that pre-R4 frozen fixture rows still need;
-`lib.rs` is only the public API and route. Families are tried first; retire one
-only when a whole-archive differential shows composition lowers its rows with
-equal IR and no fixture catalog row depends on it. A record whose shape no
-family supports falls back to `compose.rs`, which repeats the
-archive integrity checks, decodes the complete AST through the generated
-`mtg-oracle-ast` types and verifies the record's archive R4 resolution
-(`compiler/src/resolution.rs`, contract in the [parser guide](oracle_parser.md#ast-archive)):
-it must be complete; each reference's closed `Ref` role must be one the shared
-lowerer reads ("you" and implicit payers the block's controller, printed targets
-announced targets, other pronouns targets or results of the block's own steps,
-a kernel event player only under the one trigger that supplies it);
-the step map must be exactly the AST's steps; and each block's span certificate
-must tile its text, give every sentence its own span and print every top-level
-field. Composition never reads the diagnostic graph. Lowering then uses small
-tables: `compose/costs.rs`, `compose/events.rs`, `compose/keywords.rs`,
+static, trigger and activation lowerers, with `rules/procedures.rs` holding the
+whole-procedure shapes that still emit dedicated legacy instructions) and
+`assemble.rs` (definition shell and admission), driven block by block by
+`compose.rs`; `lib.rs` is only the public API. There are no whole-card families,
+diagnostic-graph builders or text recognizers, and no Saga, modal/transforming
+face, Bestow, optional-cost or linked-Hideaway shell: those mechanics reject
+until they are rebuilt as composition rows on Kernel IR. Every record goes
+through `compose.rs`, which checks archive integrity, decodes the complete AST
+through the generated `mtg-oracle-ast` types and verifies the record's archive
+R4 resolution (`compiler/src/resolution.rs`, contract in the
+[parser guide](oracle_parser.md#ast-archive)). A record without a resolution
+(every archive before R4) rejects at path `resolution`. The resolution must be
+complete; each reference's closed `Ref` role must be one the shared lowerer reads
+("you" and implicit payers the block's controller, printed targets announced
+targets, other pronouns targets or results of the block's own steps, a kernel
+event player only under the one trigger that supplies it); the step map must be
+exactly the AST's steps; and each block's span certificate must tile its text,
+give every sentence its own span and print every top-level field. Composition
+never reads the diagnostic graph. Lowering then uses small tables:
+`compose/costs.rs`, `compose/events.rs`, `compose/keywords.rs`,
 `compose/steps.rs` and the shared typed step lowerer. Unknown kinds, fields,
 operands and unconsumed references reject; a shape outside the lowering mirror
-is named by its verb. A family that recognised the source and refused its
-reference graph (path `binding`) has given an integrity verdict, which is final:
-only shape rejections fall back. A family rejection that composition does not
-recover keeps its original reason, so coverage reasons stay comparable.
+is named by its verb. "Draw N cards" lowers to N ordered single draws
+(CR 121.2) in every block kind, and a paid one-card basic land search to the
+tapped search instruction.
 
-The fallback also rejects "may", "up to" and "if"/"unless" against `optional`,
+The normalized source lines must equal the parsed blocks. When the parser
+groups the same printed lines differently (an ability-word "instead" rider kept
+with the block it modifies) the row is unsupported at path `lines`; text the
+parse does not account for is invalid.
+
+Lowerers read pronouns and targets by AST shape, so composition also proves
+the edges they assume. Every reference operand must have its resolution entry,
+including the scalar player relations the archive always resolves (`control`
+you/opponent, `owner`/`whose` your, `to` owner). A pronoun (`it`, `that`,
+`them`, `rest`) must resolve to a target or a step result, never an evaluated
+or derived entry. A step result must name the nearest earlier producer of its
+role (a search's selection, a look's objects), or, for `rest` only, the
+remainder of its own member of a simultaneous step after an earlier sibling
+took from the pool; any other role rejects. A printed target's resolved
+block-relative slot must be the slot announced for its selection, and a
+pronoun resolved to a target must name the block's sole announced target.
+
+Composition also rejects "may", "up to" and "if"/"unless" against `optional`,
 `upTo` and a condition; a printed number absent from the block's AST; a cost
 term; an ability word the block does not print; and an evergreen keyword present
 in only one of the source keyword list and the AST. Hand-built test rows with
@@ -210,7 +278,7 @@ after them, `binding` the card-wide rejection and `block` the failing printed bl
 structs from `PermanentFilter::any()`, `TargetSpec::new` and `SpellProgram::instructions`
 (`contracts/src/builders.rs`), so a new field touches one constructor.
 
-Adding a primitive touches the row that owns it, not every family:
+Adding a primitive touches the row that owns it, not every card:
 
 | Primitive | Files |
 | --- | --- |

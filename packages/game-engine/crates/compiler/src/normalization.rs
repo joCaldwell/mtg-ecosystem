@@ -16,8 +16,6 @@ fn regex(pattern: &str) -> Regex {
         .clone()
 }
 
-pub(super) use mtg_contracts::matches_fixed_amount;
-
 fn normalize_punctuation(text: &str) -> String {
     text.replace('’', "'")
         .replace(['“', '”'], "\"")

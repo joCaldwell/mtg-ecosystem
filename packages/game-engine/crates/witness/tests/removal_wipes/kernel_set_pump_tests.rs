@@ -10,17 +10,14 @@ use mtg_witness::temporary::{announce, pass};
 
 #[test]
 fn kernel_pump_over_a_general_filter_captures_executes_and_recovers() {
-    let mut p = mtg_witness::equipped::prepared(
-        &[
-            ("Infest", true),
-            ("Swamp", false),
-            ("Swamp", false),
-            ("Swamp", false),
-            ("Typhoid Rats", false),
-            ("Grizzly Bears", false),
-        ],
-        false,
-    );
+    let mut p = prepared(&[
+        ("Infest", true),
+        ("Swamp", false),
+        ("Swamp", false),
+        ("Swamp", false),
+        ("Typhoid Rats", false),
+        ("Grizzly Bears", false),
+    ]);
     let mut c = (*p.catalog).clone();
     let d = c
         .definitions
@@ -76,4 +73,58 @@ fn kernel_pump_over_a_general_filter_captures_executes_and_recovers() {
     g.validate_effect_state().unwrap();
     // Snapshot restore and journal replay re-derive the same captured set.
     recover(&g);
+}
+
+/// The reviewed wipes catalog (frozen pre-R4 IR) with the rows in play.
+fn prepared(rows: &[(&str, bool)]) -> Prepared {
+    const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
+    let c = Catalog::read(include_str!(
+        "../../../../tests/fixtures/expected-wipes-ir.json"
+    ))
+    .unwrap();
+    let mut config = ScenarioConfig::turns_permanents();
+    config.initial.turn_step = TurnStep::PrecombatMain;
+    config.profile = "equipped-indestructible-private".into();
+    config.commanders.clear();
+    config.cards = rows
+        .iter()
+        .enumerate()
+        .map(|(i, (name, hand))| CardSetup {
+            id: CardId(i as u32),
+            oracle_id: c
+                .definitions
+                .iter()
+                .find(|d| d.name == *name)
+                .unwrap()
+                .oracle_id
+                .clone(),
+            owner: PlayerId(0),
+            controller: PlayerId(0),
+            zone: if *hand {
+                Zone::Hand { owner: PlayerId(0) }
+            } else {
+                Zone::Battlefield
+            },
+        })
+        .collect();
+    for seat in 0..4 {
+        for _ in 0..6 {
+            config.cards.push(CardSetup {
+                id: CardId(config.cards.len() as u32),
+                oracle_id: FOREST.into(),
+                owner: PlayerId(seat),
+                controller: PlayerId(seat),
+                zone: Zone::Library {
+                    owner: PlayerId(seat),
+                },
+            });
+        }
+    }
+    Prepared {
+        catalog_digest: digest(&c).unwrap(),
+        profile_digest: digest(&config).unwrap(),
+        catalog: Arc::new(c),
+        config,
+        match_config: None,
+    }
 }

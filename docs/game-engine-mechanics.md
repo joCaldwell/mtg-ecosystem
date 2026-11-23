@@ -2,8 +2,9 @@
 
 This is the current semantic map, not a claim of general Magic support. Read
 the runtime invariants below before editing rules. Exact Rust IR validation in
-`crates/contracts`, lowering in `crates/compiler` and complete archived source
-fixtures define executable shapes;
+`crates/contracts`, lowering in `crates/compiler` (Archive R4 composition only)
+and complete archived source fixtures define executable shapes; committed catalogs
+keep reviewed IR from retired whole-card families as runtime data;
 [profiles](game-engine-catalogs.md#match-profile-data) independently admit decks
 and consumers. Source/compiler support, private runtime witnesses, accepted-pod
 prefixes, completion games, hosting/search review and browser acceptance are
@@ -496,12 +497,14 @@ completed proposal (CR 601.6).
 
 ## Composition matrix
 
-A card no whole-card family supports is lowered one printed block at a time and
-admitted by the tables in `crates/contracts/src/composition.rs`. Such a
-definition carries `composed: true` and `composed_ability_v1`; the marker and the
-capability are inseparable in validation and in the published schema. Families
-keep precedence, so composition never changes an already supported card, and no
-hosted or search profile reviews the capability.
+Every compiled card is lowered one printed block at a time and admitted by the
+tables in `crates/contracts/src/composition.rs`. Its definition carries
+`composed: true` and `composed_ability_v1`; the marker and the capability are
+inseparable in validation and in the published schema. The capability names the
+pipeline, not a mechanic, so the hosted and search sets admit it while every
+mechanic still needs its own reviewed capability. Committed catalog IR from
+retired whole-card families stays runtime data without the marker; the shapes
+below that mention a family describe that frozen IR.
 
 Each table decides one independent question (CR 113.3, 602.1, 603.1, 608.2):
 
@@ -525,7 +528,7 @@ Private R3 witnesses cover noncreature tap abilities, paid and unpaid
 tap/sacrifice land and enchantment activations, creature tap damage, mana
 pumps, land entry triggers, a dies trigger and an ordered spell sequence; they
 qualify those paths only, not full games or consumers. The lowering-side
-integrity rules, including the final family binding verdict, are owned by
+integrity rules are owned by
 [compositional lowering](game-engine-catalogs.md#compositional-lowering).
 
 ## Admission and policy boundaries

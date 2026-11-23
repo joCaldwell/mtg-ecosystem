@@ -134,13 +134,45 @@ fn main() {
         }
     );
     generated += "pub const FILES: &[(&str, &str)] = &[\n";
-    // Embed source inputs only. Expected IR, policy copies and other evidence
-    // remain on disk; they are not needed for lowering or runtime diagnostics.
-    for name in files {
+    // Embed source inputs only. Policy copies and other evidence remain on
+    // disk; reviewed IR is embedded separately in `REVIEWED_IR` below.
+    for name in &files {
         println!("cargo:rerun-if-changed={}", root.join(&name).display());
         if let Ok(raw) = fs::read_to_string(root.join(&name)) {
             generated += &format!("({:?}, {raw:?}),\n", name.to_str().unwrap());
         }
+    }
+    generated += "];\n";
+    // Committed catalogs' reviewed IR and digest, which `embedded_catalog`
+    // admits against each manifest's pinned provenance instead of lowering
+    // pre-R4 source again.
+    generated += "pub const REVIEWED_IR: &[(&str, &str, &str)] = &[\n";
+    for name in files.iter().filter(|n| n.starts_with("catalogs")) {
+        let Some(manifest) = json(&root, name) else {
+            continue;
+        };
+        let (Some(ir), Some(digest)) = (
+            manifest["expected_ir"].as_str(),
+            manifest["expected_digest"].as_str(),
+        ) else {
+            continue;
+        };
+        let base = name.parent().unwrap();
+        let (ir, digest) = (
+            root.join(relative(base, ir)),
+            root.join(relative(base, digest)),
+        );
+        if !ir.is_file() || !digest.is_file() {
+            continue;
+        }
+        println!("cargo:rerun-if-changed={}", ir.display());
+        println!("cargo:rerun-if-changed={}", digest.display());
+        generated += &format!(
+            "({:?}, include_str!({:?}), include_str!({:?})),\n",
+            name.to_str().unwrap(),
+            ir.to_str().unwrap(),
+            digest.to_str().unwrap()
+        );
     }
     generated += "];\n";
     let header = fs::read_to_string(root.join("archive-manifest.json")).unwrap_or_default();

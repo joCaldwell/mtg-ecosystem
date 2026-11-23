@@ -4,8 +4,6 @@
 use super::*;
 use rand_core::{Rng, SeedableRng};
 
-mod progenitus_paid_sacrifice_tests;
-
 fn catalog() -> Catalog {
     Catalog::read(include_str!(
         "../../../../tests/fixtures/expected-sacrifice-ir.json"

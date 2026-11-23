@@ -150,7 +150,7 @@ fn term(card: &Card<'_>, terms: &mut Terms, cost: &SourceCost) -> Result<(), Fai
         SourceCost::PayLife { .. } | SourceCost::RemoveCounters { .. } => {
             return Err(unsupported(
                 "compose.cost",
-                "life and counter costs require a reviewed family",
+                "life and counter costs outside the block tables",
             ));
         }
     }

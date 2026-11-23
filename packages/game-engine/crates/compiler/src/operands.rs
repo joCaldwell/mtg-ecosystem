@@ -230,8 +230,6 @@ pub(crate) fn bind_target(
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlayerBinding {
     Unbound,
-    AnnouncedX,
-    DiscardTarget(TargetDomain),
     /// "That player" is the trigger's event player in this role.
     EventPlayer(kir::EventPlayerRole),
     DamageRecipient,
@@ -829,35 +827,6 @@ pub(crate) fn fixed_positive_value(value: &serde_json::Value) -> Result<Quantity
     )
 }
 
-pub(crate) fn lower_sacrifice_filter(what: &serde_json::Value) -> Result<SacrificeFilter, Failure> {
-    let types = if *what
-        == serde_json::json!({"ref":"filter","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1}})
-    {
-        vec![CardKind::Creature]
-    } else if *what
-        == serde_json::json!({"ref":"filter","filter":{"types":["artifact"]},"count":{"amount":"fixed","value":1}})
-    {
-        vec![CardKind::Artifact]
-    } else if *what
-        == serde_json::json!({"ref":"filter","filter":{"allOf":[{"anyOf":[{"types":["artifact"]},{"types":["creature"]}]}]},"count":{"amount":"fixed","value":1}})
-    {
-        vec![CardKind::Artifact, CardKind::Creature]
-    } else if *what
-        == serde_json::json!({"ref":"filter","filter":{"subtypes":["Goblin"]},"count":{"amount":"fixed","value":1}})
-    {
-        return Ok(SacrificeFilter {
-            types: vec![],
-            subtypes: vec!["Goblin".into()],
-        });
-    } else {
-        return Err(unsupported("cost", "unsupported complete sacrifice filter"));
-    };
-    Ok(SacrificeFilter {
-        types,
-        subtypes: vec![],
-    })
-}
-
 pub(crate) fn fixed_positive(count: &Count) -> Result<Quantity, Failure> {
     if count.amount != "fixed" || count.value == 0 {
         return Err(unsupported(
@@ -866,29 +835,6 @@ pub(crate) fn fixed_positive(count: &Count) -> Result<Quantity, Failure> {
         ));
     }
     Ok(Quantity::from(i64::from(count.value)))
-}
-
-pub(crate) fn life_recipient(
-    program: &mut SpellProgram,
-    slots: &mut BTreeMap<String, u32>,
-    who: &PlayerSelector,
-    event_player: bool,
-) -> Result<LifeRecipient, Failure> {
-    if who.of.is_some() {
-        return Err(unsupported("who", "unexpected object reference"));
-    }
-    match (who.player.as_str(), who.selection_id.as_deref()) {
-        ("you", None) => Ok(LifeRecipient::Controller),
-        ("that-player", None) if event_player => Ok(LifeRecipient::EventPlayer),
-        ("each-opponent", None) => Ok(LifeRecipient::EachOpponent),
-        ("target-player", Some(id)) => Ok(LifeRecipient::Target {
-            target_slot: bind_target(program, slots, id, TargetDomain::AnyPlayer)?,
-        }),
-        _ => Err(unsupported(
-            "who",
-            "unsupported life recipient or unbound target",
-        )),
-    }
 }
 
 /// CR 109.5, 119.3: who a life change names. "You" is the controller of this

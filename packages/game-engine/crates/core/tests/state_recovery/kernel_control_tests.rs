@@ -1,7 +1,7 @@
-//! Exercise control below admission until the shared checker opens those cells.
+//! Exercise audited continuations and the interpreter's interactive choice path.
 use super::*;
 use mtg_contracts::kir::{
-    Amount, Cond, Context, Domain, Node, Payment, PlayerExpr, Pred, Ref, SetExpr, Verb,
+    Amount, Cond, Context, Domain, Node, Payment, PlayerExpr, Pred, Ref, SetExpr, Verb, ZoneExpr,
 };
 
 fn controller() -> PlayerExpr {
@@ -199,7 +199,40 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
     let Instruction::Kernel { node, .. } = &mut program.instructions[0] else {
         panic!("expected the admitted sacrifice verb")
     };
-    *node = Node::Seq(vec![node.clone(), gain(controller(), Amount::fixed(4))]);
+    let candidates = SetExpr::battlefield(Pred::creatures());
+    let size = Amount::Count {
+        set: candidates.clone(),
+    };
+    *node = Node::Seq(vec![
+        node.clone(),
+        Node::Choose {
+            var: 3,
+            chooser: controller(),
+            from: candidates,
+            minimum: size.clone(),
+            maximum: size,
+            body: Box::new(gain(
+                PlayerExpr::OwnerOf {
+                    object: Ref::Source,
+                },
+                Amount::Count {
+                    set: SetExpr::Pool {
+                        pool: Ref::BoundVar { id: 3 },
+                    },
+                },
+            )),
+        },
+    ]);
+    mtg_contracts::kir::check(
+        node,
+        &mtg_contracts::kir::Env {
+            context: Context::Spell,
+            targets: &program.targets,
+            event: None,
+            announced_x: false,
+        },
+    )
+    .unwrap();
     prepared.catalog_digest = mtg_contracts::digest(catalog).unwrap();
     let mut game = super::formats_tests::cast_edict(prepared.clone());
     let next = game.advance(Budget::unlimited());
@@ -246,13 +279,13 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
         assert!(matches!(outcomes.as_slice(), [
             InstructionOutcome::Sacrificed { player: p, movement: Some(movement) },
             InstructionOutcome::Life { actual: Some(EventOutcome::LifeGained { player: PlayerId(0), amount, .. }) }
-        ] if *p == player && movement.previous == candidates[0] && *amount == Quantity::from(4)));
+        ] if *p == player && movement.previous == candidates[0] && *amount == Quantity::from(2)));
         g.validate_state().unwrap();
         let roundtrip = Game::restore(prepared.clone(), &g.snapshot().unwrap()).unwrap();
         assert_eq!(roundtrip.state_digest().unwrap(), g.state_digest().unwrap());
         assert!(g.state.rules.frames.is_empty());
         let mut expected = before.clone();
-        expected.add(&4.into());
+        expected.add(&2.into());
         assert_eq!(g.state.rules.players[0].life, expected);
         g.validate_state().unwrap();
     }
@@ -260,6 +293,139 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
         game.state_digest().unwrap(),
         restored.state_digest().unwrap()
     );
+}
+
+#[test]
+fn a_nested_single_draw_restores_before_drawing() {
+    let prepared = edict_with_kernel(
+        Node::Seq(vec![Node::Do(Verb::Draw {
+            player: PlayerExpr::Is {
+                who: Ref::Target { slot: 0 },
+            },
+            amount: Amount::fixed(1),
+        })]),
+        TargetDomain::AnyPlayer,
+    );
+    let mut game = super::formats_tests::cast_edict(prepared.clone());
+    let owner = PlayerId(1);
+    let library = game.state.rules.libraries[&owner].clone();
+    let mut leaf_started = false;
+    for _ in 0..32 {
+        let next = game.advance(Budget::new(1));
+        assert!(matches!(next, Advance::Suspended { .. }), "{next:?}");
+        if matches!(&game.state.rules.frame, Frame::Resolve { frame } if frame.cursor == 0)
+            && matches!(game.state.rules.frames.last(), Some(Frame::Kernel { .. }))
+        {
+            leaf_started = true;
+            break;
+        }
+    }
+    assert!(leaf_started, "expected the nested draw's resolving frame");
+    assert_eq!(game.state.rules.libraries[&owner], library);
+    let mut restored = Game::restore(prepared, &game.snapshot().unwrap()).unwrap();
+    for g in [&mut game, &mut restored] {
+        let next = g.advance(Budget::unlimited());
+        assert!(
+            matches!(next, Advance::AwaitingDecision(Request::Priority { .. })),
+            "{next:?}"
+        );
+        assert_eq!(g.state.rules.libraries[&owner].as_slice(), &library[1..]);
+        let drawn = g.object_id(library[0]).unwrap();
+        assert_eq!(g.current(drawn).unwrap().zone, Zone::Hand { owner });
+        g.validate_state().unwrap();
+    }
+    assert_eq!(game.snapshot().unwrap(), restored.snapshot().unwrap());
+}
+
+#[test]
+fn a_forced_graveyard_choice_iterates_only_matching_cards() {
+    // CR 109.2a, 404.1: this set describes creature cards in graveyards.
+    let from = SetExpr::Matching {
+        zone: ZoneExpr::Graveyards,
+        filter: Pred::creatures(),
+    };
+    let size = Amount::Count { set: from.clone() };
+    let node = Node::Choose {
+        var: 0,
+        chooser: controller(),
+        from,
+        minimum: size.clone(),
+        maximum: size,
+        body: Box::new(Node::ForEach {
+            var: 1,
+            over: Domain::Objects {
+                set: SetExpr::Pool {
+                    pool: Ref::BoundVar { id: 0 },
+                },
+            },
+            body: Box::new(gain(
+                PlayerExpr::OwnerOf {
+                    object: Ref::BoundVar { id: 1 },
+                },
+                Amount::fixed(1),
+            )),
+        }),
+    };
+    let prepared = edict_with_kernel(node, TargetDomain::OpponentPlayer);
+    let mut game = super::formats_tests::cast_edict(prepared);
+    // Add a creature and a land to different graveyards. Other creatures
+    // remain on the battlefield, including more owned by the matching owner.
+    for (card, owner) in [(CardId(1), PlayerId(1)), (CardId(12), PlayerId(2))] {
+        let object = game.object_id(card).unwrap();
+        game.move_object(object, Zone::Graveyard { owner }).unwrap();
+    }
+    let mut expected: Vec<_> = game
+        .state
+        .rules
+        .players
+        .iter()
+        .map(|player| player.life.clone())
+        .collect();
+    expected[1].add(&Quantity::from(1));
+    let next = game.advance(Budget::unlimited());
+    assert!(
+        matches!(next, Advance::AwaitingDecision(Request::Priority { .. })),
+        "{next:?}"
+    );
+    assert!(
+        game.state
+            .rules
+            .players
+            .iter()
+            .map(|p| &p.life)
+            .eq(&expected)
+    );
+    game.validate_state().unwrap();
+}
+
+fn edict_with_kernel(node: Node, target_domain: TargetDomain) -> Prepared {
+    let mut prepared = super::formats_tests::actions_scenario();
+    let catalog = Arc::make_mut(&mut prepared.catalog);
+    let program = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Cruel Edict")
+        .unwrap()
+        .spell
+        .as_mut()
+        .unwrap();
+    program.targets[0].domain = target_domain;
+    mtg_contracts::kir::check(
+        &node,
+        &mtg_contracts::kir::Env {
+            context: Context::Spell,
+            targets: &program.targets,
+            event: None,
+            announced_x: false,
+        },
+    )
+    .unwrap();
+    program.instructions = vec![Instruction::Kernel {
+        node,
+        source_block: 0,
+    }];
+    prepared.catalog_digest = mtg_contracts::digest(catalog).unwrap();
+    prepared
 }
 
 #[test]

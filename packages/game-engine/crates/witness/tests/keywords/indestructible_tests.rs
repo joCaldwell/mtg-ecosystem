@@ -8,11 +8,15 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
     ))
     .unwrap();
     for raw in [
-        include_str!("../../../../tests/fixtures/f90fe86c-5cca-483b-93c2-6e856fa01c88.json"),
-        include_str!("../../../../tests/fixtures/2bda1fb1-528c-4e66-89f1-bb1a85e9181e.json"),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/f90fe86c-5cca-483b-93c2-6e856fa01c88.json"
+        ),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/2bda1fb1-528c-4e66-89f1-bb1a85e9181e.json"
+        ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
             raw,
         ) else {
             panic!("source")

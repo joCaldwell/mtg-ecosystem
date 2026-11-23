@@ -103,8 +103,8 @@ parsed face and block, with block-relative paths:
   included; bullet marks are the only trivia).
 - `residuals`: why a block or card is incomplete; empty means complete.
 
-Rows also retain the diagnostic `binding` graph it is derived from, still read
-by whole-card families until they retire; `bindingSummary` counts
+Rows also retain the diagnostic `binding` graph it is derived from, which the
+compiler no longer reads; `bindingSummary` counts
 reference-bound and fully-bound cards, obligations and engine needs (see
 [binding invariants](#semantic-and-binding-invariants)). Neither a parsed row, a
 bound graph nor a complete resolution establishes executable support.

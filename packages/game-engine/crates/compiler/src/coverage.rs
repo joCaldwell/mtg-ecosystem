@@ -227,7 +227,7 @@ pub(crate) fn assess_record(
     }
 }
 
-/// One record that neither a family nor the compositional pipeline lowers.
+/// One record the compositional pipeline does not lower.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompositionGap {
     pub oracle_id: String,
@@ -244,8 +244,8 @@ pub struct CompositionGap {
     pub block: Option<usize>,
 }
 
-/// Diagnostic only: for every record that neither a family nor the
-/// compositional pipeline lowers, every blocker composition names. Lowering
+/// Diagnostic only: for every record the compositional pipeline does not
+/// lower, every blocker composition names. Lowering
 /// still rejects at the first card-wide binding failure; this report defers
 /// those checks so a downstream block blocker is not hidden behind them.
 pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageError> {
@@ -271,7 +271,7 @@ pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageE
             line: i + 2,
             reason,
         })?;
-        if archive_exclusion(&row).is_some() || crate::lower_families(accepted, raw).is_ok() {
+        if archive_exclusion(&row).is_some() || crate::compose::lower(accepted, raw).is_ok() {
             continue;
         }
         let found = crate::compose::blockers(accepted, raw);

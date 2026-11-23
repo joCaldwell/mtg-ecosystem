@@ -213,6 +213,9 @@ impl MatchProfile {
     }
 }
 // Explicit reviewed mechanic sets. Extending these requires feature-specific review.
+// `ComposedAbilityV1` names how the compiler assembled a definition (block by
+// block from its Archive R4 resolution, the only lowering pipeline), not a
+// mechanic: every mechanic it uses still needs its own capability here.
 fn reviewed(feature: Feature) -> &'static [Capability] {
     match feature {
         Feature::Search => &[
@@ -227,6 +230,7 @@ fn reviewed(feature: Feature) -> &'static [Capability] {
             Capability::CastSorceryV1,
             Capability::CombatDamagePreventionV1,
             Capability::CommanderIdentityV1,
+            Capability::ComposedAbilityV1,
             Capability::ControllerDiscardV1,
             Capability::ControllerDrawV1,
             Capability::CounterStackObjectV1,
@@ -272,6 +276,7 @@ fn reviewed(feature: Feature) -> &'static [Capability] {
             Capability::CastSorceryV1,
             Capability::CombatDamagePreventionV1,
             Capability::CommanderIdentityV1,
+            Capability::ComposedAbilityV1,
             Capability::CompositeActivationCostV1,
             Capability::ControllerDiscardV1,
             Capability::ControllerDrawV1,

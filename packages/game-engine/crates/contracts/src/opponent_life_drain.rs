@@ -58,7 +58,7 @@ pub(super) fn validate_definition(d: &Definition) -> Result<(), String> {
 pub(super) fn extend_schema(schema: &mut serde_json::Value) {
     use Capability::*;
     use serde_json::json;
-    let drain = instruction_schema::kernel_seq();
+    let drain = instruction_schema::kernel_drain(json!(true));
     let free = json!({"$ref":"#/$defs/OpponentLifeDrainFreeProgram"});
     schema["$defs"]["OpponentLifeDrainFreeProgram"] = json!({"properties":{
         "instructions":{"items":{"not":drain}},
@@ -112,6 +112,21 @@ pub(super) fn witness() -> Definition {
     let p = d.spell.as_mut().unwrap();
     p.timing = SpellTiming::MainPhase;
     p.instructions = vec![Instruction::drain(Context::Spell, kir::Amount::fixed(3), 0)];
+    d.capabilities = d.requirements();
+    d
+}
+
+#[cfg(test)]
+pub(super) fn sequence_witness() -> Definition {
+    let mut d = witness();
+    let Instruction::Kernel {
+        node: kir::Node::Seq(steps),
+        ..
+    } = &mut d.spell.as_mut().unwrap().instructions[0]
+    else {
+        panic!("drain pair");
+    };
+    steps[1] = steps[0].clone();
     d.capabilities = d.requirements();
     d
 }
@@ -231,18 +246,24 @@ fn opponent_life_drain() {
     ] {
         assert!(serde_json::from_value::<Instruction>(wire).is_err());
     }
-    // The pair is the only audited sequence: any other one is rejected.
-    for (first, second) in [(0, 0), (1, 1)] {
-        let mut d = witness();
-        let Instruction::Kernel {
-            node: kir::Node::Seq(steps),
-            ..
-        } = &mut d.spell.as_mut().unwrap().instructions[0]
-        else {
-            panic!("drain pair");
-        };
-        *steps = vec![steps[first].clone(), steps[second].clone()];
-        d.capabilities = d.requirements();
-        assert!(d.validate().is_err());
-    }
+    // A plain sequence uses the continuation's capability. A first step
+    // cannot read the outcome of a step it has yet to perform.
+    let sequence = sequence_witness();
+    assert!(sequence.capabilities.contains(&KernelControlV1));
+    assert!(!sequence.capabilities.contains(&OpponentLifeDrainV1));
+    assert!(sequence.validate().is_ok());
+    let mut missing = sequence.clone();
+    missing.capabilities.remove(&KernelControlV1);
+    assert!(missing.validate().is_err());
+    let mut invalid = witness();
+    let Instruction::Kernel {
+        node: kir::Node::Seq(steps),
+        ..
+    } = &mut invalid.spell.as_mut().unwrap().instructions[0]
+    else {
+        panic!("drain pair");
+    };
+    steps[0] = steps[1].clone();
+    invalid.capabilities = invalid.requirements();
+    assert!(invalid.validate().is_err());
 }

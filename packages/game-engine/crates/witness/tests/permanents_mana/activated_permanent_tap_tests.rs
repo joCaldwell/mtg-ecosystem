@@ -14,11 +14,15 @@ fn tap_catalog() -> Catalog {
     ))
     .unwrap();
     for raw in [
-        include_str!("../../../../tests/fixtures/3608f1f7-8dc5-4dd1-ae91-c830e1de9529.json"),
-        include_str!("../../../../tests/fixtures/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/3608f1f7-8dc5-4dd1-ae91-c830e1de9529.json"
+        ),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/2fa763ad-4d94-4c3a-a099-13ac22c09ce4.json"
+        ),
     ] {
         let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(
-            include_str!("../../../../tests/fixtures/archive-manifest-current.json"),
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
             raw,
         ) else {
             panic!("complete activated tap witness source must lower");
@@ -362,12 +366,13 @@ fn activated_permanent_tap_union_targets_pay_cost_and_reject_ineligible_objects_
 }
 #[test]
 fn paid_creature_source_tap_checks_target_and_pays_before_resolution() {
-    let record =
-        include_str!("../../../../tests/fixtures/00d11662-9d10-4915-b80c-c1ad54b4e71b.json");
-    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-current.json");
+    let record = include_str!(
+        "../../../../tests/fixtures/phase1-r4/00d11662-9d10-4915-b80c-c1ad54b4e71b.json"
+    );
+    let manifest = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
     assert_eq!(
         sha256(record.trim_end().as_bytes()),
-        "4f16034cdfdd8b8cf0bec6de688533a427eb89b882205497497a08aaf84b56ea"
+        "5ce182cb8d8d5fa9a0d967a7de818bd7dc275fcb911aea86f150a42e4299fcd7"
     );
     let mtg_compiler::CompileResult::Lowered { definition } =
         mtg_witness::compile(manifest, record)
@@ -547,151 +552,4 @@ fn activated_permanent_tap_real_target_bounce_fizzles_without_refunding_source_c
     let b = bounce_case(false, 4096, TraceMode::Off);
     assert_eq!(a.state, b.state);
     assert_eq!(a.replay_journal(), b.replay_journal());
-}
-
-fn assert_city_damage(g: &Game, city: ObjectId, controller: PlayerId) {
-    assert_eq!(taps(g, city), 1);
-    let mut collected = g.events().iter().filter_map(|event| match event {
-        Event::TriggerCollected {
-            source,
-            player,
-            witness: TriggerEventWitness::Tapped { object, controller },
-            source_facts,
-            ..
-        } if *source == city => Some((*player, *object, *controller, source_facts.as_ref())),
-        _ => None,
-    });
-    let (player, object, at_tap, facts) = collected.next().unwrap();
-    assert_eq!((player, object, at_tap), (controller, city, controller));
-    assert_eq!(facts.zone, Zone::Battlefield);
-    assert!(facts.tapped);
-    assert!(collected.next().is_none());
-
-    let mut damage = g.events().iter().filter_map(|event| match event {
-        Event::Committed {
-            actual: EventOutcome::DamageCommitted { actual, .. },
-            ..
-        } => Some(actual),
-        _ => None,
-    });
-    let [hit] = damage.next().unwrap().as_slice() else {
-        panic!("expected one damage transaction member");
-    };
-    assert_eq!(hit.source.object, city);
-    assert_eq!(hit.controller, controller);
-    assert_eq!(
-        hit.recipient,
-        DamageRecipient::Player { player: controller }
-    );
-    assert_eq!(hit.amount, 1.into());
-    assert!(damage.next().is_none());
-    assert_eq!(g.state.rules.players[controller.0 as usize].life, 39.into());
-    assert_eq!(g.state.rules.players[0].life, 40.into());
-}
-
-#[test]
-fn city_of_brass_paid_taps_queue_damage_for_trigger_controller() {
-    let result = mtg_witness::compile(
-        include_str!("../../../../tests/fixtures/ramos/archive-manifest-current.json"),
-        include_str!("../../../../tests/fixtures/ramos/f25351e3-539b-4bbc-b92d-6480acf4d722.json"),
-    );
-    let mtg_compiler::CompileResult::Lowered { definition } = result else {
-        panic!("complete tap damage source must lower: {result:?}");
-    };
-    assert_eq!(
-        definition.capabilities,
-        BTreeSet::from([
-            Capability::LandPlayV1,
-            Capability::NormalLayoutV1,
-            Capability::NoncombatDamageV1,
-            Capability::PermanentManaV1,
-            Capability::SourceTapTriggerV1,
-            Capability::TriggeredAbilityV1,
-        ])
-    );
-    let [mana] = definition.mana_abilities.as_slice() else {
-        panic!("expected the separate mana ability");
-    };
-    assert_eq!(mana.production, ManaProduction::AnyColor);
-    assert_eq!(mana.self_damage, None);
-    let labels = definition.source_labels.as_ref().unwrap();
-    assert_eq!(labels.triggered, [0]);
-    assert_eq!(labels.mana, [1]);
-    let mut incomplete = definition.as_ref().clone();
-    incomplete.triggered.clear();
-    incomplete.capabilities = incomplete.requirements();
-    assert!(incomplete.validate().is_err());
-
-    let mut catalog = tap_catalog();
-    catalog.definitions.push(*definition);
-    let mut g = Game::with_trace(
-        prepared_with_catalog(
-            &[
-                ("Icy Manipulator", 0, false),
-                ("Island", 0, false),
-                ("City of Brass", 2, false),
-                ("Regress", 1, true),
-                ("Island", 1, false),
-                ("Island", 1, false),
-                ("Island", 1, false),
-            ],
-            catalog,
-        ),
-        TraceMode::Detailed,
-    );
-    let city = object(&g, 2);
-    let controller = PlayerId(2);
-    let icy = activate(&mut g, 1, city);
-    assert!(!g.current(city).unwrap().tapped);
-
-    // The City can pay its own mana cost in response. It produces mana before
-    // the tap trigger goes on the stack. The pending Icy tap then does nothing.
-    let mut mana_branch = g.fork();
-    priority(&mut mana_branch, 1, controller.0);
-    answer(&mut mana_branch, 1, Response::ActivateMana { object: city });
-    assert!(matches!(
-        request(&mut mana_branch, 1),
-        Request::ManaColor { .. }
-    ));
-    assert!(mana_branch.current(city).unwrap().tapped);
-    assert_eq!(mana_branch.state.rules.stack.len(), 1);
-    assert_eq!(mana_branch.state.rules.players[2].life, 40.into());
-    answer(&mut mana_branch, 1, Response::ManaColor { color: Color::U });
-    assert!(matches!(
-        request(&mut mana_branch, 1),
-        Request::Priority { .. }
-    ));
-    assert_eq!(mana_branch.mana(controller, Color::U), Some(1.into()));
-    assert_eq!(mana_branch.state.rules.players[2].life, 40.into());
-    assert_eq!(mana_branch.state.rules.stack.len(), 2);
-    assert_eq!(mana_branch.state.rules.stack[0].id, icy);
-    assert!(matches!(
-        &mana_branch.top().unwrap().kind,
-        StackKind::Triggered { .. }
-    ));
-    finish_to(&mut mana_branch, 1, 0);
-    assert_city_damage(&mana_branch, city, controller);
-
-    // In the other branch the paid opponent's ability actually taps the land.
-    // A paid response removes the source while its separate trigger waits.
-    resolve_start(&mut g);
-    finish_to(&mut g, 1, 1);
-    let trigger = g.top().unwrap();
-    assert!(matches!(&trigger.kind, StackKind::Triggered { .. }));
-    assert_eq!(trigger.controller, controller);
-    assert_eq!(trigger.source, city);
-    assert_ne!(trigger.id, icy);
-    assert_eq!(g.state.rules.players[2].life, 40.into());
-
-    priority(&mut g, 1, 1);
-    answer(&mut g, 1, Response::Cast { card: CardId(3) });
-    pay(&mut g, 1, city, &[4, 5, 6]);
-    finish_to(&mut g, 1, 1);
-    assert!(g.current(city).is_err());
-    let successor = object(&g, city.card.0);
-    assert_eq!(g.zone(successor), Some(Zone::Hand { owner: controller }));
-    recover(&g);
-    finish_to(&mut g, 1, 0);
-    assert_city_damage(&g, city, controller);
-    recover(&g);
 }

@@ -1,7 +1,6 @@
 //! Diagnostic: rank what the compositional pipeline still lacks.
 //! Prints `oracle_id<TAB>name<TAB>commander_legal<TAB>reason<TAB>binding<TAB>block`
-//! for every record that neither a family nor block-by-block composition
-//! lowers. `reason` is the first blocker once card-wide binding checks are
+//! for every record block-by-block composition does not lower. `reason` is the first blocker once card-wide binding checks are
 //! deferred; `binding` is that card-wide rejection (`-` when the graph passes)
 //! and `block` the printed block `reason` names (`-` when not per-block).
 use std::path::Path;

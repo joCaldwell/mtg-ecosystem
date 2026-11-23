@@ -1,5 +1,5 @@
 //! Equipped-indestructible witness drivers shared by keyword, aura and
-//! permanent binaries: exact-source preparation, paid casts and recovery checks.
+//! permanent binaries: source preparation, paid casts and recovery checks.
 use mtg_core::testkit::*;
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -9,19 +9,31 @@ pub fn prepared(rows: &[(&str, bool)], synthetic: bool) -> Prepared {
     ))
     .unwrap();
     for raw in [
-        include_str!("../../../tests/fixtures/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"),
-        include_str!("../../../tests/fixtures/b5b4cf54-ed5e-42d0-9d98-5fec76b0b0b8.json"),
-        include_str!("../../../tests/fixtures/f90fe86c-5cca-483b-93c2-6e856fa01c88.json"),
-        include_str!("../../../tests/fixtures/2bda1fb1-528c-4e66-89f1-bb1a85e9181e.json"),
+        include_str!("../../../tests/fixtures/phase1-r4/9d8fe3f8-5027-4f9e-999e-e277caa96478.json"),
+        include_str!("../../../tests/fixtures/phase1-r4/f90fe86c-5cca-483b-93c2-6e856fa01c88.json"),
+        include_str!("../../../tests/fixtures/phase1-r4/2bda1fb1-528c-4e66-89f1-bb1a85e9181e.json"),
     ] {
-        let mtg_compiler::CompileResult::Lowered { definition } = crate::compile(
-            include_str!("../../../tests/fixtures/archive-manifest-current.json"),
-            raw,
-        ) else {
+        let mtg_compiler::CompileResult::Lowered { definition } =
+            crate::compile(crate::R4_MANIFEST, raw)
+        else {
             panic!("source")
         };
         c.definitions.push(*definition);
     }
+    // Darksteel Plate's source predates Archive R4: its frozen reviewed
+    // definition, bound to the same retained record.
+    let plate: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/b5b4cf54-ed5e-42d0-9d98-5fec76b0b0b8.json"
+    ))
+    .unwrap();
+    let reviewed = mtg_compiler::catalog::embedded_catalog("sacrifice").unwrap();
+    let definition = reviewed
+        .definition_by_oracle_id(plate["oracleIdentity"].as_str().unwrap())
+        .unwrap()
+        .clone();
+    assert_eq!(definition.provenance.source_sha256, plate["sourceSha256"]);
+    assert_eq!(definition.provenance.binding_sha256, plate["bindingSha256"]);
+    c.definitions.push(definition);
     if synthetic {
         // Typed nonintrinsic equipment control, NOT a real card source claim.
         let d = c
