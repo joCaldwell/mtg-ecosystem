@@ -210,9 +210,7 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
             minimum: size.clone(),
             maximum: size,
             body: Box::new(gain(
-                PlayerExpr::OwnerOf {
-                    object: Ref::Source,
-                },
+                controller(),
                 Amount::Count {
                     set: SetExpr::Pool {
                         pool: Ref::BoundVar { id: 3 },
