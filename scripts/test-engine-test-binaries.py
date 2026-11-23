@@ -43,6 +43,8 @@ class TestBinaryRunnerTests(unittest.TestCase):
         self.assertEqual(['empty'], runner.empty_selection({'full': ok(2), 'empty': ok(0)}, ['--test-threads=4']))
         self.assertEqual([], runner.empty_selection({'full': ok(2), 'empty': ok(0)}, ['FILTER']))
         self.assertEqual(['a', 'b'], runner.empty_selection({'a': ok(0), 'b': ok(0)}, ['FILTER']))
+        opt_in = (0, 'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out', 0.1)
+        self.assertEqual([], runner.empty_selection({'full': ok(2), 'witness': opt_in}, []))
         # A failed binary is reported as failed, not as empty.
         self.assertEqual([], runner.empty_selection({'bad': (101, 'panicked', 0.1)}, []))
 

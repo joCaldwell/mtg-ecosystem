@@ -162,9 +162,9 @@ export const engineCheckPlans = {
       // Unit tests of every library and binary (`--tests` would rerun them).
       { label: "unit-tests", command: "cargo", args: ["test", ...SHAPE, "--lib", "--bins"] },
       { label: "doc-tests", command: "cargo", args: ["test", ...SHAPE, "--doc"] },
-      // Core/witness integration binaries, built once and run concurrently.
-      { label: "core-integration", command: "python3", args: ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-core", "-p", "mtg-witness", "--features", "mtg-core/testkit", "--test", "*"] },
-      { label: "host-integration", command: "python3", args: ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-server", "--features", "mtg-core/testkit", "--test", "*"] },
+      // Every integration binary (core, witness, host) in the same feature
+      // shape, built once and run concurrently under one worker budget.
+      { label: "integration-tests", command: "python3", args: ["-B", "scripts/engine-test-binaries.py", ...SHAPE, "--test", "*"] },
       ...harnessSelfTests],
     coverage: "Everything in check:engine plus parser archive agreement, Clippy with warnings denied, every workspace unit, doc and integration test, and all verifier harness self-tests.",
     omitted: "Opt-in host witnesses that need external services; whole-archive coverage; release builds; deck benches (engine:decks).",

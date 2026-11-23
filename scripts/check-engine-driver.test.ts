@@ -25,8 +25,8 @@ test("one feature shape, a production-only dead-code check and no release build 
     ["test", ...shape, "--doc"],
   ]);
   const gate = engineCheckPlans.gate.phases;
-  assert.deepEqual(gate.find(phase => phase.label === "core-integration")?.args, ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-core", "-p", "mtg-witness", "--features", "mtg-core/testkit", "--test", "*"]);
-  assert.deepEqual(gate.find(phase => phase.label === "host-integration")?.args, ["-B", "scripts/engine-test-binaries.py", "--locked", "-p", "mtg-server", "--features", "mtg-core/testkit", "--test", "*"]);
+  // Integration binaries use the same selection shape, so nothing rebuilds.
+  assert.deepEqual(gate.find(phase => phase.label === "integration-tests")?.args, ["-B", "scripts/engine-test-binaries.py", ...shape, "--test", "*"]);
   assert.deepEqual(gate.find(phase => phase.label === "archive-parser")?.args, ["--test", "packages/oracle-parser/test/engine-archive-agreement.test.ts"]);
   for (const plan of Object.values(engineCheckPlans)) {
     // `--tests` after `--lib` reruns every unit binary; integration binaries use `--test '*'`.
@@ -66,7 +66,7 @@ test("native plans admit the cache under their lock; gate and tooling retain eve
   const labels = (mode: keyof typeof engineCheckPlans) => engineCheckPlans[mode].phases.map(phase => phase.label);
   const guards = ["structure-guard", "documentation-guard", "generated-ast-guard"];
   assert.deepEqual(labels("check"), ["cache-preflight", ...guards, "format", "rust-check", "production-check"]);
-  assert.deepEqual(labels("gate"), ["cache-preflight", ...guards, "archive-parser", "format", "clippy", "production-check", "unit-tests", "doc-tests", "core-integration", "host-integration", ...suites.map(([label]) => label)]);
+  assert.deepEqual(labels("gate"), ["cache-preflight", ...guards, "archive-parser", "format", "clippy", "production-check", "unit-tests", "doc-tests", "integration-tests", ...suites.map(([label]) => label)]);
   assert.deepEqual(labels("tooling"), [...suites.map(([label]) => label), ...guards]);
   const scripts = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
   assert.equal(scripts["check:engine"], "sh scripts/engine-env.sh node scripts/check-engine.ts");

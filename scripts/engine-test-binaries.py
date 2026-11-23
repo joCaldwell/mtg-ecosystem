@@ -13,8 +13,9 @@ lowers the binary cap instead. Arguments after `--` go to every binary
 (filters, --ignored). Output is buffered per binary: passing binaries print
 their summary line, failing ones print everything. The run reports wall time
 and the peak total resident memory of concurrently running binaries. Exits
-nonzero if the build or any binary fails, or if a binary executes zero tests
-(with a filter, if the whole selection executes zero tests). Run under the
+nonzero if the build or any binary fails, or if a binary runs zero tests and
+declares no ignored opt-in test (with a filter, if the whole selection runs
+zero tests). Run under the
 target's native lock (check-engine owns it).
 """
 import json
@@ -69,24 +70,32 @@ def summary(output):
     return lines[-1] if lines else 'no test result line'
 
 
-def passed(output):
-    """Executed (passed) tests from libtest's final summary, or None."""
+def counts(output):
+    """(passed, ignored) from libtest's final summary, or None."""
     line = summary(output)
     if not line.startswith('test result:'):
         return None
     try:
-        return int(line.split('.', 1)[1].split('passed')[0].strip())
-    except (IndexError, ValueError):
+        fields = dict(reversed(part.strip().split(' ', 1)) for part in line.split('.', 1)[1].split(';')[:3])
+        return int(fields['passed']), int(fields['ignored'])
+    except (KeyError, IndexError, ValueError):
         return None
+
+
+def passed(output):
+    """Executed (passed) tests from libtest's final summary, or None."""
+    found = counts(output)
+    return found and found[0]
 
 
 def empty_selection(results, test_args):
     """Binaries that executed no test; any filter allows per-binary zeros."""
-    counts = {name: passed(output) or 0 for name, (code, output, _) in results.items() if not code}
+    found = {name: counts(output) or (0, 0) for name, (code, output, _) in results.items() if not code}
     filtered = any(not arg.startswith('-') for arg in test_args)
     if filtered:
-        return sorted(counts) if counts and sum(counts.values()) == 0 else []
-    return sorted(name for name, count in counts.items() if count == 0)
+        return sorted(found) if found and sum(ran for ran, _ in found.values()) == 0 else []
+    # An all-ignored binary is an explicit opt-in witness, not an empty selection.
+    return sorted(name for name, (ran, ignored) in found.items() if ran == 0 and ignored == 0)
 
 
 def resident_bytes(pid):

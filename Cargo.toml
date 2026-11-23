@@ -47,3 +47,12 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 2
 debug = false
+
+# The rules hot path. Measured once at 9dc23a95+2D-1 (jobs 8, 32 threads):
+# member rebuild + unit + all 27 integration binaries took 305 s at opt-level 0,
+# 136 s at 1 and 200 s at 2 (opt 2 rebuilds 5x slower; opt 0 tests 5x slower).
+[profile.dev.package.mtg-core]
+opt-level = 1
+
+[profile.dev.package.mtg-contracts]
+opt-level = 1
