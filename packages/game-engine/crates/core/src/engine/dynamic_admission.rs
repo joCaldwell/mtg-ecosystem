@@ -10,11 +10,10 @@ use mtg_contracts::bulk_catalog::{
 };
 use std::sync::LazyLock;
 
-mod roster_review;
-use roster_review::Review;
-
 pub const DYNAMIC_PROFILE: &str = "commander-dynamic-headless-v1";
-const ADMISSION_DOMAIN: &str = "commander-dynamic-pair-admission-v2";
+// v3 retired the R3 copy-roster review: no roster identity bypasses capability
+// review or selects a separate capacity proof.
+const ADMISSION_DOMAIN: &str = "commander-dynamic-pair-admission-v3";
 pub const DYNAMIC_MAX_DECK_ROWS: usize = 100;
 const DECK_SIZE: u64 = 100;
 const PHYSICAL_SOURCES: usize = 400;
@@ -61,12 +60,7 @@ static POLICY_STATE: LazyLock<Result<DynamicPolicy, String>> = LazyLock::new(|| 
         .into_iter()
         .map(|ban| ban.oracle_id)
         .collect();
-    let digest = digest(&(
-        ADMISSION_DOMAIN,
-        POLICY_SHA256,
-        REVIEWED,
-        roster_review::POLICY_INPUT,
-    ))?;
+    let digest = digest(&(ADMISSION_DOMAIN, POLICY_SHA256, REVIEWED))?;
     Ok(DynamicPolicy { banned_ids, digest })
 });
 fn policy() -> Result<&'static DynamicPolicy, String> {
@@ -220,15 +214,13 @@ pub fn inspect_dynamic_deck(
     artifact: &BulkArtifact,
     rows: &[DynamicDeckEntry],
 ) -> Result<DeckInspection, String> {
-    let review = roster_review::seat(artifact.catalog().catalog(), rows);
-    Ok(inspect(artifact, rows, policy()?, review))
+    Ok(inspect(artifact, rows, policy()?))
 }
 
 fn inspect(
     artifact: &BulkArtifact,
     rows: &[DynamicDeckEntry],
     policy: &DynamicPolicy,
-    review: Option<Review>,
 ) -> DeckInspection {
     let mut report = DeckInspection {
         total_slots: 0,
@@ -346,7 +338,6 @@ fn inspect(
                 role,
                 quantity,
                 &names,
-                review,
                 &mut issues,
             );
         }
@@ -410,7 +401,6 @@ fn inspect_definition(
     role: DeckRole,
     quantity: u64,
     names: &BTreeMap<&str, BTreeSet<&str>>,
-    review: Option<Review>,
     issues: &mut Vec<CardGapIssue>,
 ) {
     if role == DeckRole::Commander
@@ -434,11 +424,6 @@ fn inspect_definition(
         if land {
             issues.push(CardGapIssue::new(CardGapCode::BasicLandColor));
         }
-    }
-    // The pinned roster review covers these exact compiled definitions.
-    // Pod admission still requires the accompanying four-seat capacity proof.
-    if review == Some(Review::Copy) {
-        return;
     }
     let requirements = d.requirements();
     let unreviewed: Vec<_> = requirements
@@ -580,11 +565,7 @@ impl DynamicPodTemplate {
     ) -> Result<Self, DynamicAdmissionError> {
         let policy = policy().map_err(unavailable)?;
         let catalog = artifact.catalog().catalog();
-        let reviews = decks
-            .each_ref()
-            .map(|rows| roster_review::seat(catalog, rows));
-        let inspections =
-            std::array::from_fn::<_, 4, _>(|i| inspect(artifact, &decks[i], policy, reviews[i]));
+        let inspections = std::array::from_fn::<_, 4, _>(|i| inspect(artifact, &decks[i], policy));
         if inspections.iter().any(|r| !r.admissible()) {
             return Err(DynamicAdmissionError::DeckGaps {
                 decks: Vec::from(inspections),
@@ -609,13 +590,7 @@ impl DynamicPodTemplate {
             rules_sha256: catalog.rules_sha256.clone(),
             definitions: selected.into_values().cloned().collect(),
         };
-        let copy_roster = reviews.contains(&Some(Review::Copy));
-        let fits = if copy_roster {
-            roster_review::capacity_supported(&projection, reviews)
-        } else {
-            capacity_supported(&projection, native_triggers)
-        };
-        if !fits {
+        if !capacity_supported(&projection, native_triggers) {
             return Err(DynamicAdmissionError::PodCapacity);
         }
         Ok(Self {
@@ -702,6 +677,8 @@ fn capacity_supported(catalog: &Catalog, native_triggers: usize) -> bool {
             .checked_mul(native_triggers)
             .is_some_and(|wave| wave < STACK_LIMIT / 2)
 }
+
+impl std::error::Error for DynamicAdmissionError {}
 
 #[cfg(test)]
 mod tests {
@@ -923,6 +900,99 @@ mod tests {
         assert!(match_profile(DYNAMIC_PROFILE).is_none());
     }
 
+    // Retired R3 roster pins (copy seat, then control seat): roster digest and
+    // complete compiled-definition digest. History only; nothing admits by them.
+    const RETIRED_R3_ROSTERS: [(&str, &str); 2] = [
+        (
+            "fc760bcb3e02ad494005b69f3d6c200115399e2a5692782cd14d4cb6a418d3d3",
+            "c818ecb0465ed7514e28100e5f2c27d1c238feed0e8b408d15ceb697f9c07763",
+        ),
+        (
+            "fed5f2569774b2e30d475eb575884f6a88e32a3a9520ee63c0b06bd3fdc616e4",
+            "584186446f00614c51143c48bff0d6a994d03a19c46be484889cbf6dc0742864",
+        ),
+    ];
+
+    #[test]
+    fn retired_r3_roster_review_no_longer_bypasses_capability_review() {
+        // The policy identity changed deliberately: neither the v2 domain nor the
+        // retired roster pins can reproduce the current digest.
+        let retired = digest(&(
+            "commander-dynamic-pair-admission-v2",
+            POLICY_SHA256,
+            REVIEWED,
+            RETIRED_R3_ROSTERS,
+        ))
+        .unwrap();
+        assert_ne!(policy().unwrap().digest, retired);
+        assert_eq!(
+            policy().unwrap().digest,
+            digest(&(ADMISSION_DOMAIN, POLICY_SHA256, REVIEWED)).unwrap()
+        );
+        // Every definition outside the reviewed capability set is reported for
+        // every role and roster; inspection has no roster-identity input.
+        let catalog = Catalog::read(include_str!(
+            "../../../../tests/fixtures/expected-phase1-r4-ir.json"
+        ))
+        .unwrap();
+        let names = BTreeMap::new();
+        let mut checked = 0;
+        for definition in &catalog.definitions {
+            let unreviewed: Vec<_> = definition
+                .requirements()
+                .into_iter()
+                .filter(|c| !REVIEWED.contains(c))
+                .collect();
+            if unreviewed.is_empty() {
+                continue;
+            }
+            for role in [DeckRole::Main, DeckRole::Commander] {
+                let mut issues = Vec::new();
+                inspect_definition(definition, None, role, 1, &names, &mut issues);
+                let reported = issues
+                    .iter()
+                    .find(|issue| issue.code == CardGapCode::CapabilityUnreviewed)
+                    .unwrap_or_else(|| panic!("{} bypassed capability review", definition.name));
+                assert_eq!(reported.capabilities, unreviewed);
+            }
+            checked += 1;
+        }
+        assert!(checked > 0, "fixture must include unreviewed capabilities");
+    }
+
+    #[test]
+    fn foundations_decks_still_pass_definition_and_capacity_admission() {
+        let profile = match_profile("commander-foundations-v1").unwrap();
+        let catalog = profile.catalog();
+        for deck in &profile.decks {
+            let names = BTreeMap::new();
+            let mut colors = Vec::new();
+            let commander = catalog.definition_by_oracle_id(&deck.commander).unwrap();
+            colors.extend(commander.characteristics.color_identity.iter().copied());
+            let mut native_triggers = 0;
+            for row in &deck.cards {
+                let definition = catalog.definition_by_oracle_id(&row.oracle_id).unwrap();
+                let role = if row.oracle_id == deck.commander {
+                    DeckRole::Commander
+                } else {
+                    DeckRole::Main
+                };
+                let mut issues = Vec::new();
+                inspect_definition(
+                    definition,
+                    Some(&colors),
+                    role,
+                    u64::from(row.count),
+                    &names,
+                    &mut issues,
+                );
+                assert!(issues.is_empty(), "{}: {issues:?}", definition.name);
+                native_triggers += row.count as usize * definition.triggered.len();
+            }
+            assert!(capacity_supported(catalog, native_triggers));
+        }
+    }
+
     #[test]
     fn stage1d_dynamic_policy_matches_reviewed_foundations_projection() {
         let profile = match_profile("commander-foundations-v1").unwrap();
@@ -946,5 +1016,3 @@ mod tests {
         assert_eq!(requirements, REVIEWED.iter().copied().collect());
     }
 }
-
-impl std::error::Error for DynamicAdmissionError {}

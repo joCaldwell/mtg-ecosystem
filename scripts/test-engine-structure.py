@@ -30,7 +30,9 @@ class StructureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'Cargo.toml').write_text('[workspace.dependencies]\n')
-            for name in ['contracts', 'compiler', 'core']:
+            # Every reviewed layer from the live allowlist, oracle-ast included.
+            for crate in structure.ALLOWED:
+                name = crate.removeprefix('mtg-')
                 path = root / structure.CRATES / name
                 path.mkdir(parents=True)
                 (path / 'Cargo.toml').write_text(f'[package]\nname="mtg-{name}"\n')
@@ -42,6 +44,10 @@ class StructureTests(unittest.TestCase):
             self.assertIn('dev-dependencies mtg-compiler', structure.dependency_errors(root)[0])
             path.write_text('[package]\nname="mtg-core"\n[dev-dependencies]\nmtg-contracts = {path="../contracts"}\n')
             self.assertEqual([], structure.dependency_errors(root))
+            # The generated AST layer may not reach upward into contracts either.
+            ast = root / structure.CRATES / 'oracle-ast/Cargo.toml'
+            ast.write_text('[package]\nname="mtg-oracle-ast"\n[dependencies]\nmtg-contracts = {path="../contracts"}\n')
+            self.assertIn('oracle-ast', structure.dependency_errors(root)[0])
 
     def test_testkit_is_confined_to_test_crates(self):
         with tempfile.TemporaryDirectory() as tmp:
