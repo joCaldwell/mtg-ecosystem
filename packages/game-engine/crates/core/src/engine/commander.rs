@@ -37,11 +37,12 @@ impl RulesTxn {
         match &self.state.rules.frame {
             Frame::GraveyardGroup { tx } => tx.prior_choices(self),
             Frame::GraveyardReplacement { transaction } => transaction.prior_choices(),
-            Frame::CommanderReturn { continuation, .. } => match continuation {
-                CommanderContinuation::StateBasedBatch { choices, .. }
-                | CommanderContinuation::BoardReturn { choices, .. } => choices.clone(),
-                _ => vec![],
-            },
+            Frame::CommanderReturn {
+                continuation:
+                    CommanderContinuation::StateBasedBatch { choices, .. }
+                    | CommanderContinuation::BoardReturn { choices, .. },
+                ..
+            } => choices.clone(),
             _ => vec![],
         }
     }
@@ -480,7 +481,6 @@ impl RulesTxn {
                     if !valid_target
                         || *destination != expected_destination
                         || *source_block != expected_block
-                        || frame.stack_id != frame.stack_id
                         || frame.stack_id.0 >= self.state.rules.next_stack_id
                         || self.entry(frame.stack_id)?.paid.as_ref()
                             != Some(&self.entry(frame.stack_id)?.total_cost)

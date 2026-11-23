@@ -1,5 +1,5 @@
-//! A deliberately fixed, tiny developer probe. This is trusted diagnostic data,
-//! not a player API, full game, universal replay debugger, or acceptance gate.
+//! A deliberately fixed, tiny smoke scenario run as a unit test: source rows,
+//! public decisions, outcomes and replay agreement. Not a player API.
 use crate::BUILD;
 use mtg_compiler::fixtures;
 use mtg_contracts::{Color, Quantity, canonical, digest, sha256, strict_read};
@@ -9,12 +9,6 @@ use mtg_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{
-    fs::OpenOptions,
-    io::{Read, Write},
-    path::Path,
-    time::Instant,
-};
 
 const MAX_BYTES: usize = 65_536;
 const WORK: u64 = 1_024;
@@ -287,116 +281,6 @@ fn compare(saved: &Artifact, current: &Artifact) -> Result<(), Value> {
     }
     Ok(())
 }
-fn read(path: &Path) -> Result<Artifact, String> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .map_err(|e| short(&e.to_string()))?
-        .take((MAX_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .map_err(|e| short(&e.to_string()))?;
-    if bytes.len() > MAX_BYTES {
-        return Err("artifact exceeds 65536-byte limit".into());
-    }
-    strict_read(std::str::from_utf8(&bytes).map_err(|e| short(&e.to_string()))?)
-        .map_err(|e| short(&e))
-}
-fn write_new(path: &Path, artifact: &Artifact) -> Result<(), String> {
-    let bytes = canonical(artifact)?;
-    if bytes.len() > MAX_BYTES {
-        return Err("artifact exceeds 65536-byte limit".into());
-    }
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|e| short(&e.to_string()))?;
-    file.write_all(bytes.as_bytes())
-        .and_then(|()| file.sync_all())
-        .map_err(|e| short(&e.to_string()))
-}
-fn quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-fn reproduce(args: &[String]) -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-    let mut command = format!(
-        "cd {} && ",
-        quote(cwd.to_str().ok_or("non-UTF8 working directory")?)
-    );
-    if let Ok(libraries) = std::env::var("LD_LIBRARY_PATH") {
-        command += &format!("env LD_LIBRARY_PATH={} ", quote(&libraries));
-    }
-    command += &quote(exe.to_str().ok_or("non-UTF8 executable path")?);
-    for arg in args {
-        command += &format!(" {}", quote(arg));
-    }
-    if command.len() > 8192 {
-        return Err("reproduction command exceeds 8192-byte limit".into());
-    }
-    Ok(command)
-}
-pub(super) fn cli(args: &[String]) -> Result<(), String> {
-    let start = Instant::now();
-    let mut report = json!({"scenario":SCENARIO,"seed":null,"classification":CLASSIFICATION,
-        "locator_scope":"first recorded input/checkpoint field; digest-only differences do not locate internal state",
-        "core_build_id":BUILD.id});
-    let result = (|| -> Result<(), String> {
-        report["reproduce"] = reproduce(args)?.into();
-        let (replay, path) = match args {
-            [command] if command == "smoke" => (false, None),
-            [command, flag, path] if command == "smoke" && flag == "--artifact" => {
-                (false, Some(Path::new(path)))
-            }
-            [command, path] if command == "smoke-replay" => (true, Some(Path::new(path))),
-            _ => {
-                return Err(
-                    "usage: mtg-sim smoke [--artifact NEW.json] | smoke-replay FILE".into(),
-                );
-            }
-        };
-        let saved = if replay {
-            Some(read(path.unwrap())?)
-        } else {
-            None
-        };
-        let current = run();
-        report["probe_failure"] = json!(current.failure);
-        report["inputs"] = current.journal.decisions.len().into();
-        report["checkpoints"] = current.checkpoints.len().into();
-        report["final_state_sha256"] = current
-            .checkpoints
-            .last()
-            .map(|p| p.state_sha256.clone())
-            .into();
-        if let Some(saved) = saved {
-            if let Err(difference) = compare(&saved, &current) {
-                report["first_difference"] = difference;
-                return Err("saved smoke evidence differs from current fixed scenario".into());
-            }
-        } else if let Some(path) = path {
-            write_new(path, &current)?;
-            // Once saved, reproduction reads evidence instead of colliding with it.
-            report["reproduce"] = reproduce(&[
-                "smoke-replay".into(),
-                path.to_str().ok_or("non-UTF8 artifact path")?.into(),
-            ])?
-            .into();
-        }
-        if let Some(failure) = current.failure {
-            return Err(failure);
-        }
-        Ok(())
-    })();
-    report["runtime_us"] = json!(start.elapsed().as_micros());
-    report["status"] = if result.is_ok() { "passed" } else { "failed" }.into();
-    if let Err(ref error) = result {
-        report["error"] = short(error).into();
-    }
-    println!("{}", canonical(&report)?);
-    result.map_err(|_| "smoke failed; see bounded JSON diagnostic".into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,35 +319,5 @@ mod tests {
         let mut saved = current.clone();
         saved.failure = Some("retained failure".into());
         assert!(compare(&saved, &current).is_err());
-    }
-    #[test]
-    fn smoke_artifacts_are_bounded_strict_and_never_overwrite() {
-        let dir = std::env::temp_dir().join(format!(
-            "mtg-smoke-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir(&dir).unwrap();
-        let path = dir.join("evidence.json");
-        let artifact = run();
-        write_new(&path, &artifact).unwrap();
-        let original = std::fs::read(&path).unwrap();
-        assert!(write_new(&path, &artifact).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), original);
-        assert!(compare(&read(&path).unwrap(), &artifact).is_ok());
-        let oversized = dir.join("oversized.json");
-        std::fs::write(&oversized, vec![b' '; MAX_BYTES + 1]).unwrap();
-        assert!(read(&oversized).unwrap_err().contains("65536"));
-        let malformed = dir.join("malformed.json");
-        std::fs::write(&malformed, b"{\"format_version\":1").unwrap();
-        assert!(read(&malformed).is_err());
-        let mut unknown = serde_json::to_value(&artifact).unwrap();
-        unknown["unexpected"] = true.into();
-        std::fs::write(&malformed, canonical(&unknown).unwrap()).unwrap();
-        assert!(read(&malformed).is_err());
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

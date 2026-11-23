@@ -23,11 +23,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(super) const WORKLOAD: &str = "commander-open-search-v1";
-pub(super) const SCHEDULING_POLICY: &str = "first-eight-all-candidates-then-extras-soft2500-v1";
-pub(super) const DESIRED_WORLDS: usize = 32;
-pub(super) const MINIMUM_WORLDS: usize = 8;
-pub(super) const HORIZON: u64 = 256;
+pub const WORKLOAD: &str = "commander-open-search-v1";
+pub const SCHEDULING_POLICY: &str = "first-eight-all-candidates-then-extras-soft2500-v1";
+pub const DESIRED_WORLDS: usize = 32;
+pub const MINIMUM_WORLDS: usize = 8;
+pub const HORIZON: u64 = 256;
 const WORKERS: usize = 4;
 const HARD_MS: u64 = 5_000;
 const EXTRA_ADMISSION_MS: u64 = 2_500;
@@ -37,16 +37,16 @@ const CORE_CALL_LIMIT: u64 = 100_000;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct SearchRequest {
+pub struct SearchRequest {
     pub request_version: u32,
     pub root_index: u32,
     pub public_job_seed: [u8; 32],
     pub worker_cpu_ids: [usize; WORKERS],
 }
 #[derive(Clone, Default)]
-pub(super) struct Cancellation(Arc<AtomicBool>);
+pub struct Cancellation(Arc<AtomicBool>);
 impl Cancellation {
-    pub(super) fn cancel(&self) {
+    pub fn cancel(&self) {
         self.0.store(true, Ordering::SeqCst);
     }
 }
@@ -93,7 +93,7 @@ impl Control {
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct TrialCounts {
+pub struct TrialCounts {
     pub accepted_inputs: u64,
     pub advance_calls: u64,
     pub query_calls: u64,
@@ -131,7 +131,7 @@ impl TrialCounts {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct TrialTimings {
+pub struct TrialTimings {
     pub fork_micros: u128,
     pub query_micros: u128,
     pub policy_micros: u128,
@@ -145,7 +145,7 @@ pub(super) struct TrialTimings {
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct WorldTimings {
+pub struct WorldTimings {
     pub world_index: u64,
     pub build_calls: u64,
     pub build_micros: u128,
@@ -153,7 +153,7 @@ pub(super) struct WorldTimings {
 }
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct RootTimings {
+pub struct RootTimings {
     pub capture_and_caller_handling_micros: u128,
     pub candidate_generation_micros: u128,
     pub sampling_micros: u128,
@@ -164,14 +164,14 @@ pub(super) struct RootTimings {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PlayerEvaluation {
+pub struct PlayerEvaluation {
     pub player: PlayerId,
     pub public_status: PlayerStatus,
     pub utility: Quantity,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum TrialOutcome {
+pub enum TrialOutcome {
     Terminal {
         winner: Option<PlayerId>,
         evaluations: Vec<PlayerEvaluation>,
@@ -207,7 +207,7 @@ impl TrialOutcome {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct TrialResult {
+pub struct TrialResult {
     pub world_index: u64,
     pub assignment_digest: String,
     pub candidate_index: usize,
@@ -218,7 +218,7 @@ pub(super) struct TrialResult {
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct WorldResult {
+pub struct WorldResult {
     pub world_index: u64,
     pub assignment_digest: String,
     pub build_calls: u64,
@@ -228,7 +228,7 @@ pub(super) struct WorldResult {
 }
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CandidateAggregate {
+pub struct CandidateAggregate {
     pub candidate_index: usize,
     pub candidate_id: String,
     pub useful_distinct_worlds: usize,
@@ -242,14 +242,14 @@ pub(super) struct CandidateAggregate {
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct WorldSpec {
+pub struct WorldSpec {
     pub world_index: u64,
     pub sampling_attempt: u64,
     pub assignment_digest: String,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct SearchReport {
+pub struct SearchReport {
     pub report_version: u32,
     pub workload: String,
     pub context_id: String,
@@ -554,26 +554,6 @@ impl PlanSteps {
             complete: false,
         })
     }
-    #[cfg(test)]
-    fn identity(candidate: &Candidate) -> Self {
-        let PlanRecipe {
-            mode,
-            targets,
-            mana,
-            spending,
-            invocation,
-        } = Self::recipe(candidate);
-        Self {
-            initial: search_policy::initial_response(&candidate.plan),
-            initial_sent: false,
-            mode,
-            targets,
-            mana_sources: mana.into(),
-            spending,
-            invocation,
-            complete: false,
-        }
-    }
     fn next(&mut self, observation: &Observation) -> Result<Option<PlayerResponse>, String> {
         if self.complete {
             return Ok(None);
@@ -877,7 +857,7 @@ fn world_job(
         trials,
     }
 }
-pub(super) fn memory() -> Result<(u64, u64), String> {
+pub fn memory() -> Result<(u64, u64), String> {
     let status = fs::read_to_string("/proc/self/status")
         .map_err(|e| format!("RSS measurement unavailable: {e}"))?;
     let read = |name: &str| -> Result<u64, String> {
@@ -987,7 +967,7 @@ fn select_candidate(aggregates: &[CandidateAggregate], viewer: usize) -> Option<
     Some(aggregates[best].candidate_index)
 }
 
-pub(super) fn run(
+pub fn run(
     catalog: &Catalog,
     capture: SearchCapture,
     request: SearchRequest,
@@ -995,7 +975,7 @@ pub(super) fn run(
 ) -> Result<SearchReport, String> {
     run_cancellable(catalog, capture, request, started, Cancellation::default())
 }
-pub(super) fn run_cancellable(
+pub fn run_cancellable(
     catalog: &Catalog,
     capture: SearchCapture,
     request: SearchRequest,
@@ -1292,7 +1272,7 @@ pub(super) fn run_cancellable(
 /// Reconstruct the recorded completed worklist without wall deadlines. This is
 /// semantic verification, not a second performance measurement. Diagnostic
 /// stops remain explicitly unverified and never count as useful rollouts.
-pub(super) fn replay_report(
+pub fn replay_report(
     catalog: &Catalog,
     capture: &SearchCapture,
     report: &SearchReport,
@@ -1517,9 +1497,6 @@ fn validate_report_manifest(
     }
     Ok(())
 }
-
-#[cfg(test)]
-pub(crate) mod fixed_work;
 
 #[cfg(test)]
 mod schedule_equivalence;

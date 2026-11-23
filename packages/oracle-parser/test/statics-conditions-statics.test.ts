@@ -33,7 +33,7 @@ const fixed = (value: number) => ({ amount: "fixed" as const, value });
 const eachOtherPlayer = { player: "filtered", base: { player: "each-player" }, filter: { otherThan: { player: "you" } } };
 
 it("binds Averna's optional land choice to the matching cascade occurrence", () => {
-  const fixture = new URL("../../game-engine/tests/fixtures/ramos/23695bc2-86d3-4d78-b374-9e83c4cc9cc4.json", import.meta.url);
+  const fixture = new URL("./fixtures/ramos/23695bc2-86d3-4d78-b374-9e83c4cc9cc4.json", import.meta.url);
   const { source, oracleIdentity } = JSON.parse(readFileSync(fixture, "utf8"));
   const parseSource = (text: string) => parseOracleText(text, source.name, { typeLine: source.type_line, includeSourceProvenance: true });
   const result = parseSource(source.oracle_text);

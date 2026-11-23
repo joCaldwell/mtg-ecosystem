@@ -159,7 +159,6 @@ impl RulesTxn {
                 return self.revalidate_resolution_payment_departure();
             }
             self.rules_mut().passes.clear();
-            {}
             self.rules_mut().frame = Frame::Priority;
             return Ok(self.stabilize()?);
         }

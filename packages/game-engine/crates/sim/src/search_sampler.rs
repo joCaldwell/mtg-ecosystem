@@ -6,8 +6,8 @@ use mtg_core::{
 };
 use std::collections::BTreeMap;
 
-pub(super) const ASSIGNMENT_RNG: &str = "sha256-counter-le32-rejection-fisher-yates-v1";
-pub(super) const MAX_DISTINCT_ATTEMPTS: u64 = 256;
+pub const ASSIGNMENT_RNG: &str = "sha256-counter-le32-rejection-fisher-yates-v1";
+pub const MAX_DISTINCT_ATTEMPTS: u64 = 256;
 
 fn seed_bytes(parts: &impl serde::Serialize) -> Result<[u8; 32], String> {
     let hex = sha256(canonical(parts)?.as_bytes());
@@ -86,7 +86,7 @@ fn remove(counts: &mut BTreeMap<String, u32>, oracle: &str) -> Result<(), String
 /// Uniform remaining physical-copy permutations, conditioned on permitted facts;
 /// output hand order and interchangeable copy labels are subsequently quotiented.
 /// This sampling assumption is not a certified posterior or opponent policy.
-pub(super) fn propose(
+pub fn propose(
     capture: &SearchCapture,
     public_job_seed: &[u8; 32],
     world_index: u64,

@@ -11,18 +11,18 @@ use mtg_core::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) const CANDIDATE_POLICY: &str = "foundations-public-plans-v1";
-pub(super) const MAX_CANDIDATES: usize = 32;
+pub const CANDIDATE_POLICY: &str = "foundations-public-plans-v1";
+pub const MAX_CANDIDATES: usize = 32;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "targets", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum TargetPlan {
+pub enum TargetPlan {
     None,
     Objects { objects: Vec<ObjectHandle> },
     Players { players: Vec<PlayerId> },
     Entities { entities: Vec<PlayerTargetEntity> },
 }
 impl TargetPlan {
-    pub(super) fn mapped(&self, map: &RootHandleMap) -> Result<Self, String> {
+    pub fn mapped(&self, map: &RootHandleMap) -> Result<Self, String> {
         Ok(match self {
             Self::None => Self::None,
             Self::Objects { objects } => Self::Objects {
@@ -52,7 +52,7 @@ impl TargetPlan {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum ActionPlan {
+pub enum ActionPlan {
     Pass,
     PlayLand {
         object: ObjectHandle,
@@ -74,27 +74,27 @@ pub(super) enum ActionPlan {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Candidate {
+pub struct Candidate {
     pub candidate_id: String,
     pub plan: ActionPlan,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct CandidateSet {
+pub struct CandidateSet {
     pub policy: String,
     pub candidates: Vec<Candidate>,
     pub truncated_at_limit: bool,
     pub coalesced_basic_hand_copies: usize,
     pub standalone_mana_actions_omitted: bool,
 }
-pub(super) fn definition<'a>(catalog: &'a Catalog, oracle: &str) -> Result<&'a Definition, String> {
+pub fn definition<'a>(catalog: &'a Catalog, oracle: &str) -> Result<&'a Definition, String> {
     catalog
         .definitions
         .iter()
         .find(|d| d.oracle_id == oracle)
         .ok_or_else(|| format!("missing public definition {oracle}"))
 }
-pub(super) fn land_color(catalog: &Catalog, oracle: &str) -> Option<Color> {
+pub fn land_color(catalog: &Catalog, oracle: &str) -> Option<Color> {
     let d = definition(catalog, oracle).ok()?;
     if d.characteristics.kind != CardKind::Land
         || !d.characteristics.basic
@@ -120,7 +120,7 @@ pub(super) fn land_color(catalog: &Catalog, oracle: &str) -> Option<Color> {
         .collect::<Vec<_>>();
     (colors.len() == 1).then(|| colors[0])
 }
-pub(super) fn spend(
+pub fn spend(
     cost: &ManaCost,
     available: &BTreeMap<Color, Quantity>,
 ) -> Option<BTreeMap<Color, Quantity>> {
@@ -147,7 +147,7 @@ pub(super) fn spend(
     }
     (generic == Quantity::zero()).then_some(spending)
 }
-pub(super) fn funding(
+pub fn funding(
     catalog: &Catalog,
     observation: &Observation,
     cost: &ManaCost,
@@ -194,7 +194,7 @@ pub(super) fn funding(
         sources.push(land.handle.clone());
     }
 }
-pub(super) fn cast_cost(
+pub fn cast_cost(
     d: &Definition,
     object: &VisibleObject,
     observation: &Observation,
@@ -218,7 +218,7 @@ pub(super) fn cast_cost(
     }
     Ok(cost)
 }
-pub(super) fn beneficial(program: &SpellProgram) -> bool {
+pub fn beneficial(program: &SpellProgram) -> bool {
     program
         .instructions
         .iter()
@@ -365,7 +365,7 @@ fn push(set: &mut CandidateSet, plan: ActionPlan) -> Result<bool, String> {
 /// Selects Pass, one representative per identical basic hand definition, funded
 /// spells (all selected modes/target tuples up to the cap), and funded nonmana
 /// activations. Standalone mana-floating actions are an explicit policy exclusion.
-pub(super) fn generate(
+pub fn generate(
     catalog: &Catalog,
     observation: &Observation,
     check: &mut dyn FnMut() -> Result<(), String>,

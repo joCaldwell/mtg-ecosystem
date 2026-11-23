@@ -201,12 +201,7 @@ impl RulesTxn {
                 vec![*p]
             }
             PlayerExpr::OwnerOf { object } | PlayerExpr::ControllerOf { object } => {
-                let objects = self.control_objects(
-                    task,
-                    &SetExpr::One {
-                        object: object.clone(),
-                    },
-                )?;
+                let objects = self.control_objects(task, &SetExpr::One { object: *object })?;
                 let [id] = objects.as_slice() else {
                     return Err("kernel reference requires one object".into());
                 };

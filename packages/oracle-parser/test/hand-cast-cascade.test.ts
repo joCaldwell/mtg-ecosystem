@@ -5,7 +5,7 @@ import { analyzeCardBindings, parseOracleText, type BindingSourceCard } from "..
 
 it("binds the frozen Yidris trigger to later hand casts by its controller", () => {
   // Physical archive row 23979 (source index 23977).
-  const fixture = new URL("../../game-engine/tests/fixtures/ramos/9efe8aff-9a7d-4397-b5fd-c1a0fad7c15f.json", import.meta.url);
+  const fixture = new URL("./fixtures/ramos/9efe8aff-9a7d-4397-b5fd-c1a0fad7c15f.json", import.meta.url);
   const { source, oracleIdentity: identity } = JSON.parse(readFileSync(fixture, "utf8")) as {
     source: BindingSourceCard & { oracle_text: string }; oracleIdentity: string;
   };

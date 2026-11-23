@@ -157,17 +157,6 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 impl Characteristics {
-    /// Each colored hybrid or Phyrexian symbol counts once (CR 107.4e–f).
-    pub fn colored_mana_symbol_count(&self) -> Quantity {
-        let fixed = self
-            .mana_cost
-            .colored
-            .iter()
-            .filter(|color| **color != Color::C)
-            .count();
-        Quantity::from(fixed as i64 + self.hybrid_mana.len() as i64)
-    }
-
     pub fn printed_mana_value(&self) -> Quantity {
         let mut value = self.mana_cost.generic.clone();
         value.add(&Quantity::from(
@@ -809,21 +798,6 @@ impl Instruction {
         self.fixed_draw()
             .is_some_and(|(player, count, _)| !player.is_you() || *count == Quantity::from(1))
     }
-    /// Any fixed draw by the controller, one card included (CR 121.1-121.2).
-    /// `Draw(you, Fixed(1))` is the one canonical single draw; families that
-    /// also admit counts above one read it through this accessor.
-    pub fn fixed_controller_draw(&self) -> Option<(&Quantity, u32)> {
-        self.fixed_draw()
-            .filter(|(player, ..)| player.is_you())
-            .map(|(_, count, block)| (count, block))
-    }
-    /// A fixed controller draw of any count other than one: the counted
-    /// controller draw of the hand-program families (CR 121.2).
-    pub fn counted_controller_draw(&self) -> Option<(&Quantity, u32)> {
-        self.fixed_draw()
-            .filter(|(player, count, _)| player.is_you() && **count != Quantity::from(1))
-            .map(|(_, count, block)| (count, block))
-    }
     /// CR 111.1: "you" in `context` create `count` tokens of `token`.
     pub fn create_tokens(
         context: kir::Context,
@@ -848,13 +822,6 @@ impl Instruction {
                 token,
                 ..
             }) => Some((token, count.to_u32()?)),
-            _ => None,
-        }
-    }
-    /// The creature recipe of a kernel creature-token creation.
-    pub fn creature_token(&self) -> Option<&CreatureToken> {
-        match self.created_tokens()? {
-            (kir::TokenSpec::Creature { spec }, _) => Some(spec),
             _ => None,
         }
     }
@@ -899,30 +866,6 @@ impl Instruction {
                 until: kir::Until::EndOfTurn,
                 ..
             } @ block) => Some((what, power, toughness, *block)),
-            _ => None,
-        }
-    }
-    /// CR 611.2c, 613.1f, 514.2: the source gains `keywords` until end of
-    /// turn.
-    pub fn grant_source_keywords(keywords: Vec<KeywordAbility>, source_block: u32) -> Self {
-        Self::act(
-            kir::Verb::ModifyUntil {
-                what: kir::SetExpr::source(),
-                layer: kir::Layer::Ability,
-                change: kir::Change::AddKeywords { keywords },
-                until: kir::Until::EndOfTurn,
-            },
-            source_block,
-        )
-    }
-    /// The keywords the source grants itself until end of turn.
-    pub fn source_keywords(&self) -> Option<&[KeywordAbility]> {
-        match self {
-            kernel!(ModifyUntil {
-                what: source_object!(),
-                change: kir::Change::AddKeywords { keywords },
-                ..
-            }) => Some(keywords),
             _ => None,
         }
     }
@@ -1049,16 +992,6 @@ impl Instruction {
             source_block,
         )
     }
-    /// CR 404.1: exile the graveyard of the target player of `slot`.
-    pub fn exile_target_graveyard(slot: u32, source_block: u32) -> Self {
-        Self::act(
-            kir::Verb::Move {
-                what: kir::SetExpr::graveyard_of(kir::PlayerExpr::target(slot)),
-                to: kir::Destination::Exile,
-            },
-            source_block,
-        )
-    }
     /// CR 701.8: destroy every creature.
     pub fn destroy_all_creatures(source_block: u32) -> Self {
         Self::act(
@@ -1090,19 +1023,6 @@ impl Instruction {
             source_block,
         )
     }
-    /// The slot, amount and block of damage to one announced target.
-    pub fn directed_damage(&self) -> Option<(u32, &kir::Amount, u32)> {
-        match self {
-            kernel!(Damage {
-                to: kir::DamageTo::Ref {
-                    who: kir::Ref::Target { slot },
-                },
-                amount,
-                ..
-            } @ block) => Some((*slot, amount, *block)),
-            _ => None,
-        }
-    }
     /// CR 608.2h: damage to every member of board-wide creature sets and,
     /// optionally, each player.
     pub fn set_damage(&self) -> Option<SetDamage<'_>> {
@@ -1131,37 +1051,10 @@ impl Instruction {
         }
         Some(damage)
     }
-    /// CR 107.3, 119.3: `player` gains or loses the announced X.
-    pub fn announced_x_life(player: kir::PlayerExpr, gain: bool, source_block: u32) -> Self {
-        let amount = kir::Amount::announced_x();
-        Self::act(
-            if gain {
-                kir::Verb::GainLife { player, amount }
-            } else {
-                kir::Verb::LoseLife { player, amount }
-            },
-            source_block,
-        )
-    }
-    /// CR 119.3: the amount of an opponent drain pair ([`kir::drain`]).
-    pub fn drain_amount(&self) -> Option<&kir::Amount> {
-        match self {
-            Self::Kernel { node, .. } => kir::drain(node),
-        }
-    }
     /// The verb of a single-verb kernel instruction.
     pub fn verb(&self) -> Option<&kir::Verb> {
         match self {
             Self::Kernel { node, .. } => node.verb(),
-        }
-    }
-    pub fn verb_mut(&mut self) -> Option<&mut kir::Verb> {
-        match self {
-            Self::Kernel {
-                node: kir::Node::Do(verb),
-                ..
-            } => Some(verb),
-            _ => None,
         }
     }
     pub fn source_block(&self) -> u32 {
@@ -1252,11 +1145,7 @@ pub enum SpellCascadeEligibility {
     FirstCastEachTurn {},
     FirstCastFromExileEachTurn {},
 }
-impl SpellCascadeEligibility {
-    pub fn requires_history(&self) -> bool {
-        !matches!(self, Self::ManaValueAtLeast { .. })
-    }
-}
+impl SpellCascadeEligibility {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HandSizeScope {

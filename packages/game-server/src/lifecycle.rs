@@ -71,10 +71,10 @@ fn private_dir_with_sync(
             return Err("invalid lifecycle path".into());
         }
         prefix.push(part.as_os_str());
-        if let Ok(meta) = fs::symlink_metadata(&prefix) {
-            if meta.file_type().is_symlink() {
-                return Err("symlink lifecycle path".into());
-            }
+        if let Ok(meta) = fs::symlink_metadata(&prefix)
+            && meta.file_type().is_symlink()
+        {
+            return Err("symlink lifecycle path".into());
         }
     }
     match fs::create_dir(path) {
@@ -561,14 +561,13 @@ pub async fn run(root: &Path) -> Result<(), String> {
                 })
                 .await,
             Ok(WorkerReply::Clocked { .. })
-        ) {
-            if let Err(error) = save(&root.join("resume-lifetime.json"), &true) {
-                broker.stop();
-                let _ = task.await;
-                server.abort();
-                let _ = server.await;
-                return Err(error);
-            }
+        ) && let Err(error) = save(&root.join("resume-lifetime.json"), &true)
+        {
+            broker.stop();
+            let _ = task.await;
+            server.abort();
+            let _ = server.await;
+            return Err(error);
         }
     }
     host.stop();

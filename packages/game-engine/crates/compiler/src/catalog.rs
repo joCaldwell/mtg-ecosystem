@@ -29,23 +29,6 @@ pub enum CatalogError {
         reason: String,
     },
 }
-impl CatalogError {
-    /// Keep the historical CLI envelope for callers that have not opted in to JSON errors.
-    pub fn into_legacy_build_error(self) -> Self {
-        let (file, diagnostic) = match self {
-            Self::UnsupportedSource { file, path, reason } => {
-                (file, CompileResult::Unsupported { path, reason })
-            }
-            Self::InvalidSource { file, path, reason } => {
-                (file, CompileResult::Invalid { path, reason })
-            }
-            error => return error,
-        };
-        Self::InvalidData {
-            reason: format!("{file}: {diagnostic:?}"),
-        }
-    }
-}
 impl From<String> for CatalogError {
     fn from(reason: String) -> Self {
         Self::InvalidData { reason }
@@ -263,9 +246,6 @@ fn build_with(
     };
     catalog.validate()?;
     Ok((manifest, catalog))
-}
-pub fn build_catalog(path: &Path) -> Result<Catalog, CatalogError> {
-    build_with(path, read_file).map(|(_, c)| c)
 }
 /// Lower the pinned source rows selected by an embedded manifest.
 pub fn embedded_catalog(name: &str) -> Result<Catalog, CatalogError> {

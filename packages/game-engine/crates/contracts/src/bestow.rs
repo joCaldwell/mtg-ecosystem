@@ -61,19 +61,6 @@ impl BestowCastPlan {
         }
         c
     }
-    /// A missing announcement is invalid. An announced target which later
-    /// becomes illegal makes the spell resolve in its original form.
-    pub fn resolving_form(
-        &self,
-        form: BestowForm,
-        legal_targets: &[bool],
-    ) -> Result<BestowForm, String> {
-        match (form, legal_targets) {
-            (BestowForm::Creature, []) | (BestowForm::Aura, [false]) => Ok(BestowForm::Creature),
-            (BestowForm::Aura, [true]) => Ok(BestowForm::Aura),
-            _ => Err("bestow invocation target count differs from its announced form".into()),
-        }
-    }
     pub fn detach(&self) -> Characteristics {
         self.characteristics(BestowForm::Creature)
     }

@@ -1164,11 +1164,6 @@ impl Strategy<'_> {
         {
             return false;
         }
-        for i in &p.instructions {
-            match i {
-                _ => {}
-            }
-        }
         let x = if p.instructions.iter().any(announced_x) {
             let Some(x) = self.choose_x(v, d, p) else {
                 return false;
@@ -1780,33 +1775,6 @@ impl Strategy<'_> {
             .iter()
             .find(|p| p.player == v.viewer)
             .map_or(0, |p| p.library_count as usize)
-    }
-
-    #[cfg(test)]
-    fn land_color(&self, id: &str) -> Option<Color> {
-        let d = definition(self.catalog, id).ok()?;
-        (d.characteristics.kind == CardKind::Land)
-            .then(|| d.characteristics.color_identity.first().copied())
-            .flatten()
-    }
-    #[cfg(test)]
-    pub(super) fn funds(&self, v: &mtg_core::PermittedView) -> BTreeMap<Color, Quantity> {
-        let mut funds = v
-            .players
-            .iter()
-            .find(|p| p.player == v.viewer)
-            .map(|p| p.mana.clone())
-            .unwrap_or_default();
-        for o in &v.objects {
-            if o.zone == Zone::Battlefield
-                && o.controller == v.viewer
-                && !o.tapped
-                && let Some(c) = self.land_color(&o.oracle_id)
-            {
-                funds.entry(c).or_default().add(&1.into());
-            }
-        }
-        funds
     }
 }
 #[cfg(test)]

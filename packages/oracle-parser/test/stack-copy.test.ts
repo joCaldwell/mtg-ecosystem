@@ -42,7 +42,7 @@ function complete<T>(parser: (c: Cursor) => T | null, text: string): T {
 
 describe("copying spells and abilities on the stack", () => {
   it("binds Double Major's announced creature spell and copy controller", () => {
-    const fixture = new URL("../../game-engine/tests/fixtures/ramos/ece44a82-dcf0-4439-bdd9-a09c99a6f159.json", import.meta.url);
+    const fixture = new URL("./fixtures/ramos/ece44a82-dcf0-4439-bdd9-a09c99a6f159.json", import.meta.url);
     const { source, oracleIdentity: identity } = JSON.parse(readFileSync(fixture, "utf8"));
     const analyze = (text: string) => {
       const result = parseOracleText(text, source.name, { typeLine: source.type_line, includeSourceProvenance: true });

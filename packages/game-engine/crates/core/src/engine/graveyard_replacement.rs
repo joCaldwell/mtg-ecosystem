@@ -66,9 +66,7 @@ impl GraveyardReplacement {
     }
 
     pub(super) fn reserved_top(&self) -> &[ObjectId] {
-        match &self.proposed {
-            _ => &[],
-        }
+        &[]
     }
 
     fn last_index(&self, game: &RulesTxn) -> Result<u32, String> {
@@ -385,12 +383,10 @@ impl RulesTxn {
             .instructions
             .get(tx.frame.cursor as usize)
             .ok_or("missing replacement-producing instruction")?;
-        let (owner, members, from) = match (&tx.completion, &tx.proposed) {
-            _ => {
-                let (owner, members) = library_members(&tx.proposed)
-                    .ok_or("unsupported retained graveyard proposal")?;
-                (owner, members, Zone::Library { owner })
-            }
+        let (owner, members, from) = {
+            let (owner, members) =
+                library_members(&tx.proposed).ok_or("unsupported retained graveyard proposal")?;
+            (owner, members, Zone::Library { owner })
         };
         let expected = members
             .iter()

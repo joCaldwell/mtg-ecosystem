@@ -161,7 +161,7 @@ impl RulesTxn {
 
             _ => return Err("counter placement instruction origin".into()),
         };
-        if frame.stack_id != frame.stack_id || *cause != self.instruction_cause(frame, *block)? {
+        if *cause != self.instruction_cause(frame, *block)? {
             return Err("counter placement cause".into());
         }
         Ok(())

@@ -4,7 +4,7 @@ import { it } from "node:test";
 import { analyzeCardBindings, parseOracleText, type BindingSourceCard } from "../src/index.ts";
 
 it("preserves all five printed Unite modes and their announcement target templates", () => {
-  const fixture = new URL("../../game-engine/tests/fixtures/ramos/164651c5-b831-4070-8491-16d30ac8395b.json", import.meta.url);
+  const fixture = new URL("./fixtures/ramos/164651c5-b831-4070-8491-16d30ac8395b.json", import.meta.url);
   const { source, oracleIdentity, faces } = JSON.parse(readFileSync(fixture, "utf8")) as {
     source: BindingSourceCard & { oracle_text: string }; oracleIdentity: string;
     faces: { result: ReturnType<typeof parseOracleText> }[];

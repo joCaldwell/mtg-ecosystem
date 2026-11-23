@@ -121,10 +121,9 @@ impl RulesTxn {
                 | Frame::Targets { .. }
                 | Frame::StackTargets { .. }
                 | Frame::EntityTargets { .. }
-        ) {
-            if let Some(child) = self.next_mode_target(entry)? {
-                return Ok(child);
-            }
+        ) && let Some(child) = self.next_mode_target(entry)?
+        {
+            return Ok(child);
         }
         self.program_for(entry)
     }

@@ -362,6 +362,8 @@ pub(super) fn physical_match_rosters(
     }
 }
 
+impl std::error::Error for MatchAdmissionError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,5 +630,3 @@ mod tests {
         assert!(strict_read::<MatchConfig>(&canonical(&raw).unwrap()).is_err());
     }
 }
-
-impl std::error::Error for MatchAdmissionError {}

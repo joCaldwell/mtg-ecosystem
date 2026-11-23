@@ -927,8 +927,6 @@ impl RulesTxn {
                     converted.push(object);
                     return Ok(None);
                 }
-                {}
-                {}
                 if let PlayerResponse::Targets { objects } = response
                     && converted.len() < objects.len()
                 {

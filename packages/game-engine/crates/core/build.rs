@@ -2,7 +2,7 @@
 // profiles. No engine types, no engine source identity: mtg-core never depends
 // on mtg-contracts at build time, and the executable edge supplies the build
 // identity (`crates/build_identity.rs`). Typed profile/catalog validation lives
-// in `src/engine/match_profile_validation_tests.rs`.
+// in `tests/state_recovery/match_admission/match_profile_validation_tests.rs`.
 use sha2::{Digest, Sha256};
 use std::{
     env, fs,

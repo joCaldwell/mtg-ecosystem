@@ -656,13 +656,14 @@ mod tests {
         assert!(unmarked.validate().is_err());
 
         // Instruction row: event-bound and announced-X operations stay out.
-        for instruction in [Instruction::act(
-            Verb::Draw {
-                player: PlayerExpr::you(Context::Spell),
-                amount: kir::Amount::announced_x(),
-            },
-            0,
-        )] {
+        {
+            let instruction = Instruction::act(
+                Verb::Draw {
+                    player: PlayerExpr::you(Context::Spell),
+                    amount: kir::Amount::announced_x(),
+                },
+                0,
+            );
             let d = with(|d| {
                 d.activated.push(ability(
                     ActivationCost::TapSource,

@@ -135,16 +135,22 @@ impl Laboratory {
                 } else if !observation.view.stack.is_empty() {
                     choices.push(PlayerResponse::Pass);
                 } else {
-                    choices.extend(observation.view.objects.iter().filter_map(|object| {
-                        (object.oracle_id == self.spell
-                            && object.zone
-                                == (Zone::Hand {
-                                    owner: observation.view.viewer,
-                                }))
-                        .then(|| PlayerResponse::Cast {
-                            card: object.handle.clone(),
-                        })
-                    }));
+                    choices.extend(
+                        observation
+                            .view
+                            .objects
+                            .iter()
+                            .filter(|&object| {
+                                object.oracle_id == self.spell
+                                    && object.zone
+                                        == (Zone::Hand {
+                                            owner: observation.view.viewer,
+                                        })
+                            })
+                            .map(|object| PlayerResponse::Cast {
+                                card: object.handle.clone(),
+                            }),
+                    );
                 }
             }
             PlayerRequest::Targets {

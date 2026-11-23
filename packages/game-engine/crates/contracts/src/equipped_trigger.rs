@@ -11,9 +11,3 @@ pub fn count(text: &str) -> Option<u32> {
         .filter(|n| *n > 0 && n.to_string() == text)
         .or_else(|| (1..100).find(|&n| matches_fixed_amount(text, i64::from(n))))
 }
-
-pub fn draw_count(text: &str) -> Option<u32> {
-    let (n, noun) = text.split_once(' ')?;
-    let count = count(n)?;
-    (noun == if count == 1 { "card" } else { "cards" }).then_some(count)
-}

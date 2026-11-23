@@ -350,7 +350,13 @@ mod permanent_owner_hand_policy_tests {
                 Some(selected.clone())
             );
             assert_eq!(
-                strategy(&c).object_target(&v, d, p, &p.targets[0], Some(&[selected.clone()])),
+                strategy(&c).object_target(
+                    &v,
+                    d,
+                    p,
+                    &p.targets[0],
+                    Some(std::slice::from_ref(&selected))
+                ),
                 Some(selected.clone())
             );
             assert_eq!(
