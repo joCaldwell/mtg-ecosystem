@@ -1,0 +1,1 @@
+export const protocolSchemaHash = 'b191d97401a2ff548ff8acfc4ff9c588e3fcf6bde2f2cec42238f47e42af0dfd' as const;
