@@ -16,6 +16,7 @@ pub mod search {
         TrialOutcome, TrialResult, TrialTimings, WorldSpec, WorldTimings, replay_report, run,
         run_cancellable,
     };
+    pub use crate::search_sampler::propose;
 }
 
 pub mod analytics;
@@ -40,3 +41,5 @@ mod tests {
         assert_eq!(BUILD.debug_assertions, cfg!(debug_assertions).to_string());
     }
 }
+/// Build identity for native consumers using this simulation library.
+pub const SIM_BUILD: mtg_core::BuildIdentity = mtg_core::compiled_build_identity!();

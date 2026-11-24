@@ -127,7 +127,8 @@ explicit filenames (discovery misses hyphens).
 
 ### Engine test topology
 
-Cargo builds nine test executables. Five library harnesses hold local contracts,
+Cargo builds twelve test executables. Eight library harnesses cover the view,
+encoder, batched environment, local contracts,
 compiler lowering and catalog regeneration, private core anchors, simulator
 policies/search/smoke, and server unit tests. Four integration suites own the
 cross-module behavior.
@@ -151,7 +152,7 @@ forgery, privacy and saved-work assertions stay with their witnesses.
 
 The gate runs `cargo test --tests` directly with one libtest thread budget
 (minimum of available CPUs and 16). Test helpers must not spawn their own thread
-pools (13 GiB nested-pool lesson). Each of the nine named harnesses must report
+pools (13 GiB nested-pool lesson). Each of the twelve named harnesses must report
 a passing test. The host's opt-in systemd case shares its executing harness.
 The separate `cargo test --doc` phase requires both passing core compile-fail
 examples for action continuations and player sessions.
@@ -197,6 +198,59 @@ processes/native owner, retained artifacts and remaining work. Confirm remote
 push. Separate implementation, verification, build and known lock-wait time;
 label unitemized time. Successors recheck identities/ownership. Propagate this
 policy and relevant receipts to current children and every new delegate brief.
+
+## Batched NumPy environment
+
+Build the native extension with `PYO3_PYTHON=/usr/bin/python3 sh scripts/engine-env.sh cargo build --locked -p mtg-env`.
+On Linux, `python3 packages/game-engine/crates/env/python/smoke.py target/engine/debug/libmtg_env.so` loads that exact library.
+A Python module search path containing the library named `mtg_env.so` supports `import mtg_env`.
+Native PyO3 supports Python 3.14. The runtime requires NumPy.
+
+`VecEnv(catalog_dir_or_profile, pods=None, num_envs=1, threads=32, seed=0, config=None)`
+accepts a profile name and its default decks, or pod files selected by environment index modulo pod count.
+Each embedded-profile pod file contains the four serialized decklists. A bulk catalog directory
+requires a `manifest_sha256` configuration value and dynamic pod files in the simulator's
+`{"decks": [...]}` multi-seat format. Episode seeds bind the supplied seed, environment index
+and episode ordinal. Explicit reset restarts episode zero. Each rules and query call uses
+the pod driver's 1024-unit quantum.
+
+```python
+env = mtg_env.VecEnv("commander-foundations-v1", num_envs=32, seed=57)
+env.reset()
+with env.buffers() as batch:
+    # Opening declarations use the pointer head.
+    actions = batch["ptr_mask"].argmax(axis=1).astype("int32")
+env.step(actions)
+```
+
+Arrays from `buffers()` borrow contiguous Rust storage. Batch exit or `release()` drops
+the batch's references. Slices and retained arrays continue to hold a lease, and the
+next step or reset waits for the caller to release them by raising a Python exception.
+Copy a tensor to retain its contents across steps. Workers release the GIL and write
+disjoint rows. An internal fault requires a reset. An invalid input leaves all games
+at the previous decision.
+
+`payment` accepts `auto` (default) or `manual`. Spend always uses the exact solver.
+`opponents` accepts `self_play` (default) or `baseline` (seat zero acts, the other
+seats use Develop). `mask_unfundable` defaults to true. `head` selects pointer (0) or
+number (1). Pointers 0–127 address ordered candidates, 128 ends a slot or ordering,
+129 and 130 finish production with undo or keep. Numbers 0–62 are literal and 63
+selects the largest feasible value.
+
+Entity rows preserve object order, then stack order, then remembered library positions
+in published order. Remembered positions have no targetable handle. Missing entity
+and seat references are -1. Card zero represents absent identity. Player features and
+entity seat references rotate around the viewer. `seat` and terminal rewards use
+absolute seat order. A terminal step returns the next opening observation alongside
+the previous episode's reward, done and counters. Info columns 0–3 count illegal
+actions, cast reversals, censor class (0 outcome, 1 workload limit, 2 engine capacity),
+and completed rules decisions. Numeric features saturate at the signed 32-bit limits.
+The observation wire supplies no lore-counter or selected-mode field.
+
+`catalog()` exposes padded 192-token rows, lengths, sixteen numeric features and the
+SHA-256 of the sorted vocabulary encoded as compact JSON. Token IDs start at one.
+An overlength definition ends with a truncation token. Bind model inputs to both
+catalog and vocabulary identity.
 
 ## Measurement and deck work
 

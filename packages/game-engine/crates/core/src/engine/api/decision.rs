@@ -9,13 +9,10 @@ mod selected;
 pub(in crate::engine) use selected::PendingInput;
 #[cfg(feature = "testkit")]
 pub use selected::PendingInput;
-mod check;
 mod model;
 pub use model::*;
-mod shape;
 #[cfg(test)]
 mod tests;
-pub use shape::*;
 
 use crate::engine::*;
 

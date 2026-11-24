@@ -15,7 +15,9 @@ ALLOWED = {
     'mtg-contracts': {'serde', 'serde_json', 'schemars', 'num-bigint', 'num-traits', 'sha2'},
     'mtg-oracle-ast': {'serde', 'serde_json'},
     'mtg-compiler': {'mtg-contracts', 'mtg-oracle-ast', 'serde', 'serde_json', 'sha2', 'regex', 'serde_path_to_error'},
-    'mtg-core': {'mtg-contracts', 'serde', 'serde_json', 'schemars', 'rand_chacha', 'rand_core'},
+    'mtg-view': {'mtg-contracts', 'serde', 'schemars'},
+    'mtg-observe': {'mtg-view', 'mtg-contracts', 'serde_json', 'sha2'},
+    'mtg-core': {'mtg-view', 'mtg-contracts', 'serde', 'serde_json', 'schemars', 'rand_chacha', 'rand_core'},
 }
 # Test-only additions per layer: the published Catalog schema is checked with
 # the host's already-pinned validator, never linked into a runtime layer.
@@ -31,7 +33,7 @@ def dependency_errors(root):
         tables = [('all targets', manifest), *manifest.get('target', {}).items()]
         for target, table in tables:
             for kind in ('dependencies', 'build-dependencies', 'dev-dependencies'):
-                permit = allowed | ({'sha2'} if kind == 'build-dependencies' else set())
+                permit = allowed | ({'sha2'} if kind == 'build-dependencies' and crate in {'mtg-core', 'mtg-compiler'} else set())
                 permit |= DEV_ALLOWED.get(crate, set()) if kind == 'dev-dependencies' else set()
                 for alias, value in table.get(kind, {}).items():
                     spec = value if isinstance(value, dict) else {}
@@ -131,12 +133,38 @@ def rust_code(text):
     return re.sub(r'//[^\n]*|/\*.*?\*/|r(#+)".*?"\1|"(?:\\.|[^"\\])*"', ' ', text, flags=re.S)
 
 
+def unsafe_errors(root):
+    workspace = tomllib.loads((root / 'Cargo.toml').read_text())['workspace']
+    errors = []
+    if workspace.get('lints', {}).get('rust', {}).get('unsafe_code') != 'forbid':
+        errors.append('workspace must forbid unsafe_code')
+    for member in workspace['members']:
+        directory = root / member
+        lints = tomllib.loads((directory / 'Cargo.toml').read_text()).get('lints', {})
+        if member != f'{CRATES}/env':
+            if not lints.get('workspace'):
+                errors.append(f'{member} must inherit workspace lints')
+            continue
+        if lints.get('rust', {}).get('unsafe_code') != 'deny':
+            errors.append('mtg-env must deny unsafe_code')
+        for path in directory.rglob('*.rs'):
+            if path == directory / 'src/ffi.rs':
+                continue
+            code = rust_code(path.read_text())
+            if re.search(r'\bunsafe\b|\b(?:allow|expect|warn)\s*\([^)]*\bunsafe_code\b', code):
+                errors.append(f'{path.relative_to(root)}: unsafe code is confined to env/src/ffi.rs')
+    return errors
+
+
 def decision_validator_errors(root):
     """Decision validators can depend on shape, never on descriptive reason."""
     engine = root / CRATES / 'core/src/engine'
     errors = []
-    for source in sorted(engine.rglob('*.rs')):
-        parts = source.relative_to(engine).with_suffix('').parts
+    view = root / CRATES / 'view/src'
+    sources = [(engine, path) for path in engine.rglob('*.rs')]
+    sources.extend((view, path) for path in view.glob('check.rs'))
+    for base, source in sorted(sources):
+        parts = source.relative_to(base).with_suffix('').parts
         validates = parts == ('api', 'decision', 'selected') or any(
             p in {'check', 'validate', 'validation', 'validator', 'validators'}
             or p.startswith('validate_') or p.endswith(('_validator', '_validation')) for p in parts
@@ -265,7 +293,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
-    errors = dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + decision_validator_errors(args.root) + topology_errors(args.root) + artifact_errors(args.root)
+    errors = unsafe_errors(args.root) + dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + decision_validator_errors(args.root) + topology_errors(args.root) + artifact_errors(args.root)
     for error in errors:
         print(error, file=sys.stderr)
     if not errors:

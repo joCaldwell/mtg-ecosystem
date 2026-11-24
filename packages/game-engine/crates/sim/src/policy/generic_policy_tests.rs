@@ -613,9 +613,9 @@ mod activated_permanent_tap_policy_tests {
                 ability: 0
             }
         );
-        assert_eq!(s.mana_plan.len(), 1);
+        assert_eq!(s.memory.mana_plan.len(), 1);
         assert_eq!(
-            s.mana_plan[0].source,
+            s.memory.mana_plan[0].source,
             ObjectHandle("Plains".into()),
             "the printed generic1 plan excludes the tapped-as-cost source"
         );
@@ -769,7 +769,10 @@ mod activated_headless_policy_tests {
                 ability: 0
             }
         );
-        assert!(s.mana_plan.is_empty(), "source-tap has no mana payment");
+        assert!(
+            s.memory.mana_plan.is_empty(),
+            "source-tap has no mana payment"
+        );
         assert_eq!(
             s.object_target(&v, d, p, &p.targets[0], None),
             Some(ObjectHandle("enemy-tapped".into()))
@@ -912,6 +915,7 @@ mod temporal_adept_policy_tests {
                 }
             );
             let mut plan = s
+                .memory
                 .mana_plan
                 .iter()
                 .map(|p| p.source.0.clone())

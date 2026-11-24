@@ -1,11 +1,5 @@
 use super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PlayerStatus {
-    Live,
-    Left,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerLastKnown {
@@ -40,56 +34,6 @@ pub struct ControlEffect {
     pub object: ObjectId,
     pub controller: PlayerId,
     pub source: ControlSource,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct CommanderHistory {
-    pub owner: PlayerId,
-    pub color_identity: Vec<Color>,
-    #[serde(deserialize_with = "player_quantity_map")]
-    pub command_casts: BTreeMap<PlayerId, Quantity>,
-    #[serde(deserialize_with = "player_quantity_map")]
-    pub combat_damage: BTreeMap<PlayerId, Quantity>,
-}
-// JSON object keys are strings. Internally tagged publication/IPC enums
-// deserialize buffered Content, which cannot decode a string as the numeric
-// scalar inside PlayerId. Adapt these map KEYS only; PlayerId values remain
-// numeric. Serialization and JsonSchema still use the original field types.
-pub(super) fn player_quantity_map<'de, D>(
-    deserializer: D,
-) -> Result<BTreeMap<PlayerId, Quantity>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    struct PlayerQuantities;
-    impl<'de> serde::de::Visitor<'de> for PlayerQuantities {
-        type Value = BTreeMap<PlayerId, Quantity>;
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("a map with canonical decimal u8 player keys")
-        }
-        fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-        where
-            M: serde::de::MapAccess<'de>,
-        {
-            let mut result = BTreeMap::new();
-            while let Some((key, quantity)) = map.next_entry::<String, Quantity>()? {
-                let player = key
-                    .parse::<u8>()
-                    .map_err(|_| serde::de::Error::custom("invalid player history map key"))?;
-                if key != player.to_string() {
-                    return Err(serde::de::Error::custom(
-                        "noncanonical player history map key",
-                    ));
-                }
-                if result.insert(PlayerId(player), quantity).is_some() {
-                    return Err(serde::de::Error::custom("duplicate player history map key"));
-                }
-            }
-            Ok(result)
-        }
-    }
-    deserializer.deserialize_map(PlayerQuantities)
 }
 
 testkit_fields! {

@@ -11,6 +11,7 @@ hosting. Fixture/catalog admission defines support; the deck library is independ
 | Source parsing/archive | TypeScript `packages/oracle-parser`; [manual](../packages/oracle-parser/AGENTS.md) |
 | Executable IR and complete-source lowering | Rust `crates/contracts` and `crates/compiler`; [catalog workflow](game-engine-catalogs.md) |
 | Deterministic rules, decisions, visibility, replay | Rust `crates/core`; [mechanics and invariants](game-engine-mechanics.md) |
+| Permitted wire values, tensor encoding, batched Python simulation | Rust `crates/view`, `crates/observe`, `crates/env`; [Python interface](game-engine-development.md#batched-numpy-environment) |
 | Match play, public-view policies, pod benchmarking, analytics and native search | Rust `mtg_sim::{play, policy, pods, analytics, search, mana_spend}`; [search contract](game-engine-search.md) |
 | Admission pools | `tests/fixtures/catalogs` and `profiles`; [profiles](game-engine-catalogs.md#match-profile-data) |
 | Hosting and generated protocol | `packages/game-server`; [host contract](game-engine-server.md), [SDK manual](../packages/game-server/sdk/AGENTS.md) |
@@ -19,7 +20,7 @@ hosting. Fixture/catalog admission defines support; the deck library is independ
 The simulator binary installs its build identity and owns live-journal files and
 wall-clock reporting. Library callers can supply their own journal sink to
 `play::run`. The [verification topology](game-engine-development.md#engine-test-topology)
-maps the four integration suites and five library harnesses.
+maps the four integration suites and eight library harnesses.
 
 ## Supported behavior and remaining work
 
