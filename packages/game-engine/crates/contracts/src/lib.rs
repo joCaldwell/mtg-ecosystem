@@ -176,7 +176,6 @@ pub enum Capability {
     PredefinedArtifactTokensV1,
 
     PlayerGraveyardShuffleV1,
-    OpeningPlacementV1,
 
     ControllerLifeFreezeV1,
 
@@ -193,8 +192,6 @@ pub enum Capability {
 
     CastColorPredicateV1,
     CastSubtypePredicateV1,
-
-    ManaTapTriggerV1,
 
     SourceTapTriggerV1,
 
@@ -214,10 +211,6 @@ pub enum Capability {
     EntersTappedV1,
 
     TypedNonbasicIntrinsicManaV1,
-    UnspentManaConversionV1,
-    ControllerLandGrantedManaV1,
-    ControllerLandBasicTypesV1,
-    ControllerNonlandColorsV1,
     FlashV1,
     EnterAsCopyOfPermanentEnteredThisTurnV1,
     CastArtifactV1,
@@ -294,7 +287,6 @@ pub enum Capability {
     EntryGraveyardExileV1,
 
     ControlledLandEntryV1,
-    LandReclamationV1,
 
     CreatureDiesV1,
     SelfDiesV1,
