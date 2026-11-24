@@ -30,17 +30,14 @@ if args[:2] == ['catalog', 'coverage']:
     (out / 'summary.json').write_text(json.dumps({'archive_sha256': os.environ.get('FAKE_ARCHIVE', 'a' * 64),
         'total': len(statuses), 'lowered_validated': 0, 'lowered_validated_percent': 0.0, 'statuses': {}}))
     sys.exit(0)
-assert args[0] == 'bench-pods' and '--rotate-seats' in args
-decks = args[args.index('--pod-decks') + 1]
-if os.environ.get('FAKE_REJECT') and decks.endswith(os.environ['FAKE_REJECT']):
-    print(json.dumps({'reason': 'deck_gaps', 'decks': []})); sys.exit(1)
-games, start = int(args[args.index('--games') + 1]), int(args[args.index('--seed-start') + 1])
-shift = int(os.environ.get('FAKE_SHIFT', '0')) if decks.endswith('b.json') else 0
-rows = [{'case': {'index': i, 'seed_index': start + i // 4, 'rotation': i % 4}, 'starting_seat': (start + i // 4 + shift) % 4,
-         'outcome': 'win', 'winner': i % 4, 'placements': [1, 2, 3, 4], 'turns': 9, 'decisions': 80,
-         'admission_sha256': decks[-6:]} for i in range(games)]
-print(json.dumps({'build': {'id': 'b' * 64}, 'catalog_sha256': 'c' * 64, 'games': games, 'seed_start': start,
-    'rotate_seats': True, 'limits': {'decisions': 100}, 'policy': 'develop', 'rows': rows, 'proofs_verified': True}))
+assert args[0] == 'bench-pair'
+out = Path(args[args.index('--out') + 1])
+if os.environ.get('FAKE_REJECT'): sys.exit(7)
+out.mkdir()
+(out / 'pairs.jsonl').write_text('raw rows')
+print(json.dumps({'args':args, 'statistics':{'verdict':'valid', 'estimate':0, 'ci95':[0,0],
+    'complete_case_estimate':0,'complete_case_ci95':[0,0], 'worst_case_bounds':[0,0],
+    'sign_test':{'two_sided_p':1}, 'censoring_table':[[8,0],[0,0]]}}))
 '''
 
 
@@ -143,38 +140,21 @@ class DeckHarnessTests(unittest.TestCase):
 
     def bench(self, out, *extra):
         return decks.main(['bench', str(self.sim), '--bulk-artifact', str(self.dir), '--manifest-sha', 'f' * 64,
-                           '--a', str(self.dir / 'a.json'), '--games', '8', '--out', str(self.dir / out), *extra])
+                           '--pod-decks', 'a.json', '--blocks', '2', '--swap', '1:x:y', '--out', str(self.dir / out), *extra])
 
-    def test_paired_bench_shares_one_schedule_and_keeps_raw_rows(self):
-        self.write('a.json', pod('x', 'y', 'z', 'w'))
-        self.write('b.json', pod('x', 'y', 'z', 'v'))
-        self.assertEqual(0, self.bench('pair', '--b', str(self.dir / 'b.json')))
-        pair = json.loads((self.dir / 'pair/pair.json').read_text())
-        self.assertEqual(('ok', [3], 8), (pair['status'], pair['changed_slots'], len(pair['rows'])))
-        self.assertEqual({'a', 'b'}, set(pair['rows'][0]) & {'a', 'b'})
-        self.assertEqual('a.json', pair['rows'][0]['a']['admission_sha256'])
-        # A single arm is an A-only run with the same raw rows.
-        self.assertEqual(0, self.bench('single'))
+    def test_bench_forwards_one_command_and_renders_the_native_report(self):
+        self.assertEqual(0, self.bench('pair', '--swap', '1:a:b', '--threads', '2', '--decision-limit', '0'))
+        out = self.dir / 'pair'
+        command = json.loads((out / 'report.json').read_text())['args']
+        self.assertEqual(2, command.count('--swap'))
+        self.assertEqual(['2', '0'], [command[command.index(flag)+1] for flag in ('--threads','--decision-limit')])
+        self.assertIn('**valid**', (out / 'summary.md').read_text())
+        self.assertEqual('raw rows', (out / 'pairs.jsonl').read_text())
 
-    def test_schedule_mismatch_ineligible_arm_and_wide_substitution_fail_cleanly(self):
-        self.write('a.json', pod('x', 'y', 'z', 'w'))
-        self.write('b.json', pod('x', 'y', 'z', 'v'))
-        os.environ['FAKE_SHIFT'] = '1'
-        self.assertEqual(1, self.bench('shifted', '--b', str(self.dir / 'b.json')))
-        self.assertEqual('schedule_mismatch', json.loads((self.dir / 'shifted/pair.json').read_text())['status'])
-        del os.environ['FAKE_SHIFT']
-        os.environ['FAKE_REJECT'] = 'b.json'
-        self.assertEqual(1, self.bench('rejected', '--b', str(self.dir / 'b.json')))
-        pair = json.loads((self.dir / 'rejected/pair.json').read_text())
-        self.assertEqual('arm_failed', pair['status'])
-        self.assertIn('deck_gaps', pair['arms']['b']['failure'])
-        self.write('wide.json', pod('x', 'q', 'z', 'v'))
-        self.assertEqual(2, self.bench('wide', '--b', str(self.dir / 'wide.json')))
-        self.assertFalse((self.dir / 'wide').exists())
-        self.write('bad.json', {'decks': [[{'oracle_id': 'x', 'quantity': 1}]] * 4})
-        self.assertEqual(2, self.bench('bad', '--b', str(self.dir / 'bad.json')))
-        self.assertEqual(2, decks.main(['bench', str(self.sim), '--bulk-artifact', '.', '--manifest-sha', 'f',
-                                        '--a', str(self.dir / 'a.json'), '--games', '6', '--out', str(self.dir / 'x')]))
+    def test_bench_propagates_native_admission_failure(self):
+        os.environ['FAKE_REJECT'] = '1'
+        self.assertEqual(7, self.bench('rejected'))
+        self.assertFalse((self.dir / 'rejected').exists())
 
     def test_play_builds_in_the_detached_checkouts_own_target(self):
         # Stub git/engine-env record every native call's CARGO_TARGET_DIR; the
@@ -224,15 +204,6 @@ esac
         self.assertEqual(['--decklist', 'deck.json', '3', '--archive', 'r4.jsonl'], calls[0][2:])
         self.assertTrue(calls[0][1].endswith('play-deck.sh'))
         self.assertEqual(['SIM', 'OUT', '--decklist', 'deck.json', '--decks', 'd.json'], calls[1][3:])
-
-    def test_explicit_zero_threads_or_decision_limit_is_never_dropped(self):
-        self.write('a.json', pod('x', 'y', 'z', 'w'))
-        for flag in ('--threads', '--decision-limit'):
-            self.assertEqual(2, self.bench(f'zero{flag}', flag, '0'))
-            self.assertFalse((self.dir / f'zero{flag}').exists())
-        self.assertEqual(0, self.bench('explicit', '--threads', '2', '--decision-limit', '50'))
-        command = json.loads((self.dir / 'explicit/pair.json').read_text())['arms']['a']['command']
-        self.assertEqual(['2', '50'], [command[command.index('--threads') + 1], command[command.index('--decision-limit') + 1]])
 
     def test_stage_template_is_the_reviewed_current_profile(self):
         stage = importlib.util.spec_from_file_location('stage', Path(__file__).with_name('stage-deck.py'))

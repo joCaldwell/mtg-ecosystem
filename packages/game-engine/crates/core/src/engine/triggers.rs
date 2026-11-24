@@ -522,8 +522,7 @@ impl RulesTxn {
         staged.in_rule_step = self.in_rule_step;
         match staged.collect_trigger_witness_staged(before, event, witness) {
             Ok(()) => {
-                self.state = staged.state;
-                self.trace = staged.trace;
+                self.commit_staged_state(staged);
                 Ok(())
             }
             Err(reason) => {

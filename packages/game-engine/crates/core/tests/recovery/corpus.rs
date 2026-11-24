@@ -17,6 +17,16 @@ fn partial_setup() {
         game.advance(Budget::new(2)),
         Advance::Suspended { .. }
     ));
+    // Snapshot 85 recovery anchor: two paid words in seat zero's first
+    // opening shuffle, before any completed shuffle or seat-local effect.
+    let snapshot: serde_json::Value = serde_json::from_str(&game.snapshot().unwrap()).unwrap();
+    assert_eq!(
+        snapshot["state"]["match_state"]["random"],
+        serde_json::json!({
+            "version":2, "seed": vec![0; 32], "table":0, "seat_random":[0,0,0,0],
+            "open":{"stream":1u64<<56,"word":2}
+        })
+    );
     assert_recoverable((&game).into());
 }
 

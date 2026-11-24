@@ -30,6 +30,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
             definition_index: Arc::clone(&game.definition_index),
             state: game.state.clone(),
             trace: game.trace.clone(),
+            stream_buffer: Vec::new(),
             executor: Arc::new(()),
             priority_cache: Default::default(),
             state_token: Arc::new(()),
@@ -331,4 +332,66 @@ fn prepared_arc_private_cow_tamper_does_not_mutate_admitted_parent() {
     )
     .unwrap();
     full_equal(&parent, &restored);
+}
+
+#[test]
+fn stream_delivery_belongs_to_one_executor_and_survives_undrained_snapshot() {
+    let p = admitted_match();
+    let mut stream = Game::with_trace(p.clone(), TraceMode::Stream);
+    let mut detailed = Game::with_trace(p.clone(), TraceMode::Detailed);
+    for game in [&mut stream, &mut detailed] {
+        game.advance(Budget::new(8));
+    }
+    let snapshot = stream.snapshot().unwrap();
+    let mut restored = Game::restore(p, &snapshot).unwrap();
+    let mut fork = stream.fork();
+    for game in [&mut fork, &mut restored] {
+        game.drain_trace(&mut |_| panic!("redelivered a parent's record"));
+    }
+    let mut records = vec![];
+    stream.drain_trace(&mut |r| records.push(r.clone()));
+    assert!(!records.is_empty());
+    assert_eq!(records.as_slice(), detailed.trace().records.as_slice());
+    assert_eq!(stream.trace().verification, detailed.trace().verification);
+    assert_eq!(stream.snapshot().unwrap(), snapshot);
+    stream.drain_trace(&mut |_| panic!("duplicate delivery"));
+    fork.advance(Budget::new(1));
+    let mut fork_rows = vec![];
+    fork.drain_trace(&mut |r| fork_rows.push(r.clone()));
+    assert_eq!(
+        fork_rows.first().unwrap().sequence,
+        records.last().unwrap().sequence + 1
+    );
+    stream.drain_trace(&mut |_| panic!("fork leaked a record"));
+}
+
+#[test]
+fn stream_delivers_committed_non_step_batches_in_order() {
+    let p = historical();
+    let mut stream = Game::with_trace(p.clone(), TraceMode::Stream);
+    let mut detailed = Game::with_trace(p, TraceMode::Detailed);
+    for game in [&mut stream, &mut detailed] {
+        for card in [CardId(0), CardId(2)] {
+            let object = game.object_id(card).unwrap();
+            game.commit_batch(
+                BatchCause::Fixture,
+                EventGroup::Occurrence {
+                    proposed: ProposedEvent::Tap { object },
+                },
+            )
+            .unwrap();
+        }
+    }
+    assert_eq!(
+        detailed
+            .trace()
+            .records
+            .iter()
+            .filter(|r| matches!(r.record, EvidenceRecord::Batch { .. }))
+            .count(),
+        2
+    );
+    let mut records = vec![];
+    stream.drain_trace(&mut |r| records.push(r.clone()));
+    assert_eq!(records.as_slice(), detailed.trace().records.as_slice());
 }

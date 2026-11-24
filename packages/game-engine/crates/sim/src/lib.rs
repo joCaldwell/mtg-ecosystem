@@ -21,6 +21,8 @@ pub mod search {
 pub mod analytics;
 #[cfg(test)]
 mod coverage_cli;
+pub mod events;
+pub mod paired;
 pub mod play;
 pub mod pods;
 pub mod policy;

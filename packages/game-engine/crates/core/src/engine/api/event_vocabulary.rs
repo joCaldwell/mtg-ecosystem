@@ -256,8 +256,7 @@ pub enum EventOutcome {
         index: u32,
         word: u32,
         selected: Option<u32>,
-        before: RngPosition,
-        after: RngPosition,
+        position: OpenStream,
     },
     PredefinedTokensCreated {
         objects: Vec<ObjectId>,

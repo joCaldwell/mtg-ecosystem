@@ -120,3 +120,27 @@ capability admission and exact build/catalog identity fence them, and
 schema. No performance, playing-strength, arbitrary-root or resource-fit claim
 follows from this contract or from historical
 [evidence](game-engine-evidence.md#search-hosting-and-performance).
+
+## Paired deck experiments
+
+`mtg-sim bench-pair` admits both decks at the HeadlessQualified tier. Supply
+`--bulk-artifact DIR --manifest-sha SHA --pod-decks A.json`, one or more
+`--swap SLOT:REMOVE:ADD` flags for the same zero-based slot, `--blocks N` and
+`--out NEW_DIR`. Each block uses the indexed `bench-pair-v1` seed, starter
+`index % 4`, and all four rotations. One worker runs all eight games. Output
+order is independent of thread count. The Python bench wrapper also writes
+`report.json` and `summary.md`.
+
+`pairs.jsonl` records the first unequal accepted input (zero-based, including a
+length mismatch) and compares the physical slots in the focal initial seven.
+The focal win indicator counts a terminal draw as zero. The primary estimate
+averages within-block win differences across fully observed four-rotation blocks.
+Complete-case estimates use all jointly terminal pairs. Both percentile
+intervals resample whole seed blocks 10,000 times from a run-identity-bound
+ChaCha seed. The exact two-sided sign test excludes tied blocks. Undefined
+estimates and intervals are null. The censoring table indexes A rows and A′
+columns, complete then censored. Worst-case bounds assign each missing win
+indicator both extremes. A rules or policy failure invalidates the run. A
+censoring rate above 2%, a censoring-difference interval excluding zero, or
+bounds spanning zero alongside a complete-case interval excluding zero flags
+confounding.

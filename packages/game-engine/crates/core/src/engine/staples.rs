@@ -187,13 +187,20 @@ impl RulesTxn {
         if library.len() > limit {
             return Err("shuffle library exceeds the physical-card sampler range".into());
         }
-        let random = &mut rules
+        let state = rules
             .match_state
             .as_mut()
-            .ok_or("missing trusted match randomness")?
-            .random;
-        let before = random.word_position;
-        let word = random.word()?;
+            .ok_or("missing trusted match randomness")?;
+        let stream = setup::stream_id(
+            setup::LIBRARY_SHUFFLE,
+            player,
+            state.library_shuffles[player.0 as usize],
+        )?;
+        let word = state.random.word(stream)?;
+        let position = OpenStream {
+            stream,
+            word: state.random.open.unwrap().word - 1,
+        };
         let selected = setup::sample_bounded_word(word, index + 1);
         if let Some(j) = selected {
             library.swap(offset + index as usize, offset + j as usize);
@@ -203,8 +210,7 @@ impl RulesTxn {
             index,
             word,
             selected,
-            before,
-            after: random.word_position,
+            position,
         })
     }
 

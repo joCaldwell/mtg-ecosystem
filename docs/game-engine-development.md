@@ -146,7 +146,7 @@ API and the permitted-input helpers in `core/tests/support`. Compiler-backed
 witnesses stay in their own crate. Nine core endpoints (including surviving priority after a
 concession) and a compiled R4 combat-trigger endpoint exercise the same
 `assert_recoverable` matrix. Each checks replay, restored state, fork and trace
-at quanta 1 and `u64::MAX` in Off, Compact and Detailed modes. Mechanic-specific
+at quanta 1 and `u64::MAX` in Off, Compact, Stream and Detailed modes. Mechanic-specific
 forgery, privacy and saved-work assertions stay with their witnesses.
 
 The gate runs `cargo test --tests` directly with one libtest thread budget
@@ -213,7 +213,7 @@ cache state; label cold builds.
 npm run engine:decks -- coverage SIM --out generated/NEW [--baseline OLD/report.json] [--all]
 npm run engine:decks -- stage SIM OUT --deck "Jo's Cascade"   # or --decklist FILE
 npm run engine:decks -- play "Jo's Cascade" 0
-npm run engine:decks -- bench SIM --bulk-artifact DIR --manifest-sha SHA --a A.json [--b B.json] --games 32 --out generated/NEW
+npm run engine:decks -- bench SIM --bulk-artifact DIR --manifest-sha SHA --pod-decks A.json --swap SLOT:REMOVE:ADD --blocks 8 --out generated/NEW
 ```
 
 `coverage` lowers only the deck snapshot's Oracle IDs (`--all`: the whole
@@ -224,7 +224,5 @@ and cards each family touches and alone blocks ("sole"), plus Commander-legal
 archive cards with `--all`; every 3A PR reports against it. `stage` accepts only the registered Archive R4 file, requires every card
 to compile and templates the reviewed `commander-foundations-v1` profile.
 `play` stages and plays one seeded match from a detached HEAD under
-`generated/deck-play.*`, with live journals in its `live-journals/`. `bench` runs
-`bench-pods --rotate-seats` for A and an optional A′ that changes at most one
-deck slot, verifies an identical seed/seat schedule and writes raw paired rows;
-statistics belong to Phase 3B.
+`generated/deck-play.*`, with live journals in its `live-journals/`. `bench` wraps the [paired runner](game-engine-search.md#paired-deck-experiments)
+and writes its report and Markdown summary.

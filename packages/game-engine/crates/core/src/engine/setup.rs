@@ -1,44 +1,40 @@
 //! Complete finite Commander setup. CR103.5/103.5c,103.8c,903.6-.7,
 //! pinned20260925: https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-//! ChaCha20 stream0 is explicit host-seeded; never OS randomness. Word positions
-//! are checked before rand_chacha's modulo2^68 cursor could wrap.
+//! Each shuffle or seat-local random effect consumes its own ChaCha20 stream.
 use super::*;
 use rand_chacha::ChaCha20Rng;
 use rand_core::{Rng, SeedableRng};
-// Foundations construction bounds: <=28 creatures and4 Artists yield <=112 ordinary
-// death triggers plus4 Bouncer self triggers per nonempty-stack episode. One
-// entering permanent starts <=5 ETB triggers; <=13 ordinary entries remain
-// below256 in foundations. Tokens use the separately proved tokens.rs bounds.
-// <=56 positive combat edges fit64. Four BG decks create <=16 until-EOT
-// effects; mixed/white shields remain below32. Group400 handles full-pod
-// departures/untaps without changing historical group16 limits.
-const RNG_END: u128 = 1u128 << 68;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RngPosition(pub u128);
-impl Serialize for RngPosition {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&self.0.to_string())
+pub(super) const LIBRARY_SHUFFLE: u8 = 1;
+pub(super) const SEAT_RANDOM: u8 = 2;
+const TABLE: u8 = 3;
+const ORDINAL_LIMIT: u64 = 1 << 48;
+pub(super) fn stream_id(domain: u8, seat: PlayerId, ordinal: u64) -> Result<u64, String> {
+    if ordinal >= ORDINAL_LIMIT
+        || seat.0 >= 4
+        || !matches!(
+            (domain, seat.0),
+            (LIBRARY_SHUFFLE | SEAT_RANDOM, _) | (TABLE, 0)
+        )
+    {
+        return Err("invalid random stream domain, seat or ordinal".into());
     }
+    Ok(u64::from(domain) << 56 | u64::from(seat.0) << 48 | ordinal)
 }
-impl<'de> Deserialize<'de> for RngPosition {
-    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let s = String::deserialize(d)?;
-        let n = s.parse::<u128>().map_err(serde::de::Error::custom)?;
-        if n > RNG_END || s != n.to_string() {
-            return Err(serde::de::Error::custom(
-                "invalid canonical ChaCha word position",
-            ));
-        }
-        Ok(Self(n))
-    }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenStream {
+    pub stream: u64,
+    pub word: u32,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MatchRandom {
     pub version: u32,
     pub seed: [u8; 32],
-    pub stream: u64,
-    pub word_position: RngPosition,
+    pub seat_random: [u64; 4],
+    pub table: u64,
+    pub open: Option<OpenStream>,
 }
 // Generic physical-card bound includes a tucked commander. Setup still checks
 // its own starting library; callers never infer that as a sampler limit.
@@ -58,16 +54,36 @@ pub(super) fn sample_bounded_word(word: u32, upper: u32) -> Option<u32> {
     (u64::from(word) < limit).then_some(word % upper)
 }
 impl MatchRandom {
-    pub(crate) fn word(&mut self) -> Result<u32, String> {
-        if self.version != 1 || self.stream != 0 || self.word_position.0 >= RNG_END {
-            return Err("shuffle random stream exhausted or unsupported".into());
+    pub fn new(seed: [u8; 32]) -> Self {
+        Self {
+            version: 2,
+            seed,
+            seat_random: [0; 4],
+            table: 0,
+            open: None,
         }
+    }
+
+    pub(crate) fn word(&mut self, stream: u64) -> Result<u32, String> {
+        let ordinal = stream & (ORDINAL_LIMIT - 1);
+        stream_id(
+            (stream >> 56) as u8,
+            PlayerId((stream >> 48) as u8),
+            ordinal,
+        )?;
+        if self.version != 2 {
+            return Err("unsupported random version".into());
+        }
+        let word = self
+            .open
+            .filter(|p| p.stream == stream)
+            .map_or(0, |p| p.word);
+        let next = word.checked_add(1).ok_or("random event exhausted")?;
         let mut rng = ChaCha20Rng::from_seed(self.seed);
-        rng.set_stream(self.stream);
-        rng.set_word_pos(self.word_position.0);
-        let word = rng.next_u32();
-        self.word_position.0 += 1;
-        Ok(word)
+        rng.set_stream(stream);
+        rng.set_word_pos(u128::from(word));
+        self.open = Some(OpenStream { stream, word: next });
+        Ok(rng.next_u32())
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,15 +144,28 @@ fn first_shuffle_index(sizes: &[u32; 4], players: &[PlayerId]) -> u32 {
         .map_or(98, |size| size.saturating_sub(1))
 }
 impl MatchState {
+    fn valid_open_stream(&self, open: OpenStream) -> bool {
+        let domain = (open.stream >> 56) as u8;
+        let seat = PlayerId((open.stream >> 48) as u8);
+        let index = usize::from(seat.0);
+        // Shuffles increment on completion; seat effects reserve on entry.
+        // The table domain has no producer that can leave an open cursor.
+        let ordinal = match domain {
+            LIBRARY_SHUFFLE => self.library_shuffles.get(index).copied(),
+            SEAT_RANDOM => self
+                .random
+                .seat_random
+                .get(index)
+                .and_then(|n| n.checked_sub(1)),
+            _ => None,
+        };
+        open.word > 0 && ordinal.and_then(|n| stream_id(domain, seat, n).ok()) == Some(open.stream)
+    }
+
     pub(super) fn new(c: &MatchConfig, initial_library_size: u32) -> Self {
         Self {
             library_shuffles: [0; 4],
-            random: MatchRandom {
-                version: 1,
-                seed: c.seed,
-                stream: 0,
-                word_position: RngPosition(0),
-            },
+            random: MatchRandom::new(c.seed),
             setup: Some(OpeningSetup {
                 round: 0,
                 players: std::array::from_fn(|_| OpeningPlayer {
@@ -207,8 +236,7 @@ pub enum SetupOutcome {
         index: u32,
         word: u32,
         selected: Option<u32>,
-        before: RngPosition,
-        after: RngPosition,
+        position: OpenStream,
     },
     Moved {
         player: PlayerId,
@@ -515,18 +543,21 @@ impl RulesTxn {
                 {
                     return Err("invalid shuffle range".into());
                 }
-                let random = &mut rules
-                    .match_state
-                    .as_mut()
-                    .ok_or("missing match random")?
-                    .random;
-                let before = random.word_position;
-                let word = random.word()?;
+                let state = rules.match_state.as_mut().ok_or("missing match random")?;
+                let ordinal = &mut state.library_shuffles[player.0 as usize];
+                let stream = stream_id(LIBRARY_SHUFFLE, *player, *ordinal)?;
+                let word = state.random.word(stream)?;
+                let position = OpenStream {
+                    stream,
+                    word: state.random.open.unwrap().word - 1,
+                };
                 let upper = *index + 1;
                 let selected = sample_shuffle_word(word, upper);
                 if let Some(selected) = selected {
                     library.swap(*index as usize, selected as usize);
                     if *i == 1 {
+                        *ordinal += 1;
+                        state.random.open = None;
                         players.remove(0);
                         *i = first_shuffle_index(&sizes, players);
                     } else {
@@ -538,8 +569,7 @@ impl RulesTxn {
                     index: *index,
                     word,
                     selected,
-                    before,
-                    after: random.word_position,
+                    position,
                 }
             }
             (
@@ -714,10 +744,14 @@ impl RulesTxn {
         match (&self.prepared.match_config, &self.state.rules.match_state) {
             (None, None) => Ok(()),
             (Some(config), Some(s)) => {
-                if s.random.version != 1
+                if s.random.version != 2
                     || s.random.seed != config.seed
-                    || s.random.stream != 0
-                    || s.random.word_position.0 > RNG_END
+                    || s.random.table > ORDINAL_LIMIT
+                    || s.library_shuffles
+                        .iter()
+                        .chain(&s.random.seat_random)
+                        .any(|n| *n > ORDINAL_LIMIT)
+                    || s.random.open.is_some_and(|p| !s.valid_open_stream(p))
                 {
                     return Err("snapshot random identity".into());
                 }

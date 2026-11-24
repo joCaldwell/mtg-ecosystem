@@ -32,6 +32,21 @@ owners, default control and explicit grants distinct; quantities are exact and
 structural arithmetic checked. Frames/inputs/events/outcomes serialize as data;
 clones are independent and restore proves accepted-input replay with exact identity.
 
+Snapshot 85 stores RNG v2. Each random event starts at word zero of a
+ChaCha20 stream keyed by the match seed. High bytes encode domain (1 library
+shuffle, 2 affected-seat effect, 3 reserved table) and owning seat (zero for
+table). The low 48 bits encode that domain and seat's event ordinal. Opening
+shuffles, mulligans and resolving shuffles use the same library counter.
+Rejection sampling consumes one word per rule step. A paired substitution
+occupies the removed copy's physical slot while admission checks sorted rows.
+
+The v2 trace chain hashes compact typed JSON in deterministic field order.
+Stream tracing hashes the same committed evidence as Compact. Delivery is
+local to a single executor and drains after each advance. Forks and restored
+snapshots start with an empty delivery buffer. Every mode charges the same
+retained payload. Pod analytics sample the choosing player's existing
+observation and verify live seat facts against Detailed replay for proof groups.
+
 Stage complete rule mutations atomically. Capture consumed pre-event facts and
 actual typed outcomes. Simultaneous groups permit only independent read/write
 footprints; unsupported composition faults. Freeze all loss candidates before
@@ -62,7 +77,7 @@ layer inputs invalidate the cache. Debug builds compare every publication and
 its history charge against a full projection, check completed cached observations
 against the budgeted builder, and validate each transaction from a valid state.
 
-`Game::with_trace` selects Off/Compact/Detailed. Diagnostics enter neither semantic
+`Game::with_trace` selects Off/Compact/Stream/Detailed. Diagnostics enter neither semantic
 hashes nor permitted views; `events()` populates only in Detailed, while `trace()`
 is trusted evidence. Trace/budget choices cannot change rules behavior.
 
