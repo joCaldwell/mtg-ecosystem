@@ -7,6 +7,7 @@ impl Driver {
         assert!(quantum > 0);
         for _ in 0..2_000 {
             let result = game.advance(Budget::new(quantum));
+            game.drain_trace(&mut |_| {});
             if !matches!(result, Advance::Suspended { .. }) {
                 return result;
             }
@@ -103,6 +104,7 @@ fn advance_to(game: &mut Game, boundary: u64, quantum: u64) {
     while game.rule_boundary() < boundary {
         let before = game.rule_boundary();
         game.advance(Budget::new(quantum.min(boundary - before)));
+        game.drain_trace(&mut |_| {});
         assert!(game.rule_boundary() > before);
     }
     assert_eq!(game.rule_boundary(), boundary);
@@ -133,7 +135,12 @@ fn recover_journal(case: &JournalCase, mode: TraceMode, quantum: u64) -> Game {
 
 pub fn assert_recoverable(case: JournalCase) {
     let mut verification = None;
-    for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+    for mode in [
+        TraceMode::Off,
+        TraceMode::Compact,
+        TraceMode::Stream,
+        TraceMode::Detailed,
+    ] {
         let replay = Game::replay_to(
             case.prepared.clone(),
             &case.inputs,
@@ -148,7 +155,9 @@ pub fn assert_recoverable(case: JournalCase) {
                 verification = replay.trace.verification.clone();
                 assert!(verification.is_some());
             }
-            TraceMode::Detailed => assert_eq!(verification, replay.trace.verification),
+            TraceMode::Stream | TraceMode::Detailed => {
+                assert_eq!(verification, replay.trace.verification)
+            }
         }
         for quantum in [1, u64::MAX] {
             let game = recover_journal(&case, mode, quantum);

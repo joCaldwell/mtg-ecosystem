@@ -46,6 +46,7 @@ struct Member {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Shuffle {
+    stream: u64,
     owner: PlayerId,
     order: Vec<usize>,
     index: usize,
@@ -54,7 +55,7 @@ struct Shuffle {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Randomization {
-    start: RngPosition,
+    ordinals: [u64; 4],
     random: MatchRandom,
     shuffles: Vec<Shuffle>,
     cursor: usize,
@@ -265,14 +266,13 @@ impl GraveyardGroup {
 
     fn randomization(&self, game: &RulesTxn) -> Result<Randomization, String> {
         let destinations = self.destinations()?;
-        let random = game
+        let state = game
             .state
             .rules
             .match_state
             .as_ref()
-            .ok_or("replacement requires seeded randomness")?
-            .random
-            .clone();
+            .ok_or("replacement requires seeded randomness")?;
+        let mut ordinals = state.library_shuffles;
         let mut shuffles = vec![];
         for owner in self
             .members
@@ -301,15 +301,19 @@ impl GraveyardGroup {
             if len > capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize {
                 return Err("replacement library exceeds the physical card and token bound".into());
             }
+            let ordinal = &mut ordinals[owner.0 as usize];
+            let stream = setup::stream_id(setup::LIBRARY_SHUFFLE, owner, *ordinal)?;
+            *ordinal += 1;
             shuffles.push(Shuffle {
+                stream,
                 owner,
                 order: (0..len).collect(),
                 index: len.saturating_sub(1),
             });
         }
         Ok(Randomization {
-            start: random.word_position,
-            random,
+            ordinals: state.library_shuffles,
+            random: state.random.clone(),
             shuffles,
             cursor: 0,
         })
@@ -415,18 +419,26 @@ impl GraveyardGroup {
                 .as_ref()
                 .ok_or("missing graveyard replacement entropy")?;
             let expected = self.randomization(game)?;
-            if d.start != seeded.random.word_position
+            if d.ordinals != seeded.library_shuffles
                 || d.random.seed != seeded.random.seed
                 || d.random.version != seeded.random.version
-                || d.random.stream != seeded.random.stream
-                || d.random.word_position.0 < d.start.0
+                || d.random.seat_random != seeded.random.seat_random
+                || d.random.table != seeded.random.table
+                || d.random.open.is_some_and(|p| {
+                    Some(p) != seeded.random.open
+                        && !d
+                            .shuffles
+                            .get(d.cursor)
+                            .is_some_and(|s| s.stream == p.stream && p.word > 0)
+                })
                 || d.cursor > d.shuffles.len()
                 || d.shuffles.len() != expected.shuffles.len()
             {
                 return Err("graveyard shuffle draft stream invariant".into());
             }
             for (i, (s, e)) in d.shuffles.iter().zip(&expected.shuffles).enumerate() {
-                if s.owner != e.owner
+                if s.stream != e.stream
+                    || s.owner != e.owner
                     || s.order.len() != e.order.len()
                     || s.index > e.index
                     || (i < d.cursor && s.index != 0)
@@ -664,10 +676,10 @@ impl RulesTxn {
             .match_state
             .as_mut()
             .ok_or("missing replacement entropy")?;
-        if state.random.word_position != draft.start {
+        if state.library_shuffles != draft.ordinals {
             return Err("stale replacement entropy".into());
         }
-        state.random = draft.random.clone();
+
         for (index, shuffle) in draft.shuffles.iter().enumerate() {
             let Frame::GraveyardGroup { tx } = &mut self.rules_mut().frame else {
                 return Err("missing shuffle publication frame".into());
@@ -787,11 +799,13 @@ impl RulesTxn {
             let draft = tx.draft.as_mut().expect("initialized draft");
             if let Some(shuffle) = draft.shuffles.get_mut(draft.cursor) {
                 if shuffle.index == 0 {
+                    draft.random.open = None;
                     draft.cursor += 1;
                 } else {
                     let upper =
                         u32::try_from(shuffle.index + 1).map_err(|_| "shuffle index overflow")?;
-                    if let Some(selected) = setup::sample_bounded_word(draft.random.word()?, upper)
+                    if let Some(selected) =
+                        setup::sample_bounded_word(draft.random.word(shuffle.stream)?, upper)
                     {
                         shuffle.order.swap(shuffle.index, selected as usize);
                         shuffle.index -= 1;

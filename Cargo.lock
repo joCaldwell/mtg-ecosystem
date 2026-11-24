@@ -687,6 +687,8 @@ dependencies = [
  "mtg-compiler",
  "mtg-contracts",
  "mtg-core",
+ "rand_chacha",
+ "rand_core",
  "serde",
  "serde_json",
  "sha2",

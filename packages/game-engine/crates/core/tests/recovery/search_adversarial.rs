@@ -363,7 +363,7 @@ fn capture_is_permitted_seed_free_and_budget_partitions_preserve_full_history() 
                             "state_sha256",
                             "profile_digest",
                             "match_state",
-                            "word_position",
+                            "seat_random",
                             "seed",
                             "source_state"
                         ]

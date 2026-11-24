@@ -48,6 +48,13 @@ impl Game {
     pub fn with_trace(prepared: Prepared, mode: TraceMode) -> Self {
         Self::from_initial(RulesTxn::with_trace(prepared, mode))
     }
+    /// Deliver committed records once. Delivery is local to this executor.
+    pub fn drain_trace(&mut self, visit: &mut impl FnMut(&TraceRecord)) {
+        for record in self.committed.stream_buffer.drain(..) {
+            visit(&record);
+        }
+    }
+
     pub fn fork(&self) -> Self {
         Self::from_initial(self.committed.fork())
     }
@@ -162,6 +169,9 @@ impl Game {
                 }
                 self.committed.state = staged.state;
                 self.committed.trace = staged.trace;
+                self.committed
+                    .stream_buffer
+                    .append(&mut staged.stream_buffer);
                 self.committed.published = staged.published;
                 self.committed.kernel_leaf = staged.kernel_leaf;
                 self.committed.state_token = Arc::new(());
@@ -201,6 +211,7 @@ impl RulesTxn {
                     journal: History::default(),
                 },
             },
+            stream_buffer: Vec::new(),
             trace: TraceEvidence::new(TraceMode::Off),
             // A capture answers queries only; it never issues a receipt.
             executor: self.executor.clone(),

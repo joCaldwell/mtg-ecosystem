@@ -5,6 +5,7 @@ use super::*;
 pub enum TraceMode {
     Off,
     Compact,
+    Stream,
     Detailed,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +44,7 @@ impl TraceEvidence {
             mode,
             verification: (mode != TraceMode::Off).then(|| TraceVerification {
                 records: 0,
-                sha256: sha256(b"mtg-event-trace-v1"),
+                sha256: sha256(b"mtg-event-trace-v2"),
             }),
             records: History::default(),
             events: History::default(),
@@ -87,27 +88,36 @@ impl RulesTxn {
             EvidenceRecord::Event { event } => stored_history::payload_charge(event),
             EvidenceRecord::Batch { .. } => 0,
         };
+        // Trace v2 hashes the compact, typed serde encoding. Struct field
+        // order belongs to this build and all map keys are deterministic.
+        // Use the same encoding for the charge and the chain, without
+        // constructing a JSON Value or serializing the full record twice.
+        let charge = if self.trace.mode == TraceMode::Off {
+            stored_history::payload_charge(&entry)
+        } else {
+            let verification = self
+                .trace
+                .verification
+                .as_mut()
+                .ok_or("trace verification invariant")?;
+            let mut bytes = std::mem::take(&mut verification.sha256).into_bytes();
+            bytes.push(0);
+            let start = bytes.len();
+            serde_json::to_writer(&mut bytes, &entry).map_err(|e| e.to_string())?;
+            verification.sha256 = sha256(&bytes);
+            verification.records = self.state.rules.next_event_sequence;
+            bytes.len() - start
+        };
         self.rules_mut().retained_auxiliary_charge = self
             .state
             .rules
             .retained_auxiliary_charge
-            .saturating_add(stored_history::payload_charge(&entry))
+            .saturating_add(charge)
             .saturating_add(duplicate);
         self.check_history_capacity()?;
-        if self.trace.mode == TraceMode::Off {
-            return Ok(());
-        }
-        let verification = self
-            .trace
-            .verification
-            .as_mut()
-            .ok_or("trace verification invariant")?;
-        let mut bytes = verification.sha256.as_bytes().to_vec();
-        bytes.push(0);
-        bytes.extend_from_slice(canonical(&entry)?.as_bytes());
-        verification.sha256 = sha256(&bytes);
-        verification.records = self.state.rules.next_event_sequence;
-        if self.trace.mode == TraceMode::Detailed {
+        if self.trace.mode == TraceMode::Stream {
+            self.stream_buffer.push(entry);
+        } else if self.trace.mode == TraceMode::Detailed {
             if let EvidenceRecord::Event { event } = &entry.record {
                 self.trace.events.push((**event).clone());
             }

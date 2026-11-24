@@ -478,6 +478,7 @@ pub fn admit_dynamic_pod(
 }
 
 struct NormalizedDeck {
+    physical: Vec<String>,
     commanders: Vec<String>,
     cards: Vec<DeckEntry>,
 }
@@ -496,7 +497,12 @@ impl NormalizedDeck {
         }
         commanders.sort_unstable();
         cards.sort_unstable_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-        Self { commanders, cards }
+        let physical = super::match_admission::physical_order(&commanders, &cards);
+        Self {
+            commanders,
+            cards,
+            physical,
+        }
     }
 
     fn dynamic_rows(&self) -> Vec<DynamicDeckEntry> {
@@ -518,37 +524,37 @@ impl NormalizedDeck {
 /// Validated immutable rosters and their shared executable projection. Rotation
 /// only changes seat assignment, so it cannot change the vetted capability
 /// set, physical multiplicities or trigger capacity proof.
-pub struct DynamicPodTemplate {
+pub struct DynamicPodTemplate<'a> {
+    artifact: &'a BulkArtifact,
     decks: [NormalizedDeck; 4],
     projection: ValidatedCatalog,
     bulk_manifest_sha256: String,
     policy_digest: String,
 }
 
-impl DynamicPodTemplate {
+impl<'a> DynamicPodTemplate<'a> {
     pub fn admit(
-        artifact: &BulkArtifact,
+        artifact: &'a BulkArtifact,
         decks: &[Vec<DynamicDeckEntry>; 4],
     ) -> Result<Self, DynamicAdmissionError> {
         let policy = policy().map_err(unavailable)?;
-        let catalog = artifact.catalog().catalog();
         let inspections = std::array::from_fn::<_, 4, _>(|i| inspect(artifact, &decks[i], policy));
         if inspections.iter().any(|r| !r.admissible()) {
             return Err(DynamicAdmissionError::DeckGaps {
                 decks: Vec::from(inspections),
             });
         }
-        Self::project(catalog, decks, artifact.manifest_sha256(), policy)
+        Self::project(artifact, decks, policy)
     }
 
     /// Normalize inspected decks and build their shared projection and
     /// capacity proof. Row order never reaches the template.
     fn project(
-        catalog: &Catalog,
+        artifact: &'a BulkArtifact,
         decks: &[Vec<DynamicDeckEntry>; 4],
-        bulk_manifest_sha256: &str,
         policy: &DynamicPolicy,
     ) -> Result<Self, DynamicAdmissionError> {
+        let catalog = artifact.catalog().catalog();
         let decks = decks.each_ref().map(|rows| NormalizedDeck::new(rows));
         let mut selected = BTreeMap::<&str, &Definition>::new();
         let mut native_triggers = 0usize;
@@ -574,11 +580,78 @@ impl DynamicPodTemplate {
         Ok(Self {
             decks,
             projection: ValidatedCatalog::new(projection).map_err(unavailable)?,
-            bulk_manifest_sha256: bulk_manifest_sha256.into(),
+            artifact,
+            bulk_manifest_sha256: artifact.manifest_sha256().into(),
             policy_digest: policy.digest.clone(),
         })
     }
 
+    /// Replace one physical copy, preserving the role of that copy. Recheck
+    /// legality, projection and capacity against the authenticated bulk input.
+    pub fn substitute(
+        &self,
+        deck_slot: usize,
+        remove: &str,
+        add: &str,
+    ) -> Result<Self, DynamicAdmissionError> {
+        self.substitute_many(deck_slot, &[(remove, add)])
+    }
+
+    /// All removals name distinct copies of the original roster. Validate the
+    /// resulting deck once, including when swaps exchange commander roles.
+    pub fn substitute_many(
+        &self,
+        deck_slot: usize,
+        swaps: &[(&str, &str)],
+    ) -> Result<Self, DynamicAdmissionError> {
+        let deck = self
+            .decks
+            .get(deck_slot)
+            .ok_or_else(|| unavailable("invalid deck slot".into()))?;
+        let mut replacements = BTreeMap::new();
+        for &(remove, add) in swaps {
+            let offset = deck
+                .physical
+                .iter()
+                .enumerate()
+                .find(|(i, id)| id.as_str() == remove && !replacements.contains_key(i))
+                .map(|(i, _)| i)
+                .ok_or_else(|| unavailable(format!("removed copy of {remove} absent")))?;
+            replacements.insert(offset, add);
+        }
+        let mut physical = deck.physical.clone();
+        let mut counts = BTreeMap::new();
+        for (offset, id) in physical.iter_mut().enumerate() {
+            let role = if deck.commanders.contains(id) {
+                DeckRole::Commander
+            } else {
+                DeckRole::Main
+            };
+            if let Some(&add) = replacements.get(&offset) {
+                *id = add.to_owned();
+            }
+            *counts.entry((id.clone(), role)).or_insert(0) += 1;
+        }
+        let mut rows = self.rows();
+        rows[deck_slot] = counts
+            .into_iter()
+            .map(|((oracle_id, role), quantity)| DynamicDeckEntry {
+                oracle_id,
+                role,
+                quantity,
+            })
+            .collect();
+        let mut next = Self::admit(self.artifact, &rows)?;
+        for (target, original) in next.decks.iter_mut().zip(&self.decks) {
+            target.physical.clone_from(&original.physical);
+        }
+        next.decks[deck_slot].physical = physical;
+        Ok(next)
+    }
+
+    pub fn rows(&self) -> [Vec<DynamicDeckEntry>; 4] {
+        self.decks.each_ref().map(NormalizedDeck::dynamic_rows)
+    }
     pub fn catalog(&self) -> &ValidatedCatalog {
         &self.projection
     }
@@ -612,6 +685,21 @@ impl DynamicPodTemplate {
             &normalized,
         ))
         .map_err(unavailable)?;
+        // Ordinary rosters retain their admission identity. A noncanonical
+        // physical order also binds the permutation used by replay.
+        let admission_digest = if decks.iter().all(|deck| {
+            deck.physical.starts_with(&deck.commanders)
+                && deck.physical[deck.commanders.len()..].is_sorted()
+        }) {
+            admission_digest
+        } else {
+            digest(&(
+                "physical-slots-v1",
+                admission_digest,
+                decks.map(|deck| &deck.physical),
+            ))
+            .map_err(unavailable)?
+        };
         let identity = DynamicAdmissionIdentity {
             bulk_manifest_sha256: self.bulk_manifest_sha256.clone(),
             policy_digest: self.policy_digest.clone(),
@@ -632,7 +720,7 @@ impl DynamicPodTemplate {
         let prepared = Prepared {
             config: physical_match_rosters(
                 DYNAMIC_PROFILE,
-                decks.map(|deck| (deck.commanders.as_slice(), deck.cards.as_slice())),
+                decks.map(|deck| (deck.commanders.as_slice(), deck.physical.as_slice())),
             ),
             match_config: Some(match_config),
             catalog: self.projection.shared_catalog(),

@@ -4,8 +4,8 @@
   engine-decks.py coverage SIM --out NEW_DIR [--decks SNAPSHOT] [--all] [--archive R4.jsonl] [--baseline REPORT]
   engine-decks.py stage SIM OUTPUT (--deck NAME | --decklist FILE) [--decks FILE] [--archive R4.jsonl]
   engine-decks.py play (DECK | --decklist FILE) [SEED] [--decks FILE] [--archive R4.jsonl]
-  engine-decks.py bench SIM --bulk-artifact DIR --manifest-sha SHA --a A.json [--b B.json]
-                        --games N --out NEW_DIR [--seed-start N] [--threads N] [--decision-limit N]
+  engine-decks.py bench SIM --bulk-artifact DIR --manifest-sha SHA --pod-decks A.json --swap SLOT:REMOVE:ADD
+                        --blocks N --out NEW_DIR [--seed-start N] [--threads N] [--decision-limit N]
 
 SIM is an mtg-sim executable built from this checkout (release for timing).
 coverage joins `SIM catalog coverage` receipts to a deck snapshot: compiled
@@ -16,10 +16,8 @@ into a family and reports, per family, the deck slots and unique deck cards it
 touches and those it alone blocks ("sole": fixing the family alone unlocks
 them), and with --all the same for Commander-legal archive cards. --all scans
 the whole archive instead of only the snapshot's Oracle IDs. stage and play wrap stage-deck.py and
-play-deck.sh. bench runs `SIM bench-pods --rotate-seats` for deck file A and,
-optionally, A′ (B) with the same seeds, seats and limits, and writes raw
-paired rows only; interpreting them statistically belongs to Phase 3B. A′ may
-change at most one deck slot. A failed arm stays recorded as a failed pair.
+play-deck.sh. bench runs one bench-pair process, saves its report and renders a
+Markdown summary. Rust owns scheduling, substitutions and statistics.
 Inputs default to this checkout's generated/ file, else the primary checkout's.
 """
 import argparse
@@ -274,85 +272,34 @@ def coverage(args):
     return 0
 
 
-def normalized_pod(path):
-    """Four seat lists with rows sorted; rejects anything bench-pods would."""
-    pod = json.loads(Path(path).read_text())
-    require(isinstance(pod, dict) and isinstance(pod.get('decks'), list) and len(pod['decks']) == 4,
-            f'{path}: expected an object with four seat decks')
-    seats = []
-    for deck in pod['decks']:
-        rows = []
-        for row in deck:
-            require(set(row) == {'oracle_id', 'quantity', 'role'} and type(row['quantity']) is int
-                    and row['role'] in ('main', 'commander', 'companion'), f'{path}: invalid deck row {row!r}')
-            rows.append((row['oracle_id'], row['role'], row['quantity']))
-        seats.append(sorted(rows))
-    return seats
-
-
-def schedule(report):
-    """The seed, seat and limit schedule every arm must share exactly."""
-    return {'games': report['games'], 'seed_start': report['seed_start'], 'rotate_seats': report['rotate_seats'],
-            'limits': report['limits'], 'policy': report['policy'],
-            'cases': [[row['case'], row['starting_seat']] for row in report['rows']]}
-
-
 def bench(args):
-    require(args.games > 0 and args.games % 4 == 0, '--games must be a positive multiple of four (seats rotate)')
-    for flag, value in (('--threads', args.threads), ('--decision-limit', args.decision_limit)):
-        require(value is None or value > 0, f'{flag} must be positive')
-    arms = {'a': Path(args.a).resolve()}
-    pods = {'a': normalized_pod(arms['a'])}
-    if args.b:
-        arms['b'] = Path(args.b).resolve()
-        pods['b'] = normalized_pod(arms['b'])
-        changed = [slot for slot in range(4) if pods['a'][slot] != pods['b'][slot]]
-        require(len(changed) <= 1, f"A′ must change at most one deck slot; it changes slots {changed}")
-    out = new_directory(args.out)
-    pair = {'pair_version': 1, 'arms': {}, 'changed_slots': [], 'status': 'ok'}
-    if args.b:
-        pair['changed_slots'] = [slot for slot in range(4) if pods['a'][slot] != pods['b'][slot]]
-    reports = {}
-    for arm, path in arms.items():
-        command = [str(args.sim), 'bench-pods', '--bulk-artifact', str(Path(args.bulk_artifact).resolve()),
-                   '--manifest-sha', args.manifest_sha, '--pod-decks', str(path), '--games', str(args.games),
-                   '--seed-start', str(args.seed_start), '--rotate-seats', '--analytics-out', str(out / f'{arm}-analytics')]
-        # Explicit values always reach bench-pods, which owns their validation.
-        if args.threads is not None:
-            command += ['--threads', str(args.threads)]
-        if args.decision_limit is not None:
-            command += ['--decision-limit', str(args.decision_limit)]
-        result = subprocess.run(command, capture_output=True, text=True)
-        (out / f'{arm}.stdout.json').write_text(result.stdout)
-        (out / f'{arm}.stderr.txt').write_text(result.stderr)
-        record = {'pod_decks': str(path), 'exit_code': result.returncode, 'command': command}
-        try:
-            report = json.loads(result.stdout)
-        except ValueError:
-            report = None
-        if result.returncode or not isinstance(report, dict) or 'rows' not in report:
-            # Admission rejections print a typed JSON error; keep it verbatim.
-            record['failure'] = (result.stdout.strip() or result.stderr.strip())[-4000:]
-            pair['status'] = 'arm_failed'
-        else:
-            reports[arm] = report
-            record.update({'build_id': report['build']['id'], 'catalog_sha256': report['catalog_sha256'],
-                           'bulk': report.get('bulk'), 'proofs_verified': report['proofs_verified']})
-        pair['arms'][arm] = record
-    if pair['status'] == 'ok' and len(reports) == 2 and schedule(reports['a']) != schedule(reports['b']):
-        pair['status'] = 'schedule_mismatch'
-    if reports and pair['status'] != 'schedule_mismatch':
-        first = next(iter(reports.values()))
-        pair['schedule'] = schedule(first)
-        pair['rows'] = [{'case': row['case'], 'starting_seat': row['starting_seat'],
-                         **{arm: {key: report['rows'][index][key] for key in
-                                  ('outcome', 'winner', 'placements', 'turns', 'decisions', 'admission_sha256')
-                                  if key in report['rows'][index]}
-                            for arm, report in reports.items()}}
-                        for index, row in enumerate(first['rows'])]
-    write_json(out / 'pair.json', pair)
-    print(f"{pair['status']}: {out / 'pair.json'}")
-    return 0 if pair['status'] == 'ok' else 1
+    command = [str(args.sim), 'bench-pair', '--bulk-artifact', args.bulk_artifact,
+               '--manifest-sha', args.manifest_sha, '--pod-decks', args.pod_decks,
+               '--blocks', str(args.blocks), '--seed-start', str(args.seed_start), '--out', str(args.out)]
+    for swap in args.swap:
+        command.extend(['--swap', swap])
+    for flag, value in [('--threads', args.threads), ('--decision-limit', args.decision_limit)]:
+        if value is not None:
+            command.extend([flag, str(value)])
+    result = subprocess.run(command, stdout=subprocess.PIPE, text=True)
+    if result.returncode:
+        return result.returncode
+    report = json.loads(result.stdout)
+    write_json(args.out / 'report.json', report)
+    stats = report['statistics']
+    table = stats['censoring_table']
+    lines = ['# Paired Commander benchmark', '',
+             f"**{stats['verdict']}** across {args.blocks} seed blocks.", '',
+             '| Focal win-rate difference | Estimate | 95% block-bootstrap interval |',
+             '| --- | ---: | --- |',
+             f"| Complete blocks | {stats['estimate']} | {stats['ci95']} |",
+             f"| Complete pairs | {stats['complete_case_estimate']} | {stats['complete_case_ci95']} |", '',
+             f"Worst-case bounds {stats['worst_case_bounds']}. Two-sided sign-test p = {stats['sign_test']['two_sided_p']}.", '',
+             '| A outcome | A′ complete | A′ censored |', '| --- | ---: | ---: |',
+             f'| Complete | {table[0][0]} | {table[0][1]} |', f'| Censored | {table[1][0]} | {table[1][1]} |']
+    (args.out / 'summary.md').write_text('\n'.join(lines) + '\n')
+    print(f"{stats['verdict']} · {args.out / 'report.json'}")
+    return 0
 
 
 def main(argv=None):
@@ -378,9 +325,9 @@ def main(argv=None):
     pods.add_argument('sim', type=Path)
     pods.add_argument('--bulk-artifact', required=True)
     pods.add_argument('--manifest-sha', required=True)
-    pods.add_argument('--a', required=True)
-    pods.add_argument('--b')
-    pods.add_argument('--games', type=int, required=True)
+    pods.add_argument('--pod-decks', required=True)
+    pods.add_argument('--swap', action='append', required=True)
+    pods.add_argument('--blocks', type=int, required=True)
     pods.add_argument('--seed-start', type=int, default=0)
     pods.add_argument('--threads', type=int)
     pods.add_argument('--decision-limit', type=int)

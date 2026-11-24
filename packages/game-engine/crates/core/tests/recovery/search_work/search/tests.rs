@@ -299,14 +299,7 @@ fn paid_opening_capture_world_projection_namespace_and_independent_hidden_origin
     let mut other = game.fork();
     // Private non-reachability fixture for information-flow independence: only
     // unobserved state changes. It is never exported as a real restore origin.
-    other
-        .state
-        .rules
-        .match_state
-        .as_mut()
-        .unwrap()
-        .random
-        .word_position = RngPosition(12345);
+    other.state.rules.match_state.as_mut().unwrap().random.table = 12345;
     other
         .state
         .rules

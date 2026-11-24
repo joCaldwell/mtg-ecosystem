@@ -456,6 +456,16 @@ impl RulesTxn {
         {
             self.rules_mut().pending = None;
         }
+        // A departing seat cannot resume its unfinished shuffle or random
+        // selection. Other players continue at their own event positions.
+        if let Some(state) = &mut self.rules_mut().match_state
+            && state
+                .random
+                .open
+                .is_some_and(|p| (p.stream >> 48) as u8 == player.0)
+        {
+            state.random.open = None;
+        }
         if matches!(self.state.rules.frame, Frame::Setup) {
             self.revalidate_setup_departure()?;
         }
@@ -639,6 +649,18 @@ impl Game {
         game.extend_replay(journal, boundary)?;
         Ok(game)
     }
+    fn advance_replay(&mut self, mut remaining: u64) -> Advance {
+        loop {
+            let before = self.rule_boundary();
+            let result = self.advance(Budget::new(remaining));
+            remaining -= self.rule_boundary() - before;
+            self.drain_trace(&mut |_| {});
+            if remaining == 0 || !matches!(result, Advance::Suspended { .. }) {
+                return result;
+            }
+        }
+    }
+
     // Extend only a proved prefix. Accepted-but-pending inputs and queued
     // concessions belong to that prefix even when the rule boundary is unchanged.
     pub(super) fn extend_replay(
@@ -671,7 +693,7 @@ impl Game {
                     .checked_sub(game.state.rules.rule_steps)
                     .ok_or("external input boundaries are not ordered")?;
                 if remaining > 0 {
-                    let _ = game.advance(Budget::new(remaining));
+                    let _ = game.advance_replay(remaining);
                 }
                 if game.state.rules.rule_steps != input.boundary {
                     return Err("external boundary is unreachable".into());
@@ -684,14 +706,12 @@ impl Game {
             }
             if let Some(input) = journal.decisions.get(index) {
                 let budget = match boundary {
-                    Some(limit) => Budget::new(
-                        limit
-                            .checked_sub(game.state.rules.rule_steps)
-                            .ok_or("snapshot boundary mismatch")?,
-                    ),
-                    None => Budget::unlimited(),
+                    Some(limit) => limit
+                        .checked_sub(game.state.rules.rule_steps)
+                        .ok_or("snapshot boundary mismatch")?,
+                    None => u64::MAX,
                 };
-                let Advance::AwaitingDecision(request) = game.advance(budget) else {
+                let Advance::AwaitingDecision(request) = game.advance_replay(budget) else {
                     return Err("replay decision is unreachable".into());
                 };
                 if request.player != input.player || request.id != input.decision_id {
@@ -704,14 +724,12 @@ impl Game {
             return Err("external input count/order mismatch".into());
         }
         let budget = match boundary {
-            Some(limit) => Budget::new(
-                limit
-                    .checked_sub(game.state.rules.rule_steps)
-                    .ok_or("snapshot boundary mismatch")?,
-            ),
-            None => Budget::unlimited(),
+            Some(limit) => limit
+                .checked_sub(game.state.rules.rule_steps)
+                .ok_or("snapshot boundary mismatch")?,
+            None => u64::MAX,
         };
-        let outcome = game.advance(budget);
+        let outcome = game.advance_replay(budget);
         if boundary.is_none()
             && let Advance::Fault(reason) = outcome
         {

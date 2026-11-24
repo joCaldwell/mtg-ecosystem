@@ -198,7 +198,7 @@ fn shared_capture_contains_no_hidden_state_and_survives_original_history_cow() {
         .as_mut()
         .unwrap()
         .random
-        .word_position = RngPosition(12345);
+        .table = 12345;
     hidden
         .state
         .rules

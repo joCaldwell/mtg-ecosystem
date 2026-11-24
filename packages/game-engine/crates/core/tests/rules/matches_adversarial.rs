@@ -494,13 +494,7 @@ fn seed_shuffle_budget_partition_and_private_setup_views_are_deterministic() {
                 .all(|p| p.hand_count == 7 && p.library_count == 92)
         );
         let json = serde_json::to_string(&view).unwrap();
-        for secret in [
-            "word_position",
-            "match_state",
-            "random",
-            "seed",
-            "libraries",
-        ] {
+        for secret in ["seat_random", "match_state", "random", "seed", "libraries"] {
             assert!(!json.contains(&format!("\"{secret}\"")));
         }
     }
@@ -814,14 +808,14 @@ fn setup_restore_rejects_rehashed_random_order_and_declaration_forgery() {
         let mut forged = original.clone();
         match change {
             0 => forged["state"]["match_state"]["random"]["seed"][0] = json!(99),
-            1 => forged["state"]["match_state"]["random"]["stream"] = json!(1),
-            2 => forged["state"]["match_state"]["random"]["word_position"] = json!("393"),
+            1 => forged["state"]["match_state"]["random"]["open"] = json!({"stream": 0, "word": 1}),
+            2 => forged["state"]["match_state"]["random"]["seat_random"][0] = json!(1),
             3 => forged["state"]["match_state"]["setup"]["players"][2]["kept"] = json!(true),
             4 => forged["state"]["libraries"]["2"]
                 .as_array_mut()
                 .unwrap()
                 .swap(0, 1),
-            _ => forged["state"]["match_state"]["random"]["word_position"] = json!("0392"),
+            _ => forged["state"]["match_state"]["random"]["version"] = json!(1),
         }
         forged["state_sha256"] = json!(mtg_contracts::digest(&forged["state"]).unwrap());
         assert!(
