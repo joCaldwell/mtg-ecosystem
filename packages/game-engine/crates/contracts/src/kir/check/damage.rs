@@ -55,13 +55,16 @@ impl Walk<'_, '_> {
                     Amount::Var {
                         of: Ref::AnnouncedX,
                     } => Ok(()),
-                    Amount::Count { set } if *set == SetExpr::battlefield(Pred::creatures()) => {
-                        Ok(())
-                    }
+                    Amount::Count { set } => Self::audit_verb_count(set),
                     Amount::OtherCastsManaValue { caster } if caster.is_you() => Ok(()),
                     _ => unaudited("set damage amount"),
                 }
-                .map(|()| Cell::DamageSet)
+                .map(|()| match set {
+                    DamageTo::Players { players } if *players != PlayerExpr::EachPlayer => {
+                        Cell::DamageSelectedPlayers
+                    }
+                    _ => Cell::DamageSet,
+                })
             }
         }
     }
@@ -93,6 +96,15 @@ impl Walk<'_, '_> {
                 DamageTo::Players {
                     players: PlayerExpr::EachPlayer,
                 } if !players => players = true,
+                DamageTo::Players { players: player }
+                    if parts.len() == 1
+                        && (*player == PlayerExpr::EachOpponent
+                            || player.is_you()
+                            || matches!(player, PlayerExpr::Is { who: Ref::EventPlayer { role } }
+                        if Self::recipient_role(*role))) =>
+                {
+                    players = true;
+                }
                 _ => return unaudited("set damage recipient"),
             }
         }

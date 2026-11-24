@@ -11,6 +11,7 @@ mod destroy;
 mod discard;
 mod draw;
 mod exile;
+mod gain_abilities;
 mod life;
 mod mill;
 mod move_zone;
@@ -156,7 +157,11 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
         Step::Search { .. } => Err(step("search", "unlowered")),
         Step::Shuffle { .. } => Err(step("shuffle", "unlowered")),
         Step::Modal { .. } => Err(step("modal", "unlowered")),
-        Step::GainAbilities { .. } => Err(step("gain-abilities", "unlowered")),
+        Step::GainAbilities {
+            what,
+            abilities,
+            duration,
+        } => gain_abilities::lower(cx, what, abilities, duration),
         Step::Regenerate { .. } => Err(step("regenerate", "unlowered")),
         Step::PreventDamage { .. } => Err(step("prevent-damage", "unlowered")),
         Step::Counter { .. } => Err(step("counter", "unlowered")),

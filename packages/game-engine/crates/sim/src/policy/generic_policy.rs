@@ -2,9 +2,9 @@
 //! coarse value estimates; only core decides legality and executes rules.
 use super::*;
 use mtg_contracts::{
-    ActivationCost, Definition, FunctioningZone, Instruction as I, KeywordAbility, ObjectSet,
-    SacrificeFilter, SpellProgram, SpellResolution, SpellTiming, StaticEffect, TargetDomain,
-    TargetSpec, announced_x, fixed, kernel,
+    ActivationCost, CasterRelation, Definition, FunctioningZone, Instruction as I, KeywordAbility,
+    ObjectSet, SacrificeFilter, SpellProgram, SpellResolution, SpellTiming, StaticEffect,
+    TargetDomain, TargetSpec, TriggerCondition, announced_x, fixed, kernel,
     kir::{self, Context, SetExpr},
     source_object, target_object, target_player,
 };
@@ -17,6 +17,45 @@ fn set_shrink(i: &I) -> Option<(&SetExpr, &Quantity)> {
     let what = ObjectSet::pumped(i)?;
     let (_, _, toughness, _) = i.pumped()?;
     toughness.is_negative().then_some((what, toughness))
+}
+
+fn set_damage_hits_player(
+    v: &PermittedView,
+    damage: &mtg_contracts::SetDamage<'_>,
+    controller: PlayerId,
+    event_player: Option<PlayerId>,
+    player: PlayerId,
+) -> bool {
+    v.live_turn_order.contains(&player)
+        && (damage.each_player
+            || match damage.selective_players {
+                Some(kir::PlayerExpr::EachOpponent) => player != controller,
+                Some(kir::PlayerExpr::Is {
+                    who: kir::Ref::Controller { .. },
+                }) => player == controller,
+                Some(kir::PlayerExpr::Is {
+                    who: kir::Ref::EventPlayer { .. },
+                }) => event_player == Some(player),
+                _ => false,
+            })
+}
+
+fn visible_event_player(
+    v: &PermittedView,
+    entry: &VisibleStackEntry,
+    d: &Definition,
+) -> Option<PlayerId> {
+    let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &entry.triggered.as_ref()?.ability;
+    match &d.triggered.get(*index as usize)?.condition {
+        TriggerCondition::StepBegan { .. } => v.active,
+        TriggerCondition::SpellCast {
+            caster: CasterRelation::Controller,
+            ..
+        } => Some(entry.controller),
+        // A public stack row does not identify the caster of an arbitrary
+        // spell that caused a trigger.
+        _ => None,
+    }
 }
 use mtg_core::{PermittedView, StackHandle, VisibleEntityTarget, VisibleObject, VisibleStackEntry};
 
@@ -581,7 +620,7 @@ impl Strategy<'_> {
         let mut damage = Quantity::zero();
         // Public, announced targets only. Do not infer unannounced modes or LKI.
         for s in v.stack.iter().filter(|s| s.cast_complete) {
-            let Some((_, p)) = self.entry_program(v, s) else {
+            let Some((d, p)) = self.entry_program(v, s) else {
                 continue;
             };
             for i in &p.instructions {
@@ -602,7 +641,13 @@ impl Strategy<'_> {
                     }
                     i if let Some(set_damage) = i.set_damage() => {
                         let hit = match target {
-                            PlayerTargetEntity::Player { .. } => set_damage.each_player,
+                            PlayerTargetEntity::Player { player } => set_damage_hits_player(
+                                v,
+                                &set_damage,
+                                s.controller,
+                                visible_event_player(v, s, d),
+                                *player,
+                            ),
                             PlayerTargetEntity::Object { object } => v
                                 .objects
                                 .iter()
@@ -897,21 +942,21 @@ impl Strategy<'_> {
                 }
                 i if let Some(set_damage) = i.set_damage() => {
                     let damage = self.wipe_amount(v, set_damage.amount, x)?;
-                    if set_damage.each_player {
-                        if v.players
-                            .iter()
-                            .any(|r| r.player == v.viewer && r.life <= damage)
-                        {
-                            return Some(Quantity::from(i64::MIN));
-                        }
-                        wins |= v
-                            .players
-                            .iter()
-                            .filter(|r| {
-                                r.player != v.viewer && v.live_turn_order.contains(&r.player)
-                            })
-                            .all(|r| r.life <= damage);
+                    let takes_damage =
+                        |player| set_damage_hits_player(v, &set_damage, v.viewer, None, player);
+                    if v.players
+                        .iter()
+                        .any(|r| r.player == v.viewer && takes_damage(r.player) && r.life <= damage)
+                    {
+                        return Some(Quantity::from(i64::MIN));
                     }
+                    let mut opponents = v
+                        .players
+                        .iter()
+                        .filter(|r| r.player != v.viewer && v.live_turn_order.contains(&r.player))
+                        .peekable();
+                    wins |= opponents.peek().is_some()
+                        && opponents.all(|r| takes_damage(r.player) && r.life <= damage);
                     (set_damage.sets.into_iter().cloned().collect(), Some(damage))
                 }
                 kernel!(Sacrifice {

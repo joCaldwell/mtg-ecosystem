@@ -27,12 +27,9 @@ pub(super) fn lower(
         other => return Err(operand("player", variant(&other))),
     };
     let count = match typed::<ast::Amount>(amount, "amount")? {
-        ast::Amount::Fixed(n) if u32::try_from(n.value).is_ok() => Quantity::from(n.value),
+        ast::Amount::Fixed(n) if u32::try_from(n.value).is_ok() => Amount::fixed(n.value),
+        ast::Amount::X(_) if player.target_slot().is_some() => Amount::announced_x(),
         other => return Err(operand("amount", variant(&other))),
     };
-    Ok(Instruction::mill(
-        player,
-        Amount::Fixed { value: count },
-        cx.source_block,
-    ))
+    Ok(Instruction::mill(player, count, cx.source_block))
 }

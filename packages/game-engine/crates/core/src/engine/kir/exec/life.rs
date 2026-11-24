@@ -14,15 +14,19 @@ impl RulesTxn {
         amount: &Amount,
         source_block: u32,
     ) -> Result<(), String> {
-        let amount = self.kernel_amount(&frame, amount)?;
         let skipped = |game: &mut Self, frame| {
             game.finish_instruction(frame, InstructionOutcome::Life { actual: None })
         };
+        let player = self.kernel_players(&frame, player)?;
+        if matches!(player, Players::Nobody) {
+            return skipped(self, frame);
+        }
+        let amount = self.kernel_amount(&frame, amount)?;
         // CR 119.8: changing life by zero produces no event.
         if amount == Quantity::zero() {
             return skipped(self, frame);
         }
-        let player = match self.kernel_players(&frame, player)? {
+        let player = match player {
             Players::EachOpponent => {
                 self.commit_opponent_life(&frame, &amount, source_block, gain)?;
                 return skipped(self, frame);

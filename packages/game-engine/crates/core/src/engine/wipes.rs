@@ -246,14 +246,36 @@ impl RulesTxn {
             .into_iter()
             .map(|object| TargetEntity::Object { object })
             .collect::<Vec<_>>();
-        if damage.each_player {
-            targets.extend(
-                self.live_players()
-                    .into_iter()
-                    .map(|player| TargetEntity::Player { player }),
-            );
-        }
+        targets.extend(
+            self.set_damage_player_scope(frame, &damage)?
+                .into_iter()
+                .filter(|player| self.is_live(*player))
+                .map(|player| TargetEntity::Player { player }),
+        );
         Ok((amount, damage.source_block, targets))
+    }
+    fn set_damage_player_scope(
+        &self,
+        frame: &Resolving,
+        damage: &mtg_contracts::SetDamage<'_>,
+    ) -> Result<Vec<PlayerId>, String> {
+        let seating = &self.state.rules.original_seating;
+        if damage.each_player {
+            return Ok(seating.clone());
+        }
+        let Some(players) = damage.selective_players else {
+            return Ok(vec![]);
+        };
+        Ok(match self.kernel_players(frame, players)? {
+            kir::Players::One(player) if seating.contains(&player) => vec![player],
+            kir::Players::EachOpponent => {
+                let controller = self.entry(frame.stack_id)?.controller;
+                self.apnap_seats()
+                    .filter(|player| *player != controller && seating.contains(player))
+                    .collect()
+            }
+            kir::Players::One(_) | kir::Players::Nobody => vec![],
+        })
     }
     /// Freezes the recipients and amount, then prepares one simultaneous
     /// damage event (CR 120.3).
@@ -357,29 +379,6 @@ impl RulesTxn {
                     .collect();
                 self.commit_set_moves(frame, occurrences, SetMove::Exile, source_block)
             }
-            kernel!(Untap { what: mtg_contracts::kir::SetExpr::Matching { .. } } @ source_block) => {
-                let mut occurrences = Vec::new();
-                for object in self.state.rules.objects.values() {
-                    if object.present_on_battlefield()
-                        && object.tapped
-                        && object.controller == self.entry(frame.stack_id)?.controller
-                        && self
-                            .copiable_definition(object.id)?
-                            .characteristics
-                            .has_type(CardKind::Land)
-                    {
-                        occurrences.push(ProposedEvent::Untap { object: object.id });
-                    }
-                }
-                if !occurrences.is_empty() {
-                    self.commit_batch(
-                        self.instruction_cause(&frame, source_block)?,
-                        EventGroup::Simultaneous { occurrences },
-                    )?;
-                }
-                self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-            }
-
             i if mtg_contracts::ObjectSet::pumped(&i).is_some() => {
                 let (what, power, toughness, source_block) =
                     i.pumped().ok_or("pump set instruction invariant")?;
@@ -490,12 +489,31 @@ impl RulesTxn {
         else {
             return Err("unbound set damage facts".into());
         };
+        // CR 800.4a: a seat can leave after capture. Every live eligible
+        // seat must still occur, and captured departed seats must keep their
+        // relative order and belong to the same scope. Replay proves history.
+        let mut frozen_players = f
+            .targets
+            .iter()
+            .filter_map(|target| match target {
+                TargetEntity::Player { player } => Some(*player),
+                TargetEntity::Object { .. } => None,
+            })
+            .peekable();
+        for player in self.set_damage_player_scope(frame, &damage)? {
+            if frozen_players.next_if_eq(&player).is_none() && self.is_live(player) {
+                return Err("missing eligible set damage player".into());
+            }
+        }
+        if frozen_players.next().is_some() {
+            return Err("unexpected set damage player".into());
+        }
         if f.cursor > frame.cursor
             || f.amount.is_negative()
             || f.targets.len() > self.damage_limit()
             || f.targets.iter().collect::<BTreeSet<_>>().len() != f.targets.len()
             || f.targets.iter().any(|t| match t {
-                TargetEntity::Player { player } => player.0 >= 4,
+                TargetEntity::Player { .. } => false,
                 TargetEntity::Object { object } => {
                     !self.state.rules.cards.contains_key(&object.card)
                         || !self

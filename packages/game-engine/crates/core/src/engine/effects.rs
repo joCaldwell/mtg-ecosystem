@@ -827,23 +827,6 @@ impl RulesTxn {
                     source_block,
                 )
             }
-            kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::AddKeywords { keywords }, .. } @ source_block) =>
-            {
-                let target = self.entry(frame.stack_id)?.source;
-                if !self.target_is_creature(target) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                (
-                    ResolvedEffectKind::GrantKeywords {
-                        target,
-                        modifier: None,
-                        keywords,
-                    },
-                    source_block,
-                )
-            }
-
             kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
             {
                 let target = *self
@@ -1511,22 +1494,18 @@ impl RulesTxn {
                     }
                     (
                         kernel!(ModifyUntil {
-                            what: source_object!(),
-                            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+                            what,
+                            change: Change::AddKeywords { keywords },
+                            until: mtg_contracts::kir::Until::EndOfTurn,
                             ..
                         } @ source_block),
-                        ResolvedEffectKind::GrantKeywords {
-                            target,
-                            modifier: None,
-                            keywords: grants,
-                        },
+                        kind @ (ResolvedEffectKind::GrantKeywords { .. }
+                        | ResolvedEffectKind::GrantKeywordsSet { .. }),
                     ) => {
-                        effect.origin.activated_ability.is_some()
-                            && *target == self.entry(frame.stack_id)?.source
-                            && self.target_is_creature(*target)
-                            && keywords == grants
-                            && supported_temporary_keywords(grants)
-                            && *source_block == effect.origin.source_block
+                        *source_block == effect.origin.source_block
+                            && supported_temporary_keywords(keywords)
+                            && self.keyword_grant_kind(frame, what, keywords)?.as_ref()
+                                == Some(kind)
                     }
 
                     (
@@ -1844,8 +1823,9 @@ impl RulesTxn {
                     }
                     (
                         kernel!(ModifyUntil {
-                            what: source_object!(),
-                            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+                            what,
+                            change: Change::AddKeywords { keywords },
+                            until: mtg_contracts::kir::Until::EndOfTurn,
                             ..
                         } @ source_block),
                         ResolvedEffectKind::GrantKeywords {
@@ -1854,14 +1834,52 @@ impl RulesTxn {
                             keywords: grants,
                         },
                     ) => {
-                        // Origin resolution uses the historical incarnation's immutable
-                        // copiable definition. Replay proves capture and its handles.
-                        e.origin.activated_ability.is_some()
-                            && *target == e.origin.source
-                            && keywords == grants
+                        keywords == grants
                             && supported_temporary_keywords(grants)
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
+                            && self.state.rules.cards.contains_key(&target.card)
+                            && match what {
+                                SetExpr::One {
+                                    object: Ref::Source,
+                                } => {
+                                    e.origin.activated_ability.is_some()
+                                        && *target == e.origin.source
+                                }
+                                SetExpr::One {
+                                    object: Ref::Target { .. },
+                                } => {
+                                    self.copiable_definition(target)?.characteristics.kind
+                                        == CardKind::Creature
+                                }
+                                _ => false,
+                            }
+                    }
+
+                    (
+                        kernel!(ModifyUntil {
+                            what: SetExpr::Matching { zone: ZoneExpr::Battlefield, .. },
+                            change: Change::AddKeywords { keywords },
+                            until: mtg_contracts::kir::Until::EndOfTurn,
+                            ..
+                        } @ source_block),
+                        ResolvedEffectKind::GrantKeywordsSet {
+                            targets,
+                            modifier: None,
+                            keywords: grants,
+                        },
+                    ) => {
+                        keywords == grants
+                            && supported_temporary_keywords(grants)
+                            && *source_block == e.origin.source_block
+                            && !targets.is_empty()
+                            // This structural check uses only the permanent
+                            // kinds, while replay proves the captured filter.
+                            && self.valid_set_effect_targets(
+                                e,
+                                targets,
+                                Some(&mtg_contracts::ObjectSet::ControllerPermanents),
+                            )
                     }
 
                     (

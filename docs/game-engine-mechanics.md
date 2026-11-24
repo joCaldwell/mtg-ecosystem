@@ -8,10 +8,10 @@ select decks and consumer features. Card admission requires a fresh
 complete lowering and a matching catalog identity.
 
 A spell can deal damage as its own source. Object operands that modify or put
-counters on the source require a permanent ability. Temporary source keyword
-grants require an activated ability and the exact supported keyword list.
-An announced player can draw one card per KIR draw. Targeted counted draws
-reject at admission until their executor can skip an illegal target.
+counters on the source require a permanent ability. The controller can draw
+a fixed count, one card at a time. Each-player draws finish one player's
+attempts before moving to the next player in APNAP order (CR 121.2c).
+An announced player draws one card per KIR instruction.
 
 The rules baseline is the frozen [2026-09-25 Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt),
 SHA-256 `8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca`.
@@ -271,6 +271,12 @@ departure.
 
 ## Combat, damage and life
 
+Noncombat damage can read a proven invocation source and damage each opponent
+simultaneously. Resolve its count once from a matching battlefield or
+graveyard set, or from the controller's hand size. Life effects can use those
+same counts. Only the size of a hand is available for counting (CR 400.2,
+402.3, 608.2h).
+
 Attackers, blockers and damage commit atomically. Readiness stamps continuous
 control at turn entry and resets on control/incarnation change. Blockers have no
 damage assignment order. Blocked and blocking status survive counterpart
@@ -306,6 +312,14 @@ Compensation uses the exact target's current or last relevant public appearance,
 not its successor; tokens have zero mana value. Entry returns target at trigger
 placement; optional returns choose at resolution; no legal target removes the
 trigger.
+
+When a removal's next instruction refers to the controller of its sole target,
+the saved appearance supplies that player after the target leaves. That player
+can create the printed token recipe or gain life. A life amount equal to the
+target's power uses the same appearance and treats negative power as zero
+(CR 107.1b, 111.2, 608.2h). Set tap and untap read the matching battlefield
+permanents as the instruction is performed and change their statuses
+simultaneously (CR 701.26).
 
 Sacrifice moves a controller's own permanent to its owner's graveyard and is not
 destruction. Choose/pay sacrifices after targets; “another” excludes the source.
@@ -412,6 +426,12 @@ Intrinsic keywords participate in combat, targeting and state-based actions. A
 temporary effect requires a checked KIR operation and runtime support for its
 exact target, duration and modifier; set modifications use the KIR selector and
 the executor's captured incarnations.
+
+Until-end-of-turn grants add supported keyword abilities to one announced
+creature or a captured battlefield set. The existing activated-source form
+uses the same layer 6 rules. Grants follow their creation order, expire at
+cleanup, and affect only the selected incarnations (CR 400.7, 611.2c, 613.1f,
+613.7b). The newly admitted operand cells qualify for `Executes`.
 
 <a id="abilities-targets-and-triggers"></a>
 
