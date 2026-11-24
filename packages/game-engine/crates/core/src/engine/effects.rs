@@ -1556,11 +1556,6 @@ visible_effects! {
         origin: VisibleEffectSource<O> => nested,
         expires_in_cleanup_of_turn: u64,
     },
-    DelayedChapter {
-        origin: VisibleEffectSource<O> => nested,
-        chapter: u32,
-        expires_in_cleanup_of_turn: u64,
-    },
     ProtectControllerUntilNextTurn(handle) {
         origin: VisibleEffectSource<O> => nested,
     },
@@ -1612,12 +1607,6 @@ visible_effects! {
         origin: VisibleEffectSource<O> => nested,
         count: Quantity,
         expires_in_cleanup_of_turn: u64,
-    },
-    DoubleDamageToPermanentOrPlayer(handle) {
-        origin: VisibleEffectSource<O> => nested,
-    },
-    DoubleControllerCreatureDamageToPermanentOrPlayer(handle) {
-        origin: VisibleEffectSource<O> => nested,
     },
 }
 impl RulesTxn {

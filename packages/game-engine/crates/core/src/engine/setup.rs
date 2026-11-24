@@ -158,7 +158,6 @@ impl MatchState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VisibleSetupPhase {
-    OpeningActions,
     Declare,
     Bottom,
 }

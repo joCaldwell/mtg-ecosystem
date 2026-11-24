@@ -431,8 +431,6 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
         .to_public();
     for owner in [PlayerId(1), PlayerId(3)] {
         view.objects.push(VisibleObject {
-            copied_values: None,
-            display_face: None,
             face_down: false,
             exiled_by: None,
             phased_out: false,
@@ -444,7 +442,6 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
             restrictions: vec![],
             token: None,
             plus_one_counters: Quantity::zero(),
-            lore_counters: Quantity::zero(),
             characteristics: Some(
                 game.prepared
                     .catalog

@@ -474,7 +474,6 @@ impl Strategy<'_> {
             || threat.controller == v.viewer
             || threat.ability.is_some()
             || threat.triggered.is_some()
-            || threat.mode.is_some()
         {
             return None;
         }

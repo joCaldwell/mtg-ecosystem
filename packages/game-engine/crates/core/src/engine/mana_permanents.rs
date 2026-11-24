@@ -401,9 +401,6 @@ impl RulesTxn {
                 return Err("invalid selected mana ability".into());
             }
             return match ability {
-                ManaAbilityIdentity::GrantedLandTap { .. } => {
-                    Err("unsupported granted mana ability".into())
-                }
                 ManaAbilityIdentity::Intrinsic { color } => {
                     let receipt = self.activate_selected_intrinsic_mana(&input, source, color)?;
                     self.resume_mana(resume, vec![receipt])

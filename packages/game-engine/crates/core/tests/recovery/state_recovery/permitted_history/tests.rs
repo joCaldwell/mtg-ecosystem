@@ -64,13 +64,10 @@ fn rich_fixture() -> PermittedView {
         },
     }];
     v.stack = vec![VisibleStackEntry {
-        bestowed: false,
         hybrid_colors: vec![],
         selected_additional_costs: None,
         x: None,
         mana_value: None,
-        selected_modes: vec![],
-        mode: Some(1),
         triggered: Some(VisibleTriggered {
             handle: StackHandle("trigger".into()),
             source: target.clone(),

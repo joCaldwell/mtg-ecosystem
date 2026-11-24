@@ -10,6 +10,23 @@ spec.loader.exec_module(structure)
 
 
 class StructureTests(unittest.TestCase):
+    def test_decision_validators_are_independent_of_descriptive_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = root / structure.CRATES / 'core/src/engine/api/decision'
+            directory.mkdir(parents=True)
+            source = directory / 'check.rs'
+            for expression in ('match decision.reason { _ => true }',
+                               'matches!(reason, Some(_))',
+                               'matches!(&decision.reason, Reason::Discard)',
+                               'use super::Reason as Context;'):
+                with self.subTest(expression=expression):
+                    source.write_text(expression)
+                    self.assertEqual(len(structure.decision_validator_errors(root)), 1)
+            source.write_text('// Reason::Discard\nmatch shape { _ => "decision.reason" }')
+            (directory / 'project.rs').write_text('match decision.reason { _ => true }')
+            self.assertEqual(structure.decision_validator_errors(root), [])
+
     def test_generated_and_binary_outputs_but_not_large_source_fixtures(self):
         self.assertIsNotNone(structure.artifact_reason('generated/run.json', 4, b'{}'))
         self.assertIsNotNone(structure.artifact_reason('saved/engine', 100, b'\x7fELF'))

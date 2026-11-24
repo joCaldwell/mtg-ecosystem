@@ -1,4 +1,14 @@
 //! The pending decision and the validation of a proposed answer.
+mod build;
+pub(in crate::engine) use build::candidate_index;
+mod check;
+mod model;
+pub use model::*;
+mod shape;
+#[cfg(test)]
+mod tests;
+pub use shape::*;
+
 use crate::engine::*;
 
 impl RulesTxn {

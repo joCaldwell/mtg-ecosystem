@@ -29,8 +29,6 @@ mod board {
     pub(super) fn card(c: &Catalog, name: &str, owner: u8, zone: Zone) -> VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
-            copied_values: None,
-            display_face: None,
             face_down: false,
             exiled_by: None,
             phased_out: false,
@@ -42,7 +40,6 @@ mod board {
             restrictions: vec![],
             token: None,
             plus_one_counters: 0.into(),
-            lore_counters: 0.into(),
             characteristics: Some(d.characteristics.clone()),
             marked_damage: 0.into(),
             attack_ready: true,
@@ -71,13 +68,10 @@ fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = board::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {
         spell_copy: false,
-        bestowed: false,
         hybrid_colors: vec![],
         selected_additional_costs: None,
         x: None,
         mana_value: None,
-        selected_modes: vec![],
-        mode: None,
         triggered: None,
         entity_targets: vec![],
         handle: Some(StackHandle(name.into())),
@@ -582,13 +576,10 @@ mod activated_permanent_tap_policy_tests {
         assert_eq!(canonical(&v).unwrap(), before);
         v.stack.push(VisibleStackEntry {
             spell_copy: false,
-            bestowed: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
             mana_value: None,
-            selected_modes: vec![],
-            mode: None,
             triggered: None,
             entity_targets: vec![],
             handle: Some(StackHandle("icy-activation".into())),
@@ -655,13 +646,10 @@ mod activated_headless_policy_tests {
     fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
         v.stack.push(VisibleStackEntry {
             spell_copy: false,
-            bestowed: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
             mana_value: None,
-            selected_modes: vec![],
-            mode: None,
             triggered: None,
             entity_targets: vec![],
             handle: Some(StackHandle("policy-activation".into())),
@@ -888,13 +876,10 @@ mod temporal_adept_policy_tests {
             assert_eq!(canonical(&v).unwrap(), before);
             v.stack.push(VisibleStackEntry {
                 spell_copy: false,
-                bestowed: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x: None,
                 mana_value: None,
-                selected_modes: vec![],
-                mode: None,
                 triggered: None,
                 entity_targets: vec![],
                 handle: Some(StackHandle("temporal-activation".into())),

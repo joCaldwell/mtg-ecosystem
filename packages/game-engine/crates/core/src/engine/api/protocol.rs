@@ -5,7 +5,6 @@ use crate::engine::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "ability", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaAbilityIdentity {
-    GrantedLandTap { color: Color },
     Intrinsic { color: Color },
     Printed { index: u32 },
 }

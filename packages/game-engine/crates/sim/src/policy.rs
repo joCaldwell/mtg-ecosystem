@@ -145,16 +145,16 @@ impl Strategy<'_> {
             },
             PlayerRequest::ChooseManaAbility { choices, .. } => {
                 let desired = self.mana_color;
-                use mtg_core::ManaAbilityIdentity::{GrantedLandTap, Intrinsic};
+                use mtg_core::ManaAbilityIdentity::Intrinsic;
                 let ability = self
                     .mana_ability
                     .take()
                     .filter(|choice| choices.contains(choice))
                     .or_else(|| choices.iter().copied().find(|choice|
-                        matches!(choice, Intrinsic { color } | GrantedLandTap { color } if Some(*color)==desired)))
+                        matches!(choice, Intrinsic { color } if Some(*color)==desired)))
                     .or_else(|| choices.first().copied())
                     .ok_or("empty mana ability choices")?;
-                if matches!(ability, Intrinsic { .. } | GrantedLandTap { .. }) {
+                if matches!(ability, Intrinsic { .. }) {
                     self.mana_color = None;
                 }
                 PlayerResponse::ChooseManaAbility { ability }

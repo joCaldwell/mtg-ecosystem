@@ -54,9 +54,6 @@ pub struct TriggerHandle(pub String);
 #[schemars(rename = "VisibleTriggerAbility")]
 #[serde(bound(deserialize = "O: Deserialize<'de>, E: Deserialize<'de>"))]
 pub enum VisibleTriggerAbility<O = ObjectHandle, E = EffectHandle> {
-    DelayedChapter {
-        chapter: u32,
-    },
     Intrinsic {
         index: u32,
     },
@@ -78,7 +75,6 @@ impl<O, E> VisibleTriggerAbility<O, E> {
         self,
     ) -> VisibleTriggerAbility<T, F> {
         match self {
-            Self::DelayedChapter { chapter } => VisibleTriggerAbility::DelayedChapter { chapter },
             Self::Intrinsic { index } => VisibleTriggerAbility::Intrinsic { index },
             Self::Granted {
                 source,
@@ -185,10 +181,6 @@ impl<O> VisiblePlayer<O> {
 #[schemars(rename = "VisibleObject")]
 #[serde(bound(deserialize = "H: Deserialize<'de>"))]
 pub struct VisibleObject<H = ObjectHandle> {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub copied_values: Option<VisiblePermanentCopy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_face: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,8 +203,6 @@ pub struct VisibleObject<H = ObjectHandle> {
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
-    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
-    pub lore_counters: Quantity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
@@ -228,8 +218,6 @@ pub struct VisibleObject<H = ObjectHandle> {
 impl<H> VisibleObject<H> {
     pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleObject<T> {
         VisibleObject {
-            copied_values: self.copied_values,
-            display_face: self.display_face,
             face_down: self.face_down,
             exiled_by: self.exiled_by.map(&mut convert),
             phased_out: self.phased_out,
@@ -241,7 +229,6 @@ impl<H> VisibleObject<H> {
             restrictions: self.restrictions,
             token: self.token,
             plus_one_counters: self.plus_one_counters,
-            lore_counters: self.lore_counters,
             characteristics: self.characteristics,
             marked_damage: self.marked_damage,
             attack_ready: self.attack_ready,
@@ -253,13 +240,6 @@ impl<H> VisibleObject<H> {
             tapped: self.tapped,
         }
     }
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct VisiblePermanentCopy {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oracle_id: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -330,8 +310,6 @@ impl<O> VisibleEntityTarget<O> {
 #[schemars(rename = "VisibleStackEntry")]
 #[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>, E: Deserialize<'de>"))]
 pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle> {
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub bestowed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -340,10 +318,6 @@ pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle
     pub hybrid_colors: Vec<HybridPayment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<u32>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub selected_modes: Vec<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triggered: Option<VisibleTriggered<H, O, E>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -369,13 +343,10 @@ impl<H, O, E> VisibleStackEntry<H, O, E> {
         mut convert: impl FnMut(H) -> T,
     ) -> VisibleStackEntry<T, P, F> {
         VisibleStackEntry {
-            bestowed: self.bestowed,
             selected_additional_costs: self.selected_additional_costs,
             x: self.x,
             hybrid_colors: self.hybrid_colors,
             mana_value: self.mana_value,
-            mode: self.mode,
-            selected_modes: self.selected_modes,
             triggered: self.triggered.map(|row| row.map_handles(&mut convert)),
             entity_targets: self
                 .entity_targets
@@ -1554,11 +1525,8 @@ impl RulesTxn {
             .ok_or("missing object definition")?;
         if let Some(link) = &object.hideaway {
             return Ok(VisibleObject {
-                copied_values: None,
-                display_face: None,
                 entered_this_turn: false,
                 face_down: true,
-                lore_counters: Quantity::zero(),
                 exiled_by: Some(H::from(link.source_handle(viewer))),
                 oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
                     physical.oracle_id.clone()
@@ -1583,7 +1551,6 @@ impl RulesTxn {
                 phased_out: false,
             });
         }
-        let copied_values = None;
         let attached_to = object
             .attached_to
             .filter(|t| self.current(*t).is_ok())
@@ -1628,8 +1595,6 @@ impl RulesTxn {
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
-            display_face: None,
-            copied_values,
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
@@ -1641,7 +1606,6 @@ impl RulesTxn {
             token,
             mana_ability_used,
             plus_one_counters: object.plus_one_counters.clone(),
-            lore_counters: Quantity::zero(),
             characteristics: Some(characteristics),
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
@@ -1855,7 +1819,6 @@ impl RulesTxn {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
-            bestowed: false,
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),
@@ -1864,8 +1827,6 @@ impl RulesTxn {
                 .as_ref()
                 .map(|_| self.stack_mana_value(instance))
                 .transpose()?,
-            mode: None,
-            selected_modes: vec![],
             triggered,
             entity_targets,
             handle: { Some(H::from(self.stack_handle_id(viewer, instance.id)?)) },

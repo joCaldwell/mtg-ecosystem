@@ -131,6 +131,22 @@ def rust_code(text):
     return re.sub(r'//[^\n]*|/\*.*?\*/|r(#+)".*?"\1|"(?:\\.|[^"\\])*"', ' ', text, flags=re.S)
 
 
+def decision_validator_errors(root):
+    """Decision validators can depend on shape, never on descriptive reason."""
+    engine = root / CRATES / 'core/src/engine'
+    errors = []
+    for source in sorted(engine.rglob('*.rs')):
+        parts = source.relative_to(engine).with_suffix('').parts
+        if not any(p in {'check', 'validate', 'validation', 'validator', 'validators'}
+                   or p.startswith('validate_') or p.endswith(('_validator', '_validation'))
+                   for p in parts):
+            continue
+        code = rust_code(source.read_text())
+        if re.search(r'\bReason\b|\.\s*reason\b|\b(?:match|matches!\s*\()\s*&?\s*reason\b', code):
+            errors.append(f'{source.relative_to(root)}: decision validation may only depend on Shape')
+    return errors
+
+
 def testkit_private_fields(src):
     """Fields made public only by core's testkit_fields! macro."""
     fields = set()
@@ -247,7 +263,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
-    errors = dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + topology_errors(args.root) + artifact_errors(args.root)
+    errors = dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + decision_validator_errors(args.root) + topology_errors(args.root) + artifact_errors(args.root)
     for error in errors:
         print(error, file=sys.stderr)
     if not errors:
