@@ -11,7 +11,7 @@ use mtg_core::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CANDIDATE_POLICY: &str = "foundations-public-plans-v1";
+pub const CANDIDATE_POLICY: &str = "foundations-public-plans-v2";
 pub const MAX_CANDIDATES: usize = 32;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "targets", rename_all = "snake_case", deny_unknown_fields)]
@@ -362,7 +362,7 @@ fn push(set: &mut CandidateSet, plan: ActionPlan) -> Result<bool, String> {
     Ok(true)
 }
 /// Selects Pass, one representative per identical basic hand definition, funded
-/// spells (all selected modes/target tuples up to the cap), and funded nonmana
+/// spells (all target tuples up to the cap), and funded nonmana
 /// activations. Standalone mana-floating actions are an explicit policy exclusion.
 pub fn generate(
     catalog: &Catalog,

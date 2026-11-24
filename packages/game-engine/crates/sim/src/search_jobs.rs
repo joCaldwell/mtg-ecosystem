@@ -23,6 +23,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Version 2: cast candidates no longer carry a mode (Phase 3B-1).
+pub const REPORT_VERSION: u32 = 2;
 pub const WORKLOAD: &str = "commander-open-search-v1";
 pub const SCHEDULING_POLICY: &str = "first-eight-all-candidates-then-extras-soft2500-v1";
 pub const DESIRED_WORLDS: usize = 32;
@@ -1216,7 +1218,7 @@ pub fn run_cancellable(
     let strategy_operations = control.operations.load(Ordering::Relaxed);
     drop(control);
     let mut report = SearchReport {
-        report_version: 1,
+        report_version: REPORT_VERSION,
         workload: WORKLOAD.into(),
         context_id,
         request,
@@ -1266,7 +1268,7 @@ pub fn replay_report(
     capture: &SearchCapture,
     report: &SearchReport,
 ) -> Result<serde_json::Value, String> {
-    if report.report_version != 1
+    if report.report_version != REPORT_VERSION
         || report.workload != WORKLOAD
         || report.context_id != capture.context_id()
         || report.scheduling_policy != SCHEDULING_POLICY
@@ -1506,7 +1508,7 @@ mod tests {
             standalone_mana_actions_omitted: true,
         };
         SearchReport {
-            report_version: 1,
+            report_version: REPORT_VERSION,
             workload: WORKLOAD.into(),
             context_id: "context".into(),
             request: SearchRequest {

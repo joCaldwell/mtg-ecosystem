@@ -82,10 +82,10 @@ Priority, announcements, payment and resolving frames are separate states. No
 priority exists during announcement/resolution; retain the frozen invocation
 through supported source departure. Land plays and ordinary creature timing require
 active-player main priority and an empty stack; supported flash is explicit.
-Cleanup applies net hand-size adjustments to finite limits, floored at zero,
-then clears temporary effects and marked damage atomically. Concessions are
+Cleanup discards to the maximum hand size of seven (CR 402.2, 514.1), then
+clears temporary effects and marked damage atomically. Concessions are
 trusted recorded external inputs processed before work or queries. Land usage
-resets each turn. Listed mana abilities offer only printed colors.
+resets each turn.
 
 <a id="player-visibility-and-query-recovery"></a>
 
@@ -151,10 +151,9 @@ Personal effects for a departed invocation controller skip rather than redirect.
 
 <a id="announcement-priority-and-payment"></a>
 
-Typed nonbasic lands derive intrinsic mana. Optional-life entry chooses before
-debit/entry and atomically commits payments, entries and land-play usage.
-Land-play and paid land-search continuations retain ownership, privacy and
-recovery. Fetch activations atomically tap, pay life and sacrifice the source
+Typed nonbasic lands derive intrinsic mana. A land play commits its entry and
+land-play usage atomically. Paid land-search continuations retain ownership,
+privacy and recovery. Fetch activations atomically tap, pay life and sacrifice the source
 before typed search; paid roots retain LKI through source-owner departure.
 
 ## Casting, costs, targets and stack

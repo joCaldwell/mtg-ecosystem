@@ -1104,6 +1104,30 @@ fn flash_end_step_draw() {
         assert_eq!(game.state.rules.libraries[&player], libraries[&player]);
         assert!(game.action_hand(player).is_empty());
     }
+    // Play through the opponent's whole turn, including its end step: the
+    // controller-only end-step trigger must not fire there (CR 603.2).
+    for _ in 0..256 {
+        if game.state.rules.turn.number > 2 {
+            break;
+        }
+        let Advance::AwaitingDecision(request) = game.advance(Budget::new(100)) else {
+            continue;
+        };
+        let response = match &request {
+            Request::Priority { .. } => Response::Pass,
+            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+            Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+            other => panic!("unexpected turn decision {other:?}"),
+        };
+        game.respond(request.player(), request.decision_id(), response)
+            .unwrap();
+    }
+    assert!(
+        game.state.rules.turn.number > 2,
+        "opponent turn did not end"
+    );
+    assert_eq!(game.state.rules.next_trigger_id, 1);
+    assert_eq!(game.action_hand(controller).len(), 7);
 }
 
 #[test]
