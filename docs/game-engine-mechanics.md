@@ -1,9 +1,10 @@
 # Supported engine mechanics
 
 Every executable card lowers completely from Archive R4 to schema-1 KIR.
-`contracts/src/composition.rs` validates the card shell and ability context.
-`kir::check` validates the node and bindings. Match profiles independently
-select decks and consumer capabilities. Card admission requires a fresh
+`contracts/src/kir/tiers/executes.rs` validates the card shell and ability
+context, `kir::check` the node and bindings, and `kir::tiers` derives the
+[tiers](#derived-capability-tiers) the card earns. Match profiles independently
+select decks and consumer features. Card admission requires a fresh
 complete lowering and a matching catalog identity.
 
 A spell can deal damage as its own source. Object operands that modify or put
@@ -393,17 +394,37 @@ incarnation, including when the source also has supported intrinsic keywords
 (CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
 counters.
 
-## Composition matrix
+## Derived capability tiers
 
-Every compiled card is lowered one printed block at a time and admitted by the
-tables in `crates/contracts/src/composition.rs`. Its definition carries
-`composed: true` and `composed_ability_v1`. Rust checks the complete capability
-set and rejects an unsupported combination. The schema describes the structural
-form of the single `Kernel` instruction.
+Every compiled card is lowered one printed block at a time. Its definition
+carries `composed: true` and `composed_ability_v1`. Rust checks the complete
+capability set and rejects a surface with no executor. The schema describes the
+structural form of the single `Kernel` instruction.
 
-Each table decides one independent question (CR 113.3, 602.1, 603.1, 608.2):
+A definition consists of cells: the audited kernel cells `kir::check` names
+(`kir::Cell`, one `(verb, operand kinds, context)` row each) and the reviewed
+non-kernel surfaces named by their capabilities. Each cell carries the tiers it
+has earned; a definition earns a tier only when every cell has (the meet). The
+tables are `kir::cell_tiers` and `kir::surface_tiers`; no card name, Oracle ID
+or profile appears in them, and a newly opened cell starts at `Executes`.
 
-| Row | Admits |
+| Tier | Earned when | Admits to |
+| --- | --- | --- |
+| `Executes` | the cell has an executor and a rules test | dynamic headless pods; a runtime fault is the pod's `RulesFault` |
+| `HeadlessQualified` | it ran in the pod parity corpus with state validation and snapshot round trips | `--analytics-out` and paired runs |
+| `Search` | its hidden-information behaviour is reviewed for the sampler | profiles requesting search |
+| `Hosting` | every decision it raises has source labels and a client control | profiles requesting hosting |
+
+The three reviews above `Executes` are independent: a hosting review says
+nothing about hidden information. A rejected hosting or search request names
+the capabilities (`UnreviewedCapabilities`) or kernel cells (`UnqualifiedCells`)
+below its tier. On all 2,370 Archive R4 definitions and every fixture catalog
+the derived decisions equal the capability lists they replaced.
+
+`Executes` is decided per surface, each row independent (CR 113.3, 602.1, 603.1,
+608.2); a surface without a row rejects under `cell:<surface>:<detail>`:
+
+| Surface | Executes |
 | --- | --- |
 | Instruction × stack object | A checked KIR node with operands bound in its spell, activated or triggered context. Unsupported operands and verbs reject. |
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |

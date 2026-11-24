@@ -11,41 +11,18 @@ use mtg_contracts::bulk_catalog::{
 use std::sync::LazyLock;
 
 pub const DYNAMIC_PROFILE: &str = "commander-dynamic-headless-v1";
-// v3 retired the R3 copy-roster review: no roster identity bypasses capability
-// review or selects a separate capacity proof.
-const ADMISSION_DOMAIN: &str = "commander-dynamic-pair-admission-v3";
+// v4 admits every definition whose cells execute (the `Executes` tier):
+// no hand-listed capability set gates headless pods. A runtime fault is a
+// pod's `RulesFault`; analytics, search and hosting require higher tiers.
+const ADMISSION_DOMAIN: &str = "commander-dynamic-pair-admission-v4";
+/// The tier a definition earns to play in a dynamic headless pod.
+pub const HEADLESS_TIER: mtg_contracts::kir::ExecutionTier =
+    mtg_contracts::kir::ExecutionTier::Executes;
 pub const DYNAMIC_MAX_DECK_ROWS: usize = 100;
 const DECK_SIZE: u64 = 100;
 const PHYSICAL_SOURCES: usize = 400;
 const POLICY_SHA256: &str = "71b1aa15189c83820fe654933e5ad28d79897b7e46c3f71155a16cd3430424da";
 const POLICY: &str = include_str!("../../../../tests/fixtures/commander-banned-2026-10-15.json");
-
-// The active Foundations decks exercise exactly these requirements.
-// Expanding this set needs dynamic capacity and runtime qualification.
-const REVIEWED: &[Capability] = &[
-    Capability::ComposedAbilityV1,
-    Capability::AnyPlayerTargetV1,
-    Capability::BaseCreatureV1,
-    Capability::BasicLandManaV1,
-    Capability::CastCreatureV1,
-    Capability::CastInstantV1,
-    Capability::CastSorceryV1,
-    Capability::CommanderIdentityV1,
-    Capability::ControllerDrawV1,
-    Capability::CreatureDiesV1,
-    Capability::CreatureTargetV1,
-    Capability::DefenderV1,
-    Capability::LandPlayV1,
-    Capability::LifeGainV1,
-    Capability::LifeLossV1,
-    Capability::NormalLayoutV1,
-    Capability::OpponentTargetV1,
-    Capability::OtherCreatureEntersBattlefieldV1,
-    Capability::SelfEntersBattlefieldV1,
-    Capability::TargetPlayerSacrificeCreatureV1,
-    Capability::TemporaryPowerToughnessV1,
-    Capability::TriggeredAbilityV1,
-];
 
 struct DynamicPolicy {
     banned_ids: BTreeSet<String>,
@@ -60,7 +37,7 @@ static POLICY_STATE: LazyLock<Result<DynamicPolicy, String>> = LazyLock::new(|| 
         .into_iter()
         .map(|ban| ban.oracle_id)
         .collect();
-    let digest = digest(&(ADMISSION_DOMAIN, POLICY_SHA256, REVIEWED))?;
+    let digest = digest(&(ADMISSION_DOMAIN, POLICY_SHA256, HEADLESS_TIER))?;
     Ok(DynamicPolicy { banned_ids, digest })
 });
 fn policy() -> Result<&'static DynamicPolicy, String> {
@@ -142,7 +119,6 @@ pub enum CardGapCode {
     UnsupportedRepeatQuantity,
     ColorIdentity,
     BasicLandColor,
-    CapabilityUnreviewed,
     CopyCapacityUnreviewed,
 }
 
@@ -425,28 +401,19 @@ fn inspect_definition(
             issues.push(CardGapIssue::new(CardGapCode::BasicLandColor));
         }
     }
-    let requirements = d.requirements();
-    let unreviewed: Vec<_> = requirements
-        .iter()
-        .copied()
-        .filter(|c| !REVIEWED.contains(c))
-        .collect();
-    let copies: Vec<_> = requirements
-        .iter()
-        .copied()
+    // Every validated definition executes (CR 113.3: each ability is a cell
+    // with an executor), so the headless tier adds no card gap of its own.
+    let copies: Vec<_> = d
+        .requirements()
+        .into_iter()
         .filter(|c| copy_capacity_unreviewed(*c))
         .collect();
-    for (code, capabilities) in [
-        (CardGapCode::CapabilityUnreviewed, unreviewed),
-        (CardGapCode::CopyCapacityUnreviewed, copies),
-    ] {
-        if !capabilities.is_empty() {
-            issues.push(CardGapIssue {
-                code,
-                reason_code: None,
-                capabilities,
-            });
-        }
+    if !copies.is_empty() {
+        issues.push(CardGapIssue {
+            code: CardGapCode::CopyCapacityUnreviewed,
+            reason_code: None,
+            capabilities: copies,
+        });
     }
 }
 

@@ -220,222 +220,271 @@ impl PlayerBinding {
     }
 }
 
-// Pinned CR 115, 608.2b/h and 202.3a: bind the complete finite filter and
-// target reference; no unparsed attribute or controller clause is discarded.
-/// Closed source-backed sets: never silently discard filter fields (CR 608.2h).
-pub(crate) fn lower_object_set(v: &serde_json::Value) -> Result<ObjectSet, Failure> {
-    use serde_json::json;
-    if v["ref"] != "each" && v["ref"] != "all" {
-        return Err(unsupported("set", "expected all/each set"));
+// ---------------------------------------------------------------------------
+// Typed operands. Each lowerer reads one operand kind as its complete
+// generated AST type (`crate::ast`) and either returns its IR operand or
+// rejects under `operand:<kind>:<shape>`: the AST field or variant it does
+// not represent. No printed field is skipped and no JSON literal is compared.
+// Pinned CR 115, 601.2c, 608.2b-h, 202.3a.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+// ---------------------------------------------------------------------------
+
+/// Decode one printed operand as its generated AST type. The block already
+/// decoded as the complete AST, so a failure here is an archive defect. The
+/// generated `Option` fields read an explicit `null` as absent; a printed
+/// operand never spells a term as `null`, so one anywhere in the operand
+/// rejects it rather than silently dropping that term.
+pub(crate) fn typed<T: serde::de::DeserializeOwned>(
+    value: &impl serde::Serialize,
+    kind: &str,
+) -> Result<T, Failure> {
+    let value = serde_json::to_value(value)
+        .map_err(|e| invalid("operand", format!("operand:{kind}: {e}")))?;
+    if let Some(field) = null_field(&value, kind) {
+        return Err(operand(kind, format!("null:{field}")));
     }
-    if v.as_object().is_none_or(|o| o.len() != 2) {
-        return Err(unsupported("set", "extra set fields"));
+    serde_json::from_value(value).map_err(|e| invalid("operand", format!("operand:{kind}: {e}")))
+}
+
+/// The field of the first `null` at any depth: an object member whose value
+/// is `null`, or a `null` element of an array, named by the array's field
+/// (`enclosing` for a top-level array, or for a root that is itself `null`).
+pub(crate) fn null_field(value: &serde_json::Value, enclosing: &str) -> Option<String> {
+    match value {
+        serde_json::Value::Null => Some(enclosing.to_owned()),
+        serde_json::Value::Object(members) => members.iter().find_map(|(key, member)| {
+            if member.is_null() {
+                Some(key.clone())
+            } else {
+                null_field(member, key)
+            }
+        }),
+        serde_json::Value::Array(items) => items.iter().find_map(|item| {
+            if item.is_null() {
+                Some(enclosing.to_owned())
+            } else {
+                null_field(item, enclosing)
+            }
+        }),
+        _ => None,
     }
-    let f = &v["filter"];
-    let set = if *f == json!({"types":["creature"]}) {
-        ObjectSet::Creatures
-    } else if *f == json!({"nonTypes":["land"],"cls":"permanent"}) {
-        ObjectSet::NonlandPermanents
-    } else if *f == json!({"types":["enchantment"]}) {
-        ObjectSet::Enchantments
-    } else if *f == json!({"types":["creature"],"status":["attacking"]}) {
-        ObjectSet::AttackingCreatures
-    } else if *f == json!({"cls":"permanent","control":"you"}) {
-        // CR 109.2/109.5, 608.2h, 611.2c: every controlled permanent,
-        // captured by the ordinary keyword program; never narrow to creatures.
-        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        ObjectSet::ControllerPermanents
-    } else if *f == json!({"types":["creature"],"control":"you"}) {
-        ObjectSet::ControllerCreatures
-    } else if *f == json!({"types":["creature"],"control":"opponent"}) {
-        ObjectSet::OpponentCreatures
-    } else if *f == json!({"types":["creature"],"withAbility":["flying"]}) {
-        ObjectSet::FlyingCreatures
-    } else if *f == json!({"types":["creature"],"withoutAbility":["flying"]}) {
-        ObjectSet::NonflyingCreatures
-    } else {
-        return Err(unsupported("set", "unsupported complete filter"));
-    };
+}
+
+/// The named rejection of one operand shape.
+pub(crate) fn operand(kind: &str, shape: impl AsRef<str>) -> Failure {
+    unsupported("operand", format!("operand:{kind}:{}", shape.as_ref()))
+}
+
+/// The snake-case name of a generated enum variant, for a rejection code.
+pub(crate) fn variant<T: std::fmt::Debug>(value: &T) -> String {
+    let debug = format!("{value:?}");
+    let name: String = debug.chars().take_while(|c| c.is_alphanumeric()).collect();
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+/// CR 608.2h: an "all"/"each" operand is the set of battlefield permanents
+/// that satisfy its whole filter when the instruction is performed.
+pub(crate) fn lower_board_set(what: &ast::ObjectRef, context: Context) -> Result<SetExpr, Failure> {
+    match what {
+        ast::ObjectRef::All(set) => Ok(SetExpr::battlefield(lower_filter(&set.filter, context)?)),
+        ast::ObjectRef::Each(set) => Ok(SetExpr::battlefield(lower_filter(&set.filter, context)?)),
+        other => Err(operand("set", format!("ref_{}", variant(other)))),
+    }
+}
+
+/// The board sets an end-of-turn pump or a set damage step was reviewed
+/// for (CR 613.4c, 120.2b). Kernel cells audit any creature set; these
+/// lowerers keep the reviewed closed sets until their wave widens them.
+pub(crate) fn lower_reviewed_set(
+    what: &ast::ObjectRef,
+    context: Context,
+) -> Result<SetExpr, Failure> {
+    const REVIEWED: [ObjectSet; 9] = [
+        ObjectSet::Creatures,
+        ObjectSet::NonlandPermanents,
+        ObjectSet::Enchantments,
+        ObjectSet::AttackingCreatures,
+        ObjectSet::ControllerPermanents,
+        ObjectSet::ControllerCreatures,
+        ObjectSet::OpponentCreatures,
+        ObjectSet::FlyingCreatures,
+        ObjectSet::NonflyingCreatures,
+    ];
+    let set = lower_board_set(what, context)?;
+    if !REVIEWED
+        .iter()
+        .any(|reviewed| reviewed.kernel(context) == set)
+    {
+        return Err(operand("set", "unreviewed_set"));
+    }
     Ok(set)
 }
 
-/// CR 608.2h: an "all"/"each" operand of a destroy, exile or return step is
-/// the set of battlefield permanents that satisfy its whole filter when the
-/// instruction is performed. Every printed filter term becomes one predicate
-/// atom, in this fixed order; a term with no atom rejects the step.
-pub(crate) fn lower_board_set(v: &serde_json::Value, context: Context) -> Result<SetExpr, Failure> {
-    if v["ref"] != "each" && v["ref"] != "all" {
-        return Err(unsupported("set", "expected all/each set"));
-    }
-    if v.as_object().is_none_or(|o| o.len() != 2) {
-        return Err(unsupported("set", "extra set fields"));
-    }
-    Ok(SetExpr::battlefield(lower_board_filter(
-        &v["filter"],
-        context,
-    )?))
+/// CR 205.2a: a printed card type, by its AST spelling.
+fn card_kind(kind: &str, name: &str) -> Result<CardKind, Failure> {
+    serde_json::from_value(serde_json::Value::String(kind.to_owned()))
+        .map_err(|_| operand(name, format!("type:{kind}")))
 }
 
-pub(crate) fn lower_board_filter(
-    filter: &serde_json::Value,
-    context: Context,
-) -> Result<Pred, Failure> {
-    let unsupported_term = || unsupported("set", "unsupported complete filter");
-    let object = filter.as_object().ok_or_else(unsupported_term)?;
-    const TERMS: [&str; 15] = [
-        "cls",
-        "types",
-        "allOf",
-        "nonTypes",
-        "supertypes",
-        "nonSupertypes",
-        "subtypes",
-        "nonSubtypes",
-        "colors",
-        "nonColors",
-        "control",
-        "status",
-        "nonToken",
-        "withAbility",
-        "withoutAbility",
-    ];
-    if object
-        .keys()
-        .any(|key| !TERMS.contains(&key.as_str()) && key != "properties")
-    {
-        return Err(unsupported_term());
+/// CR 105.1: the five colors.
+fn color(color: &ast::Color) -> Color {
+    match color {
+        ast::Color::White => Color::W,
+        ast::Color::Blue => Color::U,
+        ast::Color::Black => Color::B,
+        ast::Color::Red => Color::R,
+        ast::Color::Green => Color::G,
     }
-    let list = |key: &str| -> Result<Vec<&serde_json::Value>, Failure> {
-        match object.get(key) {
-            None => Ok(vec![]),
-            Some(value) => value
-                .as_array()
-                .filter(|values| !values.is_empty())
-                .map(|values| values.iter().collect())
-                .ok_or_else(unsupported_term),
-        }
+}
+
+/// A printed list term: present lists are never empty.
+fn listed<'a, T>(list: &'a Option<Vec<T>>, field: &str) -> Result<&'a [T], Failure> {
+    match list {
+        None => Ok(&[]),
+        Some(items) if items.is_empty() => Err(operand("filter", format!("{field}:empty"))),
+        Some(items) => Ok(items),
+    }
+}
+
+/// "artifact or enchantment": one `allOf` group of single-type alternatives.
+fn type_alternatives(all_of: &[ast::ObjectFilter], kind: &str) -> Result<Vec<CardKind>, Failure> {
+    let [group] = all_of else {
+        return Err(operand(kind, "all_of:conjunction"));
     };
-    let kind = |value: &serde_json::Value| {
-        serde_json::from_value::<CardKind>(value.clone()).map_err(|_| unsupported_term())
+    let alternatives = match (only_field(group), group.any_of.as_deref()) {
+        (Some("any_of"), Some(alternatives)) => alternatives,
+        _ => return Err(operand(kind, "all_of:group")),
     };
-    let name = |value: &serde_json::Value| {
-        value
-            .as_str()
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-            .ok_or_else(unsupported_term)
-    };
-    let color = |value: &serde_json::Value| match value.as_str() {
-        Some("white") => Ok(Color::W),
-        Some("blue") => Ok(Color::U),
-        Some("black") => Ok(Color::B),
-        Some("red") => Ok(Color::R),
-        Some("green") => Ok(Color::G),
-        _ => Err(unsupported_term()),
-    };
+    if alternatives.len() < 2 {
+        return Err(operand(kind, "any_of:alternatives"));
+    }
+    alternatives
+        .iter()
+        .map(
+            |alternative| match (only_field(alternative), alternative.types.as_deref()) {
+                (Some("types"), Some([only])) => card_kind(only, kind),
+                _ => Err(operand(kind, "any_of:alternative")),
+            },
+        )
+        .collect()
+}
+
+/// CR 608.2h: every printed term of a board filter becomes one predicate
+/// atom, in this fixed order; a term with no atom rejects the operand.
+pub(crate) fn lower_filter(filter: &ast::ObjectFilter, context: Context) -> Result<Pred, Failure> {
+    if let Some(field) = present_fields(filter)
+        .into_iter()
+        .find(|field| !BOARD_FILTER_TERMS.contains(field))
+    {
+        return Err(operand("filter", field));
+    }
     let mut atoms = vec![];
     // CR 110.1: "permanent" names the zone, which the set already fixes.
-    match object.get("cls").map(|cls| cls.as_str()) {
-        None | Some(Some("permanent")) => {}
-        Some(Some("token")) => atoms.push(Atom::Token),
-        _ => return Err(unsupported_term()),
+    match &filter.cls {
+        None | Some(ast::ObjectFilterCls::Permanent) => {}
+        Some(ast::ObjectFilterCls::Token) => atoms.push(Atom::Token),
+        Some(other) => return Err(operand("filter", format!("cls:{}", variant(other)))),
     }
     // CR 205.2: a list of card types requires every one of them.
-    for value in list("types")? {
-        atoms.push(Atom::Type { kind: kind(value)? });
+    for kind in listed(&filter.types, "types")? {
+        atoms.push(Atom::Type {
+            kind: card_kind(kind, "filter")?,
+        });
     }
-    // The parser spells "artifact or enchantment" as one group of alternatives.
-    if let Some(groups) = object.get("allOf") {
-        let [group] = groups.as_array().ok_or_else(unsupported_term)?.as_slice() else {
-            return Err(unsupported_term());
-        };
-        let alternatives = group
-            .as_object()
-            .filter(|o| o.len() == 1)
-            .and_then(|o| o.get("anyOf"))
-            .and_then(|a| a.as_array())
-            .filter(|a| a.len() >= 2)
-            .ok_or_else(unsupported_term)?;
-        let mut kinds = vec![];
-        for alternative in alternatives {
-            let types = alternative
-                .as_object()
-                .filter(|o| o.len() == 1)
-                .and_then(|o| o.get("types"))
-                .and_then(|t| t.as_array())
-                .ok_or_else(unsupported_term)?;
-            let [only] = types.as_slice() else {
-                return Err(unsupported_term());
-            };
-            kinds.push(kind(only)?);
-        }
-        atoms.push(Atom::AnyType { kinds });
+    if let Some(all_of) = &filter.all_of {
+        atoms.push(Atom::AnyType {
+            kinds: type_alternatives(all_of, "filter")?,
+        });
     }
-    for value in list("nonTypes")? {
-        atoms.push(Atom::NotType { kind: kind(value)? });
+    for kind in listed(&filter.non_types, "non_types")? {
+        atoms.push(Atom::NotType {
+            kind: card_kind(kind, "filter")?,
+        });
     }
-    for (key, legendary, basic) in [
-        ("supertypes", Atom::Legendary, Atom::Basic),
-        ("nonSupertypes", Atom::NotLegendary, Atom::NotBasic),
+    for (list, field, legendary, basic) in [
+        (
+            &filter.supertypes,
+            "supertypes",
+            Atom::Legendary,
+            Atom::Basic,
+        ),
+        (
+            &filter.non_supertypes,
+            "non_supertypes",
+            Atom::NotLegendary,
+            Atom::NotBasic,
+        ),
     ] {
-        for value in list(key)? {
-            atoms.push(match value.as_str() {
-                Some("legendary") => legendary.clone(),
-                Some("basic") => basic.clone(),
-                _ => return Err(unsupported_term()),
+        for supertype in listed(list, field)? {
+            atoms.push(match supertype.as_str() {
+                "legendary" => legendary.clone(),
+                "basic" => basic.clone(),
+                other => return Err(operand("filter", format!("{field}:{other}"))),
             });
         }
     }
-    for value in list("subtypes")? {
+    for subtype in listed(&filter.subtypes, "subtypes")? {
+        if subtype.is_empty() {
+            return Err(operand("filter", "subtypes:empty"));
+        }
         atoms.push(Atom::Subtype {
-            subtype: name(value)?,
+            subtype: subtype.clone(),
         });
     }
-    for value in list("nonSubtypes")? {
+    for subtype in listed(&filter.non_subtypes, "non_subtypes")? {
+        if subtype.is_empty() {
+            return Err(operand("filter", "non_subtypes:empty"));
+        }
         atoms.push(Atom::NotSubtype {
-            subtype: name(value)?,
+            subtype: subtype.clone(),
         });
     }
-    for value in list("colors")? {
-        atoms.push(Atom::Color {
-            color: color(value)?,
-        });
+    for c in listed(&filter.colors, "colors")? {
+        atoms.push(Atom::Color { color: color(c) });
     }
-    for value in list("nonColors")? {
-        atoms.push(Atom::NotColor {
-            color: color(value)?,
-        });
+    for c in listed(&filter.non_colors, "non_colors")? {
+        atoms.push(Atom::NotColor { color: color(c) });
     }
-    match object.get("control").map(|c| c.as_str()) {
+    match &filter.control {
         None => {}
         // CR 109.5: "you control" is the controller of this stack object.
-        Some(Some("you")) => atoms.push(Atom::ControlledBy {
+        Some(ast::ObjectFilterControl::You) => atoms.push(Atom::ControlledBy {
             player: PlayerExpr::you(context),
         }),
         // CR 102.3: "your opponents control".
-        Some(Some("opponent")) => atoms.push(Atom::ControlledBy {
+        Some(ast::ObjectFilterControl::Opponent) => atoms.push(Atom::ControlledBy {
             player: PlayerExpr::EachOpponent,
         }),
-        _ => return Err(unsupported_term()),
+        Some(other) => return Err(operand("filter", format!("control:{}", variant(other)))),
     }
-    for value in list("status")? {
-        atoms.push(match value.as_str() {
-            Some("tapped") => Atom::Tapped,
-            Some("untapped") => Atom::Untapped,
-            Some("attacking") => Atom::Attacking,
-            _ => return Err(unsupported_term()),
+    for status in listed(&filter.status, "status")? {
+        atoms.push(match status.as_str() {
+            "tapped" => Atom::Tapped,
+            "untapped" => Atom::Untapped,
+            "attacking" => Atom::Attacking,
+            other => return Err(operand("filter", format!("status:{other}"))),
         });
     }
-    match object.get("nonToken") {
+    match filter.non_token {
         None => {}
-        Some(serde_json::Value::Bool(true)) => atoms.push(Atom::NotToken),
-        _ => return Err(unsupported_term()),
+        Some(true) => atoms.push(Atom::NotToken),
+        Some(false) => return Err(operand("filter", "non_token:false")),
     }
-    for (key, has) in [("withAbility", true), ("withoutAbility", false)] {
-        for value in list(key)? {
+    for (list, field, has) in [
+        (&filter.with_ability, "with_ability", true),
+        (&filter.without_ability, "without_ability", false),
+    ] {
+        for ability in listed(list, field)? {
             // CR 702.9: flying is the one keyword the set evaluator reviews.
-            if value != "flying" {
-                return Err(unsupported_term());
+            if ability != "flying" {
+                return Err(operand("filter", format!("{field}:{ability}")));
             }
             let keyword = KeywordAbility::Flying;
             atoms.push(if has {
@@ -446,45 +495,234 @@ pub(crate) fn lower_board_filter(
         }
     }
     // CR 208.1, 202.3: a fixed comparison of power, toughness or mana value.
-    for value in list("properties")? {
-        let property = value
-            .as_object()
-            .filter(|o| o.len() == 2)
-            .ok_or_else(unsupported_term)?;
-        let comparison = property
-            .get("comparison")
-            .and_then(|c| c.as_object())
-            .filter(|c| c.len() == 2)
-            .ok_or_else(unsupported_term)?;
-        let bound = comparison
-            .get("value")
-            .filter(|v| v["amount"] == "fixed" && v.as_object().is_some_and(|o| o.len() == 2))
-            .and_then(|v| v["value"].as_i64())
-            .ok_or_else(unsupported_term)?;
+    for property in listed(&filter.properties, "properties")? {
+        let ast::Amount::Fixed(bound) = &*property.comparison.value else {
+            return Err(operand(
+                "filter",
+                format!("properties:{}", variant(&*property.comparison.value)),
+            ));
+        };
+        let bound = bound.value;
+        let overflow = || operand("filter", "properties:bound");
         // Integers: "less than N" is "at most N-1" (CR 107.1).
-        let (cmp, bound) = match comparison.get("op").and_then(|op| op.as_str()) {
-            Some("ge") => (Cmp::AtLeast, bound),
-            Some("gt") => (
-                Cmp::AtLeast,
-                bound.checked_add(1).ok_or_else(unsupported_term)?,
-            ),
-            Some("le") => (Cmp::AtMost, bound),
-            Some("lt") => (
-                Cmp::AtMost,
-                bound.checked_sub(1).ok_or_else(unsupported_term)?,
-            ),
-            Some("eq") => (Cmp::Exactly, bound),
-            _ => return Err(unsupported_term()),
+        let (cmp, bound) = match property.comparison.op {
+            ast::ComparisonOp::Ge => (Cmp::AtLeast, bound),
+            ast::ComparisonOp::Gt => (Cmp::AtLeast, bound.checked_add(1).ok_or_else(overflow)?),
+            ast::ComparisonOp::Le => (Cmp::AtMost, bound),
+            ast::ComparisonOp::Lt => (Cmp::AtMost, bound.checked_sub(1).ok_or_else(overflow)?),
+            ast::ComparisonOp::Eq => (Cmp::Exactly, bound),
         };
         let value = Amount::fixed(bound);
-        atoms.push(match property.get("property").and_then(|p| p.as_str()) {
-            Some("power") => Atom::Power { cmp, value },
-            Some("toughness") => Atom::Toughness { cmp, value },
-            Some("mana-value") => Atom::ManaValue { cmp, value },
-            _ => return Err(unsupported_term()),
+        atoms.push(match property.property {
+            ast::PropertyConstraintProperty::Power => Atom::Power { cmp, value },
+            ast::PropertyConstraintProperty::Toughness => Atom::Toughness { cmp, value },
+            ast::PropertyConstraintProperty::ManaValue => Atom::ManaValue { cmp, value },
+            ref other => {
+                return Err(operand("filter", format!("properties:{}", variant(other))));
+            }
         });
     }
     Ok(Pred(atoms))
+}
+
+/// The filter terms a board set represents.
+const BOARD_FILTER_TERMS: [&str; 16] = [
+    "cls",
+    "types",
+    "all_of",
+    "non_types",
+    "supertypes",
+    "non_supertypes",
+    "subtypes",
+    "non_subtypes",
+    "colors",
+    "non_colors",
+    "control",
+    "status",
+    "non_token",
+    "with_ability",
+    "without_ability",
+    "properties",
+];
+
+/// The sole printed term of a filter, if it has exactly one.
+fn only_field(filter: &ast::ObjectFilter) -> Option<&'static str> {
+    match present_fields(filter).as_slice() {
+        [field] => Some(field),
+        _ => None,
+    }
+}
+
+/// Every printed term of a filter, by field name. Exhaustive over
+/// `ast::ObjectFilter`: a field the parser adds fails to compile here until
+/// it is named.
+fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
+    let ast::ObjectFilter {
+        characteristic_relations,
+        all_of,
+        damage_history,
+        zone_change_history,
+        any_of,
+        none_of,
+        types,
+        non_types,
+        cls,
+        ability_kind,
+        mana_ability,
+        tap_in_cost,
+        loyalty_ability,
+        tap_symbol_in_cost,
+        ability_keyword,
+        ability_source,
+        attached_to,
+        blocking,
+        blocked_by,
+        attacking,
+        attacking_lookup,
+        permanent,
+        commander,
+        ring_bearer,
+        sticker,
+        subtypes,
+        non_subtypes,
+        supertypes,
+        non_supertypes,
+        colors,
+        non_colors,
+        colorless,
+        multicolored,
+        monocolored,
+        non_token,
+        status,
+        non_status,
+        combat_history,
+        other,
+        other_than,
+        kicked,
+        mana_cost_contains,
+        adventure,
+        control,
+        controlled_by,
+        cast,
+        cast_for_keyword_cost,
+        not_cast_this_way,
+        name,
+        not_name,
+        chosen_type,
+        not_chosen_type,
+        chosen_color,
+        value_of_choice,
+        chosen_name,
+        own,
+        parity,
+        owned_by,
+        zone,
+        outside_game,
+        drafted_not_in_deck,
+        outside_zone,
+        properties,
+        implicit_comparison,
+        implicit_same_controller,
+        targets,
+        targets_only,
+        single_target,
+        or_player,
+        or_opponent,
+        with_ability,
+        without_ability,
+        has_abilities,
+        counter_constraints,
+        relation,
+        from_among,
+    } = filter;
+    let fields: [(&'static str, bool); 76] = [
+        (
+            "characteristic_relations",
+            characteristic_relations.is_some(),
+        ),
+        ("all_of", all_of.is_some()),
+        ("damage_history", damage_history.is_some()),
+        ("zone_change_history", zone_change_history.is_some()),
+        ("any_of", any_of.is_some()),
+        ("none_of", none_of.is_some()),
+        ("types", types.is_some()),
+        ("non_types", non_types.is_some()),
+        ("cls", cls.is_some()),
+        ("ability_kind", ability_kind.is_some()),
+        ("mana_ability", mana_ability.is_some()),
+        ("tap_in_cost", tap_in_cost.is_some()),
+        ("loyalty_ability", loyalty_ability.is_some()),
+        ("tap_symbol_in_cost", tap_symbol_in_cost.is_some()),
+        ("ability_keyword", ability_keyword.is_some()),
+        ("ability_source", ability_source.is_some()),
+        ("attached_to", attached_to.is_some()),
+        ("blocking", blocking.is_some()),
+        ("blocked_by", blocked_by.is_some()),
+        ("attacking", attacking.is_some()),
+        ("attacking_lookup", attacking_lookup.is_some()),
+        ("permanent", permanent.is_some()),
+        ("commander", commander.is_some()),
+        ("ring_bearer", ring_bearer.is_some()),
+        ("sticker", sticker.is_some()),
+        ("subtypes", subtypes.is_some()),
+        ("non_subtypes", non_subtypes.is_some()),
+        ("supertypes", supertypes.is_some()),
+        ("non_supertypes", non_supertypes.is_some()),
+        ("colors", colors.is_some()),
+        ("non_colors", non_colors.is_some()),
+        ("colorless", colorless.is_some()),
+        ("multicolored", multicolored.is_some()),
+        ("monocolored", monocolored.is_some()),
+        ("non_token", non_token.is_some()),
+        ("status", status.is_some()),
+        ("non_status", non_status.is_some()),
+        ("combat_history", combat_history.is_some()),
+        ("other", other.is_some()),
+        ("other_than", other_than.is_some()),
+        ("kicked", kicked.is_some()),
+        ("mana_cost_contains", mana_cost_contains.is_some()),
+        ("adventure", adventure.is_some()),
+        ("control", control.is_some()),
+        ("controlled_by", controlled_by.is_some()),
+        ("cast", cast.is_some()),
+        ("cast_for_keyword_cost", cast_for_keyword_cost.is_some()),
+        ("not_cast_this_way", not_cast_this_way.is_some()),
+        ("name", name.is_some()),
+        ("not_name", not_name.is_some()),
+        ("chosen_type", chosen_type.is_some()),
+        ("not_chosen_type", not_chosen_type.is_some()),
+        ("chosen_color", chosen_color.is_some()),
+        ("value_of_choice", value_of_choice.is_some()),
+        ("chosen_name", chosen_name.is_some()),
+        ("own", own.is_some()),
+        ("parity", parity.is_some()),
+        ("owned_by", owned_by.is_some()),
+        ("zone", zone.is_some()),
+        ("outside_game", outside_game.is_some()),
+        ("drafted_not_in_deck", drafted_not_in_deck.is_some()),
+        ("outside_zone", outside_zone.is_some()),
+        ("properties", properties.is_some()),
+        ("implicit_comparison", implicit_comparison.is_some()),
+        (
+            "implicit_same_controller",
+            implicit_same_controller.is_some(),
+        ),
+        ("targets", targets.is_some()),
+        ("targets_only", targets_only.is_some()),
+        ("single_target", single_target.is_some()),
+        ("or_player", or_player.is_some()),
+        ("or_opponent", or_opponent.is_some()),
+        ("with_ability", with_ability.is_some()),
+        ("without_ability", without_ability.is_some()),
+        ("has_abilities", has_abilities.is_some()),
+        ("counter_constraints", counter_constraints.is_some()),
+        ("relation", relation.is_some()),
+        ("from_among", from_among.is_some()),
+    ];
+    fields
+        .into_iter()
+        .filter_map(|(field, present)| present.then_some(field))
+        .collect()
 }
 
 pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken, Failure> {
@@ -563,115 +801,115 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
     Ok(token)
 }
 
-pub(crate) fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentFilter, Failure> {
-    let kind = |v: &serde_json::Value| -> Result<CardKind, Failure> {
-        serde_json::from_value(v.clone())
-            .map_err(|_| unsupported("filter", "unsupported card type"))
+/// CR 601.2c, 115.1: one printed target occurrence: exactly one object,
+/// chosen by the controller at announcement, with its selection identity.
+/// Returns its filter and selection identity.
+fn target_occurrence(what: &ast::ObjectRef) -> Result<(&ast::ObjectFilter, &str), Failure> {
+    let ast::ObjectRef::Target(target) = what else {
+        return Err(operand("target", format!("ref_{}", variant(what))));
     };
-    let mut types = vec![];
-    let obj = v
-        .as_object()
-        .ok_or_else(|| unsupported("filter", "not an object"))?;
-    if obj.keys().any(|k| {
-        ![
-            "cls",
-            "types",
-            "allOf",
-            "nonTypes",
-            "nonColors",
-            "control",
-            "status",
-        ]
-        .contains(&k.as_str())
-    }) {
-        return Err(unsupported("filter", "unsupported filter term"));
-    }
-    if let Some(a) = v.get("types") {
-        let a = a.as_array().ok_or_else(|| unsupported("filter", "types"))?;
-        // ObjectFilter.types requires every type (oracle-parser/src/ast.ts),
-        // whereas PermanentFilter.types contains alternatives. Do not widen
-        // target criteria: pinned CR 205.2b, 601.2c and 608.2b.
-        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        if a.len() > 1 {
-            return Err(unsupported("filter.types", "unsupported type conjunction"));
-        }
-        for t in a {
-            types.push(kind(t)?);
+    let ast::ObjectRefTarget {
+        filter,
+        count,
+        up_to,
+        group_constraints,
+        random,
+        chosen_by,
+        selection_id,
+    } = &**target;
+    for (field, present) in [
+        ("up_to", up_to.is_some()),
+        ("group_constraints", group_constraints.is_some()),
+        ("random", random.is_some()),
+        ("chosen_by", chosen_by.is_some()),
+    ] {
+        if present {
+            return Err(operand("target", field));
         }
     }
-    if let Some(a) = v.get("allOf") {
-        if !types.is_empty() {
-            return Err(unsupported("filter", "mixed type forms"));
-        }
-        let a = a.as_array().ok_or_else(|| unsupported("filter", "allOf"))?;
-        if a.len() != 1 || a[0].as_object().is_none_or(|o| o.len() != 1) {
-            return Err(unsupported("filter", "unsupported conjunction"));
-        }
-        let alternatives = a[0]["anyOf"]
-            .as_array()
-            .ok_or_else(|| unsupported("filter", "anyOf"))?;
-        if alternatives.len() < 2 {
-            return Err(unsupported("filter", "empty alternatives"));
-        }
-        for a in alternatives {
-            if a.as_object().is_none_or(|o| o.len() != 1)
-                || a["types"].as_array().is_none_or(|a| a.len() != 1)
-            {
-                return Err(unsupported("filter", "unsupported alternative"));
-            }
-            types.push(kind(&a["types"][0])?);
-        }
+    if !matches!(&**count, ast::Amount::Fixed(n) if n.value == 1) {
+        return Err(operand("target", "count"));
     }
-    if let Some(cls) = v.get("cls")
-        && (cls != "permanent" || !types.is_empty())
+    let selection = selection_id
+        .as_deref()
+        .ok_or_else(|| operand("target", "selection_id"))?;
+    Ok((filter, selection))
+}
+
+/// CR 601.2c, 608.2b: the permanent criteria of a target. `types` lists
+/// alternatives here, whereas `ObjectFilter.types` requires every type
+/// (oracle-parser/src/ast.ts), so a printed conjunction rejects rather than
+/// widening the criteria (CR 205.2b). CR 110.5: a status term tests the
+/// permanent's current tapped status.
+pub(crate) fn lower_target_filter(filter: &ast::ObjectFilter) -> Result<PermanentFilter, Failure> {
+    const TERMS: [&str; 7] = [
+        "cls",
+        "types",
+        "all_of",
+        "non_types",
+        "non_colors",
+        "control",
+        "status",
+    ];
+    if let Some(field) = present_fields(filter)
+        .into_iter()
+        .find(|field| !TERMS.contains(field))
     {
-        return Err(unsupported("filter", "unsupported class"));
+        return Err(operand("target_filter", field));
     }
-    if types.is_empty() && v.get("cls").is_none() {
-        return Err(unsupported("filter", "missing type/class"));
+    let mut types = vec![];
+    if let Some(printed) = &filter.types {
+        if printed.len() > 1 {
+            return Err(operand("target_filter", "types:conjunction"));
+        }
+        for kind in printed {
+            types.push(card_kind(kind, "target_filter")?);
+        }
     }
-    let non_types = v
-        .get("nonTypes")
-        .map(|a| {
-            a.as_array()
-                .ok_or_else(|| unsupported("filter", "nonTypes"))
-                .and_then(|a| a.iter().map(kind).collect())
+    if let Some(all_of) = &filter.all_of {
+        if !types.is_empty() {
+            return Err(operand("target_filter", "all_of:mixed"));
+        }
+        types = type_alternatives(all_of, "target_filter")?;
+    }
+    match &filter.cls {
+        None if types.is_empty() => return Err(operand("target_filter", "untyped")),
+        None => {}
+        Some(ast::ObjectFilterCls::Permanent) if types.is_empty() => {}
+        Some(other) => return Err(operand("target_filter", format!("cls:{}", variant(other)))),
+    }
+    let non_types = filter
+        .non_types
+        .iter()
+        .flatten()
+        .map(|kind| card_kind(kind, "target_filter"))
+        .collect::<Result<_, _>>()?;
+    let non_colors = filter
+        .non_colors
+        .iter()
+        .flatten()
+        .map(|c| match c {
+            ast::Color::Black => Ok(Color::B),
+            other => Err(operand(
+                "target_filter",
+                format!("non_colors:{}", variant(other)),
+            )),
         })
-        .transpose()?
-        .unwrap_or_default();
-    let non_colors = v
-        .get("nonColors")
-        .map(|a| {
-            a.as_array()
-                .ok_or_else(|| unsupported("filter", "nonColors"))
-                .and_then(|a| {
-                    a.iter()
-                        .map(|c| match c.as_str() {
-                            Some("black") => Ok(Color::B),
-                            _ => Err(unsupported("filter", "unsupported noncolor")),
-                        })
-                        .collect()
-                })
-        })
-        .transpose()?
-        .unwrap_or_default();
-    let opponent = match v.get("control") {
+        .collect::<Result<_, _>>()?;
+    let opponent = match &filter.control {
         None => false,
-        Some(c) if c == "opponent" => true,
-        _ => return Err(unsupported("filter", "unsupported controller")),
-    };
-    // CR 110.5/601.2c/608.2b: this predicate tests the permanent's
-    // current tapped status. Every source status term must be represented.
-    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    let tapped = match v.get("status") {
-        None => false,
-        Some(status) if *status == serde_json::json!(["tapped"]) => true,
-        _ => {
-            return Err(unsupported(
-                "filter.status",
-                "unsupported complete permanent status",
+        Some(ast::ObjectFilterControl::Opponent) => true,
+        Some(other) => {
+            return Err(operand(
+                "target_filter",
+                format!("control:{}", variant(other)),
             ));
         }
+    };
+    let tapped = match filter.status.as_deref() {
+        None => false,
+        Some([status]) if status == "tapped" => true,
+        Some(_) => return Err(operand("target_filter", "status")),
     };
     Ok(PermanentFilter {
         power: None,
@@ -683,137 +921,234 @@ pub(crate) fn lower_permanent_filter(v: &serde_json::Value) -> Result<PermanentF
     })
 }
 
-pub(crate) fn bind_permanent_target(
-    p: &mut SpellProgram,
+/// "target creature": a target occurrence whose only term is the creature
+/// type (CR 601.2c/608.2b); controller, blocking or other qualifiers reject.
+fn creature_target(what: &ast::ObjectRef) -> Result<&str, Failure> {
+    let (filter, selection) = target_occurrence(what)?;
+    if let Some(field) = present_fields(filter)
+        .into_iter()
+        .find(|field| *field != "types")
+    {
+        return Err(operand("creature_target", field));
+    }
+    match filter.types.as_deref() {
+        Some([kind]) if kind == "creature" => Ok(selection),
+        _ => Err(operand("creature_target", "types")),
+    }
+}
+
+/// True when the target occurrence is exactly "target creature".
+pub(crate) fn is_creature_target(what: &ast::ObjectRef) -> bool {
+    creature_target(what).is_ok()
+}
+
+/// True when the target occurrence's class is "permanent".
+pub(crate) fn is_permanent_target(what: &ast::ObjectRef) -> bool {
+    target_occurrence(what)
+        .is_ok_and(|(filter, _)| filter.cls == Some(ast::ObjectFilterCls::Permanent))
+}
+
+/// True when the target occurrence is exactly "target permanent".
+pub(crate) fn is_any_permanent_target(what: &ast::ObjectRef) -> bool {
+    target_occurrence(what).is_ok_and(|(filter, _)| {
+        present_fields(filter) == ["cls"] && filter.cls == Some(ast::ObjectFilterCls::Permanent)
+    })
+}
+
+pub(crate) fn bind_creature_target(
+    program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
-    v: &serde_json::Value,
+    what: &ast::ObjectRef,
 ) -> Result<u32, Failure> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase", deny_unknown_fields)]
-    struct T {
-        #[serde(rename = "ref")]
-        reference: String,
-        filter: serde_json::Value,
-        count: Count,
-        selection_id: String,
-    }
-    let t: T = serde_json::from_value(v.clone())
-        .map_err(|_| unsupported("target", "unsupported complete permanent target"))?;
-    if t.reference != "target" || !fixed_one(&t.count) {
-        return Err(unsupported("target", "requires one target"));
-    }
-    let f = lower_permanent_filter(&t.filter)?;
+    let selection = creature_target(what)?;
+    bind_target(program, slots, selection, TargetDomain::BattlefieldCreature)
+}
+
+pub(crate) fn bind_permanent_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &ast::ObjectRef,
+) -> Result<u32, Failure> {
+    let (filter, selection) = target_occurrence(what)?;
+    let filter = lower_target_filter(filter)?;
     let slot = bind_target(
-        p,
+        program,
         slots,
-        &t.selection_id,
+        selection,
         TargetDomain::BattlefieldPermanent,
     )?;
-    if p.targets[slot as usize]
-        .filter
-        .as_ref()
-        .is_some_and(|old| old != &f)
-    {
-        return Err(unsupported("filter", "conflicting target filter"));
+    let target = &mut program.targets[slot as usize];
+    if target.filter.as_ref().is_some_and(|old| *old != filter) {
+        return Err(operand("target_filter", "conflicting"));
     }
-    p.targets[slot as usize].filter = Some(f);
+    target.filter = Some(filter);
     Ok(slot)
 }
 
-pub(crate) fn signed_fixed(value: &SignedAmount) -> Result<Quantity, Failure> {
-    if value.amount.amount != "fixed" || !matches!(value.sign, -1 | 1) {
-        return Err(unsupported(
-            "effects.pump",
-            "unsupported signed fixed amount",
-        ));
+/// CR 107.1: a positive fixed number.
+pub(crate) fn fixed_positive_amount(amount: &ast::Amount) -> Result<Quantity, Failure> {
+    match amount {
+        ast::Amount::Fixed(n) if n.value > 0 && u32::try_from(n.value).is_ok() => {
+            Ok(Quantity::from(n.value))
+        }
+        ast::Amount::Fixed(_) => Err(operand("amount", "fixed:range")),
+        other => Err(operand("amount", variant(other))),
     }
-    Ok(Quantity::from(
-        i64::from(value.amount.value) * i64::from(value.sign),
-    ))
 }
 
-pub(crate) fn fixed_positive_value(value: &serde_json::Value) -> Result<Quantity, Failure> {
-    fixed_positive(
-        &serde_json::from_value(value.clone())
-            .map_err(|_| unsupported("amount", "unsupported damage amount"))?,
-    )
-}
-
+/// A positive fixed count printed in the shared mirror.
 pub(crate) fn fixed_positive(count: &Count) -> Result<Quantity, Failure> {
-    if count.amount != "fixed" || count.value == 0 {
-        return Err(unsupported(
-            "amount",
-            "only positive fixed quantities are supported",
-        ));
-    }
-    Ok(Quantity::from(i64::from(count.value)))
+    fixed_positive_amount(&typed(count, "amount")?)
 }
 
-/// CR 109.5, 119.3: who a life change names. "You" is the controller of this
-/// kind of stack object; "that player" is the trigger's event player.
-pub(crate) fn life_player(
+/// CR 613.4c: a fixed signed power or toughness change.
+pub(crate) fn signed_fixed(value: &SignedAmount) -> Result<Quantity, Failure> {
+    let ast::SignedAmount { sign, amount } = typed(value, "signed_amount")?;
+    let ast::Amount::Fixed(n) = &*amount else {
+        return Err(operand("signed_amount", variant(&*amount)));
+    };
+    let value = u32::try_from(n.value)
+        .map(i64::from)
+        .map_err(|_| operand("signed_amount", "fixed:range"))?;
+    Ok(Quantity::from(match *sign {
+        ast::SignedAmountSign::N1 => value,
+        ast::SignedAmountSign::Minus1 => -value,
+    }))
+}
+
+/// CR 120.3, 107.3, 608.2h: the quantity of a damage step: a positive fixed
+/// number, the announced X (or, under a counted binding, the number of
+/// creatures on the battlefield), or the total mana value of the other
+/// spells you cast this turn.
+pub(crate) fn lower_damage_amount(
+    amount: &ast::Amount,
+    counted: bool,
+    context: Context,
+) -> Result<kir::Amount, Failure> {
+    match amount {
+        ast::Amount::X(_) if counted => Ok(kir::Amount::Count {
+            set: SetExpr::battlefield(kir::Pred::creatures()),
+        }),
+        ast::Amount::X(_) => Ok(kir::Amount::announced_x()),
+        _ if counted => Err(unsupported("binding", "unused X")),
+        ast::Amount::CastManaValueSum(sum) => match (&*sum.who, &*sum.excluding) {
+            (ast::PlayerRef::You(_), ast::ObjectRef::This(this)) if this.noun == "spell" => {
+                Ok(kir::Amount::OtherCastsManaValue {
+                    caster: PlayerExpr::you(context),
+                })
+            }
+            _ => Err(operand("amount", "cast_mana_value_sum:scope")),
+        },
+        other => Ok(kir::Amount::Fixed {
+            value: fixed_positive_amount(other)?,
+        }),
+    }
+}
+
+/// CR 107.3, 608.2h: the sentence binding "where X is the number of
+/// creatures on the battlefield", the one X definition a step reads.
+pub(crate) fn counts_creatures(bindings: &[serde_json::Value]) -> Result<bool, Failure> {
+    let bindings: Vec<ast::SentenceBindingsItem> = typed(&bindings, "bindings")?;
+    match bindings.as_slice() {
+        [] => Ok(false),
+        [
+            ast::SentenceBindingsItem {
+                value, as_of: None, ..
+            },
+        ] => match &**value {
+            ast::Amount::Count(count)
+                if present_fields(&count.of) == ["types", "zone"]
+                    && count.of.types.as_deref() == Some(&["creature".to_owned()])
+                    && count.of.zone.as_deref().is_some_and(|zone| {
+                        zone.zone == ast::Zone::Battlefield
+                            && zone.position.is_none()
+                            && zone.depth.is_none()
+                            && zone.owner.is_none()
+                    }) =>
+            {
+                Ok(true)
+            }
+            other => Err(operand("bindings", variant(other))),
+        },
+        _ => Err(operand("bindings", "several")),
+    }
+}
+
+/// CR 109.5, 119.3: the player a step names. "You" is the controller of
+/// this kind of stack object; "that player" is the trigger's event player.
+pub(crate) fn lower_player(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
     who: &PlayerSelector,
     context: Context,
     event_player: Option<kir::EventPlayerRole>,
 ) -> Result<PlayerExpr, Failure> {
-    if who.of.is_some() {
-        return Err(unsupported("who", "unexpected object reference"));
-    }
-    match (
-        who.player.as_str(),
-        who.selection_id.as_deref(),
-        event_player,
-    ) {
-        ("you", None, _) => Ok(PlayerExpr::you(context)),
-        ("that-player", None, Some(role)) => Ok(PlayerExpr::event(role)),
-        ("each-opponent", None, _) => Ok(PlayerExpr::EachOpponent),
-        ("target-player", Some(id), _) => Ok(PlayerExpr::target(bind_target(
-            program,
-            slots,
-            id,
-            TargetDomain::AnyPlayer,
-        )?)),
-        _ => Err(unsupported(
-            "who",
-            "unsupported life recipient or unbound target",
-        )),
+    match typed::<ast::PlayerRef>(who, "player")? {
+        ast::PlayerRef::You(_) => Ok(PlayerExpr::you(context)),
+        ast::PlayerRef::ThatPlayer(_) => event_player
+            .map(PlayerExpr::event)
+            .ok_or_else(|| operand("player", "that_player:unbound")),
+        ast::PlayerRef::EachOpponent(_) => Ok(PlayerExpr::EachOpponent),
+        ast::PlayerRef::TargetPlayer(target) => match *target {
+            ast::PlayerRefTargetPlayer {
+                count: None,
+                up_to: None,
+                random: None,
+                selection_id: Some(id),
+            } => Ok(PlayerExpr::target(bind_target(
+                program,
+                slots,
+                &id,
+                TargetDomain::AnyPlayer,
+            )?)),
+            _ => Err(operand("player", "target_player:qualified")),
+        },
+        other => Err(operand("player", variant(&other))),
     }
 }
 
-// CR 601.2c/608.2b: the strict decoder admits only an unqualified creature
-// target; controller, blocking or other filter qualifiers reject.
-pub(crate) fn bind_pump_target(
-    program: &mut SpellProgram,
-    slots: &mut BTreeMap<String, u32>,
-    what: &serde_json::Value,
-) -> Result<u32, Failure> {
-    let target = serde_json::from_value(what.clone())
-        .map_err(|_| unsupported("targets", "unsupported complete temporary creature target"))?;
-    bind_creature_target(program, slots, &target)
+/// CR 400.3, 401.4: a destination zone the move verbs perform.
+pub(crate) fn lower_destination(to: &serde_json::Value) -> Result<kir::Destination, Failure> {
+    let zone: ast::ZoneRef = typed(to, "destination")?;
+    match zone {
+        ast::ZoneRef {
+            zone: ast::Zone::Library,
+            position: Some(ast::ObjectFilterZoneChangeHistoryFromZoneRefPosition::Top),
+            depth: None,
+            owner: Some(owner),
+        } if matches!(
+            *owner,
+            ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner::ItsOwner
+        ) =>
+        {
+            Ok(kir::Destination::OwnerLibraryTop)
+        }
+        other => Err(operand("destination", variant(&other.zone))),
+    }
 }
 
-pub(crate) fn bind_creature_target(
-    program: &mut SpellProgram,
-    slots: &mut BTreeMap<String, u32>,
-    target: &Target,
-) -> Result<u32, Failure> {
-    if target.reference != "target"
-        || target.filter.types != ["creature"]
-        || !fixed_one(&target.count)
-    {
-        return Err(unsupported(
-            "targets",
-            "unsupported creature target scope/cardinality",
-        ));
+/// CR 611.2a, 514.2: "until end of turn", the one duration the
+/// until-end-of-turn cells execute.
+pub(crate) fn until_end_of_turn(duration: &SourceDuration) -> Result<(), Failure> {
+    match typed::<ast::Duration>(duration, "duration")? {
+        ast::Duration::EndOfTurn(_) => Ok(()),
+        other => Err(operand("duration", variant(&other))),
     }
-    bind_target(
-        program,
-        slots,
-        &target.selection_id,
-        TargetDomain::BattlefieldCreature,
-    )
+}
+
+/// Decode a printed object operand.
+pub(crate) fn object(what: &serde_json::Value) -> Result<ast::ObjectRef, Failure> {
+    typed(what, "object")
+}
+
+/// CR 201.5: "this creature", the exact source.
+pub(crate) fn is_this_creature(what: &ast::ObjectRef) -> bool {
+    matches!(what, ast::ObjectRef::This(this) if this.noun == "creature")
+}
+
+/// An "all"/"each" set operand.
+pub(crate) fn is_set(what: &ast::ObjectRef) -> bool {
+    matches!(what, ast::ObjectRef::All(_) | ast::ObjectRef::Each(_))
 }
 
 pub(crate) fn is_source_creature(subject: &TriggerObject) -> bool {

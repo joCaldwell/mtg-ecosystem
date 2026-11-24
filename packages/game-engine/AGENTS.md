@@ -20,8 +20,9 @@ manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semanti
   node: an audited `kir::check` cell and its interpreter arm. Extend the operand algebra when the complete source semantics require it.
 
 - All admitted catalogs share rules/capacities. Profiles are admission data;
-  hosting/search requests need explicit reviewed capabilities. New IR fields
-  require reviewing capability mapping as well as exhaustive enum variants.
+  hosting/search/analytics need the derived `Hosting`/`Search`/`HeadlessQualified`
+  [tier](../../docs/game-engine-mechanics.md#derived-capability-tiers). New IR fields
+  and cells require reviewing tier rows as well as exhaustive enum variants.
 - Preserve identity, ownership/control, exact arithmetic, atomic events, budget
   suspension, privacy and recovery. Resource faults/truncation are not rules
   outcomes; queries never mint handles/history or mutate semantics.

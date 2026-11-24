@@ -1028,3 +1028,157 @@ fn nodes_round_trip_and_reject_unknown_fields() {
     assert!(serde_json::from_value::<Node>(unknown).is_err());
     assert!(serde_json::from_value::<Node>(serde_json::json!({"do":{"verb":"levitate"}})).is_err());
 }
+
+#[test]
+fn every_audited_verb_names_the_cell_it_occupies() {
+    let cells = |node: &Node, env: &Env<'_>| check(node, env).unwrap().cells;
+    let you = PlayerExpr::you(Context::Spell);
+    assert_eq!(
+        cells(&gain(you.clone(), Amount::fixed(2)), &spell(&[])),
+        BTreeSet::from([Cell::LifeController])
+    );
+    assert_eq!(
+        cells(
+            &gain(PlayerExpr::EachOpponent, Amount::fixed(2)),
+            &spell(&[])
+        ),
+        BTreeSet::from([Cell::LifeEachOpponent])
+    );
+    let targets = creature_target();
+    let damage = |amount| {
+        Node::Do(Verb::Damage {
+            source: Ref::Source,
+            to: DamageTo::Ref {
+                who: Ref::Target { slot: 0 },
+            },
+            amount,
+        })
+    };
+    assert_eq!(
+        cells(&damage(Amount::fixed(3)), &spell(&targets)),
+        BTreeSet::from([Cell::DamageTarget])
+    );
+    let x = Env {
+        announced_x: true,
+        ..spell(&targets)
+    };
+    assert_eq!(
+        cells(&damage(Amount::announced_x()), &x),
+        BTreeSet::from([Cell::DamageTargetX])
+    );
+    // A control node occupies the continuation cell and its leaves' cells.
+    let sequence = Node::Seq(vec![
+        gain(you.clone(), Amount::fixed(1)),
+        Node::Do(Verb::Draw {
+            player: you,
+            amount: Amount::fixed(1),
+        }),
+    ]);
+    assert_eq!(
+        cells(&sequence, &spell(&[])),
+        BTreeSet::from([Cell::Control, Cell::DrawController])
+    );
+}
+
+#[test]
+fn tiers_are_independent_reviews_above_executes() {
+    use ExecutionTier as T;
+    for tiers in [
+        Tiers::EXECUTES,
+        Tiers::HOSTING,
+        Tiers::SEARCH_HOSTING,
+        Tiers::ALL,
+    ] {
+        assert!(tiers.admits(T::Executes));
+        assert_eq!(tiers.meet(Tiers::ALL), tiers);
+        assert_eq!(tiers.meet(Tiers::EXECUTES), Tiers::EXECUTES);
+    }
+    assert!(Tiers::HOSTING.admits(T::Hosting) && !Tiers::HOSTING.admits(T::Search));
+    assert!(!Tiers::SEARCH_HOSTING.admits(T::HeadlessQualified));
+    assert_eq!(Tiers::HOSTING.meet(Tiers::SEARCH_HOSTING), Tiers::HOSTING);
+}
+
+#[test]
+fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
+    use ExecutionTier as T;
+    let mut bears = crate::Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json"))
+        .unwrap()
+        .definitions
+        .into_iter()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    assert_eq!(definition_tiers(&bears).unwrap(), Tiers::ALL);
+    assert_eq!(unqualified(&bears, T::Hosting).unwrap(), (vec![], vec![]));
+    // A keyword reviewed for hosting only lowers the definition to hosting.
+    bears.keywords.push(crate::KeywordAbility::Flying);
+    assert_eq!(definition_tiers(&bears).unwrap(), Tiers::HOSTING);
+    assert_eq!(
+        unqualified(&bears, T::Search).unwrap().0,
+        vec![Capability::FlyingV1]
+    );
+    // A kernel cell that executes but has passed no review keeps the
+    // definition at executes, whatever its surfaces earned.
+    bears.keywords.clear();
+    bears.triggered.push(crate::TriggeredAbility {
+        death_filter: None,
+        functioning_zone: crate::FunctioningZone::Battlefield,
+        condition: TriggerCondition::SelfEntersBattlefield,
+        intervening_if: None,
+        program: crate::SpellProgram {
+            optional_additional_costs: vec![],
+            additional_sacrifice: None,
+            timing: crate::SpellTiming::Instant,
+            resolution: crate::SpellResolution::Instructions,
+            functioning_zone: crate::FunctioningZone::Stack,
+            targets: vec![],
+            instructions: vec![crate::Instruction::act(
+                Verb::GainLife {
+                    player: PlayerExpr::EachOpponent,
+                    amount: Amount::fixed(1),
+                },
+                0,
+            )],
+        },
+    });
+    assert_eq!(
+        definition_cells(&bears).unwrap(),
+        BTreeSet::from([Cell::LifeEachOpponent])
+    );
+    assert!(
+        !definition_tiers(&bears)
+            .unwrap()
+            .admits(T::HeadlessQualified)
+    );
+    assert!(definition_tiers(&bears).unwrap().admits(T::Executes));
+    assert!(
+        unqualified(&bears, T::HeadlessQualified)
+            .unwrap()
+            .1
+            .contains(&Cell::LifeEachOpponent)
+    );
+}
+
+#[test]
+fn tier_helpers_never_qualify_a_node_that_does_not_check() {
+    use ExecutionTier as T;
+    // CR 109.5: a spell's "you" is its controller, never an ability's; this
+    // unvalidated spell's node does not check, so it earns no tier at all.
+    let mut spell = crate::Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json"))
+        .unwrap()
+        .definitions
+        .into_iter()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    spell.spell.as_mut().unwrap().instructions = vec![crate::Instruction::act(
+        Verb::GainLife {
+            player: PlayerExpr::you(Context::Activated),
+            amount: Amount::fixed(2),
+        },
+        0,
+    )];
+    assert!(matches!(definition_cells(&spell), Err(KirError::Scope(_))));
+    assert!(definition_tiers(&spell).is_err());
+    for tier in [T::Executes, T::HeadlessQualified, T::Search, T::Hosting] {
+        assert!(unqualified(&spell, tier).is_err());
+    }
+}

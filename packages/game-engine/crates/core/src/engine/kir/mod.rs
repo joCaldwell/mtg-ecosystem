@@ -20,6 +20,7 @@ use mtg_contracts::kir::{
 };
 
 mod control;
+mod exec;
 pub use control::{LeafProgram, Task};
 
 /// The players a player expression denotes for one resolving invocation.
@@ -177,33 +178,14 @@ impl RulesTxn {
             Verb::Draw { player, amount } => {
                 self.kernel_draw(frame, &player, &amount, source_block)
             }
-            // CR 701.8, 400.3, 608.2h: read the set now, then move every
-            // member in one simultaneous event.
             Verb::Destroy {
                 what: SetExpr::Matching { zone, filter },
                 ..
-            } => {
-                let (objects, graveyards) = self.kernel_set(&frame, &zone, &filter)?;
-                self.move_board_objects(
-                    frame,
-                    objects,
-                    wipes::SetMove::Destroy,
-                    source_block,
-                    graveyards,
-                )
-            }
+            } => self.kernel_set_move(frame, &zone, &filter, None, source_block),
             Verb::Move {
                 what: SetExpr::Matching { zone, filter },
                 to,
-            } => {
-                let action = match to {
-                    Destination::Exile => wipes::SetMove::Exile,
-                    Destination::OwnerHand => wipes::SetMove::Hand,
-                    _ => return Err("kernel set destination has no audited executor".into()),
-                };
-                let (objects, graveyards) = self.kernel_set(&frame, &zone, &filter)?;
-                self.move_board_objects(frame, objects, action, source_block, graveyards)
-            }
+            } => self.kernel_set_move(frame, &zone, &filter, Some(&to), source_block),
             _ => Err("kernel verb has no audited executor".into()),
         }
     }
@@ -294,86 +276,5 @@ impl RulesTxn {
             }
             _ => Err("kernel amount has no audited evaluation".into()),
         }
-    }
-
-    // CR 121.1-121.2, 608.2b: one card by one player is a single draw whose
-    // only recipient may be an illegal target or an absent event player.
-    // Every other draw is the counted sequence of single draws.
-    fn kernel_draw(
-        &mut self,
-        frame: Resolving,
-        player: &PlayerExpr,
-        amount: &Amount,
-        source_block: u32,
-    ) -> Result<(), String> {
-        if !mtg_contracts::kir::single_draw(player, amount) {
-            return self.draw_multiple(frame);
-        }
-        let skipped = |game: &mut Self, frame| {
-            game.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
-        };
-        let player = match player {
-            PlayerExpr::Is {
-                who: Ref::Target { slot },
-            } => {
-                let slot = *slot as usize;
-                if frame.legal_targets.get(slot) != Some(&true) {
-                    return skipped(self, frame);
-                }
-                *self
-                    .bound_player_target(self.entry(frame.stack_id)?, slot)
-                    .ok_or("missing draw player target")?
-            }
-            other => match self.kernel_players(&frame, other)? {
-                Players::One(player) => player,
-                Players::Nobody => return skipped(self, frame),
-                Players::EachOpponent => return Err("unsupported each-opponent draw".into()),
-            },
-        };
-        self.draw_one(frame, player, source_block)
-    }
-
-    // CR 119.3, 608.2b-c, 704.4: one life event per instruction, with no
-    // state-based action check until the program finishes. A self-targeted
-    // loss may reach zero and recover before the next priority checkpoint.
-    fn kernel_life(
-        &mut self,
-        frame: Resolving,
-        gain: bool,
-        player: &PlayerExpr,
-        amount: &Amount,
-        source_block: u32,
-    ) -> Result<(), String> {
-        let amount = self.kernel_amount(&frame, amount)?;
-        let skipped = |game: &mut Self, frame| {
-            game.finish_instruction(frame, InstructionOutcome::Life { actual: None })
-        };
-        // CR 119.8: changing life by zero produces no event.
-        if amount == Quantity::zero() {
-            return skipped(self, frame);
-        }
-        let player = match self.kernel_players(&frame, player)? {
-            Players::EachOpponent => {
-                self.commit_opponent_life(&frame, &amount, source_block, gain)?;
-                return skipped(self, frame);
-            }
-            Players::Nobody => return skipped(self, frame),
-            Players::One(player) => player,
-        };
-        if !self.is_live(player) {
-            return skipped(self, frame);
-        }
-        let proposed = if gain {
-            ProposedEvent::GainLife { player, amount }
-        } else {
-            ProposedEvent::LoseLife { player, amount }
-        };
-        let actual = self.commit(proposed, self.instruction_cause(&frame, source_block)?)?;
-        self.finish_instruction(
-            frame,
-            InstructionOutcome::Life {
-                actual: Some(actual),
-            },
-        )
     }
 }

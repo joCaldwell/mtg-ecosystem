@@ -195,6 +195,11 @@ fn frozen_witnesses_lower_block_by_block_and_round_trip_executable_ir() {
     }
 }
 
+/// The failure lowering reports once binding checks are deferred.
+fn lowering(found: &Blockers) -> Option<&Failure> {
+    found.blocks.first().map(|(_, f)| f).or(found.card.as_ref())
+}
+
 #[test]
 fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     let archive = accepted_manifest(R4).unwrap();
@@ -209,9 +214,9 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     };
     let summary = |found: &Blockers| {
         (
-            found.binding.as_ref().map(|f| f.path.clone()),
-            found.lowering.as_ref().map(|f| f.path.clone()),
-            found.block,
+            found.bindings.first().map(|f| f.path.clone()),
+            lowering(found).map(|f| f.path.clone()),
+            found.blocks.first().map(|(block, _)| *block),
         )
     };
     let clean = blockers(archive, STRIP);
@@ -249,7 +254,46 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     let failure = lower(archive, &only_block).unwrap_err();
     let found = blockers(archive, &only_block);
     assert_eq!(summary(&found), (None, Some(failure.path), Some(1)));
-    assert_eq!(found.lowering.unwrap().reason, failure.reason);
+    assert_eq!(lowering(&found).unwrap().reason, failure.reason);
+    assert_eq!(found.blocks.len(), 1);
+    // Every failing block is named, not only the first: lowering stops at
+    // block 0, the report goes on to block 1.
+    let two = changed(STRIP, |row| {
+        for block in [0, 1] {
+            row["faces"][0]["result"]["abilities"][block]["abilityWord"] = json!("Unprinted");
+        }
+    });
+    assert!(lower(archive, &two).is_err());
+    let found = blockers(archive, &two);
+    assert_eq!(
+        found
+            .blocks
+            .iter()
+            .map(|(block, f)| (*block, f.path.as_str()))
+            .collect::<Vec<_>>(),
+        [(0, "resolution.spans"), (1, "resolution.spans")]
+    );
+    assert!(found.card.is_none());
+    // Every step the resolution leaves unaccounted is its own binding
+    // blocker; lowering still rejects at the first.
+    let unaccounted = changed(STRIP, |row| {
+        for (block, effect) in [(0, "add-mana"), (1, "destroy")] {
+            row["resolution"]["faces"][0]["blocks"][block]["steps"] = json!([
+                {"path":"/effects/0/steps/0","astEffect":effect,"unaccounted":true}]);
+        }
+    });
+    assert_eq!(
+        lower(archive, &unaccounted).unwrap_err().reason,
+        "step:add-mana"
+    );
+    assert_eq!(
+        blockers(archive, &unaccounted)
+            .bindings
+            .iter()
+            .map(|f| f.reason.as_str())
+            .collect::<Vec<_>>(),
+        ["step:add-mana", "step:destroy"]
+    );
 }
 
 #[test]
@@ -722,4 +766,46 @@ fn contradictory_or_missing_r4_edges_reject() {
             .for_each(|e| e["ref"]["slot"] = json!(1));
     });
     assert!(rejected(&slot));
+}
+
+#[test]
+fn explicit_nulls_reject_under_their_field_before_any_decoder() {
+    let code = |raw: &str| match compile(R4, raw) {
+        CompileResult::Unsupported { path, reason } => {
+            crate::coverage::reason_code(&path, &reason, &serde_json::Value::Null)
+        }
+        other => panic!("{other:?}"),
+    };
+    const UNSUMMON: &str = include_str!("../../../../tests/fixtures/phase1-r4/unsummon.json");
+    for witness in [MARSH, UNSUMMON] {
+        assert!(matches!(
+            compile(R4, witness),
+            CompileResult::Lowered { .. }
+        ));
+    }
+    // A null object member: the player mirror would drop the selection.
+    let marsh = changed(MARSH, |row| {
+        row["faces"][0]["result"]["abilities"][1]["effects"][0]["steps"][0]["who"]["selectionId"] =
+            serde_json::Value::Null;
+    });
+    assert_eq!(code(&marsh), "operand:ast:null:selectionId");
+    // A null array element, named by its array's field.
+    let unsummon = changed(UNSUMMON, |row| {
+        row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"]["types"] =
+            json!(["creature", null]);
+    });
+    assert_eq!(code(&unsummon), "operand:ast:null:types");
+    // A null abilities list is named by its own field.
+    let empty = crate::tests::changed_source(UNSUMMON, |row| {
+        row["faces"][0]["result"]["abilities"] = serde_json::Value::Null;
+    });
+    assert_eq!(code(&empty), "operand:ast:null:abilities");
+    // Null target-filter qualifiers reject the same way.
+    for field in ["control", "other"] {
+        let qualified = changed(UNSUMMON, |row| {
+            row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"]
+                [field] = serde_json::Value::Null;
+        });
+        assert_eq!(code(&qualified), format!("operand:ast:null:{field}"));
+    }
 }

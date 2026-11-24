@@ -1,7 +1,7 @@
 //! Trusted post-game analysis of verified, terminal bench journals. This module
 //! does not provide any inputs to live play or persist private replay material.
 use crate::policy::can_fund;
-use mtg_contracts::{CardKind, Catalog, Quantity, digest};
+use mtg_contracts::{CardKind, Catalog, Quantity, digest, kir};
 use mtg_core::{
     Advance, BatchCause, Budget, CardId, DeckRole, Decklist, DynamicDeckEntry, Event, EventGroup,
     EventOutcome, EvidenceRecord, Game, MoveOutcome, PlayerId, Prepared, QueryResult, QueryValue,
@@ -572,6 +572,30 @@ fn markdown_cell(text: &str) -> String {
     text.replace('|', "\\|").replace(['\n', '\r'], " ")
 }
 
+/// CR 113.3: analytics and paired comparisons read rules outcomes, so every
+/// card a deck uses must have earned the headless-qualified tier
+/// (`mtg_contracts::kir::tiers`): a `RulesFault` would invalidate the
+/// comparison rather than measure it. `pods::run` calls this before any pod
+/// is played; `write` checks it again.
+pub fn require_headless_qualified(profile: &AnalyticsProfile<'_>) -> Result<(), String> {
+    for id in profile.decks.iter().flat_map(|deck| deck.cards.keys()) {
+        let definition = profile
+            .catalog
+            .definition_by_oracle_id(id)
+            .ok_or_else(|| format!("analytics card {id} is not in the catalog"))?;
+        let (capabilities, cells) =
+            kir::unqualified(definition, kir::ExecutionTier::HeadlessQualified)
+                .map_err(|e| format!("analytics card {}: {e}", definition.name))?;
+        if !capabilities.is_empty() || !cells.is_empty() {
+            return Err(format!(
+                "analytics requires the headless-qualified tier; {} has unqualified surfaces {capabilities:?} and cells {cells:?}",
+                definition.name
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn write(
     dest: &Path,
     profile: &AnalyticsProfile<'_>,
@@ -582,6 +606,7 @@ pub fn write(
     input: impl Iterator<Item = (PodOutcome, Option<ReplayInput>)>,
 ) -> Result<(), String> {
     let catalog = profile.catalog;
+    require_headless_qualified(profile)?;
     let mut groups = BTreeMap::<String, (Vec<usize>, DeckStats)>::new();
     let mut keys = Vec::with_capacity(4);
     for (slot, deck) in profile.decks.iter().enumerate() {

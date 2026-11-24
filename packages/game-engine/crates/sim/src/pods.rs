@@ -540,6 +540,10 @@ pub fn run(
     options: &Options,
 ) -> Result<(serde_json::Value, bool), String> {
     let analytics = options.analytics_out.is_some();
+    // Analytics need the headless-qualified tier: reject before any pod runs.
+    if analytics {
+        analytics::require_headless_qualified(&source.analytics_profile(build))?;
+    }
     let workers = options.threads.min(options.games);
     let next = AtomicUsize::new(0);
     let clock = Instant::now();
@@ -719,6 +723,38 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analytics_reject_an_unqualified_deck_before_any_pod_runs() {
+        let mut profile = mtg_core::match_profile("commander-foundations-v1")
+            .unwrap()
+            .clone();
+        let deck: std::collections::BTreeSet<_> = profile.decks[0]
+            .cards
+            .iter()
+            .map(|row| row.oracle_id.clone())
+            .collect();
+        // A hosting-only keyword (no parity-corpus review) on one deck card.
+        let card = profile
+            .catalog
+            .as_mut()
+            .unwrap()
+            .definitions
+            .iter_mut()
+            .find(|d| {
+                deck.contains(&d.oracle_id)
+                    && d.characteristics.kind == mtg_contracts::CardKind::Creature
+            })
+            .unwrap();
+        card.keywords.push(mtg_contracts::KeywordAbility::Flying);
+        let directory = test_output("unqualified");
+        let mut options =
+            Options::parse(&["--games", "4", "--threads", "1"].map(String::from)).unwrap();
+        options.analytics_out = Some(directory.clone());
+        let error = run(crate::BUILD, PodSource::Embedded(&profile), &options).unwrap_err();
+        assert!(error.contains("headless-qualified"), "{error}");
+        assert!(!directory.exists());
+    }
 
     #[test]
     fn paired_rotation_and_capped_replay_are_schedule_independent() {

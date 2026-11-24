@@ -53,8 +53,6 @@ use std::{collections::BTreeSet, fmt};
 mod archives;
 pub use archives::*;
 
-pub mod composition;
-
 mod power_filtered_removal;
 
 pub mod bulk_catalog;
@@ -1954,7 +1952,7 @@ impl Definition {
         if !self.composed {
             return Err("definition requires complete Archive R4 composition".into());
         }
-        composition::validate(self)
+        kir::executes(self)
     }
 }
 fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> {

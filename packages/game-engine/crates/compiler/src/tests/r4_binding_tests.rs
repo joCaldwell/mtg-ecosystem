@@ -57,14 +57,10 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
     );
     assert!(
         event_player_block("active-player", None)
-            .ordinary_antecedents(&upkeep)
+            .references(&upkeep)
             .is_ok()
     );
-    assert!(
-        event_player_block("caster", None)
-            .ordinary_antecedents(&cast)
-            .is_ok()
-    );
+    assert!(event_player_block("caster", None).references(&cast).is_ok());
     // A kernel role under another trigger, or borrowed from a nested ability.
     for (role, scope, ability) in [
         ("active-player", None, &cast),
@@ -74,7 +70,7 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
     ] {
         assert!(
             matches!(
-                event_player_block(role, scope).ordinary_antecedents(ability),
+                event_player_block(role, scope).references(ability),
                 Err(f) if f.path == "resolution"
             ),
             "{role} {scope:?}"
@@ -82,10 +78,54 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
     }
     // An event player the kernel does not name keeps its trigger discriminant;
     // the lowerer that reads it decides (composition reads no such role yet).
-    assert!(
-        event_player_block("draws", None)
-            .ordinary_antecedents(&draws)
-            .is_ok()
-    );
+    assert!(event_player_block("draws", None).references(&draws).is_ok());
     assert_eq!(resolution::kernel_event_player("draws"), None);
+}
+
+/// One block with a single resolved reference entry.
+fn reference_block(path: &str, resolved: Value) -> resolution::Resolution {
+    let card = json!({"artifactKind":"oracle-resolution","schemaVersion":1,"faces":[{"sourceFaceIndex":0,
+        "blocks":[{"refs":[{"path":path,"ref":resolved}],"steps":[],"spans":{"unsupported":"synthetic"},
+        "engineFeatures":[],"residuals":[]}]}],"residuals":[],"complete":true})
+    .to_string();
+    let raw = serde_json::value::RawValue::from_string(card.clone()).unwrap();
+    resolution::Resolution::read(Some(raw.as_ref()), Some(&sha256(card.as_bytes()))).unwrap()
+}
+
+#[test]
+fn reference_table_rows_name_the_role_and_block_they_reject() {
+    let code = |r: Result<(), Failure>| {
+        r.err()
+            .map(|f| crate::coverage::reason_code(&f.path, &f.reason, &Value::Null))
+    };
+    let pump = |what: Value| json!([{"kind":"static","effect":{"static":"modify","what":what,"modifiers":[]}}]);
+    // CR 109.5: "you" is the block's own controller and no other role.
+    let gain = json!([{"kind":"activated","costs":[],"effects":[{"steps":[{"effect":"gain-life",
+        "who":{"player":"you"},"amount":{"amount":"fixed","value":1}}]}]}]);
+    let you = |role: &str| {
+        reference_block(
+            "/effects/0/steps/0/who",
+            json!({"ref":"controller","role":role}),
+        )
+        .references(&gain)
+    };
+    assert_eq!(code(you("ability-controller")), None);
+    assert_eq!(
+        code(you("entering-controller")),
+        Some("ref:controller:entering-controller:activated".into())
+    );
+    // W1 opens this row: an Aura's or Equipment's host has no lowering yet.
+    let attached = reference_block("/effect/what", json!({"ref":"attached-to"}))
+        .references(&pump(json!({"ref":"it"})));
+    assert_eq!(code(attached), Some("ref:attached-to:static".into()));
+    // CR 201.5: "this" is the source, never a target.
+    let this = |resolved: Value| {
+        reference_block("/effect/what", resolved)
+            .references(&pump(json!({"ref":"this","noun":"creature"})))
+    };
+    assert_eq!(code(this(json!({"ref":"source"}))), None);
+    assert_eq!(
+        code(this(json!({"ref":"target","slot":0}))),
+        Some("ref:target:static".into())
+    );
 }

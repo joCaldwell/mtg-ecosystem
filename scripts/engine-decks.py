@@ -9,9 +9,13 @@
 
 SIM is an mtg-sim executable built from this checkout (release for timing).
 coverage joins `SIM catalog coverage` receipts to a deck snapshot: compiled
-slots and blocking cards per deck, top blockers, and with --baseline the
-deltas against an earlier report.json. --all scans the whole archive instead
-of only the snapshot's Oracle IDs. stage and play wrap stage-deck.py and
+slots and blocking cards per deck, top blockers, the Track 3A family
+scoreboard and with --baseline the deltas against an earlier report.json.
+The scoreboard classifies every blocker of every unsupported card (blockers.tsv)
+into a family and reports, per family, the deck slots and unique deck cards it
+touches and those it alone blocks ("sole": fixing the family alone unlocks
+them), and with --all the same for Commander-legal archive cards. --all scans
+the whole archive instead of only the snapshot's Oracle IDs. stage and play wrap stage-deck.py and
 play-deck.sh. bench runs `SIM bench-pods --rotate-seats` for deck file A and,
 optionally, A′ (B) with the same seeds, seats and limits, and writes raw
 paired rows only; interpreting them statistically belongs to Phase 3B. A′ may
@@ -19,16 +23,61 @@ change at most one deck slot. A failed arm stays recorded as a failed pair.
 Inputs default to this checkout's generated/ file, else the primary checkout's.
 """
 import argparse
-from collections import Counter
+from collections import Counter, defaultdict
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 STATUSES = ('lowered_validated', 'unsupported', 'invalid', 'unparsed')
+# Track 3A families (Phase 3 RFC section 2): the first family whose pattern
+# matches a blocker code owns it. Order matters: specific families precede
+# W6 (operands of existing verbs), and parser residue is last.
+FAMILIES = (
+    ('W1 attachments', (r'keyword:(equip|enchant|reconfigure|bestow|fortify)', r'ref:attached-to',
+                        r'compose\.block\.(equipped|enchanted|attached)', r'^subtype:(curse|aura)',
+                        r'compose\.step\.attach', r'static\.(modifier|keyword|cant)')),
+    ('W2 as-enters and entry replacement', (r'ref:controller:entering-controller', r'ref:entering-object',
+                                            r'static:(entry-choice|enters-tapped|entry-copy|opening-hand)',
+                                            r'compose\.block\.(as-enters|enters-with-counters|copyOf)',
+                                            r'cross-block:value-choice', r'compose\.step\.(choose-value|copyOf)')),
+    ('W3 mana base', (r'^mana:', r'^cell:mana', r'compose\.block\.taps?-for-mana', r'^cost:', r'compose\.cost',
+                      r'^restriction:', r'event-object:taps-for-mana', r'verb:add-mana', r'compose\.step\.combination')),
+    ('W4 search and library', (r'verb:(search|look-at|reveal|shuffle)', r'compose\.step\.(scan-library|shuffle-into-library|look|reveal)',
+                               r'compose\.block\.look-permission')),
+    ('W5 step results, may, if, up to, for each', (r'ref:(step-result|bound-var|linked-pool|derived|evaluated)',
+                                                   r'compose\.step\.(optional|forEach|for-each|condition|pay-cost|upTo)',
+                                                   r'compose\.effects:', r'effects\.condition', r'compose\.block\.condition',
+                                                   r'^bindings', r'operand:bindings', r'operand:target:up_to',
+                                                   r'^verb:[^:]+:optional$')),
+    ('W7 trigger events', (r'ref:event-(object|player)', r'ref:source:', r'ref:target:', r'ref:controller:',
+                           r'abilities\.(trigger|condition)', r'^cell:trigger', r'^trigger:',
+                           r'compose\.block\.(leaves|blocks|discard|gains-life|player-attacks|counter-change|exile|move-zone|tap-objects|is-filter|control-count|count|occurrence|properties|cls|subtypes|from|group|grouping|counterConstraints|create-token)')),
+    ('W8 static and continuous effects', (r'^static', r'^cell:static', r'abilities\.static', r'compose\.block:cost_modification',
+                                          r'compose\.step\.(modify-characteristics|cant|become|change-text|player-gain-abilities|gain-control)',
+                                          r'compose\.block\.player-combat-rule')),
+    ('W9 replacement and prevention', (r'replacement', r'prevent-damage', r'redirect-damage')),
+    ('W10 cost keywords and variable costs', (r'source\.mana_cost', r'kind:additional-cost', r'compose\.block\.alternative-cost',
+                                              r'^keyword:', r'^cell:keyword', r'abilities\.keywords', r'source\.keywords')),
+    ('W11 multi-face and special layouts', (r'source\.layout',)),
+    ('W12 designations and keyword actions', (r'become-monarch', r'take-initiative', r'keyword-action', r'fight')),
+    ('W13 delayed triggers', (r'create-delayed-trigger', r'add-phases')),
+    ('W14 stack copy and other-zone casting', (r'copy-stack-object', r'compose\.block\.copy$', r'choose-new-targets',
+                                               r'copy-card', r'verb:(play-card|modal)', r'linked-exile', r'hideaway',
+                                               r'compose\.step\.(play|modal)')),
+    ('W15 characteristic shells', (r'source\.(power|toughness|type_line)', r'^subtype:', r'^cell:shell',
+                                   r'commander-set', r'compose\.step\.riders')),
+    ('W6 operand totality for existing verbs', (r'^verb:', r'^operand:', r'_shape_outside_the_lowering_mirror', r'^cell:(target|cost|program|activated)',
+                                                r'^(filter|target|targets|set|who|definition|amount|regeneration|forEach):',
+                                                r'^effects\.', r'compose\.step\.')),
+    ('Parser residue', (r'^resolution:', r'^ref:(unsupported|unresolved|ambiguous|missing)', r'^status:', r'^lines:')),
+)
+LONG_TAIL = 'Long tail'
+_FAMILY_PATTERNS = [(name, [re.compile(p) for p in patterns]) for name, patterns in FAMILIES]
 
 
 def shared_generated(name):
@@ -86,6 +135,62 @@ def read_records(path):
     return rows
 
 
+def family(code):
+    """The Track 3A family a blocker code belongs to."""
+    for name, patterns in _FAMILY_PATTERNS:
+        if any(p.search(code) for p in patterns):
+            return name
+    return LONG_TAIL
+
+
+def read_blockers(path):
+    """oracle_id -> (commander_legal, set of blocker codes) from coverage blockers.tsv."""
+    lines = Path(path).read_text().splitlines()
+    require(lines and lines[0] == 'oracle_id\tcommander_legal\tkind\tblock\tcode', f'{path}: unexpected header')
+    cards = {}
+    for line in lines[1:]:
+        oracle_id, legal, kind, _block, code = line.split('\t', 4)
+        require(legal in ('true', 'false') and kind in ('binding', 'block', 'card'), f'{path}: invalid row {oracle_id}')
+        cards.setdefault(oracle_id, (legal == 'true', set()))[1].add(code)
+    return cards
+
+
+def scoreboard(snapshot, rows, blockers, whole_archive):
+    """Per family: deck slots/cards it touches and solely blocks, and (whole
+    archive) Commander-legal archive cards it touches and solely blocks."""
+    families = {oracle_id: {family(code) for code in codes} for oracle_id, (_legal, codes) in blockers.items()}
+    slots = Counter()
+    for deck in snapshot['decks']:
+        for card in deck['cards']:
+            slots[card['oracle_id']] += card['quantity']
+    blocked = [oracle_id for oracle_id in slots if rows.get(oracle_id, ('missing',))[0] == 'unsupported']
+    table = defaultdict(Counter)
+    for oracle_id in blocked:
+        owned = families.get(oracle_id, set())
+        for name in owned:
+            table[name]['deck_slots_touched'] += slots[oracle_id]
+            table[name]['deck_cards_touched'] += 1
+            if len(owned) == 1:
+                table[name]['deck_slots_sole'] += slots[oracle_id]
+                table[name]['deck_cards_sole'] += 1
+    if whole_archive:
+        for oracle_id, (legal, _codes) in blockers.items():
+            if not legal or rows.get(oracle_id, ('missing',))[0] != 'unsupported':
+                continue
+            owned = families[oracle_id]
+            for name in owned:
+                table[name]['archive_touched'] += 1
+                if len(owned) == 1:
+                    table[name]['archive_sole'] += 1
+    keys = ['deck_slots_touched', 'deck_cards_touched', 'deck_slots_sole', 'deck_cards_sole']
+    if whole_archive:
+        keys += ['archive_touched', 'archive_sole']
+    names = [name for name, _ in FAMILIES] + [LONG_TAIL]
+    report = [{'family': name, **{key: table[name][key] for key in keys}} for name in names]
+    # Deck-first: rank by the deck slots a family alone unlocks, then touches.
+    return sorted(report, key=lambda row: (-row['deck_slots_sole'], -row['deck_slots_touched'], row['family']))
+
+
 def deck_report(deck, rows):
     total = sum(card['quantity'] for card in deck['cards'])
     blocked = []
@@ -115,8 +220,16 @@ def compare(report, baseline):
     old_reasons = {row['reason']: row['cards'] for row in baseline['top_blockers']}
     reasons = {row['reason']: row['cards'] - old_reasons.get(row['reason'], 0) for row in report['top_blockers']}
     reasons.update({reason: -cards for reason, cards in old_reasons.items() if reason not in reasons})
+    old_families = {row['family']: row for row in baseline.get('families', [])}
+    family_deltas = {}
+    for row in report['families']:
+        old = old_families.get(row['family'], {})
+        delta = {key: value - old.get(key, 0) for key, value in row.items() if key != 'family'}
+        if any(delta.values()):
+            family_deltas[row['family']] = delta
     return {'archive_changed': baseline['archive_sha256'] != report['archive_sha256'], 'decks': decks,
-            'blocker_card_deltas': {reason: delta for reason, delta in sorted(reasons.items()) if delta}}
+            'blocker_card_deltas': {reason: delta for reason, delta in sorted(reasons.items()) if delta},
+            'family_deltas': family_deltas}
 
 
 def coverage(args):
@@ -131,6 +244,7 @@ def coverage(args):
     require(result.returncode == 0, f'catalog coverage failed ({result.returncode}): {result.stderr.strip()[-2000:]}')
     summary = json.loads((receipts / 'summary.json').read_text())
     rows = read_records(receipts / 'records.tsv')
+    blockers = read_blockers(receipts / 'blockers.tsv')
     decks = [deck_report(deck, rows) for deck in sorted(snapshot['decks'], key=lambda deck: deck['id'])]
     reasons = Counter()
     for deck in decks:
@@ -141,12 +255,21 @@ def coverage(args):
               'scope': 'whole_archive' if args.all else 'deck_selection', 'archive_summary': {
                   key: summary[key] for key in ('total', 'lowered_validated', 'lowered_validated_percent', 'statuses')},
               'decks': decks, 'top_blockers': [{'reason': reason, 'cards': cards}
-                                               for reason, cards in sorted(reasons.items(), key=lambda r: (-r[1], r[0]))]}
+                                               for reason, cards in sorted(reasons.items(), key=lambda r: (-r[1], r[0]))],
+              'families': scoreboard(snapshot, rows, blockers, args.all)}
     if args.baseline:
         report['baseline'] = compare(report, json.loads(Path(args.baseline).read_text()))
     write_json(out / 'report.json', report)
     for deck in decks:
         print(f"{deck['compiled_slots']:>3}/{deck['total_slots']:<3} {deck['name']}")
+    archive = ' archive touched/sole' if args.all else ''
+    print(f'family scoreboard: deck slots touched/sole, cards touched/sole{archive}')
+    for row in report['families']:
+        line = (f"{row['deck_slots_touched']:>5}/{row['deck_slots_sole']:<5} "
+                f"{row['deck_cards_touched']:>4}/{row['deck_cards_sole']:<4}")
+        if args.all:
+            line += f" {row['archive_touched']:>6}/{row['archive_sole']:<6}"
+        print(f"{line} {row['family']}")
     print(f'report: {out / "report.json"}')
     return 0
 

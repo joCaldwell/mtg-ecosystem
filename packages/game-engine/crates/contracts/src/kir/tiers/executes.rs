@@ -1,21 +1,39 @@
-//! General ability composition matrix.
-//!
-//! A definition marked `composed` is admitted by the tables in this module
-//! instead of by a whole-card family. Each table answers one independent
-//! question: may this instruction resolve in this kind of stack object, may
-//! this cost pay for this program, may this event start this program, may this
-//! static or keyword stand beside unrelated abilities. A row is the complete
-//! admission decision for its primitive; no row inspects sibling abilities,
-//! printed text, card names or profiles.
+//! The `Executes` tier of the surfaces outside kernel cells: card shells,
+//! keywords, target announcement, activation costs, trigger events, statics
+//! and mana abilities. A surface executes when the runtime has its executor in
+//! this context; one that does not is rejected under `cell:<surface>:<detail>`.
+//! A row is the complete decision for its surface; no row inspects sibling
+//! abilities, printed text, card names or profiles. Kernel cells are decided
+//! by [`kir::check`].
 //!
 //! CR 113.1-113.3: a card's abilities are independent objects of four kinds.
 //! CR 602.1-602.2: an activated ability is its cost, targets and effect.
 //! CR 603.1-603.3: a triggered ability is its event, condition and effect.
 //! CR 608.2: a resolving spell or ability follows its instructions in order.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-use super::*;
+use crate::*;
 
-pub use kir::Context;
+/// The snake-case name of a variant, for a cell code.
+fn name<T: std::fmt::Debug>(value: &T) -> String {
+    let debug = format!("{value:?}");
+    let mut out = String::new();
+    for (i, c) in debug
+        .chars()
+        .take_while(|c| c.is_alphanumeric())
+        .enumerate()
+    {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+/// A surface with no executor here: `cell:<surface>:<detail>`.
+fn cell<T>(surface: &str, detail: impl AsRef<str>) -> Result<T, String> {
+    Err(format!("cell:{surface}:{}", detail.as_ref()))
+}
 
 const SPELL: u8 = 1;
 const ACTIVATED: u8 = 2;
@@ -74,19 +92,19 @@ fn program(
         // CR 602.5d: only an activated ability may carry sorcery timing.
         || (context == Context::Triggered && p.timing != SpellTiming::Instant)
     {
-        return Err("composed program requires ordinary stack instructions".into());
+        return cell("program", "extra_costs_or_resolution");
     }
     let bit = match context {
         Context::Spell => SPELL,
         Context::Activated => ACTIVATED,
         Context::Triggered => TRIGGERED,
     };
-    if p.targets.iter().any(|t| {
+    if let Some(t) = p.targets.iter().find(|t| {
         domain(t.domain).is_none_or(|(_, contexts)| contexts & bit == 0)
             || t.chooser != Chooser::Controller
             || t.stage != EvaluationStage::Announcement
     }) {
-        return Err("composition matrix does not admit this target domain".into());
+        return cell("target", format!("{}:{}", name(&t.domain), name(&context)));
     }
     validate_target_bindings(p)?;
     let env = kir::Env {
@@ -259,7 +277,14 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         }
     };
     if !payable {
-        return Err("composition matrix does not admit this activation cost".into());
+        let route = match route {
+            None => "untargeted",
+            Some(Route::Object) => "object",
+            Some(Route::Entity) => "entity",
+            Some(Route::Player) => "player",
+            Some(Route::Stack) => "stack",
+        };
+        return cell("cost", format!("{}:{route}", name(&a.cost)));
     }
     Ok(())
 }
@@ -271,7 +296,7 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
             CardKind::Creature | CardKind::Artifact | CardKind::Enchantment | CardKind::Land
         )
     {
-        return Err("composed activation requires a battlefield permanent source".into());
+        return cell("activated", "source");
     }
     cost(d, a)?;
     program(&a.program, Context::Activated, None)
@@ -308,21 +333,28 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
             DamageTriggerSource::CreatureFilter { types, .. } => types.validate().is_ok(),
         },
     };
-    if !event
-        || a.functioning_zone != FunctioningZone::Battlefield
-        || a.intervening_if.is_some()
+    let key = a.condition.reporting_key();
+    if !event {
+        return cell("trigger", key);
+    }
+    if a.intervening_if.is_some() {
+        return cell("trigger", format!("{key}:intervening_if"));
+    }
+    if a.functioning_zone != FunctioningZone::Battlefield
         || !matches!(
             kind,
             CardKind::Creature | CardKind::Artifact | CardKind::Enchantment | CardKind::Land
         )
-        || a.death_filter.as_ref().is_some_and(|f| {
-            a.condition != TriggerCondition::AnyCreatureDies
-                || !f.controlled
-                || f.non_subtypes.iter().any(|s| s != "Spirit")
-                || f.non_subtypes.len() > 1
-        })
     {
-        return Err("composition matrix does not admit this trigger".into());
+        return cell("trigger", format!("{key}:source"));
+    }
+    if a.death_filter.as_ref().is_some_and(|f| {
+        a.condition != TriggerCondition::AnyCreatureDies
+            || !f.controlled
+            || f.non_subtypes.iter().any(|s| s != "Spirit")
+            || f.non_subtypes.len() > 1
+    }) {
+        return cell("trigger", format!("{key}:death_filter"));
     }
     program(&a.program, Context::Triggered, Some(&a.condition))
 }
@@ -351,7 +383,7 @@ fn static_ability(d: &Definition, a: &StaticAbility) -> Result<(), String> {
         }
     };
     if !ok {
-        return Err("composition matrix does not admit this static ability".into());
+        return cell("static", name(&a.effect));
     }
     Ok(())
 }
@@ -372,7 +404,7 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
             ManaProduction::AnyColor | ManaProduction::CommanderColor => true,
         }
     {
-        return Err("composition matrix does not admit this mana ability".into());
+        return cell("mana", name(&a.production));
     }
     Ok(())
 }
@@ -474,15 +506,17 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         || (!c.additional_types.is_empty()
             && !matches!(c.kind, CardKind::Creature | CardKind::Artifact))
     {
-        return Err("composition matrix does not admit these card characteristics".into());
+        return cell("shell", "characteristics");
     }
-    if d.keywords.iter().any(|k| !keyword(d, *k))
-        || d.keywords
-            .iter()
-            .enumerate()
-            .any(|(n, k)| d.keywords[..n].contains(k))
+    if let Some(k) = d.keywords.iter().find(|k| !keyword(d, **k)) {
+        return cell("keyword", format!("{}:{}", name(k), name(&c.kind)));
+    }
+    if d.keywords
+        .iter()
+        .enumerate()
+        .any(|(n, k)| d.keywords[..n].contains(k))
     {
-        return Err("composition matrix does not admit this keyword".into());
+        return cell("keyword", "duplicate");
     }
     let cast_timing = if c.kind == CardKind::Instant || d.keywords.contains(&KeywordAbility::Flash)
     {
@@ -544,7 +578,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
         }
     };
     if !shell {
-        return Err("composition matrix does not admit this card shell".into());
+        return cell("shell", name(&c.kind));
     }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         program(
@@ -573,13 +607,16 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::kir::Context;
     fn bears() -> Definition {
-        let mut d = Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json"))
-            .unwrap()
-            .definitions
-            .into_iter()
-            .find(|d| d.name == "Grizzly Bears")
-            .unwrap();
+        let mut d = Catalog::read(include_str!(
+            "../../../../../tests/fixtures/expected-ir.json"
+        ))
+        .unwrap()
+        .definitions
+        .into_iter()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
         d.source_labels = None;
         d
     }

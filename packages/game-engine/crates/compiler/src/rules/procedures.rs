@@ -4,22 +4,6 @@ use serde_json::{Value, json};
 
 pub(crate) mod controller_library {
     use super::*;
-    pub(crate) fn fixed_count(amount: &serde_json::Value) -> Result<Quantity, Failure> {
-        let count: Count = serde_json::from_value(amount.clone()).map_err(|_| {
-            unsupported(
-                "library count",
-                "requires complete fixed nonnegative amount",
-            )
-        })?;
-        if count.amount != "fixed" {
-            return Err(unsupported(
-                "library count",
-                "requires fixed nonnegative amount",
-            ));
-        }
-        Ok(Quantity::from(i64::from(count.value)))
-    }
-
     // Match both directions: an edited AST must not erase a printed lookup,
     // and an injected lookup cannot borrow a different printed effect.
     pub(crate) fn lower_cast_opponent_damage(
@@ -80,48 +64,10 @@ pub(crate) mod controller_library {
                 TargetDomain::OpponentPlayer,
             )?,
             kir::Amount::Fixed {
-                value: fixed_positive_value(amount)?,
+                value: fixed_positive_amount(&typed(amount, "amount")?)?,
             },
             block,
         )))
-    }
-}
-pub(crate) mod fixed_mill {
-    use super::*;
-    pub(crate) fn target_selection(who: &serde_json::Value) -> Option<&str> {
-        let object = who.as_object()?;
-        if object.len() != 2 || who["player"] != "target-player" {
-            return None;
-        }
-        who["selectionId"].as_str().filter(|s| !s.is_empty())
-    }
-
-    pub(crate) fn instruction(
-        program: &mut SpellProgram,
-        slots: &mut BTreeMap<String, u32>,
-        who: &serde_json::Value,
-        amount: &serde_json::Value,
-        context: Context,
-        source_block: u32,
-    ) -> Result<Instruction, Failure> {
-        let player = if *who == serde_json::json!({"player":"you"}) {
-            PlayerExpr::you(context)
-        } else {
-            let id = target_selection(who).ok_or_else(|| {
-                unsupported(
-                    "mill.who",
-                    "requires exact controller or target-player actor",
-                )
-            })?;
-            PlayerExpr::target(bind_target(program, slots, id, TargetDomain::AnyPlayer)?)
-        };
-        Ok(Instruction::mill(
-            player,
-            Amount::Fixed {
-                value: controller_library::fixed_count(amount)?,
-            },
-            source_block,
-        ))
     }
 }
 pub(crate) mod source_dies_nonland_destroy {
