@@ -48,6 +48,13 @@ impl Game {
     pub fn with_trace(prepared: Prepared, mode: TraceMode) -> Self {
         Self::from_initial(RulesTxn::with_trace(prepared, mode))
     }
+    /// Deliver committed records once. Delivery is local to this executor.
+    pub fn drain_trace(&mut self, visit: &mut impl FnMut(&TraceRecord)) {
+        for record in self.committed.stream_buffer.drain(..) {
+            visit(&record);
+        }
+    }
+
     pub fn fork(&self) -> Self {
         Self::from_initial(self.committed.fork())
     }
@@ -70,6 +77,14 @@ impl Game {
 }
 
 impl RulesTxn {
+    /// A stage starts with an empty delivery buffer. Publish its suffix only
+    /// after success, keeping any undrained records from the parent first.
+    pub(in crate::engine) fn commit_staged_state(&mut self, mut staged: Self) {
+        self.state = staged.state;
+        self.trace = staged.trace;
+        self.stream_buffer.append(&mut staged.stream_buffer);
+    }
+
     fn execute_step(&mut self, coalesce: bool) -> Result<(), RuleError> {
         self.in_rule_step = coalesce;
         self.step()?;
@@ -160,10 +175,9 @@ impl Game {
                 if valid_before && let Err(violation) = staged.validate_state() {
                     panic!("a transaction broke the state invariant: {violation}");
                 }
-                self.committed.state = staged.state;
-                self.committed.trace = staged.trace;
-                self.committed.published = staged.published;
-                self.committed.kernel_leaf = staged.kernel_leaf;
+                self.committed.published = staged.published.take();
+                self.committed.kernel_leaf = staged.kernel_leaf.take();
+                self.committed.commit_staged_state(staged);
                 self.committed.state_token = Arc::new(());
                 self.committed.priority_cache.take();
                 Ok(value)
@@ -201,6 +215,7 @@ impl RulesTxn {
                     journal: History::default(),
                 },
             },
+            stream_buffer: Vec::new(),
             trace: TraceEvidence::new(TraceMode::Off),
             // A capture answers queries only; it never issues a receipt.
             executor: self.executor.clone(),

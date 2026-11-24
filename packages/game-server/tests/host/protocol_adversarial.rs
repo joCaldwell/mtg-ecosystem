@@ -213,7 +213,7 @@ fn exported_schemas_are_self_contained_draft7_public_contracts() {
             "Prepared",
             "ReplayJournal",
             "random_seed",
-            "word_position",
+            "seat_random",
         ] {
             assert!(
                 !text.contains(private),

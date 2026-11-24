@@ -68,6 +68,7 @@ impl Game {
             prepared: Arc::new(prepared),
             state: s.state,
             trace: s.trace,
+            stream_buffer: Vec::new(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
             priority_cache: Default::default(),

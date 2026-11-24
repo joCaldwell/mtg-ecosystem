@@ -54,7 +54,8 @@ fn dynamic_pairing_requires_the_exact_pregame_keyword_and_doctor_types() {
 
 // Exact executable Foundations definitions isolate the physical rules.
 // Pairing legality is covered separately by authenticated archive facts.
-fn mixed_roster() -> DynamicPodTemplate {
+fn mixed_roster() -> DynamicPodTemplate<'static> {
+    static ARTIFACT: LazyLock<BulkArtifact> = LazyLock::new(foundations_artifact);
     let profile = match_profile("commander-foundations-v1").unwrap();
     let config = MatchConfig::for_profile(&profile.name, [19; 32], PlayerId(0)).unwrap();
     let mut rows = DynamicMatchConfig::from_match_config(&config).decks;
@@ -79,6 +80,7 @@ fn mixed_roster() -> DynamicPodTemplate {
             .any(|row| row.oracle_id == d.oracle_id)
     });
     DynamicPodTemplate {
+        artifact: &ARTIFACT,
         decks,
         projection: ValidatedCatalog::new(projection).unwrap(),
         bulk_manifest_sha256: "test-bulk".into(),
@@ -314,8 +316,8 @@ fn foundations_decks_still_pass_definition_and_capacity_admission() {
     }
     // The production projection accumulates trigger slots over all four
     // seats and proves the pod's capacity bound.
-    let template =
-        DynamicPodTemplate::project(catalog, &rows, "test-bulk", policy().unwrap()).unwrap();
+    let artifact = foundations_artifact();
+    let template = DynamicPodTemplate::project(&artifact, &rows, policy().unwrap()).unwrap();
     let distinct: BTreeSet<_> = rows.iter().flatten().map(|row| &row.oracle_id).collect();
     assert_eq!(
         template.catalog().catalog().definitions.len(),
@@ -484,5 +486,91 @@ fn stage1d_foundations_projection_earns_the_headless_qualified_tier() {
             "{}",
             definition.name
         );
+    }
+}
+
+#[test]
+fn one_card_substitution_preserves_opening_orders_and_shuffle_streams_over_64_seeds() {
+    let artifact = foundations_artifact();
+    let rows = foundations_rows();
+    let base = DynamicPodTemplate::admit(&artifact, &rows).unwrap();
+    let remove = &rows[0]
+        .iter()
+        .find(|r| r.role == DeckRole::Main && r.quantity == 1)
+        .unwrap()
+        .oracle_id;
+    let add = &rows[0].iter().find(|r| r.quantity > 1).unwrap().oracle_id;
+    let prime = base.substitute(0, remove, add).unwrap();
+    for index in 0u8..64 {
+        let seed = [index; 32];
+        let rotation = index as usize % 4;
+        let starter = PlayerId(index / 4 % 4);
+        let [a, b] = [&base, &prime].map(|template| {
+            let pod = template.prepare(starter, seed, rotation).unwrap();
+            let mut g = Game::with_trace(pod.prepared, TraceMode::Off);
+            // 98 accepted Fisher–Yates trials per library. Stop before
+            // the first draw even when one or more words were rejected.
+            g.advance(Budget::new(4 * 98));
+            while matches!(
+                g.state
+                    .rules
+                    .match_state
+                    .as_ref()
+                    .unwrap()
+                    .setup
+                    .as_ref()
+                    .unwrap()
+                    .phase,
+                SetupPhase::Shuffle { .. }
+            ) {
+                assert!(matches!(
+                    g.advance(Budget::new(1)),
+                    Advance::Suspended { .. }
+                ));
+            }
+            g
+        });
+        let mut changes = 0;
+        for seat in 0..4 {
+            let seat = PlayerId(seat);
+            let left = &a.state.rules.libraries[&seat];
+            let right = &b.state.rules.libraries[&seat];
+            assert_eq!(left.len(), 99);
+            assert_eq!(left, right);
+            for id in left {
+                let old = &a.state.rules.cards[id].oracle_id;
+                let new = &b.state.rules.cards[id].oracle_id;
+                if old != new {
+                    assert_eq!(seat.0 as usize, rotation);
+                    assert_eq!((old, new), (remove, add));
+                    changes += 1;
+                }
+            }
+            let state = |g: &Game| g.state.rules.match_state.as_ref().unwrap().clone();
+            let (mut x, mut y) = (state(&a), state(&b));
+            for _ in 0..3 {
+                // Consume unrelated library and seat-local effect words in
+                // only one arm before comparing the next complete shuffle.
+                for domain in [1, 2] {
+                    let other = PlayerId((seat.0 + 1) % 4);
+                    let stream =
+                        setup::stream_id(domain, other, y.library_shuffles[seat.0 as usize])
+                            .unwrap();
+                    for _ in 0..17 {
+                        y.random.word(stream).unwrap();
+                    }
+                }
+                let streams = [&mut x, &mut y].map(|s| {
+                    let ordinal = &mut s.library_shuffles[seat.0 as usize];
+                    let stream = setup::stream_id(1, seat, *ordinal).unwrap();
+                    *ordinal += 1;
+                    (0..98)
+                        .map(|_| s.random.word(stream).unwrap())
+                        .collect::<Vec<_>>()
+                });
+                assert_eq!(streams[0], streams[1]);
+            }
+        }
+        assert_eq!(changes, 1);
     }
 }

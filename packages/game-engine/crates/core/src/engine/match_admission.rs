@@ -304,50 +304,57 @@ pub fn validate_pod(
 }
 
 pub(super) fn physical_match_config(profile: &str, decks: &[Decklist; 4]) -> ScenarioConfig {
+    let physical = decks
+        .each_ref()
+        .map(|deck| physical_order(std::slice::from_ref(&deck.commander), &deck.cards));
     physical_match_rosters(
         profile,
-        decks
-            .each_ref()
-            .map(|deck| (std::slice::from_ref(&deck.commander), deck.cards.as_slice())),
+        std::array::from_fn(|i| {
+            (
+                std::slice::from_ref(&decks[i].commander),
+                physical[i].as_slice(),
+            )
+        }),
     )
+}
+
+pub(super) fn physical_order(commanders: &[String], cards: &[DeckEntry]) -> Vec<String> {
+    commanders
+        .iter()
+        .cloned()
+        .chain(
+            cards
+                .iter()
+                .filter(|row| !commanders.contains(&row.oracle_id))
+                .flat_map(|row| std::iter::repeat_n(row.oracle_id.clone(), row.count as usize)),
+        )
+        .collect()
 }
 
 pub(super) fn physical_match_rosters(
     profile: &str,
-    decks: [(&[String], &[DeckEntry]); 4],
+    decks: [(&[String], &[String]); 4],
 ) -> ScenarioConfig {
     let mut cards = Vec::with_capacity(400);
     let mut commanders = Vec::with_capacity(8);
-    for (seat, (designations, entries)) in decks.into_iter().enumerate() {
+    for (seat, (designations, physical)) in decks.into_iter().enumerate() {
         let owner = PlayerId(seat as u8);
-        let mut next = seat as u32 * 100;
-        for oracle_id in designations {
-            commanders.push(CardId(next));
+        for (offset, oracle_id) in physical.iter().enumerate() {
+            let id = CardId((seat * 100 + offset) as u32);
+            let zone = if designations.contains(oracle_id) {
+                commanders.push(id);
+                Zone::Command { owner }
+            } else {
+                Zone::Library { owner }
+            };
             cards.push(CardSetup {
-                id: CardId(next),
+                id,
                 oracle_id: oracle_id.clone(),
                 owner,
                 controller: owner,
-                zone: Zone::Command { owner },
+                zone,
             });
-            next += 1;
         }
-        for row in entries {
-            if designations.contains(&row.oracle_id) {
-                continue;
-            }
-            for _ in 0..row.count {
-                cards.push(CardSetup {
-                    id: CardId(next),
-                    oracle_id: row.oracle_id.clone(),
-                    owner,
-                    controller: owner,
-                    zone: Zone::Library { owner },
-                });
-                next += 1;
-            }
-        }
-        debug_assert_eq!(next, (seat as u32 + 1) * 100);
     }
     ScenarioConfig {
         initial: ScenarioInitial {
