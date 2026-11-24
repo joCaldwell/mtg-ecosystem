@@ -11,9 +11,13 @@
 //!   step names (or "you" for an imperative step).
 //! * CR 118.12a: "unless [player] pays {N}" / "N life" is
 //!   [`Node::UnlessPays`].
+//! * CR 118.12, 608.2c: "[player] may pay [cost]. If they do/don't, ..."
+//!   is [`Node::IfPays`] / [`Node::UnlessPays`] over the next sentence.
 //! * CR 608.2c: "if"/"unless" is [`Node::If`] over a board condition the
 //!   continuation evaluates on resolution: a count of permanents a player
 //!   controls (CR 109.5).
+//! * CR 121.2: "draw a card for each [permanent]" is [`Node::ForEach`] over
+//!   the battlefield set, one draw per member.
 //!
 //! A wrapped step whose instruction range is empty, a wrap that overlaps
 //! another, a chooser or payer the resolution does not bind to a kernel
@@ -51,6 +55,9 @@ enum Kind {
     Optional { who: Option<String> },
     /// `path` is the printed sentence; its condition is read on lowering.
     Condition { path: String, unless: bool },
+    /// CR 121.2: "draw N for each [permanent]" draws N once per member of
+    /// the set as it is on resolution; `path` is the printed `forEach`.
+    EachDraw { path: String, var: u32 },
     /// `path` is the printed optional `pay-cost` step a following "if you
     /// do" (`unless` false) or "if you don't" (`unless` true) reads.
     Pays { path: String, unless: bool },
@@ -230,6 +237,30 @@ fn peel_step(
                 kind: Kind::Optional { who },
             });
         }
+        // Draws are performed one at a time (CR 121.2), so drawing a card
+        // for each member is the same draws as one draw per member. Every
+        // other verb would change how many events it produces.
+        Some("draw") if step.get("forEach").is_some() => {
+            if step.get("optional").is_some() {
+                return reject("for_each_shape");
+            }
+            let mut core = step.clone();
+            core.as_object_mut()
+                .expect("step object")
+                .remove("forEach");
+            steps.push(core);
+            let var = u32::try_from(wraps.len()).map_err(|_| invalid("compose.control", "wraps"))?;
+            wraps.push(Wrap {
+                sentence,
+                start,
+                end: steps.len(),
+                depth: 3,
+                kind: Kind::EachDraw {
+                    path: format!("{path}/forEach"),
+                    var,
+                },
+            });
+        }
         _ => steps.push(step.clone()),
     }
     Ok(())
@@ -267,6 +298,20 @@ impl Site<'_> {
                 },
                 node,
             },
+            Kind::EachDraw { path, var } => {
+                let filter = self.sentence(path)?;
+                if filter.get("zone").is_some() || filter.get("controlledBy").is_some() {
+                    return reject("for_each_set");
+                }
+                let filter: ast::ObjectFilter = typed(filter, "filter")?;
+                Node::ForEach {
+                    var: *var,
+                    over: kir::Domain::Objects {
+                        set: SetExpr::battlefield(lower_filter(&filter, self.context)?),
+                    },
+                    body: node,
+                }
+            }
             Kind::Pays { path, unless } => {
                 let step = self.sentence(path)?;
                 let payer = self.player(&format!("{path}/who"))?;
@@ -487,6 +532,7 @@ pub(super) fn admitted(
         if matches!(
             node,
             Node::Optional { .. }
+                | Node::ForEach { .. }
                 | Node::UnlessPays { .. }
                 | Node::IfPays { .. }
                 | Node::If { .. }

@@ -818,6 +818,8 @@ const WOODEN_SPHERE: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/0bd8917c-bec4-4603-bc3f-8e0c2afae56a.json");
 const SOULS_ATTENDANT: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/045a9d3d-c20d-427f-a77b-0bffc6f55526.json");
+const COLLECTIVE_UNCONSCIOUS: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/38abf769-e4ef-4b47-9c79-c8cda0b90f6c.json");
 const TEMPORAL_MACHINATIONS: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/f0adab66-c3fe-4989-b7c8-ab7bdc7f0fd1.json");
 
@@ -908,7 +910,25 @@ fn printed_may_unless_and_if_lower_to_kernel_control_nodes() {
     assert!(filter.0.iter().any(|atom| matches!(atom,
         kir::Atom::ControlledBy { player } if player.is_you())));
     assert!(drawn(then));
-    for definition in [&study, &sphere, &attendant, &machinations] {
+    // "Draw a card for each creature you control": one draw per member of
+    // the set on resolution (CR 121.2).
+    let unconscious = composed(COLLECTIVE_UNCONSCIOUS);
+    let Node::ForEach {
+        over: kir::Domain::Objects {
+            set: SetExpr::Matching { zone, filter },
+        },
+        body,
+        ..
+    } = only_node(unconscious.spell.as_ref().unwrap())
+    else {
+        panic!("{:?}", unconscious.spell);
+    };
+    assert_eq!(*zone, kir::ZoneExpr::Battlefield);
+    assert!(filter.0.contains(&kir::Atom::Type {
+        kind: CardKind::Creature
+    }));
+    assert!(drawn(body));
+    for definition in [&study, &sphere, &attendant, &machinations, &unconscious] {
         executes_only(definition);
     }
 }
