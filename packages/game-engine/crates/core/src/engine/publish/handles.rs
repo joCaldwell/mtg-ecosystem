@@ -142,15 +142,10 @@ macro_rules! boundary_handle {
                 own == *id
             }
         }
-        impl From<&$public> for $public {
-            fn from(handle: &Self) -> Self {
-                handle.clone()
-            }
-        }
     };
 }
-boundary_handle!(b'o', super::visibility::ObjectHandle);
-boundary_handle!(b's', super::visibility::StackHandle);
+boundary_handle!(b'o', mtg_view::ObjectHandle);
+boundary_handle!(b's', mtg_view::StackHandle);
 boundary_handle!(b'e', crate::engine::EffectHandle);
 
 impl<const KIND: u8> From<&HandleId<KIND>> for HandleId<KIND> {

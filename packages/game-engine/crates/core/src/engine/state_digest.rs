@@ -9,7 +9,7 @@ use std::io::{BufWriter, Write};
 
 pub const HASH_BUFFER_BYTES: usize = 64 * 1024;
 #[cfg(feature = "testkit")]
-pub type ObjectBytes = BTreeMap<String, (visibility::VisibleObject, Vec<u8>)>;
+pub type ObjectBytes = BTreeMap<String, (VisibleObject, Vec<u8>)>;
 
 fn json<W: Write, T: Serialize>(writer: &mut W, value: &T) -> Result<(), String> {
     serde_json::to_writer(writer, value).map_err(|e| e.to_string())
@@ -31,7 +31,7 @@ fn object_entries(value: &serde_json::Value) -> Result<Vec<(&String, &serde_json
 #[cfg(feature = "testkit")]
 pub fn write_view<W: Write>(
     writer: &mut W,
-    view: &visibility::PermittedView,
+    view: &PermittedView,
     previous: &mut ObjectBytes,
 ) -> Result<(), String> {
     // Keep every serialized field dynamically. Only object rows get a local

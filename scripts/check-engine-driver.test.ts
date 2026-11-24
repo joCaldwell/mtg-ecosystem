@@ -383,7 +383,7 @@ test("cancellation while waiting for a lock never starts protected work", async 
 });
 
 test("Cargo must execute each named harness and both authority doctests", async () => {
-  const names = ["cards", "host", "mtg_compiler", "mtg_contracts", "mtg_core", "mtg_server", "mtg_sim", "recovery", "rules"];
+  const names = ["cards", "host", "mtg_compiler", "mtg_contracts", "mtg_core", "mtg_env", "mtg_observe", "mtg_view", "mtg_server", "mtg_sim", "recovery", "rules"];
   const summary = (passed: number, ignored = 0) =>
     `test result: ok. ${passed} passed; 0 failed; ${ignored} ignored; 0 measured; 0 filtered out`;
   const harness = (name: string, passed = 1) => [

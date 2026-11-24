@@ -1,72 +1,5 @@
 use super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Phase {
-    Beginning,
-    PrecombatMain,
-    Combat,
-    PostcombatMain,
-    Ending,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum TurnStep {
-    Untap,
-    Upkeep,
-    Draw,
-    PrecombatMain,
-    BeginningCombat,
-    DeclareAttackers,
-    DeclareBlockers,
-    FirstStrikeDamage,
-    CombatDamage,
-    EndCombat,
-    PostcombatMain,
-    End,
-    Cleanup,
-}
-impl TurnStep {
-    pub fn phase(self) -> Phase {
-        match self {
-            Self::Untap | Self::Upkeep | Self::Draw => Phase::Beginning,
-            Self::PrecombatMain => Phase::PrecombatMain,
-            Self::BeginningCombat
-            | Self::DeclareAttackers
-            | Self::DeclareBlockers
-            | Self::FirstStrikeDamage
-            | Self::CombatDamage
-            | Self::EndCombat => Phase::Combat,
-            Self::PostcombatMain => Phase::PostcombatMain,
-            Self::End | Self::Cleanup => Phase::Ending,
-        }
-    }
-    fn next(self) -> Self {
-        match self {
-            Self::Untap => Self::Upkeep,
-            Self::Upkeep => Self::Draw,
-            Self::Draw => Self::PrecombatMain,
-            Self::PrecombatMain => Self::BeginningCombat,
-            Self::BeginningCombat => Self::DeclareAttackers,
-            Self::DeclareAttackers => Self::DeclareBlockers,
-            Self::DeclareBlockers => Self::CombatDamage,
-            Self::FirstStrikeDamage => Self::CombatDamage,
-            Self::CombatDamage => Self::EndCombat,
-            Self::EndCombat => Self::PostcombatMain,
-            Self::PostcombatMain => Self::End,
-            Self::End => Self::Cleanup,
-            Self::Cleanup => Self::Untap,
-        }
-    }
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct TurnState {
-    pub number: u64,
-    pub step: TurnStep,
-    pub lands_played: u32,
-}
-
 impl RulesTxn {
     pub fn turn(&self) -> &TurnState {
         &self.state.rules.turn
@@ -201,7 +134,7 @@ impl RulesTxn {
         {
             TurnStep::Cleanup
         } else {
-            next.step.next()
+            next.step.next_step()
         };
         let mut owner = self.state.rules.turn_owner;
         if self.state.rules.turn.step == TurnStep::Cleanup && !self.state.rules.cleanup_repeat {

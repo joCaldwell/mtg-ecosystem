@@ -37,6 +37,11 @@ fn definition<'a>(catalog: &'a Catalog, id: &str) -> Result<&'a mtg_contracts::D
 pub struct Strategy<'a> {
     catalog: &'a Catalog,
     policy: Policy,
+    memory: PolicyMemory,
+}
+/// Payment choices spanning multiple published decisions in one game.
+#[derive(Default)]
+pub struct PolicyMemory {
     mulligans: [u8; 4],
     mana_plan: std::collections::VecDeque<mana_policy::PlannedMana>,
     mana_color: Option<Color>,
@@ -81,13 +86,38 @@ impl<'a> Strategy<'a> {
         Self {
             catalog,
             policy,
-            mulligans,
-            mana_plan: Default::default(),
-            mana_color: None,
-            mana_ability: None,
-            payment: PaymentAttempt::default(),
-            hybrid_choices: vec![],
+            memory: PolicyMemory {
+                mulligans,
+                ..Default::default()
+            },
         }
+    }
+}
+impl PolicyMemory {
+    /// An external agent selected the priority action. Discard plans and
+    /// exclusions associated with the previous announcement.
+    pub fn external_priority(&mut self, view: &mtg_core::PermittedView) {
+        self.payment.next_priority(view);
+        self.mana_plan.clear();
+        self.mana_color = None;
+        self.mana_ability = None;
+        self.hybrid_choices.clear();
+    }
+
+    pub fn choose(
+        &mut self,
+        catalog: &Catalog,
+        policy: Policy,
+        observation: &Observation,
+    ) -> Result<Answer, String> {
+        let mut strategy = Strategy {
+            catalog,
+            policy,
+            memory: std::mem::take(self),
+        };
+        let answer = strategy.choose(observation);
+        *self = strategy.memory;
+        answer
     }
 }
 pub(crate) fn payment_source(d: &Decision<Viewer>, object: ObjectHandle) -> Result<Answer, String> {
@@ -141,7 +171,7 @@ impl Strategy<'_> {
                 },
                 _,
             ) => {
-                let take = *mulligans_taken < self.mulligans[usize::from(v.viewer.0)]
+                let take = *mulligans_taken < self.memory.mulligans[usize::from(v.viewer.0)]
                     && d.index(&Candidate::Flag {
                         flag: Flag::Mulligan,
                     })
@@ -197,19 +227,19 @@ impl Strategy<'_> {
                 let outer = mana_ability_source.is_none();
                 let available = mana_policy::spendable_pool(v).ok_or("missing mana payer")?;
                 let payable = payment(cost, &available).is_some();
-                if outer && self.payment.announced_cost.as_ref() != Some(cost) {
+                if outer && self.memory.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
                     // price. Nested activations consume the outer plan in order.
                     if !payable {
-                        self.mana_plan = mana_policy::plan_for(
+                        self.memory.mana_plan = mana_policy::plan_for(
                             self.catalog,
                             v,
                             cost,
-                            self.payment.exclude.as_ref(),
+                            self.memory.payment.exclude.as_ref(),
                         )
                         .unwrap_or_default();
                     }
-                    self.payment.announced_cost = Some(cost.clone());
+                    self.memory.payment.announced_cost = Some(cost.clone());
                 }
                 if payable {
                     Answer::Pay {
@@ -217,13 +247,13 @@ impl Strategy<'_> {
                             undo_on_failure: true,
                         },
                     }
-                } else if let Some(next) = self.mana_plan.pop_front() {
-                    self.mana_color = next.color;
-                    self.mana_ability = next.ability;
+                } else if let Some(next) = self.memory.mana_plan.pop_front() {
+                    self.memory.mana_color = next.color;
+                    self.memory.mana_ability = next.ability;
                     payment_source(d, next.source)?
                 } else {
                     if outer {
-                        self.payment.abandoned(v.viewer);
+                        self.memory.payment.abandoned(v.viewer);
                     }
                     Answer::Pay {
                         pay: PayAnswer::Finish {
@@ -457,7 +487,7 @@ impl Strategy<'_> {
                 })?
             }
             (Reason::HybridCost, Shape::Pick { slots, .. }) => {
-                let mut choices = std::mem::take(&mut self.hybrid_choices);
+                let mut choices = std::mem::take(&mut self.memory.hybrid_choices);
                 if choices.len() != slots.len() {
                     let (definition, _) = self.top_program(v).ok_or("missing public spell")?;
 
@@ -469,7 +499,7 @@ impl Strategy<'_> {
                     )
                     .ok_or("no affordable hybrid announcement")?;
                     choices = planned;
-                    self.mana_plan = plan;
+                    self.memory.mana_plan = plan;
                 }
                 Answer::Pick {
                     picks: choices
@@ -483,24 +513,24 @@ impl Strategy<'_> {
                 }
             }
             (Reason::ManaAbility { .. }, Shape::Pick { slots, .. }) => {
-                let preferred = self.mana_ability.take();
+                let preferred = self.memory.mana_ability.take();
                 let allowed = &slots[0].allowed;
                 let n=allowed.iter().find(|i|matches!(d.candidates[**i as usize],Candidate::ManaAbility{ability} if Some(ability)==preferred))
-                    .or_else(||allowed.iter().find(|i|matches!(d.candidates[**i as usize],Candidate::ManaAbility{ability:mtg_core::ManaAbilityIdentity::Intrinsic{color}} if Some(color)==self.mana_color))).or(allowed.first()).ok_or("empty mana ability slot")?;
+                    .or_else(||allowed.iter().find(|i|matches!(d.candidates[**i as usize],Candidate::ManaAbility{ability:mtg_core::ManaAbilityIdentity::Intrinsic{color}} if Some(color)==self.memory.mana_color))).or(allowed.first()).ok_or("empty mana ability slot")?;
                 if matches!(
                     d.candidates[*n as usize],
                     Candidate::ManaAbility {
                         ability: mtg_core::ManaAbilityIdentity::Intrinsic { .. }
                     }
                 ) {
-                    self.mana_color = None;
+                    self.memory.mana_color = None;
                 }
                 Answer::Pick {
                     picks: vec![vec![*n]],
                 }
             }
             (Reason::ManaColor { .. }, Shape::Pick { slots, .. }) => {
-                let preferred = self.mana_color.take();
+                let preferred = self.memory.mana_color.take();
                 let allowed = &slots[0].allowed;
                 let n=allowed.iter().find(|i|matches!(d.candidates[**i as usize],Candidate::Color{color} if Some(color)==preferred)).or(allowed.first()).ok_or("empty mana color slot")?;
                 Answer::Pick {

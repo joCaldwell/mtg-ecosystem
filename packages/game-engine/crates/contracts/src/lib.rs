@@ -8,7 +8,7 @@ mod cycling;
 
 pub use cycling::hand_discard_draw_activation;
 
-mod mana_spend;
+pub mod mana_spend;
 
 pub use mana_spend::{ManaSpellSubtype, ManaSpellTraits, ManaSpendRestriction, RestrictedMana};
 

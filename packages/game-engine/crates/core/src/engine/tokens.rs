@@ -57,12 +57,6 @@ pub enum RuleFault {
         requested: u32,
     },
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct VisibleToken {
-    pub name: String,
-    pub keywords: Vec<KeywordAbility>,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenIdentity {

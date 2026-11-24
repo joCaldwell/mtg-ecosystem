@@ -1175,7 +1175,7 @@ impl Strategy<'_> {
         o: &VisibleObject,
         d: &Definition,
     ) -> Option<Action<Viewer>> {
-        if self.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
+        if self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
             matches!(failed, PaymentAction::Cast(id, zone) if id == &d.oracle_id && *zone == o.zone)
         }) {
             return None;
@@ -1223,10 +1223,10 @@ impl Strategy<'_> {
             cost.clone(),
             &d.characteristics.hybrid_mana,
         )?;
-        self.payment.announced_cost = unchanged_cost.then_some(cost);
-        self.hybrid_choices = choices;
-        self.mana_plan = plan;
-        self.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
+        self.memory.payment.announced_cost = unchanged_cost.then_some(cost);
+        self.memory.hybrid_choices = choices;
+        self.memory.mana_plan = plan;
+        self.memory.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
         Some(Action::Cast {
             card: o.handle.clone(),
         })
@@ -1288,7 +1288,7 @@ impl Strategy<'_> {
             _ => false,
         };
         if !in_zone
-            || self.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
+            || self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
                 matches!(failed, PaymentAction::Activate(handle, index) if handle == &o.handle && *index == ability)
             })
             || !self.program_ready(v, d, &a.program)
@@ -1397,15 +1397,15 @@ impl Strategy<'_> {
             return None;
         }
 
-        self.mana_plan = mana_policy::plan_for(
+        self.memory.mana_plan = mana_policy::plan_for(
             self.catalog,
             v,
             &cost,
             if tap || sac { Some(&o.handle) } else { None },
         )?;
-        self.payment.exclude = (tap || sac).then(|| o.handle.clone());
-        self.payment.announced_cost = Some(cost);
-        self.payment.action = Some(PaymentAction::Activate(o.handle.clone(), ability));
+        self.memory.payment.exclude = (tap || sac).then(|| o.handle.clone());
+        self.memory.payment.announced_cost = Some(cost);
+        self.memory.payment.action = Some(PaymentAction::Activate(o.handle.clone(), ability));
         Some(Action::ActivateAbility {
             object: o.handle.clone(),
             ability: ability as u32,
@@ -1416,11 +1416,11 @@ impl Strategy<'_> {
         if self.policy == Policy::DrawOnly {
             return Ok(Action::Pass);
         }
-        self.payment.next_priority(v);
-        self.mana_plan.clear();
-        self.mana_ability = None;
-        self.mana_color = None;
-        self.hybrid_choices.clear();
+        self.memory.payment.next_priority(v);
+        self.memory.mana_plan.clear();
+        self.memory.mana_ability = None;
+        self.memory.mana_color = None;
+        self.memory.hybrid_choices.clear();
         if let Some(r) = self.reactive_spells(v)? {
             return Ok(r);
         }

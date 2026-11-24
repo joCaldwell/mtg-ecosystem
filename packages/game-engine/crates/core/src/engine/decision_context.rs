@@ -2,49 +2,6 @@
 //! Descriptions grant no legality, numeric bound, payment plan or rules permission.
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DecisionSourceKind {
-    Spell,
-    Activated,
-    Triggered,
-    ManaAbility,
-    Effect,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DecisionSource {
-    pub kind: DecisionSourceKind,
-    pub oracle_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub object: Option<ObjectHandle>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ability: Option<u32>,
-    pub text: String,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DecisionInstruction {
-    pub source_block: u32,
-    pub text: String,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct CandidateLabel {
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<DecisionSource>,
-}
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DecisionContext {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<DecisionSource>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub instruction: Option<DecisionInstruction>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub candidates: Vec<CandidateLabel>,
-}
 impl RulesTxn {
     pub(crate) fn trigger_source_label(
         &self,

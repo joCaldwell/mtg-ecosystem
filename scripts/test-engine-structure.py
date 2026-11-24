@@ -88,6 +88,9 @@ class StructureTests(unittest.TestCase):
                 path = root / structure.CRATES / name
                 path.mkdir(parents=True)
                 (path / 'Cargo.toml').write_text(f'[package]\nname="mtg-{name}"\n')
+            observer = root / structure.CRATES / 'observe/Cargo.toml'
+            with observer.open('a') as f:
+                f.write('[dependencies]\n' + ''.join(f'{dep}="1"\n' for dep in structure.ALLOWED['mtg-observe']))
             path = root / structure.CRATES / 'core/Cargo.toml'
             path.write_text(path.read_text() + '\n[target.\'cfg(unix)\'.dependencies]\nconcealed = { package="mtg-compiler", path="../compiler" }\n')
             self.assertIn('mtg-compiler', structure.dependency_errors(root)[0])
@@ -107,6 +110,33 @@ class StructureTests(unittest.TestCase):
             ast = root / structure.CRATES / 'oracle-ast/Cargo.toml'
             ast.write_text('[package]\nname="mtg-oracle-ast"\n[dependencies]\nmtg-contracts = {path="../contracts"}\n')
             self.assertIn('oracle-ast', structure.dependency_errors(root)[0])
+
+    def test_observer_rejects_core_as_aliased_dev_dependency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'Cargo.toml').write_text('[workspace.dependencies]\n')
+            for name in structure.ALLOWED:
+                path = root / structure.CRATES / name.removeprefix('mtg-')
+                path.mkdir(parents=True)
+                (path / 'Cargo.toml').write_text(f'[package]\nname="{name}"\n')
+            observer = root / structure.CRATES / 'observe/Cargo.toml'
+            self.assertIn('missing reviewed runtime dependencies', structure.dependency_errors(root)[0])
+            with observer.open('a') as f:
+                f.write('[dev-dependencies]\nbackdoor = {package="mtg-core", path="../core"}\n')
+            self.assertIn('mtg-core', structure.dependency_errors(root)[0])
+
+    def test_only_env_ffi_can_relax_unsafe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = root / structure.CRATES / 'env'
+            (env / 'src').mkdir(parents=True)
+            (root / 'Cargo.toml').write_text(f'[workspace]\nmembers=["{structure.CRATES}/env"]\n'
+                                              '[workspace.lints.rust]\nunsafe_code="forbid"\n')
+            (env / 'Cargo.toml').write_text('[lints.rust]\nunsafe_code="deny"\n')
+            (env / 'src/ffi.rs').write_text('#[allow(unsafe_code)] fn ok() {}')
+            self.assertEqual(structure.unsafe_errors(root), [])
+            (env / 'src/lib.rs').write_text('#![allow(dead_code, unsafe_code)]')
+            self.assertIn('confined', structure.unsafe_errors(root)[0])
 
     def test_testkit_is_confined_to_test_crates(self):
         with tempfile.TemporaryDirectory() as tmp:

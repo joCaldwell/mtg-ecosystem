@@ -8,17 +8,6 @@ pub struct ObjectId {
     pub card: CardId,
     pub incarnation: u32,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "zone", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Zone {
-    Battlefield,
-    Hand { owner: PlayerId },
-    Graveyard { owner: PlayerId },
-    Library { owner: PlayerId },
-    Command { owner: PlayerId },
-    Exile,
-    Stack,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Player {
