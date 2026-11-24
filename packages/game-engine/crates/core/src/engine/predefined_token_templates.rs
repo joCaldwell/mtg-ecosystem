@@ -45,11 +45,13 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
             colored: vec![],
         }),
         sacrifice: true,
+        pay_life: None,
     };
     if treasure {
         d.mana_abilities.push(ManaAbility {
             costs,
             production: ManaProduction::AnyColor,
+            riders: vec![],
             source_block: 0,
             restriction: None,
         });

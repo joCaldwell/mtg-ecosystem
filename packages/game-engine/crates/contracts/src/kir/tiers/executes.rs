@@ -272,9 +272,13 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                     Some(Route::Player) => false,
                 }
         }
-        ActivationCost::DiscardSource { .. } | ActivationCost::TapPayLifeSacrificeSource { .. } => {
-            false
+        // CR 118.3, 119.4, 701.21a: "{T}, Pay N life, Sacrifice [this]" is
+        // paid as one ordered batch at activation; with no announcement the
+        // runtime validates every term before paying any.
+        ActivationCost::TapPayLifeSacrificeSource { life } => {
+            route.is_none() && !life.is_negative()
         }
+        ActivationCost::DiscardSource { .. } => false,
     };
     if !payable {
         let route = match route {
@@ -388,23 +392,47 @@ fn static_ability(d: &Definition, a: &StaticAbility) -> Result<(), String> {
     Ok(())
 }
 
-/// The mana row: tap-only fixed, any-color or commander-color production.
+/// The mana row: a tap ability of a creature, artifact or land that adds
+/// fixed, chosen, any-color, commander-color or "could produce" mana, may
+/// also cost mana (CR 605.3a, 601.2g-h) or life (CR 119.4), and may perform
+/// admitted riders after adding mana ([`kir::mana_rider`]).
 /// CR 605.1a, 605.3: mana abilities do not use the stack.
 fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
+    let distinct = |colors: &[Color]| {
+        colors
+            .iter()
+            .enumerate()
+            .all(|(i, c)| !colors[..i].contains(c))
+    };
     if !matches!(
         d.characteristics.kind,
         CardKind::Creature | CardKind::Artifact | CardKind::Land
     ) || !a.costs.tap
         || a.costs.sacrifice
-        || a.costs.mana.is_some()
+        || a.costs
+            .mana
+            .as_ref()
+            .is_some_and(|m| m.generic.is_negative() || m.colored.contains(&Color::C))
+        || a.costs
+            .pay_life
+            .as_ref()
+            .is_some_and(|life| *life < Quantity::from(1))
         || a.costs.remove_source_plus_one_counters.is_some()
         || a.restriction.is_some()
         || !match &a.production {
             ManaProduction::Fixed { symbols } => !symbols.is_empty(),
-            ManaProduction::AnyColor | ManaProduction::CommanderColor => true,
+            ManaProduction::AnyColor
+            | ManaProduction::CommanderColor
+            | ManaProduction::LandsCouldProduce { .. } => true,
+            ManaProduction::Choose { colors, amount } => {
+                colors.len() >= 2 && distinct(colors) && *amount >= Quantity::from(1)
+            }
         }
     {
         return cell("mana", name(&a.production));
+    }
+    if let Some(error) = a.riders.iter().find_map(|r| kir::mana_rider(r).err()) {
+        return cell("mana", format!("rider:{error}"));
     }
     Ok(())
 }

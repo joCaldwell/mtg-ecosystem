@@ -981,6 +981,9 @@ impl Strategy<'_> {
                             .iter()
                             .map(|a| match &a.production {
                                 mtg_contracts::ManaProduction::Fixed { symbols } => symbols.len(),
+                                mtg_contracts::ManaProduction::Choose { amount, .. } => {
+                                    amount.to_u32().map_or(1, |n| n as usize)
+                                }
                                 _ => 1,
                             })
                             .max()

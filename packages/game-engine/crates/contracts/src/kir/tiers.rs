@@ -168,6 +168,22 @@ pub enum Cell {
     /// CR 608.2c-d: a control node (sequence with a decision or result,
     /// condition, choice, repetition, payment) run by the continuation.
     Control,
+    // CR 106, 605: mana abilities beyond the tap-only fixed, any-color and
+    // commander-color surface.
+    /// CR 106.1a: N mana of one color chosen from a printed list.
+    ManaChoose,
+    /// CR 106.7: one mana of a type some lands could produce.
+    ManaLandsCouldProduce,
+    /// CR 605.3a, 601.2g-h: a mana ability with a mana cost.
+    ManaAbilityManaCost,
+    /// CR 118.3, 119.4: a mana ability with a life payment.
+    ManaAbilityPayLife,
+    /// CR 605.3a: a source with more than one printed mana ability.
+    ManaAbilitySelection,
+    /// CR 605.1a, 120.3a: "[this] deals N damage to you" after adding mana.
+    ManaRiderDamageController,
+    /// CR 605.1a, 119.3: "you gain N life" after adding mana.
+    ManaRiderGainLifeController,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -230,7 +246,14 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MultiTypeCreatureTokens
         | C::PumpSet
         | C::SourceKeywordsUntilEndOfTurn
-        | C::Control => Tiers::EXECUTES,
+        | C::Control
+        | C::ManaChoose
+        | C::ManaLandsCouldProduce
+        | C::ManaAbilityManaCost
+        | C::ManaAbilityPayLife
+        | C::ManaAbilitySelection
+        | C::ManaRiderDamageController
+        | C::ManaRiderGainLifeController => Tiers::EXECUTES,
     }
 }
 
@@ -399,6 +422,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     for a in &d.triggered {
         add(&a.program, Context::Triggered, Some(&a.condition))?;
+    }
+    for a in &d.mana_abilities {
+        cells.extend(mana_ability_cells(d, a)?);
     }
     Ok(cells)
 }

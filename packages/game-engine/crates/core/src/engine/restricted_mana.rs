@@ -118,36 +118,6 @@ impl RulesTxn {
         }
     }
 
-    pub(super) fn eligible_restricted(
-        &self,
-        player: PlayerId,
-        consumer: ManaConsumer,
-    ) -> Vec<RestrictedMana> {
-        self.state.rules.players[player.0 as usize]
-            .restricted_mana
-            .iter()
-            .filter(|unit| consumer.permits(unit.restriction))
-            .cloned()
-            .collect()
-    }
-
-    pub(super) fn can_pay_with_restricted(
-        &self,
-        player: PlayerId,
-        cost: &ManaCost,
-        consumer: ManaConsumer,
-    ) -> Result<bool, String> {
-        let mut funds = self.state.rules.players[player.0 as usize].mana.clone();
-        for unit in self.eligible_restricted(player, consumer) {
-            funds.entry(unit.color).or_default().add(&unit.amount);
-        }
-        match Self::deduct_payment_cost(funds, cost) {
-            Ok(_) => Ok(true),
-            Err(payments::PaymentError::InsufficientMana) => Ok(false),
-            Err(e) => Err(e.into()),
-        }
-    }
-
     pub(super) fn allocated_mana_pools(
         &self,
         player: PlayerId,

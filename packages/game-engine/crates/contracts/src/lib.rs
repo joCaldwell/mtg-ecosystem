@@ -1239,13 +1239,44 @@ pub struct PermanentActivationCosts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana: Option<ManaCost>,
     pub sacrifice: bool,
+    /// CR 118.3, 119.4: "Pay N life", paid only by a player whose life total
+    /// is at least N; paying life is loss of life, never damage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub pay_life: Option<Quantity>,
 }
+/// CR 106.1, 106.4: the mana one resolving mana ability adds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaProduction {
-    Fixed { symbols: Vec<Color> },
+    Fixed {
+        symbols: Vec<Color>,
+    },
     AnyColor,
     CommanderColor,
+    /// `amount` mana of one color its controller chooses from `colors` as
+    /// the ability resolves (CR 106.1a, 605.3b): "Add {W} or {U}" and "Add
+    /// three mana of any one color".
+    Choose {
+        colors: Vec<Color>,
+        #[schemars(range(min = 1))]
+        amount: Quantity,
+    },
+    /// CR 106.7: one mana of a type that a land controlled by `controller`
+    /// could produce, chosen as the ability resolves. `colors_only` reads
+    /// "any color" and excludes colorless; otherwise "any type".
+    LandsCouldProduce {
+        controller: ManaLandController,
+        colors_only: bool,
+    },
+}
+/// Whose lands a "could produce" ability inspects, relative to the mana
+/// ability's controller (CR 109.5, 102.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ManaLandController {
+    You,
+    Opponents,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1254,6 +1285,12 @@ pub struct ManaAbility {
     pub restriction: Option<ManaActivationRestriction>,
     pub costs: PermanentActivationCosts,
     pub production: ManaProduction,
+    /// CR 605.1a, 605.3b: the ability's other printed instructions, Kernel
+    /// nodes performed in order after the mana is added, while the ability
+    /// resolves immediately and without the stack. A mana ability has no
+    /// targets; [`kir::mana_rider`] admits each node.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub riders: Vec<kir::Node>,
     pub source_block: u32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

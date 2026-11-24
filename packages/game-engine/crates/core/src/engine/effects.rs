@@ -176,7 +176,14 @@ pub struct DamageTransaction {
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DamageContinuation {
     Combat,
-    Instruction { frame: Box<Resolving> },
+    Instruction {
+        frame: Box<Resolving>,
+    },
+    /// CR 605.1a, 605.3b: a resolving mana ability's damage rider; the
+    /// activation resumes with its next rider.
+    Mana {
+        activation: Box<ManaActivation>,
+    },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -929,6 +936,7 @@ impl RulesTxn {
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
             match tx.continuation {
                 DamageContinuation::Combat => self.grant_turn_priority()?,
+                DamageContinuation::Mana { activation } => self.resume_mana_riders(*activation)?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
                     *frame,
                     InstructionOutcome::Damage {
@@ -2213,6 +2221,9 @@ impl RulesTxn {
                         return Err("combat assigned total differs from frozen power".into());
                     }
                 }
+            }
+            (DamageKind::Noncombat, DamageContinuation::Mana { activation }) => {
+                self.validate_mana_rider_damage(tx, activation)?;
             }
             (DamageKind::Noncombat, DamageContinuation::Instruction { frame }) => {
                 self.validate_resolving(frame)?;

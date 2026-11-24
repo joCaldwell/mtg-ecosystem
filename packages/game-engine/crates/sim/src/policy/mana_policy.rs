@@ -3,6 +3,7 @@
 use super::*;
 use mtg_contracts::{KeywordAbility, ManaAbility, ManaProduction, basic_land_color};
 use mtg_core::{ManaAbilityIdentity, PermittedView};
+use std::collections::BTreeSet;
 
 #[derive(Clone)]
 pub(super) struct PlannedMana {
@@ -19,6 +20,8 @@ struct Source<'a> {
     production: ManaProduction,
     colors: Vec<Color>,
     cost: Option<ManaCost>,
+    /// Pays life or performs a rider (damage, life gain): used last.
+    harm: bool,
 }
 struct Planner<'a> {
     sources: Vec<Source<'a>>,
@@ -66,6 +69,7 @@ impl Planner<'_> {
                 .filter(|i| deficit.is_none_or(|c| self.sources[*i].colors.contains(&c)))
                 .min_by_key(|i| {
                     (
+                        self.sources[*i].harm,
                         self.sources[*i].colors.len(),
                         self.sources[*i].land,
                         usize::from(self.sources[*i].cost.is_some()),
@@ -138,8 +142,9 @@ fn available_tap(object: &mtg_core::VisibleObject) -> bool {
             || object.keywords.contains(&KeywordAbility::Haste))
 }
 
-fn usable_printed(ability: &ManaAbility, object: &mtg_core::VisibleObject) -> bool {
+fn usable_printed(ability: &ManaAbility, object: &mtg_core::VisibleObject, life: &Quantity) -> bool {
     !ability.costs.sacrifice
+        && ability.costs.pay_life.as_ref().is_none_or(|n| life >= n)
         && (!ability.costs.tap || available_tap(object))
         && ability
             .costs
@@ -154,7 +159,51 @@ fn production_colors(catalog: &Catalog, view: &PermittedView, mana: &ManaProduct
         ManaProduction::Fixed { symbols } => symbols.clone(),
         ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
         ManaProduction::CommanderColor => commander_colors(catalog, view).to_vec(),
+        ManaProduction::Choose { colors, .. } => colors.clone(),
+        ManaProduction::LandsCouldProduce {
+            controller,
+            colors_only,
+        } => lands_could_produce(catalog, view, *controller, *colors_only),
     }
+}
+
+/// CR 106.7 from public information: the colors of the named players'
+/// battlefield lands' intrinsic and printed abilities. The engine offers the
+/// exact set; a "could produce" land contributes nothing here.
+fn lands_could_produce(
+    catalog: &Catalog,
+    view: &PermittedView,
+    controller: mtg_contracts::ManaLandController,
+    colors_only: bool,
+) -> Vec<Color> {
+    let mut colors = BTreeSet::new();
+    for o in &view.objects {
+        let mine = o.controller == view.viewer;
+        let named = match controller {
+            mtg_contracts::ManaLandController::You => mine,
+            mtg_contracts::ManaLandController::Opponents => !mine,
+        };
+        let Ok(d) = definition(catalog, &o.oracle_id) else {
+            continue;
+        };
+        if o.zone != Zone::Battlefield || o.phased_out || !named {
+            continue;
+        }
+        let c = o.characteristics.as_ref().unwrap_or(&d.characteristics);
+        if !c.has_type(CardKind::Land) {
+            continue;
+        }
+        colors.extend(c.subtypes.iter().filter_map(|s| basic_land_color(s)));
+        for ability in &d.mana_abilities {
+            if !matches!(ability.production, ManaProduction::LandsCouldProduce { .. }) {
+                colors.extend(production_colors(catalog, view, &ability.production));
+            }
+        }
+    }
+    if colors_only {
+        colors.remove(&Color::C);
+    }
+    colors.into_iter().collect()
 }
 
 pub(super) fn spendable_pool(view: &PermittedView) -> Option<BTreeMap<Color, Quantity>> {
@@ -181,8 +230,14 @@ pub(super) fn plan_for(
             continue;
         };
         let land = d.characteristics.has_type(CardKind::Land);
+        let life = view
+            .players
+            .iter()
+            .find(|p| p.player == view.viewer)
+            .map(|p| p.life.clone())
+            .unwrap_or_default();
         for (index, ability) in d.mana_abilities.iter().enumerate() {
-            if !usable_printed(ability, o) {
+            if !usable_printed(ability, o, &life) {
                 continue;
             }
             let colors = production_colors(catalog, view, &ability.production);
@@ -195,11 +250,15 @@ pub(super) fn plan_for(
                     index: index as u32,
                 },
                 handle: &o.handle,
-                amount: 1.into(),
+                amount: match &ability.production {
+                    ManaProduction::Choose { amount, .. } => amount.clone(),
+                    _ => 1.into(),
+                },
                 land,
                 production: ability.production.clone(),
                 colors,
                 cost: ability.costs.mana.clone(),
+                harm: !ability.riders.is_empty() || ability.costs.pay_life.is_some(),
             });
         }
         if land && available_tap(o) {
@@ -220,6 +279,7 @@ pub(super) fn plan_for(
                     },
                     colors: vec![color],
                     cost: None,
+                    harm: false,
                 });
             }
         }
@@ -289,6 +349,7 @@ mod tests {
                 production: ManaProduction::AnyColor,
                 colors: vec![Color::W, Color::U, Color::B, Color::R, Color::G],
                 cost: None,
+                harm: false,
             }],
             used: vec![false],
             pool: BTreeMap::new(),

@@ -32,6 +32,7 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
                 tap: true,
                 mana: Some(mana_cost("{2}").unwrap()),
                 sacrifice: true,
+                pay_life: None,
             }
         }
     );

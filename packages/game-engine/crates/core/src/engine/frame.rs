@@ -63,6 +63,7 @@ macro_rules! frame_walk {
             visit($Held::Damage(entries));
             match & $($mutability)? *continuation {
                 DamageContinuation::Combat => {}
+                DamageContinuation::Mana { activation: _ } => {}
                 DamageContinuation::Instruction { frame } => visit($Held::Invocation {
                     hold,
                     id: frame.stack_id,
@@ -239,6 +240,9 @@ macro_rules! frame_parent {
             }
             Self::DamageEffects { transaction } => {
                 match &$($mutable)? transaction.continuation {
+                    DamageContinuation::Mana { activation } => {
+                        Some((&$($mutable)? activation.resume, Hold::Suspended))
+                    }
                     DamageContinuation::Combat | DamageContinuation::Instruction { .. } => None,
                 }
             }
@@ -567,6 +571,12 @@ pub fn retained_effect_frame<'a>(frames: &'a [Frame], mut frame: &'a Frame) -> &
     loop {
         frame = match frame {
             Frame::ManaAbility { activation } => &frames[activation.resume.0],
+            Frame::DamageEffects { transaction } => match &transaction.continuation {
+                DamageContinuation::Mana { activation } => &frames[activation.resume.0],
+                DamageContinuation::Combat | DamageContinuation::Instruction { .. } => {
+                    return frame;
+                }
+            },
             Frame::ManaSourceChoice { resume, .. }
             | Frame::Stabilize { resume, .. }
             | Frame::LegendRule { resume, .. } => &frames[resume.0],
