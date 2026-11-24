@@ -136,6 +136,8 @@ fn announced_x_is_in_scope_only_when_the_object_has_x() {
     with_x.announced_x = true;
     let requirements = check(&node, &with_x).unwrap();
     assert!(requirements.announced_x);
+    assert_eq!(requirements.cells, BTreeSet::from([Cell::LifeControllerX]));
+    assert_eq!(cell_tiers(Cell::LifeControllerX), Tiers::EXECUTES);
     // CR 107.3: X is the amount for the controller or one announced
     // player; a group or event player has no audited X cell.
     let targets = player_target();
@@ -147,6 +149,12 @@ fn announced_x_is_in_scope_only_when_the_object_has_x() {
             amount: Amount::announced_x(),
         })
     };
+    assert_eq!(
+        check(&x(PlayerExpr::you(Context::Spell)), &with_x)
+            .unwrap()
+            .cells,
+        requirements.cells
+    );
     check(&x(PlayerExpr::target(0)), &targeted).unwrap();
     assert!(matches!(
         check(&x(PlayerExpr::EachOpponent), &targeted),

@@ -101,6 +101,7 @@ impl Tiers {
 pub enum Cell {
     // CR 119.3: life.
     LifeController,
+    LifeControllerX,
     LifeEventPlayer,
     LifeEachOpponent,
     LifeTargetPlayer,
@@ -220,7 +221,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::CreatureTokens
         | C::PlusOneCountersSource
         | C::PlusOneCountersTarget => Tiers::HOSTING,
-        C::LifeEventPlayer
+        C::LifeControllerX
+        | C::LifeEventPlayer
         | C::LifeEachOpponent
         | C::LifeTargetPlayerX
         | C::LifeTargetController

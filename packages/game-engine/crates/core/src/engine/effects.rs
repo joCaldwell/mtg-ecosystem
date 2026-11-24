@@ -1873,6 +1873,8 @@ impl RulesTxn {
                             && supported_temporary_keywords(grants)
                             && *source_block == e.origin.source_block
                             && !targets.is_empty()
+                            // This structural check uses only the permanent
+                            // kinds, while replay proves the captured filter.
                             && self.valid_set_effect_targets(
                                 e,
                                 targets,

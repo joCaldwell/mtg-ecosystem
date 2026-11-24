@@ -50,7 +50,11 @@ impl Walk<'_, '_> {
         match player {
             PlayerExpr::Is {
                 who: Ref::Controller { .. },
-            } => Ok(Cell::LifeController),
+            } => Ok(if announced {
+                Cell::LifeControllerX
+            } else {
+                Cell::LifeController
+            }),
             PlayerExpr::Is {
                 who: Ref::EventPlayer { role },
             } if !announced && Self::recipient_role(*role) => Ok(Cell::LifeEventPlayer),
