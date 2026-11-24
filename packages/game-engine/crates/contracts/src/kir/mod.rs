@@ -58,6 +58,7 @@ pub use check::*;
 pub use nodes::*;
 pub use pred::*;
 pub use refs::*;
+pub(crate) use tiers::executes;
 pub use tiers::*;
 pub use verbs::*;
 

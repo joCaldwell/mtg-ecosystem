@@ -1,6 +1,6 @@
 //! Admission data embedded by build.rs. The same typed loader that runtime lazy
 //! initialization uses validates every embedded profile in a unit test.
-use mtg_contracts::{Capability, Catalog, digest, sha256, strict_read};
+use mtg_contracts::{Capability, Catalog, digest, kir, sha256, strict_read};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 /// Data is discovered and embedded at build time; core performs no filesystem I/O.
@@ -69,6 +69,15 @@ pub enum Feature {
     Search,
     Hosting,
 }
+impl Feature {
+    /// The tier a definition earns to be admitted to this feature.
+    pub fn tier(self) -> kir::ExecutionTier {
+        match self {
+            Self::Search => kir::ExecutionTier::Search,
+            Self::Hosting => kir::ExecutionTier::Hosting,
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub enum ProfileError {
@@ -81,6 +90,11 @@ pub enum ProfileError {
     UnreviewedCapabilities {
         feature: Feature,
         capabilities: BTreeSet<Capability>,
+    },
+    /// Every surface earned the tier but some kernel cell did not.
+    UnqualifiedCells {
+        feature: Feature,
+        cells: BTreeSet<kir::Cell>,
     },
 }
 impl std::fmt::Display for ProfileError {
@@ -180,6 +194,9 @@ impl MatchProfile {
             .find(|b| b.oracle_id == id)
             .map(|b| b.name.as_str())
     }
+    /// A hosted or searched profile admits only definitions whose every
+    /// surface and kernel cell has earned that feature's tier
+    /// (`mtg_contracts::kir::tiers`).
     pub fn require_feature(&self, catalog: &Catalog, feature: Feature) -> Result<(), ProfileError> {
         if !match feature {
             Feature::Search => self.search,
@@ -187,18 +204,22 @@ impl MatchProfile {
         } {
             return Err(ProfileError::FeatureNotRequested { feature });
         }
-        let allowed: BTreeSet<_> = reviewed(feature).iter().copied().collect();
-        let required: BTreeSet<_> = catalog
-            .definitions
-            .iter()
-            .flat_map(|d| d.requirements())
-            .collect();
-        let capabilities: BTreeSet<_> = required.difference(&allowed).copied().collect();
+        let tier = feature.tier();
+        let mut capabilities = BTreeSet::new();
+        let mut cells = BTreeSet::new();
+        for d in &catalog.definitions {
+            let (surfaces, kernel) = kir::unqualified(d, tier);
+            capabilities.extend(surfaces);
+            cells.extend(kernel);
+        }
         if !capabilities.is_empty() {
             return Err(ProfileError::UnreviewedCapabilities {
                 feature,
                 capabilities,
             });
+        }
+        if !cells.is_empty() {
+            return Err(ProfileError::UnqualifiedCells { feature, cells });
         }
         Ok(())
     }
@@ -210,120 +231,5 @@ impl MatchProfile {
             self.require_feature(catalog, Feature::Hosting)?;
         }
         Ok(())
-    }
-}
-// Explicit reviewed mechanic sets. Extending these requires feature-specific review.
-// `ComposedAbilityV1` names how the compiler assembled a definition (block by
-// block from its Archive R4 resolution, the only lowering pipeline), not a
-// mechanic: every mechanic it uses still needs its own capability here.
-fn reviewed(feature: Feature) -> &'static [Capability] {
-    match feature {
-        Feature::Search => &[
-            Capability::ActivatedAbilityV1,
-            Capability::AnyDamageTargetV1,
-            Capability::AnyPlayerTargetV1,
-            Capability::BaseCreatureV1,
-            Capability::BasicLandManaV1,
-            Capability::CastCreatureV1,
-            Capability::CastEnchantmentV1,
-            Capability::CastInstantV1,
-            Capability::CastSorceryV1,
-            Capability::CombatDamagePreventionV1,
-            Capability::CommanderIdentityV1,
-            Capability::ComposedAbilityV1,
-            Capability::ControllerDiscardV1,
-            Capability::ControllerDrawV1,
-            Capability::CounterStackObjectV1,
-            Capability::CreatureDiesV1,
-            Capability::CreatureTargetV1,
-            Capability::DamageBudgetPreventionV1,
-            Capability::DefenderV1,
-            Capability::InterveningIfV1,
-            Capability::LandPlayV1,
-            Capability::LifeGainV1,
-            Capability::LifeLossV1,
-            Capability::ManaActivationCostV1,
-            Capability::ModalChoiceV1,
-            Capability::NoncombatDamageV1,
-            Capability::NormalLayoutV1,
-            Capability::OpponentTargetV1,
-            Capability::OtherCreatureEntersBattlefieldV1,
-            Capability::OwnerHandMoveV1,
-            Capability::OwnerLibraryTopMoveV1,
-            Capability::SacrificeSourceCostV1,
-            Capability::SelfDiesV1,
-            Capability::SelfEntersBattlefieldV1,
-            Capability::StackAbilityTargetV1,
-            Capability::StackSpellTargetV1,
-            Capability::StaticDamageReplacementV1,
-            Capability::TapSourceCostV1,
-            Capability::TargetPlayerSacrificeCreatureV1,
-            Capability::TemporaryPowerToughnessV1,
-            Capability::TriggeredAbilityV1,
-        ],
-        Feature::Hosting => &[
-            Capability::ActivatedAbilityV1,
-            Capability::AnyDamageTargetV1,
-            Capability::AnyPlayerTargetV1,
-            Capability::AttachmentsV1,
-            Capability::BaseCreatureV1,
-            Capability::BasicLandManaV1,
-            Capability::BasicLandSearchV1,
-            Capability::CastArtifactV1,
-            Capability::CastCreatureV1,
-            Capability::CastEnchantmentV1,
-            Capability::CastInstantV1,
-            Capability::CastSorceryV1,
-            Capability::CombatDamagePreventionV1,
-            Capability::CommanderIdentityV1,
-            Capability::ComposedAbilityV1,
-            Capability::CompositeActivationCostV1,
-            Capability::ControllerDiscardV1,
-            Capability::ControllerDrawV1,
-            Capability::CounterStackObjectV1,
-            Capability::CreatureAnthemV1,
-            Capability::CreatureDiesV1,
-            Capability::CreatureTargetV1,
-            Capability::CreatureTokensV1,
-            Capability::DamageBudgetPreventionV1,
-            Capability::DeathtouchV1,
-            Capability::DefenderV1,
-            Capability::DestroyCreatureV1,
-            Capability::DoubleStrikeV1,
-            Capability::FirstStrikeV1,
-            Capability::FlyingV1,
-            Capability::GraveyardRecursionV1,
-            Capability::HasteV1,
-            Capability::InterveningIfV1,
-            Capability::LandPlayV1,
-            Capability::LifeGainV1,
-            Capability::LifeLossV1,
-            Capability::LifelinkV1,
-            Capability::ManaActivationCostV1,
-            Capability::MenaceV1,
-            Capability::ModalChoiceV1,
-            Capability::NoncombatDamageV1,
-            Capability::NormalLayoutV1,
-            Capability::OpponentTargetV1,
-            Capability::OtherCreatureEntersBattlefieldV1,
-            Capability::OwnerHandMoveV1,
-            Capability::OwnerLibraryTopMoveV1,
-            Capability::PermanentManaV1,
-            Capability::PlusOneCountersV1,
-            Capability::ReachV1,
-            Capability::SacrificeSourceCostV1,
-            Capability::SelfDiesV1,
-            Capability::SelfEntersBattlefieldV1,
-            Capability::StackAbilityTargetV1,
-            Capability::StackSpellTargetV1,
-            Capability::StaticDamageReplacementV1,
-            Capability::TapSourceCostV1,
-            Capability::TargetPlayerDrawV1,
-            Capability::TargetPlayerSacrificeCreatureV1,
-            Capability::TemporaryPowerToughnessV1,
-            Capability::TrampleV1,
-            Capability::TriggeredAbilityV1,
-            Capability::VigilanceV1,
-        ],
     }
 }

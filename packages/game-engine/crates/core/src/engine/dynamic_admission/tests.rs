@@ -217,64 +217,54 @@ fn stage1d_dynamic_capacity_and_copy_gates_are_fail_closed() {
     assert!(match_profile(DYNAMIC_PROFILE).is_none());
 }
 
-// Retired R3 roster pins (copy seat, then control seat): roster digest and
-// complete compiled-definition digest. History only; nothing admits by them.
-const RETIRED_R3_ROSTERS: [(&str, &str); 2] = [
-    (
-        "fc760bcb3e02ad494005b69f3d6c200115399e2a5692782cd14d4cb6a418d3d3",
-        "c818ecb0465ed7514e28100e5f2c27d1c238feed0e8b408d15ceb697f9c07763",
-    ),
-    (
-        "fed5f2569774b2e30d475eb575884f6a88e32a3a9520ee63c0b06bd3fdc616e4",
-        "584186446f00614c51143c48bff0d6a994d03a19c46be484889cbf6dc0742864",
-    ),
-];
-
 #[test]
-fn retired_r3_roster_review_no_longer_bypasses_capability_review() {
-    // The policy identity changed deliberately: neither the v2 domain nor the
-    // retired roster pins can reproduce the current digest.
-    let retired = digest(&(
-        "commander-dynamic-pair-admission-v2",
-        POLICY_SHA256,
-        REVIEWED,
-        RETIRED_R3_ROSTERS,
-    ))
-    .unwrap();
-    assert_ne!(policy().unwrap().digest, retired);
+fn headless_pods_admit_every_executing_definition() {
+    // The policy identity changed deliberately: no hand-listed capability
+    // set is hashed into it any more, only the tier headless pods require.
     assert_eq!(
         policy().unwrap().digest,
-        digest(&(ADMISSION_DOMAIN, POLICY_SHA256, REVIEWED)).unwrap()
+        digest(&(ADMISSION_DOMAIN, POLICY_SHA256, HEADLESS_TIER)).unwrap()
     );
-    // Every definition outside the reviewed capability set is reported for
-    // every role and roster; inspection has no roster-identity input.
+    assert_ne!(
+        policy().unwrap().digest,
+        digest(&(
+            "commander-dynamic-pair-admission-v3",
+            POLICY_SHA256,
+            HEADLESS_TIER
+        ))
+        .unwrap()
+    );
+    // Every compiled definition executes, so inspection reports no
+    // capability gap for any role; only copy capacity stays fenced.
     let catalog = Catalog::read(include_str!(
         "../../../../../tests/fixtures/expected-phase1-r4-ir.json"
     ))
     .unwrap();
     let names = BTreeMap::new();
-    let mut checked = 0;
+    let mut below_headless_qualified = 0;
     for definition in &catalog.definitions {
-        let unreviewed: Vec<_> = definition
-            .requirements()
-            .into_iter()
-            .filter(|c| !REVIEWED.contains(c))
-            .collect();
-        if unreviewed.is_empty() {
-            continue;
+        assert!(mtg_contracts::kir::definition_tiers(definition).admits(HEADLESS_TIER));
+        if !mtg_contracts::kir::definition_tiers(definition)
+            .admits(mtg_contracts::kir::ExecutionTier::HeadlessQualified)
+        {
+            below_headless_qualified += 1;
         }
-        for role in [DeckRole::Main, DeckRole::Commander, DeckRole::Companion] {
+        for role in [DeckRole::Main, DeckRole::Companion] {
             let mut issues = Vec::new();
             inspect_definition(definition, None, role, 1, &names, &mut issues);
-            let reported = issues
-                .iter()
-                .find(|issue| issue.code == CardGapCode::CapabilityUnreviewed)
-                .unwrap_or_else(|| panic!("{} bypassed capability review", definition.name));
-            assert_eq!(reported.capabilities, unreviewed);
+            assert!(
+                issues
+                    .iter()
+                    .all(|issue| issue.code == CardGapCode::CopyCapacityUnreviewed),
+                "{}: {issues:?}",
+                definition.name
+            );
         }
-        checked += 1;
     }
-    assert!(checked > 0, "fixture must include unreviewed capabilities");
+    assert!(
+        below_headless_qualified > 0,
+        "fixture must include definitions admitted only below analytics"
+    );
 }
 
 fn foundations_rows() -> [Vec<DynamicDeckEntry>; 4] {
@@ -454,7 +444,7 @@ fn deck_row_order_never_changes_admission_or_the_opening() {
 }
 
 #[test]
-fn stage1d_dynamic_policy_matches_reviewed_foundations_projection() {
+fn stage1d_foundations_projection_earns_the_headless_qualified_tier() {
     let profile = match_profile("commander-foundations-v1").unwrap();
     assert_eq!(profile.policy_digest(), POLICY_SHA256);
     assert!(policy().is_ok());
@@ -463,15 +453,15 @@ fn stage1d_dynamic_policy_matches_reviewed_foundations_projection() {
         .iter()
         .flat_map(|d| d.cards.iter().map(|row| &row.oracle_id))
         .collect();
-    let requirements: BTreeSet<_> = ids
-        .iter()
-        .flat_map(|id| {
-            profile
-                .catalog()
-                .definition_by_oracle_id(id)
-                .unwrap()
-                .requirements()
-        })
-        .collect();
-    assert_eq!(requirements, REVIEWED.iter().copied().collect());
+    // The parity corpus ran these decks: every definition they use earns
+    // the tier analytics and paired runs require.
+    for id in ids {
+        let definition = profile.catalog().definition_by_oracle_id(id).unwrap();
+        assert!(
+            mtg_contracts::kir::definition_tiers(definition)
+                .admits(mtg_contracts::kir::ExecutionTier::HeadlessQualified),
+            "{}",
+            definition.name
+        );
+    }
 }

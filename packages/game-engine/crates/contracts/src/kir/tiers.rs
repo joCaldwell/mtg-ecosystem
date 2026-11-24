@@ -18,6 +18,16 @@
 //! independent of one another (a hosting review says nothing about hidden
 //! information), so a cell records each one it has passed.
 use super::*;
+use crate::{Capability, Definition, Instruction, SpellProgram, TriggerCondition};
+
+mod executes;
+
+/// CR 113.3: the `Executes` tier of a definition: its card shell and every
+/// non-kernel surface has an executor ([`executes`]) and every kernel node
+/// occupies an audited cell ([`check`](super::check)).
+pub(crate) fn executes(d: &Definition) -> Result<(), String> {
+    executes::validate(d)
+}
 
 /// One admission tier (see the module table).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -86,7 +96,8 @@ impl Tiers {
 /// An audited kernel cell: the `(verb, operand kinds, context)` row
 /// [`check`](super::check) admitted a verb under. A row a wave opens is a new
 /// variant here and in [`cell_tiers`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Cell {
     // CR 119.3: life.
     LifeController,
@@ -221,4 +232,196 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SourceKeywordsUntilEndOfTurn
         | C::Control => Tiers::EXECUTES,
     }
+}
+
+/// The tiers each reviewed non-kernel surface has earned, by the capability
+/// that names it. Kernel verbs also name capabilities, so a kernel cell is
+/// fenced by both its own row in [`cell_tiers`] and these. Exhaustive: a new
+/// capability is reviewed here before any definition requires it.
+pub fn surface_tiers(capability: Capability) -> Tiers {
+    use Capability as C;
+    match capability {
+        C::TemporaryPowerToughnessV1
+        | C::NormalLayoutV1
+        | C::BasicLandManaV1
+        | C::LandPlayV1
+        | C::BaseCreatureV1
+        | C::CommanderIdentityV1
+        | C::CastInstantV1
+        | C::CastCreatureV1
+        | C::CreatureTargetV1
+        | C::CastSorceryV1
+        | C::ControllerDrawV1
+        | C::OpponentTargetV1
+        | C::TargetPlayerSacrificeCreatureV1
+        | C::AnyPlayerTargetV1
+        | C::LifeGainV1
+        | C::LifeLossV1
+        | C::TriggeredAbilityV1
+        | C::SelfEntersBattlefieldV1
+        | C::OtherCreatureEntersBattlefieldV1
+        | C::CreatureDiesV1
+        | C::DefenderV1
+        | C::ComposedAbilityV1 => Tiers::ALL,
+        C::CastEnchantmentV1
+        | C::CombatDamagePreventionV1
+        | C::DamageBudgetPreventionV1
+        | C::StaticDamageReplacementV1
+        | C::OwnerHandMoveV1
+        | C::OwnerLibraryTopMoveV1
+        | C::ActivatedAbilityV1
+        | C::SacrificeSourceCostV1
+        | C::ControllerDiscardV1
+        | C::StackSpellTargetV1
+        | C::StackAbilityTargetV1
+        | C::CounterStackObjectV1
+        | C::TapSourceCostV1
+        | C::ManaActivationCostV1
+        | C::AnyDamageTargetV1
+        | C::NoncombatDamageV1
+        | C::SelfDiesV1
+        | C::InterveningIfV1
+        | C::ModalChoiceV1 => Tiers::SEARCH_HOSTING,
+        C::CastArtifactV1
+        | C::PermanentManaV1
+        | C::CompositeActivationCostV1
+        | C::FlyingV1
+        | C::ReachV1
+        | C::VigilanceV1
+        | C::HasteV1
+        | C::LifelinkV1
+        | C::DeathtouchV1
+        | C::TrampleV1
+        | C::FirstStrikeV1
+        | C::DoubleStrikeV1
+        | C::MenaceV1
+        | C::CreatureTokensV1
+        | C::PlusOneCountersV1
+        | C::DestroyCreatureV1
+        | C::GraveyardRecursionV1
+        | C::BasicLandSearchV1
+        | C::CreatureAnthemV1
+        | C::TargetPlayerDrawV1
+        | C::AttachmentsV1 => Tiers::HOSTING,
+        C::PredefinedArtifactTokensV1
+        | C::PlayerGraveyardShuffleV1
+        | C::ControllerLifeFreezeV1
+        | C::ProtectionFromEverythingV1
+        | C::BasicLandwalkV1
+        | C::FixedColorProtectionV1
+        | C::SourceCombatRestrictionsV1
+        | C::CastHistoryV1
+        | C::CastManaValueSweepV1
+        | C::CastTriggerV1
+        | C::CastColorPredicateV1
+        | C::CastSubtypePredicateV1
+        | C::SourceTapTriggerV1
+        | C::AttackTriggerV1
+        | C::DamageTriggerV1
+        | C::SourceDamageTriggerV2
+        | C::EventPlayerDiscardV1
+        | C::EventPlayerSacrificeV1
+        | C::FilteredDamageTriggerV1
+        | C::DamageControllerDiscardV1
+        | C::EventPlayerRecipientV1
+        | C::UntapControllerLandsV1
+        | C::StepBeginningTriggerV1
+        | C::EntersTappedV1
+        | C::TypedNonbasicIntrinsicManaV1
+        | C::FlashV1
+        | C::EnterAsCopyOfPermanentEnteredThisTurnV1
+        | C::BlockingCreatureTargetV1
+        | C::TappedPermanentTargetV1
+        | C::PowerFilteredRemovalV1
+        | C::UntapPermanentV1
+        | C::TapPermanentV1
+        | C::ActivatedTapPermanentV1
+        | C::ActivatedCreatureTapV1
+        | C::TapSourceDestroyV1
+        | C::TapSourceUntapCreatureV1
+        | C::ActivatedPermanentOwnerHandV1
+        | C::ActivatedArtifactDrawV1
+        | C::PermanentOwnerHandMoveV1
+        | C::FixedMillProgramV1
+        | C::ControllerCountedDrawV1
+        | C::ControlledCreatureSpellCopyV1
+        | C::PayLifeCostV1
+        | C::DiscardSourceCostV1
+        | C::PlayerOrPlaneswalkerTargetV1
+        | C::OpponentLifeDrainV1
+        | C::KernelControlV1
+        | C::EntryGraveyardExileV1
+        | C::ControlledLandEntryV1
+        | C::CreatureOrPlaneswalkerTargetV1
+        | C::IndestructibleV1
+        | C::ActivatedSourceKeywordGrantV1
+        | C::MultiTypeCreatureTokensV1
+        | C::OwnGraveyardCardReturnV1
+        | C::PermanentRemovalV1
+        | C::SacrificeV1
+        | C::FixedArtifactSacrificeCostV1
+        | C::BoardWipesV1
+        | C::SelfSpellProtectionV1
+        | C::AnnouncedXDrawV1
+        | C::EachPlayerDrawV1
+        | C::AnnouncedXEffectsV1
+        | C::TargetPlayerDiscardV1
+        | C::RandomPlayerDiscardV1
+        | C::GroupHandDiscardV1 => Tiers::EXECUTES,
+    }
+}
+
+/// The audited kernel cells of every program of a definition. Every
+/// admitted definition's nodes check; a node that does not occupies no cell
+/// and the definition does not execute.
+pub fn definition_cells(d: &Definition) -> BTreeSet<Cell> {
+    let mut cells = BTreeSet::new();
+    let mut add = |p: &SpellProgram, context: Context, event: Option<&TriggerCondition>| {
+        let env = Env {
+            context,
+            targets: &p.targets,
+            event,
+            announced_x: false,
+        };
+        for Instruction::Kernel { node, .. } in &p.instructions {
+            if let Ok(derived) = check(node, &env) {
+                cells.extend(derived.cells);
+            }
+        }
+    };
+    if let Some(p) = &d.spell {
+        add(p, Context::Spell, None);
+    }
+    for a in &d.activated {
+        add(&a.program, Context::Activated, None);
+    }
+    for a in &d.triggered {
+        add(&a.program, Context::Triggered, Some(&a.condition));
+    }
+    cells
+}
+
+/// What keeps a definition below `tier`: the surfaces (by capability) and
+/// kernel cells that have not earned it. Both empty means the definition
+/// earns the tier, the meet over its cells.
+pub fn unqualified(d: &Definition, tier: ExecutionTier) -> (Vec<Capability>, Vec<Cell>) {
+    (
+        d.requirements()
+            .into_iter()
+            .filter(|c| !surface_tiers(*c).admits(tier))
+            .collect(),
+        definition_cells(d)
+            .into_iter()
+            .filter(|c| !cell_tiers(*c).admits(tier))
+            .collect(),
+    )
+}
+
+/// The tiers a definition has earned: the meet over its surfaces and cells.
+pub fn definition_tiers(d: &Definition) -> Tiers {
+    d.requirements()
+        .into_iter()
+        .map(surface_tiers)
+        .chain(definition_cells(d).into_iter().map(cell_tiers))
+        .fold(Tiers::ALL, Tiers::meet)
 }

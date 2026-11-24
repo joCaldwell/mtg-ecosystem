@@ -23,6 +23,7 @@ pub fn bench(build: BuildIdentity, args: &[String]) -> Result<(), String> {
         if manifest_flag != "--manifest-sha" || decks_flag != "--pod-decks" {
             return Err(USAGE.into());
         }
+        let options_args = options;
         let options = Options::parse(options)?;
         options.ensure_new_analytics_out()?;
         let decks = bulk_input::read_pod_decks(Path::new(decks_path))?;
@@ -32,6 +33,13 @@ pub fn bench(build: BuildIdentity, args: &[String]) -> Result<(), String> {
         let start = Instant::now();
         let template = DynamicPodTemplate::admit(&artifact, &decks)
             .map_err(|error| serde_json::to_string(&error).unwrap_or_else(|_| error.to_string()))?;
+        // Fail before any pod runs: analytics needs the headless-qualified tier.
+        if options_requested(options_args, "--analytics-out") {
+            mtg_sim::analytics::require_headless_qualified(
+                template.catalog().catalog(),
+                decks.iter().flatten().map(|row| row.oracle_id.as_str()),
+            )?;
+        }
         let projection_ns = start.elapsed().as_nanos();
         let source = PodSource::Dynamic {
             template: &template,
@@ -105,4 +113,19 @@ pub fn inspect(build: BuildIdentity, args: &[String]) -> Result<(), String> {
         return Err(detail);
     }
     Ok(())
+}
+
+/// True when a bench-pods flag was given, read with `Options::parse`'s
+/// grammar: `--rotate-seats` stands alone; every other flag takes a value.
+fn options_requested(options: &[String], wanted: &str) -> bool {
+    let mut args = options.iter();
+    while let Some(flag) = args.next() {
+        if flag == wanted {
+            return true;
+        }
+        if flag != "--rotate-seats" {
+            args.next();
+        }
+    }
+    false
 }
