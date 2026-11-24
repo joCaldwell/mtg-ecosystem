@@ -30,6 +30,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
             definition_index: Arc::clone(&game.definition_index),
             state: game.state.clone(),
             trace: game.trace.clone(),
+            cast_reversals: game.cast_reversals(),
             stream_buffer: Vec::new(),
             executor: Arc::new(()),
             priority_cache: Default::default(),

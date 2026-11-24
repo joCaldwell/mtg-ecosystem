@@ -26,7 +26,7 @@ card names below identify source witnesses, never mechanics.
 
 Compile complete exact archived source or reject; Rust contracts own executable
 IR and [catalog/profile admission](game-engine-catalogs.md) is separate. Core
-imports contracts only at runtime: no compiler/parser, I/O, clocks, OS randomness,
+imports the IR and permitted-view contracts at runtime: no compiler/parser, I/O, clocks, OS randomness,
 async inference or unsafe code. Keep physical IDs, zone incarnations, stack IDs,
 owners, default control and explicit grants distinct; quantities are exact and
 structural arithmetic checked. Frames/inputs/events/outcomes serialize as data;

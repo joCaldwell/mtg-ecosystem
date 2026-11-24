@@ -188,7 +188,10 @@ fn payment_reversal_retains_inputs_and_original_incarnation() {
         game.events().last(),
         Some(Event::CastReversed { .. })
     ));
-    let replay = Game::replay(prepared(), &game.replay_journal()).unwrap();
+    let replay =
+        Game::replay_with_trace(prepared(), &game.replay_journal(), TraceMode::Off).unwrap();
+    assert_eq!(game.cast_reversals(), 1);
+    assert_eq!(replay.cast_reversals(), game.cast_reversals());
     assert_eq!(replay.state, game.state);
 }
 #[test]

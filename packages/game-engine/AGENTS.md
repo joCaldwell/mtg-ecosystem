@@ -9,7 +9,7 @@ manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semanti
 - Lower complete exact archived source or reject. Use frozen fixtures/pinned rules
   and meaningful positive/rejection tests; never bless a changed expected outcome
   without source/rules review. Card names/IDs identify witnesses, never mechanics.
-- Deterministic core imports contracts only: no compiler/parser runtime dependency,
+- Deterministic core imports IR and permitted-view contracts only: no compiler/parser runtime dependency,
   I/O, clocks, OS randomness, async inference or unsafe code. Compiler test fixtures
   are development-only; [structure checks](../../docs/game-engine-catalogs.md#ir-and-build-identity)
   enforce declared boundaries.
@@ -29,7 +29,7 @@ manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semanti
 - Use `rules` for rules assertions, `recovery` for the journal corpus, `cards`
   for frozen-source witnesses and `host` for server integration. Prefer the
   shared `testkit::Board` and `Driver` for private boards and keep adversarial
-  modules on public APIs. See the [nine harnesses](../../docs/game-engine-development.md#engine-test-topology).
+  modules on public APIs. See the [test harnesses](../../docs/game-engine-development.md#engine-test-topology).
 - Use focused checks with actual executed selectors and explicit omissions.
   One native owner per worktree target holds its Cargo lock; runners own it internally.
   Iterate with `engine:dev` selectors and `check:engine`; run

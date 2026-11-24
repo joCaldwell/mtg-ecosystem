@@ -64,8 +64,8 @@ Scryfall → TypeScript parser → nonexecutable source/AST archive
 
 Compile complete supported sources or reject them. Parser acceptance/reference
 binding, compiler support, pod admission, hosting/search review and browser
-qualification are separate claims. Core imports contracts only and has no host
-I/O, clocks or OS randomness; profiles select admission data, never mechanics.
+qualification are separate claims. Core imports the IR contracts and the permitted view. The NumPy gym runs native
+matches and encodes the choosing seat’s observation. Core has no host I/O, clocks or OS randomness; profiles select admission data, never mechanics.
 The host owns HTTP/auth/SQLite, resource groups and exact durable recovery, with
 its own build identity. [Engine scope](docs/game-engine-current.md) and
 [host contracts](docs/game-engine-server.md) define the finite supported release.

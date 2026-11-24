@@ -17,28 +17,6 @@ impl std::ops::Deref for PendingInput {
     }
 }
 
-impl<S: Space> Decision<S> {
-    pub fn index(&self, candidate: &Candidate<S>) -> Option<u32> {
-        self.candidates
-            .iter()
-            .position(|row| row == candidate)
-            .and_then(|i| i.try_into().ok())
-    }
-    pub fn candidate(&self, index: u32) -> Result<&Candidate<S>, String> {
-        self.candidates
-            .get(index as usize)
-            .ok_or_else(|| "index outside decision candidates".into())
-    }
-    pub fn pick_one(&self, candidate: &Candidate<S>) -> Result<Answer, String> {
-        let index = self.index(candidate).ok_or("candidate not offered")?;
-        let answer = Answer::Pick {
-            picks: vec![vec![index]],
-        };
-        self.shape.check(&answer)?;
-        Ok(answer)
-    }
-}
-
 impl PendingInput {
     fn rows(&self) -> Result<Vec<&Candidate<Rules>>, String> {
         match &self.answer {

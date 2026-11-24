@@ -64,9 +64,14 @@ impl RulesTxn {
         TraceEvidence::new(TraceMode::Detailed)
     }
     pub(super) fn record_event(&mut self, event: Event) -> Result<(), String> {
+        let reversed = matches!(event, Event::CastReversed { .. });
         self.record_evidence(EvidenceRecord::Event {
             event: Box::new(event),
-        })
+        })?;
+        if reversed {
+            self.cast_reversals = self.cast_reversals.saturating_add(1);
+        }
+        Ok(())
     }
     pub(super) fn record_evidence(&mut self, record: EvidenceRecord) -> Result<(), String> {
         let sequence = self.state.rules.next_event_sequence;

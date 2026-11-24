@@ -8,9 +8,9 @@ use mtg_core::{
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 mod replay_reuse_tests;
-pub(crate) const DECISION_LIMIT: usize = 100_000;
-pub(crate) const TURN_LIMIT: u64 = 1_000;
-pub(crate) const WORK_LIMIT: usize = 2_000_000;
+pub const DECISION_LIMIT: usize = 100_000;
+pub const TURN_LIMIT: u64 = 1_000;
+pub const WORK_LIMIT: usize = 2_000_000;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checkpoint {
@@ -54,7 +54,7 @@ fn query_call(
     *queries += 1;
     Ok(call())
 }
-pub(crate) fn complete(
+pub fn complete(
     game: &Game,
     initial: impl FnOnce() -> QueryResult,
     quantum: u64,
@@ -76,7 +76,7 @@ pub(crate) fn complete(
         }
     }
 }
-pub(crate) fn observe(
+pub fn observe(
     game: &Game,
     player: PlayerId,
     quantum: u64,
