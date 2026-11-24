@@ -1,6 +1,7 @@
 //! Private single-writer durable ledger. No transport acknowledgment is emitted
 //! here: callers publish/replace their candidate Game only after commit succeeds.
 use crate::codec::exact as strict_read;
+use crate::file_lock::FileLock;
 use crate::protocol::{
     CommandEnvelope, CommandExecution, CommandExecutionStatus, Counter, ExecutionStatus,
     Publication, RejectionReason, ResumeState, RulesResult, StreamEntry, StreamPage,
@@ -144,7 +145,8 @@ pub(crate) fn resume_publications(
 
 pub struct MatchStore {
     connection: Connection,
-    _owner_lock: File,
+    // Drop the SQLite connection before releasing ownership.
+    _owner_lock: FileLock,
     generation: u64,
 }
 fn error(e: impl std::fmt::Display) -> String {
@@ -237,9 +239,7 @@ impl MatchStore {
             options.mode(0o600);
         }
         let owner_lock = options.open(directory.join("owner.lock")).map_err(error)?;
-        owner_lock
-            .try_lock()
-            .map_err(|_| "match store already owned")?;
+        let owner_lock = FileLock::try_lock(owner_lock).map_err(|_| "match store already owned")?;
         // Precreate the main database privately before SQLite can create WAL/
         // SHM sidecars. Unix VFS robust_open/findCreateFileMode inherit the main
         // database mode; changing process-wide umask would race other threads.

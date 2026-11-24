@@ -7,6 +7,7 @@
 //! renames. One persistent OS lock fences supervisors and offline CLI changes.
 //! Rotation/revocation require this lock; hot rotation while serving is absent.
 use crate::auth::{CredentialHashes, IssuedCapabilities};
+use crate::file_lock::FileLock;
 use mtg_contracts::{Catalog, canonical, digest};
 use mtg_core::{MatchConfig, Prepared};
 use serde::{Deserialize, Serialize};
@@ -107,7 +108,7 @@ struct Entry {
 pub struct MatchRegistry {
     root: PathBuf,
     owner_uid: u32,
-    owner_lock: File,
+    owner_lock: FileLock,
     entries: BTreeMap<String, Entry>,
     halted: bool,
 }
@@ -394,8 +395,7 @@ impl MatchRegistry {
         {
             return Err("registry owner lock changed".into());
         }
-        owner_lock
-            .try_lock()
+        let owner_lock = FileLock::try_lock(owner_lock)
             .map_err(|_| "registry already owned by another supervisor")?;
         let matches = root.join("matches");
         match fs::symlink_metadata(&matches) {
@@ -423,7 +423,7 @@ impl MatchRegistry {
         }
         private_directory(&self.root, Some(self.owner_uid))?;
         let lock = private_file(&self.root.join("registry.lock"), self.owner_uid)?;
-        if !same_file(&lock, &self.owner_lock.metadata().map_err(error)?) {
+        if !same_file(&lock, &self.owner_lock.file().metadata().map_err(error)?) {
             return Err("registry lock identity changed".into());
         }
         Ok(())
