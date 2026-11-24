@@ -1,0 +1,255 @@
+use super::*;
+
+fn catalog() -> Catalog {
+    FixtureCatalog::Match.get().clone()
+}
+fn game() -> Game {
+    Game::new(witness_scenario(catalog(), ScenarioConfig::triggers()))
+}
+fn movement(g: &Game, card: u32, destination: Zone) -> ProposedEvent {
+    ProposedEvent::Move {
+        object: g.object_id(CardId(card)).unwrap(),
+        destination,
+    }
+}
+fn leaf(proposed: ProposedEvent) -> EventGroup {
+    EventGroup::Occurrence { proposed }
+}
+fn grave(g: &Game, card: u32) -> ProposedEvent {
+    movement(
+        g,
+        card,
+        Zone::Graveyard {
+            owner: g.state.rules.cards[&CardId(card)].owner,
+        },
+    )
+}
+fn visionary_placement() -> Game {
+    let mut g = game();
+    Driver::answer(&mut g, u64::MAX, Response::Cast { card: CardId(4) });
+    for card in [8, 9] {
+        let object = g.object_id(CardId(card)).unwrap();
+        Driver::answer(&mut g, u64::MAX, Response::ActivateMana { object });
+    }
+    Driver::answer(&mut g, u64::MAX, Response::FinishMana { undo_mana: false });
+    Driver::answer(
+        &mut g,
+        u64::MAX,
+        Response::SpendMana {
+            spending: [(Color::G, 2.into())].into(),
+        },
+    );
+    for _ in 0..4 {
+        Driver::answer(&mut g, u64::MAX, Response::Pass);
+    }
+    assert!(matches!(
+        Driver::request(&mut g, u64::MAX),
+        Request::OrderTriggers { .. }
+    ));
+    assert_eq!(g.state.rules.pending_triggers.len(), 4);
+    g
+}
+
+#[test]
+fn simultaneous_deaths_share_lookback_observers_including_both_dying_artists() {
+    let mut g = game();
+    let facts = [1, 16].map(|card| g.object_before(g.object_id(CardId(card)).unwrap()).unwrap());
+    let events = [1, 16].map(|card| grave(&g, card)).to_vec();
+    let receipt = g
+        .commit_batch(
+            BatchCause::Fixture,
+            EventGroup::Simultaneous {
+                occurrences: events,
+            },
+        )
+        .unwrap();
+    assert_eq!(g.state.rules.pending_triggers.len(), 10);
+    assert_eq!(g.state.rules.next_trigger_id, 10);
+    for fact in facts {
+        let captured: Vec<_> = g
+            .state
+            .rules
+            .pending_triggers
+            .iter()
+            .filter(|t| t.source == fact.object)
+            .collect();
+        assert_eq!(captured.len(), 2);
+        assert!(
+            captured
+                .iter()
+                .all(|t| t.source_facts == fact && t.controller == fact.controller)
+        );
+    }
+    for occurrence in receipt.occurrences {
+        let EventOutcome::Moved { movement } = &occurrence.actual else {
+            panic!("missing death movement")
+        };
+        assert!(
+            g.events()
+                .iter()
+                .filter_map(|event| match event {
+                    Event::TriggerCollected {
+                        occurrence: id,
+                        witness: subject,
+                        ..
+                    } if *id == TriggerOccurrenceId::Batch(occurrence.id.clone()) =>
+                        Some(subject.subject().unwrap()),
+                    _ => None,
+                })
+                .all(|subject| subject == movement.previous)
+        );
+        assert_eq!(g.events().iter().filter(|event| matches!(event, Event::TriggerCollected { occurrence: id, .. } if *id == TriggerOccurrenceId::Batch(occurrence.id.clone()))).count(), 5);
+    }
+    g.validate_trigger_state().unwrap();
+    // Ordered deaths use their respective before-event views: the first
+    // Artist is no longer present to observe the second death (CR 603.10).
+    let mut ordered = game();
+    let children = [1, 16].map(|card| leaf(grave(&ordered, card))).to_vec();
+    ordered
+        .commit_batch(BatchCause::Fixture, EventGroup::Ordered { children })
+        .unwrap();
+    assert_eq!(ordered.state.rules.pending_triggers.len(), 9);
+}
+
+#[test]
+fn enters_use_resulting_battlefield_and_other_excludes_exact_source() {
+    let mut g = game();
+    let enter = movement(&g, 4, Zone::Battlefield);
+    g.commit_batch(BatchCause::Fixture, leaf(enter)).unwrap();
+    let successor = g.object_id(CardId(4)).unwrap();
+    assert!(
+        g.events()
+            .iter()
+            .filter_map(|event| match event {
+                Event::TriggerCollected {
+                    witness: subject, ..
+                } => Some(subject.subject().unwrap()),
+                _ => None,
+            })
+            .all(|subject| subject == successor)
+    );
+    let sources: BTreeSet<_> = g
+        .state
+        .rules
+        .pending_triggers
+        .iter()
+        .map(|t| t.source.card)
+        .collect();
+    assert_eq!(
+        sources,
+        [CardId(3), CardId(4), CardId(17), CardId(29)].into()
+    );
+    let visionary = g
+        .state
+        .rules
+        .pending_triggers
+        .iter()
+        .find(|t| t.source.card == CardId(4))
+        .unwrap();
+    assert_eq!(visionary.source.incarnation, 1);
+    assert_eq!(visionary.source_facts.zone, Zone::Battlefield);
+    let mut g = game();
+    let leave = movement(&g, 3, Zone::Hand { owner: PlayerId(0) });
+    g.commit_batch(BatchCause::Fixture, leaf(leave)).unwrap();
+    let enter = movement(&g, 3, Zone::Battlefield);
+    g.commit_batch(BatchCause::Fixture, leaf(enter)).unwrap();
+    assert_eq!(
+        g.state
+            .rules
+            .pending_triggers
+            .iter()
+            .map(|t| t.source.card)
+            .collect::<BTreeSet<_>>(),
+        [CardId(17), CardId(29)].into()
+    );
+}
+
+#[test]
+fn nondeath_moves_and_noncreatures_do_not_emit_dies_triggers() {
+    for (card, destination) in [
+        (1, Zone::Exile),
+        (1, Zone::Hand { owner: PlayerId(0) }),
+        (4, Zone::Graveyard { owner: PlayerId(0) }),
+        (8, Zone::Graveyard { owner: PlayerId(0) }),
+    ] {
+        let mut g = game();
+        let proposed = movement(&g, card, destination);
+        g.commit_batch(BatchCause::Fixture, leaf(proposed)).unwrap();
+        assert!(g.state.rules.pending_triggers.is_empty());
+        assert_eq!(g.state.rules.next_trigger_id, 0);
+        assert!(
+            !g.events()
+                .iter()
+                .any(|e| matches!(e, Event::TriggerCollected { .. }))
+        );
+    }
+}
+
+#[test]
+fn rejected_ordered_batch_and_trigger_resource_overflow_roll_back_collection() {
+    let initial = game();
+    let enter = movement(&initial, 4, Zone::Battlefield);
+    let invalid = ProposedEvent::Move {
+        object: ObjectId {
+            card: CardId(999),
+            incarnation: 0,
+        },
+        destination: Zone::Exile,
+    };
+    let mut g = initial.fork();
+    let token = g.state_token.clone();
+    assert!(
+        g.commit_batch(
+            BatchCause::Fixture,
+            EventGroup::Ordered {
+                children: vec![leaf(enter.clone()), leaf(invalid)]
+            }
+        )
+        .is_err()
+    );
+    assert_eq!(g.state, initial.state);
+    assert_eq!(g.trace, initial.trace);
+    assert!(Arc::ptr_eq(&token, &g.state_token));
+    let mut g = initial.fork();
+    g.state.rules.next_trigger_id = u64::MAX;
+    let before = g.fork();
+    assert!(g.commit_batch(BatchCause::Fixture, leaf(enter)).is_err());
+    assert!(matches!(
+        g.typed_fault(),
+        Some(RuleFault::TriggerIdCapacityExceeded { .. })
+    ));
+    g.state.rules.typed_fault = before.state.rules.typed_fault.clone();
+    assert_eq!(g.state, before.state);
+    assert_eq!(g.trace, before.trace);
+}
+
+#[test]
+fn natural_pending_trigger_snapshots_reject_rehashed_provenance_forgeries() {
+    let g = visionary_placement();
+
+    type Mutation = fn(&mut serde_json::Value);
+    let mutations: Vec<Mutation> = vec![
+        |t| t["controller"] = serde_json::json!(3),
+        |t| t["ability"]["index"] = serde_json::json!(99),
+        |t| t["id"] = serde_json::json!(99),
+        |t| t["source"]["card"] = serde_json::json!(999),
+        |t| t["source_facts"]["owner"] = serde_json::json!(3),
+        |t| t["source_facts"]["controller"] = serde_json::json!(3),
+        |t| t["source_facts"]["default_controller"] = serde_json::json!(3),
+        |t| t["source_facts"]["tapped"] = serde_json::json!(true),
+        |t| t["source_facts"]["marked_damage"] = serde_json::json!("1"),
+        |t| t["source_handles"] = serde_json::json!([]),
+        |t| t["event"]["batch"] = serde_json::json!(999),
+        |t| t["event"]["path"] = serde_json::json!([99]),
+        |t| t["witness"]["movement"]["previous"]["incarnation"] = serde_json::json!(99),
+        |t| t["witness"]["movement"]["destination"] = serde_json::json!({"zone":"exile"}),
+    ];
+    for mutate in mutations {
+        let mut value = serde_json::to_value(&g.state).unwrap();
+        mutate(&mut value["pending_triggers"][0]);
+        let mut saved: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+        saved.state = serde_json::from_value(value).unwrap();
+        saved.state_sha256 = digest(&saved.state).unwrap();
+        assert!(Game::restore(g.prepared.as_ref().clone(), &canonical(&saved).unwrap()).is_err());
+    }
+}

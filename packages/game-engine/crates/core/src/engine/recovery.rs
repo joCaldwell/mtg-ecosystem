@@ -70,6 +70,8 @@ mod tests {
             let mut game = Game::with_trace(p.clone(), mode);
             let mut verifier = SnapshotVerifier::new(p.clone(), mode);
             let mut finished = false;
+            let mut saw_automatic_work = false;
+            let mut saw_decision = false;
             for index in 0..400 {
                 let json = game.snapshot().unwrap();
                 let recovered = verifier.verify(&json).unwrap();
@@ -84,8 +86,12 @@ mod tests {
                     assert_eq!(recovered.state, standalone.state);
                     assert_eq!(recovered.trace, standalone.trace);
                 }
-                match game.advance(Budget::new(1)) {
+                // Alternating short and long advances exercises the cursor across
+                // both adjacent and skipped automatic boundaries in the same journal.
+                let quantum = if index % 2 == 0 { 1 } else { 8 };
+                match game.advance(Budget::new(quantum)) {
                     Advance::AwaitingDecision(request) => {
+                        saw_decision = true;
                         let response = match request {
                             Request::Priority { .. } => Response::Pass,
                             Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
@@ -94,7 +100,7 @@ mod tests {
                         game.respond(request.player(), request.decision_id(), response)
                             .unwrap();
                     }
-                    Advance::Suspended { .. } => {}
+                    Advance::Suspended { .. } => saw_automatic_work = true,
                     Advance::Finished { winner } => {
                         assert_eq!(winner, PlayerId(0));
                         verifier.verify(&game.snapshot().unwrap()).unwrap();
@@ -104,7 +110,7 @@ mod tests {
                     other => panic!("unexpected {other:?}"),
                 }
             }
-            assert!(finished);
+            assert!(finished && saw_automatic_work && saw_decision);
         }
     }
     #[test]

@@ -126,6 +126,73 @@ def test_module_errors(root):
     return errors
 
 
+def rust_code(text):
+    # The pinned sources use ordinary literals and hash-delimited raw strings.
+    return re.sub(r'//[^\n]*|/\*.*?\*/|r(#+)".*?"\1|"(?:\\.|[^"\\])*"', ' ', text, flags=re.S)
+
+
+def testkit_private_fields(src):
+    """Fields made public only by core's testkit_fields! macro."""
+    fields = set()
+    for source in src.rglob('*.rs'):
+        text = source.read_text()
+        if 'testkit_fields!' not in text:
+            continue
+        for body in re.findall(r'\btestkit_fields!\s*\{[^{}]*?\bpub\s+struct\b[^{}]*\{([^{}]*)\}', rust_code(text), re.S):
+            fields.update(re.findall(r'(?:^|[,\n])\s*(?:pub\s*\([^)]*\)\s*)?(\w+)\s*:(?!:)', body))
+    return fields
+
+
+def public_witness_errors(core):
+    tests = core / 'tests'
+    private = testkit_private_fields(core / 'src')
+    # Only these named roots intentionally compile white-box witnesses.
+    white_box = {'rules/rules_kernel', 'rules/trigger_kernel', 'recovery/search_work', 'recovery/state_recovery'}
+    roots = {'rules/main.rs', 'recovery/main.rs', 'recovery/corpus.rs'}
+    errors = []
+    for source in sorted(tests.rglob('*.rs')):
+        rel = source.relative_to(tests)
+        is_adversarial = any('adversarial' in part for part in rel.parts)
+        if str(rel) in roots or (not is_adversarial and '/'.join(rel.parts[:2]) in white_box):
+            continue
+        # Strip comments and string literals so fixture data and examples do
+        # not become imports or field reads. Public accessor calls are legal.
+        code = rust_code(source.read_text())
+        forbidden = re.search(
+            r'\btestkit\b|\bsuper\s*::|\bcrate\s*::\s*(?!support\b)\S'
+            r'|\b(?:super|crate)\s+as\b|\b(?:rules_kernel|trigger_kernel|search_work|state_recovery)\s*::'
+            r'|#\s*\[\s*path\b|\binclude\s*!', code)
+        accessed = {m[1] for m in re.finditer(r'(?<!\.)\.\s*(\w+)\b(?!\s*\()', code)} & private
+        if forbidden or accessed:
+            detail = ', '.join(sorted(accessed)) if accessed else forbidden[0]
+            errors.append(f'{rel}: public-API witness uses a private field or unpermitted module: {detail}')
+    return errors
+
+
+def topology_errors(root):
+    """Integration targets stay together and adversarial tests use the public API."""
+    errors = []
+    for directory, expected in [
+        (f'{CRATES}/core', {'rules', 'recovery'}),
+        (f'{CRATES}/witness', {'cards'}),
+        ('packages/game-server', {'host'}),
+    ]:
+        package = root / directory
+        actual = {p.stem for p in (package / 'tests').glob('*.rs')}
+        actual.update(p.parent.name for p in (package / 'tests').glob('*/main.rs'))
+        if actual != expected:
+            errors.append(f'{directory}/tests: expected {sorted(expected)}, found {sorted(actual)}')
+    errors.extend(public_witness_errors(root / CRATES / 'core'))
+    sim = root / CRATES / 'sim/src'
+    library = (sim / 'lib.rs').read_text()
+    for name in ('play', 'policy', 'pods', 'analytics', 'search', 'mana_spend'):
+        if not re.search(rf'^pub mod {name}\s*[;{{]', library, re.M):
+            errors.append(f'{sim.relative_to(root)}/lib.rs: missing simulator module {name}')
+    if len((sim / 'main.rs').read_text().splitlines()) > 300:
+        errors.append(f'{sim.relative_to(root)}/main.rs: CLI exceeds 300 lines')
+    return errors
+
+
 def artifact_reason(path, size, prefix):
     parts = Path(path).parts
     if any(p in {'target', 'node_modules', 'generated', '.scryfall-cache', 'dist', '__pycache__'} for p in parts):
@@ -173,7 +240,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parents[1])
     args = parser.parse_args()
-    errors = dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + artifact_errors(args.root)
+    errors = dependency_errors(args.root) + testkit_errors(args.root) + test_module_errors(args.root) + topology_errors(args.root) + artifact_errors(args.root)
     for error in errors:
         print(error, file=sys.stderr)
     if not errors:

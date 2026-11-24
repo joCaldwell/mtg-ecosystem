@@ -5,16 +5,10 @@
 //! `use super::*`, so scenario and witness binaries build outside `--lib`.
 pub use crate::engine::*;
 
-pub const GROWTH: &str = "5748ebf1-24e3-499d-ab7c-c2cebd462a24";
-pub const DISFIGURE: &str = "77eafe49-b9c5-461d-89c5-cec217dd2974";
-pub const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
-pub const SOUL_FEAST: &str = "8186fd80-015f-470c-9e1c-cbf45764a057";
-pub const HEALING_HANDS: &str = "3cc48835-3ac0-4774-b380-f9b21d2dc974";
-pub const NECTAR: &str = "30870ee5-6ad7-48a9-983e-d3b018f2344f";
-pub const MOUNTAIN: &str = "a3fb7228-e76b-4e96-a40e-20b5fed75685";
-pub const BLOOD_ARTIST: &str = "310f141c-7f37-4729-aed6-dd9c09db448d";
-pub const VISIONARY: &str = "c6a3a882-a127-4590-93d7-679ef4313efe";
-pub const WARDEN: &str = "6ca2a89e-7032-4864-b4e9-66f3178f90ab";
+mod board;
+pub use board::*;
+mod driver;
+pub use driver::{Driver, JournalCase, assert_recoverable};
 // Engine modules shadow same-named contracts modules, as inside the engine.
 pub use crate::engine::mana_tap_observer;
 use crate::engine::{
@@ -1540,27 +1534,30 @@ impl ScenarioConfig {
                     id: CardId(id),
                     owner,
                     controller: owner,
-                    oracle_id: match id {
-                        0 => ISAMARU,
-                        1 => OX,
-                        2 | 18 => BEARS,
-                        3 => BEARS,
-                        4 | 19 | 39 | 42 => BLOOD_ARTIST,
-                        5 | 24 => GROWTH,
-                        6 => GROWTH,
-                        7 => DISFIGURE,
-                        8 | 23 => BOLT,
-                        9 | 10 | 14 | 27 | 30 | 37 => FOREST,
-                        11 | 15 => PLAINS,
-                        12 => SWAMP,
-                        13 | 28 | 33..=36 | 40 | 41 | 43..=45 => MOUNTAIN,
-                        16 | 17 | 38 => BEARS,
-                        20 => SPELL,
-                        21 => SPELL,
-                        22 => SPELL,
-                        31 | 32 => GROWTH,
-                        _ => ISLAND,
-                    }
+                    oracle_id: oracle_id(
+                        FixtureCatalog::Match.get(),
+                        match id {
+                            0 => "Isamaru, Hound of Konda",
+                            1 => "Yoked Ox",
+                            2 | 18 => "Grizzly Bears",
+                            3 => "Grizzly Bears",
+                            4 | 19 | 39 | 42 => "Blood Artist",
+                            5 | 24 => "Giant Growth",
+                            6 => "Giant Growth",
+                            7 => "Disfigure",
+                            8 | 23 => "Lightning Bolt",
+                            9 | 10 | 14 | 27 | 30 | 37 => "Forest",
+                            11 | 15 => "Plains",
+                            12 => "Swamp",
+                            13 | 28 | 33..=36 | 40 | 41 | 43..=45 => "Mountain",
+                            16 | 17 | 38 => "Grizzly Bears",
+                            20 => "Unsummon",
+                            21 => "Unsummon",
+                            22 => "Unsummon",
+                            31 | 32 => "Giant Growth",
+                            _ => "Island",
+                        },
+                    )
                     .into(),
                     zone: match id {
                         5..=8 | 20..=24 | 31 | 32 => Zone::Hand { owner },
@@ -1596,24 +1593,27 @@ impl ScenarioConfig {
                     id: CardId(id),
                     owner,
                     controller: owner,
-                    oracle_id: match id {
-                        0 => ISAMARU,
-                        1 | 2 | 16 | 28 | 34 => BLOOD_ARTIST,
-                        3 | 17 | 29 => WARDEN,
-                        4 => VISIONARY,
-                        5 => BEARS,
-                        6 => BEARS,
-                        18 | 30 => BEARS,
-                        7 => SWAMP,
-                        8 | 9 | 14 | 31 | 32 | 33 | 35 | 36 | 37 => FOREST,
-                        10 => PLAINS,
-                        13 | 23 => MOUNTAIN,
-                        19 => BOLT,
-                        20 => SPELL,
-                        21 => SPELL,
-                        22 => SPELL,
-                        _ => ISLAND,
-                    }
+                    oracle_id: oracle_id(
+                        FixtureCatalog::Match.get(),
+                        match id {
+                            0 => "Isamaru, Hound of Konda",
+                            1 | 2 | 16 | 28 | 34 => "Blood Artist",
+                            3 | 17 | 29 => "Essence Warden",
+                            4 => "Elvish Visionary",
+                            5 => "Grizzly Bears",
+                            6 => "Grizzly Bears",
+                            18 | 30 => "Grizzly Bears",
+                            7 => "Swamp",
+                            8 | 9 | 14 | 31 | 32 | 33 | 35 | 36 | 37 => "Forest",
+                            10 => "Plains",
+                            13 | 23 => "Mountain",
+                            19 => "Lightning Bolt",
+                            20 => "Unsummon",
+                            21 => "Unsummon",
+                            22 => "Unsummon",
+                            _ => "Island",
+                        },
+                    )
                     .into(),
                     zone: match id {
                         4 | 19..=22 => Zone::Hand { owner },
@@ -1649,23 +1649,26 @@ impl ScenarioConfig {
                     id: CardId(id),
                     owner,
                     controller: owner,
-                    oracle_id: match id {
-                        0 | 26 => BEARS,
-                        1 | 2 => SWAMP,
-                        3 | 7 | 17 | 27 => MOUNTAIN,
-                        4 | 8 => PLAINS,
-                        9 => SOUL_FEAST,
-                        10 => HEALING_HANDS,
-                        11 | 20 | 28 => BOLT,
-                        14 => ISAMARU,
-                        15 => BEARS,
-                        16 => BEARS,
-                        21 => SPELL,
-                        22 => SPELL,
-                        23 => SPELL,
-                        34 => NECTAR,
-                        _ => ISLAND,
-                    }
+                    oracle_id: oracle_id(
+                        FixtureCatalog::Match.get(),
+                        match id {
+                            0 | 26 => "Grizzly Bears",
+                            1 | 2 => "Swamp",
+                            3 | 7 | 17 | 27 => "Mountain",
+                            4 | 8 => "Plains",
+                            9 => "Soul Feast",
+                            10 => "Healing Hands",
+                            11 | 20 | 28 => "Lightning Bolt",
+                            14 => "Isamaru, Hound of Konda",
+                            15 => "Grizzly Bears",
+                            16 => "Grizzly Bears",
+                            21 => "Unsummon",
+                            22 => "Unsummon",
+                            23 => "Unsummon",
+                            34 => "Sacred Nectar",
+                            _ => "Island",
+                        },
+                    )
                     .into(),
                     zone: match id {
                         9..=11 | 20..=23 | 28 | 34 => Zone::Hand { owner },

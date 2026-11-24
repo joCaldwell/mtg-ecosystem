@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, nativeEnvironment, nativeLock, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
+import { testThreads, engineCheckPlans, parseCheckArguments, runCheckPhases, measuredCommand, nativeEnvironment, nativeLock, sourceIdentity, withAdvisoryLock } from "./check-engine-driver.ts";
 
 test("one feature shape, a production-only dead-code check and no release build in any plan", () => {
   const { mode } = parseCheckArguments([]);
@@ -21,16 +21,12 @@ test("one feature shape, a production-only dead-code check and no release build 
     ["fmt", "--all", "--", "--check"],
     ["clippy", ...shape, "--all-targets", "--", "-D", "warnings"],
     ["check", "--locked", "-p", "mtg-server", "-p", "mtg-sim"],
-    ["test", ...shape, "--lib", "--bins"],
-    ["test", ...shape, "--doc"],
+    ["test", ...shape, "--tests", "--", testThreads],
+    ["test", ...shape, "--doc", "--", testThreads],
   ]);
   const gate = engineCheckPlans.gate.phases;
-  // Integration binaries use the same selection shape, so nothing rebuilds.
-  assert.deepEqual(gate.find(phase => phase.label === "integration-tests")?.args, ["-B", "scripts/engine-test-binaries.py", ...shape, "--test", "*"]);
   assert.deepEqual(gate.find(phase => phase.label === "archive-parser")?.args, ["--test", "packages/oracle-parser/test/engine-archive-agreement.test.ts"]);
   for (const plan of Object.values(engineCheckPlans)) {
-    // `--tests` after `--lib` reruns every unit binary; integration binaries use `--test '*'`.
-    assert.ok(!plan.phases.some(phase => phase.args.includes("--tests")));
     assert.ok(!plan.phases.some(phase => phase.args.includes("--release") || phase.args.includes("run")));
     assert.ok(!plan.phases.some(phase => phase.args.includes("--profile")));
   }
@@ -44,7 +40,6 @@ test("native plans admit the cache under their lock; gate and tooling retain eve
     ["worktree-safety", "python3", ["-B", "scripts/test-engine-worktrees.py"]],
     ["structure-tests", "python3", ["-B", "scripts/test-engine-structure.py"]],
     ["cache-tests", "python3", ["-B", "scripts/test-engine-cache.py"]],
-    ["test-binary-tests", "python3", ["-B", "scripts/test-engine-test-binaries.py"]],
     ["deck-harness-tests", "python3", ["-B", "scripts/test-engine-decks.py"]],
     ["stage-deck-tests", "python3", ["-B", "scripts/test-stage-deck.py"]],
     ["documentation-tests", "python3", ["-B", "scripts/test-check-docs.py"]],
@@ -68,7 +63,7 @@ test("native plans admit the cache under their lock; gate and tooling retain eve
   const labels = (mode: keyof typeof engineCheckPlans) => engineCheckPlans[mode].phases.map(phase => phase.label);
   const guards = ["structure-guard", "documentation-guard", "generated-ast-guard"];
   assert.deepEqual(labels("check"), ["cache-preflight", ...guards, "format", "rust-check", "production-check"]);
-  assert.deepEqual(labels("gate"), ["cache-preflight", ...guards, "archive-parser", "format", "clippy", "production-check", "unit-tests", "doc-tests", "integration-tests", ...suites.map(([label]) => label)]);
+  assert.deepEqual(labels("gate"), ["cache-preflight", ...guards, "archive-parser", "format", "clippy", "production-check", "workspace-tests", "doc-tests", ...suites.map(([label]) => label)]);
   assert.deepEqual(labels("tooling"), [...suites.map(([label]) => label), ...guards]);
   const scripts = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).scripts;
   assert.equal(scripts["check:engine"], "sh scripts/engine-env.sh node scripts/check-engine.ts");
@@ -384,5 +379,38 @@ test("cancellation while waiting for a lock never starts protected work", async 
     holder.kill("SIGTERM");
     await new Promise(resolve => holder.once("close", resolve));
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Cargo must execute each named harness and both authority doctests", async () => {
+  const names = ["cards", "host", "mtg_compiler", "mtg_contracts", "mtg_core", "mtg_server", "mtg_sim", "recovery", "rules"];
+  const summary = (passed: number, ignored = 0) =>
+    `test result: ok. ${passed} passed; 0 failed; ${ignored} ignored; 0 measured; 0 filtered out`;
+  const harness = (name: string, passed = 1) => [
+    `Running ${name.startsWith("mtg_") ? "unittests src/lib.rs" : `tests/${name}/main.rs`} (target/debug/deps/${name}-abc123)`,
+    summary(passed, name === "host" ? 1 : 0),
+  ];
+  const ordinary = names.flatMap(name => harness(name));
+  const core = "Doc-tests mtg_core";
+  const example = (file: string, type: string) =>
+    `test src/engine/${file}.rs - engine::${file}::${type} (line 15) - compile fail ... ok`;
+  const action = example("action_query", "ActionContinuation");
+  const session = example("player_session", "PlayerSession");
+  for (const [label, lines, expected] of [
+    ["workspace-tests", ordinary, 0],
+    ["workspace-tests", names.filter(n => n !== "recovery").flatMap(n => harness(n)), 1],
+    ["workspace-tests", [...ordinary.slice(0, -2), ...harness("host")], 1],
+    ["workspace-tests", names.flatMap(n => harness(n, n === "host" ? 0 : 1)), 1],
+    ["workspace-tests", [...ordinary, summary(0)], 1],
+    ["workspace-tests", [], 1],
+    ["doc-tests", ["Doc-tests mtg_compiler", summary(0), core, action, session, summary(2)], 0],
+    ["doc-tests", [core, action, summary(1)], 1],
+    ["doc-tests", [core, session, session, summary(2)], 1],
+    ["doc-tests", [core, action, session, summary(1)], 1],
+  ] as const) {
+    // Match Cargo's real split streams, including the banner/result order.
+    const emit = 'const fs = require("node:fs"); for (const line of JSON.parse(process.argv[1])) fs.writeSync(/^(Running|Doc-tests)/.test(line) ? 2 : 1, line + "\\n");';
+    const result = await measuredCommand(label, process.execPath, ["-e", emit, JSON.stringify(lines)], { cwd: process.cwd(), record() {} });
+    assert.equal(result.code, expected);
   }
 });

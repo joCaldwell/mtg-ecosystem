@@ -1,0 +1,510 @@
+use super::*;
+
+fn game() -> Game {
+    let catalog = FixtureCatalog::Action.get().clone();
+    Game::new(Prepared::admit(catalog, ScenarioConfig::mixed_mana()).unwrap())
+}
+fn selection(black: i64, green: i64) -> BTreeMap<Color, Quantity> {
+    [(Color::B, black.into()), (Color::G, green.into())].into()
+}
+fn spending_game() -> Game {
+    let mut g = game();
+    Driver::answer(&mut g, u64::MAX, Response::Cast { card: CardId(0) });
+    for card in 1..=9 {
+        let object = g.object_id(CardId(card)).unwrap();
+        Driver::answer(&mut g, u64::MAX, Response::ActivateMana { object });
+    }
+    Driver::answer(&mut g, u64::MAX, Response::FinishMana { undo_mana: true });
+    assert!(matches!(
+        Driver::request(&mut g, u64::MAX),
+        Request::SpendMana { .. }
+    ));
+    g
+}
+
+#[test]
+fn player_selects_generic_colors_and_both_branches_recover_exactly() {
+    let g = spending_game();
+    for (spending, remaining_b, remaining_g) in [(selection(2, 4), 2, 1), (selection(4, 2), 0, 3)] {
+        let mut branch = g.fork();
+        Driver::answer(
+            &mut branch,
+            u64::MAX,
+            Response::SpendMana {
+                spending: spending.clone(),
+            },
+        );
+        Driver::request(&mut branch, u64::MAX);
+        assert_eq!(branch.mana(PlayerId(0), Color::B), Some(remaining_b.into()));
+        assert_eq!(branch.mana(PlayerId(0), Color::G), Some(remaining_g.into()));
+        let restored = Game::restore(
+            branch.prepared.as_ref().clone(),
+            &branch.snapshot().unwrap(),
+        )
+        .unwrap();
+        let replay =
+            Game::replay(branch.prepared.as_ref().clone(), &branch.replay_journal()).unwrap();
+        assert_eq!(
+            branch.state_digest().unwrap(),
+            restored.state_digest().unwrap()
+        );
+        assert_eq!(
+            branch.state_digest().unwrap(),
+            replay.state_digest().unwrap()
+        );
+        assert!(branch.events().iter().any(|event| matches!(event,
+            Event::Committed { actual: EventOutcome::ManaPaidSelected { spending: actual, .. }, .. } if actual == &spending
+        )));
+    }
+    assert_eq!(g.mana(PlayerId(0), Color::B), Some(4.into()));
+    assert_eq!(g.mana(PlayerId(0), Color::G), Some(5.into()));
+}
+
+#[test]
+fn invalid_selections_do_not_mutate_state_receipts_or_history() {
+    let mut g = spending_game();
+    let request = Driver::request(&mut g, u64::MAX);
+    let mut zero = selection(2, 4);
+    zero.insert(Color::U, Quantity::zero());
+    let mut unavailable = BTreeMap::new();
+    unavailable.insert(Color::U, 6.into());
+    for spending in [
+        selection(1, 5),
+        selection(2, 3),
+        selection(3, 4),
+        selection(5, 1),
+        selection(-1, 7),
+        zero,
+        unavailable,
+        BTreeMap::new(),
+    ] {
+        let before = g.snapshot().unwrap();
+        let journal = g.replay_journal();
+        assert!(
+            g.respond(
+                request.player(),
+                request.decision_id(),
+                Response::SpendMana { spending }
+            )
+            .is_err()
+        );
+        assert_eq!(g.snapshot().unwrap(), before);
+        assert_eq!(g.replay_journal(), journal);
+    }
+    assert!(
+        g.respond(
+            PlayerId(1),
+            request.decision_id(),
+            Response::SpendMana {
+                spending: selection(2, 4)
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        g.respond(
+            request.player(),
+            request.decision_id(),
+            Response::FinishMana { undo_mana: true }
+        )
+        .is_err()
+    );
+    Driver::answer(
+        &mut g,
+        u64::MAX,
+        Response::SpendMana {
+            spending: selection(2, 4),
+        },
+    );
+    Driver::request(&mut g, u64::MAX);
+}
+
+#[test]
+fn exact_large_generic_costs_never_round_or_spend_extra() {
+    let mut g = game();
+    let huge: Quantity = "900719925474099312345678901234567890".parse().unwrap();
+    g.state.rules.players[0].mana = [(Color::B, huge.clone()), (Color::G, 1.into())].into();
+    let cost = ManaCost {
+        generic: huge.clone(),
+        colored: vec![Color::G],
+    };
+    let spending = [(Color::B, huge), (Color::G, 1.into())].into();
+    let remaining = g
+        .selected_payment_pool(PlayerId(0), &cost, &spending)
+        .unwrap();
+    assert!(remaining.values().all(|n| *n == Quantity::zero()));
+    assert!(
+        g.selected_payment_pool(PlayerId(0), &cost, &selection(4, 1))
+            .is_err()
+    );
+}
+
+fn query(game: &Game, mut result: QueryResult) -> QueryValue {
+    for _ in 0..200 {
+        match result {
+            QueryResult::Complete(value) => return value,
+            QueryResult::Incomplete { work, .. } => result = game.resume_work(work, Budget::new(1)),
+            QueryResult::Rejected(reason) => panic!("query rejected: {reason:?}"),
+        }
+    }
+    panic!("query budget exhausted")
+}
+
+#[test]
+fn spending_queries_are_private_pure_resumable_and_executor_scoped() {
+    let mut g = spending_game();
+    let before = g.snapshot().unwrap();
+    let QueryValue::Observation(own) = query(&g, g.observe(PlayerId(0), Budget::new(0))) else {
+        panic!("observation")
+    };
+    let Some(PlayerRequest::SpendMana {
+        token,
+        available,
+        cost,
+        ..
+    }) = own.decision
+    else {
+        panic!("spending")
+    };
+    assert_eq!(own.view.priority, None);
+    assert_eq!(available, selection(4, 5));
+    assert_eq!(cost.generic, 3.into());
+    for player in [PlayerId(1), PlayerId(2), PlayerId(3)] {
+        let QueryValue::Observation(other) = query(&g, g.observe(player, Budget::new(1))) else {
+            panic!("observation")
+        };
+        assert!(other.decision.is_none());
+        assert_eq!(other.view.priority, None);
+    }
+    let QueryResult::Incomplete { work, .. } = g.check_player_response(
+        PlayerId(0),
+        token,
+        PlayerResponse::SpendMana {
+            spending: selection(2, 4),
+        },
+        Budget::new(0),
+    ) else {
+        panic!("incomplete validation")
+    };
+    let saved = g.save_work(&work).unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    let recovered = restored.restore_work(&saved).unwrap();
+    let QueryValue::Validated(foreign) =
+        query(&restored, restored.resume_work(recovered, Budget::new(1)))
+    else {
+        panic!("receipt")
+    };
+    assert!(g.submit(foreign).is_err());
+    assert_eq!(g.snapshot().unwrap(), before);
+    let QueryResult::Incomplete { work: stale, .. } = g.observe(PlayerId(0), Budget::new(0)) else {
+        panic!("incomplete observation")
+    };
+    let QueryValue::Validated(receipt) = query(&g, g.resume_work(work, Budget::new(1))) else {
+        panic!("receipt")
+    };
+    g.submit(receipt).unwrap();
+    assert!(matches!(
+        g.resume_work(stale, Budget::unlimited()),
+        QueryResult::Rejected(QueryRejection::StaleOrForeignWork)
+    ));
+    Driver::request(&mut g, u64::MAX);
+}
+
+#[test]
+fn failed_mixed_cast_keeps_or_undoes_only_its_recorded_mana() {
+    for undo_mana in [false, true] {
+        let mut g = game();
+        Driver::answer(
+            &mut g,
+            u64::MAX,
+            Response::ActivateMana {
+                object: ObjectId {
+                    card: CardId(1),
+                    incarnation: 0,
+                },
+            },
+        );
+        Driver::answer(&mut g, u64::MAX, Response::Cast { card: CardId(0) });
+        Driver::answer(
+            &mut g,
+            u64::MAX,
+            Response::ActivateMana {
+                object: ObjectId {
+                    card: CardId(5),
+                    incarnation: 0,
+                },
+            },
+        );
+        Driver::answer(&mut g, u64::MAX, Response::FinishMana { undo_mana });
+        assert!(matches!(
+            Driver::request(&mut g, u64::MAX),
+            Request::Priority {
+                player: PlayerId(0),
+                ..
+            }
+        ));
+        assert_eq!(
+            g.zone(g.object_id(CardId(0)).unwrap()),
+            Some(Zone::Command { owner: PlayerId(0) })
+        );
+        assert_eq!(g.mana(PlayerId(0), Color::B), Some(1.into()));
+        assert_eq!(
+            g.mana(PlayerId(0), Color::G),
+            Some(if undo_mana { 0.into() } else { 1.into() })
+        );
+        assert_eq!(
+            g.current(g.object_id(CardId(5)).unwrap()).unwrap().tapped,
+            !undo_mana
+        );
+        assert!(
+            g.commander_ledger()
+                .history(CardId(0))
+                .unwrap()
+                .command_casts
+                .is_empty()
+        );
+        Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    }
+}
+
+#[test]
+fn pending_spending_survives_unrelated_departure_but_never_resurrects_a_departed_payer() {
+    for player in [PlayerId(2), PlayerId(0)] {
+        let mut g = spending_game();
+        Driver::answer(
+            &mut g,
+            u64::MAX,
+            Response::SpendMana {
+                spending: selection(2, 4),
+            },
+        );
+        g.concede(player).unwrap();
+        Driver::request(&mut g, u64::MAX);
+        if player == PlayerId(0) {
+            assert!(g.object_id(CardId(0)).is_none());
+            assert!(g.state.rules.stack.is_empty());
+            // Departed seats retain their last-known table for diagnostics;
+            // the accepted spend must neither pay nor reverse that table.
+            assert_eq!(g.state.rules.players[0].mana, selection(4, 5));
+            assert_eq!(
+                g.state.rules.players[0].last_known.as_ref().unwrap().mana,
+                selection(4, 5)
+            );
+            assert!(
+                g.commander_ledger()
+                    .history(CardId(0))
+                    .unwrap()
+                    .command_casts
+                    .is_empty()
+            );
+        } else {
+            assert_eq!(g.mana(PlayerId(0), Color::B), Some(2.into()));
+            assert_eq!(g.state.rules.stack.len(), 1);
+            assert!(g.state.rules.stack[0].paid.is_some());
+        }
+        let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+        assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+    }
+}
+
+#[test]
+fn targeted_player_leaving_during_spending_preserves_payment_then_prevents_resolution() {
+    // Pinned CR 601.2e/g/h, 601.6, 608.2b (2026-09-25), SHA-256
+    // 8d860e451f20f38865b725b42d82feb714c725373dd8f3b32b8652b3eeb070ca:
+    // proposal legality precedes mana/payment. A target leaving during costs
+    // cannot reverse that legal proposal; all-illegal targets stop resolution.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    let catalog = FixtureCatalog::Action.get().clone();
+    let prepared = Prepared::admit(catalog, ScenarioConfig::actions()).unwrap();
+    // Before acceptance, accepted but unconsumed (the original failing case),
+    // and after consumption/payment must preserve the same target and costs.
+    for boundary in 0..3 {
+        let mut g = Game::new(prepared.clone());
+        Driver::answer(&mut g, u64::MAX, Response::Cast { card: CardId(4) });
+        Driver::answer(
+            &mut g,
+            u64::MAX,
+            Response::PlayerTargets {
+                players: vec![PlayerId(1)],
+            },
+        );
+        for card in [2, 3] {
+            let object = g.object_id(CardId(card)).unwrap();
+            Driver::answer(&mut g, u64::MAX, Response::ActivateMana { object });
+        }
+        Driver::answer(&mut g, u64::MAX, Response::FinishMana { undo_mana: true });
+        assert!(matches!(
+            Driver::request(&mut g, u64::MAX),
+            Request::SpendMana { .. }
+        ));
+        let stack = g.top().unwrap().clone();
+        assert!(stack.paid.is_none());
+        if boundary > 0 {
+            Driver::answer(
+                &mut g,
+                u64::MAX,
+                Response::SpendMana {
+                    spending: selection(1, 1),
+                },
+            );
+        }
+        if boundary == 2 {
+            Driver::request(&mut g, u64::MAX);
+            assert_eq!(g.top().unwrap().paid, Some(stack.total_cost.clone()));
+        }
+        g.concede(PlayerId(1)).unwrap();
+        // Recovery must preserve both queued external departure and accepted spend,
+        // without exposing a second decision before those inputs are processed.
+        assert!(g.decision_for(PlayerId(0)).unwrap().is_none());
+        spending_recovery(&g);
+        // The external departure runs first, in one atomic step. In the queued
+        // case the selected payment is still pending and no mana was consumed.
+        let _ = g.advance(Budget::new(1));
+        assert!(!g.is_live(PlayerId(1)));
+        assert_eq!(g.top().unwrap().id, stack.id);
+        assert_eq!(g.top().unwrap().paid.is_some(), boundary == 2);
+        for color in [Color::B, Color::G] {
+            assert_eq!(
+                g.mana(PlayerId(0), color),
+                Some(if boundary == 2 { 0.into() } else { 1.into() })
+            );
+        }
+        if boundary == 1 {
+            assert!(matches!(&g.state.rules.pending.as_ref().unwrap().response,
+                Response::SpendMana { spending } if spending == &selection(1, 1)));
+        }
+        spending_recovery(&g);
+        Driver::request(&mut g, u64::MAX);
+        if boundary == 0 {
+            assert!(matches!(g.state.rules.frame, Frame::SpendMana { .. }));
+            assert!(g.top().unwrap().paid.is_none());
+            Driver::answer(
+                &mut g,
+                u64::MAX,
+                Response::SpendMana {
+                    spending: selection(1, 1),
+                },
+            );
+            Driver::request(&mut g, u64::MAX);
+        }
+        assert_eq!(g.state.rules.stack.len(), 1);
+        assert_eq!(g.top().unwrap().id, stack.id);
+        assert_eq!(g.top().unwrap().source, stack.source);
+        assert_eq!(g.top().unwrap().player_targets, vec![PlayerId(1)]);
+        assert_eq!(g.top().unwrap().paid, Some(stack.total_cost));
+        assert_eq!(g.zone(g.object_id(CardId(4)).unwrap()), Some(Zone::Stack));
+        assert_eq!(g.mana(PlayerId(0), Color::B), Some(0.into()));
+        assert_eq!(g.mana(PlayerId(0), Color::G), Some(0.into()));
+        for card in [2, 3] {
+            assert!(
+                g.current(g.object_id(CardId(card)).unwrap())
+                    .unwrap()
+                    .tapped
+            );
+        }
+        assert_eq!(
+            g.events()
+                .iter()
+                .filter(|e| matches!(e, Event::SpellCast { stack_id } if *stack_id == stack.id))
+                .count(),
+            1
+        );
+        assert_eq!(
+            g.events()
+                .iter()
+                .filter(|e| matches!(e,
+                    Event::Committed { actual: EventOutcome::ManaPaidSelected { spending, .. }, .. }
+                        if spending == &selection(1, 1)
+                ))
+                .count(),
+            1
+        );
+        assert!(
+            !g.events()
+                .iter()
+                .any(|e| matches!(e, Event::CastReversed { .. }))
+        );
+        spending_recovery(&g);
+        for player in [PlayerId(0), PlayerId(2), PlayerId(3)] {
+            let request = Driver::request(&mut g, u64::MAX);
+            assert!(
+                matches!(request, Request::Priority { player: actual, .. } if actual == player)
+            );
+            g.respond(player, request.decision_id(), Response::Pass)
+                .unwrap();
+        }
+        Driver::request(&mut g, u64::MAX);
+        assert!(g.state.rules.stack.is_empty());
+        assert_eq!(
+            g.zone(g.object_id(CardId(4)).unwrap()),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        assert!(g.events().contains(&Event::SpellCompleted {
+            stack_id: stack.id,
+            resolved: false,
+        }));
+        assert_eq!(g.mana(PlayerId(0), Color::B), Some(0.into()));
+        assert_eq!(g.mana(PlayerId(0), Color::G), Some(0.into()));
+        for card in [2, 3] {
+            assert!(
+                g.current(g.object_id(CardId(card)).unwrap())
+                    .unwrap()
+                    .tapped
+            );
+        }
+        assert!(
+            !g.events()
+                .iter()
+                .any(|e| matches!(e, Event::CastReversed { .. }))
+        );
+        spending_recovery(&g);
+        let replay = Game::replay(g.prepared.as_ref().clone(), &g.replay_journal()).unwrap();
+        assert_eq!(replay.state_digest().unwrap(), g.state_digest().unwrap());
+    }
+}
+
+fn spending_recovery(g: &Game) {
+    let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
+    // Intermediate accepted/queued inputs need the exact rule boundary;
+    // unbounded journal replay instead advances to the next decision.
+    let replay = Game::replay_to(
+        g.prepared.as_ref().clone(),
+        &g.replay_journal(),
+        Some(g.state.rules.rule_steps),
+        TraceMode::Detailed,
+    )
+    .unwrap();
+    assert_eq!(restored.state_digest().unwrap(), g.state_digest().unwrap());
+    assert_eq!(replay.state_digest().unwrap(), g.state_digest().unwrap());
+    for player in g.live_players() {
+        let before = g.snapshot().unwrap();
+        if !g.state.rules.pending_concessions.is_empty() {
+            for executor in [g, &restored, &replay] {
+                assert!(matches!(
+                    executor.observe(player, Budget::new(1)),
+                    QueryResult::Rejected(QueryRejection::UnsupportedBoundary)
+                ));
+            }
+            assert_eq!(g.snapshot().unwrap(), before);
+            continue;
+        }
+        let QueryValue::Observation(own) = query(g, g.observe(player, Budget::new(1))) else {
+            panic!("observation")
+        };
+        let QueryValue::Observation(recovered) =
+            query(&restored, restored.observe(player, Budget::new(1)))
+        else {
+            panic!("restored observation")
+        };
+        assert_eq!(own, recovered);
+        assert_eq!(own.view.stack.len(), g.state.rules.stack.len());
+        for (visible, entry) in own.view.stack.iter().zip(&g.state.rules.stack) {
+            assert_eq!(visible.player_targets, entry.player_targets);
+            assert_eq!(visible.cast_complete, entry.paid.is_some());
+        }
+        if g.state.rules.pending.is_some() {
+            assert!(own.decision.is_none());
+        }
+        assert_eq!(g.snapshot().unwrap(), before);
+    }
+}

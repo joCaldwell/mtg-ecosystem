@@ -25,6 +25,10 @@ manuals. [Mechanics](../../docs/game-engine-mechanics.md) owns supported semanti
 - Preserve identity, ownership/control, exact arithmetic, atomic events, budget
   suspension, privacy and recovery. Resource faults/truncation are not rules
   outcomes; queries never mint handles/history or mutate semantics.
+- Use `rules` for rules assertions, `recovery` for the journal corpus, `cards`
+  for frozen-source witnesses and `host` for server integration. Prefer the
+  shared `testkit::Board` and `Driver` for private boards and keep adversarial
+  modules on public APIs. See the [nine harnesses](../../docs/game-engine-development.md#engine-test-topology).
 - Use focused checks with actual executed selectors and explicit omissions.
   One native owner per worktree target holds its Cargo lock; runners own it internally.
   Iterate with `engine:dev` selectors and `check:engine`; run

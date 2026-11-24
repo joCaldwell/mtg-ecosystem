@@ -81,6 +81,51 @@ class StructureTests(unittest.TestCase):
             write('core', '[features]\ndefault = ["testkit"]\ntestkit = []\n')
             self.assertIn('never be a default feature', structure.testkit_errors(root)[0])
 
+    def test_integration_topology_and_public_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            core = root / structure.CRATES / 'core/tests'
+            for path in (core / 'rules', core / 'recovery',
+                         root / structure.CRATES / 'witness/tests/cards', root / 'packages/game-server/tests/host'):
+                path.mkdir(parents=True)
+                (path / 'main.rs').touch()
+            sim = root / structure.CRATES / 'sim/src'
+            sim.mkdir(parents=True)
+            (sim / 'lib.rs').write_text(''.join(f'pub mod {m};\n' for m in ('policy', 'pods', 'analytics', 'play', 'mana_spend', 'search')))
+            (sim / 'main.rs').touch()
+            self.assertEqual(structure.topology_errors(root), [])
+            (core / 'rules/adversarial.rs').write_text('use mtg_core::testkit::*;')
+            (core / 'extra.rs').touch()
+            (sim / 'lib.rs').write_text((sim / 'lib.rs').read_text().replace('pub mod pods;', 'mod pods;'))
+            self.assertEqual(len(structure.topology_errors(root)), 3)
+
+    def test_nested_public_witnesses_cannot_reach_private_modules_or_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core = Path(tmp)
+            src = core / 'src'
+            src.mkdir()
+            (src / 'game.rs').write_text(
+                'testkit_fields! {\n pub struct Game {\n  pub(crate) state: State,\n'
+                '  prepared: Prepared,\n  pub visible: bool,\n }\n}\n'
+                'testkit_fields! { pub struct Receipt { state_token: Token } }')
+            for module in ('rules/combat_adversarial', 'recovery/nested', 'support/nested',
+                           'rules/rules_kernel/nested_adversarial'):
+                path = core / 'tests' / module / 'case.rs'
+                path.parent.mkdir(parents=True)
+                for forbidden in ('use mtg_core::{testkit as hidden};',
+                                  'use crate::rules_kernel::helper;',
+                                  'use crate :: state_recovery as hidden;',
+                                  'use super::{private, support};', 'use crate::{support, private};',
+                                  'fn bad(g: Game) { let _ = g\n .prepared; }',
+                                  'fn bad(g: Game) { let _ = g.state.rules; }',
+                                  'fn bad(r: Receipt) { let _ = r.state_token; }'):
+                    with self.subTest(module=module, forbidden=forbidden):
+                        path.write_text(forbidden)
+                        self.assertEqual(len(structure.public_witness_errors(core)), 1)
+                path.write_text('use crate::support::helper; // g.state\n'
+                                'fn ok(g: Game) { g.state(); let _ = g.visible; }')
+                self.assertEqual(structure.public_witness_errors(core), [])
+
     def test_test_named_modules_must_be_cfg_test(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

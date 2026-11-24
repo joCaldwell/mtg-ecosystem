@@ -13,6 +13,11 @@ import time
 
 def main():
     output, command, *arguments = sys.argv[1:]
+    # Cargo writes harness names to stderr and libtest writes results to stdout.
+    # One pipe preserves the write order needed to bind a result to its harness.
+    merge = command == '--cargo-test-output'
+    if merge:
+        command, *arguments = arguments
     received = []
     for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
         signal.signal(signum, lambda number, _frame: received.append(number))
@@ -22,6 +27,8 @@ def main():
         for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(signum, signal.SIG_DFL)
         try:
+            if merge:
+                os.dup2(1, 2)
             os.execvpe(command, [command, *arguments], os.environ)
         except OSError as error:
             print(f"{command} could not run: {error}", file=sys.stderr)

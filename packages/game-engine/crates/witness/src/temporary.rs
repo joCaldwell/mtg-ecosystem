@@ -1,5 +1,5 @@
 //! Temporary-indestructible drivers: targets, priority passes and turn steps.
-use crate::equipped::{answer, request};
+
 use mtg_core::testkit::*;
 use std::collections::BTreeMap;
 
@@ -17,9 +17,9 @@ pub fn pass(r: &Request) -> Response {
     }
 }
 pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
-    answer(g, q, Response::Cast { card: CardId(id) });
+    Driver::answer(g, q, Response::Cast { card: CardId(id) });
     loop {
-        let r = request(g, q);
+        let r = Driver::request(g, q);
         let response = match &r {
             Request::Targets { .. } => Response::Targets {
                 objects: t
