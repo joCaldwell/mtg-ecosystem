@@ -59,7 +59,7 @@ impl SampledGame {
         &self,
         viewer: PlayerId,
         token: DecisionToken,
-        response: PlayerResponse,
+        response: Answer,
         budget: Budget,
     ) -> QueryResult {
         self.game
@@ -220,12 +220,10 @@ impl SampleRestoreWork {
                         game.state.rules.rule_steps < snapshot.boundary,
                     ))) {
                         Advance::AwaitingDecision(request) => {
-                            if request.player() != input.player
-                                || request.decision_id() != input.decision_id
-                            {
+                            if request.player != input.player || request.id != input.decision_id {
                                 return Err(invalid("sample replay decision identity"));
                             }
-                            game.respond(input.player, input.decision_id, input.response.clone())
+                            game.respond(input.player, input.decision_id, input.answer.clone())
                                 .map_err(invalid)?;
                         }
                         Advance::Suspended { .. } => {}

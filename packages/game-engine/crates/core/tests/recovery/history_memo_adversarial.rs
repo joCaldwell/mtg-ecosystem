@@ -54,20 +54,37 @@ fn pass_draw(game: &mut Game, budget: u64) {
         })
         .expect("offered decision");
     let response = match &request {
-        PlayerRequest::Mulligan { .. } => PlayerResponse::Mulligan { take: false },
-        PlayerRequest::Priority { .. } => PlayerResponse::Pass,
-        PlayerRequest::Attackers { .. } => PlayerResponse::Attackers { attacks: vec![] },
-        PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
-        PlayerRequest::Discard {
-            count, candidates, ..
-        } => PlayerResponse::Discard {
-            objects: candidates[..*count].to_vec(),
+        Decision {
+            reason: Reason::Mulligan { .. },
+            ..
+        } => request.select(Candidate::Flag { flag: Flag::Keep }),
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => request.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => request.block(vec![]),
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let count = &found.required_count();
+            let candidates = found.objects_offered();
+            request.pick_objects(candidates[..*count].to_vec())
+        }
         _ => panic!("request outside finite pass/draw prefix"),
     };
     let QueryValue::Validated(receipt) = complete(
         game,
-        game.check_player_response(player, request.token().clone(), response, Budget::new(64)),
+        game.check_player_response(player, request.id.clone(), response, Budget::new(64)),
     ) else {
         panic!("response validation")
     };

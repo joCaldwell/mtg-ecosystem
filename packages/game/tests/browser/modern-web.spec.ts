@@ -18,7 +18,7 @@ test('route navigation names the view and moves focus without changing fixture d
 
 test('incomplete decisions expose an actionable error on confirmation, without per-key live announcements', async ({ page }) => {
   await page.goto('/fixtures/decisions');
-  const form = page.getByRole('form', { name: 'Opening hand', exact: true });
+  const form = page.getByRole('form', { name: 'mulligan', exact: true });
   const captured = page.getByRole('region', { name: 'Captured foundation choice' });
   const confirmation = captured.getByRole('button', { name: 'Confirm local draft' });
   await confirmation.click();
@@ -29,7 +29,7 @@ test('incomplete decisions expose an actionable error on confirmation, without p
   const keep = captured.getByRole('radio', { name: 'Keep hand', exact: true });
   await keep.check();
   await confirmation.click();
-  await expect(page.getByRole('region', { name: 'Last local completion' })).toContainText('"take": false');
+  await expect(page.getByRole('region', { name: 'Last local completion' })).toContainText('"answer": "pick"');
   const quantity = page.getByRole('group', { name: 'Exact quantity bookkeeping' });
   const input = quantity.getByRole('textbox', { name: 'Exact quantity' });
   await input.fill('1e20');

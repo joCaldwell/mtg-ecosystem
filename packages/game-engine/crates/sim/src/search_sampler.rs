@@ -256,7 +256,7 @@ mod tests {
             match game.advance(Budget::new(1024)) {
                 Advance::Suspended { .. } => continue,
                 Advance::AwaitingDecision(request) => {
-                    let player = request.player();
+                    let player = request.player;
                     let QueryResult::Complete(QueryValue::Observation(observation)) =
                         game.observe(player, Budget::new(100_000))
                     else {
@@ -271,14 +271,15 @@ mod tests {
                             super::super::search_roots::capture(&game, player).unwrap(),
                         );
                     }
-                    let response = match observation.decision.unwrap() {
-                        PlayerRequest::OpeningPlacement { .. } => {
-                            PlayerResponse::OpeningPlacement { object: None }
-                        }
-                        PlayerRequest::Mulligan { .. } => PlayerResponse::Mulligan { take: false },
-                        PlayerRequest::Priority { .. } => PlayerResponse::Pass,
+                    let decision = observation.decision.unwrap();
+                    let candidate = match decision.reason {
+                        Reason::Mulligan { .. } => Candidate::Flag { flag: Flag::Keep },
+                        Reason::Priority => Candidate::Action {
+                            action: Action::Pass,
+                        },
                         other => panic!("unexpected preparation choice {other:?}"),
                     };
+                    let response = decision.pick_one(&candidate).unwrap();
                     let QueryResult::Complete(QueryValue::Validated(receipt)) = game
                         .check_player_response(
                             player,
@@ -302,7 +303,7 @@ mod tests {
         else {
             panic!("decision");
         };
-        request.token().clone()
+        request.id.clone()
     }
 
     #[test]

@@ -11,14 +11,14 @@ import type { JournalRecord } from '../web/src/session/contracts.ts';
 import { SessionFailure, type ReadBinding } from '../web/src/session/read-state.ts';
 import { JournalFailure } from '../web/src/session/journal.ts';
 const original = opening.resume as SeatResume;
-const binding: ReadBinding = { protocol_version: 1, server_origin: 'http://127.0.0.1:18741', match_id: original.match_id, viewer: 0, engine_build_id: original.engine_build_id, server_build_id: original.server_build_id, catalog_sha256: original.catalog_sha256 };
+const binding: ReadBinding = { protocol_version: 2, server_origin: 'http://127.0.0.1:18741', match_id: original.match_id, viewer: 0, engine_build_id: original.engine_build_id, server_build_id: original.server_build_id, catalog_sha256: original.catalog_sha256 };
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { resolve, promise }; }
 async function flush() { for (let i = 0; i < 50; i++) await Promise.resolve(); }
 function rig(presentation: PresentationArtifact | null = null) {
   let record: JournalRecord<CommandEnvelope> | null = null, owns = false, manifests = 0, presentations = 0, resumes = 0, polls = 0, sends = 0, ids = 0;
   const events: string[] = [], waits: ReturnType<typeof deferred<void>>[] = [];
   const commands: CommandEffects = {
-    protocol: '4'.repeat(64), protocolVersion: 1, codec: { prepare: prepareCommand, parse: parsePreparedCommand }, newId: () => (++ids).toString(16).padStart(32, '0'),
+    protocol: '4'.repeat(64), protocolVersion: 2, codec: { prepare: prepareCommand, parse: parsePreparedCommand }, newId: () => (++ids).toString(16).padStart(32, '0'),
     journal: {
       async unresolved() { assert.ok(owns); assert.ok(resumes > 0, 'actual authorized viewer is checked before journal access'); events.push('scan'); return record ? [record] : []; },
       async persist(value) { assert.ok(owns); assert.equal(record, null); record = value; events.push('persist'); },
@@ -34,7 +34,7 @@ function rig(presentation: PresentationArtifact | null = null) {
     async manifest() { manifests++; events.push('manifest'); return { ...binding, profile: opening.profile } as unknown as PublicManifest; },
     async presentation() { presentations++; return presentation; },
     async resume() { resumes++; events.push('resume'); return structuredClone(original); },
-    async poll(after) { polls++; return { protocol_version: 1, entries: [], next: after, has_more: false }; },
+    async poll(after) { polls++; return { protocol_version: 2, entries: [], next: after, has_more: false }; },
   };
   const effects: SessionEffects<string> = {
     cancellation() { const c = new AbortController(); return { signal: c.signal, abort: () => c.abort() }; },
@@ -44,7 +44,7 @@ function rig(presentation: PresentationArtifact | null = null) {
     classify(error) { return error instanceof SessionFailure ? error.kind : 'disconnected'; },
   };
   const session = new ReadSession(effects);
-  const intent = (): DecisionIntent => ({ kind: 'decision', source: 'human', context: session.commandContext()!, response: { response: 'mulligan', take: false } });
+  const intent = (): DecisionIntent => ({ kind: 'decision', source: 'human', context: session.commandContext()!, response: { answer: 'pick', picks: [[0]] } });
   return { session, commands, transport, effects, events, waits, intent, record: () => record, stats: () => ({ sends, resumes, polls, manifests, presentations }) };
 }
 

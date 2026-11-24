@@ -6,6 +6,7 @@ use mtg_server::{
 };
 use std::{fs::OpenOptions, io::Write, path::Path, time::Instant};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    mtg_core::install_build_identity(mtg_server::ENGINE_BUILD)?;
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.len() != 2 {
         return Err("usage: client_fixture NEW_SCRATCH NEW_OUTPUT".into());

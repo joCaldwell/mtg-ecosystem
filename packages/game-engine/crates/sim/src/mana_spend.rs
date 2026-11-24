@@ -55,37 +55,12 @@ pub fn payment(cost: &ManaCost, available: &BTreeMap<Color, Quantity>) -> Option
     (rest == Quantity::zero()).then_some(used)
 }
 
-/// Plan against the complete fixed price as each printed hybrid pip is
-/// selected. A life payment is available only on its printed symbol.
-pub fn spend_response(
+pub fn spend_answer(
     cost: &ManaCost,
     available: &BTreeMap<Color, Quantity>,
-    restricted_available: &[mtg_contracts::RestrictedMana],
-) -> Option<mtg_core::PlayerResponse> {
-    let mut combined = available.clone();
-    for unit in restricted_available {
-        combined.entry(unit.color).or_default().add(&unit.amount);
-    }
-    let mut spending = spend(cost, &combined)?;
-    let mut restricted = vec![];
-    for unit in restricted_available {
-        if let Some(amount) = spending.get_mut(&unit.color) {
-            let used = unit.amount.clone().min(amount.clone());
-            if used > Quantity::zero() {
-                amount.subtract(&used);
-                restricted.push(mtg_contracts::RestrictedMana {
-                    amount: used,
-                    ..unit.clone()
-                });
-            }
-        }
-    }
-    if restricted.is_empty() {
-        return Some(mtg_core::PlayerResponse::SpendMana { spending });
-    }
-    spending.retain(|_, amount| *amount > Quantity::zero());
-    Some(mtg_core::PlayerResponse::SpendManaAllocated {
-        spending,
-        restricted,
+) -> Option<mtg_core::Answer> {
+    let unrestricted = spend(cost, available)?;
+    Some(mtg_core::Answer::Pay {
+        pay: mtg_core::PayAnswer::Spend { unrestricted },
     })
 }

@@ -26,25 +26,47 @@ fn grave(g: &Game, card: u32) -> ProposedEvent {
 }
 fn visionary_placement() -> Game {
     let mut g = game();
-    Driver::answer(&mut g, u64::MAX, Response::Cast { card: CardId(4) });
+    {
+        let selected_answer = g.next_test_decision().cast(CardId(4));
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     for card in [8, 9] {
         let object = g.object_id(CardId(card)).unwrap();
-        Driver::answer(&mut g, u64::MAX, Response::ActivateMana { object });
+        {
+            let selected_answer = g.next_test_decision().activate_mana(object);
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
     }
-    Driver::answer(&mut g, u64::MAX, Response::FinishMana { undo_mana: false });
-    Driver::answer(
-        &mut g,
-        u64::MAX,
-        Response::SpendMana {
-            spending: [(Color::G, 2.into())].into(),
-        },
-    );
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        };
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: [(Color::G, 2.into())].into(),
+            },
+        };
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     for _ in 0..4 {
-        Driver::answer(&mut g, u64::MAX, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
     }
     assert!(matches!(
         Driver::request(&mut g, u64::MAX),
-        Request::OrderTriggers { .. }
+        Decision {
+            reason: Reason::OrderTriggers,
+            ..
+        }
     ));
     assert_eq!(g.state.rules.pending_triggers.len(), 4);
     g

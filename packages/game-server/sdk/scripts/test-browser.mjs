@@ -39,7 +39,7 @@ const server = createServer((req, res) => {
       res.on('close', () => { pendingResponses--; }); return;
     }
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({ protocol_version: 1, entries: [], next: url.searchParams.get('after'), has_more: false })); return;
+    res.end(JSON.stringify({ protocol_version: 2, entries: [], next: url.searchParams.get('after'), has_more: false })); return;
   }
   res.writeHead(404).end();
 });

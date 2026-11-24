@@ -1,13 +1,13 @@
 {
-  "native_source": "059d0801cf6d03105bcc031d391c96077fb2ef74",
-  "sdk_source": "059d0801cf6d03105bcc031d391c96077fb2ef74",
-  "protocol_schema_sha256": "33f0af1f377051f403b48aa560b3432998acf5bf00b5e6e019d92a770cd24c9c",
-  "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
-  "engine_build_id": "7bafc669819e9023d73f6ffafd3fb2060b005f0aad317b861e7eb85447c84a94",
-  "server_build_id": "ba40bf6386425d9ed2890236da060e27c1b3dfebdf38005bf1887cd7f8523aaf",
+  "native_source": "4def486a81318363f306e6d35d348fad2008838b",
+  "sdk_source": "77cb68f15fc79ccf7420f7779d44d3bace5e7a3e",
+  "protocol_schema_sha256": "544786c28d3897e7ec733f241a18244dc24859ad03ff5157e69eeb7c6d3c4069",
+  "bootstrap_schema_sha256": "35509924e00400f4e079d674c621ca84ae5fb7b3e36406d18993856d3356a705",
+  "engine_build_id": "86403290b4559c3030e4e8e7b8e97d82c25a2ed9cf5cf300471d9a2576bcf75a",
+  "server_build_id": "a228100966548355189c2ec8d2736d725613d54ee8d761d8163f63bfe074d6cf",
   "profile": "commander-foundations-v1",
   "catalog_sha256": "3e36982dc804bc7138c964ccd908ec3076e1a8d63c9c99705367d34f582644c5",
-  "observation_version": 56,
-  "sdk_build_manifest_sha256": "a1b6b267d1d9a7f985ae65d100da1b7f1781213f8f8b2f830ed255d254d85442",
-  "scope": "R4 debug host schema export, generated SDK, client typecheck and local decision controls. Hosted browser qualification requires a separate run."
+  "observation_version": 57,
+  "sdk_build_manifest_sha256": "ca209eb51f9b440eda1c80fb3ef213dbd3a40e7ba7939b84900245b1f51b68bc",
+  "scope": "Native protocol 2 schema, pinned SDK browser build and Foundations seat-zero Worker capture."
 }

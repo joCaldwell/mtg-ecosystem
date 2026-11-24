@@ -9,21 +9,35 @@ fn object(game: &Game, card: u32) -> ObjectId {
 fn reach_attackers(game: &mut Game) {
     for _ in 0..32 {
         match game.advance(Budget::unlimited()) {
-            Advance::AwaitingDecision(Request::Attackers { .. }) => return,
+            Advance::AwaitingDecision(Decision {
+                reason: Reason::Attackers,
+                ..
+            }) => return,
             Advance::AwaitingDecision(r) => game
-                .respond(r.player(), r.decision_id(), Response::Pass)
+                .respond(
+                    r.player,
+                    r.id,
+                    Answer::Pick {
+                        picks: vec![vec![0]],
+                    },
+                )
                 .unwrap(),
             other => panic!("unexpected {other:?}"),
         }
     }
     panic!("no attackers")
 }
-fn answer(game: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn answer(game: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         panic!("decision")
     };
-    game.respond(r.player(), r.decision_id(), response).unwrap();
+    game.respond(r.player, r.id, response).unwrap();
     if finish {
         game.complete_test_mana();
     }
@@ -245,8 +259,9 @@ fn cleanup_sba_exception_grants_priority_then_repeats_cleanup_and_clears_damage(
         .marked_damage = Quantity::from(1);
     assert!(matches!(
         g.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::Priority,
             ..
         })
     ));
@@ -256,12 +271,18 @@ fn cleanup_sba_exception_grants_priority_then_repeats_cleanup_and_clears_damage(
         Quantity::zero()
     );
     for _ in 0..3 {
-        answer(&mut g, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut g, selected_answer)
+        };
     }
     assert!(matches!(
         g.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(2),
+            reason: Reason::Priority,
             ..
         })
     ));
@@ -327,9 +348,17 @@ fn control_change_and_reentry_reset_readiness_even_before_untap_processing() {
 fn zero_power_has_no_positive_damage_occurrence_and_empty_attack_skips_damage() {
     let mut g = game();
     reach_attackers(&mut g);
-    answer(&mut g, Response::Attackers { attacks: vec![] });
+    {
+        let selected_answer = g.next_test_decision().attack(vec![]);
+        answer(&mut g, selected_answer)
+    };
     for _ in 0..4 {
-        answer(&mut g, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut g, selected_answer)
+        };
     }
     g.advance(Budget::unlimited());
     assert_eq!(g.turn().step, TurnStep::EndCombat);
@@ -372,27 +401,40 @@ fn nonactive_priority_mana_and_cast_completion_retain_priority_through_stabiliza
     g.state.rules.priority = PlayerId(3);
     g.refresh_visibility().unwrap();
     let mana = object(&g, 6);
-    answer(&mut g, Response::ActivateMana { object: mana });
+    {
+        let selected_answer = g.next_test_decision().activate_mana(mana);
+        answer(&mut g, selected_answer)
+    };
     assert!(matches!(
         g.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(3),
+            reason: Reason::Priority,
             ..
         })
     ));
-    answer(&mut g, Response::Cast { card: CardId(7) });
+    {
+        let selected_answer = g.next_test_decision().cast(CardId(7));
+        answer(&mut g, selected_answer)
+    };
     let target = object(&g, 0);
-    answer(
-        &mut g,
-        Response::Targets {
-            objects: vec![target],
-        },
-    );
-    answer(&mut g, Response::FinishMana { undo_mana: false });
+    {
+        let selected_answer = g.next_test_decision().targets(vec![target]);
+        answer(&mut g, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        };
+        answer(&mut g, selected_answer)
+    };
     assert!(matches!(
         g.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(3),
+            reason: Reason::Priority,
             ..
         })
     ));
@@ -450,9 +492,24 @@ fn simultaneous_losers_remove_all_owned_objects_before_control_restoration() {
 #[test]
 fn last_unpassed_departure_during_stabilization_advances_without_redundant_pass() {
     let mut g = game();
-    answer(&mut g, Response::Pass);
-    answer(&mut g, Response::Pass);
-    answer(&mut g, Response::Pass);
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        answer(&mut g, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        answer(&mut g, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        answer(&mut g, selected_answer)
+    };
     assert_eq!(
         g.advance(Budget::new(1)),
         Advance::Suspended {
@@ -469,8 +526,9 @@ fn last_unpassed_departure_during_stabilization_advances_without_redundant_pass(
     );
     let restored = Game::restore(g.prepared.as_ref().clone(), &g.snapshot().unwrap()).unwrap();
     assert_eq!(restored.state, g.state);
-    let Advance::AwaitingDecision(Request::Priority {
+    let Advance::AwaitingDecision(Decision {
         player: PlayerId(0),
+        reason: Reason::Priority,
         ..
     }) = g.advance(Budget::unlimited())
     else {
@@ -484,18 +542,22 @@ fn last_unpassed_departure_during_stabilization_advances_without_redundant_pass(
 fn oversized_public_declarations_reject_before_handle_conversion() {
     let mut g = game();
     reach_attackers(&mut g);
-    let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::Attackers {
-        token,
-        candidates,
-        ..
-    }))) = g.player_decision_for(PlayerId(0), Budget::unlimited())
+    let QueryResult::Complete(QueryValue::Decision(Some(
+        found @ Decision {
+            reason: Reason::Attackers,
+            ..
+        },
+    ))) = g.player_decision_for(PlayerId(0), Budget::unlimited())
     else {
         panic!("request")
     };
+    let token = found.id.clone();
+    let candidates = found.subjects();
     let before = g.state_digest().unwrap();
-    let oversized = PlayerResponse::Attackers {
-        attacks: vec![(candidates[0].clone(), PlayerId(1)); g.state.rules.objects.len() + 1],
-    };
+    let oversized = g.next_test_viewer_decision().attack(vec![
+        (candidates[0].clone(), PlayerId(1));
+        g.state.rules.objects.len() + 1
+    ]);
     assert!(matches!(
         g.check_player_response(PlayerId(0), token, oversized, Budget::unlimited()),
         QueryResult::Rejected(QueryRejection::InvalidResponse)

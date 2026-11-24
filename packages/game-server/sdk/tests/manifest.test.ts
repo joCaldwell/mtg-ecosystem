@@ -7,7 +7,7 @@ import { manifest } from '../src/validation.ts';
 const catalog = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/expected-match-ir.json', import.meta.url), 'utf8'));
 const deck = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/profiles/commander-foundations-v1.json', import.meta.url), 'utf8')).decks[0];
 const fixture = () => ({
-  protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64),
+  protocol_version: 2, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64),
   catalog_sha256: fs.readFileSync(new URL('../../../game-engine/tests/fixtures/catalogs/match.sha256', import.meta.url), 'utf8').trim(),
   profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => structuredClone(deck)),
   starting_player: 0, catalog: structuredClone(catalog),
@@ -45,10 +45,10 @@ test('public manifest rejects hidden metadata, nested extras and malformed typed
 });
 
 test('manifest lookup binds match identity/version and retains strict network JSON decoding', async () => {
-  for (const invalid of [{ ...fixture(), match_id: 'def' }, { ...fixture(), protocol_version: 2 }]) {
+  for (const invalid of [{ ...fixture(), match_id: 'def' }, { ...fixture(), protocol_version: 1 }]) {
     await assert.rejects(client(async () => json(invalid)).manifest(), ProtocolError);
   }
-  const duplicate = JSON.stringify(fixture()).replace('"protocol_version":1', '"protocol_version":1,"\\u0070rotocol_version":1');
+  const duplicate = JSON.stringify(fixture()).replace('"protocol_version":2', '"protocol_version":2,"\\u0070rotocol_version":1');
   await assert.rejects(client(async () => new Response(duplicate, { headers: { 'content-type': 'application/json' } })).manifest(), /Duplicate/);
   const fractional = JSON.stringify(fixture()).replace('"starting_player":0', '"starting_player":0.000000000000000000001');
   await assert.rejects(client(async () => new Response(fractional, { headers: { 'content-type': 'application/json' } })).manifest(), /Noncanonical/);

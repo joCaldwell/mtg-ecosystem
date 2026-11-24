@@ -1,5 +1,5 @@
 /** Finite all-White Commander development policy. Only permitted DTOs enter it. */
-import type { Observation, PlayerResponse, PublicManifest } from '../client.ts';
+import type { Candidate, Observation, Answer, PublicManifest } from '../client.ts';
 import type { ManaCost, VisibleObject } from '../../generated/stream.js';
 
 function fail(): never { throw new Error('commander_policy_unsupported'); }
@@ -12,12 +12,6 @@ function whiteCost(cost: ManaCost): bigint {
   if (generic < 0n || cost.colored.some(color => color !== 'W')) return fail();
   return generic + BigInt(cost.colored.length);
 }
-function firstHandles(candidates: string[], count: number): string[] {
-  if (!Number.isSafeInteger(count) || count < 0 || count > candidates.length
-    || new Set(candidates).size !== candidates.length) return fail();
-  return candidates.slice(0, count);
-}
-
 /**
  * The host/transport validates schemas; this policy supports only the admitted
  * all-Isamaru foundation pod. It casts no optional spells or activated abilities.
@@ -25,7 +19,7 @@ function firstHandles(candidates: string[], count: number): string[] {
  */
 export function commanderDevelopmentPolicy(
   observation: Observation, viewer: number, manifest: PublicManifest,
-): PlayerResponse | null {
+): Answer | null {
   const view = observation.view;
   if (view.viewer !== viewer || !Number.isSafeInteger(viewer) || viewer < 0 || viewer > 3) return fail();
   const request = observation.decision;
@@ -46,61 +40,64 @@ export function commanderDevelopmentPolicy(
     const amount = quantity(ownPool.W ?? '0');
     return amount < 0n ? fail() : amount;
   };
-  switch (request.request) {
-    case 'mulligan': return { response: 'mulligan', take: false };
-    case 'bottom_opening': return { response: 'bottom_opening', objects: firstHandles(request.candidates, request.count) };
+  const {shape,candidates} = request;
+  function pick(test:(candidate:Candidate)=>boolean):Answer {
+    if (shape.shape !== 'pick' || shape.slots.length !== 1) return fail();
+    const i=shape.slots[0]?.allowed.find(i => candidates[i] !== undefined && test(candidates[i]!));
+    return i === undefined ? fail() : {answer:'pick', picks:[[i]]};
+  }
+  const pass = () => pick(c=>c.candidate==='action' && c.action.action==='pass');
+  switch(request.reason.reason){
+    case 'mulligan': return pick(c=>c.candidate==='flag' && c.flag==='keep');
+    case 'commander_return': return pick(c=>c.candidate==='flag' && c.flag==='command_zone');
+    case 'bottom_opening': return shape.shape==='order' ? {answer:'order',order:shape.items.slice(0,shape.min)} : fail();
     case 'priority': {
       if (view.active !== viewer || view.priority !== viewer || view.stack.length !== 0
-        || !['precombat_main', 'postcombat_main'].includes(view.turn.step)) return { response: 'pass' };
+        || !['precombat_main', 'postcombat_main'].includes(view.turn.step)) return pass();
       if (view.turn.lands_played === 0) {
         const land = view.objects.find(card => card.owner === viewer && card.zone.zone === 'hand'
           && card.zone.owner === viewer && plains.has(card.oracle_id));
-        if (land !== undefined) return { response: 'play_land', object: land.handle };
+        if (land !== undefined) return pick(c=>c.candidate==='action' && c.action.action==='play_land' && c.action.object===land.handle);
       }
       const card = view.objects.find(card => card.oracle_id === commanderId && card.owner === viewer
         && card.zone.zone === 'command' && card.zone.owner === viewer);
-      if (card === undefined) return { response: 'pass' };
+      if (card === undefined) return pass();
       const history = view.commanders.find(row => row.oracle_id === commanderId && row.history.owner === viewer);
       if (history === undefined) return fail();
       const casts = quantity(history.history.command_casts[String(viewer)] ?? '0');
       if (casts < 0n) return fail();
       const required = whiteCost(commander.characteristics.mana_cost) + 2n * casts;
       return white() + BigInt(untappedPlains().length) >= required
-        ? { response: 'cast', card: card.handle } : { response: 'pass' };
+        ? pick(c=>c.candidate==='action' && c.action.action==='cast' && c.action.card===card.handle) : pass();
     }
     case 'mana': {
-      const required = whiteCost(request.cost);
-      if (white() >= required) return { response: 'finish_mana', undo_mana: true };
-      const land = untappedPlains()[0];
-      // A departure can remove funding after announcement. FinishMana performs
-      // the core's legal reversal; a later priority decision reevaluates funds.
-      return land === undefined ? { response: 'finish_mana', undo_mana: true }
-        : { response: 'activate_mana', object: land.handle };
+      if(shape.shape!=='pay' || shape.step.step!=='produce') return fail();
+      const source=shape.step.sources.find(i=> {
+        const c=candidates[i];
+        return c?.candidate==='action' && c.action.action==='activate_mana' && untappedPlains().some(land=>land.handle===('object' in c.action && c.action.object));
+      });
+      if(white()>=whiteCost(shape.cost) || source===undefined) return {answer:'pay',pay:{step:'finish',undo_on_failure:true}};
+      return {answer:'pay',pay:{step:'activate',source}};
     }
     case 'spend_mana': {
-      const required = whiteCost(request.cost);
-      if (quantity(request.available.W ?? '0') < required) return fail();
-      return { response: 'spend_mana', spending: required === 0n ? {} : { W: required.toString() } };
+      if(shape.shape!=='pay' || shape.step.step!=='spend') return fail();
+      const required=whiteCost(shape.cost);
+      if(quantity(shape.pool.unrestricted.W ?? '0')<required) return fail();
+      return {answer:'pay',pay:{step:'spend',unrestricted:required===0n?{}:{W:String(required)}}};
     }
     case 'attackers': {
-      const defenders = request.defenders.filter(player => player !== viewer && view.live_turn_order.includes(player));
-      if (defenders.some(player => !Number.isSafeInteger(player) || player < 0 || player > 3)) return fail();
-      defenders.sort((a, b) => (a - viewer + 4) % 4 - (b - viewer + 4) % 4);
-      const defender = defenders[0];
-      const attacks: [string, number][] = [];
-      if (defender !== undefined) for (const handle of request.candidates) {
-        const card = view.objects.find(card => card.handle === handle);
-        if (card !== undefined && card.controller === viewer && card.oracle_id === commanderId
-          && card.zone.zone === 'battlefield' && card.attack_ready && !card.tapped
-          && card.characteristics?.power !== null && card.characteristics?.power !== undefined
-          && quantity(card.characteristics.power) > 0n) attacks.push([handle, defender]);
-      }
-      return { response: 'attackers', attacks };
+      if(shape.shape!=='pick') return fail();
+      return {answer:'pick',picks:shape.slots.map(slot=>{
+        const c=candidates[slot.subject ?? -1];
+        const card=c?.candidate==='object' && view.objects.find(o=>o.handle===c.object);
+        if(!card || card.oracle_id!==commanderId || !card.attack_ready || card.tapped || quantity(card.characteristics?.power ?? '0')<=0n) return [];
+        const players=slot.allowed.flatMap(i=>{const c=candidates[i];return c?.candidate==='player'?[{i,p:c.player}]:[];});
+        players.sort((a,b)=>(a.p-viewer+4)%4-(b.p-viewer+4)%4);
+        return players[0]?[players[0].i]:[];
+      })};
     }
-    case 'blockers': return { response: 'blockers', blocks: [] };
-    case 'commander_return': return { response: 'commander_return', to_command: true };
-    case 'discard': return { response: 'discard', objects: firstHandles(request.candidates, request.count) };
-    case 'legend_rule': return fail();
+    case 'discard':
+    case 'blockers': return shape.shape==='pick' ? {answer:'pick',picks:shape.slots.map(s=>s.allowed.slice(0,s.min))} : fail();
     default: return fail();
   }
 }

@@ -35,23 +35,69 @@ fn prepared() -> Prepared {
         .libraries("Swamp", 4);
     board.prepare()
 }
-fn passive(g: &mut Game, r: Request) {
+fn passive(g: &mut Game, r: Decision<Rules>) {
     let response = match &r {
-        Request::Priority { .. } => Response::Pass,
-        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-        Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
-            order: candidates.clone(),
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
-        Request::DamageEffect { candidates, .. } => {
-            let c = &candidates[0];
-            Response::DamageEffect {
-                effect: c.effect.clone(),
-                damage: c.damage,
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => r.block(vec![]),
+        found @ Decision {
+            reason: Reason::OrderTriggers,
+            ..
+        } => {
+            let candidates = found
+                .candidates
+                .iter()
+                .filter_map(|c| {
+                    if let Candidate::Trigger { trigger } = c {
+                        Some(*trigger)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            Answer::Order {
+                order: (candidates.clone())
+                    .into_iter()
+                    .map(|trigger| r.test_index(Candidate::Trigger { trigger }))
+                    .collect(),
+            }
+        }
+        found @ Decision {
+            reason: Reason::DamageEffect { .. },
+            ..
+        } => {
+            let candidates = found
+                .candidates
+                .iter()
+                .filter_map(|c| {
+                    if let Candidate::DamageEffect { effect, damage } = c {
+                        Some(DamageEffectCandidate {
+                            effect: effect.clone(),
+                            damage: *damage,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            {
+                let c = &candidates[0];
+                r.select(Candidate::DamageEffect {
+                    effect: c.effect.clone(),
+                    damage: c.damage,
+                })
             }
         }
         x => panic!("unexpected request {x:?}"),
     };
-    g.respond(r.player(), r.decision_id(), response).unwrap();
+    g.respond(r.player, r.id, response).unwrap();
 }
 // Pause after assignment and before damage is committed (CR 510.2).
 fn assigned_damage_boundary(g: &mut Game) {
@@ -65,14 +111,17 @@ fn assigned_damage_boundary(g: &mut Game) {
         }
         match g.advance(Budget::new(1)) {
             Advance::Suspended { .. } => (),
-            Advance::AwaitingDecision(r @ Request::Attackers { .. }) => {
+            Advance::AwaitingDecision(
+                r @ Decision {
+                    reason: Reason::Attackers,
+                    ..
+                },
+            ) => {
                 let alpha = g.object_id(CardId(1)).unwrap();
                 g.respond(
-                    r.player(),
-                    r.decision_id(),
-                    Response::Attackers {
-                        attacks: vec![(alpha, PlayerId(1))],
-                    },
+                    r.player,
+                    r.id,
+                    g.next_test_decision().attack(vec![(alpha, PlayerId(1))]),
                 )
                 .unwrap();
             }
@@ -86,7 +135,13 @@ fn finish_damage(g: &mut Game) {
     for _ in 0..100 {
         let r = Driver::request(g, u64::MAX);
         if g.state.rules.players[1].life < 40.into() {
-            assert!(matches!(r, Request::Priority { .. }));
+            assert!(matches!(
+                r,
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                }
+            ));
             return;
         }
         passive(g, r);
@@ -175,17 +230,28 @@ fn damage_match_appearance_damager_departure_after_collection_keeps_frozen_trigg
     g.concede(PlayerId(3)).unwrap();
     assert!(matches!(
         Driver::request(&mut g, u64::MAX),
-        Request::Priority { .. }
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
     ));
     assert!(g.object_id(CardId(1)).is_none());
     assert_eq!(g.state.rules.stack.len(), 1);
 
     for _ in 0..g.live_players().len() {
-        Driver::answer(&mut g, u64::MAX, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
     }
     assert!(matches!(
         Driver::request(&mut g, u64::MAX),
-        Request::Priority { .. }
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
     ));
     assert!(g.state.rules.stack.is_empty());
     assert_eq!(hand(&g), 1);

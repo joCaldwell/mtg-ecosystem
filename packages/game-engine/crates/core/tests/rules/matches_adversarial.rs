@@ -346,7 +346,7 @@ fn observation(g: &Game, player: PlayerId) -> Observation {
     };
     o
 }
-fn request(g: &Game) -> (PlayerId, PlayerRequest) {
+fn request(g: &Game) -> (PlayerId, Decision<Viewer>) {
     let p = g
         .live_players()
         .into_iter()
@@ -359,17 +359,17 @@ fn request(g: &Game) -> (PlayerId, PlayerRequest) {
     };
     (p, r)
 }
-fn submit_match(g: &mut Game, response: PlayerResponse) {
+fn submit_match(g: &mut Game, response: Answer) {
     let (p, r) = request(g);
     let QueryValue::Validated(receipt) = finish_query(
         g,
-        g.check_player_response(p, r.token().clone(), response, Budget::new(100000)),
+        g.check_player_response(p, r.id.clone(), response, Budget::new(100000)),
     ) else {
         panic!("receipt")
     };
     g.submit(receipt).unwrap();
 }
-fn input_match(g: &mut Game, response: PlayerResponse) {
+fn input_match(g: &mut Game, response: Answer) {
     submit_match(g, response);
     assert!(matches!(settle_match(g, 1), Advance::AwaitingDecision(_)));
 }
@@ -384,7 +384,7 @@ fn assert_replay(g: &Game, p: &Prepared) {
 fn state(g: &Game) -> Value {
     serde_json::from_str::<Value>(&g.snapshot().unwrap()).unwrap()["state"].clone()
 }
-fn reject_input(g: &Game, p: PlayerId, token: DecisionToken, response: PlayerResponse) {
+fn reject_input(g: &Game, p: PlayerId, token: DecisionToken, response: Answer) {
     let before = g.snapshot().unwrap();
     let mut r = g.check_player_response(p, token, response, Budget::new(0));
     for _ in 0..10000 {
@@ -409,8 +409,18 @@ fn initial_match(c: MatchConfig, budget: u64) -> (Prepared, Game) {
     (p, g)
 }
 fn keep_all(g: &mut Game) {
-    while matches!(request(g).1, PlayerRequest::Mulligan { .. }) {
-        input_match(g, PlayerResponse::Mulligan { take: false });
+    while matches!(
+        request(g).1,
+        Decision {
+            reason: Reason::Mulligan { .. },
+            ..
+        }
+    ) {
+        input_match(
+            g,
+            g.next_test_viewer_decision()
+                .select(Candidate::Flag { flag: Flag::Keep }),
+        );
     }
 }
 fn hand_count(g: &Game, player: PlayerId) -> u32 {
@@ -496,7 +506,12 @@ fn seed_shuffle_budget_partition_and_private_setup_views_are_deterministic() {
     }
     let original = a.snapshot().unwrap();
     let mut fork = a.fork();
-    input_match(&mut fork, PlayerResponse::Mulligan { take: true });
+    {
+        let selected_answer = fork.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Mulligan,
+        });
+        input_match(&mut fork, selected_answer)
+    };
     assert_eq!(a.snapshot().unwrap(), original);
     let mut other = config();
     other.seed[0] ^= 1;
@@ -512,12 +527,16 @@ fn declarations_finish_before_any_redraw_and_kept_players_never_rejoin() {
     let objects = before["objects"].clone();
     for seat in [2, 3, 0] {
         assert_eq!(request(&g).0, PlayerId(seat));
-        input_match(
-            &mut g,
-            PlayerResponse::Mulligan {
-                take: seat == 2 || seat == 0,
-            },
-        );
+        {
+            let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if seat == 2 || seat == 0 {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            });
+            input_match(&mut g, selected_answer)
+        };
         assert_eq!(state(&g)["libraries"], libraries);
         assert_eq!(
             state(&g)["objects"],
@@ -526,7 +545,12 @@ fn declarations_finish_before_any_redraw_and_kept_players_never_rejoin() {
         );
     }
     assert_eq!(request(&g).0, PlayerId(1));
-    submit_match(&mut g, PlayerResponse::Mulligan { take: false });
+    {
+        let selected_answer = g
+            .next_test_viewer_decision()
+            .select(Candidate::Flag { flag: Flag::Keep });
+        submit_match(&mut g, selected_answer)
+    };
     assert!(matches!(
         g.advance(Budget::new(1)),
         Advance::Suspended { .. }
@@ -543,19 +567,38 @@ fn declarations_finish_before_any_redraw_and_kept_players_never_rejoin() {
     assert_eq!(actor, PlayerId(2));
     assert!(matches!(
         r,
-        PlayerRequest::Mulligan {
-            mulligans_taken: 1,
-            bottom_if_mulligan: 1,
+        Decision {
+            reason: Reason::Mulligan {
+                mulligans_taken: 1,
+                bottom_if_mulligan: 1,
+                ..
+            },
             ..
         }
     ));
     assert_eq!(hand_count(&g, PlayerId(2)), 7);
     assert_eq!(hand_count(&g, PlayerId(0)), 7);
     assert_restore(&g, &p);
-    input_match(&mut g, PlayerResponse::Mulligan { take: false });
+    {
+        let selected_answer = g
+            .next_test_viewer_decision()
+            .select(Candidate::Flag { flag: Flag::Keep });
+        input_match(&mut g, selected_answer)
+    };
     assert_eq!(request(&g).0, PlayerId(0));
-    input_match(&mut g, PlayerResponse::Mulligan { take: false });
-    assert!(matches!(request(&g).1, PlayerRequest::Priority { .. }));
+    {
+        let selected_answer = g
+            .next_test_viewer_decision()
+            .select(Candidate::Flag { flag: Flag::Keep });
+        input_match(&mut g, selected_answer)
+    };
+    assert!(matches!(
+        request(&g).1,
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
+    ));
     assert_replay(&g, &p);
 }
 
@@ -563,66 +606,86 @@ fn declarations_finish_before_any_redraw_and_kept_players_never_rejoin() {
 fn multiplayer_free_paid_mulligans_and_explicit_bottom_order_survive_restore() {
     let (p, mut g) = initial_match(config(), 4096);
     for i in 0..4 {
-        input_match(&mut g, PlayerResponse::Mulligan { take: i == 0 });
+        {
+            let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if i == 0 { Flag::Mulligan } else { Flag::Keep },
+            });
+            input_match(&mut g, selected_answer)
+        };
     }
     assert_eq!(request(&g).0, PlayerId(2));
-    input_match(&mut g, PlayerResponse::Mulligan { take: true });
+    {
+        let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Mulligan,
+        });
+        input_match(&mut g, selected_answer)
+    };
     let (actor, req) = request(&g);
-    let PlayerRequest::BottomOpening {
-        count, candidates, ..
+    let found @ Decision {
+        reason: Reason::BottomOpening,
+        ..
     } = &req
     else {
         panic!("paid bottom")
     };
+    let count = &found.required_count();
+    let candidates = found.objects_offered();
     assert_eq!(actor, PlayerId(2));
     assert_eq!(*count, 1);
     assert_eq!(candidates.len(), 7);
     reject_input(
         &g,
         PlayerId(3),
-        req.token().clone(),
-        PlayerResponse::BottomOpening {
-            objects: vec![candidates[0].clone()],
-        },
+        req.id.clone(),
+        g.next_test_viewer_decision()
+            .order_objects(vec![candidates[0].clone()]),
     );
     reject_input(
         &g,
         actor,
-        req.token().clone(),
-        PlayerResponse::BottomOpening { objects: vec![] },
+        req.id.clone(),
+        g.next_test_viewer_decision().order_objects(vec![]),
     );
-    input_match(
-        &mut g,
-        PlayerResponse::BottomOpening {
-            objects: vec![candidates[0].clone()],
-        },
-    );
+    {
+        let selected_answer = g
+            .next_test_viewer_decision()
+            .order_objects(vec![candidates[0].clone()]);
+        input_match(&mut g, selected_answer)
+    };
     assert_eq!(hand_count(&g, actor), 6);
-    input_match(&mut g, PlayerResponse::Mulligan { take: true });
+    {
+        let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Mulligan,
+        });
+        input_match(&mut g, selected_answer)
+    };
     let (
         _,
-        PlayerRequest::BottomOpening {
-            count, candidates, ..
+        found @ Decision {
+            reason: Reason::BottomOpening,
+            ..
         },
     ) = request(&g)
     else {
         panic!("second paid bottom")
     };
+    let count = found.required_count();
+    let candidates = found.objects_offered();
     assert_eq!(count, 2);
     let mut a = g.fork();
     let mut b = g.fork();
-    input_match(
-        &mut a,
-        PlayerResponse::BottomOpening {
-            objects: candidates[..2].to_vec(),
-        },
-    );
-    input_match(
-        &mut b,
-        PlayerResponse::BottomOpening {
-            objects: vec![candidates[1].clone(), candidates[0].clone()],
-        },
-    );
+    {
+        let selected_answer = a
+            .next_test_viewer_decision()
+            .order_objects(candidates[..2].to_vec());
+        input_match(&mut a, selected_answer)
+    };
+    {
+        let selected_answer = b
+            .next_test_viewer_decision()
+            .order_objects(vec![candidates[1].clone(), candidates[0].clone()]);
+        input_match(&mut b, selected_answer)
+    };
     assert_eq!(hand_count(&a, actor), 5);
     assert_eq!(hand_count(&b, actor), 5);
     let sa = state(&a);
@@ -634,8 +697,18 @@ fn multiplayer_free_paid_mulligans_and_explicit_bottom_order_survive_restore() {
     assert_eq!(la[la.len() - 1], lb[lb.len() - 2]);
     assert_restore(&a, &p);
     assert_restore(&b, &p);
-    input_match(&mut a, PlayerResponse::Mulligan { take: false });
-    input_match(&mut b, PlayerResponse::Mulligan { take: false });
+    {
+        let selected_answer = a
+            .next_test_viewer_decision()
+            .select(Candidate::Flag { flag: Flag::Keep });
+        input_match(&mut a, selected_answer)
+    };
+    {
+        let selected_answer = b
+            .next_test_viewer_decision()
+            .select(Candidate::Flag { flag: Flag::Keep });
+        input_match(&mut b, selected_answer)
+    };
     assert_replay(&a, &p);
     assert_replay(&b, &p);
 }
@@ -647,40 +720,72 @@ fn maximum_eight_mulligans_forces_empty_keep_and_starting_player_still_draws() {
     let (p, mut g) = initial_match(c, 4096);
     for seat in 0..4 {
         assert_eq!(request(&g).0, PlayerId(seat));
-        input_match(&mut g, PlayerResponse::Mulligan { take: seat == 0 });
+        {
+            let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if seat == 0 {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            });
+            input_match(&mut g, selected_answer)
+        };
     }
     for taken in 1..8 {
         let (actor, r) = request(&g);
         assert_eq!(actor, PlayerId(0));
         assert!(
-            matches!(r,PlayerRequest::Mulligan{mulligans_taken:n,can_mulligan:true,..} if n==taken)
+            matches!(r.reason,Reason::Mulligan{mulligans_taken:n,..} if n==taken)
+                && r.index(&Candidate::Flag {
+                    flag: Flag::Mulligan
+                })
+                .is_some()
         );
-        input_match(&mut g, PlayerResponse::Mulligan { take: true });
+        {
+            let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+                flag: Flag::Mulligan,
+            });
+            input_match(&mut g, selected_answer)
+        };
         let (
             _,
-            PlayerRequest::BottomOpening {
-                count, candidates, ..
+            found @ Decision {
+                reason: Reason::BottomOpening,
+                ..
             },
         ) = request(&g)
         else {
             panic!("bottom")
         };
+        let count = found.required_count();
+        let candidates = found.objects_offered();
         assert_eq!(count, usize::from(taken));
-        input_match(
-            &mut g,
-            PlayerResponse::BottomOpening {
-                objects: candidates[..count].to_vec(),
-            },
-        );
+        {
+            let selected_answer = g
+                .next_test_viewer_decision()
+                .order_objects(candidates[..count].to_vec());
+            input_match(&mut g, selected_answer)
+        };
     }
     assert_eq!(hand_count(&g, PlayerId(0)), 0);
-    assert!(matches!(request(&g).1, PlayerRequest::Priority { .. }));
+    assert!(matches!(
+        request(&g).1,
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
+    ));
     assert_restore(&g, &p);
     for _ in 0..20 {
         if hand_count(&g, PlayerId(0)) == 1 {
             break;
         }
-        input_match(&mut g, PlayerResponse::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input_match(&mut g, selected_answer)
+        };
     }
     assert_eq!(
         hand_count(&g, PlayerId(0)),
@@ -732,19 +837,34 @@ fn setup_restore_rejects_rehashed_random_order_and_declaration_forgery() {
 fn bottom_query_recovery_receipts_and_handles_remain_executor_and_state_scoped() {
     let (p, mut g) = initial_match(config(), 4096);
     for i in 0..4 {
-        input_match(&mut g, PlayerResponse::Mulligan { take: i == 0 });
+        {
+            let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if i == 0 { Flag::Mulligan } else { Flag::Keep },
+            });
+            input_match(&mut g, selected_answer)
+        };
     }
-    input_match(&mut g, PlayerResponse::Mulligan { take: true });
+    {
+        let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Mulligan,
+        });
+        input_match(&mut g, selected_answer)
+    };
     let (actor, req) = request(&g);
-    let PlayerRequest::BottomOpening { candidates, .. } = &req else {
+    let found @ Decision {
+        reason: Reason::BottomOpening,
+        ..
+    } = &req
+    else {
         panic!("bottom")
     };
-    let response = PlayerResponse::BottomOpening {
-        objects: vec![candidates[0].clone()],
-    };
+    let candidates = found.objects_offered();
+    let response = g
+        .next_test_viewer_decision()
+        .order_objects(vec![candidates[0].clone()]);
     let before = g.snapshot().unwrap();
     let QueryResult::Incomplete { work, .. } =
-        g.check_player_response(actor, req.token().clone(), response.clone(), Budget::new(0))
+        g.check_player_response(actor, req.id.clone(), response.clone(), Budget::new(0))
     else {
         panic!("work")
     };
@@ -773,31 +893,40 @@ fn bottom_query_recovery_receipts_and_handles_remain_executor_and_state_scoped()
         settle_match(&mut restored, 1),
         Advance::AwaitingDecision(_)
     ));
-    reject_input(&restored, actor, req.token().clone(), response);
+    reject_input(&restored, actor, req.id.clone(), response);
     assert!(restored.restore_work(&saved).is_err());
-    input_match(&mut restored, PlayerResponse::Mulligan { take: true });
+    {
+        let selected_answer = restored
+            .next_test_viewer_decision()
+            .select(Candidate::Flag {
+                flag: Flag::Mulligan,
+            });
+        input_match(&mut restored, selected_answer)
+    };
     let (actor2, new_req) = request(&restored);
     reject_input(
         &restored,
         actor2,
-        new_req.token().clone(),
-        PlayerResponse::BottomOpening {
-            objects: vec![candidates[0].clone(), candidates[1].clone()],
-        },
+        new_req.id.clone(),
+        restored
+            .next_test_viewer_decision()
+            .order_objects(vec![candidates[0].clone(), candidates[1].clone()]),
     );
-    let PlayerRequest::BottomOpening {
-        candidates: new, ..
+    let found @ Decision {
+        reason: Reason::BottomOpening,
+        ..
     } = new_req
     else {
         panic!("new bottom")
     };
+    let new = found.objects_offered();
     reject_input(
         &restored,
         actor2,
-        request(&restored).1.token().clone(),
-        PlayerResponse::BottomOpening {
-            objects: vec![new[0].clone(), new[0].clone()],
-        },
+        request(&restored).1.id.clone(),
+        restored
+            .next_test_viewer_decision()
+            .order_objects(vec![new[0].clone(), new[0].clone()]),
     );
     assert_restore(&restored, &p);
 }
@@ -821,7 +950,12 @@ fn concessions_before_setup_and_after_accepted_round_input_keep_original_seating
     assert_eq!(observation(&g, PlayerId(3)).view.active, Some(PlayerId(3)));
     assert_replay(&g, &p);
     let (p, mut g) = initial_match(config(), 4096);
-    submit_match(&mut g, PlayerResponse::Mulligan { take: true });
+    {
+        let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Mulligan,
+        });
+        submit_match(&mut g, selected_answer)
+    };
     g.concede(PlayerId(2)).unwrap();
     assert!(matches!(
         settle_match(&mut g, 1),
@@ -839,14 +973,23 @@ fn partial_simultaneous_redraw_and_accepted_bottom_departures_never_short_draw_s
     let (p, mut g) = initial_match(config(), 4096);
     for seat in [2, 3, 0] {
         assert_eq!(request(&g).0, PlayerId(seat));
-        input_match(
-            &mut g,
-            PlayerResponse::Mulligan {
-                take: seat == 2 || seat == 0,
-            },
-        );
+        {
+            let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if seat == 2 || seat == 0 {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            });
+            input_match(&mut g, selected_answer)
+        };
     }
-    submit_match(&mut g, PlayerResponse::Mulligan { take: false });
+    {
+        let selected_answer = g
+            .next_test_viewer_decision()
+            .select(Candidate::Flag { flag: Flag::Keep });
+        submit_match(&mut g, selected_answer)
+    };
     let mut partial = false;
     for _ in 0..2000 {
         let _ = g.advance(Budget::new(1));
@@ -880,24 +1023,48 @@ fn partial_simultaneous_redraw_and_accepted_bottom_departures_never_short_draw_s
     assert_replay(&g, &p);
     let (p, mut g) = initial_match(config(), 4096);
     for i in 0..4 {
-        input_match(&mut g, PlayerResponse::Mulligan { take: i == 0 });
+        {
+            let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if i == 0 { Flag::Mulligan } else { Flag::Keep },
+            });
+            input_match(&mut g, selected_answer)
+        };
     }
-    input_match(&mut g, PlayerResponse::Mulligan { take: true });
-    let (_, PlayerRequest::BottomOpening { candidates, .. }) = request(&g) else {
+    {
+        let selected_answer = g.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Mulligan,
+        });
+        input_match(&mut g, selected_answer)
+    };
+    let (
+        _,
+        found @ Decision {
+            reason: Reason::BottomOpening,
+            ..
+        },
+    ) = request(&g)
+    else {
         panic!("bottom")
     };
-    submit_match(
-        &mut g,
-        PlayerResponse::BottomOpening {
-            objects: vec![candidates[0].clone()],
-        },
-    );
+    let candidates = found.objects_offered();
+    {
+        let selected_answer = g
+            .next_test_viewer_decision()
+            .order_objects(vec![candidates[0].clone()]);
+        submit_match(&mut g, selected_answer)
+    };
     g.concede(PlayerId(2)).unwrap();
     assert!(matches!(
         settle_match(&mut g, 1),
         Advance::AwaitingDecision(_)
     ));
-    assert!(matches!(request(&g).1, PlayerRequest::Priority { .. }));
+    assert!(matches!(
+        request(&g).1,
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
+    ));
     assert_eq!(observation(&g, PlayerId(3)).view.active, Some(PlayerId(3)));
     assert_restore(&g, &p);
     assert_replay(&g, &p);
@@ -967,9 +1134,15 @@ fn dual_yargle_returns() -> (Prepared, Game) {
     for _ in 0..3000 {
         let (actor, r) = request(&g);
         let view = observation(&g, actor).view;
-        let response = match r {
-            PlayerRequest::CommanderReturn { .. } => return (p, g),
-            PlayerRequest::Priority { .. } => {
+        let response = match r.clone() {
+            Decision {
+                reason: Reason::CommanderReturn { .. },
+                ..
+            } => return (p, g),
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => {
                 let main = view.active == Some(actor)
                     && matches!(
                         turn(&view).step,
@@ -1004,12 +1177,14 @@ fn dual_yargle_returns() -> (Prepared, Game) {
                         })
                         .min_by_key(|o| o.oracle_id != *need);
                     if let Some(land) = land {
-                        input_match(
-                            &mut g,
-                            PlayerResponse::PlayLand {
-                                object: land.handle.clone(),
-                            },
-                        );
+                        {
+                            let selected_answer = r.select(Candidate::Action {
+                                action: Action::PlayLand {
+                                    object: land.handle.clone(),
+                                },
+                            });
+                            input_match(&mut g, selected_answer)
+                        };
                         continue;
                     }
                 }
@@ -1029,17 +1204,26 @@ fn dual_yargle_returns() -> (Prepared, Game) {
                             && o.oracle_id == yargle
                             && o.zone == (Zone::Command { owner: actor })
                     }) {
-                        PlayerResponse::Cast {
-                            card: cmd.handle.clone(),
-                        }
+                        r.select(Candidate::Action {
+                            action: Action::Cast {
+                                card: cmd.handle.clone(),
+                            },
+                        })
                     } else {
-                        PlayerResponse::Pass
+                        Answer::Pick {
+                            picks: vec![vec![0]],
+                        }
                     }
                 } else {
-                    PlayerResponse::Pass
+                    Answer::Pick {
+                        picks: vec![vec![0]],
+                    }
                 }
             }
-            PlayerRequest::Mana { .. } => {
+            Decision {
+                reason: Reason::Mana { .. },
+                ..
+            } => {
                 if let Some(o) = view.objects.iter().find(|o| {
                     visible_controller(o) == actor
                         && o.zone == Zone::Battlefield
@@ -1048,64 +1232,94 @@ fn dual_yargle_returns() -> (Prepared, Game) {
                             .as_ref()
                             .is_some_and(|c| c.kind == CardKind::Land)
                 }) {
-                    PlayerResponse::ActivateMana {
-                        object: o.handle.clone(),
-                    }
+                    r.activate_mana(o.handle.clone())
                 } else {
-                    PlayerResponse::FinishMana { undo_mana: false }
+                    Answer::Pay {
+                        pay: PayAnswer::Finish {
+                            undo_on_failure: false,
+                        },
+                    }
                 }
             }
-            PlayerRequest::SpendMana {
-                cost, available, ..
-            } => PlayerResponse::SpendMana {
-                spending: exact_spending(&cost, &available),
+            Decision {
+                shape:
+                    Shape::Pay {
+                        cost,
+                        pool:
+                            ManaPool {
+                                unrestricted: available,
+                            },
+                        ..
+                    },
+                reason: Reason::SpendMana { .. },
+                ..
+            } => Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: exact_spending(&cost, &available),
+                },
             },
-            PlayerRequest::Attackers { candidates, .. } => {
-                let own = view.objects.iter().find(|o| {
-                    visible_controller(o) == actor
-                        && o.oracle_id == yargle
-                        && o.zone == Zone::Battlefield
-                        && o.attack_ready
-                });
-                let opposing = view.objects.iter().any(|o| {
-                    visible_controller(o) == PlayerId(0)
-                        && o.oracle_id == yargle
-                        && o.zone == Zone::Battlefield
-                });
-                PlayerResponse::Attackers {
-                    attacks: if actor == PlayerId(1) && opposing {
+            found @ Decision {
+                reason: Reason::Attackers,
+                ..
+            } => {
+                let candidates = found.subjects();
+                {
+                    let own = view.objects.iter().find(|o| {
+                        visible_controller(o) == actor
+                            && o.oracle_id == yargle
+                            && o.zone == Zone::Battlefield
+                            && o.attack_ready
+                    });
+                    let opposing = view.objects.iter().any(|o| {
+                        visible_controller(o) == PlayerId(0)
+                            && o.oracle_id == yargle
+                            && o.zone == Zone::Battlefield
+                    });
+                    r.attack(if actor == PlayerId(1) && opposing {
                         own.filter(|o| candidates.contains(&o.handle))
                             .map(|o| vec![(o.handle.clone(), PlayerId(0))])
                             .unwrap_or_default()
                     } else {
                         vec![]
-                    },
+                    })
                 }
             }
-            PlayerRequest::Blockers {
-                candidates,
-                attackers,
+            found @ Decision {
+                reason: Reason::Blockers,
                 ..
-            } => PlayerResponse::Blockers {
-                blocks: if actor == PlayerId(0) && !candidates.is_empty() && !attackers.is_empty() {
-                    vec![(candidates[0].clone(), attackers[0].clone())]
-                } else {
-                    vec![]
-                },
-            },
-            PlayerRequest::Damage {
-                power, recipients, ..
             } => {
-                assert_eq!(recipients.len(), 1);
-                PlayerResponse::Damage {
-                    assignments: vec![(recipients[0].clone(), power)],
+                let candidates = found.subjects();
+                let attackers = found.allowed_objects();
+                r.block(
+                    if actor == PlayerId(0) && !candidates.is_empty() && !attackers.is_empty() {
+                        vec![(candidates[0].clone(), attackers[0].clone())]
+                    } else {
+                        vec![]
+                    },
+                )
+            }
+            found @ Decision {
+                reason: Reason::CombatDamage { .. },
+                ..
+            } => {
+                let power = match &found.reason {
+                    Reason::CombatDamage { power, .. } => power.clone(),
+                    _ => unreachable!(),
+                };
+                let recipients = found.objects_offered();
+                {
+                    assert_eq!(recipients.len(), 1);
+                    r.damage_to(vec![(recipients[0].clone(), power)])
                 }
             }
-            PlayerRequest::Discard {
-                count, candidates, ..
-            } => PlayerResponse::Discard {
-                objects: candidates[..count].to_vec(),
-            },
+            found @ Decision {
+                reason: Reason::Discard,
+                ..
+            } => {
+                let count = found.required_count();
+                let candidates = found.objects_offered();
+                r.pick_objects(candidates[..count].to_vec())
+            }
             _ => panic!("unexpected dual-commander request"),
         };
         input_match(&mut g, response);
@@ -1144,21 +1358,28 @@ fn simultaneous_commander_returns_choose_apnap_before_atomic_wave_and_survive_de
         "active owner chooses before lower physicalID"
     );
     assert!(
-        matches!(r,PlayerRequest::CommanderReturn{previous_choices,..} if previous_choices.is_empty())
+        matches!(r,Decision{reason:Reason::CommanderReturn{previous:previous_choices,..},..} if previous_choices.is_empty())
     );
     assert_eq!(commander_zone(&g, 0), "graveyard");
     assert_eq!(commander_zone(&g, 100), "graveyard");
     let mut verifier = SnapshotVerifier::new(p.clone(), TraceMode::Off);
     verifier.verify(&g.snapshot().unwrap()).unwrap();
     let mut second = g.fork();
-    input_match(
-        &mut second,
-        PlayerResponse::CommanderReturn { to_command: true },
-    );
+    {
+        let selected_answer = second.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        input_match(&mut second, selected_answer)
+    };
     let (actor, r) = request(&second);
     assert_eq!(actor, PlayerId(0));
-    let PlayerRequest::CommanderReturn {
-        previous_choices, ..
+    let Decision {
+        reason:
+            Reason::CommanderReturn {
+                previous: previous_choices,
+                ..
+            },
+        ..
     } = r
     else {
         panic!("second owner")
@@ -1175,10 +1396,12 @@ fn simultaneous_commander_returns_choose_apnap_before_atomic_wave_and_survive_de
     );
     verifier.verify(&second.snapshot().unwrap()).unwrap();
     let mut yes = second.fork();
-    submit_match(
-        &mut yes,
-        PlayerResponse::CommanderReturn { to_command: true },
-    );
+    {
+        let selected_answer = yes.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        submit_match(&mut yes, selected_answer)
+    };
     for _ in 0..20 {
         let a = yes.advance(Budget::new(1));
         let left = commander_zone(&yes, 0);
@@ -1197,14 +1420,27 @@ fn simultaneous_commander_returns_choose_apnap_before_atomic_wave_and_survive_de
         assert!(h.combat_damage.is_empty());
     }
     let mut no = second.fork();
-    input_match(
-        &mut no,
-        PlayerResponse::CommanderReturn { to_command: false },
-    );
+    {
+        let selected_answer = no.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Destination,
+        });
+        input_match(&mut no, selected_answer)
+    };
     assert_eq!(commander_zone(&no, 0), "graveyard");
     assert_eq!(commander_zone(&no, 100), "command");
-    input_match(&mut no, PlayerResponse::Pass);
-    assert!(matches!(request(&no).1, PlayerRequest::Priority { .. }));
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        input_match(&mut no, selected_answer)
+    };
+    assert!(matches!(
+        request(&no).1,
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
+    ));
     let mut left = second.fork();
     left.concede(PlayerId(1)).unwrap();
     assert!(matches!(
@@ -1213,18 +1449,25 @@ fn simultaneous_commander_returns_choose_apnap_before_atomic_wave_and_survive_de
     ));
     let (
         _,
-        PlayerRequest::CommanderReturn {
-            previous_choices, ..
+        Decision {
+            reason:
+                Reason::CommanderReturn {
+                    previous: previous_choices,
+                    ..
+                },
+            ..
         },
     ) = request(&left)
     else {
         panic!("surviving second owner")
     };
     assert_eq!(previous_choices.len(), 1);
-    input_match(
-        &mut left,
-        PlayerResponse::CommanderReturn { to_command: true },
-    );
+    {
+        let selected_answer = left.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        input_match(&mut left, selected_answer)
+    };
     assert_eq!(commander_zone(&left, 0), "command");
     assert!(left.object_id(CardId(100)).is_none());
 }
@@ -1308,8 +1551,11 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
             verifier.verify(&g.snapshot().unwrap()).unwrap();
             return;
         }
-        let response = match r {
-            PlayerRequest::Priority { .. } => {
+        let response = match r.clone() {
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => {
                 let main = view.active == Some(actor)
                     && matches!(
                         turn(&view).step,
@@ -1337,12 +1583,14 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                             o.zone == (Zone::Hand { owner: actor }) && o.oracle_id == *mana
                         })
                     {
-                        input_match(
-                            &mut g,
-                            PlayerResponse::PlayLand {
-                                object: o.handle.clone(),
-                            },
-                        );
+                        {
+                            let selected_answer = r.select(Candidate::Action {
+                                action: Action::PlayLand {
+                                    object: o.handle.clone(),
+                                },
+                            });
+                            input_match(&mut g, selected_answer)
+                        };
                         continue;
                     }
                     if lands.iter().any(|o| !o.tapped) {
@@ -1372,35 +1620,46 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                             None
                         };
                         if let Some(o) = spell {
-                            input_match(
-                                &mut g,
-                                PlayerResponse::Cast {
-                                    card: o.handle.clone(),
-                                },
-                            );
+                            {
+                                let selected_answer = r.select(Candidate::Action {
+                                    action: Action::Cast {
+                                        card: o.handle.clone(),
+                                    },
+                                });
+                                input_match(&mut g, selected_answer)
+                            };
                             continue;
                         }
                     }
                 }
-                PlayerResponse::Pass
-            }
-            PlayerRequest::Targets { candidates, .. } => {
-                assert_eq!(actor, PlayerId(3));
-                let w = view
-                    .objects
-                    .iter()
-                    .find(|o| {
-                        o.oracle_id == wall
-                            && visible_controller(o) == actor
-                            && o.zone == Zone::Battlefield
-                    })
-                    .unwrap();
-                assert!(candidates.contains(&w.handle));
-                PlayerResponse::Targets {
-                    objects: vec![w.handle.clone()],
+                Answer::Pick {
+                    picks: vec![vec![0]],
                 }
             }
-            PlayerRequest::Mana { .. } => {
+            found @ Decision {
+                reason: Reason::Targets { .. },
+                ..
+            } => {
+                let candidates = found.objects_offered();
+                {
+                    assert_eq!(actor, PlayerId(3));
+                    let w = view
+                        .objects
+                        .iter()
+                        .find(|o| {
+                            o.oracle_id == wall
+                                && visible_controller(o) == actor
+                                && o.zone == Zone::Battlefield
+                        })
+                        .unwrap();
+                    assert!(candidates.contains(&w.handle));
+                    r.targets(vec![w.handle.clone()])
+                }
+            }
+            Decision {
+                reason: Reason::Mana { .. },
+                ..
+            } => {
                 let mana = if actor == PlayerId(3) {
                     &forest
                 } else {
@@ -1412,51 +1671,66 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                         && o.oracle_id == *mana
                         && !o.tapped
                 }) {
-                    PlayerResponse::ActivateMana {
-                        object: o.handle.clone(),
-                    }
+                    r.activate_mana(o.handle.clone())
                 } else {
-                    PlayerResponse::FinishMana { undo_mana: false }
+                    Answer::Pay {
+                        pay: PayAnswer::Finish {
+                            undo_on_failure: false,
+                        },
+                    }
                 }
             }
-            PlayerRequest::SpendMana {
-                cost, available, ..
-            } => PlayerResponse::SpendMana {
-                spending: exact_spending(&cost, &available),
-            },
-            PlayerRequest::Attackers {
-                token, candidates, ..
-            } => {
-                if actor == PlayerId(3) && !pumped {
-                    let w = view
-                        .objects
-                        .iter()
-                        .find(|o| {
-                            o.oracle_id == wall
-                                && visible_controller(o) == actor
-                                && o.zone == Zone::Battlefield
-                        })
-                        .unwrap();
-                    if w.characteristics.as_ref().unwrap().power == Some(Quantity::from(3)) {
-                        assert!(
-                            w.attack_ready && !w.tapped,
-                            "restriction proof excludes summoning sickness and tapping"
-                        );
-                        assert!(!candidates.contains(&w.handle));
-                        verifier.verify(&g.snapshot().unwrap()).unwrap();
-                        reject_input(
-                            &g,
-                            actor,
-                            token,
-                            PlayerResponse::Attackers {
-                                attacks: vec![(w.handle.clone(), PlayerId(0))],
+            Decision {
+                shape:
+                    Shape::Pay {
+                        cost,
+                        pool:
+                            ManaPool {
+                                unrestricted: available,
                             },
-                        );
-                        pumped = true;
+                        ..
+                    },
+                reason: Reason::SpendMana { .. },
+                ..
+            } => Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: exact_spending(&cost, &available),
+                },
+            },
+            found @ Decision {
+                reason: Reason::Attackers,
+                ..
+            } => {
+                let token = found.id.clone();
+                let candidates = found.subjects();
+                {
+                    if actor == PlayerId(3) && !pumped {
+                        let w = view
+                            .objects
+                            .iter()
+                            .find(|o| {
+                                o.oracle_id == wall
+                                    && visible_controller(o) == actor
+                                    && o.zone == Zone::Battlefield
+                            })
+                            .unwrap();
+                        if w.characteristics.as_ref().unwrap().power == Some(Quantity::from(3)) {
+                            assert!(
+                                w.attack_ready && !w.tapped,
+                                "restriction proof excludes summoning sickness and tapping"
+                            );
+                            assert!(!candidates.contains(&w.handle));
+                            verifier.verify(&g.snapshot().unwrap()).unwrap();
+                            reject_input(
+                                &g,
+                                actor,
+                                token,
+                                r.attack(vec![(w.handle.clone(), PlayerId(0))]),
+                            );
+                            pumped = true;
+                        }
                     }
-                }
-                PlayerResponse::Attackers {
-                    attacks: if actor == PlayerId(0) && pumped {
+                    r.attack(if actor == PlayerId(0) && pumped {
                         view.objects
                             .iter()
                             .find(|o| {
@@ -1469,47 +1743,57 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
                             .unwrap_or_default()
                     } else {
                         vec![]
-                    },
+                    })
                 }
             }
-            PlayerRequest::Blockers {
-                candidates,
-                attackers,
+            found @ Decision {
+                reason: Reason::Blockers,
                 ..
             } => {
-                if actor == PlayerId(3) && pumped && !attackers.is_empty() {
-                    let w = view
-                        .objects
-                        .iter()
-                        .find(|o| {
-                            o.oracle_id == wall
-                                && visible_controller(o) == actor
-                                && o.zone == Zone::Battlefield
-                        })
-                        .unwrap();
-                    assert!(candidates.contains(&w.handle));
-                    assert_eq!(attackers.len(), 1);
-                    blocked = true;
-                    PlayerResponse::Blockers {
-                        blocks: vec![(w.handle.clone(), attackers[0].clone())],
+                let candidates = found.subjects();
+                let attackers = found.allowed_objects();
+                {
+                    if actor == PlayerId(3) && pumped && !attackers.is_empty() {
+                        let w = view
+                            .objects
+                            .iter()
+                            .find(|o| {
+                                o.oracle_id == wall
+                                    && visible_controller(o) == actor
+                                    && o.zone == Zone::Battlefield
+                            })
+                            .unwrap();
+                        assert!(candidates.contains(&w.handle));
+                        assert_eq!(attackers.len(), 1);
+                        blocked = true;
+                        r.block(vec![(w.handle.clone(), attackers[0].clone())])
+                    } else {
+                        r.block(vec![])
                     }
-                } else {
-                    PlayerResponse::Blockers { blocks: vec![] }
                 }
             }
-            PlayerRequest::Damage {
-                power, recipients, ..
+            found @ Decision {
+                reason: Reason::CombatDamage { .. },
+                ..
             } => {
-                assert_eq!(recipients.len(), 1);
-                PlayerResponse::Damage {
-                    assignments: vec![(recipients[0].clone(), power)],
+                let power = match &found.reason {
+                    Reason::CombatDamage { power, .. } => power.clone(),
+                    _ => unreachable!(),
+                };
+                let recipients = found.objects_offered();
+                {
+                    assert_eq!(recipients.len(), 1);
+                    r.damage_to(vec![(recipients[0].clone(), power)])
                 }
             }
-            PlayerRequest::Discard {
-                count, candidates, ..
-            } => PlayerResponse::Discard {
-                objects: candidates[..count].to_vec(),
-            },
+            found @ Decision {
+                reason: Reason::Discard,
+                ..
+            } => {
+                let count = found.required_count();
+                let candidates = found.objects_offered();
+                r.pick_objects(candidates[..count].to_vec())
+            }
             _ => panic!("unexpected Defender witness choice"),
         };
         input_match(&mut g, response);

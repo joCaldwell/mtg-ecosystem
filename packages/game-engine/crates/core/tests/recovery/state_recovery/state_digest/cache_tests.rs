@@ -429,7 +429,7 @@ fn memoized_complete_views_preserve_every_field_through_fork_mutation_and_old_re
     value["combat"] =
         serde_json::json!([{"attacker":"a","defender":1,"blocked":true,"blockers":["b"]}]);
     value["commanders"] = serde_json::json!([{"designation":"c","oracle_id":"oracle","history":{"owner":0,"color_identity":["W"],"command_casts":{"0":"2"},"combat_damage":{"1":"21"}}}]);
-    value["stack"] = serde_json::json!([{"mode":1,"handle":"s","spell":"a","ability":null,"controller":0,"cast_complete":true,"targets":[{"announced":"old","current":null}],"entity_targets":[{"entity":"player","player":2}],"stack_targets":[{"announced":"s2","current":null}],"player_targets":[3]}]);
+    value["stack"] = serde_json::json!([{"handle":"s","spell":"a","ability":null,"controller":0,"cast_complete":true,"targets":[{"announced":"old","current":null}],"entity_targets":[{"entity":"player","player":2}],"stack_targets":[{"announced":"s2","current":null}],"player_targets":[3]}]);
     value["active"] = 0.into();
     value["priority"] = 0.into();
     let rich: PermittedView = serde_json::from_value(value.clone()).unwrap();

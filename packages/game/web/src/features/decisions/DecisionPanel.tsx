@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { bindingKey, completeDecision, decisionSurface, emptyDraft, reconcileDraft, type DecisionBinding, type DecisionCompletion, type DecisionContext, type DecisionRequest, type LocalDraft, type ObjectLabel } from '../../decisions/controls.ts';
+import { bindingKey, completeDecision, decisionSurface, emptyDraft, type DecisionBinding, type DecisionCompletion, type DecisionContext, type DecisionRequest, type LocalDraft, type ObjectLabel } from '../../decisions/controls.ts';
 import { LocalControls } from './LocalControls.tsx';
 import styles from './decisions.module.css';
 
@@ -14,22 +14,21 @@ export function DecisionPanel({ binding, request, labels, context, onComplete, l
 }) {
   const surface = decisionSurface(request, labels, context);
   const identity = bindingKey(binding);
-  const fingerprint = JSON.stringify(surface);
+  const fingerprint = JSON.stringify([request.candidates, request.shape]);
   const [state, setState] = useState({ identity, fingerprint, draft: emptyDraft, announcement: '' });
   // Adjust local state during rendering so stale selections cannot be confirmed
   // for one effect frame. Keep DOM identity: remote changes never call focus().
   if (identity !== state.identity || fingerprint !== state.fingerprint) {
     setState({ identity, fingerprint,
-      draft: identity === state.identity && surface.status === 'supported' ? reconcileDraft(state.draft, surface.control) : emptyDraft,
-      announcement: identity === state.identity ? 'Decision options updated. Review the remaining draft.' : 'Decision changed. Previous draft discarded.' });
+      draft: emptyDraft,
+      announcement: identity === state.identity ? 'Decision options updated. Previous selections cleared.' : 'Decision changed. Previous draft discarded.' });
   }
   const draft: LocalDraft = identity === state.identity ? state.draft : emptyDraft;
   const bound = binding.token === request.token && binding.seat === request.player;
   return <section className={`${styles.panel} ${live || embedded ? styles.livePanel : ''}`} aria-label="Local decision draft">
     <p className={styles.announcement} role="status">{state.announcement}</p>
     {!bound ? <><h2>Decision binding unavailable</h2><p>No draft can be completed for this seat or token.</p></>
-      : surface.status === 'supported' ? <LocalControls sharedHeading={(live || embedded) && request.request === 'mulligan'} quiet={live || embedded} validationKey={`${identity}:${fingerprint}`} control={live && request.request === 'bottom_opening'
-          ? { ...surface.control, description: `Choose exactly ${request.count} cards, then review their order from first to last.` } : surface.control} draft={draft} onChange={next => setState({ ...state, draft: next })}
+      : surface.status === 'supported' ? <LocalControls sharedHeading={(live || embedded) && request.reason.reason === 'mulligan'} quiet={live || embedded} validationKey={`${identity}:${fingerprint}`} control={surface.control} draft={draft} onChange={next => setState({ ...state, draft: next })}
         confirmLabel={live ? 'Confirm choice' : embedded ? 'Confirm preview choice' : 'Confirm local draft'}
         readyText={live ? 'Ready to confirm. The table will check your choice.' : 'Draft shape complete. Core validation is still required.'}
         onComplete={() => { const response = completeDecision(request, labels, draft, context); if (response) onComplete({ binding: { ...binding }, response }); }} />

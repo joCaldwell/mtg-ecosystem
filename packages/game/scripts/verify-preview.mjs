@@ -19,14 +19,14 @@ export async function verifyPreviewFixtures(directory = fixtureDirectory) {
     if (sha256(bytes) !== file.sha256) throw new Error(`Preview fixture digest mismatch: ${file.path}`);
     verified.set(file.path, bytes);
   }
-  for (const name of ['opening-seat0-http.json', 'presentation.json', 'presentation.schema.json', 'producer-artifacts.json', 'request-inventory.json']) {
+  for (const name of ['opening-seat0.json', 'presentation.json', 'presentation.schema.json', 'producer-artifacts.json', 'decision-inventory.json']) {
     if (!verified.has(name)) throw new Error(`Missing preview provenance: ${name}`);
   }
-  const capture = JSON.parse(verified.get('opening-seat0-http.json'));
+  const capture = JSON.parse(verified.get('opening-seat0.json'));
   const presentation = JSON.parse(verified.get('presentation.json'));
   const producer = JSON.parse(verified.get('producer-artifacts.json'));
   const resume = capture.resume;
   if (resume.catalog_sha256 !== pins.catalog_sha256 || presentation.catalog_sha256 !== pins.catalog_sha256 || producer.catalog_sha256 !== pins.catalog_sha256 || producer.protocol_schema_sha256 !== pins.protocol_schema_sha256 || producer.producer_sha256 !== pins.producer_sha256) throw new Error('Preview catalog/source binding mismatch');
-  if (resume.viewer !== 0 || resume.state.status !== 'available' || resume.state.observation.view.viewer !== resume.viewer || resume.state.observation.decision?.player !== resume.viewer || resume.state.observation.decision?.request !== 'mulligan') throw new Error('Preview capture/viewer binding mismatch');
+  if (resume.viewer !== 0 || resume.state.status !== 'available' || resume.state.observation.view.viewer !== resume.viewer || resume.state.observation.decision?.player !== resume.viewer || resume.state.observation.decision?.reason.reason !== 'mulligan') throw new Error('Preview capture/viewer binding mismatch');
   return { files: verified.size, captureSource: pins.native_source, catalogSha256: pins.catalog_sha256 };
 }

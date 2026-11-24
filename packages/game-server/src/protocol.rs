@@ -1,10 +1,10 @@
 //! Rust DTOs are the wire authority; core projections are embedded directly.
-use mtg_core::{DecisionToken, Observation, PlayerResponse};
+use mtg_core::{Answer, DecisionToken, Observation};
 use schemars::{JsonSchema, Schema, generate::SchemaSettings};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 pub const MAX_COMMAND_BYTES: usize = 65_536;
 pub const MAX_RESUME_BYTES: usize = 131_072;
 pub const MAX_BOOTSTRAP_BYTES: usize = 4096;
@@ -26,14 +26,7 @@ pub const MANIFEST_ROUTE: &str = "/v1/matches/{match_id}/manifest";
 pub const RESUME_ROUTE: &str = "/v1/matches/{match_id}/resume";
 pub const PRESENTATION_ROUTE: &str = "/v1/matches/{match_id}/presentation";
 pub const CLIENT_CONFIG_ROUTE: &str = "/client-config.json";
-pub const ACTION_QUERY_ROUTE: &str = "/v1/matches/{match_id}/actions/query";
-pub const ROUTES: [RouteSpec; 9] = [
-    RouteSpec {
-        operation: "query_actions",
-        method: "POST",
-        path: ACTION_QUERY_ROUTE,
-        response_schema: "action_query",
-    },
+pub const ROUTES: [RouteSpec; 8] = [
     RouteSpec {
         operation: "get_client_config",
         method: "GET",
@@ -84,140 +77,6 @@ pub const ROUTES: [RouteSpec; 9] = [
     },
 ];
 
-// Logical work is a conservative allowance, never a CPU or completeness promise.
-pub const MAX_ACTION_REQUEST_BYTES: usize = 2048;
-pub const MAX_ACTION_RESPONSE_BYTES: usize = 65_536;
-pub const MAX_ACTION_WORK: u32 = 1000;
-pub const MAX_ACTION_PAGE: u16 = 32;
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ActionQueryRequest {
-    Start {
-        #[schemars(length(min = 1, max = 128), regex(pattern = "^[!-~]+$"))]
-        token: DecisionToken,
-        scope: mtg_core::ActionScope,
-        #[schemars(range(min = 1, max = 32))]
-        page_size: u16,
-        #[schemars(range(min = 1, max = 1000))]
-        work: u32,
-    },
-    Continue {
-        #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
-        cursor: String,
-        #[schemars(range(min = 1, max = 1000))]
-        work: u32,
-    },
-    Cancel {
-        #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
-        cursor: String,
-    },
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct ActionQueryResponse {
-    #[schemars(range(min = 1, max = 1))]
-    pub protocol_version: u32,
-    pub match_id: String,
-    #[schemars(range(min = 0, max = 3))]
-    pub viewer: mtg_core::PlayerId,
-    pub outcome: ActionQueryStatus,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ActionQueryStatus {
-    Complete {
-        page: mtg_core::ActionPage,
-    },
-    Incomplete {
-        page: mtg_core::ActionPage,
-        #[schemars(range(min = 1, max = 1))]
-        required_minimum: u64,
-        #[schemars(length(min = 64, max = 64), regex(pattern = "^[0-9a-f]{64}$"))]
-        cursor: String,
-    },
-    Stale,
-    Unavailable {
-        reason: ActionQueryUnavailable,
-    },
-    Cancelled,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ActionQueryUnavailable {
-    Core { reason: mtg_core::ActionUnavailable },
-    Quota,
-    InFlight,
-    TotalWork,
-    ResponseLimit,
-    Executor,
-}
-pub fn action_request_schema() -> Schema {
-    let mut value = serde_json::to_value(schema::<ActionQueryRequest>(false)).expect("schema");
-    // ObjectHandle is core-owned; transport bounds this scoped input only.
-    if let Some(variants) = value["definitions"]["ActionScope"]["oneOf"].as_array_mut() {
-        for variant in variants {
-            if let Some(object) = variant["properties"].get_mut("object") {
-                object["minLength"] = 1.into();
-                object["maxLength"] = 128.into();
-                object["pattern"] = "^[!-~]+$".into();
-            }
-        }
-    }
-    Schema::try_from(value).expect("schema object")
-}
-pub fn action_query_schema() -> Schema {
-    let mut value = serde_json::to_value(safe_numeric_schema(schema::<ActionQueryResponse>(true)))
-        .expect("schema");
-    value["definitions"]["ActionPage"]["properties"]["beginnings"]["maxItems"] =
-        MAX_ACTION_PAGE.into();
-    Schema::try_from(value).expect("schema object")
-}
-pub fn decode_action_request(json: &str) -> Result<ActionQueryRequest, String> {
-    if json.len() > MAX_ACTION_REQUEST_BYTES {
-        return Err("action request exceeds bound".into());
-    }
-    let value: ActionQueryRequest = crate::codec::exact(json)?;
-    let cursor_valid = |text: &str| {
-        text.len() == 64
-            && text
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    };
-    let valid = match &value {
-        ActionQueryRequest::Start {
-            token,
-            scope,
-            page_size,
-            work,
-        } => {
-            let token = serde_json::to_value(token).map_err(|e| e.to_string())?;
-            let scope = serde_json::to_value(scope).map_err(|e| e.to_string())?;
-            let object = scope.get("object").and_then(Value::as_str);
-            token.as_str().is_some_and(|s| {
-                !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_graphic())
-            }) && object.is_none_or(|s| {
-                !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_graphic())
-            }) && (1..=MAX_ACTION_PAGE).contains(page_size)
-                && (1..=MAX_ACTION_WORK).contains(work)
-        }
-        ActionQueryRequest::Continue { cursor, work } => {
-            cursor_valid(cursor) && (1..=MAX_ACTION_WORK).contains(work)
-        }
-        ActionQueryRequest::Cancel { cursor } => cursor_valid(cursor),
-    };
-    if !valid {
-        return Err("invalid action query bounds".into());
-    }
-    Ok(value)
-}
-pub fn checked_actions(value: &ActionQueryResponse) -> Result<String, String> {
-    let encoded = checked_public_json(value)?;
-    if encoded.len() > MAX_ACTION_RESPONSE_BYTES {
-        return Err("action response exceeds bound".into());
-    }
-    Ok(encoded)
-}
-
 /// Artifact location/integrity only; the offline producer owns its JSON shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -260,6 +119,7 @@ pub fn client_config_schema() -> Schema {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PublicManifest {
+    #[schemars(range(min = 2, max = 2))]
     pub protocol_version: u32,
     pub match_id: String,
     pub engine_build_id: String,
@@ -357,6 +217,7 @@ impl From<Counter> for String {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CommandEnvelope {
+    #[schemars(range(min = 2, max = 2))]
     pub protocol_version: u32,
     #[schemars(length(min = 32, max = 32), regex(pattern = "^[0-9a-f]{32}$"))]
     pub command_id: String,
@@ -368,7 +229,7 @@ pub struct CommandEnvelope {
 pub enum CommandBody {
     Decision {
         token: DecisionToken,
-        response: PlayerResponse,
+        answer: Answer,
     },
     Concede,
 }
@@ -445,6 +306,7 @@ pub struct StreamEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StreamPage {
+    #[schemars(range(min = 2, max = 2))]
     pub protocol_version: u32,
     pub entries: Vec<StreamEntry>,
     pub next: Counter,
@@ -455,7 +317,7 @@ pub struct StreamPage {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SeatResume {
-    #[schemars(range(min = 1, max = 1))]
+    #[schemars(range(min = 2, max = 2))]
     pub protocol_version: u32,
     pub match_id: String,
     pub viewer: mtg_core::PlayerId,
@@ -481,7 +343,8 @@ pub enum ResumeState {
 pub struct SeatBootstrap {
     #[schemars(range(min = 1, max = 1))]
     pub bootstrap_version: u32,
-    #[schemars(range(min = 1, max = 1))]
+
+    #[schemars(range(min = 2, max = 2))]
     pub protocol_version: u32,
     #[schemars(
         length(max = 64),
@@ -645,12 +508,12 @@ mod tests {
     use super::*;
     use serde_json::json;
     fn command(response: Value) -> Value {
-        json!({"protocol_version":1,"command_id":"0123456789abcdef0123456789abcdef","expected_revision":"0","command":{"kind":"decision","token":"viewer-token","response":response}})
+        json!({"protocol_version":crate::protocol::PROTOCOL_VERSION,"command_id":"0123456789abcdef0123456789abcdef","expected_revision":"0","command":{"kind":"decision","token":"viewer-token","answer":response}})
     }
     #[test]
     fn resume_schema_rejects_extra_fields_versions_and_size_is_inclusive() {
         let mut resume = SeatResume {
-            protocol_version: 1,
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
             match_id: "a1".into(),
             viewer: mtg_core::PlayerId(0),
             engine_build_id: "e".into(),
@@ -672,7 +535,7 @@ mod tests {
             assert!(!validator.is_valid(&invalid));
         }
         let mut invalid = original.clone();
-        invalid["protocol_version"] = json!(2);
+        invalid["protocol_version"] = json!(1);
         assert!(!validator.is_valid(&invalid));
         let mut invalid = original;
         invalid["state"]["observation"] = json!(null);
@@ -688,21 +551,21 @@ mod tests {
     #[test]
     fn command_boundary_rejects_duplicates_unknown_fields_and_protocol_mismatch() {
         let decoder = CommandDecoder::new().unwrap();
-        let base = command(json!({"response":"pass"}));
+        let base = command(json!({"answer":"pick","picks":[[0]]}));
         decoder.decode(&base.to_string()).unwrap();
         let mut extra = base.clone();
-        extra["command"]["response"]["seed"] = json!(1);
+        extra["command"]["answer"]["seed"] = json!(1);
         assert!(decoder.decode(&extra.to_string()).is_err());
         let mut extra = base.clone();
         extra["command"]["extra"] = json!(1);
         assert!(decoder.decode(&extra.to_string()).is_err());
         let duplicate = base.to_string().replace(
-            "\"response\":\"pass\"",
-            "\"response\":\"cast\",\"response\":\"pass\"",
+            "\"answer\":\"pick\"",
+            "\"answer\":\"order\",\"answer\":\"pick\"",
         );
         assert!(decoder.decode(&duplicate).is_err());
         let mut wrong = base.clone();
-        wrong["protocol_version"] = json!(2);
+        wrong["protocol_version"] = json!(1);
         assert!(decoder.decode(&wrong.to_string()).is_err());
         let mut wrong = base.clone();
         wrong["command_id"] = json!("short");
@@ -753,18 +616,18 @@ mod tests {
         }
     }
     #[test]
-    fn schema_and_serde_agree_on_damage_tuples_and_exact_quantities() {
+    fn schema_and_serde_agree_on_damage_allocation_and_exact_quantities() {
         let decoder = CommandDecoder::new().unwrap();
-        let base = command(json!({"response":"damage","assignments":[["h1","3"]]}));
+        let base = command(json!({"answer":"distribute","amounts":["3"]}));
         decoder.decode(&base.to_string()).unwrap();
         for assignments in [
             json!([["h1"]]),
             json!([["h1", "3", "extra"]]),
-            json!([["h1", 3]]),
-            json!([["h1", "01"]]),
+            json!([3]),
+            json!(["01"]),
         ] {
             let mut wrong = base.clone();
-            wrong["command"]["response"]["assignments"] = assignments;
+            wrong["command"]["answer"]["amounts"] = assignments;
             assert!(decoder.decode(&wrong.to_string()).is_err());
         }
         let schema = serde_json::to_value(command_schema()).unwrap();
@@ -774,7 +637,7 @@ mod tests {
     #[test]
     fn outbound_cursor_remains_exact_without_numeric_json() {
         let page = StreamPage {
-            protocol_version: 1,
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
             entries: vec![StreamEntry {
                 cursor: Counter::new(u64::MAX),
                 publication: Publication::Lifecycle {

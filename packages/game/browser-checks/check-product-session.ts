@@ -7,9 +7,9 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, type Page, type BrowserContext, type Request } from "playwright-core";
 import type { GameRecord } from "../shared/contracts.ts";
-import type { ActionBeginning, ActionInitiation, Observation, PlayerResponse, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
+import type { Action, Observation, Answer, SeatBootstrap, RulesResult } from "@multiverse/game-server-sdk";
 import { check, completeResponse, fileHash, repository, verifyInputs, OBSERVATION_VERSION, type Inputs } from "./lib/product-session-fixture.ts";
-import { ObserverAudit, SubmissionAudit, finishOwnedChild, discoverWithRateRecovery, waitForUiRead, readCooldownPending, boundedRetryAfter, queryRateInvalidated } from "./lib/product-session-safety.ts";
+import { ObserverAudit, SubmissionAudit, finishOwnedChild, waitForUiRead, readCooldownPending, boundedRetryAfter } from "./lib/product-session-safety.ts";
 
 const option = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i < 0 ? undefined : process.argv[i + 1]; };
 const required = (name: string) => { const value = option(name); check(value && !value.startsWith("--"), `argument_${name}`); return resolve(value); };
@@ -27,16 +27,6 @@ async function bounded<T>(work: Promise<T>, ms: number, code: string): Promise<T
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([work, new Promise<never>((_, fail) => { timer = setTimeout(() => fail(Error(code)), ms); })]); }
   finally { clearTimeout(timer); }
-}
-function initiationResponse(action: ActionInitiation): PlayerResponse {
-  switch (action.action) {
-    case "pass": return { response: "pass" };
-    case "play_land": case "play_back_land": return { response: action.action, object: action.object };
-    case "cast": case "bestow": return { response: action.action, card: action.card };
-    case "activate_mana": return { response: "activate_mana", object: action.object };
-    case "activate_ability": return { response: "activate_ability", object: action.object, ability: action.ability };
-    case "finish_mana": return { response: "finish_mana", undo_mana: action.undo_mana };
-  }
 }
 async function journal(page: Page, exactBody?: string, binding?: Record<string, string>) {
   return page.evaluate(async ({ body, binding }) => {
@@ -100,25 +90,13 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   let naturalPauseUiObserved = false, naturalPauseCauseVisible = false, naturalPauseControls = 0;
   const recordPauseCounts: Record<string, number> = {};
   const recordStateCounts: Record<string, number> = {};
-  let beginnings: ActionBeginning[] = [], requests = 0, queries = 0;
-  type Discovery = { context: { revision: string; token: string }; beginnings: ActionBeginning[]; calls: number; nativeComplete: boolean; nativeStale: boolean; lastHttp: number; rateHint: boolean };
-  let discovery: Discovery | null = null;
-  const queryOwners = new WeakMap<Request, Discovery>();
-  const readOrdinals = new WeakMap<Request, number>();
-  let readOrdinal = 0, successfulReadOrdinal = 0, queryRateReadFloor = -1, queryRateLimits = 0, queryRateInvalidations = 0;
-  const queryCooldownPending = () => readCooldownPending(queryRateLimits, queryRateReadFloor, successfulReadOrdinal);
-  let readRateLimits = 0, resumesAtRateLimit = 0, recoveredCommands = 0, naturalEnd = Infinity;
+  let requests=0;
+  let readRateLimits = 0, resumesAtRateLimit = 0, naturalEnd = Infinity;
   let readCooldownWaits = 0, readCooldownReady = 0;
-  let invalidatedCompleteMenus = 0, lateNoSendInvalidations = 0, actionClickTimeouts = 0;
   let retryAfterPresent = 0, retryAfterMissing = 0, retryAfterUnbounded = 0;
   const retryAfterSeconds: Record<string, number> = {};
-  const rateRecovery = { handled: 0, started: 0, ready: 0, freshDiscoveries: 0, retired: 0 };
-  const staleRediscovery = { native: 0, local: 0, started: 0, ready: 0, freshGenerations: 0,
-    contextChanges: 0, tokenChanges: 0, cursorChanges: 0, maxClicks: 0, exhausted: 0 };
-  let discoveryGenerations = 0, staleRecoveredCommands = 0;
-  const queryUnavailableReasons: Record<string, number> = {};
-  let pending: { response: PlayerResponse; revision: string; token: string } | undefined;
-  type SavedIntent = { response: PlayerResponse; revision: string; token: string; binding: Record<string, string> };
+  let pending: { response: Answer; revision: string; token: string } | undefined;
+  type SavedIntent = { response: Answer; revision: string; token: string; binding: Record<string, string> };
   const submissions = new SubmissionAudit<SavedIntent>();
   const submissionRequestIds = new WeakMap<Request, string>();
   const submissionObservations = new Map<string, Promise<void>>();
@@ -128,9 +106,6 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   const responseAttemptKinds: Record<string, number> = {};
   const nativeStatuses: Record<string, number> = {};
   const httpStatuses: Record<string, number> = {}, recordHttpStatuses: Record<string, number> = {};
-  const queryOutcomes: Record<string, number> = {};
-  const discoveryPhases: Record<string, number> = {};
-  let lastDiscoveryCalls = 0, lastDiscoveryBeginnings = 0, lastDiscoveryPassOffered = false;
   let journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, authenticatedPosts = 0;
   const add = (counts: Record<string, number>, name: string) => { counts[name] = (counts[name] ?? 0) + 1; };
   const connected = () => page!.getByRole("heading", { name: "Connected · Seat 1", exact: true }).isVisible();
@@ -161,7 +136,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
   };
   const untilRead = async (predicate: () => Promise<boolean>, code: string) => {
     const extended = await waitForUiRead({ end: naturalEnd, code, now: Date.now, predicate, wait: () => delay(30),
-      ratePending: () => naturalAttempted && (readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) || queryCooldownPending() || submissions.pendingRateLimited), onCooldown: () => { readCooldownWaits++; },
+      ratePending: () => naturalAttempted && (readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) || submissions.pendingRateLimited), onCooldown: () => { readCooldownWaits++; },
       healthy: () => {
         check(!shutdown.signal.aborted, "check_aborted");
         check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
@@ -252,18 +227,8 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         } else if (path.includes("/native/v1/")) {
           const operation = path.endsWith("/events") ? "events" : path.endsWith("/resume") ? "resume"
             : path.endsWith("/presentation") ? "presentation" : path.endsWith("/manifest") ? "manifest"
-              : path.endsWith("/actions/query") ? "query" : path.endsWith("/commands") ? "submit" : "execution";
+              : path.endsWith("/commands") ? "submit" : "execution";
           add(nativeStatuses, `${operation}_${response.status()}`);
-          const queryOwner = queryOwners.get(response.request());
-          if (operation === "query" && queryOwner && queryOwner === discovery) queryOwner.lastHttp = response.status();
-          if (operation === "query" && response.status() === 429) {
-            if (rateHint === null) submissionFailure ||= "query429_without_bounded_hint";
-            else {
-              queryRateLimits++; queryRateReadFloor = readOrdinal;
-              if (queryOwner && queryOwner === discovery) { queryOwner.calls++; queryOwner.rateHint = true; }
-            }
-            return;
-          }
           if (operation === "submit" && response.status() === 429) {
             const id = sdk.parsePreparedCommand(response.request().postData()!).envelope.command_id;
             if (rateHint === null) submissionFailure ||= "submission429_without_bounded_hint";
@@ -291,24 +256,6 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
               if (entry.publication.kind === "outcome") outcome = entry.publication.result;
               if (entry.publication.kind === "lifecycle") lifecycle = entry.publication.status.status;
             }
-          } else if (path.endsWith("/actions/query")) {
-            queries++;
-            check(["complete", "incomplete", "stale", "unavailable", "cancelled"].includes(value.outcome.status), "query_outcome_kind");
-            add(queryOutcomes, value.outcome.status);
-            if (value.outcome.status === "unavailable") {
-              const kind = value.outcome.reason?.kind;
-              check(["core", "quota", "in_flight", "total_work", "response_limit", "executor"].includes(kind), "query_unavailable_kind");
-              add(queryUnavailableReasons, kind);
-            }
-            if (queryOwner && queryOwner === discovery) {
-              queryOwner.calls++;
-              if (value.outcome.status === "stale") queryOwner.nativeStale = true;
-              if (["complete", "incomplete"].includes(value.outcome.status)) {
-                check(value.outcome.page.token === queryOwner.context.token, "discovery_original_token");
-                queryOwner.beginnings.push(...value.outcome.page.beginnings);
-                queryOwner.nativeComplete ||= value.outcome.status === "complete";
-              }
-            }
           } else if (path.endsWith("/commands")) {
             const id = sdk.parsePreparedCommand(response.request().postData()!).envelope.command_id;
             check(value.command_id === id && value.status === "accepted", "human_command_rejected");
@@ -318,9 +265,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             check(value.command_id === id, "execution_command_identity");
             if (value.status.status === "consumed_by_rules") { submissions.consumed(id); consumed.add(id); }
           }
-          if (observation) check(observation.observation_version === OBSERVATION_VERSION && observation.view.viewer === 0, "actual_observation_21");
-          const ordinal = readOrdinals.get(response.request());
-          if (ordinal !== undefined) successfulReadOrdinal = Math.max(successfulReadOrdinal, ordinal);
+          if (observation) check(observation.observation_version === OBSERVATION_VERSION && observation.view.viewer === 0, "qualified_observation");
         }
       });
       const id = submissionRequestIds.get(response.request());
@@ -342,8 +287,6 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
           if (/\/presentation\/[a-f0-9]{64}\.json$/.test(url.pathname)) check(request.method() === "GET" && !headers.authorization, "artifact_cookie_without_bearer");
           else if (!url.pathname.endsWith("/client-config.json")) check(bootstrap && headers.authorization === `Bearer ${bootstrap.capability}`, "native_human_bearer");
           if (request.method() === "POST") authenticatedPosts++;
-          if (request.method() === "GET" && /\/(resume|events)$/.test(url.pathname)) readOrdinals.set(request, ++readOrdinal);
-          if (url.pathname.endsWith("/actions/query") && discovery) queryOwners.set(request, discovery);
           if (/\/commands$/.test(url.pathname) && request.method() === "POST") {
             const body = request.postData(); check(body && !audit.protocolFailed && !submissionFailure, "unsolicited_human_post");
             const envelope = sdk.parsePreparedCommand(body).envelope;
@@ -361,12 +304,12 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
             check(envelope.expected_revision === original.revision && envelope.command.kind === "decision"
               && envelope.command.token === original.token, "original_command_context"); originalContexts++;
             check(envelope.command.kind === "decision", "decision_command");
-            completeResponse(envelope.command.response, original.response); completeResponses++;
+            completeResponse(envelope.command.answer, original.response); completeResponses++;
             check(await journal(page!, body, original.binding), "durable_exact_bytes"); journalBeforeSend++;
             const attempt = submissions.attempt(envelope.command_id, body, previous ? undefined : original);
             submissionRequestIds.set(request, envelope.command_id);
-            add(responseAttemptKinds, envelope.command.response.response);
-            if (!attempt.replay) { add(responseKinds, envelope.command.response.response); sent.set(envelope.command_id, body); }
+            add(responseAttemptKinds, envelope.command.answer.answer);
+            if (!attempt.replay) { add(responseKinds, envelope.command.answer.answer); sent.set(envelope.command_id, body); }
           }
         }
         try { await route.continue(); }
@@ -377,9 +320,9 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       } catch { audit.protocolFailed = true; await route.abort().catch(() => {}); }
     }));
     const current = (): Observation => { check(observation, "browser_observation"); return observation; };
-    const sendChoice = async (action: () => Promise<unknown>, response: PlayerResponse, original: { revision: string; token: string }, end = naturalEnd) => {
+    const sendChoice = async (action: () => Promise<unknown>, response: Answer, original: { revision: string; token: string }, end = naturalEnd) => {
       check(!pending && submissions.active === null && !audit.protocolFailed && !submissionFailure, "command_gate");
-      add(requestKinds, current().decision!.request);
+      add(requestKinds, current().decision!.reason.reason);
       pending = { ...original, response }; const before = sent.size;
       try {
         await action();
@@ -407,128 +350,19 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       // Only observed consumption and exact journal resolution reach this UI wait.
       await untilRead(() => page!.getByRole("region", { name: "Choice status" }).filter({ hasText: "The table used your choice." }).isVisible(), "choice_status");
     };
-    const settle = async (action: () => Promise<unknown>, response: PlayerResponse, original = { revision, token: current().decision!.token }) => {
+    const settle = async (action: () => Promise<unknown>, response: Answer, original = { revision, token: current().decision!.token }) => {
       await finishChoice(await sendChoice(action, response, original));
     };
-    const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
-      beginnings = []; // No prior selection/menu crosses a UI discovery chain.
-      const button = page!.getByRole("button", { name: "Discover actions", exact: true });
-      const actions = page!.getByRole("region", { name: "Available actions", exact: true }).locator("ol > li > button");
-      const phases = {
-        complete: "Discovery complete.",
-        limited: "Discovery reached a local limit. Results are not a complete menu.",
-        uncertain: "Discovery could not finish. Results cannot be submitted.",
-        stale: "The decision changed. Discover actions again.", unavailable: "Discovery is unavailable for this decision.",
-        cancelled: "Discovery stopped. No game command was cancelled.",
-      };
-      const healthy = async () => {
-        check(!shutdown.signal.aborted, "check_aborted");
-        check(!audit.protocolFailed && audit.pageErrors === 0, "rate_recovery_protocol_or_page_error");
-        check(!pending && await journal(page!), "rate_recovery_unknown_journal");
-        check(!recordPaused && !recordCompleted && !outcome, "rate_recovery_terminal_record");
-      };
-      let selectedCommand: string | undefined;
-      const currentContext = async (original: { revision: string; token: string }) => await connected()
-        && revision === original.revision && current().decision?.token === original.token
-        && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) && !queryCooldownPending();
-      const chosen = await discoverWithRateRecovery<{ revision: string; token: string }, ActionBeginning[]>({
-        allowed: naturalAttempted, now: Date.now, end: Math.min(naturalEnd, Date.now() + 90_000), healthy,
-        capture: async () => {
-          await untilRead(async () => await connected() && await button.getAttribute("aria-disabled") === "false", "discover_enabled");
-          return { revision, token: current().decision!.token };
-        }, rateCount: () => readRateLimits,
-        ...(naturalAttempted ? { normalStale: {
-          counts: staleRediscovery,
-          changed: (previous: { revision: string; token: string }, next: { revision: string; token: string }) => ({ token: previous.token !== next.token, cursor: previous.revision !== next.revision }),
-          ready: async (end: number) => {
-            // Native/optimistic stale is a UI request to discover afresh. Keep
-            // the single product read owner; never poll the SDK here.
-            beginnings = [];
-            await until(async () => {
-              await healthy();
-              check(await page!.getByRole("heading", { name: /^(Rate limit or possible contention|Host temporarily unavailable|Connection lost|Seat authorization rejected|Incompatible table or presentation)$/ }).count() === 0, "stale_rediscovery_persistent_failure");
-              return await connected() && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) && !queryCooldownPending()
-                && await button.getAttribute("aria-disabled") === "false";
-            }, "stale_rediscovery_deadline", Math.max(1, end - Date.now()));
-          },
-        } } : {}),
-        usable: async original => {
-          const usable = await connected() && revision === original.revision && current().decision?.token === original.token
-            && !readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads) && !queryCooldownPending();
-          if (!usable) invalidatedCompleteMenus++;
-          return usable;
-        },
-        recovered: async end => {
-          await until(async () => {
-            await healthy();
-            check(await page!.getByRole("heading", { name: /^(Rate limit or possible contention|Host temporarily unavailable|Connection lost|Seat authorization rejected|Incompatible table or presentation)$/ }).count() === 0, "rate_recovery_persistent_failure");
-            return activeReads > resumesAtRateLimit && !queryCooldownPending() && await connected()
-              && await button.getAttribute("aria-disabled") === "false";
-          }, "rate_recovery_deadline", Math.max(1, end - Date.now()));
-          return readRateLimits;
-        },
-        use: async (original, values, end) => {
-          if (!await currentContext(original)) { lateNoSendInvalidations++; return false; }
-          const index = values.findIndex(predicate); check(index >= 0, "permitted_beginning");
-          const beginning = values[index]!;
-          check(beginning.initiation.action === "pass" || beginning.label !== "unavailable", "producer_action_label");
-          if (beginning.initiation.action === "finish_mana" && beginning.initiation.undo_mana) {
-            check(beginning.label !== "unavailable" && beginning.label.available.text === "Finish adding mana; reverse reversible mana if payment fails", "conditional_reversal_wording");
-            conditionalReversal = true;
-          }
-          const action = actions.nth(index);
-          if (await actions.count() !== values.length) {
-            await healthy();
-            check(!await currentContext(original), "discovery_current_menu");
-            lateNoSendInvalidations++;
-            return false;
-          }
-          const before = sent.size;
-          try {
-            // A short actionability deadline avoids waiting on an old disabled
-            // draft across reconnect. No forced click or SDK command is used.
-            selectedCommand = await sendChoice(() => action.click({ timeout: Math.min(1_000, Math.max(1, end - Date.now())) }), initiationResponse(beginning.initiation), original, end);
-            return true;
-          } catch (error) {
-            const timeout = error instanceof Error && error.name === "TimeoutError";
-            if (timeout) actionClickTimeouts++;
-            if (!(timeout || error instanceof Error && error.message === "human_post_observed") || sent.size !== before) throw error;
-            await healthy(); // Includes empty journal; attempted/unknown commands never retry.
-            if (await currentContext(original) && await action.getAttribute("aria-disabled") !== "true") throw error;
-            lateNoSendInvalidations++; return false;
-          }
-        },
-        discover: async (original, end) => {
-          // The returned command context belongs to this fresh discovery,
-          // never to the discarded stale menu.
-          const attempt: Discovery = { context: original, beginnings: [], calls: 0, nativeComplete: false, nativeStale: false, lastHttp: 0, rateHint: false }; discovery = attempt;
-          await page!.getByLabel("Discovery scope", { exact: true }).selectOption("");
-          await button.click(); discoveryGenerations++; let phase = "";
-          try {
-            await until(async () => {
-              if (!attempt.calls) return false;
-              for (const [name, text] of Object.entries(phases)) {
-                if (name === "complete" && (!attempt.nativeComplete || await actions.count() !== attempt.beginnings.length)) continue;
-                if (await page!.getByText(text, { exact: true }).isVisible()) { phase = name; return true; }
-              }
-              return false;
-            }, "discovery_complete", Math.min(20_000, Math.max(1, end - Date.now())));
-          } finally {
-            if (discovery === attempt) discovery = null;
-            lastDiscoveryCalls = attempt.calls; lastDiscoveryBeginnings = attempt.beginnings.length;
-            lastDiscoveryPassOffered = attempt.beginnings.some(value => value.initiation.action === "pass");
-            add(discoveryPhases, phase || "deadline");
-          }
-          const rateInvalidated = queryRateInvalidated(phase, attempt.lastHttp, attempt.rateHint);
-          if (rateInvalidated) queryRateInvalidations++;
-          return { phase: rateInvalidated ? "stale" : phase, value: attempt.beginnings, nativeStale: attempt.nativeStale };
-        },
-      }, rateRecovery);
-      beginnings = chosen.value;
-      check(selectedCommand, "human_post_observed");
-      await finishChoice(selectedCommand);
-      if (chosen.recovered) recoveredCommands++;
-      if (chosen.rediscovered) staleRecoveredCommands++;
+    const confirm = () => page!.getByRole('button',{name:'Confirm choice',exact:true}).click();
+    const choose = async (predicate:(action:Action)=>boolean) => {
+      const decision=current().decision;
+      check(decision, "current_decision_required");
+      const original={revision,token:decision.token};
+      const index=decision.candidates.findIndex(c=>c.candidate==='action' && predicate(c.action));
+      check(index>=0,"offered_action_required");
+      const answer:Answer=decision.shape.shape==='pay'?{answer:'pay',pay:{step:'activate',source:index}}:{answer:'pick',picks:[[index]]};
+      await page!.locator('input[type=radio][value="'+index+'"]').check();
+      await settle(confirm,answer,original);
     };
     await page.goto(`${ready.origin}/play?deck=${ready.deckId}`);
     // Use the actual custom product selector, not URL-derived deck authority.
@@ -561,7 +395,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       namedCards += count;
     }
     if (pauseCase) {
-      check(current().decision?.request === "mulligan" && sent.size === 0, "pause_opening_withheld");
+      check(current().decision?.reason.reason === "mulligan" && sent.size === 0, "pause_opening_withheld");
       await until(() => recordState === "interrupted" && recordPauseCode === "human_timeout", "actual_human_timeout", 35_000);
       await inspectPauseUI();
       await until(async () => {
@@ -571,7 +405,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       }, "timeout_banner");
       pauseCauseVisible = await page.getByRole("status").filter({ hasText: "The game stopped after the human decision time limit. Its saved record is retained." }).isVisible();
       commandControlsDisabled = await page.getByRole("button", { name: "Confirm choice", exact: true }).isDisabled()
-        && await page.getByRole("radio", { name: "Keep hand", exact: true }).isDisabled();
+        && await page.getByRole("radio", { name: "Keep", exact: true }).isDisabled();
       check(commandControlsDisabled && sent.size === 0 && recordOutcome === null, "pause_controls_and_no_commands");
       check(await page.getByRole("heading", { name: "Game complete", exact: true }).count() === 0
         && await page.getByText(/^Rules outcome:/).count() === 0
@@ -584,47 +418,47 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       check(pauseCauseVisible, "pause_cause_visible"); resourcePauseVerified = true;
     } else {
     const openingContext = { revision, token: current().decision!.token };
-    await page.getByRole("radio", { name: "Keep hand", exact: true }).check();
-    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "mulligan", take: false }, openingContext);
+    await page.getByRole("radio", { name: "Keep", exact: true }).check();
+    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), {answer:'pick',picks:[[current().decision!.candidates.findIndex(c=>c.candidate==='flag' && c.flag==='keep')]]}, openingContext);
     for (let i = 0; i < 12; i++) {
-      await until(() => current().decision?.request === "priority", "priority_window");
+      await until(() => current().decision?.reason.reason === "priority", "priority_window");
       if (current().view.turn.step === "precombat_main") break;
-      await choose(value => value.initiation.action === "pass");
+      await choose(value => value.action === "pass");
     }
     check(current().view.turn.step === "precombat_main" && current().view.turn.number === 1, "first_main");
-    await choose(value => value.initiation.action === "play_land");
+    await choose(value => value.action === "play_land");
     landPlayed = current().view.turn.lands_played === 1;
     check(landPlayed, "land_played");
-    await choose(value => value.initiation.action === "cast" && value.initiation.card === commander.handle
-      && value.label !== "unavailable" && value.label.available.source?.kind === "spell"
-      && value.label.available.source.oracle_id === commanderOracle && value.label.available.source.object === commander.handle);
-    await until(() => current().decision?.request === "mana", "mana_window");
-    await choose(value => value.initiation.action === "activate_mana" && value.label !== "unavailable"
-      && value.label.available.source?.kind === "mana_ability" && value.label.available.source.object === value.initiation.object
-      && Boolean(value.label.available.source.text));
-    await choose(value => value.initiation.action === "finish_mana" && value.initiation.undo_mana);
-    await until(() => current().decision?.request === "spend_mana", "payment_window");
-    const payment = current().decision; check(payment?.request === "spend_mana" && payment.cost.generic === "0" && current().decision_context?.source, "permitted_payment");
-    const paymentContext = { revision, token: payment.token };
-    const colors = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green", C: "Colorless" };
-    const spending: Record<string, string> = {};
-    for (const color of Object.keys(payment.available) as (keyof typeof colors)[]) {
-      const amount = payment.cost.colored.filter(required => required === color).length.toString();
-      if (amount !== "0") spending[color] = amount;
-      await page.getByRole("textbox", { name: new RegExp(`^${colors[color]}`) }).fill(amount);
+    await choose(action=>action.action==='cast' && action.card===commander.handle);
+    await until(()=>current().decision?.reason.reason==='mana','mana_window');
+    await choose(action=>action.action==='activate_mana');
+    const finish={revision,token:current().decision!.token};
+    await page.locator('input[value="finish-undo"]').check();
+    await settle(confirm,{answer:'pay',pay:{step:'finish',undo_on_failure:true}},finish);
+    conditionalReversal=true;
+    await until(()=>current().decision?.reason.reason==='spend_mana','payment_window');
+    const decision=current().decision!;
+    const shape=decision.shape;
+    check(shape.shape==='pay' && shape.step.step==='spend' && shape.cost.generic==='0','permitted_payment');
+    const original={revision,token:decision.token};
+    const unrestricted:Record<string,string>={};
+    for(const color of Object.keys(shape.pool.unrestricted)){
+      const amount=shape.cost.colored.filter(c=>c===color).length.toString();
+      if(amount!=='0')unrestricted[color]=amount;
+      await page.getByRole('textbox',{name:new RegExp('^'+color+' Available')}).fill(amount);
     }
-    await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "spend_mana", spending }, paymentContext);
+    await settle(confirm,{answer:'pay',pay:{step:'spend',unrestricted}},original);
     const resolved = () => current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === "battlefield");
     for (let i = 0; i < 8 && !resolved(); i++) {
-      await until(() => current().decision?.request === "priority" || resolved(), "resolution_priority");
-      if (!resolved()) await choose(value => value.initiation.action === "pass");
+      await until(() => current().decision?.reason.reason === "priority" || resolved(), "resolution_priority");
+      if (!resolved()) await choose(value => value.action === "pass");
     }
     await until(resolved, "commander_resolved"); commanderResolved = true;
     const readsBefore = activeReads, grantBefore = grants;
     observation = null; await page.reload();
     await until(() => grants === grantBefore + 1 && activeReads > readsBefore && observation && resolved(), "fresh_grant_recovery");
     await until(connected, "recovered_connection"); check(await journal(page), "recovery_journal_empty"); recovered = true;
-    await choose(value => value.initiation.action === "pass");
+    await choose(value => value.action === "pass");
     // Unmount the lazy session, then let any already in-flight read settle. No
     // later native I/O or UI command may retain the discarded route's File.
     await page.getByRole("link", { name: "Back to Play", exact: true }).click();
@@ -634,7 +468,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     const priorGrant = grants;
     await page.goto(`${ready.origin}/play/games/${gameId}`);
     await until(() => grants === priorGrant + 1, "remount_fresh_file"); await until(connected, "remount_connection"); regranted = true;
-    await choose(value => value.initiation.action === "pass");
+    await choose(value => value.action === "pass");
     // Real cookie/tenant negatives use separate browser contexts; their requests
     // never touch the owning human session or its read controller.
     for (const foreign of [true, false]) {
@@ -679,31 +513,27 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
         const request = current().decision;
         if (!request) { await delay(50); continue; }
         const original = { revision, token: request.token };
-        if (request.request === "priority") await choose(value => value.initiation.action === "pass");
-        else if (request.request === "attackers" || request.request === "blockers") {
-          const title = request.request === "attackers" ? "Declare attackers" : "Declare blockers";
-          const form = page.getByRole("group", { name: title, exact: true });
-          const controls = form.getByRole("combobox");
-          check(await controls.count() === request.candidates.length, "permitted_combat_candidates");
-          const attacks: [string, number][] = [];
-          for (const [i, handle] of request.candidates.entries()) {
-            const isCommander = request.request === "attackers" && current().view.objects.some(object => object.handle === handle
-              && object.owner === 0 && object.oracle_id === commanderOracle);
-            const defender = request.request === "attackers" ? request.defenders[0] : undefined;
-            if (isCommander && defender !== undefined) {
-              await controls.nth(i).selectOption(JSON.stringify([defender])); attacks.push([handle, defender]);
-            } else await controls.nth(i).selectOption("unused");
+        const shape=request.shape;
+        if(request.reason.reason==='priority') await choose(a=>a.action==='pass');
+        else if(shape.shape==='pick' && ['attackers','blockers'].includes(request.reason.reason)){
+          const picks:number[][]=[];
+          for(const [i,slot] of shape.slots.entries()){
+            const c=request.candidates[slot.subject!];
+            const attacking=slot.role.role==='attack_with' && c?.candidate==='object' && current().view.objects.some(o=>o.handle===c.object && o.oracle_id===commanderOracle);
+            const selected=attacking?slot.allowed[0]:undefined;
+            await page.locator('select[name="choice-'+i+'"]').selectOption(selected===undefined?'unused':String(selected));
+            picks.push(selected===undefined?[]:[selected]);
           }
-          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), request.request === "attackers" ? { response: "attackers", attacks } : { response: "blockers", blocks: [] }, original);
-        } else if (request.request === "damage" && request.recipients.length === 0 && request.player_recipient !== null && request.player_recipient !== undefined) {
-          await page.getByRole("textbox", { name: `Seat ${request.player_recipient + 1}`, exact: false }).fill(request.power);
-          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "trample_damage", assignments: [], player: request.player_recipient, amount: request.power }, original);
-        } else if (request.request === "discard") {
-          const boxes = page.getByRole("group", { name: "Choose cards to discard", exact: true }).getByRole("checkbox");
-          check(await boxes.count() === request.candidates.length, "permitted_discard_candidates");
-          for (let i = 0; i < request.count; i++) await boxes.nth(i).check();
-          await settle(() => page!.getByRole("button", { name: "Confirm choice", exact: true }).click(), { response: "discard", objects: request.candidates.slice(0, request.count) }, original);
-        } else { add(requestKinds, request.request); naturalUnsupported = true; break; }
+          await settle(confirm,{answer:'pick',picks},original);
+        }else if(shape.shape==='distribute' && shape.buckets.length===1){
+          await page.locator('input[name="amount-0"]').fill(shape.total);
+          await settle(confirm,{answer:'distribute',amounts:[shape.total]},original);
+        }else if(shape.shape==='pick' && request.reason.reason==='discard'){
+          const slot=shape.slots[0]!;
+          const indices=slot.allowed.slice(0,slot.min);
+          for(const i of indices)await page.locator('input[value="'+i+'"]').check();
+          await settle(confirm,{answer:'pick',picks:[indices]},original);
+        }else { add(requestKinds,request.reason.reason); naturalUnsupported = true; break; }
       }
       naturalCompleted ||= Boolean(outcome); naturalBounded = !naturalCompleted && !naturalPaused && !naturalUnsupported && !recordPaused && !["faulted", "cancelled", "rejected"].includes(lifecycle);
     }
@@ -712,7 +542,7 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
     check(!audit.protocolFailed && !submissionFailure && audit.pageErrors === 0 && submissions.attempts === journalBeforeSend && submissions.attempts === originalContexts
       && submissions.attempts === completeResponses && sent.size === accepted.size && sent.size === consumed.size
       && submissions.resolutions === sent.size, "all_command_proofs");
-    if (!pauseCase) check(["mulligan", "pass", "play_land", "cast", "activate_mana", "finish_mana", "spend_mana"].every(kind => responseKinds[kind]), "first_turn_responses");
+    if (!pauseCase) check(["pick","pay"].every(kind => responseKinds[kind]), "first_turn_responses");
   } catch (error) {
     // Only our short fixed assertion codes may become evidence; Playwright and
     // SDK exceptions can include authenticated DOM, headers or private bodies.
@@ -794,30 +624,22 @@ async function run(name: "chromium" | "firefox", output: string, dist: string, i
       submission_execution404: submissions.missingExecutions, submission_resolutions: submissions.resolutions, submission_recovered_commands: submissions.recovered,
       submission_retry_ui_clicks: submissionRetryClicks, submission_retry_ui_timeouts: submissionRetryTimeouts, submission_transport_failure: submissionFailure,
       submission_attempt_bound_per_command: 5, submission_retry_ui_click_bound_per_command: 1,
-      query_transport429: queryRateLimits, query_rate_invalidations: queryRateInvalidations, query_rate_read_pending: queryCooldownPending(),
       response_attempt_counts: responseAttemptKinds,
-      accepted: accepted.size, consumed: consumed.size, action_queries: queries, request_counts: requestKinds, response_counts: responseKinds,
+      accepted: accepted.size, consumed: consumed.size, request_counts: requestKinds, response_counts: responseKinds,
       native_status_counts: nativeStatuses, http_status_counts: httpStatuses, record_http_status_counts: recordHttpStatuses,
       retry_after_present: retryAfterPresent, retry_after_missing: retryAfterMissing, retry_after_unbounded: retryAfterUnbounded, retry_after_seconds_counts: retryAfterSeconds,
-      read_rate_limits: readRateLimits, rate_recoveries_started: rateRecovery.started, rate_recoveries_ready: rateRecovery.ready,
-      rate_recovery_handled_limits: rateRecovery.handled, rate_evidence_retired_limits: rateRecovery.retired,
+      read_rate_limits: readRateLimits,
       read_cooldown_pending: readCooldownPending(readRateLimits, resumesAtRateLimit, activeReads),
-      rate_recovery_fresh_discoveries: rateRecovery.freshDiscoveries, rate_recovery_consumed_commands: recoveredCommands,
       read_cooldown_waits: readCooldownWaits, read_cooldown_ready: readCooldownReady,
-      discovery_completed_menus_invalidated: invalidatedCompleteMenus, late_no_send_invalidations: lateNoSendInvalidations, action_click_timeouts: actionClickTimeouts,
-      discovery_ui_generations: discoveryGenerations, stale_discovery_counts: staleRediscovery,
-      stale_rediscovery_consumed_commands: staleRecoveredCommands,
       fixture_stress_raised_limits: stressRaisedLimits, default_ui_budget: !stressRaisedLimits && ready?.uiRateBudget === 240 && ready?.uiRateWindowMs === 60_000,
-      ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0, query_outcome_counts: queryOutcomes,
-      query_unavailable_reasons: queryUnavailableReasons, discovery_phase_counts: discoveryPhases,
-      last_discovery_calls: lastDiscoveryCalls, last_discovery_beginnings: lastDiscoveryBeginnings, last_discovery_pass_offered: lastDiscoveryPassOffered,
+      ui_rate_budget: ready?.uiRateBudget ?? 0, ui_rate_window_ms: ready?.uiRateWindowMs ?? 0,
       presentation_404: presentationMissing, presentation_artifacts: presentationArtifacts, production_presentation_verified: presentationVerified,
       immutable_assets_revalidated_per_grant: immutableAssetsRevalidated, named_cards_verified: namedCards,
       land_played: landPlayed, commander_resolved: commanderResolved, conditional_reversal_wording: conditionalReversal,
       natural_attempted: naturalAttempted, natural_completed: naturalCompleted, natural_resource_paused: naturalPaused, natural_bounded: naturalBounded,
       natural_game_verified: natural && final.passed, natural_pause_ui_observed: naturalPauseUiObserved,
       natural_pause_cause_visible: naturalPauseCauseVisible, natural_pause_command_controls: naturalPauseControls,
-      natural_bound_ms: naturalLimitMs, natural_human_command_bound: natural ? 2_000 : 0, discovery_ui_click_bound_per_choice: 3,
+      natural_bound_ms: naturalLimitMs, natural_human_command_bound: natural ? 2_000 : 0,
       natural_unsupported: naturalUnsupported, rules_win: (outcome as RulesResult | null)?.outcome === "win", rules_draw: (outcome as RulesResult | null)?.outcome === "draw", cleanup_complete: cleanup, joined_bot_leases: joinedLeases, observer_shutdown_cancellations: audit.expectedCancellations,
       owned_child_exited: ending.exited, owned_child_escalated: ending.escalated, owned_ipc_disconnected: ending.ipcDisconnected };
     Object.assign(receipt, { game_record_reads: recordReads, game_record_completed: recordCompleted, game_record_paused: recordState === "paused", game_record_interrupted: recordState === "interrupted",

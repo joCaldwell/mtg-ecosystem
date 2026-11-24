@@ -184,45 +184,46 @@ impl GraveyardGroup {
         !self.owed.is_empty() || !self.members.is_empty()
     }
 
-    fn next(&self, game: &RulesTxn) -> Option<Request> {
-        let decision_id = game.state.rules.revision;
+    fn next(&self, game: &RulesTxn) -> Option<Decision<Rules>> {
         for player in game.apnap_seats() {
             if let Some(m) = self
                 .members
                 .iter()
                 .find(|m| m.affected == player && m.printed.is_none())
             {
-                return Some(Request::GraveyardReplacementOrder {
-                    decision_id,
+                return Some(game.pick_flags(
                     player,
-                    object: m.object,
-                    offered: None,
-                });
+                    Reason::GraveyardReplacementOrder {
+                        object: m.object,
+                        offered: None,
+                    },
+                    &[Flag::Accept, Flag::Decline],
+                ));
             }
             if let Some(m) = self
                 .shields
                 .iter()
                 .find(|m| m.affected == player && m.regenerate.is_none())
             {
-                return Some(Request::GraveyardReplacementOrder {
-                    decision_id,
+                return Some(game.pick_flags(
                     player,
-                    object: m.object,
-                    offered: Some(GraveyardOrderOption::Regenerate),
-                });
+                    Reason::GraveyardReplacementOrder {
+                        object: m.object,
+                        offered: Some(GraveyardOrderOption::Regenerate),
+                    },
+                    &[Flag::Accept, Flag::Decline],
+                ));
             }
         }
         for player in game.apnap_seats() {
             if let Some(m) = self.members.iter().find(|m| {
                 m.owner == player && m.commander && m.printed == Some(true) && m.command.is_none()
             }) {
-                return Some(Request::CommanderReturn {
-                    decision_id,
-                    player,
-                    object: m.object,
-                    destination: Zone::Library { owner: player },
-                    previous_choices: self.prior_choices(game),
-                });
+                return Some(game.commander_decision(
+                    m.object,
+                    Zone::Library { owner: player },
+                    self.prior_choices(game),
+                ));
             }
         }
         None
@@ -711,7 +712,7 @@ impl RulesTxn {
         Ok(true)
     }
 
-    pub(super) fn group_replacement_request(&self) -> Option<Request> {
+    pub(super) fn group_replacement_request(&self) -> Option<Decision<Rules>> {
         match &self.state.rules.frame {
             Frame::GraveyardGroup { tx } => tx.next(self),
             _ => None,
@@ -728,32 +729,25 @@ impl RulesTxn {
                 .pending
                 .take()
                 .ok_or("missing graveyard replacement choice")?;
-            if input.player != request.player() {
+            if input.player != request.player {
                 return Err("unexpected graveyard chooser".into());
             }
-            match (request, input.response) {
-                (
-                    Request::GraveyardReplacementOrder {
-                        object,
-                        offered: Some(GraveyardOrderOption::Regenerate),
-                        ..
-                    },
-                    Response::OptionalEffect { perform },
-                ) => {
+            match request.reason {
+                Reason::GraveyardReplacementOrder {
+                    object,
+                    offered: Some(_),
+                } => {
                     tx.shields
                         .iter_mut()
                         .find(|m| m.object == object && m.regenerate.is_none())
                         .ok_or("missing regeneration choice")?
-                        .regenerate = Some(perform);
+                        .regenerate = Some(input.flag(Flag::Accept)?);
                 }
-                (
-                    Request::GraveyardReplacementOrder {
-                        object,
-                        offered: None,
-                        ..
-                    },
-                    Response::OptionalEffect { perform },
-                ) => {
+                Reason::GraveyardReplacementOrder {
+                    object,
+                    offered: None,
+                } => {
+                    let perform = input.flag(Flag::Accept)?;
                     tx.members
                         .iter_mut()
                         .find(|m| m.object == object)
@@ -766,17 +760,17 @@ impl RulesTxn {
                         })?;
                     }
                 }
-                (
-                    Request::CommanderReturn { object, .. },
-                    Response::CommanderReturn { to_command },
-                ) => {
+                Reason::CommanderReturn {
+                    object: Some(object),
+                    ..
+                } => {
                     tx.members
                         .iter_mut()
                         .find(|m| m.object == object)
                         .ok_or("missing commander")?
-                        .command = Some(to_command);
+                        .command = Some(input.flag(Flag::CommandZone)?);
                 }
-                _ => return Err("unexpected graveyard response".into()),
+                _ => return Err("unexpected graveyard choice".into()),
             }
         } else if !tx.uses_shuffle_transaction()
             && !matches!(tx.finish, GroupFinish::Payment { .. })

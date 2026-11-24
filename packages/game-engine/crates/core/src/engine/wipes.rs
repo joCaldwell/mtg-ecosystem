@@ -50,8 +50,8 @@ impl RulesTxn {
     }
     pub(super) fn bind_x(&mut self, cast: Casting) -> Result<(), String> {
         let input = self.rules_mut().pending.take().ok_or("missing X input")?;
-        self.validate_response(input.player, &input.response)?;
-        let Response::AnnounceX { value } = input.response else {
+
+        let Answer::Number { value } = input.answer.clone() else {
             return Err("X response invariant".into());
         };
         let top = self.rules_mut().stack.last_mut().ok_or("missing X spell")?;

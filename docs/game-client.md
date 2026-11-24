@@ -11,11 +11,9 @@ Read [application launch gates](../packages/multiverse/web/ARCHITECTURE.md#game-
 
 The standalone App imports an operator-issued single-seat file. Product
 `@multiverse/game/session` uses the same router-free table with an Actor-authorized
-File. Non-query decisions use local drafts, with producer context required for
-source-dependent choices. The [decision inventory](../packages/game/fixtures/decision-controls/coverage.json)
-pins request and response schema shapes, reviewed control mappings and capture
-provenance. Its read-only check verifies the request cases in the web decision
-switches. Priority and mana windows use bounded [action discovery](#core-action-discovery).
+File. The table renders the acting seat’s decision and submits indices from its
+candidate table. The decision inventory records the generated schema shapes and
+the source of the opening capture.
 
 One exact foundations release passed [hosted completion](game-client-evidence.md#hosted-completion).
 Launch requires deck admission, private provisioning and three owned automated
@@ -31,7 +29,7 @@ playtester is outside this client.
 [The package manual](../packages/game/AGENTS.md#boundaries) owns layering:
 session effects are separate from pure local drafts and permitted presentation;
 shared display comes from game-ui. The router-free preview imports no session/auth/
-SDK runtime, and its Node-only verifier preserves historical fixture qualification.
+SDK runtime, and its Node-only verifier checks the capture and producer hashes.
 
 Core-observed current characteristics override printed reference values. Metadata
 is offline-produced from exact archived source with catalog/printing/face/source
@@ -115,88 +113,29 @@ manufacturing replacement. Browser command effects have a 30-second headers/body
 deadline. Local stop, missing rows, changed view or incompatible build are not
 terminal and never erase ambiguity. SDK itself has no journal/retry policy.
 
-## Core action discovery
+## Decision controls
 
-`PlayerSession::action_beginnings(token, scope, page_size, budget)` discovers only
-`Priority` and `Mana` initiation; other requests return `unsupported_window`. The
-host authorizes the viewer; core has no HTTP/auth/clock/database dependency.
-`ActionScope` is `Window` or one permitted `Object { object: ObjectHandle }`.
-Emitted beginnings pass the existing response validator; submission validates
-again. Cast is not affordability, and initiation completeness covers no later
-target/payment/X choice or strategy ranking.
+### Core action discovery
 
-`ActionQueryResult::into_parts()` returns the permitted outcome plus an optional
-opaque `ActionContinuation` that the host keeps behind its authenticated cursor
-for `resume_actions`. Dropping it discards scratch, never a command or durable
-record; restart restarts discovery.
+Protocol 2 embeds a decision in observation 57 for the acting seat. Priority
+beginnings and payment sources arrive in the same observation as their token.
+Candidate indices are local to that decision. A seat’s object handles can
+identify visible cards for presentation. A selected answer carries only indices
+or exact amounts. Candidate labels in the parallel decision context provide
+descriptions, including source text when the viewer may see it.
 
-| Native outcome | Meaning |
+| Shape | Control and answer |
 | --- | --- |
-| `complete { page }` | Scope exhausted; combine all preceding pages |
-| `incomplete { page, required_minimum: 1 }` | Capacity stopped discovery; continuation exists |
-| `stale` | Viewer/token/executor/state binding no longer matches; no private reason |
-| `unavailable { reason }` | Invalid boundary, viewer, page size or scope, or invariant failure; no partial menu |
+| Pick | Choose from each slot’s allowed candidate indices. Enforce its count, repeat policy and joint rules across slots. |
+| Order | Select and order the allowed number of distinct listed items. |
+| Distribute | Assign exact decimal quantities to the supplied buckets, satisfying their bounds, total and gates. |
+| Number | Enter an exact decimal quantity within the supplied bounds. |
+| Pay | Activate an offered source or finish the production step. At the spending step, allocate the exact price from the available pool. |
 
-Pages never repeat entries; a full page is still incomplete. Native pages hold
-1–64 entries; budgets count logical work, not CPU time.
-
-Context is `priority` or `mana { cost, source }`. `ActionLabel` is `unavailable`
-or `available { text, source? }`: core owns wording from offline compiler
-bindings, and activations without a bound source label stay unavailable. Labels
-grant no affordability, target, payment or submission permission.
-
-Optional `Observation.decision_context.source` supplies kind, Oracle identity,
-optional object handle/ability index and exact source text from compiler
-`SourceLabels`. Missing fields remain unavailable: never infer mode/X meaning,
-bounds or legality from text/IR/card identity. Other viewers receive no decision
-context. Metadata never admits new mechanics or qualifies live controls.
-
-Discovery traverses only the viewer's published handles; it never mints handles,
-advances rules/history/cursors or submits receipts. Continuations bind viewer and
-private executor/state identity, so fork/restore invalidates them even if the
-public token matches. No private identity affects permitted output. Qualification is in
-[evidence](game-client-evidence.md#core-action-discovery-evidence).
-
-## Action discovery transport
-
-HTTP authenticates and forwards to the exclusive match worker without computing
-rules. `POST /v1/matches/{match_id}/actions/query` accepts `start`,
-`continue` or `cancel` by `operation`, with no URL query, viewer or unknown fields.
-Outcomes keep the native meanings plus `cancelled`; partial is never a complete
-empty menu.
-
-| Transport resource | Bound |
-| --- | --- |
-| Request / result | 2,048 / 65,536 bytes; token/handle ASCII graphic strings 1–128 bytes |
-| Page / work per call | 1–32 entries / 1–1,000 logical units |
-| HTTP concurrency | One action query per seat; existing 64 global/16 broker bounds |
-| Worker quota per seat | Fixed one-second window, 16 charged start/continue calls and 8,000 requested units; reserve full allowance |
-| Scratch | One continuation per seat, four per match |
-| Whole query | 32,000 reserved units, 128 calls, absolute 30-second TTL |
-| Cursor | 256 random bits, lowercase hex, rotated/consumed once on continuation |
-| Deadlines | Five-second body read, 25-second HTTP request; existing IPC isolation |
-
-Quota exhaustion never changes rules/clock status. Unknown, foreign, expired or
-replayed cursors are stale without a private reason. Abort controls one fetch, not
-server cancellation; no durable continuation exists. Discovery changes no game
-state or seat budget, with no timing-side-channel guarantee. SDK `queryActions`
-makes one validated POST with no pagination/retry.
-
-### Session-owned query controller
-
-The sole read owner builds immutable `ActionQueryContext` only after ownership,
-manifest, viewer and identity checks; it stores no credential. Replacing owner,
-token, generation or seat invalidates synchronously; cleanup uses the captured
-previous SDK, and late completions issue no I/O after the Web Lock is released.
-Handles, scope and beginnings stay in memory, never in URLs, logs or storage.
-Local ceilings only tighten transport bounds; retries never replenish budget.
-
-ReadSession captures the original CommandContext, query context and scope before
-discovery, and journals a beginning only with its issued draft, complete snapshot,
-current generation and exact scope. Pass requires a priority window; other
-beginnings require available labels matching source kind/object/ability. Never
-fetch a fresh command context at callback time; the query controller constructs or
-submits no PlayerResponse.
+The controller captures the original seat, match, revision, incarnation and
+token when it opens a draft. Confirmation uses that captured context through
+the durable command journal. Replacing the decision invalidates its indices.
+The authenticated host validates the complete answer before issuing a receipt.
 
 ## Native delivery and operator procedure
 
@@ -216,8 +155,7 @@ human-seat authorization. No browser source parsing follows.
 Native `serve-client` requires numeric loopback, exact Host, absent or matching
 Origin and non-cross-site Fetch Metadata; no CORS. Vite enforces the local boundary
 before forwarding to explicit `MTG_CLIENT_UPSTREAM`. Current proxy admits reviewed
-read routes, submissions/execution status and exact action-query/queued-command
-cancel routes, not arbitrary upstream/filesystem/operator paths. Bootstrap cannot
+read routes, submissions, execution status and queued-command cancellation, not arbitrary upstream/filesystem/operator paths. Bootstrap cannot
 change this mapping.
 
 Public responses enforce nosniff/no-referrer/frame denial and restrictive CSP:
@@ -263,7 +201,7 @@ and explicit omissions. No full native matrix follows a docs/client-only edit.
 
 [`sdk-qualification.json`](../packages/game/sdk-qualification.json) owns current
 native build and schema pins for SDK generation and local decision checks. The
-R4 client reads observation 56. Product launch requires a hosted browser proof
+client reads observation 57 over protocol 2. Product launch requires a hosted browser proof
 for the same consumer and native identity. The earlier Native21 proof belongs
 to its [retained qualification](../packages/game/fixtures/native21-hosted-qualification.json).
 

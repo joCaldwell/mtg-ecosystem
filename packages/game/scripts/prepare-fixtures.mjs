@@ -37,7 +37,7 @@ for (const source of sdkBuild.sources) {
 }
 const presentationSchema = JSON.parse(await read('presentation.schema.json'));
 const presentation = JSON.parse(await read('presentation.json'));
-const opening = JSON.parse(await read('opening-seat0-http.json'));
+const opening = JSON.parse(await read('opening-seat0.json'));
 const ajv = new Ajv({ strict: true, allErrors: false, coerceTypes: false, useDefaults: false, removeAdditional: false });
 for (const [name, maximum] of [['uint8', 255], ['uint32', 4_294_967_295], ['uint64', Number.MAX_SAFE_INTEGER], ['uint', Number.MAX_SAFE_INTEGER]]) {
   ajv.addFormat(name, { type: 'number', validate: number => Number.isSafeInteger(number) && number >= 0 && number <= maximum });
@@ -67,7 +67,7 @@ await writeFile(new URL('fixture-verification.json', generated), JSON.stringify(
   presentation_schema_sha256: hash(await read('presentation.schema.json')),
   presentation_declaration_sha256: hash(declaration), generator: 'json-schema-to-typescript@16.0.0',
   observation_version: opening.resume.state.observation.observation_version,
-  request: opening.resume.state.observation.decision?.request,
+  shape: opening.resume.state.observation.decision?.shape.shape,
   sdk_browser_manifest_sha256: hash(await readFile(new URL('dist/build.json', sdkRoot))),
 }, null, 2) + '\n');
 console.log('Pinned fixtures validated; producer-schema presentation declaration generated. No native/SDK build invoked.');

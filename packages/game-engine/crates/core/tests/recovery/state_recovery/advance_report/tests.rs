@@ -69,13 +69,17 @@ fn fixture() -> Game {
         TraceMode::Off,
     )
 }
-fn answer(game: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn answer(game: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
         panic!("decision")
     };
-    game.respond(request.player(), request.decision_id(), response)
-        .unwrap();
+    game.respond(request.player, request.id, response).unwrap();
     if finish {
         game.complete_test_mana();
     }
@@ -136,7 +140,12 @@ fn ordinary_consumption_matches_original_advance_at_all_budgets_and_trace_modes(
                 concessions: 0
             }
         );
-        answer(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut game, selected_answer)
+        };
         let identity = pending_identity(&game);
         let boundary = game.rule_boundary();
         for budget in [0, 1, 64, u64::MAX] {
@@ -169,19 +178,23 @@ fn ordinary_consumption_matches_original_advance_at_all_budgets_and_trace_modes(
 fn actor_and_target_departures_report_actual_pending_removal_not_boundary_progress() {
     for departing in [0, 1, 2, 3] {
         let mut game = fixture();
-        answer(&mut game, Response::Cast { card: CardId(1) });
+        {
+            let selected_answer = game.next_test_decision().cast(CardId(1));
+            answer(&mut game, selected_answer)
+        };
         // Announce target before its owner/default controller disappears.
-        let Advance::AwaitingDecision(Request::Targets { .. }) = game.advance(Budget::unlimited())
+        let Advance::AwaitingDecision(Decision {
+            reason: Reason::Targets { .. },
+            ..
+        }) = game.advance(Budget::unlimited())
         else {
             panic!("targets")
         };
         let object = game.object_id(CardId(2)).unwrap();
-        answer(
-            &mut game,
-            Response::Targets {
-                objects: vec![object],
-            },
-        );
+        {
+            let selected_answer = game.next_test_decision().targets(vec![object]);
+            answer(&mut game, selected_answer)
+        };
         let identity = pending_identity(&game);
         game.concede(PlayerId(departing)).unwrap();
         let boundary = game.rule_boundary();
@@ -223,7 +236,12 @@ fn actor_and_target_departures_report_actual_pending_removal_not_boundary_progre
 fn queued_concessions_have_distinct_ordinals_and_terminal_cleanup_reports_actual_removal() {
     for order in [[3, 0, 2], [3, 2, 1]] {
         let mut game = fixture();
-        answer(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut game, selected_answer)
+        };
         let identity = pending_identity(&game);
         for player in order {
             game.concede(PlayerId(player)).unwrap();
@@ -285,7 +303,7 @@ fn queued_concessions_have_distinct_ordinals_and_terminal_cleanup_reports_actual
         // Private boundary fixture: merely starting a call in Finished must
         // not invent consumption of an unchanged pending input. This forged
         // state is not admitted/restored as a reachable game.
-        terminal.state.rules.pending = terminal.state.audit.journal.last().cloned();
+        terminal.state.rules.pending = game.state.rules.pending.clone();
         assert!(
             terminal
                 .advance_with_report(Budget::unlimited())
@@ -303,7 +321,12 @@ fn setup_and_commander_nested_departure_removals_are_captured_at_commit() {
     )
     .unwrap();
     let mut setup = Game::with_trace(p, TraceMode::Off);
-    answer(&mut setup, Response::Mulligan { take: false });
+    {
+        let selected_answer = setup
+            .next_test_decision()
+            .select(Candidate::Flag { flag: Flag::Keep });
+        answer(&mut setup, selected_answer)
+    };
     let identity = pending_identity(&setup);
     setup.concede(PlayerId(0)).unwrap();
     for budget in [0, 1, 64, u64::MAX] {
@@ -318,15 +341,19 @@ fn setup_and_commander_nested_departure_removals_are_captured_at_commit() {
     let p = FixtureCatalog::Action.admit(ScenarioConfig::commander_exile());
     let mut commander = Game::with_trace(p, TraceMode::Off);
     commander.concede(PlayerId(1)).unwrap();
-    let Advance::AwaitingDecision(Request::CommanderReturn { .. }) =
-        commander.advance(Budget::unlimited())
+    let Advance::AwaitingDecision(Decision {
+        reason: Reason::CommanderReturn { .. },
+        ..
+    }) = commander.advance(Budget::unlimited())
     else {
         panic!("return")
     };
-    answer(
-        &mut commander,
-        Response::CommanderReturn { to_command: true },
-    );
+    {
+        let selected_answer = commander.next_test_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        answer(&mut commander, selected_answer)
+    };
     let identity = pending_identity(&commander);
     commander.concede(PlayerId(0)).unwrap();
     for budget in [0, 1, 64, u64::MAX] {
@@ -349,7 +376,12 @@ fn setup_and_commander_nested_departure_removals_are_captured_at_commit() {
 #[test]
 fn failed_steps_emit_no_fact_and_prior_committed_facts_survive_later_fault_in_same_call() {
     let mut game = fixture();
-    answer(&mut game, Response::Pass);
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        answer(&mut game, selected_answer)
+    };
     // Domain failure after pending.take(): the staged branch must roll back.
     game.state.rules.next_event_sequence = u64::MAX;
     let pending = game.state.rules.pending.clone();
@@ -368,7 +400,12 @@ fn failed_steps_emit_no_fact_and_prior_committed_facts_survive_later_fault_in_sa
     // increment the structural boundary. Keep the first committed input fact.
     let p = FixtureCatalog::Base.admit(ScenarioConfig::combat_game());
     let mut game = Game::with_trace(p, TraceMode::Off);
-    answer(&mut game, Response::Pass);
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        answer(&mut game, selected_answer)
+    };
     let identity = pending_identity(&game);
     game.state.rules.rule_steps = u64::MAX - 1;
     let (after, report) = compare(&game, u64::MAX);
@@ -386,7 +423,12 @@ fn failed_steps_emit_no_fact_and_prior_committed_facts_survive_later_fault_in_sa
 #[test]
 fn fork_snapshot_restore_and_automatic_steps_do_not_carry_historical_receipts() {
     let mut game = fixture();
-    answer(&mut game, Response::Pass);
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        answer(&mut game, selected_answer)
+    };
     let identity = pending_identity(&game);
     let restored = Game::restore(
         FixtureCatalog::Base.admit(ScenarioConfig::land_return()),

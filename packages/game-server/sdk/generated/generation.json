@@ -1,12 +1,6 @@
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "routes": [
-    {
-      "method": "POST",
-      "operation": "query_actions",
-      "path": "/v1/matches/{match_id}/actions/query",
-      "response_schema": "action_query"
-    },
     {
       "method": "GET",
       "operation": "get_client_config",
@@ -56,7 +50,7 @@
       "response_schema": "submission"
     }
   ],
-  "routes_sha256": "871bccbc4edb5b03be1927e94987dd877a9d3ae255883dff33ed2b2384bbb6bf",
+  "routes_sha256": "26534615694e6509294786c3dd574fb92a97632445e93379f2e54816badbac77",
   "generator": "json-schema-to-typescript@16.0.0",
   "generator_options": {
     "bannerComment": "/* Generated from Rust mtg-server schema; do not edit. */",
@@ -64,23 +58,15 @@
     "unreachableDefinitions": true
   },
   "schema_dialect": "Draft7",
-  "schema_sha256": "33f0af1f377051f403b48aa560b3432998acf5bf00b5e6e019d92a770cd24c9c",
+  "schema_sha256": "544786c28d3897e7ec733f241a18244dc24859ad03ff5157e69eeb7c6d3c4069",
   "files": [
     {
-      "path": "action_request.d.ts",
-      "sha256": "bd36b99092723412f0672ff8a90a038f933e6ba64c6478d8a71e270c7c7bd3f6"
-    },
-    {
-      "path": "action_query.d.ts",
-      "sha256": "38d044be27437c4f96307d403385cff44010aa8a6a4b88d512188c7bba556a37"
-    },
-    {
       "path": "command.d.ts",
-      "sha256": "88503340af220ff38c8abff46629a02d0f22a341bab98efde23241460643b19c"
+      "sha256": "5e93d7afb4aa59317638bc251a6fe091540341f3e08ad39db15b0d5f316b4616"
     },
     {
       "path": "stream.d.ts",
-      "sha256": "6b2dfb890c47cb2991440e2afe6e1407fe930ac979363ee0f6f8330fe4308f8b"
+      "sha256": "06ebf2a24a961ac90669b6778524fe936799c76b21140ae6bf2e5e4cb54df2df"
     },
     {
       "path": "submission.d.ts",
@@ -92,11 +78,11 @@
     },
     {
       "path": "manifest.d.ts",
-      "sha256": "32e082c20325e0c347073fe85476ebeeba90d4e55d9a3bc245bce5900c468667"
+      "sha256": "cc649fc7703d7c7376f2e09e75ab790767bc50f1a68dd3fdaaa88e249c11ec9b"
     },
     {
       "path": "resume.d.ts",
-      "sha256": "133cab7b5b7fe59a08c396d4d58cc00adde66b4ea692c33cc9590c163a02b4fc"
+      "sha256": "1b7b62f06ff0eaa5adf9550f82574aabfa1df3bc7967a9d5ab44e1dd87028b45"
     },
     {
       "path": "bootstrap.d.ts",
@@ -116,23 +102,23 @@
     },
     {
       "path": "routes.ts",
-      "sha256": "d871ee1ba4d8a29a6f4bece4f35ba463ffba1797fcb405f61086b02752d4e56c"
+      "sha256": "a0280d021adf619bc895eeee7a363ac2b3f5deec11ed9f09eb56d4ff17abc331"
     },
     {
       "path": "validators.js",
-      "sha256": "a178b6a5330a1b42ab9129a084bb95b4eae8e3e991d9e567230416058d26e3b4"
+      "sha256": "b65cf95a89f681845d916197735fe9b127469224c71fd0df54c942ad111259bf"
     },
     {
       "path": "validators.d.ts",
-      "sha256": "a6f4f9492d089befe7214b0a69dbf93f3d66953ddabe13b7a4916d6609a52f74"
+      "sha256": "3036d4812943e12236b031299a44ae42c8536228a9566c74960510940fe7ca01"
     },
     {
       "path": "protocol.ts",
-      "sha256": "45ddf2795d5d87405f6c170338b38e1d5a4cf291dfe911622a22f7796b6e7b74"
+      "sha256": "a0bbd118544b8be6902d45c76164fd7eeff4b2c61851d461de8822db73717643"
     },
     {
       "path": "bootstrap.schema.json",
-      "sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a"
+      "sha256": "35509924e00400f4e079d674c621ca84ae5fb7b3e36406d18993856d3356a705"
     },
     {
       "path": "presentation.schema.json",
@@ -140,10 +126,10 @@
     },
     {
       "path": "presentation-identity.ts",
-      "sha256": "7d3d7dea1de0d21929ad122065a548175d478afe6d92c00d33386109eb7c324b"
+      "sha256": "270cbead4164c7465769af180899907ee4c277a34a22e1401459091bce595217"
     }
   ],
-  "bootstrap_schema_sha256": "0655664d30126489890dad1bca3b2e3b68a0e62f982c3f42be2e2aebf687315a",
+  "bootstrap_schema_sha256": "35509924e00400f4e079d674c621ca84ae5fb7b3e36406d18993856d3356a705",
   "standalone": {
     "generator": "ajv@8.20.0",
     "bundler": "esbuild@0.28.2",
@@ -157,11 +143,11 @@
     "sources": [
       {
         "path": "scripts/generate.mjs",
-        "sha256": "b8aedd5bfc65dbb9a2d6fbfc805b0d02ffd1220009270730f06cb83d4a90477c"
+        "sha256": "0c839e0aa1efb7acf03327b65bdaddff9b983fc0f3e62c0a500a1af21afa4cab"
       },
       {
         "path": "scripts/standalone.mjs",
-        "sha256": "f4d97568d7a6e0cf57ac62f6db3a676932a28c470c769a5c7c1bf11a0c67d5f9"
+        "sha256": "b79e1b5b55a0255d773d7d72873bebccfc35de93b866168ad5dffef9f980c998"
       },
       {
         "path": "scripts/numeric-formats.mjs",
@@ -177,7 +163,7 @@
       },
       {
         "path": "../tools/client-artifacts.ts",
-        "sha256": "9a1304423d9d6133d7ba4fab51fc86d1c81bb9c877d4c57745908ef617675b35"
+        "sha256": "a8805f131d151c275fb949bc154c67f09c2df3384bcf7b5e9ea1f363936b9bfa"
       }
     ]
   }

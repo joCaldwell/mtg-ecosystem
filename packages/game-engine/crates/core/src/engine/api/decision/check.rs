@@ -1,0 +1,150 @@
+//! Structural validation is shared by the two identity spaces.
+use super::shape::*;
+use crate::engine::RulesTxn;
+use mtg_contracts::Quantity;
+use std::collections::BTreeSet;
+
+impl Shape {
+    pub fn check(&self, answer: &Answer) -> Result<(), String> {
+        match (self, answer) {
+            (Self::Pick { slots, rules }, Answer::Pick { picks }) => {
+                check_picks(slots, rules, picks)
+            }
+            (Self::Order { items, min, max }, Answer::Order { order }) => {
+                if within(order.len(), *min, *max)
+                    && order.iter().all(|i| items.contains(i))
+                    && distinct(order.iter())
+                {
+                    Ok(())
+                } else {
+                    Err("invalid ordered selection".into())
+                }
+            }
+            (
+                Self::Distribute {
+                    total,
+                    buckets,
+                    gates,
+                },
+                Answer::Distribute { amounts },
+            ) => check_allocation(total, buckets, gates, amounts),
+            (Self::Number { min, max }, Answer::Number { value })
+                if value >= min && max.as_ref().is_none_or(|upper| value <= upper) =>
+            {
+                Ok(())
+            }
+            (
+                Self::Pay {
+                    step: PayStep::Produce { sources },
+                    ..
+                },
+                Answer::Pay {
+                    pay: PayAnswer::Activate { source },
+                },
+            ) if sources.contains(source) => Ok(()),
+            (
+                Self::Pay {
+                    step: PayStep::Produce { .. },
+                    ..
+                },
+                Answer::Pay {
+                    pay: PayAnswer::Finish { .. },
+                },
+            ) => Ok(()),
+            (
+                Self::Pay {
+                    step: PayStep::Spend,
+                    cost,
+                    pool,
+                },
+                Answer::Pay {
+                    pay: PayAnswer::Spend { unrestricted },
+                },
+            ) => {
+                RulesTxn::subtract_selected_mana(pool.unrestricted.clone(), unrestricted)?;
+                RulesTxn::validate_selected_mana_cost(cost, unrestricted)
+            }
+            _ => Err("answer outside decision shape".into()),
+        }
+    }
+}
+
+fn within(len: usize, min: u32, max: u32) -> bool {
+    (min as usize..=max as usize).contains(&len)
+}
+
+fn distinct<'a>(mut indices: impl Iterator<Item = &'a u32>) -> bool {
+    let mut seen = BTreeSet::new();
+    indices.all(|i| seen.insert(*i))
+}
+
+fn check_picks(slots: &[Slot], rules: &[JointRule], picks: &[Vec<u32>]) -> Result<(), String> {
+    if slots.len() != picks.len() {
+        return Err("expected one selection per slot".into());
+    }
+    for (slot, picked) in slots.iter().zip(picks) {
+        if !within(picked.len(), slot.min, slot.max)
+            || !picked.iter().all(|i| slot.allowed.contains(i))
+            || (!slot.repeat && !distinct(picked.iter()))
+        {
+            return Err("invalid slot selection".into());
+        }
+    }
+    for rule in rules {
+        let satisfied = match rule {
+            JointRule::Distinct { slots } => {
+                let mut seen = BTreeSet::new();
+                slots.iter().all(|slot| {
+                    picks
+                        .get(*slot as usize)
+                        .is_some_and(|picked| picked.iter().all(|i| seen.insert(*i)))
+                })
+            }
+            JointRule::PickedAtLeast { candidates, count } => candidates.iter().all(|candidate| {
+                let occurrences = picks.iter().flatten().filter(|i| *i == candidate).count();
+                occurrences == 0 || occurrences >= *count as usize
+            }),
+            JointRule::Total { min, max } => within(picks.iter().map(Vec::len).sum(), *min, *max),
+        };
+        if !satisfied {
+            return Err("selection violates joint rule".into());
+        }
+    }
+    Ok(())
+}
+
+fn check_allocation(
+    total: &Quantity,
+    buckets: &[Bucket],
+    gates: &[Gate],
+    amounts: &[Quantity],
+) -> Result<(), String> {
+    if buckets.len() != amounts.len() {
+        return Err("expected one amount per bucket".into());
+    }
+    let mut sum = Quantity::zero();
+    for (bucket, amount) in buckets.iter().zip(amounts) {
+        if *amount < bucket.min || *amount > bucket.max {
+            return Err("allocation outside bucket bounds".into());
+        }
+        sum.add(amount);
+    }
+    if sum != *total {
+        return Err("allocation does not sum to total".into());
+    }
+    for gate in gates {
+        let amount = amounts
+            .get(gate.bucket as usize)
+            .ok_or("invalid gated bucket")?;
+        if *amount > Quantity::zero()
+            && !gate.requires.iter().all(|(i, required)| {
+                amounts
+                    .get(*i as usize)
+                    .is_some_and(|assigned| assigned >= required)
+            })
+        {
+            return Err("allocation violates bucket requirements".into());
+        }
+    }
+    Ok(())
+}

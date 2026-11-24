@@ -20,7 +20,7 @@ function fixture(sink?: GameDiagnosticSink) {
     origin: "http://127.0.0.1:18741", bots: { status: () => ["running", "running", "running"] as const } };
   fs.mkdirSync(join(directory, state.session), { mode: 0o700 });
   const seat = join(directory, state.session, "seat-0.json"), status = join(directory, "status.json");
-  fs.writeFileSync(seat, JSON.stringify({ protocol_version: 1, bootstrap_version: 1, match_id: game.id, viewer: 0,
+  fs.writeFileSync(seat, JSON.stringify({ protocol_version: 2, bootstrap_version: 1, match_id: game.id, viewer: 0,
     engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, catalog_sha256: identity.catalog_sha256,
     server_origin: state.origin, capability: "c".repeat(64) }), { mode: 0o600 });
   fs.writeFileSync(status, JSON.stringify({ version: 1, human_waiting_since: null, human_decision_token: null }), { mode: 0o600 });
@@ -31,7 +31,7 @@ function fixture(sink?: GameDiagnosticSink) {
     diagnostic: nativeDiagnostics(sink ?? (event => { events.push(event); })) };
   return { directory, seat, status, state, events, input, read: () => nativeStatus(game, new AbortController().signal, input) };
 }
-const response = () => new Response(JSON.stringify({ protocol_version: 1, match_id: game.id, viewer: 0,
+const response = () => new Response(JSON.stringify({ protocol_version: 2, match_id: game.id, viewer: 0,
   engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, catalog_sha256: identity.catalog_sha256,
   next: "0", state: { status: "pending" }, lifecycle: null, outcome: null }), { headers: { "content-type": "application/json" } });
 const details = (event: GameDiagnosticEvent): NativeFileDetail => {

@@ -303,19 +303,35 @@ fn real_state_wire_hash_and_owned_search_export_stay_complete_after_sharing() {
             }
         };
         let response = match &request {
-            Request::Mulligan { .. } => Response::Mulligan { take: false },
-            Request::Priority { .. } => Response::Pass,
-            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-            Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-            Request::Discard {
-                count, candidates, ..
-            } => Response::Discard {
-                objects: candidates.iter().take(*count).copied().collect(),
+            Decision {
+                reason: Reason::Mulligan { .. },
+                ..
+            } => request.select(Candidate::Flag { flag: Flag::Keep }),
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
             },
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            } => request.attack(vec![]),
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            } => request.block(vec![]),
+            found @ Decision {
+                reason: Reason::Discard,
+                ..
+            } => {
+                let count = &found.required_count();
+                let candidates = found.objects_offered();
+                request.pick_objects(candidates.iter().take(*count).copied().collect())
+            }
             other => panic!("finite test:{other:?}"),
         };
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
+        game.respond(request.player, request.id, response).unwrap();
     }
     // Search export is supported only at an installed ordinary Priority.
     // Keep the same fixed legal policy through any intervening combat/cleanup;
@@ -328,21 +344,32 @@ fn real_state_wire_hash_and_owned_search_export_stay_complete_after_sharing() {
             other => panic!("priority drain:{other:?}"),
         };
         let response = match &request {
-            Request::Priority { .. } => {
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => {
                 reached_priority = true;
                 break;
             }
-            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-            Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-            Request::Discard {
-                count, candidates, ..
-            } => Response::Discard {
-                objects: candidates.iter().take(*count).copied().collect(),
-            },
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            } => request.attack(vec![]),
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            } => request.block(vec![]),
+            found @ Decision {
+                reason: Reason::Discard,
+                ..
+            } => {
+                let count = &found.required_count();
+                let candidates = found.objects_offered();
+                request.pick_objects(candidates.iter().take(*count).copied().collect())
+            }
             other => panic!("priority drain request:{other:?}"),
         };
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
+        game.respond(request.player, request.id, response).unwrap();
     }
     assert!(reached_priority, "fixed bounded priority drain exhausted");
     assert!(matches!(game.state.rules.frame, Frame::Priority));
@@ -551,15 +578,21 @@ fn reflexive_history_real_legal_firstwrites_keep_parent_siblings_and_partition_o
         match root.advance(Budget::new(1)) {
             Advance::Suspended { .. } => (),
             Advance::AwaitingDecision(request) => match request {
-                Request::Mulligan { .. } => {
+                Decision {
+                    reason: Reason::Mulligan { .. },
+                    ..
+                } => {
                     root.respond(
-                        request.player(),
-                        request.decision_id(),
-                        Response::Mulligan { take: false },
+                        request.player,
+                        request.id,
+                        request.select(Candidate::Flag { flag: Flag::Keep }),
                     )
                     .unwrap();
                 }
-                Request::Priority { .. } => {
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                } => {
                     priority = Some(request);
                     break;
                 }
@@ -577,7 +610,13 @@ fn reflexive_history_real_legal_firstwrites_keep_parent_siblings_and_partition_o
         let mut branch = root.fork();
         assert!(branch.state == root.state);
         branch
-            .respond(request.player(), request.decision_id(), Response::Pass)
+            .respond(
+                request.player,
+                request.id,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            )
             .unwrap();
         let mut ready = false;
         for _ in 0..32 {
@@ -1144,7 +1183,7 @@ fn stored_collections_report_actual_distinct_capacity_bytes_without_rss_estimate
 fn persistent_stack_preserves_exact_order_fields_memos_and_restore_sharing() {
     let mut base = public_fixture();
     let row: VisibleStackEntry = serde_json::from_value(serde_json::json!({
-        "mode":1,"handle":"s","spell":"a","ability":null,"controller":0,
+        "handle":"s","spell":"a","ability":null,"controller":0,
         "cast_complete":true,"targets":[{"announced":"old","current":null}],
         "entity_targets":[{"entity":"player","player":2}],
         "stack_targets":[{"announced":"s2","current":null}],"player_targets":[3]

@@ -12,18 +12,21 @@ fn game(mode: TraceMode) -> Game {
 }
 fn mana_window(mode: TraceMode) -> Game {
     let mut game = game(mode);
-    Driver::answer(&mut game, u64::MAX, Response::Cast { card: CardId(1) });
+    {
+        let selected_answer = game.next_test_decision().cast(CardId(1));
+        Driver::answer(&mut game, u64::MAX, selected_answer)
+    };
     let target = game.object_id(CardId(2)).unwrap();
-    Driver::answer(
-        &mut game,
-        u64::MAX,
-        Response::Targets {
-            objects: vec![target],
-        },
-    );
+    {
+        let selected_answer = game.next_test_decision().targets(vec![target]);
+        Driver::answer(&mut game, u64::MAX, selected_answer)
+    };
     assert!(matches!(
         Driver::request(&mut game, u64::MAX),
-        Request::Mana { .. }
+        Decision {
+            reason: Reason::Mana { .. },
+            ..
+        }
     ));
     game
 }
@@ -55,11 +58,10 @@ fn m3_foundation_payment_receipt_defers_resumption_and_cannot_complete_twice() {
     let mode = TraceMode::Detailed;
     let mut game = mana_window(mode);
     let source = game.object_id(CardId(0)).unwrap();
-    Driver::answer(
-        &mut game,
-        u64::MAX,
-        Response::ActivateMana { object: source },
-    );
+    {
+        let selected_answer = game.next_test_decision().activate_mana(source);
+        Driver::answer(&mut game, u64::MAX, selected_answer)
+    };
     let _ = Driver::request(&mut game, u64::MAX);
     // Direct primitive control: explicit spending is supplied without
     // fabricating an accepted input or claiming the resulting fork replays.
@@ -174,7 +176,10 @@ fn m3_foundation_priority_authority_never_grants_exile_or_announcement_casts() {
             .is_err()
     );
     assert_eq!(exile.snapshot().unwrap(), before);
-    Driver::answer(&mut game, u64::MAX, Response::Cast { card: CardId(1) });
+    {
+        let selected_answer = game.next_test_decision().cast(CardId(1));
+        Driver::answer(&mut game, u64::MAX, selected_answer)
+    };
     let _ = Driver::request(&mut game, u64::MAX);
     let before = game.snapshot().unwrap();
     assert!(

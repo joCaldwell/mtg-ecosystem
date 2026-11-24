@@ -13,7 +13,7 @@ const ajv = new Ajv({ strict: true, allErrors: false, coerceTypes: false, useDef
 for (const [name, maximum] of [['uint8', 255], ['uint16', 65_535], ['uint32', 4_294_967_295], ['uint64', Number.MAX_SAFE_INTEGER], ['uint', Number.MAX_SAFE_INTEGER]]) {
   ajv.addFormat(name, { type: 'number', validate: n => Number.isSafeInteger(n) && n >= 0 && n <= maximum });
 }
-const reference = Object.fromEntries(['action_request', 'action_query', 'command', 'stream', 'submission', 'execution', 'manifest', 'resume', 'bootstrap', 'client_config', 'presentation_descriptor', 'presentation'].map(name => [name, ajv.compile(schemas[name])]));
+const reference = Object.fromEntries(['command', 'stream', 'submission', 'execution', 'manifest', 'resume', 'bootstrap', 'client_config', 'presentation_descriptor', 'presentation'].map(name => [name, ajv.compile(schemas[name])]));
 reference.commandId = ajv.compile(schemas.command.properties.command_id);
 reference.counter = ajv.compile({ $ref: '#/definitions/DecimalU64Counter', definitions: schemas.stream.definitions });
 
@@ -70,50 +70,41 @@ function parity(name, samples) {
 test('standalone parity with previous runtime Ajv on every response/request variant and adversarial mutations', t => {
   let comparisons = 0;
   const command = witness(schemas.command, schemas.command);
-  const requests = schemas.stream.definitions.PlayerRequest.oneOf;
-  for (const response of schemas.command.definitions.PlayerResponse.oneOf) {
-    const sample = { ...command, command: { kind: 'decision', token: 'token', response: witness(response, schemas.command) } };
+  for (const variant of schemas.command.definitions.Answer.oneOf) {
+    const sample = {...command,command:{kind:'decision',token:'token',answer:witness(variant,schemas.command)}};
     assert(reference.command(sample), JSON.stringify(reference.command.errors));
-    comparisons += parity('command', [sample, ...mutations(sample)]);
+    comparisons += parity('command',[sample,...mutations(sample)]);
   }
-  for (const request of requests) {
-    const observation = witness(schemas.stream.definitions.Observation, schemas.stream);
-    observation.decision = witness(request, schemas.stream);
-    const sample = { protocol_version: 1, next: '1', has_more: false, entries: [{ cursor: '1', publication: { kind: 'view_replaced', observation } }] };
-    assert(reference.stream(sample), JSON.stringify(reference.stream.errors));
-    comparisons += parity('stream', [sample, ...mutations(sample)]);
+  for (const [key,name] of [['shape','Shape'],['reason','Reason'],['candidates','Candidate']]) {
+    for (const variant of schemas.stream.definitions[name].oneOf){
+      const observation=witness(schemas.stream.definitions.Observation,schemas.stream);
+      observation.decision=witness(schemas.stream.definitions.Decision,schemas.stream);
+      const row=witness(variant,schemas.stream);
+      observation.decision[key]=key==='candidates'?[row]:row;
+      const sample={protocol_version:2,next:'1',has_more:false,entries:[{cursor:'1',publication:{kind:'view_replaced',observation}}]};
+      assert(reference.stream(sample),JSON.stringify(reference.stream.errors));
+      comparisons+=parity('stream',[sample,...mutations(sample)]);
+    }
   }
   for (const name of ['submission', 'execution', 'manifest', 'resume', 'bootstrap', 'client_config', 'presentation_descriptor', 'presentation']) {
     const sample = witness(schemas[name], schemas[name]);
     assert(reference[name](sample), JSON.stringify(reference[name].errors));
     comparisons += parity(name, [sample, ...mutations(sample)]);
   }
-  for (const variant of schemas.action_request.oneOf) {
-    const sample=witness(variant,schemas.action_request);
-    assert(reference.action_request(sample),JSON.stringify(reference.action_request.errors));
-    comparisons+=parity('action_request',[sample,...mutations(sample)]);
-  }
-  for (const variant of schemas.action_query.definitions.ActionQueryStatus.oneOf) {
-    const sample={protocol_version:1,match_id:'a1',viewer:0,outcome:witness(variant,schemas.action_query)};
-    assert(reference.action_query(sample),JSON.stringify(reference.action_query.errors));
-    comparisons+=parity('action_query',[sample,...mutations(sample)]);
-  }
   for (const name of ['counter', 'commandId']) comparisons += parity(name, [
     '0', '18446744073709551615', '9007199254740992', 'a'.repeat(32), 'f'.repeat(32),
     ...mutations('0'), 'a'.repeat(31), 'a'.repeat(33), 'A'.repeat(32), 'a'.repeat(32) + '\n',
   ]);
-  t.diagnostic(`${comparisons} parity cases; ${schemas.command.definitions.PlayerResponse.oneOf.length} response and ${requests.length} request variants (wire shapes, not hosted coverage)`);
+  t.diagnostic(`${comparisons} schema parity cases`);
 });
 
 test('standalone formats reject unsafe uints and retain exact decimal quantities/tuples', () => {
-  const base = { protocol_version: 1, command_id: 'a'.repeat(32), expected_revision: '18446744073709551615' };
-  const command = response => ({ ...base, command: { kind: 'decision', token: 't', response } });
-  for (const [response, valid] of [
-    [{ response: 'player_targets', players: [255] }, true], [{ response: 'player_targets', players: [256] }, false],
-    [{ response: 'modes', mode: 4_294_967_295 }, true], [{ response: 'modes', mode: 4_294_967_296 }, false],
-    [{ response: 'damage', assignments: [['h', '90071992547409931234567890']] }, true],
-    [{ response: 'damage', assignments: [['h', 9_007_199_254_740_992]] }, false],
-    [{ response: 'damage', assignments: [['h', '3', 'extra']] }, false],
+  const base = { protocol_version: 2, command_id: 'a'.repeat(32), expected_revision: '18446744073709551615' };
+  const command = answer => ({ ...base,command:{kind:'decision',token:'t',answer} });
+  for(const [response,valid] of [
+    [{answer:'pick',picks:[[4294967295]]},true],[{answer:'pick',picks:[[4294967296]]},false],
+    [{answer:'distribute',amounts:['90071992547409931234567890']},true],[{answer:'distribute',amounts:[9007199254740992]},false],
+    [{answer:'pay',pay:{step:'activate',source:-1}},false],
   ]) {
     const value = command(response);
     assert.equal(emitted.commandValidator(value), valid);

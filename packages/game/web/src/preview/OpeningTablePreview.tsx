@@ -10,8 +10,9 @@ export function OpeningTablePreview({ headingLevel = 1, title = 'Opening hand pr
   return <Table headingLevel={headingLevel} toolbar={toolbar} table={{ ...fixtureTable, title }} decisionControls={<>
     <p>Choices stay in this preview.</p>
     <DecisionPanel {...decisionGalleryFixture} embedded onComplete={({ response }) => {
-      if (response.response === 'mulligan') {
-        setReceipt(response.take ? 'Preview confirmed: take a mulligan.' : 'Preview confirmed: keep this hand.');
+      if (response.answer === 'pick') {
+        const selected = decisionGalleryFixture.request.candidates[response.picks[0]![0]!];
+        setReceipt(selected?.candidate === 'flag' && selected.flag === 'mulligan' ? 'Preview confirmed: take a mulligan.' : 'Preview confirmed: keep this hand.');
       }
     }} />
     <p role="status" aria-live="polite">{receipt}</p>

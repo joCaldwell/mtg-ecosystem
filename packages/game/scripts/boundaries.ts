@@ -25,7 +25,7 @@ export function boundaryViolations(file: string, source: string): string[] {
     if (layer === 'hosted' && typeOnly && specifier === '../../../shared/contracts.ts') return;
     if (typeOnly && ['app', 'preview', 'presentation', 'session'].includes(layer) && specifier === '../../../generated/presentation.d.ts') return;
     if (layer === 'app' && specifier === '../../../generated/sdk-identity.ts') return;
-    if (layer === 'preview' && /^\.\.\/\.\.\/\.\.\/fixtures\/foundations-opening\/(opening-seat0-http|presentation)\.json$/.test(specifier)) return;
+    if (layer === 'preview' && /^\.\.\/\.\.\/\.\.\/fixtures\/foundations-opening\/(opening-seat0|presentation)\.json$/.test(specifier)) return;
     if (specifier.startsWith('.')) {
       const path = file.split('/').slice(0, -1);
       for (const part of specifier.split('/')) {

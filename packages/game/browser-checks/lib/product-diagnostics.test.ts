@@ -56,7 +56,7 @@ test("real coordinator and adapter status boundary persist deadline, mismatch, c
       requests++;
       if (scenario === "deadline") return new Promise<Response>(() => {}); // Deliberately ignores abort.
       if (scenario === "stop_failure") throw Error(unsafe);
-      return new Response(JSON.stringify({ protocol_version: 1, match_id: currentId, viewer: 0,
+      return new Response(JSON.stringify({ protocol_version: 2, match_id: currentId, viewer: 0,
         engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, catalog_sha256: identity.catalog_sha256,
         next: "0", state: { status: "pending" }, lifecycle: null, outcome: null }), { headers: { "content-type": "application/json" } });
     });
@@ -65,7 +65,7 @@ test("real coordinator and adapter status boundary persist deadline, mismatch, c
       async admit(deck) { return { state: "supported", identity, deck_sha256: deck.sha256, launch_ready: true }; },
       async ensure(game) {
         currentId = game.id;
-        writeFileSync(seatFile, JSON.stringify({ protocol_version: 1, bootstrap_version: 1, match_id: game.id, viewer: 0,
+        writeFileSync(seatFile, JSON.stringify({ protocol_version: 2, bootstrap_version: 1, match_id: game.id, viewer: 0,
           engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, catalog_sha256: identity.catalog_sha256,
           server_origin: "http://127.0.0.1:18741", capability: "c".repeat(64) }), { mode: 0o600 });
       },

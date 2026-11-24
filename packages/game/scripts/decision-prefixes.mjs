@@ -1,68 +1,57 @@
-// Explicit read-only producer-artifact verification. No native execution or SDK
-// generation. New query schema is evidence only; the client SDK pin stays intact.
-import { createRequire } from 'node:module';
+// Verify the offline Worker export against the same schema and build used by the app.
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
-const client = new URL('../', import.meta.url);
+import { resolve } from 'node:path';
+import { streamValidator } from '../../game-server/sdk/generated/validators.js';
+
 const producer = process.env.MTG_DECISION_PRODUCER_DIR;
-if (!producer) throw new Error('Set MTG_DECISION_PRODUCER_DIR to the explicit source-qualified producer export directory');
-const root = pathToFileURL(`${producer.replace(/\/$/, '')}/`);
-const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-// This immutable name matches the original measured receipt. The generic
-// producer-manifest.json received later additive annotations; never follow it.
-const manifestName = 'producer-manifest-checkpoint.json';
-const manifestBytes = await readFile(new URL(manifestName, root));
-const manifest = JSON.parse(manifestBytes);
-const nativeBytes = await readFile(new URL(manifest.source_manifest.split('/').at(-1), root));
-if (hash(nativeBytes) !== manifest.source_manifest_sha256) throw new Error('Producer source manifest mismatch');
-for (const [name, artifact] of Object.entries(manifest.artifacts)) if (hash(await readFile(new URL(name, root))) !== artifact.sha256) throw new Error('Producer artifact digest mismatch');
-const captureBytes = await readFile(new URL('public-prefixes.json', root));
-const capture = JSON.parse(captureBytes);
-const schemaBytes = await readFile(new URL('protocol.schema.json', root));
-const schema = JSON.parse(schemaBytes);
-const baseline = JSON.parse(await readFile(new URL('../../game-server/sdk/generated/protocol.schema.json', import.meta.url)));
-const pins = JSON.parse(await readFile(new URL('sdk-qualification.json', client)));
-if (hash(await readFile(new URL('../../game-server/sdk/generated/protocol.schema.json', import.meta.url))) !== pins.protocol_schema_sha256) throw new Error('Baseline schema changed');
-const require = createRequire(new URL('../../game-server/sdk/package.json', import.meta.url));
-const { Ajv } = require('ajv');
-const ajv = new Ajv({ strict: true, allErrors: false, coerceTypes: false, useDefaults: false, removeAdditional: false });
-for (const [name, maximum] of [['uint8', 255], ['uint32', 4_294_967_295], ['uint64', Number.MAX_SAFE_INTEGER], ['uint', Number.MAX_SAFE_INTEGER]]) ajv.addFormat(name, { type: 'number', validate: number => Number.isSafeInteger(number) && number >= 0 && number <= maximum });
-const observation = protocol => ({ definitions: protocol.resume.definitions, $ref: '#/definitions/Observation' });
-const validateBaseline = ajv.compile(observation(baseline));
-const validateObservation = ajv.compile(observation(schema));
-const validateQuery = ajv.compile(schema.action_query);
-if (capture.engine_build_id !== manifest.native_info.engine_build_id || capture.server_build_id !== manifest.native_info.server_build_id) throw new Error('Capture build identity mismatch');
-const summaries = [];
-for (const item of capture.captures) {
-  const summary = { profile: item.profile, namespace: item.capture_namespace, catalog_sha256: item.catalog_sha256, fixture_sha256: item.fixture_sha256, stages: [] };
-  const expected = manifest.capture_inventory.find(value => value.namespace === item.capture_namespace);
-  if (!expected || expected.profile !== item.profile || expected.catalog_sha256 !== item.catalog_sha256) throw new Error('Capture namespace/catalog mismatch');
-  for (const stage of item.stages) {
-    const obs = stage.observation;
-    if (!validateBaseline(obs) || !validateObservation(obs)) throw new Error('Producer observation not valid under both explicit schemas');
-    const listed = expected.stages.find(value => value.stage === stage.stage);
-    if (!listed || listed.viewer !== obs.view.viewer || listed.request !== obs.decision?.request || listed.has_query !== Boolean(stage.query)) throw new Error('Capture inventory mismatch');
-    const query = stage.query;
-    if (query && (!validateQuery(query) || query.viewer !== obs.view.viewer || query.match_id !== item.match_id || query.outcome.page?.token !== obs.decision?.token)) throw new Error('Captured query binding/schema mismatch');
-    summary.stages.push({ stage: stage.stage, viewer: obs.view.viewer, request: obs.decision?.request ?? null,
-      observation_sha256: hash(JSON.stringify(obs)), query_sha256: query ? hash(JSON.stringify(query)) : null,
-      query_status: query?.outcome.status ?? null, action_families: [...new Set(query?.outcome.page?.beginnings.map(value => value.initiation.action) ?? [])].sort(),
-      labels: [...new Set(query?.outcome.page?.beginnings.map(value => value.label) ?? [])],
-      source_context: query?.outcome.page?.context?.source ?? null });
-  }
-  summaries.push(summary);
-}
-const output = {
-  provenance_version: 1, producer_base_source: manifest.base_source, producer_manifest_locator: manifestName, producer_manifest_sha256: hash(manifestBytes), native_source_manifest_sha256: hash(nativeBytes),
-  engine_build_id: capture.engine_build_id, server_build_id: capture.server_build_id,
-  producer_protocol_schema_sha256: hash(schemaBytes), baseline_validation_schema_sha256: pins.protocol_schema_sha256,
-  public_prefixes_sha256: hash(captureBytes), raw_artifact_locator: `${manifestName}#artifacts.public-prefixes.json (explicit producer directory)`,
-  binaries: Object.fromEntries(['mtg-server', 'action_fixture', 'provision_client'].map(name => [name, manifest.artifacts[name].sha256])),
-  captures: summaries, scope: 'Two isolated admitted offline prefixes only. Observation hashes use compact JSON.stringify over parsed producer bytes; full raw-file hash is separately pinned. Query beginnings do not prove accepted responses, whole-profile coverage or client integration. Labels remain unavailable; no source/card metadata imported.',
+if (!producer) throw Error('Set MTG_DECISION_PRODUCER_DIR to the action_fixture output directory');
+const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
+const bytes = await readFile(resolve(producer, 'public-prefixes.json'));
+const capture = JSON.parse(bytes);
+const pins = JSON.parse(await readFile(new URL('../sdk-qualification.json', import.meta.url)));
+if (capture.engine_build_id !== pins.engine_build_id || capture.server_build_id !== pins.server_build_id)
+  throw Error('Prefix build mismatch');
+if (capture.captures.length !== 1) throw Error('Expected the embedded Foundations capture');
+const [pod] = capture.captures;
+if (pod.profile !== pins.profile || pod.catalog_sha256 !== pins.catalog_sha256) throw Error('Prefix catalog mismatch');
+const stages = pod.stages.map(({ stage, observation }) => {
+  const stream = {
+    protocol_version: 2,
+    entries: [{ cursor: '1', publication: { kind: 'view_replaced', observation } }],
+    next: '1',
+    has_more: false,
+  };
+  if (!streamValidator(stream)) throw Error('Invalid native prefix observation');
+  const { decision, view } = observation;
+  if (decision?.player !== view.viewer || observation.observation_version !== pins.observation_version)
+    throw Error('Prefix viewer/version mismatch');
+  return {
+    stage,
+    viewer: view.viewer,
+    reason: decision.reason.reason,
+    shape: decision.shape.shape,
+    candidates: decision.candidates.length,
+    actions: [
+      ...new Set(
+        decision.candidates.flatMap((candidate) => (candidate.candidate === 'action' ? [candidate.action.action] : [])),
+      ),
+    ].sort(),
+  };
+});
+if (stages.map((s) => s.stage).join() !== 'opening,main-priority-before-land,main-priority-before-cast,cast-mana')
+  throw Error('Incomplete Foundations prefix');
+const report = {
+  profile: pod.profile,
+  catalog_sha256: pod.catalog_sha256,
+  engine_build_id: capture.engine_build_id,
+  server_build_id: capture.server_build_id,
+  protocol_schema_sha256: pins.protocol_schema_sha256,
+  public_prefixes_sha256: hash(bytes),
+  stages,
 };
-const bytes = JSON.stringify(output, null, 2) + '\n';
-const destination = new URL('fixtures/decision-controls/prefix-provenance.json', client);
-if (process.argv.includes('--write')) await writeFile(destination, bytes);
-else if (await readFile(destination, 'utf8') !== bytes) throw new Error('Producer provenance changed; review before writing');
-console.log(`Verified ${summaries.length} isolated profiles, ${summaries.flatMap(value => value.stages).length} permitted observations; new query schema is evidence only. SDK unchanged.`);
+const output = JSON.stringify(report, null, 2) + '\n';
+const destination = new URL('../fixtures/decision-controls/prefix-provenance.json', import.meta.url);
+if (process.argv.includes('--write')) await writeFile(destination, output);
+else if ((await readFile(destination, 'utf8')) !== output) throw Error('Public prefix provenance differs');
+console.log('Verified four Foundations stages against the qualified decision schema');

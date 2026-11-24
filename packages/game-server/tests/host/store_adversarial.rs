@@ -1,6 +1,6 @@
 //! Independent durable-ledger tests. Transition records/publication fixtures are
 //! trusted producer data; these tests do not claim Game validation or HTTP auth.
-use mtg_core::{DecisionToken, Observation, PlayerResponse};
+use mtg_core::{Answer, DecisionToken, Observation};
 use mtg_server::{
     protocol::{
         CommandBody, CommandEnvelope, Counter, Publication, RejectionReason, SubmissionResult,
@@ -48,12 +48,14 @@ fn open(d: &Directory) -> MatchStore {
 }
 fn request(id: u64, seat: u8) -> CommandEnvelope {
     CommandEnvelope {
-        protocol_version: 1,
+        protocol_version: 2,
         command_id: format!("{id:032x}"),
         expected_revision: Counter::new(0),
         command: CommandBody::Decision {
             token: DecisionToken(format!("seat-{seat}-token")),
-            response: PlayerResponse::Pass,
+            answer: Answer::Pick {
+                picks: vec![vec![0]],
+            },
         },
     }
 }

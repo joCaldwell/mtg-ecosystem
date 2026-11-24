@@ -90,16 +90,19 @@ resets each turn.
 
 <a id="player-visibility-and-query-recovery"></a>
 
-Public queries return only existing viewer-permitted handles and context. They
-cannot publish views/history, mint handles, mutate semantics or authorize later
-submission. Receipts and recovery sidecars remain private and executor/state
-bound. Payment queries and [action beginnings](game-client.md#core-action-discovery) use
-existing validators, with explicit incomplete/stale/unavailable outcomes. A
-complete initiation menu does not enumerate every eventual target/payment choice.
-Raw IDs, `decision_for`, full-state getters and snapshots are trusted host APIs;
-public code consumes Observation/PlayerRequest/PlayerResponse. Public revisions
-change only with permitted information. Real restore rejects sampled origins;
-[search](game-engine-search.md) separately proves hypothetical origin/reconstruction.
+Under Protocol 2, the acting viewer’s `Observation` carries the `Decision` inline,
+including priority actions and payment sources when offered. Its shape
+(`Pick`, `Order`, `Distribute`, `Number` or `Pay`) defines legal answers.
+Public clients submit an `Answer` using candidate indices local to that decision
+and exact quantities where required. See the [decision controls](game-client.md#decision-controls).
+The host checks the answer and submits the resulting opaque `ValidatedResponse`
+receipt. Check receipts and recovery sidecars remain private and bound to the
+executor and state. Raw IDs, `decision_for`, full-state getters and snapshots
+are trusted host APIs. Public reads use existing viewer-permitted handles and
+context. They do not publish history, mint handles, change rules or authorize
+later submissions. Public revisions change only with permitted information.
+Real restore rejects sampled origins. [Search](game-engine-search.md) separately
+proves hypothetical origin and reconstruction.
 
 <a id="commander-movement-and-hidden-libraries"></a>
 

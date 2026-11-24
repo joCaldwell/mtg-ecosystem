@@ -50,48 +50,22 @@ impl RulesTxn {
         Ok(())
     }
 
-    pub(super) fn resolution_payment_request(&self, payment: &ResolutionPayment) -> Request {
-        let decision_id = self.state.rules.revision;
-        let player = payment.payer;
-        match payment.stage {
-            ResolutionPaymentStage::Offer => Request::OptionalEffect {
-                decision_id,
-                player,
-            },
-            ResolutionPaymentStage::Mana => Request::Mana {
-                decision_id,
-                player,
-                cost: payment.cost.clone(),
-            },
-            ResolutionPaymentStage::Spend => Request::SpendMana {
-                decision_id,
-                player,
-                cost: payment.cost.clone(),
-                available: self.state.rules.players[player.0 as usize].mana.clone(),
-                restricted_available: vec![],
-            },
-        }
-    }
-
-    pub(super) fn validate_resolution_payment_response(
+    pub(super) fn resolution_payment_request(
         &self,
         payment: &ResolutionPayment,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        if player != payment.payer || !self.is_live(player) {
-            return Err("unauthorized resolution payment".into());
-        }
-        match (payment.stage, response) {
-            (ResolutionPaymentStage::Offer, Response::OptionalEffect { .. })
-            | (ResolutionPaymentStage::Mana, Response::FinishMana { .. }) => Ok(()),
-            (ResolutionPaymentStage::Mana, Response::ActivateMana { object }) => {
-                self.validate_mana_activation(player, *object)
-            }
-            (ResolutionPaymentStage::Spend, Response::SpendMana { spending }) => self
-                .selected_payment_pool(player, &payment.cost, spending)
-                .map(|_| ()),
-            _ => Err("invalid resolution payment response".into()),
+    ) -> Result<Decision<Rules>, String> {
+        match payment.stage {
+            ResolutionPaymentStage::Offer => Ok(self.pick_flags(
+                payment.payer,
+                Reason::OptionalEffect,
+                &[Flag::Accept, Flag::Decline],
+            )),
+            ResolutionPaymentStage::Mana | ResolutionPaymentStage::Spend => self.payment_decision(
+                payment.payer,
+                payment.cost.clone(),
+                None,
+                payment.stage == ResolutionPaymentStage::Mana,
+            ),
         }
     }
 
@@ -105,32 +79,51 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing resolution payment input")?;
-        self.validate_resolution_payment_response(&payment, input.player, &input.response)?;
         let source_block = self.kernel_payment_terms(payment.resume)?.1;
-        match input.response {
-            Response::OptionalEffect { perform: true } => {
+        match (&input.answer, payment.stage) {
+            (Answer::Pick { .. }, ResolutionPaymentStage::Offer) if input.flag(Flag::Accept)? => {
                 payment.stage = ResolutionPaymentStage::Mana
             }
-            Response::OptionalEffect { perform: false } => {
+            (Answer::Pick { .. }, ResolutionPaymentStage::Offer) => {
                 return self.finish_kernel_payment(payment.resume, false);
             }
-            Response::ActivateMana { object } => {
+            (
+                Answer::Pay {
+                    pay: PayAnswer::Activate { source },
+                },
+                ResolutionPaymentStage::Mana,
+            ) => {
+                let object = input.mana_source(*source)?;
                 return self.begin_payment_mana(
                     &input,
                     object,
                     Frame::ResolutionPayment { frame, payment },
                 );
             }
-            Response::FinishMana { undo_mana } => {
+            (
+                Answer::Pay {
+                    pay:
+                        PayAnswer::Finish {
+                            undo_on_failure: undo_mana,
+                        },
+                },
+                ResolutionPaymentStage::Mana,
+            ) => {
                 if !self.can_pay(payment.payer, &payment.cost)? {
-                    if undo_mana {
+                    if *undo_mana {
                         self.undo_mana_receipts(payment.payer, &payment.receipts)?;
                     }
                     return self.finish_kernel_payment(payment.resume, false);
                 }
                 payment.stage = ResolutionPaymentStage::Spend;
             }
-            Response::SpendMana { spending } => {
+            (
+                Answer::Pay {
+                    pay: PayAnswer::Spend { unrestricted },
+                },
+                ResolutionPaymentStage::Spend,
+            ) => {
+                let spending = unrestricted.clone();
                 self.commit(
                     ProposedEvent::PayManaSelected {
                         player: payment.payer,

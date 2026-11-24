@@ -218,9 +218,7 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing entity targets")?;
-        let Response::EntityTargets { entities } = input.response else {
-            return Err("entity target response invariant".into());
-        };
+        let entities = input.entities()?;
         self.validate_entity_targets(input.player, &entities)?;
         let announced = (0..4)
             .map(|viewer| {

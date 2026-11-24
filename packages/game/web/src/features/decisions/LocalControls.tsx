@@ -52,6 +52,15 @@ export function LocalControls({ control, draft, onChange, onComplete, confirmLab
         aria-invalid={showError || undefined} aria-describedby={`${id}-help${showError ? ` ${id}-error` : ''}`} onBlur={() => {
           if (draft.quantity.length) setValidation({ key, attempted: true });
         }} onChange={event => onChange({ ...draft, quantity: event.currentTarget.value })} /></div>
+        : control.kind === 'counts' ? control.slots.map((slot,index)=><fieldset key={index}><legend>{slot.label}</legend>
+          {slot.options.map(option=>{
+            const key=`${index}/${option.id}`;
+            return <label key={key} className={styles.quantity}>{option.label} {option.detail}
+              <input type="text" inputMode="numeric" placeholder="0" value={draftValue(draft,key)} aria-invalid={showError || undefined}
+                onChange={event=>onChange(setDraftValue(draft,key,event.currentTarget.value))} />
+            </label>;
+          })}
+        </fieldset>)
         : control.kind === 'mapping' ? <div>{control.rows.map((row, index) => <div key={row.id} className={styles.quantity}>
           <label htmlFor={`${id}-row-${index}`}>{row.label}{row.detail && <small>{' '}Handle {row.detail}</small>}</label>
           <select id={`${id}-row-${index}`} name={`choice-${index}`} required value={draftValue(draft, row.id)}
@@ -74,9 +83,10 @@ export function LocalControls({ control, draft, onChange, onComplete, confirmLab
         </label>)}</div>}
       {control.kind === 'selection' && <p className={styles.count}>Selected {draft.selected.length} · Required {control.minimum === control.maximum ? control.minimum : `${control.minimum}–${control.maximum}`}</p>}
       {control.kind === 'selection' && control.ordered && <><h3>Chosen order · first to last</h3><ol className={styles.order}>{draft.selected.map((selected, index) => {
-        const label = control.options.find(value => value.id === selected)?.label ?? 'Unavailable object';
+        const option=control.options.find(value=>value.id===selected);
+        const label=option?.label ?? 'Unavailable object';
         const row = `${id}-order-${index}`;
-        return <li key={selected}><span><span id={`${row}-label`}>{label}</span><small>Handle {selected}</small></span>
+        return <li key={selected}><span><span id={`${row}-label`}>{label}</span>{option?.detail && <small>Handle {option.detail}</small>}</span>
           <span id={`${row}-position`} className={styles.srOnly}>position {index + 1} of {draft.selected.length}</span>
           <button type="button" id={`${row}-earlier`} aria-labelledby={`${row}-earlier ${row}-label ${row}-position`} aria-disabled={index === 0}
             onClick={event => moveItem(selected, label, -1, event.currentTarget)}>Earlier</button>

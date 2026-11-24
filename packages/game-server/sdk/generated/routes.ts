@@ -1,10 +1,5 @@
 /* Generated from Rust protocol::ROUTES; do not edit. */
 export const ROUTES = {
-  "query_actions": {
-    "method": "POST",
-    "path": "/v1/matches/{match_id}/actions/query",
-    "response_schema": "action_query"
-  },
   "get_client_config": {
     "method": "GET",
     "path": "/client-config.json",

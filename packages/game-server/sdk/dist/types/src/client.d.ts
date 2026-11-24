@@ -1,5 +1,3 @@
-import type { ActionQueryRequest } from '../generated/action_request.js';
-import type { ActionQueryResponse } from '../generated/action_query.js';
 import type { CommandEnvelope } from '../generated/command.js';
 import type { StreamPage, StreamEntry } from '../generated/stream.js';
 import type { SubmissionResult } from '../generated/submission.js';
@@ -12,15 +10,13 @@ export { parseClientConfig, readClientConfig } from './public.js';
 export type { ClientConfig, PresentationDescriptor, PresentationArtifact } from './public.js';
 export { HttpError, TransportError } from './transport.js';
 export { ProtocolError, counter, PROTOCOL_VERSION } from './validation.js';
-export type { CommandEnvelope, PlayerResponse, ExactQuantity } from '../generated/command.js';
-export type { StreamPage, StreamEntry, Observation, DecisionContext, DecisionSource, PlayerRequest, Publication, ExecutionStatus, RulesResult, DecimalU64Counter } from '../generated/stream.js';
+export type { CommandEnvelope, Answer, PayAnswer, ExactQuantity } from '../generated/command.js';
+export type { StreamPage, StreamEntry, Observation, DecisionContext, DecisionSource, Decision, Shape, Candidate, Action, Reason, Publication, ExecutionStatus, RulesResult, DecimalU64Counter } from '../generated/stream.js';
 export type { SubmissionResult, RejectionReason } from '../generated/submission.js';
 export type { CommandExecution, CommandExecutionStatus } from '../generated/execution.js';
 export type { PublicManifest, Catalog, Decklist, DeckEntry } from '../generated/manifest.js';
 export type { SeatResume, ResumeState } from '../generated/resume.js';
 export type { SeatBootstrap } from '../generated/bootstrap.js';
-export type { ActionQueryRequest } from '../generated/action_request.js';
-export type { ActionQueryResponse, ActionQueryStatus, ActionQueryUnavailable, ActionPage, ActionBeginning, ActionInitiation, ActionScope, ActionLabel, ActionDecisionContext, ActionSourceContext, ActionUnavailable } from '../generated/action_query.js';
 /** Parse only an explicitly imported single-seat file; never persist or log it. */
 export declare function parseSeatBootstrap(text: string): SeatBootstrap;
 /** Detached immutable journal input; exactBody is the authoritative wire string. */
@@ -80,10 +76,6 @@ export declare class GameClient {
     cancel(id: string, options?: {
         signal?: AbortSignal;
     }): Promise<SubmissionResult>;
-    /** One bounded pure discovery/cursor/cancel operation. No retry or automatic pagination. */
-    queryActions(request: ActionQueryRequest, options?: {
-        signal?: AbortSignal;
-    }): Promise<ActionQueryResponse>;
     poll(options: PollOptions): Promise<StreamPage>;
     /** Reconnect from the last entry the consumer processed; no hidden acknowledgment. */
     events(options: PollOptions): AsyncGenerator<StreamEntry, void, void>;

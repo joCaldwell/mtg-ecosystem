@@ -12,45 +12,60 @@ fn activate_land(g: &mut Game, card: u32) {
     Driver::answer(
         g,
         u64::MAX,
-        Response::ActivateMana {
-            object: g.object_id(CardId(card)).unwrap(),
-        },
+        g.next_test_decision()
+            .activate_mana(g.object_id(CardId(card)).unwrap()),
     );
 }
 fn cast_edict(g: &mut Game, target: u8) {
-    Driver::answer(g, u64::MAX, Response::Cast { card: CardId(4) });
+    Driver::answer(g, u64::MAX, g.next_test_decision().cast(CardId(4)));
     assert!(matches!(
         Driver::request(g, u64::MAX),
-        Request::PlayerTargets {
+        Decision {
             player: PlayerId(0),
+            reason: Reason::Targets { .. },
             ..
         }
     ));
     Driver::answer(
         g,
         u64::MAX,
-        Response::PlayerTargets {
-            players: vec![PlayerId(target)],
-        },
+        g.next_test_decision()
+            .player_targets(vec![PlayerId(target)]),
     );
     activate_land(g, 2);
     activate_land(g, 3);
-    Driver::answer(g, u64::MAX, Response::FinishMana { undo_mana: true });
     Driver::answer(
         g,
         u64::MAX,
-        Response::SpendMana {
-            spending: BTreeMap::from([
-                (Color::B, Quantity::from(1)),
-                (Color::G, Quantity::from(1)),
-            ]),
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    Driver::answer(
+        g,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([
+                    (Color::B, Quantity::from(1)),
+                    (Color::G, Quantity::from(1)),
+                ]),
+            },
         },
     );
     Driver::request(g, u64::MAX);
 }
 fn pass_round(g: &mut Game) {
     for _ in 0..g.live_players().len() {
-        Driver::answer(g, u64::MAX, Response::Pass);
+        Driver::answer(
+            g,
+            u64::MAX,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     Driver::request(g, u64::MAX);
 }
@@ -64,12 +79,15 @@ fn opponent_announcement_and_resolution_sacrifice_have_distinct_choosers() {
     assert!(g.top().unwrap().targets.is_empty());
     assert_eq!(view(&g, 0).view.stack[0].player_targets, vec![PlayerId(1)]);
     pass_round(&mut g);
-    let Request::Sacrifice {
-        player, candidates, ..
+    let found @ Decision {
+        reason: Reason::Sacrifice,
+        ..
     } = Driver::request(&mut g, u64::MAX)
     else {
         panic!("sacrifice")
     };
+    let player = found.player;
+    let candidates = found.objects_offered();
     assert_eq!(player, PlayerId(1));
     assert_eq!(
         candidates
@@ -85,20 +103,15 @@ fn opponent_announcement_and_resolution_sacrifice_have_distinct_choosers() {
         g.respond(
             PlayerId(0),
             g.state.rules.revision,
-            Response::Sacrifice {
-                object: candidates[1]
-            }
+            g.next_test_decision().pick_object(candidates[1])
         )
         .is_err()
     );
     assert_eq!(g.snapshot().unwrap(), before);
-    Driver::answer(
-        &mut g,
-        u64::MAX,
-        Response::Sacrifice {
-            object: candidates[1],
-        },
-    );
+    {
+        let selected_answer = g.next_test_decision().pick_object(candidates[1]);
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
 
     assert_eq!(
@@ -116,7 +129,10 @@ fn sacrificing_commander_waits_until_whole_spell_finishes_before_return_sba() {
     cast_edict(&mut g, 1);
     pass_round(&mut g);
     let commander = g.object_id(CardId(0)).unwrap();
-    Driver::answer(&mut g, u64::MAX, Response::Sacrifice { object: commander });
+    {
+        let selected_answer = g.next_test_decision().pick_object(commander);
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     assert!(matches!(
         g.advance(Budget::new(1)),
         Advance::Suspended { .. }
@@ -136,8 +152,9 @@ fn sacrificing_commander_waits_until_whole_spell_finishes_before_return_sba() {
 
     assert!(matches!(
         Driver::request(&mut g, u64::MAX),
-        Request::CommanderReturn {
+        Decision {
             player: PlayerId(1),
+            reason: Reason::CommanderReturn { .. },
             ..
         }
     ));
@@ -145,11 +162,12 @@ fn sacrificing_commander_waits_until_whole_spell_finishes_before_return_sba() {
         g.state.rules.objects[&CardId(4)].zone,
         Zone::Graveyard { owner: PlayerId(0) }
     );
-    Driver::answer(
-        &mut g,
-        u64::MAX,
-        Response::CommanderReturn { to_command: true },
-    );
+    {
+        let selected_answer = g.next_test_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
 }
 
@@ -159,15 +177,19 @@ fn resolution_choice_query_sidecar_recovers_and_does_not_authorize_foreign_forks
     cast_edict(&mut g, 1);
     pass_round(&mut g);
     let request = view(&g, 1).decision.unwrap();
-    let PlayerRequest::Sacrifice { candidates, .. } = &request else {
+    let found @ Decision {
+        reason: Reason::Sacrifice,
+        ..
+    } = &request
+    else {
         panic!("sacrifice")
     };
+    let candidates = found.objects_offered();
     let QueryResult::Incomplete { work, .. } = g.check_player_response(
         PlayerId(1),
-        request.token().clone(),
-        PlayerResponse::Sacrifice {
-            object: candidates[0].clone(),
-        },
+        request.id.clone(),
+        g.next_test_viewer_decision()
+            .pick_object(candidates[0].clone()),
         Budget::new(1),
     ) else {
         panic!("suspended query")
@@ -187,7 +209,10 @@ fn resolution_choice_query_sidecar_recovers_and_does_not_authorize_foreign_forks
     };
     assert!(g.submit(receipt).is_err());
     let object = g.resolve_handle(PlayerId(1), &candidates[0]).unwrap();
-    Driver::answer(&mut g, u64::MAX, Response::Sacrifice { object });
+    {
+        let selected_answer = g.next_test_decision().pick_object(object);
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
 
     assert!(matches!(

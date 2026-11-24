@@ -105,16 +105,21 @@ fn new_profiles_reject_structurally_valid_card_or_setup_widening() {
     assert!(Prepared::admit(changed, ScenarioConfig::commander_library()).is_err());
 }
 
-fn request(game: &mut Game) -> Request {
+fn request(game: &mut Game) -> Decision<Rules> {
     match game.advance(Budget::unlimited()) {
         Advance::AwaitingDecision(r) => r,
         other => panic!("expected decision, got {other:?}"),
     }
 }
-fn answer(game: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn answer(game: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let r = request(game);
-    game.respond(r.player(), r.decision_id(), response).unwrap();
+    game.respond(r.player, r.id, response).unwrap();
     if finish {
         support::complete_mana(game);
     }
@@ -133,35 +138,70 @@ fn authentic_multicolor_printed_cost_fails_with_monochromatic_sources_without_gr
     ] {
         let prepared = Prepared::admit(support::action_catalog(), config).unwrap();
         let mut game = Game::new(prepared.clone());
-        answer(&mut game, Response::Pass);
-        answer(&mut game, Response::Cast { card: CardId(3) });
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut game, selected_answer)
+        };
+        {
+            let selected_answer = game.next_test_decision().cast(CardId(3));
+            answer(&mut game, selected_answer)
+        };
         let commander = game.object_id(CardId(0)).unwrap();
-        answer(
-            &mut game,
-            Response::Targets {
-                objects: vec![commander],
-            },
-        );
+        {
+            let selected_answer = game.next_test_decision().targets(vec![commander]);
+            answer(&mut game, selected_answer)
+        };
         let island = game.object_id(CardId(2)).unwrap();
-        answer(&mut game, Response::ActivateMana { object: island });
-        answer(&mut game, Response::FinishMana { undo_mana: false });
+        {
+            let selected_answer = game.next_test_decision().activate_mana(island);
+            answer(&mut game, selected_answer)
+        };
+        {
+            let selected_answer = Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: false,
+                },
+            };
+            answer(&mut game, selected_answer)
+        };
         for _ in 0..4 {
-            answer(&mut game, Response::Pass);
+            {
+                let selected_answer = Answer::Pick {
+                    picks: vec![vec![0]],
+                };
+                answer(&mut game, selected_answer)
+            };
         }
         assert!(matches!(
             request(&mut game),
-            Request::CommanderReturn {
+            Decision {
                 player: PlayerId(0),
+                reason: Reason::CommanderReturn { .. },
                 ..
             }
         ));
-        answer(&mut game, Response::CommanderReturn { to_command: false });
+        {
+            let selected_answer = game.next_test_decision().select(Candidate::Flag {
+                flag: Flag::Destination,
+            });
+            answer(&mut game, selected_answer)
+        };
         request(&mut game);
         let original = game.object_id(CardId(0)).unwrap();
         assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
         for undo in [false, true] {
-            answer(&mut game, Response::Cast { card: CardId(0) });
-            let Request::Mana { cost, .. } = request(&mut game) else {
+            {
+                let selected_answer = game.next_test_decision().cast(CardId(0));
+                answer(&mut game, selected_answer)
+            };
+            let Decision {
+                shape: Shape::Pay { cost, .. },
+                reason: Reason::Mana { .. },
+                ..
+            } = request(&mut game)
+            else {
                 panic!("mana request")
             };
             assert_eq!(cost.generic, Quantity::from(3));
@@ -169,9 +209,19 @@ fn authentic_multicolor_printed_cost_fails_with_monochromatic_sources_without_gr
             restored(&game, &prepared);
             let forest = game.object_id(CardId(1)).unwrap();
             if game.mana(PlayerId(0), Color::G).unwrap() == Quantity::zero() {
-                answer(&mut game, Response::ActivateMana { object: forest });
+                {
+                    let selected_answer = game.next_test_decision().activate_mana(forest);
+                    answer(&mut game, selected_answer)
+                };
             }
-            answer(&mut game, Response::FinishMana { undo_mana: undo });
+            {
+                let selected_answer = Answer::Pay {
+                    pay: PayAnswer::Finish {
+                        undo_on_failure: undo,
+                    },
+                };
+                answer(&mut game, selected_answer)
+            };
             request(&mut game);
             assert_eq!(game.object_id(CardId(0)), Some(original));
             assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
@@ -191,48 +241,82 @@ fn draw_choice() -> (Prepared, Game) {
     )
     .unwrap();
     let mut game = Game::new(prepared.clone());
-    answer(&mut game, Response::Cast { card: CardId(0) });
+    {
+        let selected_answer = game.next_test_decision().cast(CardId(0));
+        answer(&mut game, selected_answer)
+    };
     let commander = game.object_id(CardId(4)).unwrap();
-    answer(
-        &mut game,
-        Response::Targets {
-            objects: vec![commander],
-        },
-    );
+    {
+        let selected_answer = game.next_test_decision().targets(vec![commander]);
+        answer(&mut game, selected_answer)
+    };
     for id in 1..=3 {
         let island = game.object_id(CardId(id)).unwrap();
-        answer(&mut game, Response::ActivateMana { object: island });
+        {
+            let selected_answer = game.next_test_decision().activate_mana(island);
+            answer(&mut game, selected_answer)
+        };
     }
-    answer(&mut game, Response::FinishMana { undo_mana: false });
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        };
+        answer(&mut game, selected_answer)
+    };
     for _ in 0..4 {
-        answer(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut game, selected_answer)
+        };
     }
     assert!(matches!(
         request(&mut game),
-        Request::CommanderReturn {
-            destination: Zone::Library { owner: PlayerId(1) },
+        Decision {
+            reason: Reason::CommanderReturn {
+                destination: Zone::Library { owner: PlayerId(1) },
+                ..
+            },
             ..
         }
     ));
-    answer(&mut game, Response::CommanderReturn { to_command: false });
+    {
+        let selected_answer = game.next_test_decision().select(Candidate::Flag {
+            flag: Flag::Destination,
+        });
+        answer(&mut game, selected_answer)
+    };
     for _ in 0..128 {
         let req = request(&mut game);
         if matches!(
             req,
-            Request::CommanderReturn {
-                destination: Zone::Hand { owner: PlayerId(1) },
+            Decision {
+                reason: Reason::CommanderReturn {
+                    destination: Zone::Hand { owner: PlayerId(1) },
+                    ..
+                },
                 ..
             }
         ) {
             return (prepared, game);
         }
-        let response = match req {
-            Request::Priority { .. } => Response::Pass,
-            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+        let response = match req.clone() {
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
+            },
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            } => req.attack(vec![]),
             _ => panic!("unexpected passive request {req:?}"),
         };
-        game.respond(req.player(), req.decision_id(), response)
-            .unwrap();
+        game.respond(req.player, req.id, response).unwrap();
     }
     panic!("commander draw choice unreachable")
 }

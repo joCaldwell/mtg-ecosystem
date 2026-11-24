@@ -8,16 +8,16 @@ impl Game {
         self.committed.accepted_input_counts()
     }
     /// The decision `viewer` owes now, if any.
-    pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
+    pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Decision<Rules>>, String> {
         self.committed.decision_for(viewer)
     }
     pub fn check_response(
         &self,
         player: PlayerId,
         decision_id: u64,
-        response: Response,
+        answer: Answer,
     ) -> Result<ValidatedResponse, String> {
-        self.committed.check_response(player, decision_id, response)
+        self.committed.check_response(player, decision_id, answer)
     }
     /// Trusted host execution boundary; never a player-facing identifier.
     pub fn rule_boundary(&self) -> u64 {
@@ -125,11 +125,11 @@ impl Game {
         &self,
         viewer: PlayerId,
         token: DecisionToken,
-        response: PlayerResponse,
+        answer: Answer,
         budget: Budget,
     ) -> QueryResult {
         self.committed
-            .check_player_response(viewer, token, response, budget)
+            .check_player_response(viewer, token, answer, budget)
     }
     pub fn search_context(
         &self,

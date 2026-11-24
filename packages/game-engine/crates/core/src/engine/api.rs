@@ -13,6 +13,7 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
+pub use decision::*;
 pub use event_vocabulary::*;
 pub use game::*;
 pub use protocol::*;

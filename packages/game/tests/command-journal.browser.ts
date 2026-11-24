@@ -45,7 +45,7 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
         const { GameClient, prepareCommand, parsePreparedCommand } = await import('/sdk.js');
         const binding = { origin: location.origin, match: 'a1', seat: '0', engineBuild: '1'.repeat(64), serverBuild: '2'.repeat(64), catalog: '3'.repeat(64), protocol: '4'.repeat(64) };
         const codec = { prepare: prepareCommand, parse: parsePreparedCommand };
-        const record = id => ({ version: 1, binding: { ...binding }, ...prepareCommand({ protocol_version: 1, command_id: id ?? 'a'.repeat(32), expected_revision: '1', command: { kind: 'decision', token: 'v0-d0', response: { response: 'mulligan', take: false } } }) });
+        const record = id => ({ version: 1, binding: { ...binding }, ...prepareCommand({ protocol_version: 2, command_id: id ?? 'a'.repeat(32), expected_revision: '1', command: { kind: 'decision', token: 'v0-d0', response: { answer: 'pick', picks: [[0]] } } }) });
         globalThis.kit = { IndexedDBCommandJournal, CommandLifecycle, acquireSeat, GameClient, codec, binding, record, journal: name => new IndexedDBCommandJournal(codec, { name }) };
       })()`);
     };
@@ -65,7 +65,7 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
           const sdk = new kit.GameClient({ baseURL: location.origin, matchId: 'a1', capability: 'synthetic-test-only' });
           let snapshot;
           const lifecycle = new kit.CommandLifecycle({ binding: kit.binding, signal: new AbortController().signal, active: () => true, context: () => null,
-            publish: value => { snapshot = value; }, refresh() {}, effects: { journal, codec: kit.codec, protocol: kit.binding.protocol, protocolVersion: 1,
+            publish: value => { snapshot = value; }, refresh() {}, effects: { journal, codec: kit.codec, protocol: kit.binding.protocol, protocolVersion: 2,
               newId() { throw Error('no replacement'); }, transport: { execution: async () => null, submitExact: (body, signal) => sdk.submitExact(body, { signal }) } } });
           await lifecycle.recover(); await lifecycle.reconcile();
           return { exactBody: records[0].exactBody, phase: snapshot.phase, count: (await journal.unresolved(kit.binding)).length };
@@ -87,7 +87,7 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
           const journal = kit.journal('response-loss'); let phase, status = 'pending';
           const id = (await journal.unresolved(kit.binding))[0].envelope.command_id;
           const lifecycle = new kit.CommandLifecycle({ binding: kit.binding, signal: new AbortController().signal, active: () => true, context: () => null,
-            publish: value => { phase = value.phase; }, refresh() {}, effects: { journal, codec: kit.codec, protocol: kit.binding.protocol, protocolVersion: 1,
+            publish: value => { phase = value.phase; }, refresh() {}, effects: { journal, codec: kit.codec, protocol: kit.binding.protocol, protocolVersion: 2,
               newId() { throw Error('replacement'); }, transport: { execution: async () => ({ command_id: id, status: { status } }), submitExact() { throw Error('pending must not replay'); } } } });
           await lifecycle.recover(); await lifecycle.reconcile();
           const retained = (await journal.unresolved(kit.binding)).length;

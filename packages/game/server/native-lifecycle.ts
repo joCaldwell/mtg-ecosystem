@@ -222,7 +222,7 @@ export function createNativeLifecycle(options: NativeLifecycleOptions): NativeGa
       const tail = url.pathname.slice(prefix.length);
       // Reviewed route authority: game-server/src/protocol.rs ROUTES. No arbitrary
       // proxy, operator, other match, encoded path or caller-selected destination.
-      const allowed = request.method === "GET" ? /^(manifest|resume|presentation|events|commands\/[a-f0-9]{32})$/.test(tail) : /^(commands|actions\/query|commands\/[a-f0-9]{32}\/cancel)$/.test(tail);
+      const allowed = request.method === "GET" ? /^(manifest|resume|presentation|events|commands\/[a-f0-9]{32})$/.test(tail) : /^(commands|commands\/[a-f0-9]{32}\/cancel)$/.test(tail);
       if (!allowed || (url.search && !(request.method === "GET" && tail === "events"))) throw unavailable();
       if (url.search) {
         const keys = [...url.searchParams.keys()];

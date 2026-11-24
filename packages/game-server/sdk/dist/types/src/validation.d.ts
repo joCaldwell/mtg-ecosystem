@@ -1,5 +1,3 @@
-import type { ActionQueryRequest } from '../generated/action_request.js';
-import type { ActionQueryResponse } from '../generated/action_query.js';
 import type { CommandEnvelope } from '../generated/command.js';
 import type { StreamPage } from '../generated/stream.js';
 import type { SubmissionResult } from '../generated/submission.js';
@@ -20,5 +18,3 @@ export declare function execution(value: unknown): CommandExecution;
 export declare function command(value: unknown): CommandEnvelope;
 export declare function submission(value: unknown): SubmissionResult;
 export declare function stream(value: unknown, after: string): StreamPage;
-export declare function actionRequest(value: unknown): ActionQueryRequest;
-export declare function actionQuery(value: unknown): ActionQueryResponse;

@@ -15,10 +15,10 @@ export function LiveOpening({ draft, request, labels, enabled, onIntent }: {
   readonly onIntent: (intent: DecisionIntent) => void;
 }) {
   if (!request) return <p>Waiting for your next permitted decision.</p>;
-  if (request.request !== 'mulligan' && request.request !== 'bottom_opening') {
+  if (request.reason.reason !== 'mulligan' && request.reason.reason !== 'bottom_opening') {
     const surface = decisionSurface(request, labels);
     return <div role="status"><h3>Opening actions complete or unavailable</h3><p>This build supports keeping, taking mulligans and ordering opening cards only.</p>
-      <p>{request.request === 'priority' || request.request === 'mana' ? 'The action menu and payment choices are not yet enabled in this build.'
+      <p>{request.reason.reason === 'priority' || request.reason.reason === 'mana' ? 'The action menu and payment choices are not yet enabled in this build.'
         : surface.status === 'supported' ? 'This choice is available in inspection fixtures, but is not enabled for live play.'
           : surface.status === 'context-missing' ? 'This choice needs more information about its source or effect before a control can be offered.'
             : 'Controls for this decision are not yet available.'}</p><p>No choice will be sent for this decision.</p></div>;

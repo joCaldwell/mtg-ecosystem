@@ -11,7 +11,7 @@ import { JournalFailure } from '../web/src/session/journal.ts';
 const binding = { origin: 'http://127.0.0.1:18741', match: 'a1', seat: '0', engineBuild: '1'.repeat(64), serverBuild: '2'.repeat(64), catalog: '3'.repeat(64), protocol: '4'.repeat(64) };
 const codec = { prepare: prepareCommand, parse: parsePreparedCommand };
 const context: CommandContext = { binding, incarnation: 1, revision: '1', token: 'v0-d0' };
-const intent: DecisionIntent = { kind: 'decision', source: 'human', context, response: { response: 'mulligan', take: false } };
+const intent: DecisionIntent = { kind: 'decision', source: 'human', context, response: { answer: 'pick', picks: [[0]] } };
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { resolve, promise }; }
 function rig(initial: JournalRecord<CommandEnvelope> | null = null) {
   let record = initial, active = true, refreshed = 0, newIds = 0;
@@ -24,7 +24,7 @@ function rig(initial: JournalRecord<CommandEnvelope> | null = null) {
     async persist(value) { events.push('persist'); assert.equal(record, null); record = value; },
     async resolve(value, disposition) { events.push(`resolve:${disposition}`); assert.equal(record, value); record = null; },
   };
-  const effects: CommandEffects = { journal, codec, protocol: binding.protocol, protocolVersion: 1,
+  const effects: CommandEffects = { journal, codec, protocol: binding.protocol, protocolVersion: 2,
     newId: () => (++newIds).toString(16).padStart(32, '0'), transport: {
       async submitExact(body) { events.push('send'); bodies.push(body); assert.equal(record?.exactBody, body); return { status: 'accepted', command_id: record.envelope.command_id }; },
       async execution(id) { events.push('execution'); return { command_id: id, status: { status: 'pending' } }; },

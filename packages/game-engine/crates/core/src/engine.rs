@@ -147,7 +147,7 @@ pub mod recovery;
 pub use recovery::SnapshotVerifier;
 pub mod actions;
 pub mod divided_counters;
-pub use divided_counters::CounterDivision;
+
 pub mod frame;
 pub use frame::*;
 pub mod casting;
@@ -212,8 +212,6 @@ macro_rules! id {
 id!(PlayerId, u8);
 id!(CardId, u32);
 id!(StackId, u32);
-pub mod action_query;
-pub use action_query::*;
 pub mod player_session;
 pub use player_session::PlayerSession;
 pub mod api;

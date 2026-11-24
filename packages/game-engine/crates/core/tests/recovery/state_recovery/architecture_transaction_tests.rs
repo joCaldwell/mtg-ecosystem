@@ -49,10 +49,10 @@ fn coalesced_steps_match_nested_reference_at_every_input_and_budget_boundary() {
                     }
                     Advance::AwaitingDecision(request) => {
                         let input = &inputs[index];
-                        assert_eq!(request.player(), input.player);
-                        assert_eq!(request.decision_id(), input.decision_id);
+                        assert_eq!(request.player, input.player);
+                        assert_eq!(request.id, input.decision_id);
                         for game in [&mut actual, &mut reference] {
-                            game.respond(input.player, input.decision_id, input.response.clone())
+                            game.respond(input.player, input.decision_id, input.answer.clone())
                                 .unwrap();
                         }
                         index += 1;
@@ -75,9 +75,8 @@ fn queued_mana(mode: TraceMode) -> Game {
     game.respond(
         PlayerId(0),
         0,
-        Response::ActivateMana {
-            object: game.object_id(CardId(0)).unwrap(),
-        },
+        game.next_test_decision()
+            .activate_mana(game.object_id(CardId(0)).unwrap()),
     )
     .unwrap();
     game
@@ -147,19 +146,21 @@ fn rule_boundary_overflow_is_a_sticky_atomic_fault() {
 #[test]
 fn decision_invariant_fault_is_sticky_and_invalidates_receipts_and_work() {
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::land_return()));
-    game.respond(PlayerId(0), 0, Response::Cast { card: CardId(1) })
+    game.respond(PlayerId(0), 0, game.next_test_decision().cast(CardId(1)))
         .unwrap();
     assert!(matches!(
         game.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Targets { .. })
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Targets { .. },
+            ..
+        })
     ));
     let receipt = game
         .check_response(
             PlayerId(0),
             game.state.rules.revision,
-            Response::Targets {
-                objects: vec![game.object_id(CardId(2)).unwrap()],
-            },
+            game.next_test_decision()
+                .targets(vec![game.object_id(CardId(2)).unwrap()]),
         )
         .unwrap();
     let QueryResult::Incomplete { work, .. } = game.observe(PlayerId(0), Budget::new(0)) else {

@@ -57,7 +57,7 @@ pub(super) fn prepared(empty: bool, commander: bool) -> Prepared {
     }
     board.prepare()
 }
-pub(super) fn settle(g: &mut Game) -> Request {
+pub(super) fn settle(g: &mut Game) -> Decision<Rules> {
     for _ in 0..500 {
         match g.advance(Budget::new(1)) {
             Advance::AwaitingDecision(r) => return r,
@@ -67,23 +67,58 @@ pub(super) fn settle(g: &mut Game) -> Request {
     }
     panic!("step witness budget")
 }
-pub(super) fn answer(g: &mut Game, response: Response) {
+pub(super) fn answer(g: &mut Game, response: Answer) {
     let r = settle(g);
-    g.respond(r.player(), r.decision_id(), response).unwrap();
+    g.respond(r.player, r.id, response).unwrap();
 }
 pub(super) fn passive(g: &mut Game) {
     let r = settle(g);
-    let (player, decision_id) = (r.player(), r.decision_id());
-    let response = match r {
-        Request::Priority { .. } => Response::Pass,
-        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-        Request::OrderTriggers { candidates, .. } => Response::OrderTriggers { order: candidates },
-        Request::Discard {
-            count, candidates, ..
-        } => Response::Discard {
-            objects: candidates.into_iter().take(count).collect(),
+    let (player, decision_id) = (r.player, r.id);
+    let response = match r.clone() {
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => r.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => r.block(vec![]),
+        found @ Decision {
+            reason: Reason::OrderTriggers,
+            ..
+        } => {
+            let candidates = found
+                .candidates
+                .iter()
+                .filter_map(|c| {
+                    if let Candidate::Trigger { trigger } = c {
+                        Some(*trigger)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            Answer::Order {
+                order: (candidates)
+                    .into_iter()
+                    .map(|trigger| r.test_index(Candidate::Trigger { trigger }))
+                    .collect(),
+            }
+        }
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let count = found.required_count();
+            let candidates = found.objects_offered();
+            r.pick_objects(candidates.into_iter().take(count).collect())
+        }
         other => panic!("unexpected passive request {other:?}"),
     };
     g.respond(player, decision_id, response).unwrap();
@@ -112,37 +147,42 @@ pub(super) fn placed(g: &mut Game) {
     let source = g.object_id(CardId(0)).unwrap();
     answer(
         g,
-        Response::Attackers {
-            attacks: vec![(source, PlayerId(1))],
-        },
+        g.next_test_decision().attack(vec![(source, PlayerId(1))]),
     );
     for _ in 0..100 {
         let r = settle(g);
         if !g.state.rules.stack.is_empty() {
-            assert!(matches!(r, Request::Priority { .. }));
+            assert!(matches!(
+                r,
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                }
+            ));
             return;
         }
         passive(g);
     }
     panic!("missing Locke Cole trigger");
 }
-pub(super) fn begin_resolution(g: &mut Game) -> Request {
+pub(super) fn begin_resolution(g: &mut Game) -> Decision<Rules> {
     for _ in 0..g.live_players().len() {
-        answer(g, Response::Pass);
+        answer(
+            g,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     settle(g)
 }
 
-fn discard(g: &mut Game) -> Request {
+fn discard(g: &mut Game) -> Decision<Rules> {
     placed(g);
     let r = begin_resolution(g);
     assert!(matches!(
         r,
-        Request::ResolveDiscard {
-            player: PlayerId(0),
-            count: 1,
-            ..
-        }
+        Decision {player:PlayerId(0),reason:Reason::ResolveDiscard,..} if r.required_count()==1
     ));
     r
 }
@@ -175,9 +215,14 @@ fn damage_controller_discard_draws_before_private_controller_choice() {
     );
 
     let own = view(&g, 0).decision.unwrap();
-    let PlayerRequest::ResolveDiscard { candidates, .. } = &own else {
+    let found @ Decision {
+        reason: Reason::ResolveDiscard,
+        ..
+    } = &own
+    else {
         panic!("controller discard");
     };
+    let candidates = found.objects_offered();
     assert_eq!(candidates.len(), 2);
     assert!(view(&g, 1).decision.is_none());
     let chosen = candidates
@@ -186,7 +231,7 @@ fn damage_controller_discard_draws_before_private_controller_choice() {
         .unwrap()
         .clone();
     for h in candidates {
-        let object = g.resolve_handle(PlayerId(0), h).unwrap();
+        let object = g.resolve_handle(PlayerId(0), &h).unwrap();
         assert_eq!(
             g.current(object).unwrap().zone,
             Zone::Hand { owner: PlayerId(0) }
@@ -197,17 +242,15 @@ fn damage_controller_discard_draws_before_private_controller_choice() {
     let state = g.state.clone();
     let trace = g.trace.clone();
     for (player, decision, card) in [
-        (PlayerId(1), r.decision_id(), object),
-        (PlayerId(0), r.decision_id().wrapping_add(1), object),
-        (PlayerId(0), r.decision_id(), foreign),
+        (PlayerId(1), r.id, object),
+        (PlayerId(0), r.id.wrapping_add(1), object),
+        (PlayerId(0), r.id, foreign),
     ] {
         assert!(
             g.respond(
                 player,
                 decision,
-                Response::ResolveDiscard {
-                    objects: vec![card]
-                }
+                g.next_test_decision().pick_objects(vec![card])
             )
             .is_err()
         );
@@ -216,10 +259,9 @@ fn damage_controller_discard_draws_before_private_controller_choice() {
     assert!(matches!(
         g.check_player_response(
             PlayerId(0),
-            own.token().clone(),
-            PlayerResponse::ResolveDiscard {
-                objects: vec![foreign_handle]
-            },
+            own.id.clone(),
+            g.next_test_viewer_decision()
+                .pick_objects(vec![foreign_handle]),
             Budget::unlimited()
         ),
         QueryResult::Rejected(_)
@@ -228,10 +270,8 @@ fn damage_controller_discard_draws_before_private_controller_choice() {
     assert_eq!(g.trace, trace);
     let QueryResult::Complete(QueryValue::Validated(receipt)) = g.check_player_response(
         PlayerId(0),
-        own.token().clone(),
-        PlayerResponse::ResolveDiscard {
-            objects: vec![chosen],
-        },
+        own.id.clone(),
+        g.next_test_viewer_decision().pick_objects(vec![chosen]),
         Budget::unlimited(),
     ) else {
         panic!("valid controller discard");
@@ -261,12 +301,10 @@ fn damage_controller_discard_empty_library_still_discards_before_failed_draw_sba
     );
 
     let object = g.object_id(CardId(1)).unwrap();
-    answer(
-        &mut g,
-        Response::ResolveDiscard {
-            objects: vec![object],
-        },
-    );
+    {
+        let selected_answer = g.next_test_decision().pick_objects(vec![object]);
+        answer(&mut g, selected_answer)
+    };
     let _ = g.advance(Budget::new(1));
     assert!(g.is_live(PlayerId(0)));
     assert_eq!(
@@ -286,17 +324,24 @@ fn damage_controller_discard_hidden_commander_draw_replacement_resumes_at_discar
     for to_command in [false, true] {
         let mut g = Game::new(prepared(false, true));
         placed(&mut g);
+        let return_revision = g.next_test_decision().id;
         assert!(matches!(
             begin_resolution(&mut g),
-            Request::CommanderReturn {
+            Decision {
                 player: PlayerId(0),
-                destination: Zone::Hand { owner: PlayerId(0) },
+                reason: Reason::CommanderReturn {
+                    destination: Zone::Hand { owner: PlayerId(0) },
+                    ..
+                },
                 ..
             }
         ));
         assert!(matches!(
             view(&g, 0).decision,
-            Some(PlayerRequest::CommanderReturn { object: None, .. })
+            Some(Decision {
+                reason: Reason::CommanderReturn { object: None, .. },
+                ..
+            })
         ));
         for viewer in 0..4 {
             assert!(
@@ -309,11 +354,21 @@ fn damage_controller_discard_hidden_commander_draw_replacement_resumes_at_discar
         }
         let next = g.state.rules.libraries[&PlayerId(0)][1];
 
-        answer(&mut g, Response::CommanderReturn { to_command });
+        {
+            let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            answer(&mut g, selected_answer)
+        };
         assert!(matches!(
             settle(&mut g),
-            Request::ResolveDiscard {
+            Decision {
                 player: PlayerId(0),
+                reason: Reason::ResolveDiscard,
                 ..
             }
         ));
@@ -325,12 +380,10 @@ fn damage_controller_discard_hidden_commander_draw_replacement_resumes_at_discar
         assert_eq!(hand(&g, 0), if to_command { 1 } else { 2 });
 
         let object = g.object_id(CardId(1)).unwrap();
-        answer(
-            &mut g,
-            Response::ResolveDiscard {
-                objects: vec![object],
-            },
-        );
+        {
+            let selected_answer = g.next_test_decision().pick_objects(vec![object]);
+            answer(&mut g, selected_answer)
+        };
         finish(&mut g);
         assert_eq!(
             g.state.rules.objects[&CardId(3)].zone,
@@ -346,7 +399,7 @@ fn damage_controller_discard_hidden_commander_draw_replacement_resumes_at_discar
             g.replay_journal()
                 .decisions
                 .iter()
-                .filter(|i| matches!(i.response, Response::CommanderReturn { .. }))
+                .filter(|i| i.decision_id == return_revision)
                 .count(),
             1
         );
@@ -366,19 +419,18 @@ fn damage_controller_discard_departures_keep_frozen_controller_and_never_redirec
         } else {
             assert!(matches!(
                 settle(&mut g),
-                Request::ResolveDiscard {
+                Decision {
                     player: PlayerId(0),
+                    reason: Reason::ResolveDiscard,
                     ..
                 }
             ));
 
             let object = g.object_id(CardId(1)).unwrap();
-            answer(
-                &mut g,
-                Response::ResolveDiscard {
-                    objects: vec![object],
-                },
-            );
+            {
+                let selected_answer = g.next_test_decision().pick_objects(vec![object]);
+                answer(&mut g, selected_answer)
+            };
             finish(&mut g);
             assert_eq!(hand(&g, 0), 1);
             if departing == 2 {
