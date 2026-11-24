@@ -56,7 +56,7 @@ fn passive(g: &mut Game, r: Decision<Rules>) {
                 .iter()
                 .filter_map(|c| {
                     if let Candidate::Trigger { trigger } = c {
-                        Some(trigger.clone())
+                        Some(*trigger)
                     } else {
                         None
                     }

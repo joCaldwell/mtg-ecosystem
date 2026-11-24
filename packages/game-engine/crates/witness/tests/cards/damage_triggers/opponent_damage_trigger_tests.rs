@@ -70,7 +70,7 @@ fn passive(g: &mut Game) {
                 .iter()
                 .filter_map(|c| {
                     if let Candidate::Trigger { trigger } = c {
-                        Some(trigger.clone())
+                        Some(*trigger)
                     } else {
                         None
                     }
@@ -121,7 +121,7 @@ fn placed(g: &mut Game) {
                     .iter()
                     .filter_map(|c| {
                         if let Candidate::Trigger { trigger } = c {
-                            Some(trigger.clone())
+                            Some(*trigger)
                         } else {
                             None
                         }

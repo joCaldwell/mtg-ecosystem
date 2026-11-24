@@ -103,7 +103,7 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId) {
                 }
             }
             Decision {
-                shape: Shape::Pay { cost: cost, .. },
+                shape: Shape::Pay { cost, .. },
                 reason: Reason::Mana { .. },
                 ..
             } if g.payment_pool(r.player, cost).is_ok() => Answer::Pay {
@@ -112,7 +112,7 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId) {
                 },
             },
             Decision {
-                shape: Shape::Pay { cost: cost, .. },
+                shape: Shape::Pay { cost, .. },
                 reason: Reason::Mana { .. },
                 ..
             } => {
@@ -141,7 +141,7 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId) {
             Decision {
                 shape:
                     Shape::Pay {
-                        cost: cost,
+                        cost,
                         pool:
                             ManaPool {
                                 unrestricted: available,

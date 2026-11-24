@@ -246,7 +246,7 @@ impl RulesTxn {
         player: PlayerId,
         attacks: &[(ObjectId, PlayerId)],
     ) -> Result<(), String> {
-        if !matches!(self.state.rules.frame, Frame::Attackers { .. })
+        if !matches!(self.state.rules.frame, Frame::Attackers)
             || self.combat_decision_player() != Some(player)
             || !self.is_live(player)
         {

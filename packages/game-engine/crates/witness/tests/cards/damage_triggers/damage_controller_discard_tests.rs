@@ -98,7 +98,7 @@ pub(super) fn passive(g: &mut Game) {
                 .iter()
                 .filter_map(|c| {
                     if let Candidate::Trigger { trigger } = c {
-                        Some(trigger.clone())
+                        Some(*trigger)
                     } else {
                         None
                     }
@@ -227,7 +227,7 @@ fn damage_controller_discard_draws_before_private_controller_choice() {
     assert!(view(&g, 1).decision.is_none());
     let chosen = candidates
         .iter()
-        .find(|h| g.resolve_handle(PlayerId(0), &h).unwrap().card == CardId(1))
+        .find(|h| g.resolve_handle(PlayerId(0), h).unwrap().card == CardId(1))
         .unwrap()
         .clone();
     for h in candidates {

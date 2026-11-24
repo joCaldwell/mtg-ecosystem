@@ -111,7 +111,7 @@ fn command_casts_charge_exact_tax_and_failed_cast_reverses_original_zone() {
         answer(&mut g, selected_answer)
     };
     assert!(
-        matches!(Driver::request(&mut g, u64::MAX), Decision{shape:Shape::Pay{cost:cost,..},reason:Reason::Mana{..},..} if cost.generic == Quantity::zero() && cost.colored == vec![Color::W])
+        matches!(Driver::request(&mut g, u64::MAX), Decision{shape:Shape::Pay{cost,..},reason:Reason::Mana{..},..} if cost.generic == Quantity::zero() && cost.colored == vec![Color::W])
     );
     {
         let selected_answer = Answer::Pay {
@@ -151,7 +151,7 @@ fn command_casts_charge_exact_tax_and_failed_cast_reverses_original_zone() {
         answer(&mut g, selected_answer)
     };
     assert!(
-        matches!(Driver::request(&mut g, u64::MAX), Decision{shape:Shape::Pay{cost:cost,..},reason:Reason::Mana{..},..} if cost.generic == Quantity::from(2) && cost.colored == vec![Color::W])
+        matches!(Driver::request(&mut g, u64::MAX), Decision{shape:Shape::Pay{cost,..},reason:Reason::Mana{..},..} if cost.generic == Quantity::from(2) && cost.colored == vec![Color::W])
     );
     mana(&mut g, 2);
     {

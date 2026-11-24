@@ -283,12 +283,12 @@ impl RulesTxn {
             ) => self.entry(frame.stack_id).ok()?,
             (
                 _,
-                Reason::HybridCost { .. }
-                | Reason::AnnounceX { .. }
+                Reason::HybridCost
+                | Reason::AnnounceX
                 | Reason::Targets { .. }
                 | Reason::Mana { .. }
                 | Reason::SpendMana { .. }
-                | Reason::SacrificeCost { .. },
+                | Reason::SacrificeCost,
             ) => self.top().ok()?,
             _ => return None,
         };

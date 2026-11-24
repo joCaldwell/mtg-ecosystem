@@ -45,7 +45,7 @@ function executableIdentity(command: string, options: { cwd: string; env?: NodeJ
 }
 
 const ordinaryHarnesses = ["cards", "host", "mtg_compiler", "mtg_contracts", "mtg_core", "mtg_server", "mtg_sim", "recovery", "rules"];
-const authorityExamples = ["engine::action_query::ActionContinuation", "engine::player_session::PlayerSession"];
+const authorityExamples = ["engine::api::decision::model::Decision", "engine::player_session::PlayerSession"];
 
 class CargoTestSelection {
   readonly passed = new Map<string, number>();

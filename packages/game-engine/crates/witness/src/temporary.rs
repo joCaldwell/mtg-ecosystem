@@ -38,20 +38,9 @@ pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
             Decision {
                 reason: Reason::Targets { .. },
                 ..
-            } => r.targets(
-                t.iter()
-                    .map(|t| match t {
-                        TargetEntity::Object { object } => *object,
-                        _ => panic!("object"),
-                    })
-                    .collect(),
-            ),
-            Decision {
-                reason: Reason::Targets { .. },
-                ..
             } => r.entity_targets(t.clone()),
             Decision {
-                shape: Shape::Pay { cost: cost, .. },
+                shape: Shape::Pay { cost, .. },
                 reason: Reason::Mana { .. },
                 ..
             } => {
@@ -81,7 +70,7 @@ pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
             Decision {
                 shape:
                     Shape::Pay {
-                        cost: cost,
+                        cost,
                         pool:
                             ManaPool {
                                 unrestricted: available,
@@ -121,7 +110,7 @@ pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
                     .iter()
                     .filter_map(|c| {
                         if let Candidate::Trigger { trigger } = c {
-                            Some(trigger.clone())
+                            Some(*trigger)
                         } else {
                             None
                         }

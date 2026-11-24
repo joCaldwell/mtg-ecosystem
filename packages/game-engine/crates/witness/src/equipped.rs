@@ -21,19 +21,7 @@ pub fn pay_to_priority(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
                 ..
             } => r.entity_targets(targets.clone()),
             Decision {
-                reason: Reason::Targets { .. },
-                ..
-            } => r.targets(
-                targets
-                    .iter()
-                    .map(|t| match t {
-                        TargetEntity::Object { object } => *object,
-                        _ => panic!("object target"),
-                    })
-                    .collect(),
-            ),
-            Decision {
-                shape: Shape::Pay { cost: cost, .. },
+                shape: Shape::Pay { cost, .. },
                 reason: Reason::Mana { .. },
                 ..
             } => {
@@ -64,7 +52,7 @@ pub fn pay_to_priority(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
             Decision {
                 shape:
                     Shape::Pay {
-                        cost: cost,
+                        cost,
                         pool:
                             ManaPool {
                                 unrestricted: available,

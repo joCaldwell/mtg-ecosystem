@@ -75,7 +75,7 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId, lands: &[u32]) -> StackId {
     );
     let r = Driver::request(g, quantum);
     let Decision {
-        shape: Shape::Pay { cost: cost, .. },
+        shape: Shape::Pay { cost, .. },
         reason: Reason::SpendMana { .. },
         ..
     } = r

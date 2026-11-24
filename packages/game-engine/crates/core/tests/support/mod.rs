@@ -2,8 +2,8 @@
 use mtg_contracts::{Catalog, Quantity};
 use mtg_core::{
     Advance, Answer, Budget, Decision, DecisionToken, Game, ManaPool, Observation, PayAnswer,
-    PlayerId, Prepared, QueryResult, QueryValue, Reason, ScenarioConfig, Shape,
-    ValidatedResponse, Viewer,
+    PlayerId, Prepared, QueryResult, QueryValue, Reason, ScenarioConfig, Shape, ValidatedResponse,
+    Viewer,
 };
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
