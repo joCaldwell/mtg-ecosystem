@@ -140,7 +140,8 @@ pub enum Action<S: Space> {
     ActivateAbility { object: S::Object, ability: u32 },
 }
 
-/// Display facts. Bounds and joint constraints are carried by the shape.
+/// Describes why a decision was issued. During execution a rule may inspect a
+/// recomputed reason. Only the shape determines whether an answer is legal.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "reason",
@@ -149,6 +150,7 @@ pub enum Action<S: Space> {
     bound = ""
 )]
 #[schemars(
+    description = "Display facts. Bounds and joint constraints are carried by the shape.",
     bound = "S: JsonSchema, S::Object: JsonSchema, S::Entity: JsonSchema, S::Commander: JsonSchema, S::PreviousCommanderChoice: JsonSchema"
 )]
 pub enum Reason<S: Space> {

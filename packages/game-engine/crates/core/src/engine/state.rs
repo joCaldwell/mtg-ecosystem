@@ -85,6 +85,7 @@ impl std::ops::DerefMut for RulesState {
 impl RulesTxn {
     /// Exclusive access to the rules tables: the single write path.
     pub(in crate::engine) fn rules_mut(&mut self) -> &mut RulesTables {
+        self.priority_cache.take();
         &mut self.state.rules.tables
     }
 }

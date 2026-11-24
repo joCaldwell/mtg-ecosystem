@@ -26,6 +26,11 @@ class StructureTests(unittest.TestCase):
             source.write_text('// Reason::Discard\nmatch shape { _ => "decision.reason" }')
             (directory / 'project.rs').write_text('match decision.reason { _ => true }')
             self.assertEqual(structure.decision_validator_errors(root), [])
+            selected = directory / 'selected.rs'
+            selected.write_text('fn validate_pending() { match decision.reason { _ => () } }')
+            self.assertEqual(structure.decision_validator_errors(root), [
+                f'{selected.relative_to(root)}: decision validation may only depend on Shape'
+            ])
 
     def test_generated_and_binary_outputs_but_not_large_source_fixtures(self):
         self.assertIsNotNone(structure.artifact_reason('generated/run.json', 4, b'{}'))

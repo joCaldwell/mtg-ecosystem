@@ -96,6 +96,14 @@ fn snapshot_fork_and_replay_agree_and_receipts_do_not_cross_executors() {
     assert_eq!(game.state, replay.state);
 }
 #[test]
+fn staged_priority_decision_follows_rules_mutation() {
+    let mut stage = RulesTxn::new(prepared()).fork();
+    assert!(stage.decision_for(PlayerId(0)).unwrap().is_some());
+    stage.rules_mut().priority = PlayerId(1);
+    assert!(stage.decision_for(PlayerId(0)).unwrap().is_none());
+    assert!(stage.decision_for(PlayerId(1)).unwrap().is_some());
+}
+#[test]
 fn queries_and_invalid_responses_leave_state_unchanged() {
     let mut game = Game::new(prepared());
     let before = game.state_digest().unwrap();

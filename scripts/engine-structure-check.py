@@ -137,9 +137,11 @@ def decision_validator_errors(root):
     errors = []
     for source in sorted(engine.rglob('*.rs')):
         parts = source.relative_to(engine).with_suffix('').parts
-        if not any(p in {'check', 'validate', 'validation', 'validator', 'validators'}
-                   or p.startswith('validate_') or p.endswith(('_validator', '_validation'))
-                   for p in parts):
+        validates = parts == ('api', 'decision', 'selected') or any(
+            p in {'check', 'validate', 'validation', 'validator', 'validators'}
+            or p.startswith('validate_') or p.endswith(('_validator', '_validation')) for p in parts
+        )
+        if not validates:
             continue
         code = rust_code(source.read_text())
         if re.search(r'\bReason\b|\.\s*reason\b|\b(?:match|matches!\s*\()\s*&?\s*reason\b', code):
