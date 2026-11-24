@@ -32,15 +32,24 @@ fn mana_payment_and_priority_over_stack() {
     for input in inputs.into_iter().take(5) {
         let request = Driver::request(&mut game, u64::MAX);
         if input.decision_id == 4 {
-            assert!(matches!(request, Request::SpendMana { .. }));
+            assert!(matches!(
+                request,
+                Decision {
+                    reason: Reason::SpendMana { .. },
+                    ..
+                }
+            ));
             assert_recoverable((&game).into());
         }
-        game.respond(input.player, input.decision_id, input.response)
+        game.respond(input.player, input.decision_id, input.answer)
             .unwrap();
     }
     assert!(matches!(
         Driver::request(&mut game, u64::MAX),
-        Request::Priority { .. }
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
     ));
     assert_eq!(game.state.rules.stack.len(), 1);
     assert_recoverable((&game).into());
@@ -64,11 +73,17 @@ fn combat_declaration() {
     let mut game = game(FixtureCatalog::Base, ScenarioConfig::combat_interactions());
     for _ in 0..32 {
         match Driver::request(&mut game, u64::MAX) {
-            Request::Attackers { .. } => {
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            } => {
                 assert_recoverable((&game).into());
                 return;
             }
-            Request::Priority { .. } => Driver::pass(&mut game),
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Driver::pass(&mut game),
             other => panic!("unexpected {other:?}"),
         }
     }
@@ -88,7 +103,10 @@ fn simultaneous_trigger_ordering() {
     }
     assert!(matches!(
         Driver::request(&mut game, u64::MAX),
-        Request::OrderTriggers { .. }
+        Decision {
+            reason: Reason::OrderTriggers,
+            ..
+        }
     ));
     assert_recoverable((&game).into());
 }
@@ -103,20 +121,20 @@ fn commander_replacement() {
     }
     Driver::cast(&mut game, CardId(7));
     let commander = Driver::object(&game, 0);
-    Driver::answer(
-        &mut game,
-        u64::MAX,
-        Response::Targets {
-            objects: vec![commander],
-        },
-    );
+    {
+        let selected_answer = game.next_test_decision().targets(vec![commander]);
+        Driver::answer(&mut game, u64::MAX, selected_answer)
+    };
     Driver::pay(&mut game, &[6]);
     for _ in 0..4 {
         Driver::pass(&mut game);
     }
     assert!(matches!(
         Driver::request(&mut game, u64::MAX),
-        Request::CommanderReturn { .. }
+        Decision {
+            reason: Reason::CommanderReturn { .. },
+            ..
+        }
     ));
     assert_recoverable((&game).into());
 }
@@ -125,12 +143,18 @@ fn commander_replacement() {
 fn concession_advances_to_surviving_priority() {
     let mut game = game(FixtureCatalog::Base, ScenarioConfig::commander_foundation());
     Driver::pass(&mut game);
-    let departing = Driver::request(&mut game, u64::MAX).player();
+    let departing = Driver::request(&mut game, u64::MAX).player;
     let before = game.rule_boundary();
     game.concede(departing).unwrap();
     let next = Driver::request(&mut game, u64::MAX);
-    assert!(matches!(next, Request::Priority { .. }));
-    assert_ne!(next.player(), departing);
+    assert!(matches!(
+        next,
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
+    ));
+    assert_ne!(next.player, departing);
     assert_eq!(game.live_players().len(), 3);
     assert!(!game.live_players().contains(&departing));
     assert!(game.rule_boundary() > before);

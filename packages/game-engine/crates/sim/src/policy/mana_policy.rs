@@ -157,49 +157,9 @@ fn production_colors(catalog: &Catalog, view: &PermittedView, mana: &ManaProduct
     }
 }
 
-#[derive(Clone, Copy)]
-pub(super) enum ManaPurpose {
-    Activate { battlefield_creature: bool },
-    Cast(mtg_contracts::ManaSpellTraits),
-}
-
-impl ManaPurpose {
-    pub(super) fn activation(view: &PermittedView, source: &ObjectHandle) -> Self {
-        Self::Activate {
-            battlefield_creature: view.objects.iter().any(|o| {
-                &o.handle == source
-                    && controlled_permanent(view, o)
-                    && o.characteristics
-                        .as_ref()
-                        .is_some_and(|c| c.has_type(CardKind::Creature))
-            }),
-        }
-    }
-
-    fn permits(self, spend: mtg_contracts::ManaSpendRestriction) -> bool {
-        match self {
-            Self::Activate {
-                battlefield_creature,
-            } => spend.permits_activation(battlefield_creature),
-            Self::Cast(spell) => spend.permits_spell(spell),
-        }
-    }
-}
-
-pub(super) fn spendable_pool(
-    view: &PermittedView,
-    purpose: Option<ManaPurpose>,
-) -> Option<BTreeMap<Color, Quantity>> {
+pub(super) fn spendable_pool(view: &PermittedView) -> Option<BTreeMap<Color, Quantity>> {
     let player = view.players.iter().find(|p| p.player == view.viewer)?;
-    let mut pool = player.mana.clone();
-    if let Some(purpose) = purpose {
-        for unit in &player.restricted_mana {
-            if purpose.permits(unit.restriction) {
-                pool.entry(unit.color).or_default().add(&unit.amount);
-            }
-        }
-    }
-    Some(pool)
+    Some(player.mana.clone())
 }
 
 pub(super) fn plan_for(
@@ -207,9 +167,8 @@ pub(super) fn plan_for(
     view: &PermittedView,
     cost: &ManaCost,
     exclude: Option<&ObjectHandle>,
-    purpose: Option<ManaPurpose>,
 ) -> Option<std::collections::VecDeque<PlannedMana>> {
-    let pool = spendable_pool(view, purpose)?;
+    let pool = spendable_pool(view)?;
     if spend(cost, &pool).is_some() {
         return Some(Default::default());
     }
@@ -265,22 +224,11 @@ pub(super) fn plan_for(
             }
         }
     }
-    let player = view.players.iter().find(|p| p.player == view.viewer)?;
-    let mut nested_pool = pool;
-    let mut spell_only = BTreeMap::<Color, Quantity>::new();
-    for unit in &player.restricted_mana {
-        if !unit.restriction.permits_activation(false)
-            && purpose.is_some_and(|purpose| purpose.permits(unit.restriction))
-        {
-            nested_pool.get_mut(&unit.color)?.subtract(&unit.amount);
-            spell_only.entry(unit.color).or_default().add(&unit.amount);
-        }
-    }
     let mut planner = Planner {
         sources,
         used: vec![false; view.objects.len()],
-        pool: nested_pool,
-        spell_only,
+        pool,
+        spell_only: BTreeMap::new(),
         plan: vec![],
     };
     planner.fund(cost, false).then(|| planner.plan.into())
@@ -289,21 +237,8 @@ pub(super) fn plan_for(
 pub(super) fn hybrid_plan(
     catalog: &Catalog,
     view: &mtg_core::PermittedView,
-    cost: ManaCost,
-    symbols: &[mtg_contracts::ColorHybridSymbol],
-) -> Option<(
-    Vec<mtg_contracts::HybridPayment>,
-    std::collections::VecDeque<PlannedMana>,
-)> {
-    hybrid_plan_for(catalog, view, cost, symbols, None)
-}
-
-pub(super) fn hybrid_plan_for(
-    catalog: &Catalog,
-    view: &mtg_core::PermittedView,
     mut cost: ManaCost,
     symbols: &[mtg_contracts::ColorHybridSymbol],
-    purpose: Option<ManaPurpose>,
 ) -> Option<(
     Vec<mtg_contracts::HybridPayment>,
     std::collections::VecDeque<PlannedMana>,
@@ -319,7 +254,7 @@ pub(super) fn hybrid_plan_for(
             .filter_map(|choice| choice.color())
             .find(|color| {
                 cost.colored.push(*color);
-                let payable = plan_for(catalog, view, &cost, None, purpose).is_some();
+                let payable = plan_for(catalog, view, &cost, None).is_some();
                 cost.colored.pop();
                 payable
             })
@@ -336,7 +271,7 @@ pub(super) fn hybrid_plan_for(
             return None;
         }
     }
-    Some((choices, plan_for(catalog, view, &cost, None, purpose)?))
+    Some((choices, plan_for(catalog, view, &cost, None)?))
 }
 #[cfg(test)]
 mod tests {

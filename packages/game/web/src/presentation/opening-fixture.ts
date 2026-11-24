@@ -1,39 +1,18 @@
-import type { Observation, PlayerRequest, SeatResume } from '@multiverse/game-server-sdk';
+import type { Observation, Decision, SeatResume } from '@multiverse/game-server-sdk';
 import type { PresentationArtifact } from '../../../generated/presentation.d.ts';
 import type { CardView, TableView } from '@multiverse/game-ui';
 
 type VisibleObject = Observation['view']['objects'][number];
 
-export function inspectDecision(request: PlayerRequest | null): TableView['decision'] {
+export function inspectDecision(request: Decision | null): TableView['decision'] {
   if (!request) return null;
-  switch (request.request) {
-    case 'mulligan': return {
-      title: 'Opening hand',
-      description: '',
-      details: [`Mulligans taken: ${request.mulligans_taken}`, `Mulligan available: ${request.can_mulligan ? 'yes' : 'no'}`, `Cards to bottom if taking this mulligan: ${request.bottom_if_mulligan}`],
-    };
-    case 'priority': return { title: 'Priority', description: '', details: [] };
-    case 'mana': return { title: 'Mana', description: '', details: [] };
-    case 'opening_placement': case 'graveyard_replacement_order': case 'additional_costs':
-    case 'entry_copy': case 'entry_attachment': case 'hybrid_cost':
-    case 'choose_mana_ability': case 'mana_combination': case 'entry_reveal':
-    case 'counter_placement_effect':
-    case 'legend_rule': case 'announce_x': case 'sacrifice_cost': case 'forced_sacrifice':
-    case 'mana_color': case 'optional_effect':
-    case 'bottom_opening': case 'modes': case 'damage_effect':
-    case 'order_triggers': case 'entity_targets': case 'stack_targets': case 'player_targets':
-    case 'sacrifice': case 'resolve_discard': case 'spend_mana': case 'commander_return':
-    case 'attackers': case 'blockers': case 'damage': case 'discard':
-    case 'targets': return {
-      title: 'Game decision',
-      description: '',
-      details: [`Request: ${request.request}`],
-    };
-    default: {
-      const exhaustive: never = request;
-      return exhaustive;
-    }
-  }
+  const reason = request.reason;
+  if(reason.reason === 'mulligan') return {title:'Opening hand',description:'',details:[
+    `Mulligans taken: ${reason.mulligans_taken}`,
+    `Cards to bottom after a mulligan: ${reason.bottom_if_mulligan}`,
+  ]};
+  const title=reason.reason.replaceAll('_',' ');
+  return {title:title[0]!.toUpperCase()+title.slice(1),description:'',details:[]};
 }
 
 export function cardView(object: VisibleObject, metadata: PresentationArtifact | null, showPrint = false): CardView {

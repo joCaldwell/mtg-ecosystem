@@ -37,7 +37,7 @@ fn observe(game: &Game, viewer: PlayerId, quantum: u64) -> Observation {
 fn settle(game: &mut Game, quantum: u64) -> PlayerId {
     for _ in 0..MAX_RESUMES {
         match game.advance(Budget::new(quantum)) {
-            Advance::AwaitingDecision(request) => return request.player(),
+            Advance::AwaitingDecision(request) => return request.player,
             Advance::Suspended { .. } => (),
             other => panic!("one-cast laboratory reached an unexpected boundary: {other:?}"),
         }
@@ -123,21 +123,39 @@ impl Laboratory {
             .collect()
     }
 
-    fn choices(&self, observation: &Observation) -> Vec<PlayerResponse> {
+    fn choices(&self, observation: &Observation) -> Vec<Answer> {
         let mut choices = vec![];
         match observation.decision.as_ref().unwrap() {
-            PlayerRequest::Priority { .. } | PlayerRequest::Mana { .. } => {
+            Decision {
+                reason: Reason::Priority,
+                ..
+            }
+            | Decision {
+                reason: Reason::Mana { .. },
+                ..
+            } => {
                 choices.extend(self.lands(observation).into_iter().filter_map(
                     |(object, tapped, _)| {
-                        (!tapped).then_some(PlayerResponse::ActivateMana { object })
+                        (!tapped)
+                            .then_some(observation.decision.as_ref().unwrap().activate_mana(object))
                     },
                 ));
-                if matches!(observation.decision, Some(PlayerRequest::Mana { .. })) {
-                    choices.extend(
-                        [false, true].map(|undo_mana| PlayerResponse::FinishMana { undo_mana }),
-                    );
+                if matches!(
+                    observation.decision,
+                    Some(Decision {
+                        reason: Reason::Mana { .. },
+                        ..
+                    })
+                ) {
+                    choices.extend([false, true].map(|undo_mana| Answer::Pay {
+                        pay: PayAnswer::Finish {
+                            undo_on_failure: undo_mana,
+                        },
+                    }));
                 } else if !observation.view.stack.is_empty() {
-                    choices.push(PlayerResponse::Pass);
+                    choices.push(Answer::Pick {
+                        picks: vec![vec![0]],
+                    });
                 } else {
                     choices.extend(
                         observation
@@ -151,24 +169,52 @@ impl Laboratory {
                                             owner: observation.view.viewer,
                                         })
                             })
-                            .map(|object| PlayerResponse::Cast {
-                                card: object.handle.clone(),
+                            .map(|object| {
+                                observation
+                                    .decision
+                                    .as_ref()
+                                    .unwrap()
+                                    .select(Candidate::Action {
+                                        action: Action::Cast {
+                                            card: object.handle.clone(),
+                                        },
+                                    })
                             }),
                     );
                 }
             }
-            PlayerRequest::Targets {
-                occurrences,
-                candidates,
+            found @ Decision {
+                reason: Reason::Targets { .. },
                 ..
             } => {
-                assert_eq!(occurrences.len(), 1, "this laboratory has one target slot");
-                choices.extend(candidates.iter().map(|object| PlayerResponse::Targets {
-                    objects: vec![object.clone()],
-                }));
+                let occurrences = match &found.reason {
+                    Reason::Targets { specs, .. } => specs.clone(),
+                    _ => unreachable!(),
+                };
+                let candidates = found.objects_offered();
+                {
+                    assert_eq!(occurrences.len(), 1, "this laboratory has one target slot");
+                    choices.extend(candidates.iter().map(|object| {
+                        observation
+                            .decision
+                            .as_ref()
+                            .unwrap()
+                            .targets(vec![object.clone()])
+                    }));
+                }
             }
-            PlayerRequest::SpendMana {
-                cost, available, ..
+            Decision {
+                shape:
+                    Shape::Pay {
+                        cost,
+                        pool:
+                            ManaPool {
+                                unrestricted: available,
+                            },
+                        ..
+                    },
+                reason: Reason::SpendMana { .. },
+                ..
             } => {
                 assert_eq!(cost.generic, Quantity::zero());
                 let mut spending = BTreeMap::<Color, Quantity>::new();
@@ -178,7 +224,11 @@ impl Laboratory {
                 for (color, amount) in &spending {
                     assert!(available.get(color).is_some_and(|pool| pool >= amount));
                 }
-                choices.push(PlayerResponse::SpendMana { spending });
+                choices.push(Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: spending,
+                    },
+                });
             }
             other => panic!("request outside the declared laboratory grammar: {other:?}"),
         }
@@ -207,7 +257,7 @@ impl Laboratory {
         viewer: PlayerId,
         depth: usize,
         cast: Option<CastStart>,
-        last: Option<PlayerResponse>,
+        last: Option<Answer>,
     ) {
         self.nodes += 1;
         assert!(self.nodes <= MAX_NODES && depth <= MAX_DEPTH);
@@ -259,7 +309,13 @@ impl Laboratory {
                 assert_eq!(spell.zone, Zone::Hand { owner: PlayerId(0) });
                 assert_eq!(target.zone, Zone::Battlefield);
                 assert_eq!(visible_controller(target), PlayerId(2));
-                let Some(PlayerResponse::FinishMana { undo_mana }) = last else {
+                let Some(Answer::Pay {
+                    pay:
+                        PayAnswer::Finish {
+                            undo_on_failure: undo_mana,
+                        },
+                }) = last
+                else {
                     panic!("failed cast must finish through the explicit payment response");
                 };
                 let mut expected_mana = start.mana.clone();
@@ -296,21 +352,46 @@ impl Laboratory {
         }
 
         match observation.decision.as_ref().unwrap() {
-            PlayerRequest::Targets { .. } => self.checkpoint(&game, "targets"),
-            PlayerRequest::Mana { .. } => self.checkpoint(&game, "mana"),
-            PlayerRequest::SpendMana { .. } => self.checkpoint(&game, "spending"),
+            Decision {
+                reason: Reason::Targets { .. },
+                ..
+            } => self.checkpoint(&game, "targets"),
+            Decision {
+                reason: Reason::Mana { .. },
+                ..
+            } => self.checkpoint(&game, "mana"),
+            Decision {
+                reason: Reason::SpendMana { .. },
+                ..
+            } => self.checkpoint(&game, "spending"),
             _ => (),
         }
         for response in self.choices(&observation) {
             let mut next_cast = cast.clone();
-            if matches!(response, PlayerResponse::Cast { .. }) {
+            let decision = observation.decision.as_ref().unwrap();
+            let selected = match &response {
+                Answer::Pick { picks } => picks.first().and_then(|s| s.first()),
+                Answer::Pay {
+                    pay: PayAnswer::Activate { source },
+                } => Some(source),
+                _ => None,
+            }
+            .and_then(|i| decision.candidates.get(*i as usize));
+            if matches!(
+                selected,
+                Some(Candidate::Action {
+                    action: Action::Cast { .. }
+                })
+            ) {
                 assert!(next_cast.is_none());
                 next_cast = Some(CastStart {
                     mana: observation.view.players[0].mana.clone(),
                     lands: self.lands(&observation),
                     activations: vec![],
                 });
-            } else if let PlayerResponse::ActivateMana { object } = &response
+            } else if let Some(Candidate::Action {
+                action: Action::ActivateMana { object },
+            }) = selected
                 && let Some(start) = &mut next_cast
             {
                 start.activations.push(object.clone());
@@ -321,7 +402,7 @@ impl Laboratory {
                 let branch_observation = observe(&branch, viewer, quantum);
                 let checked = branch.check_player_response(
                     viewer,
-                    branch_observation.decision.unwrap().token().clone(),
+                    branch_observation.decision.unwrap().id.clone(),
                     response.clone(),
                     Budget::new(quantum),
                 );

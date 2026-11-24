@@ -330,14 +330,14 @@ impl RulesTxn {
         self.return_kernel(parent)
     }
 
-    pub(in crate::engine) fn kernel_request(&self, task: &Task) -> Result<Option<Request>, String> {
+    pub(in crate::engine) fn kernel_request(
+        &self,
+        task: &Task,
+    ) -> Result<Option<Decision<Rules>>, String> {
         Ok(task
             .chooser()
             .filter(|p| self.is_live(*p))
-            .map(|player| Request::OptionalEffect {
-                player,
-                decision_id: self.state.rules.revision,
-            }))
+            .map(|p| self.pick_flags(p, Reason::OptionalEffect, &[Flag::Accept, Flag::Decline])))
     }
 
     pub(in crate::engine) fn kernel_choice_context(
@@ -345,22 +345,6 @@ impl RulesTxn {
         task: &Task,
     ) -> Result<(u32, Option<ObjectId>), String> {
         Ok((self.node_at(task)?.1, task.candidate()))
-    }
-
-    pub(in crate::engine) fn validate_kernel_response(
-        &self,
-        task: &Task,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        if task.chooser() == Some(player)
-            && self.is_live(player)
-            && matches!(response, Response::OptionalEffect { .. })
-        {
-            Ok(())
-        } else {
-            Err("invalid kernel choice".into())
-        }
     }
 
     pub(in crate::engine) fn kernel_charge(&self) -> usize {
@@ -442,8 +426,7 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing kernel decision")?;
-                self.validate_kernel_response(&task, input.player, &input.response)?;
-                matches!(input.response, Response::OptionalEffect { perform: true })
+                input.flag(Flag::Accept)?
             } else {
                 self.rules_mut().pending = None;
                 false

@@ -352,7 +352,7 @@ fn play(
                 Outcome::TurnLimit
             };
         }
-        let player = request.player();
+        let player = request.player;
         let observed = timed(&mut clocks.observation, || {
             observe(&game, player, QUANTUM, &mut work, &mut query_calls)
         });
@@ -376,7 +376,7 @@ fn play(
             .decision
             .as_ref()
             .ok_or("missing decision token")?
-            .token()
+            .id
             .clone();
         let checked = timed(&mut clocks.validation, || {
             complete(

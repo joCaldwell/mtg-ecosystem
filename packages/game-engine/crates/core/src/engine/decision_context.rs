@@ -30,9 +30,10 @@ pub struct DecisionInstruction {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct DecisionMode {
-    pub mode: u32,
+pub struct CandidateLabel {
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<DecisionSource>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -42,7 +43,7 @@ pub struct DecisionContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instruction: Option<DecisionInstruction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub modes: Vec<DecisionMode>,
+    pub candidates: Vec<CandidateLabel>,
 }
 impl RulesTxn {
     pub(crate) fn trigger_source_label(
@@ -139,9 +140,88 @@ impl RulesTxn {
     pub(crate) fn permitted_decision_context(
         &self,
         viewer: PlayerId,
-        request: Option<&PlayerRequest>,
+        request: Option<&Decision<Viewer>>,
     ) -> Option<DecisionContext> {
-        let request = request?;
+        let decision = request?;
+        let mut context = self
+            .frame_context(viewer, &decision.reason)
+            .unwrap_or_default();
+        context.candidates = decision
+            .candidates
+            .iter()
+            .map(|c| self.candidate_label(viewer, c))
+            .collect();
+        Some(context)
+    }
+
+    fn candidate_label(&self, viewer: PlayerId, candidate: &Candidate<Viewer>) -> CandidateLabel {
+        let describe = |handle, kind, ability| {
+            self.resolve_handle(viewer, handle)
+                .ok()
+                .and_then(|id| self.described_source(viewer, id, kind, ability))
+        };
+        let mut source = None;
+        let text = match candidate {
+            Candidate::Action { action } => match action {
+                Action::Pass => "Pass priority".into(),
+                Action::PlayLand { .. } => "Play land".into(),
+                Action::Cast { card } => {
+                    source = describe(card, DecisionSourceKind::Spell, None);
+                    "Cast spell".into()
+                }
+                Action::ActivateAbility { object, ability } => {
+                    source = describe(object, DecisionSourceKind::Activated, Some(*ability));
+                    "Activate ability".into()
+                }
+                Action::ActivateMana { object } => {
+                    source = describe(object, DecisionSourceKind::ManaAbility, Some(0));
+                    "Activate mana ability".into()
+                }
+            },
+            Candidate::Object { object } => object.0.clone(),
+            Candidate::Player { player } => format!("Player {}", player.0 + 1),
+            Candidate::Trigger { trigger } => self
+                .resolve_trigger_handle(viewer, trigger)
+                .ok()
+                .and_then(|id| self.visible_pending_trigger(viewer, id).ok())
+                .and_then(|row| row.label)
+                .unwrap_or_else(|| trigger.0.clone()),
+            Candidate::DamageEffect { effect, damage } => self
+                .resolve_damage_effect_pair(viewer, effect, damage)
+                .ok()
+                .and_then(|(effect, damage)| {
+                    self.visible_damage_effect_candidate(
+                        viewer,
+                        &DamageEffectCandidate { effect, damage },
+                    )
+                    .ok()
+                })
+                .and_then(|row| row.label)
+                .unwrap_or_else(|| effect.0.clone()),
+            Candidate::Color { color } => format!("{color:?}"),
+            Candidate::ManaAbility { ability } => match ability {
+                ManaAbilityIdentity::Intrinsic { color } => format!("Add {{{color:?}}}"),
+                ManaAbilityIdentity::Printed { index } => format!("Mana ability {}", index + 1),
+            },
+            Candidate::AdditionalCost { id, .. } => id.clone(),
+            Candidate::HybridPayment { payment } => match payment {
+                HybridPayment::Mana(color) => format!("{{{color:?}}}"),
+                HybridPayment::PayTwoLife => "Pay 2 life".into(),
+            },
+            Candidate::Flag { flag } => match flag {
+                Flag::Accept => "Accept",
+                Flag::Decline => "Decline",
+                Flag::Keep => "Keep",
+                Flag::Mulligan => "Mulligan",
+                Flag::CommandZone => "Command zone",
+                Flag::Destination => "Original destination",
+            }
+            .into(),
+        };
+        CandidateLabel { text, source }
+    }
+
+    fn frame_context(&self, viewer: PlayerId, reason: &Reason<Viewer>) -> Option<DecisionContext> {
         if let Frame::Kernel { task } = &self.state.rules.frame {
             let entry = self.entry(self.kernel_root().ok()?.stack_id).ok()?;
             let (source_block, candidate) = self.kernel_choice_context(task).ok()?;
@@ -167,13 +247,13 @@ impl RulesTxn {
             return Some(DecisionContext {
                 source: self.stack_description(viewer, entry),
                 instruction,
-                modes: vec![],
+                candidates: vec![],
             });
         }
 
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
-        let entry = match (&self.state.rules.frame, request) {
+        let entry = match (&self.state.rules.frame, reason) {
             (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
                     .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)
@@ -203,16 +283,12 @@ impl RulesTxn {
             ) => self.entry(frame.stack_id).ok()?,
             (
                 _,
-                PlayerRequest::HybridCost { .. }
-                | PlayerRequest::AnnounceX { .. }
-                | PlayerRequest::Modes { .. }
-                | PlayerRequest::Targets { .. }
-                | PlayerRequest::EntityTargets { .. }
-                | PlayerRequest::PlayerTargets { .. }
-                | PlayerRequest::StackTargets { .. }
-                | PlayerRequest::Mana { .. }
-                | PlayerRequest::SpendMana { .. }
-                | PlayerRequest::SacrificeCost { .. },
+                Reason::HybridCost
+                | Reason::AnnounceX
+                | Reason::Targets { .. }
+                | Reason::Mana { .. }
+                | Reason::SpendMana { .. }
+                | Reason::SacrificeCost,
             ) => self.top().ok()?,
             _ => return None,
         };
@@ -225,19 +301,6 @@ impl RulesTxn {
             .ok()?
             .source_labels
             .as_ref()?;
-        if entry.kind.is_spell()
-            && let PlayerRequest::Modes { candidates, .. } = request
-        {
-            context.modes = candidates
-                .iter()
-                .filter_map(|&mode| {
-                    Some(DecisionMode {
-                        mode,
-                        text: labels.spell_modes.get(mode as usize)?.clone(),
-                    })
-                })
-                .collect();
-        }
         let block = match &self.state.rules.frame {
             Frame::ResolutionPayment { frame, .. } | Frame::ResolutionChoice { frame, .. } => {
                 // source_block is a typed instruction provenance index, not text parsing.
@@ -291,7 +354,7 @@ impl RulesTxn {
                 text: text.clone(),
             }),
             instruction: Some(DecisionInstruction { source_block, text }),
-            modes: vec![],
+            candidates: vec![],
         })
     }
 }

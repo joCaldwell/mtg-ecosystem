@@ -348,7 +348,7 @@ impl RulesTxn {
                 return Err("snapshot pending-input invariant".into());
             }
             if !matches!(s.rules.frame, Frame::Fault { .. }) {
-                self.validate_response(pending.player, &pending.response)?;
+                self.validate_pending(pending)?;
             }
         }
         self.validate_legend_state()?;

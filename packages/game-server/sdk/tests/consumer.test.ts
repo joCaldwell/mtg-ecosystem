@@ -11,12 +11,15 @@ import { CONSUMER_LIMITS, foundationsPolicy, parseBootstrap, runFoundationsConsu
 const catalog = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/expected-match-ir.json', import.meta.url), 'utf8'));
 const oracle = name => catalog.definitions.find(card => card.name === name).oracle_id;
 const deck = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/profiles/commander-foundations-v1.json', import.meta.url), 'utf8')).decks[0];
-const publicManifest = () => ({ protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64), catalog_sha256: fs.readFileSync(new URL('../../../game-engine/tests/fixtures/catalogs/match.sha256', import.meta.url), 'utf8').trim(), profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => structuredClone(deck)), starting_player: 0, catalog: structuredClone(catalog) });
+const publicManifest = () => ({ protocol_version: 2, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64), catalog_sha256: fs.readFileSync(new URL('../../../game-engine/tests/fixtures/catalogs/match.sha256', import.meta.url), 'utf8').trim(), profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => structuredClone(deck)), starting_player: 0, catalog: structuredClone(catalog) });
 const bootstrap = viewer => ({ baseURL: 'http://127.0.0.1:3000', matchId: 'abc', capability: 'c'.repeat(64), viewer });
-const observation = (viewer, decision) => ({ observation_version: 15, decision, view: { viewer, active: 0, turn_owner: 0, turn: { number: 1, step: 'precombat_main', lands_played: 0 }, live_turn_order: [0, 1, 2, 3], commanders: [], priority: 0, players: [], objects: [], stack: [], combat: [] } });
-const view = (viewer, token, request = 'priority', extra = {}) => ({ kind: 'view_replaced', observation: observation(viewer, { request, player: viewer, token, ...extra }) });
+const observation = (viewer, decision) => ({ observation_version: 57, decision, view: { viewer, active: 0, turn_owner: 0, turn: { number: 1, step: 'precombat_main', lands_played: 0 }, live_turn_order: [0, 1, 2, 3], commanders: [], priority: 0, players: [], objects: [], stack: [], combat: [] } });
+const slot=(allowed,min=1,max=min)=>({role:{role:'choice'},subject:null,allowed,min,max,repeat:false});
+const pick=(player,reason,candidates,slots)=>({token:'test-token',player,reason,candidates,shape:{shape:'pick',slots,rules:[]}});
+const priority=viewer=>pick(viewer,{reason:'priority'},[{candidate:'action',action:{action:'pass'}}],[slot([0])]);
+const view=(viewer,token,decision=priority(viewer))=>({kind:'view_replaced',observation:observation(viewer,{...decision,token})});
 const lifecycle = status => ({ kind: 'lifecycle', status: { status } });
-const page = (cursor, publication, more = false) => ({ protocol_version: 1, entries: [{ cursor: String(cursor), publication }], next: String(cursor), has_more: more });
+const page = (cursor, publication, more = false) => ({ protocol_version: 2, entries: [{ cursor: String(cursor), publication }], next: String(cursor), has_more: more });
 const outcome = () => ({ kind: 'outcome', result: { outcome: 'draw' } });
 const json = value => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
 
@@ -41,18 +44,17 @@ function transport(pages, submit = body => json({ status: 'accepted', command_id
 }
 
 test('finite public policy keeps, passes, declares empty combat and uses only first offered discard handles', () => {
-  const choose = (request, extra = {}) => foundationsPolicy(observation(2, { request, player: 2, token: 'private-token', ...extra }), 2);
-  assert.deepEqual(choose('mulligan', { can_mulligan: true, mulligans_taken: 0, bottom_if_mulligan: 0 }), { response: 'mulligan', take: false });
-  assert.deepEqual(choose('priority'), { response: 'pass' });
-  assert.deepEqual(choose('attackers', { candidates: ['a'], defenders: [0] }), { response: 'attackers', attacks: [] });
-  assert.deepEqual(choose('blockers', { candidates: ['b'], attackers: ['a'] }), { response: 'blockers', blocks: [] });
-  assert.deepEqual(choose('commander_return'), { response: 'commander_return', to_command: true });
-  assert.deepEqual(choose('discard', { candidates: ['private-a', 'private-b', 'private-c'], count: 2 }), { response: 'discard', objects: ['private-a', 'private-b'] });
-  assert.equal(foundationsPolicy(observation(2, null), 2), null);
-  assert.throws(() => choose('discard', { candidates: ['a'], count: 2 }), /invalid_candidates/);
-  assert.throws(() => choose('discard', { candidates: ['a', 'a'], count: 1 }), /invalid_candidates/);
-  assert.throws(() => choose('bottom_opening', { count: 1, candidates: ['a'] }), /unexpected_request/);
-  assert.throws(() => foundationsPolicy(observation(1, null), 2), /foreign_observation/);
+  const choose=d=>foundationsPolicy(observation(2,d),2);
+  assert.deepEqual(choose(priority(2)),{answer:'pick',picks:[[0]]});
+  for(const [reason,flag] of [['mulligan','keep'],['commander_return','command_zone']]){
+    assert.deepEqual(choose(pick(2,{reason},[{candidate:'flag',flag}],[slot([0])])),{answer:'pick',picks:[[0]]});
+  }
+  for(const reason of ['attackers','blockers'])assert.deepEqual(choose(pick(2,{reason},[],[slot([],0)])),{answer:'pick',picks:[[]]});
+  const cards=['a','b','c'].map(object=>({candidate:'object',object}));
+  assert.deepEqual(choose(pick(2,{reason:'discard'},cards,[slot([2,0,1],2)])),{answer:'pick',picks:[[2,0]]});
+  assert.equal(choose(null),null);
+  assert.throws(()=>foundationsPolicy(observation(1,null),2),/foreign_observation/);
+
 });
 
 test('drains pages before answering, preserves own view across lifecycle pages and never gives one token another ID', async () => {
@@ -95,7 +97,7 @@ test('stale or unexpected choices fail explicitly without inventing a new comman
   const a = await runFoundationsConsumer(bootstrap(0), { fetch: stale.fetch });
   assert.equal(a.status, 'stopped'); assert.equal(a.reason, 'stale_revision');
   assert.equal(stale.bodies.length, 1); assert(!('result' in a));
-  const unexpected = transport([page(1, view(0, 'private-token', 'bottom_opening', { count: 1, candidates: ['private-card'] }))]);
+  const unexpected = transport([page(1, view(0,'private-token',{...priority(0),reason:{reason:'bottom_opening'},shape:{shape:'order',items:[0],min:1,max:1}}))]);
   const b = await runFoundationsConsumer(bootstrap(0), { fetch: unexpected.fetch });
   assert.equal(b.reason, 'unexpected_request'); assert.equal(unexpected.bodies.length, 0);
   const foreign = transport([page(1, view(1, 'other-player-token'))]);
@@ -221,7 +223,7 @@ test('four real Node processes receive only stdin capabilities and use the actua
     for (const { seat, input } of bodies) {
       assert.equal(input.command.token, `private-token-seat-${seat}`);
       assert.equal(input.expected_revision, '1');
-      assert.deepEqual(input.command.response, { response: 'pass' });
+      assert.deepEqual(input.command.answer, { answer:'pick',picks:[[0]] });
     }
     for (const secret of secrets) assert(!JSON.stringify(bodies).includes(secret));
     for (let viewer = 0; viewer < 4; viewer++) {

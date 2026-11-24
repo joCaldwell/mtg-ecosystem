@@ -1,7 +1,7 @@
 //! Public Worker recovery must prove every prefix, including unchanged States,
 //! private publications and an accepted input not yet consumed by the rules.
 use mtg_contracts::{Catalog, canonical, digest};
-use mtg_core::{MatchConfig, Observation, PlayerId, PlayerRequest, PlayerResponse};
+use mtg_core::{Answer, Decision, MatchConfig, Observation, PlayerId, Reason};
 use mtg_server::{
     protocol::{
         CommandBody, CommandEnvelope, CommandExecutionStatus, Counter, Publication, StreamEntry,
@@ -88,18 +88,18 @@ fn offered(worker: &Worker) -> Observation {
     }
     panic!("no actual offered decision")
 }
-fn submit(worker: &mut Worker, ordinal: u64, response: PlayerResponse) -> (u8, String) {
+fn submit(worker: &mut Worker, ordinal: u64, answer: Answer) -> (u8, String) {
     let observation = offered(worker);
     let seat = observation.view.viewer.0;
     let request = observation.decision.unwrap();
     let command_id = format!("{ordinal:032x}");
     let envelope = CommandEnvelope {
-        protocol_version: 1,
+        protocol_version: 2,
         command_id: command_id.clone(),
         expected_revision: Counter::new(worker.host_state().viewer_cursors[usize::from(seat)]),
         command: CommandBody::Decision {
-            token: request.token().clone(),
-            response,
+            token: request.id.clone(),
+            answer,
         },
     };
     assert_eq!(
@@ -124,18 +124,26 @@ fn prefix() -> (Directory, Worker, u8, String) {
     for ordinal in 1..=4 {
         assert!(matches!(
             offered(&worker).decision,
-            Some(PlayerRequest::Mulligan { .. })
+            Some(Decision {
+                reason: Reason::Mulligan { .. },
+                ..
+            })
         ));
         submit(
             &mut worker,
             ordinal,
-            PlayerResponse::Mulligan { take: false },
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
         );
         settle(&mut worker);
     }
     assert!(matches!(
         offered(&worker).decision,
-        Some(PlayerRequest::Priority { .. })
+        Some(Decision {
+            reason: Reason::Priority,
+            ..
+        })
     ));
     let state = worker.state_sha256().unwrap();
     for _ in 0..7 {
@@ -146,7 +154,13 @@ fn prefix() -> (Directory, Worker, u8, String) {
     while !worker.head().sequence.is_multiple_of(6) {
         worker.clock(ClockControl::Tick, Instant::now()).unwrap();
     }
-    let (seat, id) = submit(&mut worker, 5, PlayerResponse::Pass);
+    let (seat, id) = submit(
+        &mut worker,
+        5,
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
+    );
     assert!(worker.head().sequence > 12);
     assert_eq!(worker.head().sequence % 6, 1, "partial final proof batch");
     assert_eq!(

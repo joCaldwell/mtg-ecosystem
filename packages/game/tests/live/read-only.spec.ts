@@ -79,7 +79,7 @@ test('four authenticated seats: native identity, permitted hands, CSP, empty com
       await expect(page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button')).toHaveCount(hand.length);
       await expect(page.getByText('Opening choices are ready. Nothing is sent until you confirm.', { exact: true })).toBeVisible();
       const decision = page.getByRole('region', { name: 'Opening hand', exact: true });
-      if (read.state.observation.decision?.request === 'mulligan') {
+      if (read.state.observation.decision?.reason.reason === 'mulligan') {
         const keep = decision.getByRole('radio', { name: 'Keep hand', exact: true });
         await keep.check();
         const card = page.getByRole('region', { name: 'Your hand', exact: true }).getByRole('button').last();

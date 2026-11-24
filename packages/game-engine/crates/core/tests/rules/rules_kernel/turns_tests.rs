@@ -1,28 +1,46 @@
 use super::*;
 
-fn input(game: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn input(game: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let Advance::AwaitingDecision(request) = Driver::settle(game, u64::MAX) else {
         panic!("missing decision at {:?}", game.state.rules.frame)
     };
-    let response = if matches!(response, Response::Pass) {
+    let response = if response
+        == (Answer::Pick {
+            picks: vec![vec![0]],
+        }) {
         match &request {
-            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-            Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            } => request.attack(vec![]),
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            } => request.block(vec![]),
             _ => response,
         }
     } else {
         response
     };
-    game.respond(request.player(), request.decision_id(), response)
-        .unwrap();
+    game.respond(request.player, request.id, response).unwrap();
     if finish {
         game.complete_test_mana();
     }
 }
 
 fn pass(game: &mut Game) {
-    input(game, Response::Pass);
+    input(
+        game,
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
+    );
     let _ = Driver::settle(game, u64::MAX);
 }
 
@@ -33,13 +51,18 @@ fn until(game: &mut Game, number: u64, step: TurnStep) {
         if game.state.rules.turn.number == number && game.state.rules.turn.step == step {
             return;
         }
-        input(game, Response::Pass);
+        input(
+            game,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     panic!("did not reach turn {number}, {step:?}")
 }
 
 fn play(game: &mut Game, card: u32) {
-    input(game, Response::PlayLand { card: CardId(card) });
+    input(game, game.next_test_decision().land(CardId(card)));
     assert!(matches!(
         Driver::settle(game, u64::MAX),
         Advance::AwaitingDecision(_)
@@ -47,23 +70,30 @@ fn play(game: &mut Game, card: u32) {
 }
 
 fn cast_bears(game: &mut Game) {
-    input(game, Response::Cast { card: CardId(2) });
+    input(game, game.next_test_decision().cast(CardId(2)));
     assert!(matches!(
         Driver::settle(game, u64::MAX),
-        Advance::AwaitingDecision(Request::Mana {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::Mana { .. },
             ..
         })
     ));
     for card in [0, 1] {
         input(
             game,
-            Response::ActivateMana {
-                object: game.object_id(CardId(card)).unwrap(),
-            },
+            game.next_test_decision()
+                .activate_mana(game.object_id(CardId(card)).unwrap()),
         );
     }
-    input(game, Response::FinishMana { undo_mana: true });
+    input(
+        game,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
     assert!(matches!(
         Driver::settle(game, u64::MAX),
         Advance::AwaitingDecision(_)
@@ -90,15 +120,12 @@ fn resolve_bears(game: &mut Game) {
     );
 }
 
-fn reject(game: &mut Game, player: PlayerId, response: Response) {
+fn reject(game: &mut Game, player: PlayerId, response: Answer) {
     let Advance::AwaitingDecision(request) = Driver::settle(game, u64::MAX) else {
         panic!()
     };
     let before = game.snapshot().unwrap();
-    assert!(
-        game.respond(player, request.decision_id(), response)
-            .is_err()
-    );
+    assert!(game.respond(player, request.id, response).is_err());
     assert_eq!(game.snapshot().unwrap(), before);
 }
 
@@ -130,11 +157,10 @@ fn complete_turn_loop_preserves_exact_permanents_draws_timing_and_replay() {
     play(&mut game, 1);
     assert_eq!(game.state.rules.turn.lands_played, 1);
     assert!(game.state.rules.stack.is_empty());
-    reject(
-        &mut game,
-        PlayerId(0),
-        Response::PlayLand { card: CardId(3) },
-    );
+    {
+        let selected = game.next_test_decision().land(CardId(3));
+        reject(&mut game, PlayerId(0), selected)
+    };
     cast_bears(&mut game);
     resolve_bears(&mut game);
     assert_eq!(game.object_id(CardId(2)).unwrap().incarnation, 2);
@@ -153,11 +179,10 @@ fn complete_turn_loop_preserves_exact_permanents_draws_timing_and_replay() {
     until(&mut game, 5, TurnStep::PrecombatMain);
     assert_eq!(game.state.rules.turn.lands_played, 0);
     play(&mut game, 3);
-    reject(
-        &mut game,
-        PlayerId(0),
-        Response::PlayLand { card: CardId(4) },
-    );
+    {
+        let selected = game.next_test_decision().land(CardId(4));
+        reject(&mut game, PlayerId(0), selected)
+    };
     assert_eq!(game.state.rules.turn.lands_played, 1);
     assert_eq!(game.state.rules.active, Some(PlayerId(0)));
     assert_eq!(game.state.rules.priority, PlayerId(0));
@@ -198,51 +223,56 @@ fn complete_turn_loop_preserves_exact_permanents_draws_timing_and_replay() {
 fn lands_and_creatures_reject_nonactive_timing_stack_and_wrong_source() {
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::turns_permanents()));
     for response in [
-        Response::PlayLand { card: CardId(2) },
-        Response::PlayLand { card: CardId(0) },
-        Response::PlayLand { card: CardId(4) },
-        Response::Cast { card: CardId(1) },
+        game.next_test_decision().land(CardId(2)),
+        game.next_test_decision().land(CardId(0)),
+        game.next_test_decision().land(CardId(4)),
+        game.next_test_decision().cast(CardId(1)),
     ] {
         reject(&mut game, PlayerId(0), response);
     }
     pass(&mut game);
-    reject(
-        &mut game,
-        PlayerId(1),
-        Response::PlayLand { card: CardId(1) },
-    );
-    reject(&mut game, PlayerId(1), Response::Cast { card: CardId(2) });
+    {
+        let selected = game.next_test_decision().land(CardId(1));
+        reject(&mut game, PlayerId(1), selected)
+    };
+    {
+        let selected = game.next_test_decision().cast(CardId(2));
+        reject(&mut game, PlayerId(1), selected)
+    };
     for _ in 0..3 {
         pass(&mut game);
     }
     assert_eq!(game.state.rules.turn.step, TurnStep::End);
-    reject(
-        &mut game,
-        PlayerId(0),
-        Response::PlayLand { card: CardId(1) },
-    );
-    reject(&mut game, PlayerId(0), Response::Cast { card: CardId(2) });
+    {
+        let selected = game.next_test_decision().land(CardId(1));
+        reject(&mut game, PlayerId(0), selected)
+    };
+    {
+        let selected = game.next_test_decision().cast(CardId(2));
+        reject(&mut game, PlayerId(0), selected)
+    };
     until(&mut game, 2, TurnStep::Draw);
     assert_eq!(
         game.zone(game.object_id(CardId(5)).unwrap()),
         Some(Zone::Hand { owner: PlayerId(1) })
     );
-    reject(
-        &mut game,
-        PlayerId(1),
-        Response::PlayLand { card: CardId(5) },
-    );
+    {
+        let selected = game.next_test_decision().land(CardId(5));
+        reject(&mut game, PlayerId(1), selected)
+    };
     until(&mut game, 2, TurnStep::PrecombatMain);
     pass(&mut game);
     pass(&mut game);
     pass(&mut game);
     assert_eq!(game.state.rules.priority, PlayerId(0));
-    reject(&mut game, PlayerId(0), Response::Cast { card: CardId(2) });
-    reject(
-        &mut game,
-        PlayerId(0),
-        Response::PlayLand { card: CardId(1) },
-    );
+    {
+        let selected = game.next_test_decision().cast(CardId(2));
+        reject(&mut game, PlayerId(0), selected)
+    };
+    {
+        let selected = game.next_test_decision().land(CardId(1));
+        reject(&mut game, PlayerId(0), selected)
+    };
 
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::turns_permanents()));
     // Pay with private pre-floated mana to leave the land allowance unused.
@@ -253,8 +283,8 @@ fn lands_and_creatures_reject_nonactive_timing_stack_and_wrong_source() {
     let request = game.decision_for(PlayerId(0)).unwrap().unwrap();
     game.respond(
         PlayerId(0),
-        request.decision_id(),
-        Response::Cast { card: CardId(2) },
+        request.id,
+        game.next_test_decision().cast(CardId(2)),
     )
     .unwrap();
     let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
@@ -262,8 +292,12 @@ fn lands_and_creatures_reject_nonactive_timing_stack_and_wrong_source() {
     };
     game.respond(
         PlayerId(0),
-        request.decision_id(),
-        Response::FinishMana { undo_mana: true },
+        request.id,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
     )
     .unwrap();
     let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
@@ -273,8 +307,8 @@ fn lands_and_creatures_reject_nonactive_timing_stack_and_wrong_source() {
     assert!(
         game.respond(
             PlayerId(0),
-            request.decision_id(),
-            Response::PlayLand { card: CardId(1) }
+            request.id,
+            game.next_test_decision().land(CardId(1))
         )
         .is_err()
     );
@@ -302,24 +336,38 @@ fn land_limit_spans_both_mains_and_special_action_resets_passes() {
 fn unpayable_targetless_creature_reversal_keeps_or_undoes_only_casting_mana() {
     for undo_mana in [false, true] {
         let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::turns_permanents()));
-        input(&mut game, Response::Cast { card: CardId(2) });
+        {
+            let selected_answer = game.next_test_decision().cast(CardId(2));
+            input(&mut game, selected_answer)
+        };
         assert!(matches!(
             Driver::settle(&mut game, u64::MAX),
-            Advance::AwaitingDecision(Request::Mana { .. })
+            Advance::AwaitingDecision(Decision {
+                reason: Reason::Mana { .. },
+                ..
+            })
         ));
-        input(
-            &mut game,
-            Response::ActivateMana {
-                object: ObjectId {
-                    card: CardId(0),
-                    incarnation: 0,
+        {
+            let selected_answer = game.next_test_decision().activate_mana(ObjectId {
+                card: CardId(0),
+                incarnation: 0,
+            });
+            input(&mut game, selected_answer)
+        };
+        {
+            let selected_answer = Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: undo_mana,
                 },
-            },
-        );
-        input(&mut game, Response::FinishMana { undo_mana });
+            };
+            input(&mut game, selected_answer)
+        };
         assert!(matches!(
             Driver::settle(&mut game, u64::MAX),
-            Advance::AwaitingDecision(Request::Priority { .. })
+            Advance::AwaitingDecision(Decision {
+                reason: Reason::Priority,
+                ..
+            })
         ));
         assert!(game.state.rules.stack.is_empty());
         assert_eq!(game.object_id(CardId(2)).unwrap().incarnation, 0);
@@ -345,15 +393,13 @@ fn unpayable_targetless_creature_reversal_keeps_or_undoes_only_casting_mana() {
 #[test]
 fn mana_empties_at_step_end_and_untap_and_draw_offer_no_early_priority() {
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::turns_permanents()));
-    input(
-        &mut game,
-        Response::ActivateMana {
-            object: ObjectId {
-                card: CardId(0),
-                incarnation: 0,
-            },
-        },
-    );
+    {
+        let selected_answer = game.next_test_decision().activate_mana(ObjectId {
+            card: CardId(0),
+            incarnation: 0,
+        });
+        input(&mut game, selected_answer)
+    };
     until(&mut game, 1, TurnStep::End);
     assert!(game.state.rules.players[0].mana.is_empty());
     assert!(game.state.rules.objects[&CardId(0)].tapped);
@@ -388,14 +434,19 @@ fn mana_empties_at_step_end_and_untap_and_draw_offer_no_early_priority() {
 
 #[test]
 fn queued_departures_preserve_accepted_land_and_cast_or_remove_departing_actor() {
-    for response in [
-        Response::PlayLand { card: CardId(1) },
-        Response::Cast { card: CardId(2) },
-    ] {
+    for land in [true, false] {
         for departed in [PlayerId(3), PlayerId(0)] {
             let mut game =
                 Game::new(FixtureCatalog::Base.admit(ScenarioConfig::turns_permanents()));
-            input(&mut game, response.clone());
+            let d = game.next_test_decision();
+            input(
+                &mut game,
+                if land {
+                    d.land(CardId(1))
+                } else {
+                    d.cast(CardId(2))
+                },
+            );
             game.concede(departed).unwrap();
 
             assert!(game.decision_for(PlayerId(0)).unwrap().is_none());
@@ -410,7 +461,7 @@ fn queued_departures_preserve_accepted_land_and_cast_or_remove_departing_actor()
                 assert_eq!(game.state.rules.active, None);
                 assert_eq!(game.state.rules.turn.number, 1);
                 assert_eq!(game.state.rules.turn_owner, PlayerId(0));
-            } else if matches!(response, Response::PlayLand { .. }) {
+            } else if land {
                 assert_eq!(
                     game.zone(game.object_id(CardId(1)).unwrap()),
                     Some(Zone::Battlefield)
@@ -419,7 +470,10 @@ fn queued_departures_preserve_accepted_land_and_cast_or_remove_departing_actor()
             } else {
                 assert!(matches!(
                     result,
-                    Advance::AwaitingDecision(Request::Mana { .. })
+                    Advance::AwaitingDecision(Decision {
+                        reason: Reason::Mana { .. },
+                        ..
+                    })
                 ));
             }
             let replay = Game::replay(
@@ -482,7 +536,12 @@ fn absent_active_turn_finishes_before_next_live_turn_and_queued_winner_precedes_
     for _ in 0..3 {
         pass(&mut game);
     }
-    input(&mut game, Response::Pass);
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        input(&mut game, selected_answer)
+    };
     for player in [PlayerId(1), PlayerId(2), PlayerId(3)] {
         game.concede(player).unwrap();
     }
@@ -513,16 +572,18 @@ fn public_land_queries_recover_and_handles_tokens_and_receipts_expire() {
         own.observation_version,
         mtg_core::testkit::formats::OBSERVATION_VERSION
     );
-    let token = own.decision.unwrap().token().clone();
+    let token = own.decision.unwrap().id.clone();
     let hand = game
         .handle_for(PlayerId(0), game.object_id(CardId(1)).unwrap())
         .unwrap();
     let QueryResult::Incomplete { work, .. } = game.check_player_response(
         PlayerId(0),
         token.clone(),
-        PlayerResponse::PlayLand {
-            object: hand.clone(),
-        },
+        game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::PlayLand {
+                object: hand.clone(),
+            },
+        }),
         Budget::new(0),
     ) else {
         panic!()
@@ -557,11 +618,8 @@ fn public_land_queries_recover_and_handles_tokens_and_receipts_expire() {
     let foreign = game
         .check_response(
             PlayerId(0),
-            game.decision_for(PlayerId(0))
-                .unwrap()
-                .unwrap()
-                .decision_id(),
-            Response::PlayLand { card: CardId(1) },
+            game.decision_for(PlayerId(0)).unwrap().unwrap().id,
+            game.next_test_decision().land(CardId(1)),
         )
         .unwrap();
     let mut fork = game.fork();
@@ -576,20 +634,22 @@ fn public_land_queries_recover_and_handles_tokens_and_receipts_expire() {
         game.check_player_response(
             PlayerId(0),
             token,
-            PlayerResponse::PlayLand {
-                object: hand.clone()
-            },
+            fork.next_test_viewer_decision().select(Candidate::Action {
+                action: Action::PlayLand {
+                    object: hand.clone()
+                }
+            }),
             Budget::unlimited()
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)
     ));
     let own = observe(&game, PlayerId(0));
-    let token = own.decision.unwrap().token().clone();
+    let token = own.decision.unwrap().id.clone();
     assert!(matches!(
         game.check_player_response(
             PlayerId(0),
             token,
-            PlayerResponse::ActivateMana { object: hand },
+            fork.next_test_viewer_decision().activate_mana(hand),
             Budget::unlimited()
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)
@@ -684,7 +744,10 @@ fn creature_combat_and_empty_library_are_explicit_recoverable_faults() {
     }
     assert!(matches!(
         Driver::settle(&mut game, u64::MAX),
-        Advance::AwaitingDecision(Request::Attackers { .. })
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Attackers,
+            ..
+        })
     ));
 
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::turns_permanents()));
@@ -717,63 +780,91 @@ fn admission_does_not_accept_variants_or_enable_new_actions_in_old_profiles() {
         assert!(Prepared::admit(catalog.clone(), config).is_err());
     }
     let mut old = Game::new(Prepared::admit(catalog, ScenarioConfig::land_return()).unwrap());
-    reject(
-        &mut old,
-        PlayerId(0),
-        Response::PlayLand { card: CardId(1) },
-    );
-    reject(&mut old, PlayerId(0), Response::Cast { card: CardId(2) });
+    {
+        let selected = old.next_test_decision().land(CardId(1));
+        reject(&mut old, PlayerId(0), selected)
+    };
+    {
+        let selected = old.next_test_decision().cast(CardId(2));
+        reject(&mut old, PlayerId(0), selected)
+    };
 }
 
-fn scripted_response(game: &Game, request: &Request) -> Response {
+fn scripted_response(game: &Game, request: &Decision<Rules>) -> Answer {
     match request {
-        Request::Attackers { .. } => return Response::Attackers { attacks: vec![] },
-        Request::Blockers { .. } => return Response::Blockers { blocks: vec![] },
-        Request::SpendMana {
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => return request.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => return request.block(vec![]),
+        Decision {
             player,
-            cost,
-            available,
+            shape:
+                Shape::Pay {
+                    cost,
+                    pool:
+                        ManaPool {
+                            unrestricted: available,
+                        },
+                    ..
+                },
+            reason: Reason::SpendMana { .. },
             ..
         } => {
             let remaining = game.payment_pool(*player, cost).unwrap();
-            return Response::SpendMana {
-                spending: available
-                    .iter()
-                    .filter_map(|(color, amount)| {
-                        let mut n = amount.clone();
-                        n.subtract(&remaining.get(color).cloned().unwrap_or_default());
-                        (n > Quantity::zero()).then_some((*color, n))
-                    })
-                    .collect(),
+            return Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: available
+                        .iter()
+                        .filter_map(|(color, amount)| {
+                            let mut n = amount.clone();
+                            n.subtract(&remaining.get(color).cloned().unwrap_or_default());
+                            (n > Quantity::zero()).then_some((*color, n))
+                        })
+                        .collect(),
+                },
             };
         }
         _ => (),
     }
 
-    if let Request::Mana { .. } = request {
+    if let Decision {
+        reason: Reason::Mana { .. },
+        ..
+    } = request
+    {
         for card in [CardId(0), CardId(1)] {
             let object = &game.state.rules.objects[&card];
             if !object.tapped {
-                return Response::ActivateMana { object: object.id };
+                return request.activate_mana(object.id);
             }
         }
-        return Response::FinishMana { undo_mana: true };
+        return Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        };
     }
-    if game.state.rules.turn.number == 1 && request.player() == PlayerId(0) {
+    if game.state.rules.turn.number == 1 && request.player == PlayerId(0) {
         if matches!(game.state.rules.objects[&CardId(1)].zone, Zone::Hand { .. }) {
-            return Response::PlayLand { card: CardId(1) };
+            return request.land(CardId(1));
         }
         if matches!(game.state.rules.objects[&CardId(2)].zone, Zone::Hand { .. }) {
-            return Response::Cast { card: CardId(2) };
+            return request.cast(CardId(2));
         }
     }
     if game.state.rules.turn.number == 5
         && game.state.rules.turn.step == TurnStep::PrecombatMain
-        && request.player() == PlayerId(0)
+        && request.player == PlayerId(0)
     {
-        return Response::PlayLand { card: CardId(3) };
+        return request.land(CardId(3));
     }
-    Response::Pass
+    Answer::Pick {
+        picks: vec![vec![0]],
+    }
 }
 
 fn run_script(mode: TraceMode, budget: u64) -> Game {
@@ -793,8 +884,7 @@ fn run_script(mode: TraceMode, budget: u64) -> Game {
                     return game;
                 }
                 let response = scripted_response(&game, &request);
-                game.respond(request.player(), request.decision_id(), response)
-                    .unwrap();
+                game.respond(request.player, request.id, response).unwrap();
             }
             other => panic!("script failed: {other:?}"),
         }
@@ -821,7 +911,7 @@ fn concessions_at_each_casting_and_scheduler_stage_remain_recoverable() {
             "{:?}/{}/{:?}",
             game.state.rules.turn.step,
             frame["stage"],
-            game.state.rules.pending.as_ref().map(|p| &p.response)
+            game.state.rules.pending.as_ref().map(|p| &p.answer)
         );
         samples
             .entry(key)
@@ -839,8 +929,7 @@ fn concessions_at_each_casting_and_scheduler_stage_remain_recoverable() {
                     break;
                 }
                 let response = scripted_response(&game, &request);
-                game.respond(request.player(), request.decision_id(), response)
-                    .unwrap();
+                game.respond(request.player, request.id, response).unwrap();
             }
             other => panic!("unexpected sample outcome: {other:?}"),
         }
@@ -882,7 +971,10 @@ fn concessions_at_each_casting_and_scheduler_stage_remain_recoverable() {
 #[test]
 fn zero_budget_and_forks_leave_pending_land_and_turn_work_independent() {
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::turns_permanents()));
-    input(&mut game, Response::PlayLand { card: CardId(1) });
+    {
+        let selected_answer = game.next_test_decision().land(CardId(1));
+        input(&mut game, selected_answer)
+    };
     let before = game.snapshot().unwrap();
     assert_eq!(
         game.advance(Budget::new(0)),
@@ -937,12 +1029,17 @@ fn generic_cleanup_discard_and_ordered_library_draw_are_available() {
         for _ in 0..3 {
             pass(&mut game);
         }
-        input(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, selected_answer)
+        };
         let outcome = Driver::settle(&mut game, u64::MAX);
         if cleanup {
             assert!(matches!(
                 outcome,
-                Advance::AwaitingDecision(Request::Discard { count: 1, .. })
+                Advance::AwaitingDecision(d @ Decision{reason:Reason::Discard,..}) if d.required_count()==1
             ));
             assert_eq!(
                 game.state
@@ -1029,13 +1126,23 @@ fn flash_end_step_draw() {
     let mut game = Game::new(fixture);
     let libraries = game.state.rules.libraries.clone();
     let pass_priority = |game: &mut Game| {
-        let Advance::AwaitingDecision(request @ Request::Priority { .. }) =
-            game.advance(Budget::new(100))
+        let Advance::AwaitingDecision(
+            request @ Decision {
+                reason: Reason::Priority,
+                ..
+            },
+        ) = game.advance(Budget::new(100))
         else {
             panic!("expected priority");
         };
-        game.respond(request.player(), request.decision_id(), Response::Pass)
-            .unwrap();
+        game.respond(
+            request.player,
+            request.id,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        )
+        .unwrap();
     };
     assert_eq!(game.state.rules.turn.step, TurnStep::PostcombatMain);
     for _ in 0..4 {
@@ -1043,7 +1150,7 @@ fn flash_end_step_draw() {
     }
     assert!(matches!(
         game.advance(Budget::new(100)),
-        Advance::AwaitingDecision(Request::Priority { player, .. }) if player == controller
+        Advance::AwaitingDecision(Decision{player,reason:Reason::Priority,..}) if player == controller
     ));
     assert!(matches!(
         game.state.rules.stack.as_slice(),
@@ -1114,13 +1221,23 @@ fn flash_end_step_draw() {
             continue;
         };
         let response = match &request {
-            Request::Priority { .. } => Response::Pass,
-            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-            Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
+            },
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            } => request.attack(vec![]),
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            } => request.block(vec![]),
             other => panic!("unexpected turn decision {other:?}"),
         };
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
+        game.respond(request.player, request.id, response).unwrap();
     }
     assert!(
         game.state.rules.turn.number > 2,

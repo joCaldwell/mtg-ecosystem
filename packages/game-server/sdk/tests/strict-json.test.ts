@@ -5,7 +5,7 @@ import { GameClient, ProtocolError } from '../src/client.ts';
 
 const rawResponse = text => new Response(text, { headers: { 'content-type': 'application/json' } });
 const client = text => new GameClient({ baseURL: 'http://127.0.0.1:3000', matchId: 'a', capability: 'private-seat-capability', fetch: async () => rawResponse(text) });
-const validPage = '{"protocol_version":1,"entries":[],"next":"0","has_more":false}';
+const validPage = '{"protocol_version":2,"entries":[],"next":"0","has_more":false}';
 
 test('raw JSON preserves Unicode/escapes, exact string quantities and canonical safe integers', () => {
   const source = String.raw`{"😀":"雪","escaped":"quote\" slash\\ tab\t","array":[0,-1,9007199254740991,-9007199254740991,true,false,null],"quantity":"90071992547409931234567890"}`;
@@ -47,13 +47,13 @@ test('raw JSON rejects invalid grammar, excessive depth and non-scalar escaped U
 test('HTTP response decoding invokes the strict scanner before generated schema validation', async () => {
   await client(validPage).poll({ after: '0' });
   for (const source of [
-    validPage.replace('"protocol_version":1', '"protocol_version":1,"protocol_version":1'),
-    validPage.replace('"protocol_version":1', '"protocol_version":1,"\\u0070rotocol_version":1'),
-    validPage.replace('"protocol_version":1', '"protocol_version":1e0'),
-    validPage.replace('"protocol_version":1', '"protocol_version":1.00000000000000001'),
-    '{"protocol_version":1,"entries":[{"cursor":"1","publication":{"kind":"lifecycle","status":{"status":"running","status":"running"}}}],"next":"1","has_more":false}',
+    validPage.replace('"protocol_version":2', '"protocol_version":2,"protocol_version":2'),
+    validPage.replace('"protocol_version":2', '"protocol_version":2,"\\u0070rotocol_version":1'),
+    validPage.replace('"protocol_version":2', '"protocol_version":1e0'),
+    validPage.replace('"protocol_version":2', '"protocol_version":2.00000000000000001'),
+    '{"protocol_version":2,"entries":[{"cursor":"1","publication":{"kind":"lifecycle","status":{"status":"running","status":"running"}}}],"next":"1","has_more":false}',
   ]) await assert.rejects(client(source).poll({ after: '0' }), ProtocolError);
   const commandId = 'a'.repeat(32);
   const sdk = client(`{"status":"accepted","command_id":"${commandId}","command_id":"${commandId}"}`);
-  await assert.rejects(sdk.submit({ protocol_version: 1, command_id: commandId, expected_revision: '0', command: { kind: 'concede' } }), ProtocolError);
+  await assert.rejects(sdk.submit({ protocol_version: 2, command_id: commandId, expected_revision: '0', command: { kind: 'concede' } }), ProtocolError);
 });

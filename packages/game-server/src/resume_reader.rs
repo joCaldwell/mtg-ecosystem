@@ -395,7 +395,7 @@ pub(crate) mod tests {
                 .unwrap();
             let cursor = u64::try_from(cursor + 1).unwrap();
             let page = crate::protocol::StreamPage {
-                protocol_version: 1,
+                protocol_version: crate::protocol::PROTOCOL_VERSION,
                 entries: vec![crate::protocol::StreamEntry {
                     cursor: crate::protocol::Counter::new(cursor),
                     publication: crate::protocol::Publication::Lifecycle {
@@ -446,7 +446,7 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             let page = crate::protocol::StreamPage {
-                protocol_version: 1,
+                protocol_version: crate::protocol::PROTOCOL_VERSION,
                 next: crate::protocol::Counter::new((cursor + 1) as u64),
                 has_more: false,
                 entries: vec![crate::protocol::StreamEntry {
@@ -485,7 +485,7 @@ pub(crate) mod tests {
                 )
                 .unwrap();
             let page = crate::protocol::StreamPage {
-                protocol_version: 1,
+                protocol_version: crate::protocol::PROTOCOL_VERSION,
                 next: crate::protocol::Counter::new((cursor + 1) as u64),
                 has_more: false,
                 entries: vec![crate::protocol::StreamEntry {

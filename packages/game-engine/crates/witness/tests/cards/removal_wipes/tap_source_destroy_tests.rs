@@ -67,80 +67,131 @@ fn prepared() -> Prepared {
 fn passive(g: &mut Game, quantum: u64) {
     let r = Driver::request(g, quantum);
     let response = match &r {
-        Request::Priority { .. } => Response::Pass,
-        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-        Request::Discard {
-            count, candidates, ..
-        } => Response::Discard {
-            objects: candidates[..*count].to_vec(),
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => r.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => r.block(vec![]),
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let count = &found.required_count();
+            let candidates = found.objects_offered();
+            r.pick_objects(candidates[..*count].to_vec())
+        }
         other => panic!("unexpected aging request {other:?}"),
     };
-    g.respond(r.player(), r.decision_id(), response).unwrap();
+    g.respond(r.player, r.id, response).unwrap();
 }
 fn priority(g: &mut Game, quantum: u64, seat: u8) {
     for _ in 0..8 {
         let r = Driver::request(g, quantum);
-        assert!(matches!(r, Request::Priority { .. }));
-        if r.player() == PlayerId(seat) {
+        assert!(matches!(
+            r,
+            Decision {
+                reason: Reason::Priority,
+                ..
+            }
+        ));
+        if r.player == PlayerId(seat) {
             return;
         }
-        Driver::answer(g, quantum, Response::Pass);
+        Driver::answer(
+            g,
+            quantum,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     panic!("priority bound");
 }
 fn pay_spell(g: &mut Game, quantum: u64, lands: &[u32], color: Color) {
     for id in lands {
         let land = Driver::object(g, *id);
-        Driver::answer(g, quantum, Response::ActivateMana { object: land });
+        Driver::answer(g, quantum, g.next_test_decision().activate_mana(land));
     }
-    Driver::answer(g, quantum, Response::FinishMana { undo_mana: false });
-    assert!(matches!(
-        Driver::request(g, quantum),
-        Request::SpendMana { .. }
-    ));
     Driver::answer(
         g,
         quantum,
-        Response::SpendMana {
-            spending: BTreeMap::from([(color, Quantity::from(lands.len() as i64))]),
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
         },
     );
     assert!(matches!(
         Driver::request(g, quantum),
-        Request::Priority { .. }
+        Decision {
+            reason: Reason::SpendMana { .. },
+            ..
+        }
+    ));
+    Driver::answer(
+        g,
+        quantum,
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([(color, Quantity::from(lands.len() as i64))]),
+            },
+        },
+    );
+    assert!(matches!(
+        Driver::request(g, quantum),
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
     ));
 }
 fn finish_to(g: &mut Game, quantum: u64, remaining: usize) {
     for _ in 0..30 {
         assert!(matches!(
             Driver::request(g, quantum),
-            Request::Priority { .. }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            }
         ));
         if g.state.rules.stack.len() == remaining {
             return;
         }
-        Driver::answer(g, quantum, Response::Pass);
+        Driver::answer(
+            g,
+            quantum,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     panic!("spell completion bound");
 }
-fn reject(g: &mut Game, r: &Request, player: PlayerId, response: Response) {
+fn reject(g: &mut Game, r: &Decision<Rules>, player: PlayerId, response: Answer) {
     let before = g.snapshot().unwrap();
-    assert!(g.respond(player, r.decision_id(), response).is_err());
+    assert!(g.respond(player, r.id, response).is_err());
     assert_eq!(g.snapshot().unwrap(), before);
 }
 fn tap_elf(g: &mut Game, quantum: u64) {
     priority(g, quantum, 1);
     let elf = Driver::object(g, 4);
     assert!(!g.current(elf).unwrap().tapped);
-    Driver::answer(g, quantum, Response::ActivateMana { object: elf });
+    Driver::answer(g, quantum, g.next_test_decision().activate_mana(elf));
     Driver::request(g, quantum);
     assert!(g.current(elf).unwrap().tapped);
     priority(g, quantum, 0);
 }
 fn cast_and_age(g: &mut Game, quantum: u64) -> ObjectId {
-    Driver::answer(g, quantum, Response::Cast { card: CardId(0) });
+    Driver::answer(g, quantum, g.next_test_decision().cast(CardId(0)));
     pay_spell(g, quantum, &[1, 2, 3], Color::B);
     assert_eq!(
         g.top().unwrap().paid,
@@ -157,15 +208,17 @@ fn cast_and_age(g: &mut Game, quantum: u64) -> ObjectId {
     let before = g.snapshot().unwrap();
     let error = g
         .respond(
-            r.player(),
-            r.decision_id(),
-            Response::ActivateAbility {
-                object: royal,
-                ability: 0,
-            },
+            r.player,
+            r.id,
+            g.next_test_decision().select(Candidate::Action {
+                action: Action::ActivateAbility {
+                    object: royal,
+                    ability: 0,
+                },
+            }),
         )
         .unwrap_err();
-    assert!(error.contains("continuously controlled"));
+    assert!(error.contains("invalid slot selection"));
     assert_eq!(g.snapshot().unwrap(), before);
 
     let turn = g.turn().number;
@@ -174,7 +227,13 @@ fn cast_and_age(g: &mut Game, quantum: u64) -> ObjectId {
         if g.turn().number > turn
             && g.active_player() == Some(PlayerId(0))
             && g.turn().step == TurnStep::PrecombatMain
-            && matches!(r, Request::Priority { .. })
+            && matches!(
+                r,
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                }
+            )
         {
             break;
         }
@@ -189,28 +248,31 @@ fn activate(g: &mut Game, quantum: u64, royal: ObjectId, target: ObjectId) -> St
     Driver::answer(
         g,
         quantum,
-        Response::ActivateAbility {
-            object: royal,
-            ability: 0,
-        },
+        g.next_test_decision().select(Candidate::Action {
+            action: Action::ActivateAbility {
+                object: royal,
+                ability: 0,
+            },
+        }),
     );
     let r = Driver::request(g, quantum);
     assert!(
-        matches!(&r,Request::Targets { candidates,.. } if candidates.contains(&target) && !candidates.contains(&Driver::object(g,5)) && !candidates.contains(&Driver::object(g,6)) && !candidates.contains(&Driver::object(g,13)))
+        matches!(&r,found @ Decision {reason:Reason::Targets{..},..} if found.objects_offered().contains(&target) && !found.objects_offered().contains(&Driver::object(g,5)) && !found.objects_offered().contains(&Driver::object(g,6)) && !found.objects_offered().contains(&Driver::object(g,13)))
     );
     for id in [5, 6, 13] {
         let invalid = Driver::object(g, id);
         reject(
             g,
             &r,
-            r.player(),
-            Response::Targets {
-                objects: vec![invalid],
-            },
+            r.player,
+            g.next_test_decision().targets(vec![invalid]),
         );
     }
-    let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::Targets { token, .. }))) =
-        g.player_decision_for(PlayerId(0), Budget::unlimited())
+    let QueryResult::Complete(QueryValue::Decision(Some(Decision {
+        id: token,
+        reason: Reason::Targets { .. },
+        ..
+    }))) = g.player_decision_for(PlayerId(0), Budget::unlimited())
     else {
         panic!("public target decision");
     };
@@ -219,40 +281,55 @@ fn activate(g: &mut Game, quantum: u64, royal: ObjectId, target: ObjectId) -> St
         g.check_player_response(
             PlayerId(0),
             token,
-            PlayerResponse::Targets {
-                objects: vec![ObjectHandle("foreign".into())]
-            },
+            g.next_test_viewer_decision()
+                .targets(vec![ObjectHandle("foreign".into())]),
             Budget::unlimited()
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)
     ));
     assert_eq!(g.snapshot().unwrap(), before);
-    Driver::answer(
-        g,
-        quantum,
-        Response::Targets {
-            objects: vec![target],
-        },
-    );
+    Driver::answer(g, quantum, g.next_test_decision().targets(vec![target]));
     // The generic object-target announcement currently uses a zero-mana
     // continuation. If it is completed directly, the same paid tap is required.
-    if matches!(Driver::request(g, quantum), Request::Mana { .. }) {
-        Driver::answer(g, quantum, Response::FinishMana { undo_mana: false });
+    if matches!(
+        Driver::request(g, quantum),
+        Decision {
+            reason: Reason::Mana { .. },
+            ..
+        }
+    ) {
+        Driver::answer(
+            g,
+            quantum,
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: false,
+                },
+            },
+        );
         assert!(matches!(
             Driver::request(g, quantum),
-            Request::SpendMana { .. }
+            Decision {
+                reason: Reason::SpendMana { .. },
+                ..
+            }
         ));
         Driver::answer(
             g,
             quantum,
-            Response::SpendMana {
-                spending: BTreeMap::new(),
+            Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: BTreeMap::new(),
+                },
             },
         );
     }
     assert!(matches!(
         Driver::request(g, quantum),
-        Request::Priority { .. }
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
     ));
     assert!(
         g.current(royal).unwrap().tapped,
@@ -271,10 +348,12 @@ fn activate(g: &mut Game, quantum: u64, royal: ObjectId, target: ObjectId) -> St
         g,
         &r,
         PlayerId(0),
-        Response::ActivateAbility {
-            object: royal,
-            ability: 0,
-        },
+        g.next_test_decision().select(Candidate::Action {
+            action: Action::ActivateAbility {
+                object: royal,
+                ability: 0,
+            },
+        }),
     );
 
     stack
@@ -286,9 +365,23 @@ fn resolve_start(g: &mut Game) {
         }
         match g.advance(Budget::new(1)) {
             Advance::Suspended { .. } => (),
-            Advance::AwaitingDecision(r) if matches!(r, Request::Priority { .. }) => {
-                g.respond(r.player(), r.decision_id(), Response::Pass)
-                    .unwrap();
+            Advance::AwaitingDecision(r)
+                if matches!(
+                    r,
+                    Decision {
+                        reason: Reason::Priority,
+                        ..
+                    }
+                ) =>
+            {
+                g.respond(
+                    r.player,
+                    r.id,
+                    Answer::Pick {
+                        picks: vec![vec![0]],
+                    },
+                )
+                .unwrap();
             }
             other => panic!("resolution boundary {other:?}"),
         }
@@ -310,28 +403,28 @@ fn run(case: ResponseCase, quantum: u64, mode: TraceMode) -> Game {
         ResponseCase::None => (),
         ResponseCase::UntapTarget => {
             priority(&mut g, quantum, 1);
-            Driver::answer(&mut g, quantum, Response::Cast { card: CardId(7) });
-            Driver::answer(
-                &mut g,
-                quantum,
-                Response::Targets {
-                    objects: vec![target],
-                },
-            );
+            {
+                let selected_answer = g.next_test_decision().cast(CardId(7));
+                Driver::answer(&mut g, quantum, selected_answer)
+            };
+            {
+                let selected_answer = g.next_test_decision().targets(vec![target]);
+                Driver::answer(&mut g, quantum, selected_answer)
+            };
             pay_spell(&mut g, quantum, &[8], Color::W);
             finish_to(&mut g, quantum, 1);
             assert!(!g.current(target).unwrap().tapped);
         }
         ResponseCase::BounceSource => {
             priority(&mut g, quantum, 2);
-            Driver::answer(&mut g, quantum, Response::Cast { card: CardId(9) });
-            Driver::answer(
-                &mut g,
-                quantum,
-                Response::Targets {
-                    objects: vec![royal],
-                },
-            );
+            {
+                let selected_answer = g.next_test_decision().cast(CardId(9));
+                Driver::answer(&mut g, quantum, selected_answer)
+            };
+            {
+                let selected_answer = g.next_test_decision().targets(vec![royal]);
+                Driver::answer(&mut g, quantum, selected_answer)
+            };
             pay_spell(&mut g, quantum, &[10, 11, 12], Color::U);
             finish_to(&mut g, quantum, 1);
             assert!(g.current(royal).is_err());

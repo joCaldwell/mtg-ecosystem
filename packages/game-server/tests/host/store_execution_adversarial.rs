@@ -53,7 +53,7 @@ fn command(seat: u8, n: u64, reason: Option<RejectionReason>) -> CommandCommit {
     CommandCommit {
         seat,
         request: CommandEnvelope {
-            protocol_version: 1,
+            protocol_version: 2,
             command_id: command_id.clone(),
             expected_revision: Counter::new(0),
             command: CommandBody::Concede,

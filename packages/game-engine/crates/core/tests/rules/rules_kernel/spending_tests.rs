@@ -9,15 +9,31 @@ fn selection(black: i64, green: i64) -> BTreeMap<Color, Quantity> {
 }
 fn spending_game() -> Game {
     let mut g = game();
-    Driver::answer(&mut g, u64::MAX, Response::Cast { card: CardId(0) });
+    {
+        let selected_answer = g.next_test_decision().cast(CardId(0));
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     for card in 1..=9 {
         let object = g.object_id(CardId(card)).unwrap();
-        Driver::answer(&mut g, u64::MAX, Response::ActivateMana { object });
+        {
+            let selected_answer = g.next_test_decision().activate_mana(object);
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
     }
-    Driver::answer(&mut g, u64::MAX, Response::FinishMana { undo_mana: true });
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        };
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     assert!(matches!(
         Driver::request(&mut g, u64::MAX),
-        Request::SpendMana { .. }
+        Decision {
+            reason: Reason::SpendMana { .. },
+            ..
+        }
     ));
     g
 }
@@ -27,13 +43,14 @@ fn player_selects_generic_colors_and_both_branches_recover_exactly() {
     let g = spending_game();
     for (spending, remaining_b, remaining_g) in [(selection(2, 4), 2, 1), (selection(4, 2), 0, 3)] {
         let mut branch = g.fork();
-        Driver::answer(
-            &mut branch,
-            u64::MAX,
-            Response::SpendMana {
-                spending: spending.clone(),
-            },
-        );
+        {
+            let selected_answer = Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: spending.clone(),
+                },
+            };
+            Driver::answer(&mut branch, u64::MAX, selected_answer)
+        };
         Driver::request(&mut branch, u64::MAX);
         assert_eq!(branch.mana(PlayerId(0), Color::B), Some(remaining_b.into()));
         assert_eq!(branch.mana(PlayerId(0), Color::G), Some(remaining_g.into()));
@@ -82,9 +99,13 @@ fn invalid_selections_do_not_mutate_state_receipts_or_history() {
         let journal = g.replay_journal();
         assert!(
             g.respond(
-                request.player(),
-                request.decision_id(),
-                Response::SpendMana { spending }
+                request.player,
+                request.id,
+                Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: spending
+                    }
+                }
             )
             .is_err()
         );
@@ -94,28 +115,35 @@ fn invalid_selections_do_not_mutate_state_receipts_or_history() {
     assert!(
         g.respond(
             PlayerId(1),
-            request.decision_id(),
-            Response::SpendMana {
-                spending: selection(2, 4)
+            request.id,
+            Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: selection(2, 4)
+                }
             }
         )
         .is_err()
     );
     assert!(
         g.respond(
-            request.player(),
-            request.decision_id(),
-            Response::FinishMana { undo_mana: true }
+            request.player,
+            request.id,
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true
+                }
+            }
         )
         .is_err()
     );
-    Driver::answer(
-        &mut g,
-        u64::MAX,
-        Response::SpendMana {
-            spending: selection(2, 4),
-        },
-    );
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: selection(2, 4),
+            },
+        };
+        Driver::answer(&mut g, u64::MAX, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
 }
 
@@ -157,10 +185,17 @@ fn spending_queries_are_private_pure_resumable_and_executor_scoped() {
     let QueryValue::Observation(own) = query(&g, g.observe(PlayerId(0), Budget::new(0))) else {
         panic!("observation")
     };
-    let Some(PlayerRequest::SpendMana {
-        token,
-        available,
-        cost,
+    let Some(Decision {
+        id: token,
+        shape:
+            Shape::Pay {
+                pool: ManaPool {
+                    unrestricted: available,
+                },
+                cost,
+                ..
+            },
+        reason: Reason::SpendMana { .. },
         ..
     }) = own.decision
     else {
@@ -179,8 +214,10 @@ fn spending_queries_are_private_pure_resumable_and_executor_scoped() {
     let QueryResult::Incomplete { work, .. } = g.check_player_response(
         PlayerId(0),
         token,
-        PlayerResponse::SpendMana {
-            spending: selection(2, 4),
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: selection(2, 4),
+            },
         },
         Budget::new(0),
     ) else {
@@ -214,32 +251,37 @@ fn spending_queries_are_private_pure_resumable_and_executor_scoped() {
 fn failed_mixed_cast_keeps_or_undoes_only_its_recorded_mana() {
     for undo_mana in [false, true] {
         let mut g = game();
-        Driver::answer(
-            &mut g,
-            u64::MAX,
-            Response::ActivateMana {
-                object: ObjectId {
-                    card: CardId(1),
-                    incarnation: 0,
+        {
+            let selected_answer = g.next_test_decision().activate_mana(ObjectId {
+                card: CardId(1),
+                incarnation: 0,
+            });
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
+        {
+            let selected_answer = g.next_test_decision().cast(CardId(0));
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
+        {
+            let selected_answer = g.next_test_decision().activate_mana(ObjectId {
+                card: CardId(5),
+                incarnation: 0,
+            });
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
+        {
+            let selected_answer = Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: undo_mana,
                 },
-            },
-        );
-        Driver::answer(&mut g, u64::MAX, Response::Cast { card: CardId(0) });
-        Driver::answer(
-            &mut g,
-            u64::MAX,
-            Response::ActivateMana {
-                object: ObjectId {
-                    card: CardId(5),
-                    incarnation: 0,
-                },
-            },
-        );
-        Driver::answer(&mut g, u64::MAX, Response::FinishMana { undo_mana });
+            };
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
         assert!(matches!(
             Driver::request(&mut g, u64::MAX),
-            Request::Priority {
+            Decision {
                 player: PlayerId(0),
+                reason: Reason::Priority,
                 ..
             }
         ));
@@ -271,13 +313,14 @@ fn failed_mixed_cast_keeps_or_undoes_only_its_recorded_mana() {
 fn pending_spending_survives_unrelated_departure_but_never_resurrects_a_departed_payer() {
     for player in [PlayerId(2), PlayerId(0)] {
         let mut g = spending_game();
-        Driver::answer(
-            &mut g,
-            u64::MAX,
-            Response::SpendMana {
-                spending: selection(2, 4),
-            },
-        );
+        {
+            let selected_answer = Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: selection(2, 4),
+                },
+            };
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
         g.concede(player).unwrap();
         Driver::request(&mut g, u64::MAX);
         if player == PlayerId(0) {
@@ -320,33 +363,47 @@ fn targeted_player_leaving_during_spending_preserves_payment_then_prevents_resol
     // and after consumption/payment must preserve the same target and costs.
     for boundary in 0..3 {
         let mut g = Game::new(prepared.clone());
-        Driver::answer(&mut g, u64::MAX, Response::Cast { card: CardId(4) });
-        Driver::answer(
-            &mut g,
-            u64::MAX,
-            Response::PlayerTargets {
-                players: vec![PlayerId(1)],
-            },
-        );
+        {
+            let selected_answer = g.next_test_decision().cast(CardId(4));
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
+        {
+            let selected_answer = g.next_test_decision().player_targets(vec![PlayerId(1)]);
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
         for card in [2, 3] {
             let object = g.object_id(CardId(card)).unwrap();
-            Driver::answer(&mut g, u64::MAX, Response::ActivateMana { object });
+            {
+                let selected_answer = g.next_test_decision().activate_mana(object);
+                Driver::answer(&mut g, u64::MAX, selected_answer)
+            };
         }
-        Driver::answer(&mut g, u64::MAX, Response::FinishMana { undo_mana: true });
+        {
+            let selected_answer = Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true,
+                },
+            };
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
         assert!(matches!(
             Driver::request(&mut g, u64::MAX),
-            Request::SpendMana { .. }
+            Decision {
+                reason: Reason::SpendMana { .. },
+                ..
+            }
         ));
         let stack = g.top().unwrap().clone();
         assert!(stack.paid.is_none());
         if boundary > 0 {
-            Driver::answer(
-                &mut g,
-                u64::MAX,
-                Response::SpendMana {
-                    spending: selection(1, 1),
-                },
-            );
+            {
+                let selected_answer = Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: selection(1, 1),
+                    },
+                };
+                Driver::answer(&mut g, u64::MAX, selected_answer)
+            };
         }
         if boundary == 2 {
             Driver::request(&mut g, u64::MAX);
@@ -370,21 +427,22 @@ fn targeted_player_leaving_during_spending_preserves_payment_then_prevents_resol
             );
         }
         if boundary == 1 {
-            assert!(matches!(&g.state.rules.pending.as_ref().unwrap().response,
-                Response::SpendMana { spending } if spending == &selection(1, 1)));
+            assert!(matches!(&g.state.rules.pending.as_ref().unwrap().answer,
+                Answer::Pay {pay:PayAnswer::Spend{unrestricted:spending}} if spending == &selection(1, 1)));
         }
         spending_recovery(&g);
         Driver::request(&mut g, u64::MAX);
         if boundary == 0 {
             assert!(matches!(g.state.rules.frame, Frame::SpendMana { .. }));
             assert!(g.top().unwrap().paid.is_none());
-            Driver::answer(
-                &mut g,
-                u64::MAX,
-                Response::SpendMana {
-                    spending: selection(1, 1),
-                },
-            );
+            {
+                let selected_answer = Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: selection(1, 1),
+                    },
+                };
+                Driver::answer(&mut g, u64::MAX, selected_answer)
+            };
             Driver::request(&mut g, u64::MAX);
         }
         assert_eq!(g.state.rules.stack.len(), 1);
@@ -428,10 +486,16 @@ fn targeted_player_leaving_during_spending_preserves_payment_then_prevents_resol
         for player in [PlayerId(0), PlayerId(2), PlayerId(3)] {
             let request = Driver::request(&mut g, u64::MAX);
             assert!(
-                matches!(request, Request::Priority { player: actual, .. } if actual == player)
+                matches!(request, Decision{player:actual,reason:Reason::Priority,..} if actual == player)
             );
-            g.respond(player, request.decision_id(), Response::Pass)
-                .unwrap();
+            g.respond(
+                player,
+                request.id,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            )
+            .unwrap();
         }
         Driver::request(&mut g, u64::MAX);
         assert!(g.state.rules.stack.is_empty());

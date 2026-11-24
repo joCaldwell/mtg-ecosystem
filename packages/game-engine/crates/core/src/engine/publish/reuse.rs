@@ -235,7 +235,7 @@ impl Published {
 impl RulesTxn {
     /// The reuse path. Returns false, having changed nothing, unless every
     /// viewer's last view still shows the rows of the current rules.
-    pub(super) fn republish_rows(&mut self, decider: Option<Decider>) -> Result<bool, String> {
+    pub(super) fn republish_rows(&mut self, decider: Option<&Decider>) -> Result<bool, String> {
         let Some(published) = &self.published else {
             return Ok(false);
         };
@@ -256,7 +256,7 @@ impl RulesTxn {
             let knowledge = &self.state.knowledge.visibility[v];
             let key = decider
                 .filter(|decider| decider.player.0 as usize == v)
-                .map(|decider| (revision, decider.kind));
+                .map(|decider| (revision, decider.reason.code()));
             let last = knowledge.history.last().ok_or("missing published view")?;
             let view = (last.priority != priority || last.turn != self.state.rules.turn)
                 .then(|| last.with_priority_and_turn(priority, self.state.rules.turn.clone()));

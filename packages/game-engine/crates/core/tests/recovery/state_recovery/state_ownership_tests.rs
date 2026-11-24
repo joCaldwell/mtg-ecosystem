@@ -65,7 +65,7 @@ struct FlatStateReference {
     next_stack_id: u32,
     stack: Vec<StackInstance>,
     frame: Frame,
-    pending: Option<AcceptedInput>,
+    pending: Option<PendingInput>,
     journal: Vec<AcceptedInput>,
     next_batch_id: u64,
     next_event_sequence: u64,
@@ -81,9 +81,8 @@ fn states() -> Vec<State> {
     game.respond(
         PlayerId(0),
         0,
-        Response::ActivateMana {
-            object: game.object_id(CardId(0)).unwrap(),
-        },
+        game.next_test_decision()
+            .activate_mana(game.object_id(CardId(0)).unwrap()),
     )
     .unwrap();
     states.push(game.state.clone());
@@ -161,7 +160,15 @@ fn flat_state_decoder_rejects_unknown_duplicate_and_missing_group_fields() {
 #[test]
 fn rules_knowledge_and_audit_mutations_are_isolated_between_forks() {
     let mut original = game();
-    original.respond(PlayerId(0), 0, Response::Pass).unwrap();
+    original
+        .respond(
+            PlayerId(0),
+            0,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        )
+        .unwrap();
     let baseline = original.state.clone();
     let snapshot = original.snapshot().unwrap();
     let sibling = original.fork();
@@ -178,7 +185,11 @@ fn rules_knowledge_and_audit_mutations_are_isolated_between_forks() {
     assert_ne!(branch.state.knowledge, baseline.knowledge);
     assert_eq!(branch.state.audit, baseline.audit);
 
-    branch.state.audit.journal[0].response = Response::FinishMana { undo_mana: true };
+    branch.state.audit.journal[0].answer = Answer::Pay {
+        pay: PayAnswer::Finish {
+            undo_on_failure: true,
+        },
+    };
     branch.state.audit.external_inputs.push(ExternalInput {
         after_decisions: 1,
         boundary: 0,
@@ -200,7 +211,9 @@ fn audit_forks_share_chunk_and_tail_entries_until_mutated() {
         original.state.audit.journal.push(AcceptedInput {
             decision_id: index,
             player: PlayerId(0),
-            response: Response::Pass,
+            answer: Answer::Pick {
+                picks: vec![vec![0]],
+            },
         });
         original.state.audit.external_inputs.push(ExternalInput {
             after_decisions: index,
@@ -254,7 +267,14 @@ fn audit_forks_share_chunk_and_tail_entries_until_mutated() {
 #[test]
 fn public_journal_reads_borrow_shared_entries_without_flattening() {
     let mut game = game();
-    game.respond(PlayerId(0), 0, Response::Pass).unwrap();
+    game.respond(
+        PlayerId(0),
+        0,
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
+    )
+    .unwrap();
     let branch = game.fork();
     assert_eq!(branch.journal().len(), 1);
     assert!(std::ptr::eq(

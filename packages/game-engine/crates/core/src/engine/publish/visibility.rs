@@ -11,13 +11,6 @@ use super::{HandleId, stored_history::StoredPermittedView};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct ObjectHandle(pub String);
-/// Public declaration hints, scoped to current attacker/blocker handles.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct LegalBlockers {
-    pub blocker: ObjectHandle,
-    pub attackers: Vec<ObjectHandle>,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct StackHandle(pub String);
@@ -52,77 +45,29 @@ pub struct TriggerHandle(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 #[schemars(rename = "VisibleTriggerAbility")]
-#[serde(bound(deserialize = "O: Deserialize<'de>, E: Deserialize<'de>"))]
-pub enum VisibleTriggerAbility<O = ObjectHandle, E = EffectHandle> {
-    DelayedChapter {
-        chapter: u32,
-    },
-    Intrinsic {
-        index: u32,
-    },
-    Granted {
-        source: VisibleTarget<O>,
-        oracle_id: String,
-        static_ability_index: u32,
-    },
-    TemporaryGrant {
-        source: VisibleTarget<O>,
-        oracle_id: String,
-        triggered_ability_index: u32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        effect: Option<E>,
-    },
-}
-impl<O, E> VisibleTriggerAbility<O, E> {
-    fn convert<T: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
-        self,
-    ) -> VisibleTriggerAbility<T, F> {
-        match self {
-            Self::DelayedChapter { chapter } => VisibleTriggerAbility::DelayedChapter { chapter },
-            Self::Intrinsic { index } => VisibleTriggerAbility::Intrinsic { index },
-            Self::Granted {
-                source,
-                oracle_id,
-                static_ability_index,
-            } => VisibleTriggerAbility::Granted {
-                source: source.convert(),
-                oracle_id,
-                static_ability_index,
-            },
-            Self::TemporaryGrant {
-                source,
-                oracle_id,
-                triggered_ability_index,
-                effect,
-            } => VisibleTriggerAbility::TemporaryGrant {
-                source: source.convert(),
-                oracle_id,
-                triggered_ability_index,
-                effect: effect.as_ref().map(F::from),
-            },
-        }
-    }
+pub enum VisibleTriggerAbility {
+    Intrinsic { index: u32 },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "VisibleTriggered")]
-#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>, E: Deserialize<'de>"))]
-pub struct VisibleTriggered<H = StackHandle, O = ObjectHandle, E = EffectHandle> {
+#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>"))]
+pub struct VisibleTriggered<H = StackHandle, O = ObjectHandle> {
     pub handle: H,
     pub source: VisibleTarget<O>,
     pub oracle_id: String,
-    pub ability: VisibleTriggerAbility<O, E>,
+    pub ability: VisibleTriggerAbility,
 }
-impl<H, O, E> VisibleTriggered<H, O, E> {
-    pub(super) fn map_handles<T, P: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
+impl<H, O> VisibleTriggered<H, O> {
+    pub(super) fn map_handles<T, P: for<'a> From<&'a O>>(
         self,
         mut convert: impl FnMut(H) -> T,
-    ) -> VisibleTriggered<T, P, F> {
+    ) -> VisibleTriggered<T, P> {
         VisibleTriggered {
             handle: convert(self.handle),
             source: self.source.convert(),
             oracle_id: self.oracle_id,
-            ability: self.ability.convert(),
+            ability: self.ability,
         }
     }
 }
@@ -159,8 +104,6 @@ pub struct VisiblePlayer<O = ObjectHandle> {
     pub status: PlayerStatus,
     pub life: Quantity,
     pub mana: BTreeMap<Color, Quantity>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub restricted_mana: Vec<RestrictedMana>,
     pub hand_count: u32,
     pub library_count: u32,
 }
@@ -174,7 +117,6 @@ impl<O> VisiblePlayer<O> {
             status: self.status,
             life: self.life,
             mana: self.mana,
-            restricted_mana: self.restricted_mana,
             hand_count: self.hand_count,
             library_count: self.library_count,
         }
@@ -185,10 +127,6 @@ impl<O> VisiblePlayer<O> {
 #[schemars(rename = "VisibleObject")]
 #[serde(bound(deserialize = "H: Deserialize<'de>"))]
 pub struct VisibleObject<H = ObjectHandle> {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub copied_values: Option<VisiblePermanentCopy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_face: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,8 +149,6 @@ pub struct VisibleObject<H = ObjectHandle> {
     pub token: Option<VisibleToken>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
-    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
-    pub lore_counters: Quantity,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub characteristics: Option<Characteristics>,
     pub marked_damage: Quantity,
@@ -228,8 +164,6 @@ pub struct VisibleObject<H = ObjectHandle> {
 impl<H> VisibleObject<H> {
     pub(super) fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleObject<T> {
         VisibleObject {
-            copied_values: self.copied_values,
-            display_face: self.display_face,
             face_down: self.face_down,
             exiled_by: self.exiled_by.map(&mut convert),
             phased_out: self.phased_out,
@@ -241,7 +175,6 @@ impl<H> VisibleObject<H> {
             restrictions: self.restrictions,
             token: self.token,
             plus_one_counters: self.plus_one_counters,
-            lore_counters: self.lore_counters,
             characteristics: self.characteristics,
             marked_damage: self.marked_damage,
             attack_ready: self.attack_ready,
@@ -253,13 +186,6 @@ impl<H> VisibleObject<H> {
             tapped: self.tapped,
         }
     }
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct VisiblePermanentCopy {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oracle_id: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -328,10 +254,8 @@ impl<O> VisibleEntityTarget<O> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "VisibleStackEntry")]
-#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>, E: Deserialize<'de>"))]
-pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle> {
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub bestowed: bool,
+#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>"))]
+pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -341,11 +265,7 @@ pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<u32>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub selected_modes: Vec<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub triggered: Option<VisibleTriggered<H, O, E>>,
+    pub triggered: Option<VisibleTriggered<H, O>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entity_targets: Vec<VisibleEntityTarget<O>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -363,19 +283,16 @@ pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle
     pub spell_copy: bool,
     pub targets: Vec<VisibleTarget<O>>,
 }
-impl<H, O, E> VisibleStackEntry<H, O, E> {
-    pub(super) fn map_handles<T, P: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
+impl<H, O> VisibleStackEntry<H, O> {
+    pub(super) fn map_handles<T, P: for<'a> From<&'a O>>(
         self,
         mut convert: impl FnMut(H) -> T,
-    ) -> VisibleStackEntry<T, P, F> {
+    ) -> VisibleStackEntry<T, P> {
         VisibleStackEntry {
-            bestowed: self.bestowed,
             selected_additional_costs: self.selected_additional_costs,
             x: self.x,
             hybrid_colors: self.hybrid_colors,
             mana_value: self.mana_value,
-            mode: self.mode,
-            selected_modes: self.selected_modes,
             triggered: self.triggered.map(|row| row.map_handles(&mut convert)),
             entity_targets: self
                 .entity_targets
@@ -457,441 +374,12 @@ pub struct PermittedView<O = ObjectHandle> {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct AdditionalCostChoice {
-    pub id: String,
-    pub mana: ManaCost,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "request", rename_all = "snake_case", deny_unknown_fields)]
-pub enum PlayerRequest {
-    OpeningPlacement {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
-    GraveyardReplacementOrder {
-        /// OptionalEffect(true) selects this alternative to exile. Omission selects the printed shuffle.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        offered: Option<GraveyardOrderOption>,
-        token: DecisionToken,
-        player: PlayerId,
-        object: ObjectHandle,
-    },
-
-    AdditionalCosts {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<AdditionalCostChoice>,
-    },
-
-    EntryCopy {
-        token: DecisionToken,
-        player: PlayerId,
-        source: ObjectHandle,
-        candidates: Vec<ObjectHandle>,
-    },
-    EntryAttachment {
-        token: DecisionToken,
-        player: PlayerId,
-        source: ObjectHandle,
-        candidates: Vec<ObjectHandle>,
-    },
-
-    LegendRule {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-        previous_choices: Vec<ObjectHandle>,
-    },
-    HybridCost {
-        token: DecisionToken,
-        player: PlayerId,
-        symbols: Vec<ColorHybridSymbol>,
-    },
-    AnnounceX {
-        token: DecisionToken,
-        player: PlayerId,
-    },
-    SacrificeCost {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
-    ForcedSacrifice {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-        previous_choices: Vec<(PlayerId, ObjectHandle)>,
-    },
-    ChooseManaAbility {
-        token: DecisionToken,
-        player: PlayerId,
-        choices: Vec<ManaAbilityIdentity>,
-        mana_ability_source: ObjectHandle,
-    },
-    ManaCombination {
-        token: DecisionToken,
-        player: PlayerId,
-        total: Quantity,
-        colors: Vec<Color>,
-    },
-    ManaColor {
-        token: DecisionToken,
-        player: PlayerId,
-        colors: Vec<Color>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        mana_ability_source: Option<ObjectHandle>,
-    },
-
-    EntryReveal {
-        token: DecisionToken,
-        player: PlayerId,
-        source: ObjectHandle,
-        candidates: Vec<ObjectHandle>,
-    },
-
-    OptionalEffect {
-        token: DecisionToken,
-        player: PlayerId,
-    },
-
-    Mulligan {
-        token: DecisionToken,
-        player: PlayerId,
-        mulligans_taken: u8,
-        bottom_if_mulligan: u8,
-        can_mulligan: bool,
-    },
-    BottomOpening {
-        token: DecisionToken,
-        player: PlayerId,
-        count: usize,
-        candidates: Vec<ObjectHandle>,
-    },
-
-    Modes {
-        token: DecisionToken,
-        player: PlayerId,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        one_or_more: bool,
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        allow_repeat: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        exactly: Option<u32>,
-        candidates: Vec<u32>,
-    },
-    CounterPlacementEffect {
-        token: DecisionToken,
-        player: PlayerId,
-        recipient: ObjectHandle,
-        candidates: Vec<VisibleCounterPlacementCandidate>,
-    },
-    DamageEffect {
-        token: DecisionToken,
-        player: PlayerId,
-        recipient: PlayerTargetEntity,
-        candidates: Vec<VisibleDamageEffectCandidate>,
-    },
-    OrderTriggers {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<VisiblePendingTrigger>,
-    },
-    EntityTargets {
-        token: DecisionToken,
-        player: PlayerId,
-        occurrences: Vec<TargetSpec>,
-        candidates: Vec<PlayerTargetEntity>,
-    },
-    StackTargets {
-        token: DecisionToken,
-        player: PlayerId,
-        occurrences: Vec<TargetSpec>,
-        candidates: Vec<StackHandle>,
-    },
-    PlayerTargets {
-        token: DecisionToken,
-        player: PlayerId,
-        occurrences: Vec<TargetSpec>,
-        candidates: Vec<PlayerId>,
-    },
-    Sacrifice {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-    },
-    ResolveDiscard {
-        token: DecisionToken,
-        player: PlayerId,
-        count: usize,
-        candidates: Vec<ObjectHandle>,
-    },
-    SpendMana {
-        token: DecisionToken,
-        player: PlayerId,
-        cost: ManaCost,
-        available: BTreeMap<Color, Quantity>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        restricted_available: Vec<RestrictedMana>,
-        /// The permanent whose mana ability this nested payment or color choice
-        /// belongs to (CR 605.3a). Omitted outside nested mana-ability requests.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        mana_ability_source: Option<ObjectHandle>,
-    },
-    CommanderReturn {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        previous_choices: Vec<VisibleCommanderReturnChoice>,
-        token: DecisionToken,
-        player: PlayerId,
-        object: Option<ObjectHandle>,
-        designation: String,
-        destination: Zone,
-    },
-    Attackers {
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-        defenders: Vec<PlayerId>,
-    },
-    Blockers {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        menace_attackers: Vec<ObjectHandle>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        legal_attackers: Vec<LegalBlockers>,
-        token: DecisionToken,
-        player: PlayerId,
-        candidates: Vec<ObjectHandle>,
-        attackers: Vec<ObjectHandle>,
-    },
-    Damage {
-        token: DecisionToken,
-        player: PlayerId,
-        source: ObjectHandle,
-        power: Quantity,
-        recipients: Vec<ObjectHandle>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        player_recipient: Option<PlayerId>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        lethal_requirements: Vec<(ObjectHandle, Quantity)>,
-    },
-    Discard {
-        token: DecisionToken,
-        player: PlayerId,
-        count: usize,
-        candidates: Vec<ObjectHandle>,
-    },
-    Priority {
-        token: DecisionToken,
-        player: PlayerId,
-    },
-    Targets {
-        token: DecisionToken,
-        player: PlayerId,
-        occurrences: Vec<TargetSpec>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        counter_division: Option<CounterDivision>,
-        candidates: Vec<ObjectHandle>,
-    },
-    Mana {
-        token: DecisionToken,
-        player: PlayerId,
-        cost: ManaCost,
-        /// The permanent whose mana ability this nested payment or color choice
-        /// belongs to (CR 605.3a). Omitted outside nested mana-ability requests.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        mana_ability_source: Option<ObjectHandle>,
-    },
-}
-impl PlayerRequest {
-    pub fn token(&self) -> &DecisionToken {
-        match self {
-            Self::EntryCopy { token, .. } | Self::EntryAttachment { token, .. } => token,
-            Self::LegendRule { token, .. }
-            | Self::ChooseManaAbility { token, .. }
-            | Self::ManaCombination { token, .. }
-            | Self::ManaColor { token, .. }
-            | Self::EntryReveal { token, .. }
-            | Self::OptionalEffect { token, .. }
-            | Self::Mulligan { token, .. }
-            | Self::OpeningPlacement { token, .. }
-            | Self::BottomOpening { token, .. }
-            | Self::AdditionalCosts { token, .. }
-            | Self::HybridCost { token, .. }
-            | Self::AnnounceX { token, .. }
-            | Self::Modes { token, .. }
-            | Self::CounterPlacementEffect { token, .. }
-            | Self::DamageEffect { token, .. }
-            | Self::OrderTriggers { token, .. }
-            | Self::EntityTargets { token, .. }
-            | Self::StackTargets { token, .. }
-            | Self::PlayerTargets { token, .. }
-            | Self::Sacrifice { token, .. }
-            | Self::SacrificeCost { token, .. }
-            | Self::ForcedSacrifice { token, .. }
-            | Self::ResolveDiscard { token, .. }
-            | Self::SpendMana { token, .. }
-            | Self::GraveyardReplacementOrder { token, .. }
-            | Self::CommanderReturn { token, .. }
-            | Self::Attackers { token, .. }
-            | Self::Blockers { token, .. }
-            | Self::Damage { token, .. }
-            | Self::Discard { token, .. }
-            | Self::Priority { token, .. }
-            | Self::Targets { token, .. }
-            | Self::Mana { token, .. } => token,
-        }
-    }
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct Observation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_context: Option<DecisionContext>,
     pub observation_version: u32,
     pub view: PermittedView,
-    pub decision: Option<PlayerRequest>,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "response", rename_all = "snake_case", deny_unknown_fields)]
-pub enum PlayerResponse {
-    OpeningPlacement {
-        object: Option<ObjectHandle>,
-    },
-    AdditionalCosts {
-        selected: Vec<String>,
-    },
-
-    EntryCopy {
-        object: Option<ObjectHandle>,
-    },
-    EntryAttachment {
-        object: ObjectHandle,
-    },
-
-    LegendRule {
-        keep: ObjectHandle,
-    },
-    HybridCost {
-        colors: Vec<HybridPayment>,
-    },
-    AnnounceX {
-        value: Quantity,
-    },
-    SacrificeCost {
-        object: ObjectHandle,
-    },
-    ForcedSacrifice {
-        object: ObjectHandle,
-    },
-    ChooseManaAbility {
-        ability: ManaAbilityIdentity,
-    },
-    ManaCombination {
-        amounts: [Quantity; 5],
-    },
-    ManaColor {
-        color: Color,
-    },
-
-    EntryReveal {
-        card: Option<ObjectHandle>,
-    },
-
-    OptionalEffect {
-        perform: bool,
-    },
-
-    Mulligan {
-        take: bool,
-    },
-    BottomOpening {
-        objects: Vec<ObjectHandle>,
-    },
-
-    ModeSubset {
-        modes: Vec<u32>,
-    },
-    Modes {
-        mode: u32,
-    },
-    CounterPlacementEffect {
-        effect: CounterPlacementEffectHandle,
-    },
-    DamageEffect {
-        effect: EffectHandle,
-        damage: DamageHandle,
-    },
-    OrderTriggers {
-        order: Vec<TriggerHandle>,
-    },
-    EntityTargets {
-        entities: Vec<PlayerTargetEntity>,
-    },
-    StackTargets {
-        entries: Vec<StackHandle>,
-    },
-    ActivateAbility {
-        object: ObjectHandle,
-        ability: u32,
-    },
-    PlayerTargets {
-        players: Vec<PlayerId>,
-    },
-    Sacrifice {
-        object: ObjectHandle,
-    },
-    ResolveDiscard {
-        objects: Vec<ObjectHandle>,
-    },
-    SpendMana {
-        spending: BTreeMap<Color, Quantity>,
-    },
-    SpendManaAllocated {
-        spending: BTreeMap<Color, Quantity>,
-        restricted: Vec<RestrictedMana>,
-    },
-    CommanderReturn {
-        to_command: bool,
-    },
-    Attackers {
-        attacks: Vec<(ObjectHandle, PlayerId)>,
-    },
-    Blockers {
-        blocks: Vec<(ObjectHandle, ObjectHandle)>,
-    },
-    Damage {
-        assignments: Vec<(ObjectHandle, Quantity)>,
-    },
-    TrampleDamage {
-        assignments: Vec<(ObjectHandle, Quantity)>,
-        player: PlayerId,
-        amount: Quantity,
-    },
-    Discard {
-        objects: Vec<ObjectHandle>,
-    },
-    PlayLand {
-        object: ObjectHandle,
-    },
-    PlayBackLand {
-        object: ObjectHandle,
-    },
-    ActivateMana {
-        object: ObjectHandle,
-    },
-    Bestow {
-        card: ObjectHandle,
-    },
-    Cast {
-        card: ObjectHandle,
-    },
-    Pass,
-    Targets {
-        objects: Vec<ObjectHandle>,
-    },
-    FinishMana {
-        undo_mana: bool,
-    },
+    pub decision: Option<Decision<Viewer>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1011,7 +499,7 @@ pub struct Knowledge {
     pub handles: ObjectHandles,
     next_handle: u64,
     decision_key: Option<(u64, u8)>,
-    decision_token: Option<DecisionToken>,
+    pub(in crate::engine) decision_token: Option<DecisionToken>,
     next_decision: u64,
     pub history: super::stored_history::StoredHistory,
 }
@@ -1299,9 +787,7 @@ impl RulesTxn {
         })
     }
 
-    fn visible_trigger_ability<O, E>(
-        ability: EffectiveTriggerAbility,
-    ) -> VisibleTriggerAbility<O, E> {
+    fn visible_trigger_ability(ability: EffectiveTriggerAbility) -> VisibleTriggerAbility {
         match ability {
             EffectiveTriggerAbility::Intrinsic { index } => {
                 VisibleTriggerAbility::Intrinsic { index }
@@ -1320,22 +806,9 @@ impl RulesTxn {
             }),
         }
     }
-    pub(crate) fn resolve_entity(
-        &self,
-        viewer: PlayerId,
-        target: &PlayerTargetEntity,
-    ) -> Result<TargetEntity, String> {
-        match target {
-            PlayerTargetEntity::Player { player } => Ok(TargetEntity::Player { player: *player }),
-            PlayerTargetEntity::Object { object } => Ok(TargetEntity::Object {
-                object: self.resolve_handle(viewer, object)?,
-            }),
-        }
-    }
-
     // CR 400.2, 401.2, 402.3: own hand is visible; all libraries and other
     // hands remain hidden. https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
+    pub(in crate::engine) fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
         if match object.zone {
             Zone::Hand { owner } => owner == viewer,
             Zone::Library { .. } => false,
@@ -1387,26 +860,6 @@ impl RulesTxn {
             .get(viewer.0 as usize)
             .and_then(|knowledge| knowledge.ability_handles.get(&id))
             .ok_or_else(|| "stack object is not visible".into())
-    }
-    fn resolve_stack_handle(
-        &self,
-        viewer: PlayerId,
-        handle: &StackHandle,
-    ) -> Result<StackId, String> {
-        let handle = HandleId::parse(&handle.0);
-        self.state
-            .knowledge
-            .visibility
-            .get(viewer.0 as usize)
-            .and_then(|knowledge| {
-                knowledge
-                    .ability_handles
-                    .iter()
-                    .find(|(_, value)| **value == handle)
-            })
-            .map(|(id, _)| *id)
-            .filter(|id| self.state.rules.stack.iter().any(|entry| entry.id == *id))
-            .ok_or_else(|| "stale or foreign stack handle".into())
     }
     // Unindexed reference projection, kept for the frozen query oracle.
     #[cfg(feature = "testkit")]
@@ -1468,7 +921,6 @@ impl RulesTxn {
             status: p.status,
             life: p.life.clone(),
             mana: p.mana.clone(),
-            restricted_mana: p.restricted_mana.clone(),
             hand_count: checked_count(hand_count)?,
             library_count: checked_count(library_count)?,
         })
@@ -1554,11 +1006,8 @@ impl RulesTxn {
             .ok_or("missing object definition")?;
         if let Some(link) = &object.hideaway {
             return Ok(VisibleObject {
-                copied_values: None,
-                display_face: None,
                 entered_this_turn: false,
                 face_down: true,
-                lore_counters: Quantity::zero(),
                 exiled_by: Some(H::from(link.source_handle(viewer))),
                 oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
                     physical.oracle_id.clone()
@@ -1583,7 +1032,6 @@ impl RulesTxn {
                 phased_out: false,
             });
         }
-        let copied_values = None;
         let attached_to = object
             .attached_to
             .filter(|t| self.current(*t).is_ok())
@@ -1628,8 +1076,6 @@ impl RulesTxn {
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
-            display_face: None,
-            copied_values,
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
@@ -1641,7 +1087,6 @@ impl RulesTxn {
             token,
             mana_ability_used,
             plus_one_counters: object.plus_one_counters.clone(),
-            lore_counters: Quantity::zero(),
             characteristics: Some(characteristics),
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
@@ -1730,12 +1175,11 @@ impl RulesTxn {
     fn project_stack_entry<
         H: for<'a> From<&'a HandleId<b's'>>,
         O: for<'a> From<&'a HandleId<b'o'>>,
-        E: for<'a> From<&'a HandleId<b'e'>>,
     >(
         &self,
         viewer: PlayerId,
         index: usize,
-    ) -> Result<VisibleStackEntry<H, O, E>, String> {
+    ) -> Result<VisibleStackEntry<H, O>, String> {
         let instance = self
             .state
             .rules
@@ -1855,7 +1299,6 @@ impl RulesTxn {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
-            bestowed: false,
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),
@@ -1864,8 +1307,6 @@ impl RulesTxn {
                 .as_ref()
                 .map(|_| self.stack_mana_value(instance))
                 .transpose()?,
-            mode: None,
-            selected_modes: vec![],
             triggered,
             entity_targets,
             handle: { Some(H::from(self.stack_handle_id(viewer, instance.id)?)) },
@@ -1946,535 +1387,6 @@ impl RulesTxn {
             players: vec![],
             objects: vec![],
             stack: vec![],
-        })
-    }
-    pub(crate) fn request_header(&self, viewer: PlayerId) -> Result<Option<PlayerRequest>, String> {
-        if viewer.0 >= 4 {
-            return Err("invalid viewer".into());
-        }
-        if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
-            return Ok(None);
-        }
-        let token = self.state.knowledge.visibility[viewer.0 as usize]
-            .decision_token
-            .clone();
-        let Some(token) = token else {
-            return Ok(None);
-        };
-        if let Frame::Kernel { task } = &self.state.rules.frame {
-            return Ok(self
-                .kernel_request(task)?
-                .filter(|r| r.player() == viewer)
-                .map(|_| PlayerRequest::OptionalEffect {
-                    token,
-                    player: viewer,
-                }));
-        }
-        if let Some(Request::GraveyardReplacementOrder {
-            player,
-            object,
-            offered,
-            ..
-        }) = self.group_replacement_request()
-        {
-            return if player == viewer {
-                Ok(Some(PlayerRequest::GraveyardReplacementOrder {
-                    offered,
-                    token,
-                    player,
-                    object: self.handle_for(viewer, object)?,
-                }))
-            } else {
-                Ok(None)
-            };
-        }
-        if let Some(Request::CommanderReturn {
-            object,
-            player,
-            destination,
-            ..
-        }) = self.replacement_request()
-        {
-            return if player == viewer {
-                Ok(Some(PlayerRequest::CommanderReturn {
-                    previous_choices: self.visible_commander_choices(viewer)?,
-                    token,
-                    player,
-                    object: Some(self.handle_for(viewer, object)?),
-                    designation: self.commander_designation(viewer, object.card)?,
-                    destination,
-                }))
-            } else {
-                Ok(None)
-            };
-        }
-        if let Some(Request::LegendRule {
-            player,
-            candidates,
-            previous_choices,
-            ..
-        }) = self.legend_request()?
-        {
-            return (player == viewer)
-                .then(|| -> Result<_, String> {
-                    Ok(PlayerRequest::LegendRule {
-                        token,
-                        player,
-                        candidates: candidates
-                            .into_iter()
-                            .map(|o| self.handle_for(viewer, o))
-                            .collect::<Result<_, _>>()?,
-                        previous_choices: previous_choices
-                            .into_iter()
-                            .map(|o| self.handle_for(viewer, o))
-                            .collect::<Result<_, _>>()?,
-                    })
-                })
-                .transpose();
-        }
-        if matches!(
-            self.state.rules.frame,
-            Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. }
-        ) {
-            return Ok(match self.sacrifice_request()? {
-                Some(Request::SacrificeCost {
-                    player, candidates, ..
-                }) if player == viewer => Some(PlayerRequest::SacrificeCost {
-                    token,
-                    player,
-                    candidates: candidates
-                        .into_iter()
-                        .map(|o| self.handle_for(viewer, o))
-                        .collect::<Result<_, _>>()?,
-                }),
-                Some(Request::ForcedSacrifice {
-                    player,
-                    candidates,
-                    previous_choices,
-                    ..
-                }) if player == viewer => Some(PlayerRequest::ForcedSacrifice {
-                    token,
-                    player,
-                    candidates: candidates
-                        .into_iter()
-                        .map(|o| self.handle_for(viewer, o))
-                        .collect::<Result<_, _>>()?,
-                    previous_choices: previous_choices
-                        .into_iter()
-                        // CR 800.4a/104.3a: a departed chooser's objects no longer exist.
-                        .filter(|(p, o)| self.is_live(*p) && self.current(*o).is_ok())
-                        .map(|(p, o)| Ok((p, self.handle_for(viewer, o)?)))
-                        .collect::<Result<_, String>>()?,
-                }),
-                Some(Request::OptionalEffect { player, .. }) if player == viewer => {
-                    Some(PlayerRequest::OptionalEffect { token, player })
-                }
-                _ => None,
-            });
-        }
-        if matches!(self.state.rules.frame, Frame::Setup) {
-            return Ok(match self.setup_request()? {
-                Some(Request::Mulligan {
-                    player,
-                    mulligans_taken,
-                    bottom_if_mulligan,
-                    can_mulligan,
-                    ..
-                }) if player == viewer => Some(PlayerRequest::Mulligan {
-                    token,
-                    player,
-                    mulligans_taken,
-                    bottom_if_mulligan,
-                    can_mulligan,
-                }),
-                Some(Request::BottomOpening { player, count, .. }) if player == viewer => {
-                    Some(PlayerRequest::BottomOpening {
-                        token,
-                        player,
-                        count,
-                        candidates: vec![],
-                    })
-                }
-                _ => None,
-            });
-        }
-
-        if let Frame::AdditionalCosts { .. } = self.state.rules.frame {
-            return if self.top()?.controller == viewer {
-                Ok(Some(PlayerRequest::AdditionalCosts {
-                    token,
-                    player: viewer,
-                    candidates: self.public_additional_cost_choices(viewer)?,
-                }))
-            } else {
-                Ok(None)
-            };
-        }
-        if let Frame::HybridCost { .. } = self.state.rules.frame {
-            let top = self.top()?;
-            if top.controller != viewer {
-                return Ok(None);
-            }
-            return Ok(Some(PlayerRequest::HybridCost {
-                token,
-                player: viewer,
-                symbols: self
-                    .definition(top.source.card)?
-                    .characteristics
-                    .hybrid_mana
-                    .clone(),
-            }));
-        }
-        if let Frame::AnnounceX { .. } = self.state.rules.frame {
-            return Ok(
-                (self.top()?.controller == viewer).then_some(PlayerRequest::AnnounceX {
-                    token,
-                    player: self.top()?.controller,
-                }),
-            );
-        }
-        if let Some(Request::DamageEffect {
-            player, recipient, ..
-        }) = self.damage_effect_request()?
-            && player == viewer
-        {
-            return Ok(Some(PlayerRequest::DamageEffect {
-                token,
-                player,
-                recipient: self.player_entity(viewer, recipient)?,
-                candidates: vec![],
-            }));
-        }
-
-        if let Some(request) = self.actions_request()?
-            && request.player() == viewer
-        {
-            let handles = |objects: Vec<ObjectId>| {
-                objects
-                    .into_iter()
-                    .map(|object| self.handle_for(viewer, object))
-                    .collect::<Result<Vec<_>, _>>()
-            };
-            return Ok(Some(match request {
-                Request::ManaCombination { total, colors, .. } => PlayerRequest::ManaCombination {
-                    token,
-                    player: viewer,
-                    total,
-                    colors,
-                },
-                Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
-                    token,
-                    player: viewer,
-                },
-
-                Request::Sacrifice { candidates, .. } => PlayerRequest::Sacrifice {
-                    token,
-                    player: viewer,
-                    candidates: handles(candidates)?,
-                },
-                Request::ResolveDiscard {
-                    count, candidates, ..
-                } => PlayerRequest::ResolveDiscard {
-                    token,
-                    player: viewer,
-                    count,
-                    candidates: handles(candidates)?,
-                },
-                _ => return Err("resolution request invariant".into()),
-            }));
-        }
-        if self.combat_decision_player() == Some(viewer) {
-            let handles = |v: Vec<ObjectId>| {
-                v.into_iter()
-                    .map(|o| self.handle_for(viewer, o))
-                    .collect::<Result<Vec<_>, String>>()
-            };
-            return Ok(Some(
-                match self.combat_request()?.ok_or("missing combat request")? {
-                    Request::Attackers {
-                        candidates,
-                        defenders,
-                        ..
-                    } => PlayerRequest::Attackers {
-                        token,
-                        player: viewer,
-                        candidates: handles(candidates)?,
-                        defenders,
-                    },
-                    Request::Blockers {
-                        candidates,
-                        attackers,
-                        ..
-                    } => PlayerRequest::Blockers {
-                        menace_attackers: handles(
-                            attackers
-                                .iter()
-                                .copied()
-                                .filter(|a| self.has_keyword(*a, KeywordAbility::Menace))
-                                .collect(),
-                        )?,
-                        legal_attackers: {
-                            candidates
-                                .iter()
-                                .map(|b| {
-                                    Ok(LegalBlockers {
-                                        blocker: self.handle_for(viewer, *b)?,
-                                        attackers: handles(
-                                            attackers
-                                                .iter()
-                                                .copied()
-                                                .filter(|a| self.can_block(*b, *a))
-                                                .collect(),
-                                        )?,
-                                    })
-                                })
-                                .collect::<Result<Vec<_>, String>>()?
-                        },
-                        token,
-                        player: viewer,
-                        candidates: handles(candidates)?,
-                        attackers: handles(attackers)?,
-                    },
-                    Request::Damage {
-                        source,
-                        power,
-                        recipients,
-                        player_recipient,
-                        lethal_requirements,
-                        ..
-                    } => PlayerRequest::Damage {
-                        player_recipient,
-                        lethal_requirements: lethal_requirements
-                            .into_iter()
-                            .map(|(o, n)| Ok((self.handle_for(viewer, o)?, n)))
-                            .collect::<Result<_, String>>()?,
-                        token,
-                        player: viewer,
-                        source: self.handle_for(viewer, source)?,
-                        power,
-                        recipients: handles(recipients)?,
-                    },
-                    Request::Discard {
-                        count, candidates, ..
-                    } => PlayerRequest::Discard {
-                        token,
-                        player: viewer,
-                        count,
-                        candidates: handles(candidates)?,
-                    },
-                    _ => return Err("combat request invariant".into()),
-                },
-            ));
-        }
-        if let Some(Request::OrderTriggers { player, .. }) = self.trigger_request()? {
-            return Ok((player == viewer).then_some(PlayerRequest::OrderTriggers {
-                token,
-                player,
-                candidates: vec![],
-            }));
-        }
-        match &self.state.rules.frame {
-            Frame::EntityTargets { .. } | Frame::TriggerTargets { .. }
-                if self.top()?.controller == viewer
-                    && self
-                        .program()?
-                        .targets
-                        .first()
-                        .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
-            {
-                Ok(Some(PlayerRequest::EntityTargets {
-                    token,
-                    player: viewer,
-                    occurrences: self.program()?.targets.clone(),
-                    candidates: vec![],
-                }))
-            }
-            Frame::StackTargets { .. } if self.top()?.controller == viewer => {
-                Ok(Some(PlayerRequest::StackTargets {
-                    token,
-                    player: viewer,
-                    occurrences: self.program()?.targets.clone(),
-                    candidates: self
-                        .eligible_stack_targets_for(
-                            &self.program()?.targets[0],
-                            viewer,
-                            Some(self.top()?.id),
-                        )
-                        .into_iter()
-                        .map(|id| self.stack_handle_for(viewer, id))
-                        .collect::<Result<Vec<_>, _>>()?,
-                }))
-            }
-            Frame::TriggerTargets { .. }
-                if self.top()?.controller == viewer
-                    && self.program()?.targets.first().is_some_and(|t| {
-                        matches!(
-                            t.domain,
-                            TargetDomain::BattlefieldPermanent
-                                | TargetDomain::BattlefieldCreature
-                                | TargetDomain::OwnGraveyardCreatureCard
-                                | TargetDomain::OwnGraveyardCard
-                        )
-                    }) =>
-            {
-                if !self.top_has_target_domain()? {
-                    return Ok(None);
-                }
-                Ok(Some(PlayerRequest::Targets {
-                    token,
-                    player: viewer,
-                    occurrences: self.program()?.targets.clone(),
-                    counter_division: None,
-                    candidates: vec![],
-                }))
-            }
-            Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. }
-                if self.top()?.controller == viewer =>
-            {
-                Ok(Some(PlayerRequest::PlayerTargets {
-                    token,
-                    player: viewer,
-                    occurrences: self.program()?.targets.clone(),
-                    candidates: self.eligible_players(self.program()?.targets[0].domain, viewer),
-                }))
-            }
-            Frame::ManaSourceChoice {
-                player,
-                source,
-                scope: ManaSourceScope::Mixed,
-                ..
-            } if *player == viewer => Ok(Some(PlayerRequest::ChooseManaAbility {
-                token,
-                player: viewer,
-                choices: self.mixed_mana_choices(viewer, *source)?,
-                mana_ability_source: self.handle_for(viewer, *source)?,
-            })),
-            Frame::ManaSourceChoice {
-                player,
-                source,
-                scope,
-                ..
-            } if *player == viewer => Ok(Some(PlayerRequest::ManaColor {
-                token,
-                player: viewer,
-                colors: self.mana_source_colors(*player, *source, *scope)?,
-                mana_ability_source: Some(self.handle_for(viewer, *source)?),
-            })),
-            Frame::ResolutionPayment { payment, .. } if payment.payer == viewer => self
-                .visible_payment_request(
-                    viewer,
-                    token,
-                    self.resolution_payment_request(payment),
-                    None,
-                )
-                .map(Some),
-            Frame::ManaAbility { activation } if activation.player == viewer => {
-                Ok(Some(match self.permanent_mana_request(activation)? {
-                    request @ (Request::Mana { .. } | Request::SpendMana { .. }) => self
-                        .visible_payment_request(
-                            viewer,
-                            token,
-                            request,
-                            Some(self.handle_for(viewer, activation.source)?),
-                        )?,
-                    Request::ManaCombination { total, colors, .. } => {
-                        PlayerRequest::ManaCombination {
-                            token,
-                            player: viewer,
-                            total,
-                            colors,
-                        }
-                    }
-                    Request::ManaColor { colors, .. } => PlayerRequest::ManaColor {
-                        token,
-                        player: viewer,
-                        colors,
-                        // CR 113.7a: the paid production choice survives its
-                        // source, but a departed incarnation has no live handle.
-                        mana_ability_source: self
-                            .current(activation.source)
-                            .ok()
-                            .map(|_| self.handle_for(viewer, activation.source))
-                            .transpose()?,
-                    },
-                    _ => return Err("nested mana request invariant".into()),
-                }))
-            }
-            Frame::SpendMana { .. } if self.top()?.controller == viewer => self
-                .visible_payment_request(viewer, token, self.spend_mana_request()?, None)
-                .map(Some),
-            Frame::CommanderReturn {
-                object,
-                destination,
-                ..
-            } if self.state.rules.cards[&object.card].owner == viewer => {
-                Ok(Some(PlayerRequest::CommanderReturn {
-                    previous_choices: self.visible_commander_choices(viewer)?,
-                    token,
-                    player: viewer,
-                    object: self.handle_for(viewer, *object).ok(),
-                    designation: self.commander_designation(viewer, object.card)?,
-                    destination: *destination,
-                }))
-            }
-            Frame::Priority if self.state.rules.priority == viewer => {
-                Ok(Some(PlayerRequest::Priority {
-                    token,
-                    player: viewer,
-                }))
-            }
-            Frame::Targets { .. } if self.top()?.controller == viewer => {
-                Ok(Some(PlayerRequest::Targets {
-                    token,
-                    player: viewer,
-                    occurrences: self.program()?.targets.clone(),
-                    counter_division: None,
-                    candidates: vec![],
-                }))
-            }
-            Frame::Mana { .. } if self.top()?.controller == viewer => {
-                Ok(Some(PlayerRequest::Mana {
-                    token,
-                    player: viewer,
-                    cost: self.top()?.total_cost.clone(),
-                    mana_ability_source: None,
-                }))
-            }
-            _ => Ok(None),
-        }
-    }
-    fn visible_payment_request(
-        &self,
-        viewer: PlayerId,
-        token: DecisionToken,
-        request: Request,
-        mana_ability_source: Option<ObjectHandle>,
-    ) -> Result<PlayerRequest, String> {
-        Ok(match request {
-            Request::OptionalEffect { .. } => PlayerRequest::OptionalEffect {
-                token,
-                player: viewer,
-            },
-            Request::Mana { cost, .. } => PlayerRequest::Mana {
-                token,
-                player: viewer,
-                cost,
-                mana_ability_source,
-            },
-            Request::SpendMana {
-                cost,
-                available,
-                restricted_available,
-                ..
-            } => PlayerRequest::SpendMana {
-                token,
-                player: viewer,
-                cost,
-                available,
-                restricted_available,
-                mana_ability_source,
-            },
-            _ => return Err("payment request invariant".into()),
         })
     }
     pub(in crate::engine) fn order_view_objects(view: &mut PermittedView) {
@@ -2799,8 +1711,9 @@ impl RulesTxn {
                     }
                 }
                 let key = decider
+                    .as_ref()
                     .filter(|decider| decider.player == viewer)
-                    .map(|decider| (revision, decider.kind));
+                    .map(|decider| (revision, decider.reason.code()));
                 k.set_decision_key(v as usize, key)?;
             }
             #[cfg(debug_assertions)]
@@ -2835,29 +1748,6 @@ impl RulesTxn {
             cores: cores.into_inner(),
         })
     }
-    /// Existing permitted handle order only; no raw-object scan or handle minting.
-    /// Publication prunes this map when an incarnation ceases to be visible.
-    pub(in crate::engine) fn next_action_handle(
-        &self,
-        viewer: PlayerId,
-        after: Option<&ObjectHandle>,
-    ) -> Option<ObjectHandle> {
-        use std::ops::Bound::{Excluded, Unbounded};
-        let entries = &self
-            .state
-            .knowledge
-            .visibility
-            .get(viewer.0 as usize)?
-            .handles
-            .entries;
-        let row = match after {
-            None => entries.first_key_value(),
-            Some(handle) => entries
-                .range((Excluded(HandleId::parse(&handle.0)), Unbounded))
-                .next(),
-        };
-        row.map(|(handle, _)| ObjectHandle(handle.to_string()))
-    }
 
     pub(crate) fn resolve_handle(
         &self,
@@ -2877,240 +1767,22 @@ impl RulesTxn {
         }
         Ok(id)
     }
-    pub(crate) fn convert_response(
-        &self,
-        viewer: PlayerId,
-        response: &PlayerResponse,
-    ) -> Result<Response, String> {
-        let size = match response {
-            PlayerResponse::AdditionalCosts { selected } => selected.len(),
-
-            PlayerResponse::Attackers { attacks } => attacks.len(),
-            PlayerResponse::Blockers { blocks } => blocks.len(),
-            PlayerResponse::Damage { assignments }
-            | PlayerResponse::TrampleDamage { assignments, .. } => assignments.len(),
-            PlayerResponse::BottomOpening { objects }
-            | PlayerResponse::Discard { objects }
-            | PlayerResponse::ResolveDiscard { objects } => objects.len(),
-
-            PlayerResponse::OrderTriggers { order } => order.len(),
-            PlayerResponse::PlayerTargets { players } => players.len(),
-            PlayerResponse::EntityTargets { entities } => entities.len(),
-            PlayerResponse::StackTargets { entries } => entries.len(),
-            _ => 0,
-        };
-        if size > std::cmp::max(self.state.rules.objects.len(), self.stack_limit()) {
-            return Err("oversized player declaration".into());
-        }
-        match response {
-            PlayerResponse::AdditionalCosts { selected } => {
-                let choices = self.public_additional_cost_choices(viewer)?;
-                let selected = selected
-                    .iter()
-                    .map(|id| {
-                        let index = choices
-                            .iter()
-                            .position(|c| c.id == *id)
-                            .ok_or("foreign or stale optional cost ID")?;
-                        Ok(self.program()?.optional_additional_costs[index]
-                            .identity
-                            .clone())
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
-                Ok(Response::AdditionalCosts { selected })
-            }
-            PlayerResponse::HybridCost { colors } => Ok(Response::HybridCost {
-                colors: colors.clone(),
-            }),
-            PlayerResponse::AnnounceX { value } => Ok(Response::AnnounceX {
-                value: value.clone(),
-            }),
-            PlayerResponse::ModeSubset { modes } => Ok(Response::ModeSubset {
-                modes: modes.clone(),
-            }),
-            PlayerResponse::Modes { mode } => Ok(Response::Modes { mode: *mode }),
-            PlayerResponse::CounterPlacementEffect { .. } => {
-                Err("no counter placement replacement is admitted".into())
-            }
-            PlayerResponse::DamageEffect { effect, damage } => {
-                let (effect, damage) = self.resolve_damage_effect_pair(viewer, effect, damage)?;
-                Ok(Response::DamageEffect { effect, damage })
-            }
-            PlayerResponse::OrderTriggers { order } => Ok(Response::OrderTriggers {
-                order: order
-                    .iter()
-                    .map(|h| self.resolve_trigger_handle(viewer, h))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }),
-            PlayerResponse::EntityTargets { entities } => Ok(Response::EntityTargets {
-                entities: entities
-                    .iter()
-                    .map(|target| self.resolve_entity(viewer, target))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }),
-            PlayerResponse::StackTargets { entries } => Ok(Response::StackTargets {
-                entries: entries
-                    .iter()
-                    .map(|handle| self.resolve_stack_handle(viewer, handle))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }),
-            PlayerResponse::ActivateAbility { object, ability } => Ok(Response::ActivateAbility {
-                object: self.resolve_handle(viewer, object)?,
-                ability: *ability,
-            }),
-            PlayerResponse::PlayerTargets { players } => Ok(Response::PlayerTargets {
-                players: players.clone(),
-            }),
-            PlayerResponse::EntryCopy { object } => Ok(Response::EntryCopy {
-                object: object
-                    .as_ref()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .transpose()?,
-            }),
-            PlayerResponse::EntryAttachment { object } => Ok(Response::EntryAttachment {
-                object: self.resolve_handle(viewer, object)?,
-            }),
-
-            PlayerResponse::EntryReveal { card } => Ok(Response::EntryReveal {
-                card: card
-                    .as_ref()
-                    .map(|handle| self.resolve_handle(viewer, handle))
-                    .transpose()?,
-            }),
-
-            PlayerResponse::OptionalEffect { perform } => {
-                Ok(Response::OptionalEffect { perform: *perform })
-            }
-
-            PlayerResponse::SacrificeCost { object } => Ok(Response::SacrificeCost {
-                object: self.resolve_handle(viewer, object)?,
-            }),
-            PlayerResponse::LegendRule { keep } => Ok(Response::LegendRule {
-                keep: self.resolve_handle(viewer, keep)?,
-            }),
-            PlayerResponse::ForcedSacrifice { object } => Ok(Response::ForcedSacrifice {
-                object: self.resolve_handle(viewer, object)?,
-            }),
-            PlayerResponse::Sacrifice { object } => Ok(Response::Sacrifice {
-                object: self.resolve_handle(viewer, object)?,
-            }),
-            PlayerResponse::ResolveDiscard { objects } => Ok(Response::ResolveDiscard {
-                objects: objects
-                    .iter()
-                    .map(|object| self.resolve_handle(viewer, object))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }),
-            PlayerResponse::ChooseManaAbility { ability } => {
-                Ok(Response::ChooseManaAbility { ability: *ability })
-            }
-            PlayerResponse::ManaCombination { amounts } => Ok(Response::ManaCombination {
-                amounts: amounts.clone(),
-            }),
-            PlayerResponse::ManaColor { color } => Ok(Response::ManaColor { color: *color }),
-            PlayerResponse::SpendManaAllocated {
-                spending,
-                restricted,
-            } => Ok(Response::SpendManaAllocated {
-                spending: spending.clone(),
-                restricted: restricted.clone(),
-            }),
-            PlayerResponse::SpendMana { spending } => Ok(Response::SpendMana {
-                spending: spending.clone(),
-            }),
-            PlayerResponse::CommanderReturn { to_command } => Ok(Response::CommanderReturn {
-                to_command: *to_command,
-            }),
-            PlayerResponse::Attackers { attacks } => Ok(Response::Attackers {
-                attacks: attacks
-                    .iter()
-                    .map(|(o, p)| Ok((self.resolve_handle(viewer, o)?, *p)))
-                    .collect::<Result<_, String>>()?,
-            }),
-            PlayerResponse::Blockers { blocks } => Ok(Response::Blockers {
-                blocks: blocks
-                    .iter()
-                    .map(|(b, a)| {
-                        Ok((
-                            self.resolve_handle(viewer, b)?,
-                            self.resolve_handle(viewer, a)?,
-                        ))
-                    })
-                    .collect::<Result<_, String>>()?,
-            }),
-            PlayerResponse::TrampleDamage {
-                assignments,
-                player,
-                amount,
-            } => Ok(Response::TrampleDamage {
-                assignments: assignments
-                    .iter()
-                    .map(|(o, n)| Ok((self.resolve_handle(viewer, o)?, n.clone())))
-                    .collect::<Result<_, String>>()?,
-                player: *player,
-                amount: amount.clone(),
-            }),
-            PlayerResponse::Damage { assignments } => Ok(Response::Damage {
-                assignments: assignments
-                    .iter()
-                    .map(|(o, n)| Ok((self.resolve_handle(viewer, o)?, n.clone())))
-                    .collect::<Result<_, String>>()?,
-            }),
-            PlayerResponse::Mulligan { take } => Ok(Response::Mulligan { take: *take }),
-            PlayerResponse::OpeningPlacement { object } => Ok(Response::OpeningPlacement {
-                object: object
-                    .as_ref()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .transpose()?,
-            }),
-            PlayerResponse::BottomOpening { objects } => Ok(Response::BottomOpening {
-                objects: objects
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-            }),
-            PlayerResponse::Discard { objects } => Ok(Response::Discard {
-                objects: objects
-                    .iter()
-                    .map(|o| self.resolve_handle(viewer, o))
-                    .collect::<Result<_, _>>()?,
-            }),
-            PlayerResponse::PlayBackLand { object } => Ok(Response::PlayBackLand {
-                card: self.resolve_handle(viewer, object)?.card,
-            }),
-            PlayerResponse::PlayLand { object } => Ok(Response::PlayLand {
-                card: self.resolve_handle(viewer, object)?.card,
-            }),
-            PlayerResponse::ActivateMana { object } => Ok(Response::ActivateMana {
-                object: self.resolve_handle(viewer, object)?,
-            }),
-            PlayerResponse::Bestow { card } => Ok(Response::Bestow {
-                card: self.resolve_handle(viewer, card)?.card,
-            }),
-            PlayerResponse::Cast { card } => Ok(Response::Cast {
-                card: self.resolve_handle(viewer, card)?.card,
-            }),
-            PlayerResponse::Pass => Ok(Response::Pass),
-            PlayerResponse::FinishMana { undo_mana } => Ok(Response::FinishMana {
-                undo_mana: *undo_mana,
-            }),
-            PlayerResponse::Targets { objects } => Ok(Response::Targets {
-                objects: objects
-                    .iter()
-                    .map(|h| self.resolve_handle(viewer, h))
-                    .collect::<Result<_, _>>()?,
-            }),
-        }
-    }
     pub(crate) fn validate_player_token(
         &self,
         viewer: PlayerId,
         token: &DecisionToken,
     ) -> Result<(), String> {
-        let request = self
-            .request_header(viewer)?
-            .ok_or("invalid player response")?;
-        if request.token() != token {
-            return Err("invalid player response".into());
+        if self.state.rules.pending.is_some()
+            || !self.state.rules.pending_concessions.is_empty()
+            || self
+                .state
+                .knowledge
+                .visibility
+                .get(viewer.0 as usize)
+                .and_then(|k| k.decision_token.as_ref())
+                != Some(token)
+        {
+            return Err("stale or foreign decision token".into());
         }
         Ok(())
     }

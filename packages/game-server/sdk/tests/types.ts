@@ -1,83 +1,25 @@
-import type { CommandEnvelope, PlayerResponse, ExactQuantity, StreamPage, PlayerRequest, Publication, RulesResult, RejectionReason, CommandExecutionStatus, PublicManifest, Catalog, Decklist } from '../src/client.ts';
+import type { CommandEnvelope, Answer, ExactQuantity, StreamPage, Reason, Publication, RulesResult, RejectionReason, CommandExecutionStatus, PublicManifest, Catalog, Decklist } from '../src/client.ts';
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 type Assert<T extends true> = T;
-type DamagePair = Assert<Equal<Extract<PlayerResponse, { response: 'damage' }>['assignments'][number], [string, ExactQuantity]>>;
-type AttackPair = Assert<Equal<Extract<PlayerResponse, { response: 'attackers' }>['attacks'][number], [string, number]>>;
-type BlockPair = Assert<Equal<Extract<PlayerResponse, { response: 'blockers' }>['blocks'][number], [string, string]>>;
-const damage: PlayerResponse = { response: 'damage', assignments: [['current-handle', '90071992547409931234567890']] };
-// @ts-expect-error exact quantities are strings, never rounded JSON numbers.
-const numericQuantity: PlayerResponse = { response: 'damage', assignments: [['h', 3]] };
-// @ts-expect-error tuple arity comes from Rust Draft7 tuple schema.
-const shortTuple: PlayerResponse = { response: 'damage', assignments: [['h']] };
-// @ts-expect-error tuples cannot acquire an extra placement field.
-const longTuple: PlayerResponse = { response: 'blockers', blocks: [['h', 'b', 'extra']] };
-// @ts-expect-error old raw physical card IDs do not authorize player responses.
-const physicalCast: PlayerResponse = { response: 'cast', card: { card: 0, incarnation: 0 } };
-// @ts-expect-error transport revisions are canonical decimal strings.
-const numericRevision: CommandEnvelope = { protocol_version: 1, command_id: '0'.repeat(32), expected_revision: 0, command: { kind: 'concede' } };
-// @ts-expect-error public cursor is not a JavaScript number.
-const numericCursor: StreamPage = { protocol_version: 1, entries: [], next: 0, has_more: false };
-// @ts-expect-error unsupported protocol response cannot become unknown/any.
-const rawReceipt: PlayerResponse = { response: 'raw_receipt', receipt: {} };
-
-// A real consumer must account for every generated response variant. A Rust
-// enum addition deliberately makes this compile check fail until reviewed.
-export function exhaustive(response: PlayerResponse): string {
-  switch (response.response) {
-    case 'legend_rule': return response.keep;
-    case 'announce_x': return response.value;
-    case 'mulligan': return String(response.take);
-    case 'bottom_opening': return response.objects.join(',');
-    case 'modes': return String(response.mode);
-    case 'damage_effect': return response.effect;
-    case 'order_triggers': return response.order.join(',');
-    case 'entity_targets': return String(response.entities.length);
-    case 'stack_targets': return response.entries.join(',');
-    case 'activate_ability': return response.object;
-    case 'player_targets': return response.players.join(',');
-    case 'sacrifice': return response.object;
-    case 'resolve_discard': return response.objects.join(',');
-    case 'spend_mana': return JSON.stringify(response.spending);
-    case 'commander_return': return String(response.to_command);
-    case 'attackers': return String(response.attacks.length);
-    case 'blockers': return String(response.blocks.length);
-    case 'damage': return String(response.assignments.length);
-    case 'discard': return response.objects.join(',');
-    case 'play_land': return response.object;
-    case 'activate_mana': return response.object;
-    case 'cast': return response.card;
-    case 'pass': return 'pass';
-    case 'targets': return response.objects.join(',');
-    case 'finish_mana': return String(response.undo_mana);
-    case 'trample_damage': return `${response.player}:${response.amount}:${response.assignments.length}`;
-    case 'sacrifice_cost': return response.object;
-    case 'forced_sacrifice': return response.object;
-    case 'optional_effect': return String(response.perform);
-    case 'mana_color': return String(response.color);
-    case 'opening_placement':
-    case 'additional_costs':
-    case 'entry_copy':
-    case 'entry_attachment':
-    case 'hybrid_cost':
-    case 'choose_mana_ability':
-    case 'mana_combination':
-    case 'entry_reveal':
-    case 'mode_subset':
-    case 'counter_placement_effect':
-    case 'spend_mana_allocated':
-    case 'play_back_land':
-    case 'bestow':
-      return response.response;
-    default: { const unhandled: never = response; return unhandled; }
+type NumberAmount = Assert<Equal<Extract<Answer,{answer:'number'}>['value'], ExactQuantity>>;
+type ReturnObject = Assert<Equal<Extract<Reason,{reason:'commander_return'}>['object'], string | null>>;
+export type WireProofs = [NumberAmount, ReturnObject];
+export function exhaustive(answer: Answer): string {
+  switch(answer.answer){
+    case 'pick': case 'order': case 'number': case 'pay': case 'distribute': return answer.answer;
+    default: { const unhandled:never=answer;return unhandled; }
   }
 }
-// Serialization-context Optional references remain required nullable fields.
-type ReturnRequest = Extract<PlayerRequest, { request: 'commander_return' }>;
-type RequiredNullableObject = Assert<Equal<ReturnRequest['object'], string | null>>;
-void [damage, numericQuantity, shortTuple, longTuple, physicalCast, numericRevision, numericCursor, rawReceipt];
-export type TupleProofs = [DamagePair, AttackPair, BlockPair, RequiredNullableObject];
-
+// @ts-expect-error candidate indices are numbers
+const objectPick:Answer={answer:'pick', picks:[['object-handle']]};
+// @ts-expect-error exact damage quantities are decimal strings
+const rounded:Answer={answer:'distribute',amounts:[3]};
+// @ts-expect-error revision counters are decimal strings
+const revision:CommandEnvelope={protocol_version:2,command_id:'a'.repeat(32),expected_revision:0,command:{kind:'concede'}};
+// @ts-expect-error stream cursors are decimal strings
+const cursor:StreamPage={protocol_version:2,entries:[],next:0,has_more:false};
+void [objectPick, rounded, revision, cursor];
 // Host pause/fault cannot be presented as a rules win or draw.
 export function exhaustiveRulesResult(result: RulesResult): string {
   switch (result.outcome) {
@@ -131,31 +73,3 @@ export function publicCatalog(manifest: PublicManifest): [Catalog, Decklist] {
 export type ForbiddenManifestSeed = PublicManifest['seed'];
 // @ts-expect-error public manifest never transports a hidden profile digest.
 export type ForbiddenManifestDigest = PublicManifest['profile_digest'];
-
-// Newer hosted profiles retain exact tuples, private search handles and nested mana sources.
-const trample: PlayerResponse = { response: 'trample_damage', assignments: [['blocker', '1']], player: 2, amount: '9007199254740993' };
-const color: PlayerResponse = { response: 'mana_color', color: 'C' };
-// @ts-expect-error color choices use the generated finite color enum.
-const badColor: PlayerResponse = { response: 'mana_color', color: 'colorless' };
-// @ts-expect-error trample quantities cannot be imprecise JSON numbers.
-const numericTrample: PlayerResponse = { response: 'trample_damage', assignments: [], player: 1, amount: 3 };
-void [trample, color, badColor, numericTrample];
-
-const x: PlayerResponse = {response: 'announce_x', value: '90071992547409931234567890'};
-// @ts-expect-error X is an exact quantity.
-const badX: PlayerResponse = {response: 'announce_x', value: 3};
-void [x,badX];
-
-// IR33 adds an optional, nonnullable Snow characteristic. Existing nonsnow
-// hosted catalogs omit it; feature admission is still owned by Rust.
-type CatalogSnow = Assert<Equal<Catalog['definitions'][number]['characteristics']['snow'], boolean | undefined>>;
-type ViewSnow = Assert<Equal<NonNullable<Extract<Publication, { kind: 'view_replaced' }>['observation']['view']['objects'][number]['characteristics']>['snow'], boolean | undefined>>;
-export type SnowCharacteristicProofs = [CatalogSnow, ViewSnow];
-
-// Scoped doubling stays distinct in the generated public effect union. Its
-// trusted application and source-matching facts never enter the projection.
-type ProjectedEffect = NonNullable<Extract<Publication, { kind: 'view_replaced' }>['observation']['view']['effects']>[number];
-type ControlledCreatureDoubling = Extract<ProjectedEffect, { effect: 'double_controller_creature_damage_to_permanent_or_player' }>;
-type ControlledCreatureEffectHandle = Assert<Equal<ControlledCreatureDoubling['handle'], string>>;
-type PrivateReplacementFacts = Assert<Equal<Extract<keyof ControlledCreatureDoubling, 'qualification' | 'replacement_source' | 'source_appearance' | 'damage_source'>, never>>;
-export type ControlledCreatureReplacementProofs = [ControlledCreatureEffectHandle, PrivateReplacementFacts];

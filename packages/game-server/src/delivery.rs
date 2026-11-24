@@ -214,7 +214,7 @@ impl Delivery {
             if ![
                 "presentation.json",
                 "presentation.schema.json",
-                "request-inventory.json",
+                "decision-inventory.json",
             ]
             .contains(&file.path.as_str())
                 || !is_hash(&file.sha256)
@@ -549,7 +549,7 @@ mod tests {
             let bytes = serde_json::to_vec(artifact).unwrap();
             dir.put("presentation.json", &bytes);
             dir.put("presentation.schema.json", PRESENTATION_SCHEMA.as_bytes());
-            let manifest = serde_json::json!({"artifact_version":1,"producer_sha256":producer,"catalog_file_sha256":"a".repeat(64),"catalog_sha256":mtg_contracts::digest(&catalog).unwrap(),"protocol_schema_sha256":"b".repeat(64),"files":[{"path":"presentation.json","sha256":sha256(&bytes)},{"path":"presentation.schema.json","sha256":sha256(PRESENTATION_SCHEMA.as_bytes())},{"path":"request-inventory.json","sha256":"c".repeat(64)}]});
+            let manifest = serde_json::json!({"artifact_version":1,"producer_sha256":producer,"catalog_file_sha256":"a".repeat(64),"catalog_sha256":mtg_contracts::digest(&catalog).unwrap(),"protocol_schema_sha256":"b".repeat(64),"files":[{"path":"presentation.json","sha256":sha256(&bytes)},{"path":"presentation.schema.json","sha256":sha256(PRESENTATION_SCHEMA.as_bytes())},{"path":"decision-inventory.json","sha256":"c".repeat(64)}]});
             let bytes = serde_json::to_vec(&manifest).unwrap();
             dir.put("artifacts.json", &bytes);
             sha256(&bytes)

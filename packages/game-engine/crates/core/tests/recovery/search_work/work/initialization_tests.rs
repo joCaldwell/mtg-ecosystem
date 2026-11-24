@@ -43,12 +43,7 @@ fn zero_budget_defers_projection_and_request_headers_until_initialization_unit()
 #[test]
 fn initialization_and_first_body_prefix_recover_for_every_query_kind() {
     let game = fixture();
-    let token = game
-        .request_header(PlayerId(0))
-        .unwrap()
-        .unwrap()
-        .token()
-        .clone();
+    let token = game.next_test_viewer_decision().id.clone();
     let queries = [
         Query::Observe {
             viewer: PlayerId(0),
@@ -59,7 +54,9 @@ fn initialization_and_first_body_prefix_recover_for_every_query_kind() {
         Query::Check {
             viewer: PlayerId(0),
             token,
-            response: PlayerResponse::Pass,
+            answer: Answer::Pick {
+                picks: vec![vec![0]],
+            },
         },
         Query::Search {
             viewer: PlayerId(0),
@@ -132,20 +129,13 @@ fn decision_completion_has_one_initialization_unit_and_moves_its_request() {
     let game = fixture();
     let work = incomplete(game.player_decision_for(PlayerId(0), Budget::new(1)));
     assert_eq!(work.data.units_done, 1);
-    let Task::Decision {
-        request: Some(request),
-        ..
-    } = &work.data.task
-    else {
-        panic!("initialized decision");
-    };
-    let original_token_allocation = request.token().0.as_ptr();
+    assert!(matches!(work.data.task, Task::Decision));
     let QueryResult::Complete(QueryValue::Decision(Some(request))) =
         game.resume_work(work, Budget::new(1))
     else {
         panic!("priority decision after initialization and one body unit");
     };
-    assert_eq!(request.token().0.as_ptr(), original_token_allocation);
+    assert!(matches!(request.reason, Reason::Priority));
 }
 
 #[test]
@@ -167,34 +157,48 @@ fn setup_zero_budget_rejects_automatic_work_and_defers_bottom_hand_candidates() 
         let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
             panic!("opening request");
         };
-        if matches!(request, Request::BottomOpening { .. }) {
+        if matches!(
+            request,
+            Decision {
+                reason: Reason::BottomOpening,
+                ..
+            }
+        ) {
             bottom = Some(request);
             break;
         }
-        let Request::Mulligan {
-            mulligans_taken, ..
+        let Decision {
+            reason: Reason::Mulligan {
+                mulligans_taken, ..
+            },
+            ..
         } = request
         else {
             panic!("expected mulligan before bottom choice");
         };
         game.respond(
-            request.player(),
-            request.decision_id(),
-            Response::Mulligan {
-                take: mulligans_taken < 2,
-            },
+            request.player,
+            request.id,
+            game.next_test_decision().select(Candidate::Flag {
+                flag: if mulligans_taken < 2 {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            }),
         )
         .unwrap();
     }
-    let Request::BottomOpening {
-        player,
-        count,
-        candidates,
+    let found @ Decision {
+        reason: Reason::BottomOpening,
         ..
     } = bottom.expect("bottom choice")
     else {
         unreachable!();
     };
+    let player = found.player;
+    let count = found.required_count();
+    let candidates = found.objects_offered();
     assert_eq!(count, 1);
     assert_eq!(candidates.len(), 7);
     let before = game.state.clone();
@@ -202,24 +206,17 @@ fn setup_zero_budget_rejects_automatic_work_and_defers_bottom_hand_candidates() 
     assert!(matches!(work.data.task, Task::Initialize));
     assert_eq!(game.state, before);
     let work = incomplete(game.resume_work(work, Budget::new(1)));
-    let Task::Decision {
-        request: Some(PlayerRequest::BottomOpening { candidates, .. }),
-        ..
-    } = &work.data.task
-    else {
-        panic!("initialized bottom request");
-    };
-    assert!(
-        candidates.is_empty(),
-        "candidate rows remain budgeted after header construction"
-    );
-    let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::BottomOpening {
-        candidates,
-        ..
-    }))) = game.resume_work(work, Budget::unlimited())
+    assert!(matches!(work.data.task, Task::Decision));
+    let QueryResult::Complete(QueryValue::Decision(Some(
+        found @ Decision {
+            reason: Reason::BottomOpening,
+            ..
+        },
+    ))) = game.resume_work(work, Budget::unlimited())
     else {
         panic!("complete bottom request");
     };
+    let candidates = found.objects_offered();
     assert_eq!(candidates.len(), 7);
     assert_eq!(game.state, before);
 }

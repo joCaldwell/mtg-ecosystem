@@ -341,153 +341,47 @@ impl RulesTxn {
         self.validate_activation(player, object, ability)?;
         self.announce_ability(player, decision_id, object, ability)
     }
-    pub(crate) fn actions_request(&self) -> Result<Option<Request>, String> {
+
+    pub(crate) fn actions_request(&self) -> Result<Option<Decision<Rules>>, String> {
         let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
             return Ok(None);
         };
-        let decision_id = self.state.rules.revision;
         Ok(match choice {
             ResolutionChoice::OptionalEffect { player, .. } if self.is_live(*player) => {
-                Some(Request::OptionalEffect {
-                    decision_id,
-                    player: *player,
-                })
+                Some(self.pick_flags(
+                    *player,
+                    Reason::OptionalEffect,
+                    &[Flag::Accept, Flag::Decline],
+                ))
             }
-
             ResolutionChoice::Sacrifice { player, .. } if self.is_live(*player) => {
-                let candidates = self.controlled_creatures(*player);
-                (!candidates.is_empty()).then_some(Request::Sacrifice {
-                    decision_id,
-                    player: *player,
-                    candidates,
-                })
+                let choices = self.controlled_creatures(*player);
+                (!choices.is_empty())
+                    .then(|| self.pick_objects(*player, Reason::Sacrifice, choices, 1))
             }
             ResolutionChoice::Discard { player, count, .. } if self.is_live(*player) => {
-                let candidates = self.action_hand(*player);
-                (!candidates.is_empty()).then_some(Request::ResolveDiscard {
-                    decision_id,
-                    player: *player,
-                    count: std::cmp::min(*count, candidates.len()),
-                    candidates,
-                })
+                let hand = self.action_hand(*player);
+                let count = (*count).min(hand.len());
+                (!hand.is_empty())
+                    .then(|| self.pick_objects(*player, Reason::ResolveDiscard, hand, count))
             }
             _ => None,
         })
     }
-    pub(crate) fn validate_actions_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Option<Result<(), String>> {
-        if let (
-            Frame::ResolutionChoice {
-                choice:
-                    ResolutionChoice::OptionalEffect {
-                        player: chooser, ..
-                    },
-                ..
-            },
-            Response::OptionalEffect { .. },
-        ) = (&self.state.rules.frame, response)
-        {
-            return Some(if *chooser == player && self.is_live(player) {
-                Ok(())
-            } else {
-                Err("invalid optional effect choice".into())
-            });
-        }
 
-        if let Some(result) = self.validate_trigger_response(player, response) {
-            return Some(result);
-        }
-        match (&self.state.rules.frame, response) {
-            (
-                Frame::EntityTargets { .. } | Frame::TriggerTargets { .. },
-                Response::EntityTargets { entities },
-            ) => Some(self.validate_entity_targets(player, entities)),
-            (Frame::StackTargets { .. }, Response::StackTargets { entries }) => {
-                Some(self.validate_stack_targets(player, entries))
-            }
-            (Frame::Priority, Response::ActivateAbility { object, ability })
-                if self.state.rules.priority == player =>
-            {
-                Some(self.validate_activation(player, *object, *ability))
-            }
-            (
-                Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. },
-                Response::PlayerTargets { players },
-            ) => Some((|| {
-                let top = self.top()?;
-                let caster = top.controller;
-                if player != caster
-                    || players.len() != self.program()?.targets.len()
-                    || players.iter().enumerate().any(|(slot, p)| {
-                        !self.program().is_ok_and(|program| {
-                            program.targets.get(slot).is_some_and(|spec| {
-                                self.eligible_players(spec.domain, caster).contains(p)
-                            })
-                        })
-                    })
-                {
-                    return Err("invalid player targets".into());
-                }
-                Ok(())
-            })()),
-            (
-                Frame::ResolutionChoice {
-                    choice:
-                        ResolutionChoice::Sacrifice {
-                            player: chooser, ..
-                        },
-                    ..
-                },
-                Response::Sacrifice { object },
-            ) => Some(
-                if *chooser == player
-                    && self.is_live(player)
-                    && self.controlled_creatures(player).contains(object)
-                {
-                    Ok(())
-                } else {
-                    Err("invalid sacrifice choice".into())
-                },
-            ),
-            (
-                Frame::ResolutionChoice {
-                    choice:
-                        ResolutionChoice::Discard {
-                            player: chooser,
-                            count,
-                            ..
-                        },
-                    ..
-                },
-                Response::ResolveDiscard { objects },
-            ) => Some((|| {
-                if *chooser != player
-                    || !self.is_live(player)
-                    || !self.valid_discard_selection(player, *count, objects)
-                {
-                    return Err("invalid resolution discard choice".into());
-                }
-                Ok(())
-            })()),
-            _ => None,
-        }
-    }
     pub(super) fn actions_step(&mut self, frame: Frame) -> Result<(), String> {
         match frame {
             Frame::EntityTargets { cast } => self.bind_entity_targets(cast)?,
-            Frame::StackTargets { cast } => self.bind_stack_targets(cast)?,
+            Frame::StackTargets { .. } => {
+                return Err("stack targets outside admitted decision algebra".into());
+            }
             Frame::PlayerTargets { cast } => {
                 let input = self
                     .rules_mut()
                     .pending
                     .take()
                     .ok_or("missing player targets")?;
-                let Response::PlayerTargets { players } = input.response else {
-                    return Err("player target response invariant".into());
-                };
+                let players = input.players()?;
                 self.rules_mut()
                     .stack
                     .last_mut()
@@ -533,7 +427,6 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing resolution choice")?;
-                self.validate_choice_input(&choice, input.player, &input.response)?;
                 let source_block = match choice {
                     ResolutionChoice::OptionalEffect { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
@@ -546,34 +439,36 @@ impl RulesTxn {
                     cursor: frame.cursor,
                     source_block,
                 };
-                match input.response {
-                    Response::Sacrifice { object } => {
+                match choice {
+                    ResolutionChoice::Sacrifice { .. } => {
+                        let object = input.object()?;
                         return self.complete_graveyard_group(
                             cause,
                             EventGroup::Occurrence {
                                 proposed: ProposedEvent::Sacrifice {
                                     object,
-                                    player: request.player(),
+                                    player: request.player,
                                 },
                             },
                             GroupFinish::Instruction {
                                 frame,
                                 result: GroupResult::Sacrifice {
-                                    player: request.player(),
+                                    player: request.player,
                                 },
                             },
                         );
                     }
-                    Response::ResolveDiscard { objects } => {
+                    ResolutionChoice::Discard { .. } => {
+                        let objects = input.objects()?;
                         if let Some(group) = &mut frame.group_discard {
-                            group.select(request.player(), objects)?;
+                            group.select(request.player, objects)?;
                             self.rules_mut().frame = Frame::Resolve { frame };
                             return Ok(());
                         }
                         return self.complete_resolving_discards(
                             frame,
                             cause,
-                            request.player(),
+                            request.player,
                             objects,
                         );
                     }
@@ -624,24 +519,7 @@ impl RulesTxn {
             },
         )
     }
-    fn validate_choice_input(
-        &self,
-        choice: &ResolutionChoice,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        let Frame::ResolutionChoice {
-            choice: current, ..
-        } = &self.state.rules.frame
-        else {
-            return Err("missing resolution choice frame".into());
-        };
-        if choice != current {
-            return Err("resolution choice changed".into());
-        }
-        self.validate_actions_response(player, response)
-            .ok_or("resolution choice response mismatch")?
-    }
+
     pub(super) fn finish_instruction(
         &mut self,
         mut frame: Resolving,
@@ -1228,10 +1106,13 @@ impl RulesTxn {
             Frame::ResolutionChoice { .. }
                 | Frame::ForcedSacrifice { .. }
                 | Frame::SacrificeCost { .. }
-        ) && self.state.rules.pending.as_ref().is_some_and(|input| {
-            self.validate_response(input.player, &input.response)
-                .is_err()
-        }) {
+        ) && self
+            .state
+            .rules
+            .pending
+            .as_ref()
+            .is_some_and(|input| self.validate_pending(input).is_err())
+        {
             self.rules_mut().pending = None;
         }
         Ok(())

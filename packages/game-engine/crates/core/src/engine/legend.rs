@@ -30,37 +30,24 @@ impl RulesTxn {
         });
         Ok(groups.into_iter().map(|(_, ids)| ids).collect())
     }
-    pub(super) fn legend_request(&self) -> Result<Option<Request>, String> {
+
+    pub(super) fn legend_request(&self) -> Result<Option<Decision<Rules>>, String> {
         let Frame::LegendRule { groups, kept, .. } = &self.state.rules.frame else {
             return Ok(None);
         };
-        let Some(candidates) = groups.get(kept.len()) else {
+        let Some(objects) = groups.get(kept.len()) else {
             return Ok(None);
         };
-        Ok(Some(Request::LegendRule {
-            decision_id: self.state.rules.revision,
-            player: self.current(candidates[0])?.controller,
-            candidates: candidates.clone(),
-            previous_choices: kept.clone(),
-        }))
+        Ok(Some(self.pick_objects(
+            self.current(objects[0])?.controller,
+            Reason::LegendRule {
+                previous: kept.clone(),
+            },
+            objects.clone(),
+            1,
+        )))
     }
-    pub(super) fn validate_legend_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        match (self.legend_request()?, response) {
-            (
-                Some(Request::LegendRule {
-                    player: chooser,
-                    candidates,
-                    ..
-                }),
-                Response::LegendRule { keep },
-            ) if player == chooser && candidates.contains(keep) => Ok(()),
-            _ => Err("invalid legend-rule keep choice".into()),
-        }
-    }
+
     pub(super) fn legend_step(&mut self, frame: Frame) -> Result<(), String> {
         let Frame::LegendRule {
             resume,
@@ -76,10 +63,8 @@ impl RulesTxn {
                 .pending
                 .take()
                 .ok_or("missing legend choice")?;
-            self.validate_legend_response(input.player, &input.response)?;
-            let Response::LegendRule { keep } = input.response else {
-                return Err("legend response".into());
-            };
+
+            let keep = input.object()?;
             kept.push(keep);
             self.rules_mut().frame = Frame::LegendRule {
                 resume,

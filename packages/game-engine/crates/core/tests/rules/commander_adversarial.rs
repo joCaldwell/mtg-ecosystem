@@ -29,10 +29,17 @@ fn activate(game: &mut Game, player: PlayerId) {
         })
         .expect("missing untapped land")
         .handle;
-    input(game, PlayerResponse::ActivateMana { object: land });
+    input(game, game.next_test_viewer_decision().activate_mana(land));
 }
 fn finish_mana(game: &mut Game, undo_mana: bool) {
-    input(game, PlayerResponse::FinishMana { undo_mana });
+    input(
+        game,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: undo_mana,
+            },
+        },
+    );
 }
 fn cast_first(game: &mut Game) {
     let card = visible(
@@ -41,8 +48,18 @@ fn cast_first(game: &mut Game) {
         PlayerId(0),
         Zone::Command { owner: PlayerId(0) },
     );
-    input(game, PlayerResponse::Cast { card });
-    let PlayerRequest::Mana { cost, .. } = request(game).1 else {
+    input(
+        game,
+        game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card },
+        }),
+    );
+    let Decision {
+        shape: Shape::Pay { cost, .. },
+        reason: Reason::Mana { .. },
+        ..
+    } = request(game).1
+    else {
         panic!()
     };
     assert_eq!(cost.generic, Quantity::zero());
@@ -50,7 +67,12 @@ fn cast_first(game: &mut Game) {
     activate(game, PlayerId(0));
     finish_mana(game, true);
     for _ in 0..4 {
-        input(game, PlayerResponse::Pass);
+        input(
+            game,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     assert_eq!(
         game.zone(game.object_id(CardId(0)).unwrap()),
@@ -63,7 +85,12 @@ fn cast_first(game: &mut Game) {
 }
 fn bounce_to_choice(game: &mut Game) {
     assert_eq!(request(game).0, PlayerId(0));
-    input(game, PlayerResponse::Pass);
+    input(
+        game,
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
+    );
     assert_eq!(request(game).0, PlayerId(1));
     activate(game, PlayerId(1));
     let card = visible(
@@ -72,40 +99,64 @@ fn bounce_to_choice(game: &mut Game) {
         PlayerId(1),
         Zone::Hand { owner: PlayerId(1) },
     );
-    input(game, PlayerResponse::Cast { card });
-    let PlayerRequest::Targets { candidates, .. } = request(game).1 else {
-        panic!()
-    };
-    assert_eq!(candidates.len(), 1);
     input(
         game,
-        PlayerResponse::Targets {
-            objects: candidates,
-        },
+        game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card },
+        }),
     );
+    let found @ Decision {
+        reason: Reason::Targets { .. },
+        ..
+    } = request(game).1
+    else {
+        panic!()
+    };
+    let candidates = found.objects_offered();
+    assert_eq!(candidates.len(), 1);
+    input(game, game.next_test_viewer_decision().targets(candidates));
     finish_mana(game, true);
     for _ in 0..4 {
-        input(game, PlayerResponse::Pass);
+        input(
+            game,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     assert!(matches!(
         request(game),
         (
             PlayerId(0),
-            PlayerRequest::CommanderReturn {
-                destination: Zone::Hand { owner: PlayerId(0) },
+            Decision {
+                reason: Reason::CommanderReturn {
+                    destination: Zone::Hand { owner: PlayerId(0) },
+                    ..
+                },
                 ..
             }
         )
     ));
 }
-fn pass_until(game: &mut Game, wanted: fn(&PlayerRequest) -> bool) {
+fn pass_until(game: &mut Game, wanted: fn(&Decision<Viewer>) -> bool) {
     for _ in 0..40 {
         let req = request(game).1;
         if wanted(&req) {
             return;
         }
-        assert!(matches!(req, PlayerRequest::Priority { .. }));
-        input(game, PlayerResponse::Pass);
+        assert!(matches!(
+            req,
+            Decision {
+                reason: Reason::Priority,
+                ..
+            }
+        ));
+        input(
+            game,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     panic!("expected request not reached")
 }
@@ -121,7 +172,12 @@ fn command_origin_failure_restores_identity_and_tax_with_keep_or_undo() {
         PlayerId(0),
         Zone::Command { owner: PlayerId(0) },
     );
-    input(&mut game, PlayerResponse::Cast { card });
+    {
+        let selected_answer = game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card },
+        });
+        input(&mut game, selected_answer)
+    };
     finish_mana(&mut game, false);
     assert_eq!(game.object_id(CardId(0)), Some(original));
     assert_eq!(
@@ -134,10 +190,12 @@ fn command_origin_failure_restores_identity_and_tax_with_keep_or_undo() {
     );
     cast_first(&mut game);
     bounce_to_choice(&mut game);
-    input(
-        &mut game,
-        PlayerResponse::CommanderReturn { to_command: true },
-    );
+    {
+        let selected_answer = game.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        input(&mut game, selected_answer)
+    };
     assert_eq!(request(&game).0, PlayerId(0));
     for undo_mana in [false, true] {
         let mut branch = game.fork();
@@ -148,8 +206,20 @@ fn command_origin_failure_restores_identity_and_tax_with_keep_or_undo() {
             PlayerId(0),
             Zone::Command { owner: PlayerId(0) },
         );
-        input(&mut branch, PlayerResponse::Cast { card });
-        let PlayerRequest::Mana { cost, .. } = request(&branch).1 else {
+        {
+            let selected_answer = branch
+                .next_test_viewer_decision()
+                .select(Candidate::Action {
+                    action: Action::Cast { card },
+                });
+            input(&mut branch, selected_answer)
+        };
+        let Decision {
+            shape: Shape::Pay { cost, .. },
+            reason: Reason::Mana { .. },
+            ..
+        } = request(&branch).1
+        else {
             panic!()
         };
         assert_eq!(cost.generic, Quantity::from(2));
@@ -199,11 +269,20 @@ fn hand_replacement_owner_authentication_and_source_departure_preserve_resolutio
         reject(
             &game,
             other,
-            req.token().clone(),
-            PlayerResponse::CommanderReturn { to_command: true },
+            req.id.clone(),
+            game.next_test_viewer_decision().select(Candidate::Flag {
+                flag: Flag::CommandZone,
+            }),
         );
     }
-    reject(&game, owner, req.token().clone(), PlayerResponse::Pass);
+    reject(
+        &game,
+        owner,
+        req.id.clone(),
+        Answer::Pick {
+            picks: vec![vec![u32::MAX]],
+        },
+    );
     assert_eq!(
         game.zone(game.object_id(CardId(0)).unwrap()),
         Some(Zone::Battlefield)
@@ -214,9 +293,24 @@ fn hand_replacement_owner_authentication_and_source_departure_preserve_resolutio
         assert!(matches!(settle(&mut branch), Advance::AwaitingDecision(_)));
         assert!(matches!(
             request(&branch),
-            (PlayerId(0), PlayerRequest::CommanderReturn { .. })
+            (
+                PlayerId(0),
+                Decision {
+                    reason: Reason::CommanderReturn { .. },
+                    ..
+                }
+            )
         ));
-        input(&mut branch, PlayerResponse::CommanderReturn { to_command });
+        {
+            let selected_answer = branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            input(&mut branch, selected_answer)
+        };
         let destination = if to_command {
             Zone::Command { owner }
         } else {
@@ -235,8 +329,14 @@ fn hand_replacement_owner_authentication_and_source_departure_preserve_resolutio
         reject(
             &branch,
             owner,
-            req.token().clone(),
-            PlayerResponse::CommanderReturn { to_command },
+            req.id.clone(),
+            branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            }),
         );
         replay_equal(&branch, &prepared);
     }
@@ -259,13 +359,21 @@ fn departure_invalidates_accepted_return_receipt_and_never_resurrects_owner_obje
         }
         let (owner, req) = request(&game);
         assert_eq!(owner, PlayerId(0));
-        assert!(matches!(req, PlayerRequest::CommanderReturn { .. }));
+        assert!(matches!(
+            req,
+            Decision {
+                reason: Reason::CommanderReturn { .. },
+                ..
+            }
+        ));
         let QueryValue::Validated(receipt) = complete(
             &game,
             game.check_player_response(
                 owner,
-                req.token().clone(),
-                PlayerResponse::CommanderReturn { to_command: true },
+                req.id.clone(),
+                game.next_test_viewer_decision().select(Candidate::Flag {
+                    flag: Flag::CommandZone,
+                }),
                 Budget::new(0),
             ),
         ) else {
@@ -295,7 +403,16 @@ fn exile_return_decline_is_one_shot_and_acceptance_has_no_cast_history() {
     );
     for to_command in [false, true] {
         let mut branch = game.fork();
-        input(&mut branch, PlayerResponse::CommanderReturn { to_command });
+        {
+            let selected_answer = branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            input(&mut branch, selected_answer)
+        };
         assert_eq!(
             branch.zone(branch.object_id(CardId(0)).unwrap()),
             Some(if to_command {
@@ -312,12 +429,26 @@ fn exile_return_decline_is_one_shot_and_acceptance_has_no_cast_history() {
             Quantity::zero()
         );
         for _ in 0..3 {
-            assert!(matches!(request(&branch).1, PlayerRequest::Priority { .. }));
-            input(&mut branch, PlayerResponse::Pass);
+            assert!(matches!(
+                request(&branch).1,
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                }
+            ));
+            {
+                let selected_answer = Answer::Pick {
+                    picks: vec![vec![0]],
+                };
+                input(&mut branch, selected_answer)
+            };
         }
         assert!(!matches!(
             request(&branch).1,
-            PlayerRequest::CommanderReturn { .. }
+            Decision {
+                reason: Reason::CommanderReturn { .. },
+                ..
+            }
         ));
         replay_equal(&branch, &prepared);
     }
@@ -331,10 +462,12 @@ fn accepted_return_input_survives_source_departure_but_not_owner_departure() {
     bounce_to_choice(&mut game);
     for departing in [PlayerId(0), PlayerId(1), PlayerId(2)] {
         let mut branch = game.fork();
-        submit(
-            &mut branch,
-            PlayerResponse::CommanderReturn { to_command: true },
-        );
+        {
+            let selected_answer = branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: Flag::CommandZone,
+            });
+            submit(&mut branch, selected_answer)
+        };
         branch.concede(departing).unwrap();
         assert!(matches!(settle(&mut branch), Advance::AwaitingDecision(_)));
         if departing == PlayerId(0) {
@@ -353,34 +486,62 @@ fn accepted_return_input_survives_source_departure_but_not_owner_departure() {
 fn lethal_damage_graveyard_return_uses_a_separate_wave_and_decline_is_one_shot() {
     let prepared = action_scenario(ScenarioConfig::commander_lifecycle());
     let mut game = Game::new(prepared.clone());
-    pass_until(&mut game, |r| matches!(r, PlayerRequest::Attackers { .. }));
-    let PlayerRequest::Attackers { candidates, .. } = request(&game).1 else {
-        panic!()
-    };
-    assert_eq!(candidates.len(), 1);
-    input(
-        &mut game,
-        PlayerResponse::Attackers {
-            attacks: vec![(candidates[0].clone(), PlayerId(1))],
-        },
-    );
-    pass_until(&mut game, |r| matches!(r, PlayerRequest::Blockers { .. }));
-    let PlayerRequest::Blockers {
-        candidates,
-        attackers,
+    pass_until(&mut game, |r| {
+        matches!(
+            r,
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            }
+        )
+    });
+    let found @ Decision {
+        reason: Reason::Attackers,
         ..
     } = request(&game).1
     else {
         panic!()
     };
-    input(
-        &mut game,
-        PlayerResponse::Blockers {
-            blocks: vec![(candidates[0].clone(), attackers[0].clone())],
-        },
-    );
+    let candidates = found.subjects();
+    assert_eq!(candidates.len(), 1);
+    {
+        let selected_answer = game
+            .next_test_viewer_decision()
+            .attack(vec![(candidates[0].clone(), PlayerId(1))]);
+        input(&mut game, selected_answer)
+    };
     pass_until(&mut game, |r| {
-        matches!(r, PlayerRequest::CommanderReturn { .. })
+        matches!(
+            r,
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            }
+        )
+    });
+    let found @ Decision {
+        reason: Reason::Blockers,
+        ..
+    } = request(&game).1
+    else {
+        panic!()
+    };
+    let candidates = found.subjects();
+    let attackers = found.allowed_objects();
+    {
+        let selected_answer = game
+            .next_test_viewer_decision()
+            .block(vec![(candidates[0].clone(), attackers[0].clone())]);
+        input(&mut game, selected_answer)
+    };
+    pass_until(&mut game, |r| {
+        matches!(
+            r,
+            Decision {
+                reason: Reason::CommanderReturn { .. },
+                ..
+            }
+        )
     });
     assert_eq!(
         game.zone(game.object_id(CardId(0)).unwrap()),
@@ -393,13 +554,28 @@ fn lethal_damage_graveyard_return_uses_a_separate_wave_and_decline_is_one_shot()
     assert_eq!(game.object_id(CardId(0)).unwrap().incarnation, 1);
     for to_command in [false, true] {
         let mut branch = game.fork();
-        input(&mut branch, PlayerResponse::CommanderReturn { to_command });
+        {
+            let selected_answer = branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            input(&mut branch, selected_answer)
+        };
         assert_eq!(
             branch.object_id(CardId(0)).unwrap().incarnation,
             if to_command { 2 } else { 1 }
         );
         activate(&mut branch, PlayerId(0));
-        assert!(matches!(request(&branch).1, PlayerRequest::Priority { .. }));
+        assert!(matches!(
+            request(&branch).1,
+            Decision {
+                reason: Reason::Priority,
+                ..
+            }
+        ));
         assert_eq!(
             branch
                 .commander_ledger()
@@ -415,20 +591,49 @@ fn lethal_damage_graveyard_return_uses_a_separate_wave_and_decline_is_one_shot()
 fn actual_unblocked_commander_damage_faults_without_committing_partial_damage() {
     let prepared = action_scenario(ScenarioConfig::commander_lifecycle());
     let mut game = Game::new(prepared.clone());
-    pass_until(&mut game, |r| matches!(r, PlayerRequest::Attackers { .. }));
-    let PlayerRequest::Attackers { candidates, .. } = request(&game).1 else {
+    pass_until(&mut game, |r| {
+        matches!(
+            r,
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            }
+        )
+    });
+    let found @ Decision {
+        reason: Reason::Attackers,
+        ..
+    } = request(&game).1
+    else {
         panic!()
     };
-    input(
-        &mut game,
-        PlayerResponse::Attackers {
-            attacks: vec![(candidates[0].clone(), PlayerId(1))],
-        },
-    );
-    pass_until(&mut game, |r| matches!(r, PlayerRequest::Blockers { .. }));
-    input(&mut game, PlayerResponse::Blockers { blocks: vec![] });
+    let candidates = found.subjects();
+    {
+        let selected_answer = game
+            .next_test_viewer_decision()
+            .attack(vec![(candidates[0].clone(), PlayerId(1))]);
+        input(&mut game, selected_answer)
+    };
+    pass_until(&mut game, |r| {
+        matches!(
+            r,
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            }
+        )
+    });
+    {
+        let selected_answer = game.next_test_viewer_decision().block(vec![]);
+        input(&mut game, selected_answer)
+    };
     for _ in 0..4 {
-        input(&mut game, PlayerResponse::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, selected_answer)
+        };
     }
     assert_eq!(
         observe(&game, PlayerId(0)).view.players[1].life,

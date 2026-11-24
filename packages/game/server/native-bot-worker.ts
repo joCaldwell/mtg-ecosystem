@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { GameClient, parseSeatBootstrap, parsePreparedCommand, prepareCommand, HttpError, PROTOCOL_VERSION, type PlayerResponse } from "@multiverse/game-server-sdk";
+import { GameClient, parseSeatBootstrap, parsePreparedCommand, prepareCommand, HttpError, PROTOCOL_VERSION, type Answer } from "@multiverse/game-server-sdk";
 import { foundationsPolicy } from "@multiverse/game-server-sdk/policies";
 import { readPrivate, writePrivate } from "./native-private.ts";
 
@@ -58,9 +58,9 @@ try {
     if (resume.lifecycle && ["faulted", "resource_paused", "cancelled", "rejected"].includes(resume.lifecycle.status)) throw new Error("Native execution paused");
     if (resume.state.status === "available" && resume.state.observation.decision) {
       const observation = resume.state.observation;
-      const response: PlayerResponse | null = foundationsPolicy(observation, bootstrap.viewer);
+      const response: Answer | null = foundationsPolicy(observation, bootstrap.viewer);
       if (!response) throw new Error("Unsupported automated decision");
-      const command = prepareCommand({ protocol_version: PROTOCOL_VERSION, command_id: randomBytes(16).toString("hex"), expected_revision: resume.next, command: { kind: "decision", token: observation.decision!.token, response } });
+      const command = prepareCommand({ protocol_version: PROTOCOL_VERSION, command_id: randomBytes(16).toString("hex"), expected_revision: resume.next, command: { kind: "decision", token: observation.decision!.token, answer: response } });
       journal = { binding, exactBody: command.exactBody }; save();
     } else await delay(100, undefined, { signal: stop.signal });
   }

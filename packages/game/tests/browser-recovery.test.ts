@@ -19,7 +19,7 @@ for (const mode of ['recover', 'exhaust', 'malformed', 'schema'] as const) {
     const lockReleased = new Promise<void>(resolve => { onRelease = resolve; });
     const snapshots: ReadSnapshot[] = [];
     const methods: string[] = [];
-    const identity = { protocol_version: 1, match_id: opening.resume.match_id,
+    const identity = { protocol_version: 2, match_id: opening.resume.match_id,
       engine_build_id: opening.resume.engine_build_id, server_build_id: opening.resume.server_build_id,
       catalog_sha256: opening.resume.catalog_sha256 };
     const server = createServer((request, response) => {
@@ -33,10 +33,10 @@ for (const mode of ['recover', 'exhaust', 'malformed', 'schema'] as const) {
       if (request.url?.includes('/events?')) {
         polls++;
         if (mode === 'malformed') { response.end('{"protocol_version":'); return; }
-        if (mode === 'schema') { json({ protocol_version: 1, unexpected: true }); return; }
+        if (mode === 'schema') { json({ protocol_version: 2, unexpected: true }); return; }
         // Valid headers plus partial bytes reach fetch before the socket drops.
         response.setHeader('content-length', '1000');
-        response.flushHeaders(); response.write('{"protocol_version":1,');
+        response.flushHeaders(); response.write('{"protocol_version":2,');
         setTimeout(() => response.destroy(), 20);
         return;
       }

@@ -58,7 +58,7 @@ export function inventory(schema: any) {
       return { variant, fields: Object.keys(row.properties).sort(), required: row.required ?? [] };
     });
   }
-  return { inventory_version: 1, requests: variants(schema.stream, 'PlayerRequest', 'request'), responses: variants(schema.command, 'PlayerResponse', 'response') };
+  return { inventory_version: 2, shapes: variants(schema.stream, 'Shape', 'shape'), answers: variants(schema.command, 'Answer', 'answer') };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [catalogPath, schemaPath, output] = process.argv.slice(2);
@@ -68,7 +68,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const artifact = presentation(JSON.parse(catalogBytes.toString()));
   const requests = inventory(JSON.parse(schemaBytes.toString()));
   mkdirSync(output); // create-new directory, no overwriting retained evidence
-  const outputs = { 'presentation.json': artifact, 'presentation.schema.json': presentationSchema, 'request-inventory.json': requests };
+  const outputs = { 'presentation.json': artifact, 'presentation.schema.json': presentationSchema, 'decision-inventory.json': requests };
   const files = Object.entries(outputs).map(([name, value]) => {
     const body = canonical(value) + '\n';
     writeFileSync(resolve(output, name), body, { flag: 'wx' });

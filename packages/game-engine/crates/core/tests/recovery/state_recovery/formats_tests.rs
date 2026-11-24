@@ -17,16 +17,16 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    56,
-    "34c81768cfe7c78ad238eeda484a4d72f5994fb1d055a6c7ba9efec7b57a6fda",
+    57,
+    "069e4186a70e0a1d45a8a55a1ae2f679459462ac5ff4d4ddb98b7a25449433a2",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    83,
-    "af96cabf541ff50924fa829599611487e3b6468b3a08bdbdb7ad3994f4fe68d1",
+    84,
+    "137dc434bf85c7f5e55331f0fd0480163a460b1be75ad78a1e8f61923addb762",
 );
 const WORK_PIN: (u32, &str) = (
-    52,
-    "34edd11588a75eddae3d76e48c99cfc2e151bc8d17a7c6fb2b22456e33ec6641",
+    53,
+    "b33a47e5d01c6830ba59d896dd6b8a6cefaee639ad545e4ca709fe29258e78db",
 );
 
 fn check(format: &str, constant: &str, version: u32, pin: (u32, &str), actual: &str) {
@@ -130,44 +130,64 @@ pub(super) fn actions_scenario() -> Prepared {
 
 pub(super) fn cast_edict(prepared: Prepared) -> Game {
     let mut game = Game::new(prepared);
-    let answer = |game: &mut Game, response: Response| {
+    let answer = |game: &mut Game, response: Answer| {
         let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
             panic!("expected a decision before {response:?}")
         };
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
+        game.respond(request.player, request.id, response).unwrap();
     };
-    answer(&mut game, Response::Cast { card: CardId(4) });
-    answer(
-        &mut game,
-        Response::PlayerTargets {
-            players: vec![PlayerId(1)],
-        },
-    );
+    {
+        let selected_answer = game.next_test_decision().cast(CardId(4));
+        answer(&mut game, selected_answer)
+    };
+    {
+        let selected_answer = game.next_test_decision().player_targets(vec![PlayerId(1)]);
+        answer(&mut game, selected_answer)
+    };
     for land in [2, 3] {
         let object = game.object_id(CardId(land)).unwrap();
-        answer(&mut game, Response::ActivateMana { object });
+        {
+            let selected_answer = game.next_test_decision().activate_mana(object);
+            answer(&mut game, selected_answer)
+        };
     }
-    answer(&mut game, Response::FinishMana { undo_mana: true });
-    answer(
-        &mut game,
-        Response::SpendMana {
-            spending: BTreeMap::from([
-                (Color::B, Quantity::from(1)),
-                (Color::G, Quantity::from(1)),
-            ]),
-        },
-    );
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        };
+        answer(&mut game, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([
+                    (Color::B, Quantity::from(1)),
+                    (Color::G, Quantity::from(1)),
+                ]),
+            },
+        };
+        answer(&mut game, selected_answer)
+    };
     for _ in 0..game.live_players().len() {
-        answer(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut game, selected_answer)
+        };
     }
     game
 }
 
 fn mid_resolution() -> Game {
     let mut game = cast_edict(actions_scenario());
-    let Advance::AwaitingDecision(Request::Sacrifice { player, .. }) =
-        game.advance(Budget::unlimited())
+    let Advance::AwaitingDecision(Decision {
+        player,
+        reason: Reason::Sacrifice,
+        ..
+    }) = game.advance(Budget::unlimited())
     else {
         panic!("the edict resolves to its target player's sacrifice")
     };

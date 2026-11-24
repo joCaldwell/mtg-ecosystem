@@ -108,142 +108,198 @@ impl RulesTxn {
             .map(|a| a.blockers.clone())
             .unwrap_or_default()
     }
-    pub(super) fn combat_request(&self) -> Result<Option<Request>, String> {
+
+    pub(super) fn combat_request(&self) -> Result<Option<Decision<Rules>>, String> {
         let Some(player) = self.combat_decision_player() else {
             return Ok(None);
         };
-        let decision_id = self.state.rules.revision;
-        Ok(Some(match &self.state.rules.frame {
-            Frame::Attackers => Request::Attackers {
-                decision_id,
-                player,
-                candidates: self.creatures(player, true),
-                defenders: self
-                    .live_players()
-                    .into_iter()
-                    .filter(|p| *p != player)
-                    .collect(),
-            },
-            Frame::Blockers { .. } => Request::Blockers {
-                decision_id,
-                player,
-                candidates: self.creatures(player, false),
-                attackers: self
-                    .state
-                    .rules
-                    .combat
-                    .iter()
-                    .filter(|a| a.defender == player)
-                    .map(|a| a.attacker)
-                    .collect(),
-            },
-            Frame::DamageChoice { source } => Request::Damage {
-                decision_id,
-                player,
-                source: *source,
-                power: self.power(*source)?,
-                recipients: self.recipients(*source),
-                player_recipient: self.trample_player(*source),
-                lethal_requirements: if self.trample_player(*source).is_some() {
-                    self.recipients(*source)
-                        .into_iter()
-                        .map(|o| Ok((o, self.lethal_requirement(*source, o)?)))
-                        .collect::<Result<_, String>>()?
-                } else {
-                    vec![]
-                },
-            },
-            Frame::Discard { count, .. } => Request::Discard {
-                decision_id,
-                player,
-                count: *count,
-                candidates: self.hand(player),
-            },
-            _ => return Ok(None),
-        }))
-    }
-    pub(crate) fn validate_combat_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        if self.combat_decision_player() != Some(player) || !self.is_live(player) {
-            return Err("wrong combat chooser".into());
-        }
-        let size = match response {
-            Response::Attackers { attacks } => attacks.len(),
-            Response::Blockers { blocks } => blocks.len(),
-            Response::Damage { assignments } | Response::TrampleDamage { assignments, .. } => {
-                assignments.len()
-            }
-            Response::Discard { objects } => objects.len(),
-            _ => 0,
-        };
-        if size > self.state.rules.objects.len() {
-            return Err("oversized complete declaration".into());
-        }
-        match (&self.state.rules.frame, response) {
-            (Frame::Attackers, Response::Attackers { attacks }) => {
-                let eligible = self.creatures(player, true);
-                let mut seen = BTreeSet::new();
-                if attacks.iter().any(|(o, p)| {
-                    !seen.insert(*o) || !eligible.contains(o) || *p == player || !self.is_live(*p)
-                }) {
-                    return Err("invalid complete attack declaration".into());
-                }
-            }
-            (Frame::Blockers { .. }, Response::Blockers { blocks }) => {
-                let eligible = self.creatures(player, false);
-                let mut seen = BTreeSet::new();
-                if blocks.iter().any(|(b, a)| {
-                    !seen.insert(*b)
-                        || !eligible.contains(b)
-                        || !self.can_block(*b, *a)
-                        || !self
-                            .state
+        let mut candidates = vec![];
+        Ok(Some(match self.state.rules.frame {
+            Frame::Attackers | Frame::Blockers { .. } => {
+                let attacking = matches!(self.state.rules.frame, Frame::Attackers);
+                let subjects = self.creatures(player, attacking);
+                let mut slots = vec![];
+                let mut rules = vec![];
+                for subject in subjects {
+                    let subject_index =
+                        candidate_index(&mut candidates, Candidate::Object { object: subject });
+                    let allowed = if attacking {
+                        self.live_players()
+                            .into_iter()
+                            .filter(|p| *p != player)
+                            .map(|p| {
+                                candidate_index(&mut candidates, Candidate::Player { player: p })
+                            })
+                            .collect()
+                    } else {
+                        self.state
                             .rules
                             .combat
                             .iter()
-                            .any(|x| x.attacker == *a && x.defender == player)
-                }) {
-                    return Err("invalid complete block declaration".into());
+                            .filter(|a| a.defender == player && self.can_block(subject, a.attacker))
+                            .map(|a| {
+                                candidate_index(
+                                    &mut candidates,
+                                    Candidate::Object { object: a.attacker },
+                                )
+                            })
+                            .collect()
+                    };
+                    slots.push(Slot {
+                        role: if attacking {
+                            SlotRole::AttackWith
+                        } else {
+                            SlotRole::BlockWith
+                        },
+                        subject: Some(subject_index),
+                        allowed,
+                        min: 0,
+                        max: 1,
+                        repeat: false,
+                    });
                 }
-                // CR509.1b/702.111b: restrictions apply to the whole declaration.
-                for a in self
+                if !attacking {
+                    let menace = self
+                        .state
+                        .rules
+                        .combat
+                        .iter()
+                        .filter(|a| {
+                            a.defender == player
+                                && self.has_keyword(a.attacker, KeywordAbility::Menace)
+                        })
+                        .filter_map(|a| {
+                            candidates
+                                .iter()
+                                .position(|c| c == &Candidate::Object { object: a.attacker })
+                        })
+                        .map(|i| i as u32)
+                        .collect::<Vec<_>>();
+                    if !menace.is_empty() {
+                        rules.push(JointRule::PickedAtLeast {
+                            candidates: menace,
+                            count: 2,
+                        });
+                    }
+                }
+                self.decision(
+                    player,
+                    if attacking {
+                        Reason::Attackers
+                    } else {
+                        Reason::Blockers
+                    },
+                    candidates,
+                    Shape::Pick { slots, rules },
+                )
+            }
+            Frame::DamageChoice { source } => {
+                let power = self.power(source)?;
+                let recipients = self.recipients(source);
+                let mut gates = vec![];
+                candidates.extend(
+                    recipients
+                        .iter()
+                        .map(|object| Candidate::Object { object: *object }),
+                );
+                if let Some(defender) = self.trample_player(source) {
+                    let requires = recipients
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, o)| Ok((i as u32, self.lethal_requirement(source, o)?)))
+                        .collect::<Result<Vec<_>, String>>()?;
+                    gates.push(Gate {
+                        bucket: candidates.len() as u32,
+                        requires,
+                    });
+                    candidates.push(Candidate::Player { player: defender });
+                }
+                let buckets = (0..candidates.len() as u32)
+                    .map(|candidate| Bucket {
+                        candidate,
+                        min: 0.into(),
+                        max: power.clone(),
+                    })
+                    .collect();
+                self.decision(
+                    player,
+                    Reason::CombatDamage {
+                        source,
+                        power: power.clone(),
+                    },
+                    candidates,
+                    Shape::Distribute {
+                        total: power,
+                        buckets,
+                        gates,
+                    },
+                )
+            }
+            Frame::Discard { count, .. } => {
+                self.pick_objects(player, Reason::Discard, self.hand(player), count)
+            }
+            _ => return Ok(None),
+        }))
+    }
+    pub(super) fn validate_attacks(
+        &self,
+        player: PlayerId,
+        attacks: &[(ObjectId, PlayerId)],
+    ) -> Result<(), String> {
+        if !matches!(self.state.rules.frame, Frame::Attackers)
+            || self.combat_decision_player() != Some(player)
+            || !self.is_live(player)
+        {
+            return Err("invalid combat chooser".into());
+        }
+        let eligible = self.creatures(player, true);
+        let mut seen = BTreeSet::new();
+        if attacks.iter().any(|(o, p)| {
+            !seen.insert(*o) || !eligible.contains(o) || *p == player || !self.is_live(*p)
+        }) {
+            return Err("invalid complete attack declaration".into());
+        }
+        Ok(())
+    }
+    pub(super) fn validate_blocks(
+        &self,
+        player: PlayerId,
+        blocks: &[(ObjectId, ObjectId)],
+    ) -> Result<(), String> {
+        if !matches!(self.state.rules.frame, Frame::Blockers { .. })
+            || self.combat_decision_player() != Some(player)
+            || !self.is_live(player)
+        {
+            return Err("invalid combat chooser".into());
+        }
+        let eligible = self.creatures(player, false);
+        let mut seen = BTreeSet::new();
+        if blocks.iter().any(|(b, a)| {
+            !seen.insert(*b)
+                || !eligible.contains(b)
+                || !self.can_block(*b, *a)
+                || !self
                     .state
                     .rules
                     .combat
                     .iter()
-                    .filter(|a| a.defender == player)
-                {
-                    if self.has_keyword(a.attacker, KeywordAbility::Menace)
-                        && blocks.iter().filter(|(_, x)| *x == a.attacker).count() == 1
-                    {
-                        return Err("menace requires zero or at least two blockers".into());
-                    }
-                }
+                    .any(|x| x.attacker == *a && x.defender == player)
+        }) {
+            return Err("invalid complete block declaration".into());
+        }
+        // CR509.1b/702.111b: restrictions apply to the whole declaration.
+        for a in self
+            .state
+            .rules
+            .combat
+            .iter()
+            .filter(|a| a.defender == player)
+        {
+            if self.has_keyword(a.attacker, KeywordAbility::Menace)
+                && blocks.iter().filter(|(_, x)| *x == a.attacker).count() == 1
+            {
+                return Err("menace requires zero or at least two blockers".into());
             }
-            (Frame::DamageChoice { source }, Response::Damage { assignments }) => {
-                self.validate_split(*source, assignments, None)?
-            }
-            (
-                Frame::DamageChoice { source },
-                Response::TrampleDamage {
-                    assignments,
-                    player,
-                    amount,
-                },
-            ) => self.validate_split(*source, assignments, Some((*player, amount)))?,
-            (Frame::Discard { count, .. }, Response::Discard { objects }) => {
-                let hand = self.hand(player);
-                if objects.len() != *count
-                    || objects.iter().collect::<BTreeSet<_>>().len() != *count
-                    || objects.iter().any(|o| !hand.contains(o))
-                {
-                    return Err("invalid complete cleanup discard".into());
-                }
-            }
-            _ => return Err("wrong combat response".into()),
         }
         Ok(())
     }
@@ -330,10 +386,15 @@ impl RulesTxn {
         match frame {
             Frame::Attackers => {
                 let input = self.rules_mut().pending.take().ok_or("missing attackers")?;
-                self.validate_combat_response(input.player, &input.response)?;
-                let Response::Attackers { attacks } = input.response else {
-                    return Err("attack response".into());
-                };
+
+                let attacks = input
+                    .declarations()?
+                    .into_iter()
+                    .map(|(subject, target)| match target {
+                        Candidate::Player { player } => Ok((subject, *player)),
+                        _ => Err("invalid combat target"),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 self.commit(
                     ProposedEvent::DeclareAttackers { attacks },
                     BatchCause::Combat,
@@ -342,10 +403,15 @@ impl RulesTxn {
             }
             Frame::Blockers { mut remaining } => {
                 let input = self.rules_mut().pending.take().ok_or("missing blockers")?;
-                self.validate_combat_response(input.player, &input.response)?;
-                let Response::Blockers { blocks } = input.response else {
-                    return Err("block response".into());
-                };
+
+                let blocks = input
+                    .declarations()?
+                    .into_iter()
+                    .map(|(subject, target)| match target {
+                        Candidate::Object { object } => Ok((subject, *object)),
+                        _ => Err("invalid combat target"),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 self.commit(
                     ProposedEvent::DeclareBlockers {
                         player: input.player,
@@ -366,24 +432,20 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing damage assignment")?;
-                self.validate_combat_response(input.player, &input.response)?;
-                let assignments = match input.response {
-                    Response::Damage { assignments } => {
-                        self.rules_mut().player_damage_choices.remove(&source);
-                        assignments
+
+                let mut assignments = vec![];
+                self.rules_mut().player_damage_choices.remove(&source);
+                for (candidate, amount) in input.allocations()? {
+                    match candidate {
+                        Candidate::Player { player } => {
+                            self.rules_mut()
+                                .player_damage_choices
+                                .insert(source, (*player, amount));
+                        }
+                        Candidate::Object { object } => assignments.push((*object, amount)),
+                        _ => return Err("invalid damage recipient".into()),
                     }
-                    Response::TrampleDamage {
-                        assignments,
-                        player,
-                        amount,
-                    } => {
-                        self.rules_mut()
-                            .player_damage_choices
-                            .insert(source, (player, amount));
-                        assignments
-                    }
-                    _ => return Err("damage response".into()),
-                };
+                }
                 self.rules_mut().damage_choices.insert(source, assignments);
                 self.rules_mut().frame = Frame::Damage;
                 self.assign_damage()?;
@@ -391,10 +453,8 @@ impl RulesTxn {
             Frame::Damage => self.assign_damage()?,
             Frame::Discard { player, .. } => {
                 let input = self.rules_mut().pending.take().ok_or("missing discard")?;
-                self.validate_combat_response(input.player, &input.response)?;
-                let Response::Discard { objects } = input.response else {
-                    return Err("discard response".into());
-                };
+
+                let objects = input.objects()?;
                 self.complete_graveyard_group(
                     BatchCause::Cleanup,
                     EventGroup::Simultaneous {
@@ -879,7 +939,7 @@ impl RulesTxn {
             .rules
             .pending
             .as_ref()
-            .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
+            .is_some_and(|p| self.validate_pending(p).is_err())
         {
             self.rules_mut().pending = None;
         }

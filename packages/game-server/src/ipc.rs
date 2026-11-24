@@ -25,34 +25,13 @@ pub const TASKS_MAX: u64 = 32;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WorkerCommand {
-    Submit {
-        seat: u8,
-        request: CommandEnvelope,
-    },
-    CancelQueued {
-        seat: u8,
-        request: CommandEnvelope,
-    },
-    Resume {
-        seat: u8,
-    },
-    QueryActions {
-        seat: u8,
-        request: crate::protocol::ActionQueryRequest,
-    },
+    Submit { seat: u8, request: CommandEnvelope },
+    CancelQueued { seat: u8, request: CommandEnvelope },
+    Resume { seat: u8 },
     Advance,
-    Page {
-        seat: u8,
-        after: u64,
-        limit: u32,
-    },
-    Execution {
-        seat: u8,
-        command_id: String,
-    },
-    Clock {
-        control: ClockControl,
-    },
+    Page { seat: u8, after: u64, limit: u32 },
+    Execution { seat: u8, command_id: String },
+    Clock { control: ClockControl },
     Shutdown,
 }
 impl WorkerCommand {
@@ -60,7 +39,6 @@ impl WorkerCommand {
         let seat = match self {
             Self::Submit { seat, .. }
             | Self::CancelQueued { seat, .. }
-            | Self::QueryActions { seat, .. }
             | Self::Resume { seat }
             | Self::Page { seat, .. }
             | Self::Execution { seat, .. } => Some(*seat),
@@ -72,10 +50,6 @@ impl WorkerCommand {
                 if command_id.len()!=32 || !command_id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
         {
             return Err(FrameError::Invalid);
-        }
-        if let Self::QueryActions { request, .. } = self {
-            let text = serde_json::to_string(request).map_err(|_| FrameError::Invalid)?;
-            crate::protocol::decode_action_request(&text).map_err(|_| FrameError::Invalid)?;
         }
         Ok(())
     }
@@ -128,9 +102,6 @@ pub enum WorkerReply {
     },
     Resume {
         resume: Box<SeatResume>,
-    },
-    Actions {
-        response: Box<crate::protocol::ActionQueryResponse>,
     },
     Stopped,
     Error {
@@ -339,9 +310,6 @@ fn failure(reason: &str) -> WorkerReply {
 }
 fn handle(worker: &mut Worker, command: WorkerCommand) -> WorkerReply {
     match command {
-        WorkerCommand::QueryActions { seat, request } => WorkerReply::Actions {
-            response: Box::new(worker.query_actions(seat, request, Instant::now())),
-        },
         WorkerCommand::Submit { seat, request } => {
             match worker.submit(seat, request, Instant::now()) {
                 Ok(result) => WorkerReply::Submission {

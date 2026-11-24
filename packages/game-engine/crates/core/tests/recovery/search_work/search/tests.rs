@@ -17,8 +17,9 @@ fn root(takes: u8) -> Game {
         };
         if matches!(
             request,
-            Request::Priority {
+            Decision {
                 player: PlayerId(0),
+                reason: Reason::Priority,
                 ..
             }
         ) && game.state.rules.turn.step == TurnStep::PrecombatMain
@@ -27,23 +28,36 @@ fn root(takes: u8) -> Game {
             return game;
         }
         let response = match &request {
-            Request::Mulligan {
+            Decision {
                 player,
-                mulligans_taken,
+                reason: Reason::Mulligan {
+                    mulligans_taken, ..
+                },
                 ..
-            } => Response::Mulligan {
-                take: player.0 == 0 && *mulligans_taken < takes,
+            } => request.select(Candidate::Flag {
+                flag: if player.0 == 0 && *mulligans_taken < takes {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            }),
+            found @ Decision {
+                reason: Reason::BottomOpening,
+                ..
+            } => {
+                let count = &found.required_count();
+                let candidates = found.objects_offered();
+                request.order_objects(candidates.iter().take(*count).copied().collect())
+            }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
             },
-            Request::BottomOpening {
-                count, candidates, ..
-            } => Response::BottomOpening {
-                objects: candidates.iter().take(*count).copied().collect(),
-            },
-            Request::Priority { .. } => Response::Pass,
             _ => panic!("unexpected opening request {request:?}"),
         };
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
+        game.respond(request.player, request.id, response).unwrap();
     }
     panic!("opening did not finish")
 }
@@ -228,13 +242,16 @@ fn paid_opening_capture_world_projection_namespace_and_independent_hidden_origin
         .decision
         .as_ref()
         .unwrap()
-        .token();
-    assert_ne!(map.token(actual_token).unwrap(), *actual_token);
+        .id
+        .clone();
+    assert_ne!(map.token(&actual_token).unwrap(), actual_token);
     assert!(matches!(
         sample.check_player_response(
             PlayerId(0),
             actual_token.clone(),
-            PlayerResponse::Pass,
+            Answer::Pick {
+                picks: vec![vec![0]]
+            },
             Budget::unlimited()
         ),
         QueryResult::Rejected(_)
@@ -327,20 +344,14 @@ fn reconstruction_budget_forks_restore_and_complete_accounting_are_strict() {
         expected.state_digest().unwrap()
     );
     let token = map
-        .token(
-            c.data()
-                .context
-                .observation
-                .decision
-                .as_ref()
-                .unwrap()
-                .token(),
-        )
+        .token(&c.data().context.observation.decision.as_ref().unwrap().id)
         .unwrap();
     let QueryResult::Complete(QueryValue::Validated(receipt)) = sampled.check_player_response(
         PlayerId(0),
         token,
-        PlayerResponse::Pass,
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
         Budget::unlimited(),
     ) else {
         panic!("valid sample pass")
@@ -431,8 +442,6 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
         .to_public();
     for owner in [PlayerId(1), PlayerId(3)] {
         view.objects.push(VisibleObject {
-            copied_values: None,
-            display_face: None,
             face_down: false,
             exiled_by: None,
             phased_out: false,
@@ -444,7 +453,6 @@ fn survivors_and_public_reversal_memories_are_owner_scoped() {
             restrictions: vec![],
             token: None,
             plus_one_counters: Quantity::zero(),
-            lore_counters: Quantity::zero(),
             characteristics: Some(
                 game.prepared
                     .catalog
@@ -536,8 +544,9 @@ fn search_admission_uses_flags_and_retains_the_catalog_pin() {
             };
             if matches!(
                 r,
-                Request::Priority {
+                Decision {
                     player: PlayerId(0),
+                    reason: Reason::Priority,
                     ..
                 }
             ) && game.turn().step == TurnStep::PrecombatMain
@@ -545,16 +554,27 @@ fn search_admission_uses_flags_and_retains_the_catalog_pin() {
                 break;
             }
             let response = match &r {
-                Request::Mulligan { .. } => Response::Mulligan { take: false },
-                Request::BottomOpening {
-                    count, candidates, ..
-                } => Response::BottomOpening {
-                    objects: candidates[..*count].to_vec(),
+                Decision {
+                    reason: Reason::Mulligan { .. },
+                    ..
+                } => r.select(Candidate::Flag { flag: Flag::Keep }),
+                found @ Decision {
+                    reason: Reason::BottomOpening,
+                    ..
+                } => {
+                    let count = &found.required_count();
+                    let candidates = found.objects_offered();
+                    r.order_objects(candidates[..*count].to_vec())
+                }
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                } => Answer::Pick {
+                    picks: vec![vec![0]],
                 },
-                Request::Priority { .. } => Response::Pass,
                 _ => panic!("unexpected opening request"),
             };
-            game.respond(r.player(), r.decision_id(), response).unwrap();
+            game.respond(r.player, r.id, response).unwrap();
         }
         assert_eq!(
             matches!(

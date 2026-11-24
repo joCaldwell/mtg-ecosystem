@@ -1,4 +1,4 @@
-import { GameClient, type Observation, type PlayerRequest, type CommandEnvelope,
+import { GameClient, type Observation, type Decision, type CommandEnvelope,
   type ClientOptions, type PollOptions, type SeatResume, type SeatBootstrap } from '@multiverse/game-server-sdk';
 import { GameClient as BrowserClient, type Observation as BrowserObservation } from '@multiverse/game-server-sdk/browser';
 
@@ -8,9 +8,9 @@ const browser: GameClient = new BrowserClient(options);
 const page = browser.poll(poll);
 declare const observation: Observation;
 const identical: BrowserObservation = observation;
-const decision: PlayerRequest | null = identical.decision;
+const decision: Decision | null = identical.decision;
 // @ts-expect-error generated transport counters are decimal strings
-const command: CommandEnvelope = { protocol_version: 1, command_id: 'a'.repeat(32), expected_revision: 0, command: { kind: 'concede' } };
+const command: CommandEnvelope = { protocol_version: 2, command_id: 'a'.repeat(32), expected_revision: 0, command: { kind: 'concede' } };
 void [page, decision, command];
 declare const resumed: SeatResume;
 declare const bootstrap: SeatBootstrap;

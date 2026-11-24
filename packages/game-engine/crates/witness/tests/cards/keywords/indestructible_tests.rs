@@ -34,26 +34,26 @@ fn prepared(rows: &[(&str, bool)]) -> Prepared {
 }
 fn cast(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
     let obj = Driver::object(g, id);
-    Driver::answer(g, q, Response::Cast { card: obj.card });
+    Driver::answer(g, q, g.next_test_decision().cast(obj.card));
     loop {
         let r = Driver::request(g, q);
         let response = match &r {
-            Request::EntityTargets { .. } => Response::EntityTargets {
-                entities: targets.clone(),
-            },
-            Request::Targets { .. } => Response::Targets {
-                objects: targets
-                    .iter()
-                    .map(|t| match t {
-                        TargetEntity::Object { object } => *object,
-                        _ => panic!("object target"),
-                    })
-                    .collect(),
-            },
-            Request::Mana { cost, .. } => {
-                let enough = g.payment_pool(r.player(), cost).is_ok();
+            Decision {
+                reason: Reason::Targets { .. },
+                ..
+            } => r.entity_targets(targets.clone()),
+            Decision {
+                shape: Shape::Pay { cost, .. },
+                reason: Reason::Mana { .. },
+                ..
+            } => {
+                let enough = g.payment_pool(r.player, cost).is_ok();
                 if enough {
-                    Response::FinishMana { undo_mana: false }
+                    Answer::Pay {
+                        pay: PayAnswer::Finish {
+                            undo_on_failure: false,
+                        },
+                    }
                 } else {
                     let land = g
                         .state
@@ -61,18 +61,28 @@ fn cast(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
                         .objects
                         .values()
                         .find(|o| {
-                            o.controller == r.player()
+                            o.controller == r.player
                                 && o.zone == Zone::Battlefield
                                 && !o.tapped
                                 && g.definition(o.id.card).unwrap().characteristics.kind
                                     == CardKind::Land
                         })
                         .unwrap();
-                    Response::ActivateMana { object: land.id }
+                    r.activate_mana(land.id)
                 }
             }
-            Request::SpendMana {
-                cost, available, ..
+            Decision {
+                shape:
+                    Shape::Pay {
+                        cost,
+                        pool:
+                            ManaPool {
+                                unrestricted: available,
+                            },
+                        ..
+                    },
+                reason: Reason::SpendMana { .. },
+                ..
             } => {
                 let mut rest = available.clone();
                 let mut spending = BTreeMap::<Color, Quantity>::new();
@@ -89,15 +99,28 @@ fn cast(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
                     }
                 }
                 assert_eq!(generic, Quantity::zero());
-                Response::SpendMana { spending }
+                Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: spending,
+                    },
+                }
             }
-            Request::Priority { .. } => break,
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => break,
             x => panic!("cast request {x:?}"),
         };
-        g.respond(r.player(), r.decision_id(), response).unwrap();
+        g.respond(r.player, r.id, response).unwrap();
     }
     while !g.state.rules.stack.is_empty() {
-        Driver::answer(g, q, Response::Pass);
+        Driver::answer(
+            g,
+            q,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
         Driver::request(g, q);
     }
 }
@@ -118,12 +141,8 @@ fn indestructible_paid_myr_and_zero_relic_survive_damage_cleanup() {
             let r = Driver::request(g, q);
             let before = g.snapshot().unwrap();
             assert!(
-                g.respond(
-                    r.player(),
-                    r.decision_id(),
-                    Response::Cast { card: CardId(999) }
-                )
-                .is_err()
+                g.respond(r.player, r.id, g.next_test_decision().cast(CardId(999)))
+                    .is_err()
             );
             assert_eq!(before, g.snapshot().unwrap());
             cast(g, q, 0, vec![]);
@@ -160,10 +179,21 @@ fn indestructible_paid_myr_and_zero_relic_survive_damage_cleanup() {
                     break;
                 }
                 let r = Driver::request(g, q);
-                let a = match r {
-                    Request::Priority { .. } => Response::Pass,
-                    Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-                    Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+                let a = match r.clone() {
+                    Decision {
+                        reason: Reason::Priority,
+                        ..
+                    } => Answer::Pick {
+                        picks: vec![vec![0]],
+                    },
+                    Decision {
+                        reason: Reason::Attackers,
+                        ..
+                    } => r.attack(vec![]),
+                    Decision {
+                        reason: Reason::Blockers,
+                        ..
+                    } => r.block(vec![]),
                     x => panic!("{x:?}"),
                 };
                 Driver::answer(g, q, a);

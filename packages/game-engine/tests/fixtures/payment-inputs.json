@@ -1,82 +1,112 @@
 {
   "accepted_inputs": [
     {
+      "answer": {
+        "answer": "pick",
+        "picks": [
+          [
+            1
+          ]
+        ]
+      },
       "decision_id": 0,
-      "player": 0,
-      "response": {
-        "object": {
-          "card": 0,
-          "incarnation": 0
-        },
-        "response": "activate_mana"
-      }
+      "player": 0
     },
     {
+      "answer": {
+        "answer": "pick",
+        "picks": [
+          [
+            1
+          ]
+        ]
+      },
       "decision_id": 1,
-      "player": 0,
-      "response": {
-        "card": 1,
-        "response": "cast"
-      }
+      "player": 0
     },
     {
+      "answer": {
+        "answer": "pick",
+        "picks": [
+          [
+            0
+          ]
+        ]
+      },
       "decision_id": 2,
-      "player": 0,
-      "response": {
-        "objects": [
-          {
-            "card": 2,
-            "incarnation": 0
-          }
-        ],
-        "response": "targets"
-      }
+      "player": 0
     },
     {
-      "decision_id": 3,
-      "player": 0,
-      "response": {
-        "response": "finish_mana",
-        "undo_mana": false
-      }
-    },
-    {
-      "decision_id": 4,
-      "player": 0,
-      "response": {
-        "response": "spend_mana",
-        "spending": {
-          "U": "1"
+      "answer": {
+        "answer": "pay",
+        "pay": {
+          "step": "finish",
+          "undo_on_failure": false
         }
-      }
+      },
+      "decision_id": 3,
+      "player": 0
     },
     {
+      "answer": {
+        "answer": "pay",
+        "pay": {
+          "step": "spend",
+          "unrestricted": {
+            "U": "1"
+          }
+        }
+      },
+      "decision_id": 4,
+      "player": 0
+    },
+    {
+      "answer": {
+        "answer": "pick",
+        "picks": [
+          [
+            0
+          ]
+        ]
+      },
       "decision_id": 5,
-      "player": 0,
-      "response": {
-        "response": "pass"
-      }
+      "player": 0
     },
     {
+      "answer": {
+        "answer": "pick",
+        "picks": [
+          [
+            0
+          ]
+        ]
+      },
       "decision_id": 6,
-      "player": 1,
-      "response": {
-        "response": "pass"
-      }
+      "player": 1
     },
     {
+      "answer": {
+        "answer": "pick",
+        "picks": [
+          [
+            0
+          ]
+        ]
+      },
       "decision_id": 7,
-      "player": 2,
-      "response": {
-        "response": "pass"
-      }
+      "player": 2
     },
     {
+      "answer": {
+        "answer": "pick",
+        "picks": [
+          [
+            0
+          ]
+        ]
+      },
       "decision_id": 8,
-      "player": 3,
-      "response": {
-        "response": "pass"
-      }
+      "player": 3
     }
   ],
   "departure_journal": {
@@ -99,71 +129,91 @@
     ],
     "decisions": [
       {
+        "answer": {
+          "answer": "pick",
+          "picks": [
+            [
+              1
+            ]
+          ]
+        },
         "decision_id": 0,
-        "player": 0,
-        "response": {
-          "object": {
-            "card": 0,
-            "incarnation": 0
-          },
-          "response": "activate_mana"
-        }
+        "player": 0
       },
       {
+        "answer": {
+          "answer": "pick",
+          "picks": [
+            [
+              1
+            ]
+          ]
+        },
         "decision_id": 1,
-        "player": 0,
-        "response": {
-          "card": 1,
-          "response": "cast"
-        }
+        "player": 0
       },
       {
+        "answer": {
+          "answer": "pick",
+          "picks": [
+            [
+              0
+            ]
+          ]
+        },
         "decision_id": 2,
-        "player": 0,
-        "response": {
-          "objects": [
-            {
-              "card": 2,
-              "incarnation": 0
-            }
-          ],
-          "response": "targets"
-        }
+        "player": 0
       },
       {
-        "decision_id": 3,
-        "player": 0,
-        "response": {
-          "response": "finish_mana",
-          "undo_mana": false
-        }
-      },
-      {
-        "decision_id": 4,
-        "player": 0,
-        "response": {
-          "response": "spend_mana",
-          "spending": {
-            "U": "1"
+        "answer": {
+          "answer": "pay",
+          "pay": {
+            "step": "finish",
+            "undo_on_failure": false
           }
-        }
+        },
+        "decision_id": 3,
+        "player": 0
       },
       {
+        "answer": {
+          "answer": "pay",
+          "pay": {
+            "step": "spend",
+            "unrestricted": {
+              "U": "1"
+            }
+          }
+        },
+        "decision_id": 4,
+        "player": 0
+      },
+      {
+        "answer": {
+          "answer": "pick",
+          "picks": [
+            [
+              0
+            ]
+          ]
+        },
         "decision_id": 5,
-        "player": 0,
-        "response": {
-          "response": "pass"
-        }
+        "player": 0
       },
       {
+        "answer": {
+          "answer": "pick",
+          "picks": [
+            [
+              0
+            ]
+          ]
+        },
         "decision_id": 7,
-        "player": 1,
-        "response": {
-          "response": "pass"
-        }
+        "player": 1
       }
     ]
   },
-  "departure_state_sha256": "ec8ac1d0d2b5ec5390b4bae0b9f6078229dc65ef442b2927a51b27a2c75a1018",
-  "final_state_sha256": "4adff636df6b671d1e45f52aad90d8a87377ae4c93201d4a01be7103c8ced78d"
+  "departure_state_sha256": "a86489beea38eca03b1a873ec2eda7116f790ead29c6ae14fe0cd3099fb67a61",
+  "final_state_sha256": "6a2d290101447c6e96f451dfbfabe4ad0625d04dea29b2e9eafdd42c526fccf5"
 }

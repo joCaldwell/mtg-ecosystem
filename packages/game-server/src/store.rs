@@ -106,7 +106,7 @@ pub(crate) fn resume_publications(
         ).optional().map_err(error)?;
         if let Some((cursor, body)) = row {
             let page: StreamPage = strict_read(&body.ok_or("resume publication exceeds bound")?)?;
-            if page.protocol_version != 1
+            if page.protocol_version != crate::protocol::PROTOCOL_VERSION
                 || page.entries.len() != 1
                 || page.has_more
                 || page.next.get() != u64::try_from(cursor).map_err(error)?
@@ -570,7 +570,7 @@ CREATE INDEX IF NOT EXISTS outbox_publication_kind ON outbox(seat,json_extract(b
                     publication,
                 };
                 let page = StreamPage {
-                    protocol_version: 1,
+                    protocol_version: crate::protocol::PROTOCOL_VERSION,
                     entries: vec![entry],
                     next: Counter::new(u64::try_from(cursor).map_err(error)?),
                     has_more: false,
@@ -695,7 +695,7 @@ CREATE INDEX IF NOT EXISTS outbox_publication_kind ON outbox(seat,json_extract(b
             .map(|e| e.cursor.clone())
             .unwrap_or_else(|| Counter::new(after));
         Ok(StreamPage {
-            protocol_version: 1,
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
             has_more: next.get() < u64::try_from(latest).map_err(error)?,
             entries,
             next,

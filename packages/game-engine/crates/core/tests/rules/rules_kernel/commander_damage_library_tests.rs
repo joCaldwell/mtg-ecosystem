@@ -4,10 +4,15 @@ fn prepared(config: ScenarioConfig) -> Prepared {
     let source = include_str!("../../../../../tests/fixtures/expected-action-ir.json");
     Prepared::admit(Catalog::read(source).unwrap(), config).unwrap()
 }
-fn answer(g: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn answer(g: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let r = Driver::request(g, u64::MAX);
-    g.respond(r.player(), r.decision_id(), response).unwrap();
+    g.respond(r.player, r.id, response).unwrap();
     if finish {
         g.complete_test_mana();
     }
@@ -20,38 +25,62 @@ fn view(g: &Game, player: u8) -> Observation {
     };
     observation
 }
-fn passive(request: Request) -> Response {
-    match request {
-        Request::Priority { .. } => Response::Pass,
-        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-        Request::Discard {
-            count, candidates, ..
-        } => Response::Discard {
-            objects: candidates.into_iter().take(count).collect(),
+fn passive(request: Decision<Rules>) -> Answer {
+    match request.clone() {
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => request.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => request.block(vec![]),
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let count = found.required_count();
+            let candidates = found.objects_offered();
+            request.pick_objects(candidates.into_iter().take(count).collect())
+        }
         other => panic!("unexpected {other:?}"),
     }
 }
 fn tuck_choice(g: &mut Game, target: u32) {
-    answer(g, Response::Cast { card: CardId(0) });
+    answer(g, g.next_test_decision().cast(CardId(0)));
     answer(
         g,
-        Response::Targets {
-            objects: vec![g.object_id(CardId(target)).unwrap()],
-        },
+        g.next_test_decision()
+            .targets(vec![g.object_id(CardId(target)).unwrap()]),
     );
     for land in 1..=3 {
         answer(
             g,
-            Response::ActivateMana {
-                object: g.object_id(CardId(land)).unwrap(),
-            },
+            g.next_test_decision()
+                .activate_mana(g.object_id(CardId(land)).unwrap()),
         );
     }
-    answer(g, Response::FinishMana { undo_mana: true });
+    answer(
+        g,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
     for _ in 0..4 {
-        answer(g, Response::Pass);
+        answer(
+            g,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     Driver::request(g, u64::MAX);
 }
@@ -60,8 +89,11 @@ fn reach_draw_choice(g: &mut Game) {
         let request = Driver::request(g, u64::MAX);
         if matches!(
             request,
-            Request::CommanderReturn {
-                destination: Zone::Hand { .. },
+            Decision {
+                reason: Reason::CommanderReturn {
+                    destination: Zone::Hand { .. },
+                    ..
+                },
                 ..
             }
         ) {
@@ -108,16 +140,14 @@ fn natural_commander_damage_counts_actual_hits_and_loses_at_next_sba() {
                 break;
             }
             if let Advance::AwaitingDecision(request) = result {
-                let response = if matches!(request,Request::Attackers {player,..} if player==attacker)
+                let response = if matches!(request,Decision{player,reason:Reason::Attackers,..} if player==attacker)
                 {
-                    Response::Attackers {
-                        attacks: vec![(g.object_id(CardId(0)).unwrap(), PlayerId(2))],
-                    }
+                    g.next_test_decision()
+                        .attack(vec![(g.object_id(CardId(0)).unwrap(), PlayerId(2))])
                 } else {
                     passive(request.clone())
                 };
-                g.respond(request.player(), request.decision_id(), response)
-                    .unwrap();
+                g.respond(request.player, request.id, response).unwrap();
             } else {
                 assert!(matches!(result, Advance::Suspended { .. }));
             }
@@ -139,25 +169,33 @@ fn top_library_replacement_and_draw_replacement_are_separate_owner_choices() {
         let original = g.object_id(CardId(4)).unwrap();
         tuck_choice(&mut g, 4);
         assert!(
-            matches!(Driver::request(&mut g, u64::MAX),Request::CommanderReturn {player:PlayerId(1),object,destination:Zone::Library {owner:PlayerId(1)},..} if object==original)
+            matches!(Driver::request(&mut g, u64::MAX),Decision{player:PlayerId(1),reason:Reason::CommanderReturn{object,destination:Zone::Library {owner:PlayerId(1)},..},..} if object==Some(original))
         );
 
         let own = view(&g, 1);
-        let Some(PlayerRequest::CommanderReturn {
-            object: Some(handle),
-            designation,
+        let Some(Decision {
+            reason:
+                Reason::CommanderReturn {
+                    object: Some(handle),
+                    designation,
+                    ..
+                },
             ..
         }) = own.decision
         else {
             panic!("visible tuck choice")
         };
         assert_eq!(designation, own.view.commanders[0].designation);
-        answer(
-            &mut g,
-            Response::CommanderReturn {
-                to_command: tuck_return,
-            },
-        );
+        {
+            let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                flag: if tuck_return {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            answer(&mut g, selected_answer)
+        };
         Driver::request(&mut g, u64::MAX);
         assert!(g.resolve_handle(PlayerId(1), &handle).is_err());
         if tuck_return {
@@ -185,10 +223,14 @@ fn top_library_replacement_and_draw_replacement_are_separate_owner_choices() {
             }
             reach_draw_choice(&mut g);
             let observation = view(&g, 1);
-            let Some(PlayerRequest::CommanderReturn {
-                object: None,
-                designation: draw_designation,
-                destination: Zone::Hand { owner: PlayerId(1) },
+            let Some(Decision {
+                reason:
+                    Reason::CommanderReturn {
+                        object: None,
+                        designation: draw_designation,
+                        destination: Zone::Hand { owner: PlayerId(1) },
+                        ..
+                    },
                 ..
             }) = observation.decision
             else {
@@ -207,12 +249,16 @@ fn top_library_replacement_and_draw_replacement_are_separate_owner_choices() {
                 );
             }
 
-            answer(
-                &mut g,
-                Response::CommanderReturn {
-                    to_command: draw_return,
-                },
-            );
+            {
+                let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                    flag: if draw_return {
+                        Flag::CommandZone
+                    } else {
+                        Flag::Destination
+                    },
+                });
+                answer(&mut g, selected_answer)
+            };
             Driver::request(&mut g, u64::MAX);
             assert_eq!(
                 g.state.rules.libraries[&PlayerId(1)],
@@ -243,7 +289,13 @@ fn ordinary_top_library_instruction_precedes_existing_order_and_draws_once() {
         if g.state.rules.objects[&CardId(16)].zone == (Zone::Hand { owner: PlayerId(2) }) {
             break;
         }
-        assert!(!matches!(request, Request::CommanderReturn { .. }));
+        assert!(!matches!(
+            request,
+            Decision {
+                reason: Reason::CommanderReturn { .. },
+                ..
+            }
+        ));
         answer(&mut g, passive(request));
     }
     assert_eq!(

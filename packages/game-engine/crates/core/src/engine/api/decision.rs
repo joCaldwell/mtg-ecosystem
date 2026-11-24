@@ -1,407 +1,213 @@
 //! The pending decision and the validation of a proposed answer.
+mod build;
+pub(in crate::engine) use build::candidate_index;
+#[cfg(any(test, feature = "testkit"))]
+mod intent;
+mod project;
+mod selected;
+#[cfg(not(feature = "testkit"))]
+pub(in crate::engine) use selected::PendingInput;
+#[cfg(feature = "testkit")]
+pub use selected::PendingInput;
+mod check;
+mod model;
+pub use model::*;
+mod shape;
+#[cfg(test)]
+mod tests;
+pub use shape::*;
+
 use crate::engine::*;
 
 impl RulesTxn {
-    /// The decision `viewer` owes now, if any.
-    pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Request>, String> {
+    pub fn decision_for(&self, viewer: PlayerId) -> Result<Option<Decision<Rules>>, String> {
         Ok(self
             .pending_decision()?
-            .filter(|request| request.player() == viewer))
+            .filter(|decision| decision.player == viewer))
     }
-    /// The one decision the game is waiting for, whoever owes it. None while
-    /// an accepted input or a queued concession is still to be applied.
-    pub(crate) fn pending_decision(&self) -> Result<Option<Request>, String> {
+
+    pub(crate) fn pending_decision(&self) -> Result<Option<Decision<Rules>>, String> {
         if self.state.rules.pending.is_some() || !self.state.rules.pending_concessions.is_empty() {
             return Ok(None);
         }
-        if let Frame::Kernel { task } = &self.state.rules.frame {
-            return self.kernel_request(task);
+        if matches!(self.state.rules.frame, Frame::Priority) {
+            if let Some(decision) = self.priority_cache.get() {
+                return Ok(Some(decision.clone()));
+            }
+            let decision = self.priority_decision(self.state.rules.priority)?;
+            let _ = self.priority_cache.set(decision.clone());
+            return Ok(Some(decision));
         }
-        if matches!(self.state.rules.frame, Frame::GraveyardGroup { .. }) {
-            return Ok(self.replacement_request());
-        }
-        if matches!(self.state.rules.frame, Frame::Setup) {
-            return self.setup_request();
-        }
+        self.frame_decision()
+    }
 
-        if let Some(req) = self.damage_effect_request()? {
-            return Ok(Some(req));
-        }
-        if let Some(req) = self.trigger_request()? {
-            return Ok(Some(req));
-        }
-        if let Some(req) = self.actions_request()? {
-            return Ok(Some(req));
-        }
-        if let Some(req) = self.combat_request()? {
-            return Ok(Some(req));
-        }
-        let req = match &self.state.rules.frame {
-            Frame::LegendRule { .. } => {
-                return self.legend_request();
-            }
-            Frame::EntityTargets { .. } => Request::EntityTargets {
-                decision_id: self.state.rules.revision,
-                player: self.top()?.controller,
-                occurrences: self.program()?.targets.clone(),
-                candidates: self.eligible_entities(),
-            },
-            Frame::StackTargets { .. } => Request::StackTargets {
-                decision_id: self.state.rules.revision,
-                player: self.top()?.controller,
-                occurrences: self.program()?.targets.clone(),
-                candidates: self.eligible_stack_targets_for(
-                    &self.program()?.targets[0],
-                    self.top()?.controller,
-                    Some(self.top()?.id),
-                ),
-            },
-            Frame::TriggerTargets { .. }
-                if self.program()?.targets.first().is_some_and(|t| {
-                    matches!(
-                        t.domain,
-                        TargetDomain::ControlledBattlefieldCreature
-                            | TargetDomain::BattlefieldPermanent
-                            | TargetDomain::BattlefieldCreature
-                            | TargetDomain::OwnGraveyardCreatureCard
-                            | TargetDomain::OwnGraveyardCard
-                    )
-                }) =>
-            {
-                if !self.top_has_target_domain()? {
-                    return Ok(None);
-                }
-                Request::Targets {
-                    decision_id: self.state.rules.revision,
-                    player: self.top()?.controller,
-                    occurrences: self.program()?.targets.clone(),
-                    counter_division: None,
-                    candidates: self
-                        .state
-                        .rules
-                        .objects
-                        .values()
-                        .filter(|o| self.object_target_legal(self.top().unwrap(), o.id))
-                        .map(|o| o.id)
-                        .collect(),
-                }
-            }
-            Frame::TriggerTargets { .. }
-                if self
-                    .program()?
-                    .targets
-                    .first()
-                    .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget) =>
-            {
-                Request::EntityTargets {
-                    decision_id: self.state.rules.revision,
-                    player: self.top()?.controller,
-                    occurrences: self.program()?.targets.clone(),
-                    candidates: self.eligible_entities(),
-                }
-            }
-            Frame::PlayerTargets { .. } | Frame::TriggerTargets { .. } => Request::PlayerTargets {
-                decision_id: self.state.rules.revision,
-                player: self.top()?.controller,
-                occurrences: self.program()?.targets.clone(),
-                candidates: self
-                    .eligible_players(self.program()?.targets[0].domain, self.top()?.controller),
-            },
+    pub(in crate::engine) fn frame_decision(&self) -> Result<Option<Decision<Rules>>, String> {
+        let decision = match &self.state.rules.frame {
+            Frame::Kernel { task } => return self.kernel_request(task),
+            Frame::GraveyardGroup { .. } => return Ok(self.replacement_request()),
+            Frame::Setup => return self.setup_request(),
+            Frame::DamageEffects { .. } => return self.damage_effect_request(),
+            Frame::TriggerOrder { .. } => return self.trigger_request(),
+            Frame::ResolutionChoice { .. } => return self.actions_request(),
+            Frame::Attackers
+            | Frame::Blockers { .. }
+            | Frame::DamageChoice { .. }
+            | Frame::Discard { .. } => return self.combat_request(),
             Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. } => {
                 return self.sacrifice_request();
+            }
+            Frame::LegendRule { .. } => return self.legend_request(),
+            Frame::Priority => self.priority_decision(self.state.rules.priority)?,
+            Frame::TriggerTargets { .. } if !self.top_has_target_domain()? => return Ok(None),
+            Frame::TriggerTargets { .. }
+            | Frame::Targets { .. }
+            | Frame::PlayerTargets { .. }
+            | Frame::EntityTargets { .. } => self.target_decision()?,
+            Frame::StackTargets { .. } => {
+                return Err("stack targets outside admitted decision algebra".into());
+            }
+            Frame::AdditionalCosts { .. } => {
+                let candidates: Vec<_> = self
+                    .program()?
+                    .optional_additional_costs
+                    .iter()
+                    .map(|c| Candidate::AdditionalCost {
+                        id: c.identity.clone(),
+                        mana: c.mana.clone(),
+                    })
+                    .collect();
+                let max = candidates.len() as u32;
+                self.pick(
+                    self.top()?.controller,
+                    Reason::AdditionalCosts,
+                    candidates,
+                    0,
+                    max,
+                )
+            }
+            Frame::HybridCost { .. } => self.hybrid_decision()?,
+            Frame::AnnounceX { .. } => self.decision(
+                self.top()?.controller,
+                Reason::AnnounceX,
+                vec![],
+                Shape::Number {
+                    min: 0.into(),
+                    max: None,
+                },
+            ),
+            Frame::Mana { .. } | Frame::SpendMana { .. } => {
+                let entry = self.top()?;
+                self.payment_decision(
+                    entry.controller,
+                    entry.total_cost.clone(),
+                    None,
+                    matches!(self.state.rules.frame, Frame::Mana { .. }),
+                )?
             }
             Frame::ManaSourceChoice {
                 player,
                 source,
                 scope: ManaSourceScope::Mixed,
                 ..
-            } => Request::ChooseManaAbility {
-                decision_id: self.state.rules.revision,
-                player: *player,
-                choices: self.mixed_mana_choices(*player, *source)?,
-            },
+            } => {
+                let candidates = self
+                    .mixed_mana_choices(*player, *source)?
+                    .into_iter()
+                    .map(|ability| Candidate::ManaAbility { ability })
+                    .collect();
+                self.pick(
+                    *player,
+                    Reason::ManaAbility { source: *source },
+                    candidates,
+                    1,
+                    1,
+                )
+            }
             Frame::ManaSourceChoice {
                 player,
                 source,
                 scope,
                 ..
-            } => Request::ManaColor {
-                decision_id: self.state.rules.revision,
-                player: *player,
-                colors: self.mana_source_colors(*player, *source, *scope)?,
-            },
+            } => {
+                let candidates = self
+                    .mana_source_colors(*player, *source, *scope)?
+                    .into_iter()
+                    .map(|color| Candidate::Color { color })
+                    .collect();
+                self.pick(
+                    *player,
+                    Reason::ManaColor {
+                        source: Some(*source),
+                    },
+                    candidates,
+                    1,
+                    1,
+                )
+            }
+            Frame::ResolutionPayment { payment, .. } => self.resolution_payment_request(payment)?,
             Frame::ManaAbility { activation } => self.permanent_mana_request(activation)?,
-            Frame::ResolutionPayment { payment, .. } => self.resolution_payment_request(payment),
-            Frame::SpendMana { .. } => self.spend_mana_request()?,
             Frame::CommanderReturn {
                 object,
                 destination,
                 ..
-            } => Request::CommanderReturn {
-                previous_choices: self.previous_commander_choices(),
-                decision_id: self.state.rules.revision,
-                player: self.state.rules.cards[&object.card].owner,
-                object: *object,
-                destination: *destination,
-            },
-            Frame::Priority => Request::Priority {
-                decision_id: self.state.rules.revision,
-                player: self.state.rules.priority,
-            },
-            Frame::AdditionalCosts { .. } => Request::AdditionalCosts {
-                decision_id: self.state.rules.revision,
-                player: self.top()?.controller,
-                candidates: self.program()?.optional_additional_costs.clone(),
-            },
-            Frame::HybridCost { .. } => Request::HybridCost {
-                decision_id: self.state.rules.revision,
-                player: self.top()?.controller,
-                symbols: self
-                    .copiable_definition(self.top()?.source)?
-                    .characteristics
-                    .hybrid_mana
-                    .clone(),
-            },
-            Frame::AnnounceX { .. } => Request::AnnounceX {
-                decision_id: self.state.rules.revision,
-                player: self.top()?.controller,
-            },
-            Frame::Mana { .. } => Request::Mana {
-                decision_id: self.state.rules.revision,
-                player: self.top()?.controller,
-                cost: self.top()?.total_cost.clone(),
-            },
-            Frame::Targets { .. } => Request::Targets {
-                decision_id: self.state.rules.revision,
-                player: self.top()?.controller,
-                occurrences: self.program()?.targets.clone(),
-                counter_division: None,
-                candidates: self
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| self.object_target_legal(self.top().unwrap(), o.id))
-                    .map(|o| o.id)
-                    .collect(),
-            },
-            _ => return Ok(None),
+            } => self.commander_decision(*object, *destination, self.previous_commander_choices()),
+            Frame::Damage
+            | Frame::CleanupClear
+            | Frame::Stabilize { .. }
+            | Frame::Draw
+            | Frame::Transition
+            | Frame::EnterStep
+            | Frame::Payment { .. }
+            | Frame::CounterPlacement { .. }
+            | Frame::Resolve { .. }
+            | Frame::Fault { .. }
+            | Frame::Finished { .. } => return Ok(None),
         };
-        Ok(Some(req))
+        Ok(Some(decision))
     }
-    pub(crate) fn validate_response(
+
+    pub(in crate::engine) fn commander_decision(
         &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        if matches!(self.state.rules.frame, Frame::GraveyardGroup { .. }) {
-            return if self.replacement_request().is_some_and(|r| {
-                r.player() == player
-                    && matches!(
-                        (r, response),
-                        (
-                            Request::CommanderReturn { .. },
-                            Response::CommanderReturn { .. }
-                        ) | (
-                            Request::GraveyardReplacementOrder { .. },
-                            Response::OptionalEffect { .. }
-                        )
-                    )
-            }) {
-                Ok(())
-            } else {
-                Err("invalid graveyard replacement decision".into())
-            };
-        }
-        if let Frame::Kernel { task } = &self.state.rules.frame {
-            return self.validate_kernel_response(task, player, response);
-        }
-        if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
-            return self.validate_resolution_payment_response(payment, player, response);
-        }
-
-        if matches!(self.state.rules.frame, Frame::LegendRule { .. }) {
-            return self.validate_legend_response(player, response);
-        }
-        if let Frame::AdditionalCosts { .. } = self.state.rules.frame {
-            return if let Response::AdditionalCosts { selected } = response {
-                self.validate_additional_cost_selection(player, selected)
-            } else {
-                Err("invalid optional cost announcement".into())
-            };
-        }
-        if let Frame::HybridCost { cast } = &self.state.rules.frame {
-            let entry = self.top()?;
-            if let Response::HybridCost { colors } = response
-                && entry.id == cast.stack_id
-                && entry.controller == player
-                && entry.kind.is_spell()
-                && entry.hybrid_colors.is_empty()
-            {
-                self.validate_hybrid_colors(entry.source.card, colors)?;
-                // CR 601.2b/g/h: life affordability is evaluated at payment,
-                // after mana abilities have had a chance to change the total.
-                // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-                return Ok(());
-            }
-            return Err("invalid hybrid mana announcement".into());
-        }
-        if let Frame::AnnounceX { .. } = self.state.rules.frame {
-            return if matches!(response, Response::AnnounceX { value } if !value.is_negative())
-                && self.top()?.controller == player
-            {
-                Ok(())
-            } else {
-                Err("invalid X announcement".into())
-            };
-        }
-        if matches!(
-            self.state.rules.frame,
-            Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. }
-        ) {
-            return self.validate_sacrifice_response(player, response);
-        }
-        if matches!(self.state.rules.frame, Frame::Setup) {
-            return self.validate_setup_response(player, response);
-        }
-        if let Frame::Stabilize { resume, .. } = &self.state.rules.frame {
-            let mut validation = self.fork();
-            validation.rules_mut().frame = self.saved_frame(*resume)?.clone();
-            return validation.validate_response(player, response);
-        }
-        if let (Frame::DamageEffects { .. }, Response::DamageEffect { effect, damage }) =
-            (&self.state.rules.frame, response)
-        {
-            return self.validate_damage_effect(player, effect, *damage);
-        }
-
-        if let Some(result) = self.validate_actions_response(player, response) {
-            return result;
-        }
-        if let Frame::ManaSourceChoice {
-            player: chooser,
-            source,
-            scope,
-            ..
-        } = &self.state.rules.frame
-        {
-            return match response {
-                Response::ChooseManaAbility { ability }
-                    if *chooser == player
-                        && *scope == ManaSourceScope::Mixed
-                        && self.mixed_mana_choices(player, *source)?.contains(ability) =>
-                {
-                    Ok(())
-                }
-                Response::ManaColor { color }
-                    if *chooser == player
-                        && *scope != ManaSourceScope::Mixed
-                        && self
-                            .mana_source_colors(player, *source, *scope)?
-                            .contains(color) =>
-                {
-                    Ok(())
-                }
-                _ => Err("invalid mana source choice".into()),
-            };
-        }
-        if let Frame::ManaAbility { activation } = &self.state.rules.frame {
-            return self.validate_permanent_mana_response(activation, player, response);
-        }
-        if matches!(self.state.rules.frame, Frame::SpendMana { .. }) {
-            match response {
-                Response::SpendMana { spending } => {
-                    return self.validate_spending(player, spending, &[]);
-                }
-                Response::SpendManaAllocated {
-                    spending,
-                    restricted,
-                } => return self.validate_spending(player, spending, restricted),
-                _ => {}
-            }
-        }
-        if self.combat_decision_player().is_some() {
-            return self.validate_combat_response(player, response);
-        }
-        match (&self.state.rules.frame, response) {
-            (Frame::CommanderReturn { object, .. }, Response::CommanderReturn { .. })
-                if self.state.rules.cards[&object.card].owner == player && self.is_live(player) =>
-            {
-                Ok(())
-            }
-            (Frame::Priority, Response::PlayLand { card })
-                if self.state.rules.priority == player =>
-            {
-                self.validate_land_play(player, *card)
-            }
-            (Frame::Priority, Response::Pass) if self.state.rules.priority == player => Ok(()),
-            (Frame::Priority, Response::ActivateMana { object })
-                if self.state.rules.priority == player =>
-            {
-                self.validate_mana_activation(player, *object)
-            }
-            (Frame::Mana { .. }, Response::ActivateMana { object })
-                if self.top()?.controller == player =>
-            {
-                self.validate_mana_activation(player, *object)
-            }
-            (Frame::Mana { .. }, Response::FinishMana { .. })
-                if self.top()?.controller == player =>
-            {
-                Ok(())
-            }
-            (Frame::Priority, Response::Cast { card }) if self.state.rules.priority == player => {
-                self.validate_priority_spell_cast(player, *card)
-            }
-            (
-                Frame::Targets { .. } | Frame::TriggerTargets { .. },
-                Response::Targets { objects },
-            ) if self.top()?.controller == player => {
-                if self.program()?.targets.iter().any(|t| {
-                    !matches!(
-                        t.domain,
-                        TargetDomain::CreatureOrPlaneswalker
-                            | TargetDomain::ControlledBattlefieldCreature
-                            | TargetDomain::ControlledBattlefieldPermanent
-                            | TargetDomain::BattlefieldPermanent
-                            | TargetDomain::BattlefieldCreature
-                            | TargetDomain::BlockingBattlefieldCreature
-                            | TargetDomain::OwnGraveyardCreatureCard
-                            | TargetDomain::OwnGraveyardCard
-                    )
-                }) || !Self::object_target_count_valid(self.program()?, objects)
-                    || objects
-                        .iter()
-                        .any(|o| !self.object_target_legal(self.top().unwrap(), *o))
-                {
-                    return Err("invalid targets".into());
-                }
-                Ok(())
-            }
-            _ => Err("invalid or unauthorized decision response".into()),
-        }
+        object: ObjectId,
+        destination: Zone,
+        previous: Vec<(ObjectId, bool)>,
+    ) -> Decision<Rules> {
+        self.pick_flags(
+            self.state.rules.cards[&object.card].owner,
+            Reason::CommanderReturn {
+                object: Some(object),
+                designation: object.card,
+                destination,
+                previous,
+            },
+            &[Flag::CommandZone, Flag::Destination],
+        )
     }
+
     pub fn check_response(
         &self,
         player: PlayerId,
         decision_id: u64,
-        response: Response,
+        answer: Answer,
     ) -> Result<ValidatedResponse, String> {
-        if self.state.rules.pending.is_some()
-            || decision_id != self.state.rules.revision
-            || self.decision_for(player)?.is_none()
-        {
-            return Err("stale or unauthorized decision".into());
+        if decision_id != self.state.rules.revision {
+            return Err("stale decision".into());
         }
-        self.validate_response(player, &response)?;
+        let decision = self
+            .decision_for(player)?
+            .ok_or("stale or unauthorized decision")?;
+        decision.shape.check(&answer)?;
         Ok(ValidatedResponse {
             executor: self.executor.clone(),
-            revision: self.state.rules.revision,
+            revision: decision_id,
             state_token: self.state_token.clone(),
-            input: AcceptedInput {
-                decision_id,
-                player,
-                response,
+            input: PendingInput {
+                input: AcceptedInput {
+                    decision_id,
+                    player,
+                    answer,
+                },
+                decision,
             },
         })
     }

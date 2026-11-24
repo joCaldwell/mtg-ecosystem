@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
   GameClient, parsePreparedCommand, parseSeatBootstrap, prepareCommand,
-  type ActionBeginning, type ActionInitiation, type ActionQueryResponse, type Observation, type PlayerResponse,
+  type Action, type Answer, type Observation,
   type SeatResume, type StreamPage,
 } from '@multiverse/game-server-sdk/browser';
 import { OBSERVATION_VERSION } from '../../web/src/session/read-state.ts';
@@ -25,20 +25,7 @@ test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-// Translate only the supplied initiation, retaining every wire response field.
-// Compare in memory as a boolean so failures never dump permitted/private handles.
-function initiationResponse(action: ActionInitiation): PlayerResponse {
-  switch (action.action) {
-    case 'pass': return { response: 'pass' };
-    case 'play_land': case 'play_back_land': return { response: action.action, object: action.object };
-    case 'cast': case 'bestow': return { response: action.action, card: action.card };
-    case 'activate_mana': return { response: 'activate_mana', object: action.object };
-    case 'activate_ability': return { response: 'activate_ability', object: action.object, ability: action.ability };
-    case 'finish_mana': return { response: 'finish_mana', undo_mana: action.undo_mana };
-  }
-}
-
-function assertCompleteResponse(actual: PlayerResponse, expected: PlayerResponse): void {
+function assertCompleteResponse(actual: Answer, expected: Answer): void {
   expect(isDeepStrictEqual(actual, expected)).toBe(true);
 }
 
@@ -67,11 +54,9 @@ async function finishOwnedHost(cleanup: () => Promise<unknown>, shutdown: () => 
 }
 
 test('qualification guards compare whole actions and shut down after stalled driver cleanup', async () => {
-  const selected = initiationResponse({ action: 'finish_mana', undo_mana: true });
-  assertCompleteResponse(selected, { response: 'finish_mana', undo_mana: true });
-  expect(() => assertCompleteResponse({ response: 'finish_mana', undo_mana: false }, selected)).toThrow();
-  expect(() => assertCompleteResponse({ response: 'activate_ability', object: 'synthetic-object', ability: 3 },
-    initiationResponse({ action: 'activate_ability', object: 'synthetic-object', ability: 2 }))).toThrow();
+  const selected: Answer = {answer:'pay',pay:{step:'finish',undo_on_failure:true}};
+  assertCompleteResponse(selected,{answer:'pay',pay:{step:'finish',undo_on_failure:true}});
+  expect(()=>assertCompleteResponse({answer:'pay',pay:{step:'finish',undo_on_failure:false}},selected)).toThrow();
   const stalled = () => new Promise<never>(() => {});
   const abort = new AbortController();
   let started!: () => void;
@@ -153,7 +138,6 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
   let driver: Promise<void> = Promise.resolve();
   let observation: Observation | null = null, revision = '';
   let observationVersion: number | null = null;
-  let beginnings: ActionBeginning[] = [];
   let errors = 0, journalBeforeSend = 0, originalContexts = 0, completeResponses = 0, resumes = 0;
   let cleanupComplete = false;
   let recovered = false, commanderResolved = false, landPlayed = false, conditionalReversal = false;
@@ -183,9 +167,6 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
           const read = value as StreamPage;
           for (const entry of read.entries) if (entry.publication.kind === 'view_replaced') observation = entry.publication.observation;
           revision = read.next;
-        } else if (path.endsWith('/actions/query')) {
-          const read = value as ActionQueryResponse;
-          if (read.outcome.status === 'complete' || read.outcome.status === 'incomplete') beginnings.push(...read.outcome.page.beginnings);
         } else if (/\/commands$/.test(path)) {
           if (value.status === 'accepted') accepted.add(value.command_id);
           else throw Error('human command rejected');
@@ -202,7 +183,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       if (!valid) { protocolFailure = true; await route.abort(); return; }
       journalBeforeSend++;
       sent.set(envelope.command_id, exactBody);
-      if (envelope.command.kind === 'decision') kinds.push(envelope.command.response.response);
+      if (envelope.command.kind === 'decision') kinds.push(envelope.command.answer.answer);
       await route.continue();
     });
     const join = async () => {
@@ -215,7 +196,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       if (!observation) throw Error('No App-published observation');
       return observation;
     };
-    const settle = async (action: () => Promise<unknown>, expectedResponse: PlayerResponse, original = { revision, token: current().decision!.token }) => {
+    const settle = async (action: () => Promise<unknown>, expectedResponse: Answer, original = { revision, token: current().decision!.token }) => {
       const before = sent.size;
       await action();
       await expect.poll(() => sent.size).toBe(before + 1);
@@ -224,36 +205,20 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       expect(envelope.expected_revision === original.revision && envelope.command.kind === 'decision' && envelope.command.token === original.token).toBe(true);
       originalContexts++;
       if (envelope.command.kind !== 'decision') throw Error('Expected human decision command');
-      assertCompleteResponse(envelope.command.response, expectedResponse);
+      assertCompleteResponse(envelope.command.answer, expectedResponse);
       completeResponses++;
       await expect.poll(() => accepted.has(id) && consumed.has(id) && !protocolFailure).toBe(true);
       await expect.poll(() => journal(page)).toBe(true);
       await expect(page.getByRole('region', { name: 'Choice status' })).toContainText('The table used your choice.');
     };
-    const discover = async () => {
-      beginnings = [];
-      await expect(page.getByRole('button', { name: 'Discover actions', exact: true })).toHaveAttribute('aria-disabled', 'false');
-      const original = { revision, token: current().decision!.token };
-      await page.getByLabel('Discovery scope', { exact: true }).selectOption('');
-      await page.getByRole('button', { name: 'Discover actions', exact: true }).click();
-      await expect(page.getByText('Discovery complete.', { exact: true })).toBeVisible();
-      return original;
-    };
-    const choose = async (predicate: (beginning: ActionBeginning) => boolean) => {
-      const original = await discover();
-      const index = beginnings.findIndex(predicate);
-      expect(index >= 0).toBe(true);
-      const beginning = beginnings[index]!;
-      const expectedResponse = initiationResponse(beginning.initiation);
-      expect(beginning.label !== 'unavailable').toBe(true);
-      if (beginning.initiation.action === 'finish_mana' && beginning.initiation.undo_mana) {
-        expect(beginning.label !== 'unavailable' && beginning.label.available.text === 'Finish adding mana; reverse reversible mana if payment fails').toBe(true);
-        conditionalReversal = true;
-      }
-      const menu = page.getByRole('region').filter({ has: page.getByRole('heading', { name: 'Available actions', exact: true }) });
-      const button = menu.locator('ol > li > button').nth(index);
-      expect(beginning.label !== 'unavailable' && (await button.textContent())!.startsWith(beginning.label.available.text)).toBe(true);
-      await settle(() => button.click(), expectedResponse, original);
+    const confirm=()=>page.getByRole('button',{name:'Confirm choice',exact:true}).click();
+    const choose = async (predicate:(action:Action)=>boolean) => {
+      const d=current().decision!;
+      const index=d.candidates.findIndex(c=>c.candidate==='action' && predicate(c.action));
+      expect(index).toBeGreaterThanOrEqual(0);
+      const answer:Answer=d.shape.shape==='pay' ? {answer:'pay',pay:{step:'activate',source:index}} : {answer:'pick',picks:[[index]]};
+      await page.locator('input[type=radio][value="'+index+'"]').check();
+      await settle(confirm,answer);
     };
     await join();
     observationVersion = current().observation_version;
@@ -273,11 +238,10 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
           expect(read.viewer === seat && read.engine_build_id === identity.engine_build_id && read.server_build_id === identity.server_build_id).toBe(true);
           if (read.state.status !== 'available' || !read.state.observation.decision) continue;
           const request = read.state.observation.decision;
-          let response: PlayerResponse;
-          if (request.request === 'mulligan') response = { response: 'mulligan', take: false };
-          else if (request.request === 'priority') response = { response: 'pass' };
-          else throw Error('Test driver reached a choice beyond keep/pass');
-          const command = prepareCommand({ protocol_version: read.protocol_version, command_id: randomUUID().replaceAll('-', ''), expected_revision: read.next, command: { kind: 'decision', token: request.token, response } });
+          const i=request.candidates.findIndex(c=>c.candidate==='flag' && c.flag==='keep' || c.candidate==='action' && c.action.action==='pass');
+          if (i<0) throw Error('Test driver reached a choice beyond keep/pass');
+          const answer:Answer={answer:'pick',picks:[[i]]};
+          const command = prepareCommand({ protocol_version: read.protocol_version, command_id: randomUUID().replaceAll('-', ''), expected_revision: read.next, command: { kind: 'decision', token: request.token, answer } });
           const name = `driver-seat-${seat}-${driverCommands++}`;
           writeFileSync(resolve(parent, `${name}.exact.json`), command.exactBody, { mode: 0o600, flag: 'wx' });
           const submission = await driverCall(driverAbort.signal, signal => client.submitExact(command.exactBody, { signal }));
@@ -295,47 +259,44 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
       }
     })().catch(() => { if (!driverAbort.signal.aborted) driverFailure = true; });
     const openingContext = { revision, token: current().decision!.token };
-    await page.getByRole('radio', { name: 'Keep hand', exact: true }).check();
-    await settle(() => page.getByRole('button', { name: 'Confirm choice', exact: true }).click(), { response: 'mulligan', take: false }, openingContext);
+    await page.getByRole('radio', { name: 'Keep', exact: true }).check();
+    await settle(() => page.getByRole('button', { name: 'Confirm choice', exact: true }).click(), { answer:'pick',picks:[[current().decision!.candidates.findIndex(c=>c.candidate==='flag' && c.flag==='keep')]] }, openingContext);
     for (let attempts = 0; attempts < 12; attempts++) {
-      await expect.poll(() => current().decision?.request === 'priority').toBe(true);
+      await expect.poll(() => current().decision?.reason.reason === 'priority').toBe(true);
       if (current().view.turn.step === 'precombat_main') break;
-      await choose(beginning => beginning.initiation.action === 'pass');
+      await choose(action => action.action === 'pass');
     }
     expect(current().view.turn.step === 'precombat_main' && current().view.turn.number === 1).toBe(true);
-    await choose(beginning => beginning.initiation.action === 'play_land');
+    await choose(action => action.action === 'play_land');
     expect(current().view.turn.lands_played).toBe(1);
     expect(current().view.objects.filter(object => object.owner === 0 && object.zone.zone === 'battlefield').length).toBe(1);
     await expect(page.getByRole('region', { name: 'Battlefield', exact: true }).getByRole('button')).toHaveCount(1);
     landPlayed = true;
-    await choose(beginning => beginning.initiation.action === 'cast' && beginning.initiation.card === current().view.objects.find(object => object.owner === 0 && object.zone.zone === 'command' && object.oracle_id === commanderOracle)?.handle
-      && beginning.label !== 'unavailable' && beginning.label.available.source?.kind === 'spell' && beginning.label.available.source.oracle_id === commanderOracle && beginning.label.available.source.object === beginning.initiation.card);
-    await expect.poll(() => current().decision?.request).toBe('mana');
-    await choose(beginning => {
-      const action = beginning.initiation;
-      return action.action === 'activate_mana' && beginning.label !== 'unavailable' && beginning.label.available.source?.kind === 'mana_ability'
-        && beginning.label.available.source.object === action.object && Boolean(beginning.label.available.source.text)
-        && current().view.objects.some(object => object.handle === action.object && object.owner === 0 && object.zone.zone === 'battlefield');
-    });
-    await choose(beginning => beginning.initiation.action === 'finish_mana' && beginning.initiation.undo_mana);
-    await expect.poll(() => current().decision?.request).toBe('spend_mana');
-    const payment = current().decision;
-    if (payment?.request !== 'spend_mana') throw Error('Expected explicit payment');
+    await choose(action => action.action==='cast' && action.card===commander!.handle);
+    await expect.poll(()=>current().decision?.reason.reason).toBe('mana');
+    await choose(action=>action.action==='activate_mana' && current().view.objects.some(o=>o.handle===action.object && o.zone.zone==='battlefield'));
+    await page.locator('input[value="finish-undo"]').check();
+    await settle(confirm,{answer:'pay',pay:{step:'finish',undo_on_failure:true}});
+    conditionalReversal=true;
+    await expect.poll(()=>current().decision?.reason.reason).toBe('spend_mana');
+    const decision=current().decision!;
+    const payment=decision.shape;
+    if(payment.shape!=='pay' || payment.step.step!=='spend') throw Error('Expected explicit payment');
     expect(payment.cost.generic === '0' && Boolean(current().decision_context?.source)).toBe(true);
-    const paymentContext = { revision, token: payment.token };
+    const paymentContext = { revision, token: decision.token };
     const colors = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' };
-    const spending: Extract<PlayerResponse, { response: 'spend_mana' }>['spending'] = {};
-    for (const color of Object.keys(payment.available) as (keyof typeof colors)[]) {
+    const spending: Record<string,string> = {};
+    for (const color of Object.keys(payment.pool.unrestricted) as (keyof typeof colors)[]) {
       const amount = payment.cost.colored.filter(required => required === color).length.toString();
       if (amount !== '0') spending[color] = amount;
-      await page.getByRole('textbox', { name: new RegExp(`^${colors[color]}`) }).fill(amount);
+      await page.getByRole('textbox', { name: new RegExp(`^${color} Available`) }).fill(amount);
     }
-    await settle(() => page.getByRole('button', { name: 'Confirm choice', exact: true }).click(), { response: 'spend_mana', spending }, paymentContext);
+    await settle(() => page.getByRole('button', { name: 'Confirm choice', exact: true }).click(), {answer:'pay',pay:{step:'spend',unrestricted:spending}}, paymentContext);
     for (let attempts = 0; attempts < 4; attempts++) {
       if (current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === 'battlefield')) break;
-      await expect.poll(() => current().decision?.request === 'priority' || current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === 'battlefield')).toBe(true);
+      await expect.poll(() => current().decision?.reason.reason === 'priority' || current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === 'battlefield')).toBe(true);
       if (!current().view.stack.length) break;
-      await choose(beginning => beginning.initiation.action === 'pass');
+      await choose(action => action.action === 'pass');
     }
     await expect.poll(() => current().view.objects.some(object => object.owner === 0 && object.oracle_id === commanderOracle && object.zone.zone === 'battlefield')).toBe(true);
     await expect(page.getByRole('region', { name: 'Battlefield', exact: true }).getByRole('button')).toHaveCount(2);
@@ -354,7 +315,7 @@ test('native first turn: App keeps, discovers, pays, resolves commander and reim
     expect(await journal(page)).toBe(true); recovered = true;
     expect(await page.evaluate(() => localStorage.length === 0 && sessionStorage.length === 0 && location.search === '' && location.hash === '')).toBe(true);
     expect(errors === 0 && !protocolFailure && journalBeforeSend === sent.size && originalContexts === sent.size && completeResponses === sent.size && accepted.size === sent.size && consumed.size === sent.size).toBe(true);
-    expect(['mulligan', 'pass', 'play_land', 'cast', 'activate_mana', 'finish_mana', 'spend_mana'].every(kind => kinds.includes(kind))).toBe(true);
+    expect(['pick','pay'].every(kind => kinds.includes(kind))).toBe(true);
     await page.getByRole('button', { name: 'Release seat and clear view' }).click();
   } finally {
     stopDriver();

@@ -33,6 +33,7 @@ impl Deref for Game {
 impl std::ops::DerefMut for Game {
     fn deref_mut(&mut self) -> &mut RulesTxn {
         self.committed.published = None;
+        self.committed.priority_cache.take();
         &mut self.committed
     }
 }
@@ -54,6 +55,7 @@ impl Game {
     /// state and stops at a fault, typed when a capacity was exhausted.
     pub(in crate::engine) fn enter_fault(&mut self, error: RuleError) -> Advance {
         self.committed.published = None;
+        self.committed.priority_cache.take();
         self.committed.kernel_leaf = None;
         self.committed.rules_mut().frames.clear();
         self.committed.rules_mut().typed_fault = error.fault().cloned();
@@ -62,6 +64,7 @@ impl Game {
             reason: reason.clone(),
         };
         self.committed.state_token = Arc::new(());
+        self.committed.priority_cache.take();
         Advance::Fault(reason)
     }
 }
@@ -78,7 +81,7 @@ impl RulesTxn {
         Ok(())
     }
 
-    fn accept_input(&mut self, input: AcceptedInput) -> Result<(), RuleError> {
+    fn accept_input(&mut self, input: PendingInput) -> Result<(), RuleError> {
         let rules = self.rules_mut();
         rules.revision = rules
             .revision
@@ -86,9 +89,9 @@ impl RulesTxn {
             .ok_or_else(|| RuleError::resource("structural revision resource limit"))?;
         rules.retained_auxiliary_charge = rules
             .retained_auxiliary_charge
-            .saturating_add(stored_history::payload_charge(&input));
-        rules.pending = Some(input.clone());
-        self.state.audit.journal.push(input);
+            .saturating_add(stored_history::payload_charge(&input.input));
+        self.state.audit.journal.push(input.input.clone());
+        self.rules_mut().pending = Some(input);
         Ok(())
     }
 }
@@ -104,10 +107,7 @@ impl Game {
     /// Accepts an input atomically. Retaining an input is charged to history
     /// but never refused here: the next rule step's capacity check faults
     /// instead, so an accepted input is always journaled.
-    pub(in crate::engine) fn commit_input(
-        &mut self,
-        input: AcceptedInput,
-    ) -> Result<(), RuleError> {
+    pub(in crate::engine) fn commit_input(&mut self, input: PendingInput) -> Result<(), RuleError> {
         self.transact(false, |tx| tx.accept_input(input))
     }
 
@@ -165,6 +165,7 @@ impl Game {
                 self.committed.published = staged.published;
                 self.committed.kernel_leaf = staged.kernel_leaf;
                 self.committed.state_token = Arc::new(());
+                self.committed.priority_cache.take();
                 Ok(value)
             }
             Err(error) => Err(error.with_fault(staged.state.rules.typed_fault.clone())),
@@ -204,6 +205,7 @@ impl RulesTxn {
             // A capture answers queries only; it never issues a receipt.
             executor: self.executor.clone(),
             state_token: self.state_token.clone(),
+            priority_cache: Default::default(),
             in_rule_step: false,
             kernel_leaf: self.kernel_leaf.clone(),
             published: None,

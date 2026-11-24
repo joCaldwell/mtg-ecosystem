@@ -29,8 +29,6 @@ mod board {
     pub(super) fn card(c: &Catalog, name: &str, owner: u8, zone: Zone) -> VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         VisibleObject {
-            copied_values: None,
-            display_face: None,
             face_down: false,
             exiled_by: None,
             phased_out: false,
@@ -42,7 +40,6 @@ mod board {
             restrictions: vec![],
             token: None,
             plus_one_counters: 0.into(),
-            lore_counters: 0.into(),
             characteristics: Some(d.characteristics.clone()),
             marked_damage: 0.into(),
             attack_ready: true,
@@ -59,6 +56,53 @@ mod board {
 fn strategy(c: &Catalog) -> Strategy<'_> {
     Strategy::new(c, Policy::Develop, [0; 4])
 }
+fn pick_fixture(
+    player: PlayerId,
+    reason: Reason<Viewer>,
+    candidates: Vec<Candidate<Viewer>>,
+    roles: Vec<mtg_core::SlotRole>,
+    rules: Vec<JointRule>,
+) -> Decision<Viewer> {
+    let allowed: Vec<_> = (0..candidates.len() as u32).collect();
+    let slots = roles
+        .into_iter()
+        .map(|role| mtg_core::Slot {
+            role,
+            allowed: allowed.clone(),
+            subject: None,
+            min: 1,
+            max: 1,
+            repeat: false,
+        })
+        .collect();
+    Decision {
+        id: mtg_core::DecisionToken("policy-fixture".into()),
+        player,
+        reason,
+        candidates,
+        shape: Shape::Pick { slots, rules },
+    }
+}
+fn targets(
+    player: PlayerId,
+    specs: &[mtg_contracts::TargetSpec],
+    objects: Vec<ObjectHandle>,
+) -> Decision<Viewer> {
+    pick_fixture(
+        player,
+        Reason::Targets {
+            specs: specs.to_vec(),
+        },
+        objects
+            .into_iter()
+            .map(|object| Candidate::Object { object })
+            .collect(),
+        (0..specs.len() as u32)
+            .map(|spec| mtg_core::SlotRole::Target { spec })
+            .collect(),
+        vec![],
+    )
+}
 fn observation(view: PermittedView) -> Observation {
     Observation {
         observation_version: mtg_core::formats::OBSERVATION_VERSION,
@@ -71,13 +115,10 @@ fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = board::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {
         spell_copy: false,
-        bestowed: false,
         hybrid_colors: vec![],
         selected_additional_costs: None,
         x: None,
         mana_value: None,
-        selected_modes: vec![],
-        mode: None,
         triggered: None,
         entity_targets: vec![],
         handle: Some(StackHandle(name.into())),
@@ -128,7 +169,7 @@ fn tap_cantrip_policy_consumes_admitted_program_and_offered_candidates() {
     let before = canonical(&v).unwrap();
     assert_eq!(
         strategy(&c).priority(&observation(v.clone())).unwrap(),
-        PlayerResponse::Cast {
+        Action::Cast {
             card: ObjectHandle("Pressure Point".into())
         }
     );
@@ -171,7 +212,6 @@ fn mana_planner_preserves_flexible_source_for_the_second_color() {
             generic: 0.into(),
             colored: vec![Color::W, Color::U],
         },
-        None,
         None,
     )
     .unwrap();
@@ -222,28 +262,32 @@ fn optional_effect_uses_the_bound_target_slot_and_entity_targets_spread() {
     second.slot = 1;
     second.selection_id = "second".into();
     p.targets.push(second);
-    let candidates = vec![
-        PlayerTargetEntity::Player {
-            player: PlayerId(0),
-        },
-        PlayerTargetEntity::Player {
-            player: PlayerId(1),
-        },
-    ];
-    let request = PlayerRequest::EntityTargets {
-        token: mtg_core::DecisionToken("policy-fixture".into()),
-        player: v.viewer,
-        occurrences: p.targets.clone(),
-        candidates: candidates.clone(),
-    };
     let mut o = observation(v);
-    o.decision = Some(request);
-    let PlayerResponse::EntityTargets { entities } = strategy(&c).choose(&o).unwrap() else {
-        panic!("entity response")
+    o.decision = Some(pick_fixture(
+        o.view.viewer,
+        Reason::Targets {
+            specs: p.targets.clone(),
+        },
+        vec![
+            Candidate::Player {
+                player: PlayerId(0),
+            },
+            Candidate::Player {
+                player: PlayerId(1),
+            },
+        ],
+        vec![
+            mtg_core::SlotRole::Target { spec: 0 },
+            mtg_core::SlotRole::Target { spec: 1 },
+        ],
+        vec![JointRule::Distinct { slots: vec![0, 1] }],
+    ));
+    let Answer::Pick { picks } = strategy(&c).choose(&o).unwrap() else {
+        panic!("expected indexed targets")
     };
-    assert_eq!(entities.len(), 2);
-    assert_ne!(entities[0], entities[1]);
-    assert!(entities.iter().all(|e| candidates.contains(e)));
+    assert_eq!(picks.len(), 2);
+    assert!(picks.iter().all(|pick| pick.len() == 1 && pick[0] < 2));
+    assert_ne!(picks[0], picks[1]);
 }
 
 #[test]
@@ -274,7 +318,7 @@ fn generic_policy_develops_flash_at_opponents_end_and_chooses_legends() {
     )];
     assert_eq!(
         strategy(&c).priority(&observation(v.clone())).unwrap(),
-        PlayerResponse::Cast {
+        Action::Cast {
             card: ObjectHandle("Grizzly Bears".into())
         }
     );
@@ -286,13 +330,24 @@ fn generic_policy_develops_flash_at_opponents_end_and_chooses_legends() {
         .clear();
     assert_eq!(
         strategy(&c).priority(&observation(v)).unwrap(),
-        PlayerResponse::Pass
+        Action::Pass
     );
-    let candidates = vec![ObjectHandle("one".into()), ObjectHandle("two".into())];
+    let mut o = observation(board::view());
+    o.decision = Some(pick_fixture(
+        viewer,
+        Reason::LegendRule { previous: vec![] },
+        ["one", "two"]
+            .map(|name| Candidate::Object {
+                object: ObjectHandle(name.into()),
+            })
+            .into(),
+        vec![mtg_core::SlotRole::Choice],
+        vec![],
+    ));
     assert_eq!(
-        strategy(&c).legend_choice(&candidates).unwrap(),
-        PlayerResponse::LegendRule {
-            keep: candidates[1].clone()
+        strategy(&c).choose(&o).unwrap(),
+        Answer::Pick {
+            picks: vec![vec![1]]
         }
     );
 }
@@ -343,7 +398,7 @@ mod permanent_owner_hand_policy_tests {
             let before = canonical(&v).unwrap();
             assert_eq!(
                 strategy(&c).priority(&observation(v.clone())).unwrap(),
-                PlayerResponse::Cast {
+                Action::Cast {
                     card: ObjectHandle(name.into())
                 }
             );
@@ -400,19 +455,19 @@ mod permanent_owner_hand_policy_tests {
             stack_spell(&mut v, &c, name, viewer);
             v.stack.last_mut().unwrap().cast_complete = false;
             let mut o = observation(v);
-            o.decision = Some(PlayerRequest::Targets {
-                token: mtg_core::DecisionToken("permanent-bounce-payload".into()),
-                player: o.view.viewer,
-                occurrences: p.targets.clone(),
-                counter_division: None,
-                candidates: vec![ObjectHandle("Grizzly Bears".into()), selected.clone()],
-            });
+            o.decision = Some(targets(
+                o.view.viewer,
+                &p.targets,
+                vec![ObjectHandle("Grizzly Bears".into()), selected.clone()],
+            ));
             let before = canonical(&o).unwrap();
             assert_eq!(
                 strategy(&c).choose(&o).unwrap(),
-                PlayerResponse::Targets {
-                    objects: vec![selected]
-                }
+                o.decision
+                    .as_ref()
+                    .unwrap()
+                    .pick_one(&Candidate::Object { object: selected })
+                    .unwrap()
             );
             assert_eq!(canonical(&o).unwrap(), before);
         }
@@ -456,7 +511,7 @@ mod permanent_owner_hand_policy_tests {
                 let before = canonical(&v).unwrap();
                 assert_eq!(
                     strategy(&c).priority(&observation(v.clone())).unwrap(),
-                    PlayerResponse::Pass,
+                    Action::Pass,
                     "{name}: {case}"
                 );
                 assert_eq!(canonical(&v).unwrap(), before);
@@ -553,7 +608,7 @@ mod activated_permanent_tap_policy_tests {
         let mut s = strategy(&c);
         assert_eq!(
             s.priority(&observation(v.clone())).unwrap(),
-            PlayerResponse::ActivateAbility {
+            Action::ActivateAbility {
                 object: ObjectHandle("own-icy".into()),
                 ability: 0
             }
@@ -582,13 +637,10 @@ mod activated_permanent_tap_policy_tests {
         assert_eq!(canonical(&v).unwrap(), before);
         v.stack.push(VisibleStackEntry {
             spell_copy: false,
-            bestowed: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
             mana_value: None,
-            selected_modes: vec![],
-            mode: None,
             triggered: None,
             entity_targets: vec![],
             handle: Some(StackHandle("icy-activation".into())),
@@ -609,23 +661,25 @@ mod activated_permanent_tap_policy_tests {
             targets: vec![],
         });
         let mut o = observation(v);
-        o.decision = Some(PlayerRequest::Targets {
-            token: mtg_core::DecisionToken("activated-tap-payload".into()),
-            player: o.view.viewer,
-            occurrences: p.targets.clone(),
-            counter_division: None,
-            candidates: vec![
+        o.decision = Some(targets(
+            o.view.viewer,
+            &p.targets,
+            vec![
                 ObjectHandle("enemy-icy".into()),
                 ObjectHandle("own-defender".into()),
                 ObjectHandle("enemy-defender".into()),
             ],
-        });
+        ));
         let before = canonical(&o).unwrap();
         assert_eq!(
             strategy(&c).choose(&o).unwrap(),
-            PlayerResponse::Targets {
-                objects: vec![ObjectHandle("enemy-defender".into())]
-            }
+            o.decision
+                .as_ref()
+                .unwrap()
+                .pick_one(&Candidate::Object {
+                    object: ObjectHandle("enemy-defender".into())
+                })
+                .unwrap()
         );
         assert_eq!(canonical(&o).unwrap(), before);
     }
@@ -655,13 +709,10 @@ mod activated_headless_policy_tests {
     fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
         v.stack.push(VisibleStackEntry {
             spell_copy: false,
-            bestowed: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
             mana_value: None,
-            selected_modes: vec![],
-            mode: None,
             triggered: None,
             entity_targets: vec![],
             handle: Some(StackHandle("policy-activation".into())),
@@ -713,7 +764,7 @@ mod activated_headless_policy_tests {
         let mut s = strategy(&c);
         assert_eq!(
             s.priority(&observation(v.clone())).unwrap(),
-            PlayerResponse::ActivateAbility {
+            Action::ActivateAbility {
                 object: ObjectHandle("royal-source".into()),
                 ability: 0
             }
@@ -760,29 +811,31 @@ mod activated_headless_policy_tests {
             let before = canonical(&v).unwrap();
             assert_eq!(
                 strategy(&c).priority(&observation(v.clone())).unwrap(),
-                PlayerResponse::Pass,
+                Action::Pass,
                 "{case}"
             );
             assert_eq!(canonical(&v).unwrap(), before);
         }
         proposed_activation(&mut v, d, "royal-source");
         let mut o = observation(v);
-        o.decision = Some(PlayerRequest::Targets {
-            token: mtg_core::DecisionToken("royal-payload".into()),
-            player: o.view.viewer,
-            occurrences: p.targets.clone(),
-            counter_division: None,
-            candidates: vec![
+        o.decision = Some(targets(
+            o.view.viewer,
+            &p.targets,
+            vec![
                 ObjectHandle("own-tapped".into()),
                 ObjectHandle("enemy-tapped".into()),
             ],
-        });
+        ));
         let before = canonical(&o).unwrap();
         assert_eq!(
             strategy(&c).choose(&o).unwrap(),
-            PlayerResponse::Targets {
-                objects: vec![ObjectHandle("enemy-tapped".into())]
-            }
+            o.decision
+                .as_ref()
+                .unwrap()
+                .pick_one(&Candidate::Object {
+                    object: ObjectHandle("enemy-tapped".into())
+                })
+                .unwrap()
         );
         assert_eq!(canonical(&o).unwrap(), before);
     }
@@ -853,7 +906,7 @@ mod temporal_adept_policy_tests {
             let mut s = strategy(&c);
             assert_eq!(
                 s.priority(&observation(v.clone())).unwrap(),
-                PlayerResponse::ActivateAbility {
+                Action::ActivateAbility {
                     object: ObjectHandle("return-source".into()),
                     ability: 0
                 }
@@ -888,13 +941,10 @@ mod temporal_adept_policy_tests {
             assert_eq!(canonical(&v).unwrap(), before);
             v.stack.push(VisibleStackEntry {
                 spell_copy: false,
-                bestowed: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x: None,
                 mana_value: None,
-                selected_modes: vec![],
-                mode: None,
                 triggered: None,
                 entity_targets: vec![],
                 handle: Some(StackHandle("temporal-activation".into())),
@@ -915,22 +965,24 @@ mod temporal_adept_policy_tests {
                 targets: vec![],
             });
             let mut o = observation(v);
-            o.decision = Some(PlayerRequest::Targets {
-                token: mtg_core::DecisionToken("temporal-payload".into()),
-                player: o.view.viewer,
-                occurrences: p.targets.clone(),
-                counter_division: None,
-                candidates: vec![
+            o.decision = Some(targets(
+                o.view.viewer,
+                &p.targets,
+                vec![
                     ObjectHandle("own-bears".into()),
                     ObjectHandle("enemy-return-target".into()),
                 ],
-            });
+            ));
             let before = canonical(&o).unwrap();
             assert_eq!(
                 strategy(&c).choose(&o).unwrap(),
-                PlayerResponse::Targets {
-                    objects: vec![ObjectHandle("enemy-return-target".into())]
-                }
+                o.decision
+                    .as_ref()
+                    .unwrap()
+                    .pick_one(&Candidate::Object {
+                        object: ObjectHandle("enemy-return-target".into())
+                    })
+                    .unwrap()
             );
             assert_eq!(canonical(&o).unwrap(), before);
         }
@@ -979,7 +1031,7 @@ mod temporal_adept_policy_tests {
             let before = canonical(&v).unwrap();
             assert_eq!(
                 strategy(&c).priority(&observation(v.clone())).unwrap(),
-                PlayerResponse::Pass,
+                Action::Pass,
                 "{case}"
             );
             assert_eq!(canonical(&v).unwrap(), before);
@@ -1049,7 +1101,7 @@ mod untap_activation_policy_tests {
         );
         assert_eq!(
             strategy(&c).priority(&observation(v.clone())).unwrap(),
-            PlayerResponse::ActivateAbility {
+            Action::ActivateAbility {
                 object: v.objects[0].handle.clone(),
                 ability: 0
             }
@@ -1086,7 +1138,7 @@ mod untap_activation_policy_tests {
         v.objects[1].controller = PlayerId(0);
         assert_eq!(
             strategy(&c).priority(&observation(v.clone())).unwrap(),
-            PlayerResponse::Pass
+            Action::Pass
         );
     }
     #[test]
@@ -1105,7 +1157,7 @@ mod untap_activation_policy_tests {
             }
             assert_eq!(
                 strategy(&c).priority(&observation(v)).unwrap(),
-                PlayerResponse::Pass,
+                Action::Pass,
                 "case{n}"
             );
         }
@@ -1136,7 +1188,7 @@ mod untap_activation_policy_tests {
             );
             assert_eq!(
                 strategy(&c).priority(&observation(v)).unwrap(),
-                PlayerResponse::Pass,
+                Action::Pass,
                 "case{n}"
             );
         }
@@ -1150,13 +1202,13 @@ mod untap_activation_policy_tests {
         v.objects[1] = second;
         assert_eq!(
             strategy(&c).priority(&observation(v.clone())).unwrap(),
-            PlayerResponse::Pass
+            Action::Pass
         );
         v.objects[0].tapped = true;
         v.objects[1].tapped = false;
         assert_eq!(
             strategy(&c).priority(&observation(v.clone())).unwrap(),
-            PlayerResponse::Pass
+            Action::Pass
         );
         v.objects[0].tapped = false;
         let mut creature = board::card(&c, "Yargle and Multani", v.viewer.0, Zone::Battlefield);
@@ -1165,7 +1217,7 @@ mod untap_activation_policy_tests {
         v.turn.step = TurnStep::PostcombatMain;
         assert_eq!(
             strategy(&c).priority(&observation(v.clone())).unwrap(),
-            PlayerResponse::ActivateAbility {
+            Action::ActivateAbility {
                 object: v.objects[0].handle.clone(),
                 ability: 0
             }
@@ -1220,23 +1272,19 @@ fn indestructible_policy_sole_destruction_declines_and_announced_choice_falls_ba
             ));
             strategy(&c).priority(&observation(view)).unwrap()
         };
-        assert_eq!(initiation(&v), PlayerResponse::Pass);
+        assert_eq!(initiation(&v), Action::Pass);
         // Existing mandatory choice fallback remains legal after announcement.
         let viewer = v.viewer;
         stack_spell(&mut v, &c, spell, viewer.0);
         let mut o = observation(v.clone());
-        o.decision = Some(PlayerRequest::Targets {
-            token: mtg_core::DecisionToken("public-announced".into()),
-            player: viewer,
-            occurrences: p.targets.clone(),
-            counter_division: None,
-            candidates: vec![h.clone()],
-        });
+        o.decision = Some(targets(viewer, &p.targets, vec![h.clone()]));
         assert_eq!(
             strategy(&c).choose(&o).unwrap(),
-            PlayerResponse::Targets {
-                objects: vec![h.clone()]
-            }
+            o.decision
+                .as_ref()
+                .unwrap()
+                .pick_one(&Candidate::Object { object: h.clone() })
+                .unwrap()
         );
         v.stack.clear();
         v.objects.retain(|o| o.zone == Zone::Battlefield);
@@ -1245,7 +1293,7 @@ fn indestructible_policy_sole_destruction_declines_and_announced_choice_falls_ba
         let ordinary_handle = v.objects[1].handle.clone();
         assert_eq!(
             initiation(&v),
-            PlayerResponse::Cast {
+            Action::Cast {
                 card: ObjectHandle(spell.into())
             }
         );

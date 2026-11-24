@@ -32,27 +32,6 @@ impl RulesTxn {
 }
 
 impl PlayerSession<'_> {
-    /// Discover beginnings only. Later choices/payments still require validation.
-    pub fn action_beginnings(
-        &self,
-        token: DecisionToken,
-        scope: ActionScope,
-        page_size: u16,
-        budget: Budget,
-    ) -> ActionQueryResult {
-        self.game
-            .begin_actions(self.viewer, token, scope, page_size, budget)
-    }
-
-    /// Continuations are private executor objects, never client cursors or DTOs.
-    pub fn resume_actions(
-        &self,
-        continuation: ActionContinuation,
-        budget: Budget,
-    ) -> ActionQueryResult {
-        self.game.resume_actions(self.viewer, continuation, budget)
-    }
-
     pub fn observe(&self, budget: Budget) -> QueryResult {
         self.game.observe(self.viewer, budget)
     }
@@ -64,7 +43,7 @@ impl PlayerSession<'_> {
     pub fn check_response(
         &self,
         token: DecisionToken,
-        response: PlayerResponse,
+        response: Answer,
         budget: Budget,
     ) -> QueryResult {
         self.game
@@ -108,7 +87,7 @@ mod tests {
         panic!("query made no progress")
     }
 
-    fn decision(session: &PlayerSession<'_>) -> PlayerRequest {
+    fn decision(session: &PlayerSession<'_>) -> Decision<Viewer> {
         let QueryValue::Decision(Some(request)) = finish(session, session.decision(Budget::new(0)))
         else {
             panic!("expected the bound player's decision")
@@ -121,8 +100,10 @@ mod tests {
         let QueryValue::Validated(receipt) = finish(
             session,
             session.check_response(
-                request.token().clone(),
-                PlayerResponse::Pass,
+                request.id.clone(),
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
                 Budget::new(0),
             ),
         ) else {
@@ -182,7 +163,9 @@ mod tests {
             invalid.decision(Budget::new(0)),
             invalid.check_response(
                 DecisionToken("invalid".into()),
-                PlayerResponse::Pass,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
                 Budget::new(0),
             ),
             invalid.search_context("seed".into(), Budget::new(0)),
@@ -192,11 +175,13 @@ mod tests {
                 QueryResult::Rejected(QueryRejection::InvalidViewer)
             ));
         }
-        let token = decision(&game.player_session(PlayerId(0))).token().clone();
+        let token = decision(&game.player_session(PlayerId(0))).id.clone();
         assert!(matches!(
             game.player_session(PlayerId(1)).check_response(
                 token,
-                PlayerResponse::Pass,
+                Answer::Pick {
+                    picks: vec![vec![0]]
+                },
                 Budget::unlimited()
             ),
             QueryResult::Rejected(QueryRejection::InvalidResponse)
@@ -208,11 +193,17 @@ mod tests {
         let game = game();
         let own = game.player_session(PlayerId(0));
         let foreign = game.player_session(PlayerId(1));
-        let token = decision(&own).token().clone();
+        let token = decision(&own).id.clone();
         for result in [
             own.observe(Budget::new(0)),
             own.decision(Budget::new(0)),
-            own.check_response(token, PlayerResponse::Pass, Budget::new(0)),
+            own.check_response(
+                token,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+                Budget::new(0),
+            ),
             own.search_context("seed".into(), Budget::new(0)),
         ] {
             let QueryResult::Incomplete { work, .. } = result else {

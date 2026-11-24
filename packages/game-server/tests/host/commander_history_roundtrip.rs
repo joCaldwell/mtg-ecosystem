@@ -1,6 +1,9 @@
 //! Natural paid Commander cast and combat publications cross every private codec.
 use mtg_contracts::{Catalog, Color, canonical};
-use mtg_core::{MatchConfig, Observation, PlayerId, PlayerRequest, PlayerResponse, Zone};
+use mtg_core::{
+    Action, Answer, Candidate, Flag, MatchConfig, Observation, PayAnswer, PayStep, PlayerId,
+    Reason, Shape, Zone,
+};
 use mtg_server::{
     codec,
     ipc::{self, ReplyFrame, WorkerReply},
@@ -90,88 +93,131 @@ fn naturally_paid_cast_and_combat_histories_survive_store_ipc_and_recovery() {
                     && !object.tapped
             })
         };
-        let response = match request {
-            PlayerRequest::Mulligan { .. } => PlayerResponse::Mulligan { take: false },
-            PlayerRequest::Priority { .. }
-                if seat == PlayerId(0)
+        let action = |action| request.pick_one(&Candidate::Action { action }).unwrap();
+        let answer = match (&request.reason, &request.shape) {
+            (Reason::Mulligan { .. }, _) => request
+                .pick_one(&Candidate::Flag { flag: Flag::Keep })
+                .unwrap(),
+            (Reason::Priority, _) => {
+                let selected = if seat == PlayerId(0)
                     && view.active == Some(seat)
                     && view.stack.is_empty()
-                    && matches!(view.turn.step, mtg_core::TurnStep::PrecombatMain) =>
-            {
-                if view.turn.lands_played == 0 {
-                    let land = view.objects.iter().find(|object| {
-                        object.zone == (Zone::Hand { owner: seat }) && object.oracle_id == plains
-                    });
-                    match land {
-                        Some(land) => PlayerResponse::PlayLand {
-                            object: land.handle.clone(),
-                        },
-                        None => PlayerResponse::Pass,
-                    }
-                } else if let Some(card) = view.objects.iter().find(|object| {
-                    object.zone == (Zone::Command { owner: seat }) && object.oracle_id == commander
-                }) {
-                    assert!(untapped().is_some());
-                    PlayerResponse::Cast {
-                        card: card.handle.clone(),
-                    }
-                } else {
-                    PlayerResponse::Pass
-                }
-            }
-            PlayerRequest::Priority { .. } => PlayerResponse::Pass,
-            PlayerRequest::Mana { .. } => {
-                let mana = &view
-                    .players
-                    .iter()
-                    .find(|player| player.player == seat)
-                    .unwrap()
-                    .mana;
-                if mana.get(&Color::W).is_some_and(|white| white >= &1.into()) {
-                    PlayerResponse::FinishMana { undo_mana: true }
-                } else {
-                    PlayerResponse::ActivateMana {
-                        object: untapped().unwrap().handle.clone(),
-                    }
-                }
-            }
-            PlayerRequest::SpendMana { .. } => PlayerResponse::SpendMana {
-                spending: [(Color::W, 1.into())].into(),
-            },
-            PlayerRequest::Attackers {
-                candidates,
-                defenders,
-                ..
-            } => PlayerResponse::Attackers {
-                attacks: if seat == PlayerId(0) {
-                    candidates
+                    && matches!(view.turn.step, mtg_core::TurnStep::PrecombatMain)
+                {
+                    request
+                        .candidates
                         .iter()
-                        .map(|handle| {
-                            assert!(defenders.contains(&PlayerId(1)));
-                            (handle.clone(), PlayerId(1))
+                        .find_map(|c| match c {
+                            Candidate::Action {
+                                action: a @ Action::PlayLand { object },
+                            } if view
+                                .objects
+                                .iter()
+                                .any(|o| o.handle == *object && o.oracle_id == plains) =>
+                            {
+                                Some(a.clone())
+                            }
+                            _ => None,
                         })
-                        .collect()
+                        .or_else(|| {
+                            request.candidates.iter().find_map(|c| match c {
+                                Candidate::Action {
+                                    action: a @ Action::Cast { card },
+                                } if untapped().is_some()
+                                    && view.objects.iter().any(|o| {
+                                        o.handle == *card
+                                            && o.oracle_id == commander
+                                            && o.zone == Zone::Command { owner: seat }
+                                    }) =>
+                                {
+                                    Some(a.clone())
+                                }
+                                _ => None,
+                            })
+                        })
                 } else {
-                    vec![]
+                    None
+                };
+                action(selected.unwrap_or(Action::Pass))
+            }
+            (
+                _,
+                Shape::Pay {
+                    step: PayStep::Produce { .. },
+                    pool,
+                    ..
+                },
+            ) => {
+                let pay = if pool
+                    .unrestricted
+                    .get(&Color::W)
+                    .is_some_and(|n| n >= &1.into())
+                {
+                    PayAnswer::Finish {
+                        undo_on_failure: true,
+                    }
+                } else {
+                    PayAnswer::Activate {
+                        source: request
+                            .index(&Candidate::Action {
+                                action: Action::ActivateMana {
+                                    object: untapped().unwrap().handle.clone(),
+                                },
+                            })
+                            .unwrap(),
+                    }
+                };
+                Answer::Pay { pay }
+            }
+            (
+                _,
+                Shape::Pay {
+                    step: PayStep::Spend,
+                    ..
+                },
+            ) => Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: [(Color::W, 1.into())].into(),
                 },
             },
-            PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
-            PlayerRequest::Discard {
-                count, candidates, ..
-            } => PlayerResponse::Discard {
-                objects: candidates.iter().take(*count).cloned().collect(),
+            (Reason::Attackers, Shape::Pick { slots, .. }) => Answer::Pick {
+                picks: slots
+                    .iter()
+                    .map(|s| {
+                        s.allowed
+                            .iter()
+                            .find(|i| {
+                                seat == PlayerId(0)
+                                    && matches!(
+                                        request.candidates[**i as usize],
+                                        Candidate::Player {
+                                            player: PlayerId(1)
+                                        }
+                                    )
+                            })
+                            .copied()
+                            .into_iter()
+                            .collect()
+                    })
+                    .collect(),
             },
-            unexpected => panic!("unexpected request {unexpected:?}"),
+            (Reason::Discard | Reason::Blockers, Shape::Pick { slots, .. }) => Answer::Pick {
+                picks: slots
+                    .iter()
+                    .map(|s| s.allowed.iter().take(s.min as usize).copied().collect())
+                    .collect(),
+            },
+            other => panic!("unexpected decision {other:?}"),
         };
         let input = CommandEnvelope {
-            protocol_version: 1,
+            protocol_version: 2,
             command_id: format!("{ordinal:032x}"),
             expected_revision: Counter::new(
                 worker.host_state().viewer_cursors[usize::from(seat.0)],
             ),
             command: CommandBody::Decision {
-                token: request.token().clone(),
-                response,
+                token: request.id.clone(),
+                answer,
             },
         };
         assert!(matches!(

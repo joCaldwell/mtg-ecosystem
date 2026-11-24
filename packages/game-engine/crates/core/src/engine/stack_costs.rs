@@ -508,53 +508,7 @@ impl RulesTxn {
                         && ability.effect == StaticEffect::CantBeCountered
                 }))
     }
-    pub(super) fn validate_stack_targets(
-        &self,
-        player: PlayerId,
-        entries: &[StackId],
-    ) -> Result<(), String> {
-        let top = self.top()?;
-        let program = self.program()?;
-        if top.controller != player
-            || entries.len() != program.targets.len()
-            || entries.iter().enumerate().any(|(slot, target)| {
-                !self
-                    .eligible_stack_targets_for(&program.targets[slot], player, Some(top.id))
-                    .contains(target)
-            })
-        {
-            return Err("invalid stack targets".into());
-        }
-        Ok(())
-    }
-    pub(super) fn bind_stack_targets(&mut self, cast: Casting) -> Result<(), String> {
-        let input = self
-            .rules_mut()
-            .pending
-            .take()
-            .ok_or("missing stack target input")?;
-        let Response::StackTargets { entries } = input.response else {
-            return Err("stack target response invariant".into());
-        };
-        self.validate_stack_targets(input.player, &entries)?;
-        let announced = (0..4)
-            .map(|viewer| {
-                entries
-                    .iter()
-                    .map(|target| self.stack_handle_id(PlayerId(viewer), *target).cloned())
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let top = self
-            .rules_mut()
-            .stack
-            .last_mut()
-            .ok_or("missing stack target invocation")?;
-        top.stack_targets = entries;
-        top.announced_stack_targets = announced;
-        self.rules_mut().frame = self.announcement_mana_frame(cast)?;
-        Ok(())
-    }
+
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs
     // and physical Commander history are never refunded by countering it.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt

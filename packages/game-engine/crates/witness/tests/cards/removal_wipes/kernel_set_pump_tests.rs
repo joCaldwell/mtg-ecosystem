@@ -49,7 +49,7 @@ fn kernel_pump_over_a_general_filter_captures_executes_and_recovers() {
             break;
         }
         let r = Driver::request(&mut g, 1);
-        g.respond(r.player(), r.decision_id(), pass(&r)).unwrap();
+        g.respond(r.player, r.id, pass(&r)).unwrap();
     }
     let [effect] = g.state.rules.effects.as_slice() else {
         panic!("one set pump effect")

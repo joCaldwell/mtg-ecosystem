@@ -4,8 +4,9 @@ use crate::BUILD;
 use mtg_compiler::fixtures;
 use mtg_contracts::{Color, Quantity, canonical, digest, sha256, strict_read};
 use mtg_core::{
-    Advance, Budget, Game, Observation, PlayerId, PlayerRequest, PlayerResponse, Prepared,
-    QueryRejection, QueryResult, QueryValue, ReplayJournal, ScenarioConfig, TraceMode,
+    Action, Advance, Answer, Budget, Candidate, Decision, Game, Observation, PlayerId, Prepared,
+    QueryRejection, QueryResult, QueryValue, Reason, ReplayJournal, ScenarioConfig, TraceMode,
+    Viewer,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -95,12 +96,23 @@ fn advance(game: &mut Game) -> Result<(), String> {
         _ => Err("advance did not reach the expected decision within smoke budget".into()),
     }
 }
-fn submit(game: &mut Game, response: PlayerResponse) -> Result<(), String> {
+fn submit(game: &mut Game, action: Action<Viewer>) -> Result<(), String> {
     let observation = observe(game)?;
-    let Some(PlayerRequest::Priority { ref token, .. }) = observation.decision else {
+    let Some(
+        d @ Decision {
+            reason: Reason::Priority,
+            ..
+        },
+    ) = observation.decision.as_ref()
+    else {
         return Err("expected player 0 public priority request".into());
     };
-    match game.check_player_response(PlayerId(0), token.clone(), response, Budget::new(WORK)) {
+    match game.check_player_response(
+        PlayerId(0),
+        d.id.clone(),
+        d.pick_one(&Candidate::Action { action })?,
+        Budget::new(WORK),
+    ) {
         QueryResult::Complete(QueryValue::Validated(receipt)) => game.submit(receipt),
         _ => Err("public response validation did not complete successfully".into()),
     }
@@ -155,7 +167,7 @@ fn execute(artifact: &mut Artifact) -> Result<(), String> {
         .decision
         .as_ref()
         .ok_or("missing decision")?
-        .token()
+        .id
         .clone();
     let land = observation
         .view
@@ -165,12 +177,9 @@ fn execute(artifact: &mut Artifact) -> Result<(), String> {
         .ok_or("missing Island handle")?
         .handle
         .clone();
-    for (index, response) in [
-        PlayerResponse::ActivateMana { object: land },
-        PlayerResponse::Pass,
-    ]
-    .into_iter()
-    .enumerate()
+    for (index, response) in [Action::ActivateMana { object: land }, Action::Pass]
+        .into_iter()
+        .enumerate()
     {
         submit(&mut game, response)?;
         artifact.journal = game.replay_journal();
@@ -184,7 +193,9 @@ fn execute(artifact: &mut Artifact) -> Result<(), String> {
             game.check_player_response(
                 PlayerId(0),
                 token.clone(),
-                PlayerResponse::Pass,
+                Answer::Pick {
+                    picks: vec![vec![0]]
+                },
                 Budget::new(WORK)
             ),
             QueryResult::Rejected(QueryRejection::InvalidResponse)

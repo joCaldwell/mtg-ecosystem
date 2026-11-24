@@ -7,7 +7,7 @@ import { canonical, presentation, sha256 } from '../../tools/client-artifacts.ts
 import { PRESENTATION_PRODUCER_SHA256, PRESENTATION_SCHEMA_SHA256 } from '../generated/presentation-identity.ts';
 const catalog = JSON.parse(fs.readFileSync(new URL('../../../game-engine/tests/fixtures/expected-match-ir.json', import.meta.url), 'utf8'));
 function fixture(): PublicManifest {
-  return { protocol_version: 1, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64), catalog_sha256: sha256(canonical(catalog)), profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => ({ commander: catalog.definitions[0].oracle_id, cards: [] })) as PublicManifest['decks'], starting_player: 0, catalog: structuredClone(catalog) };
+  return { protocol_version: 2, match_id: 'abc', engine_build_id: 'b'.repeat(64), server_build_id: 'c'.repeat(64), catalog_sha256: sha256(canonical(catalog)), profile: 'commander-foundations-v1', decks: Array.from({ length: 4 }, () => ({ commander: catalog.definitions[0].oracle_id, cards: [] })) as PublicManifest['decks'], starting_player: 0, catalog: structuredClone(catalog) };
 }
 test('public Node producer packages original source authority and exact allowlisted bytes', async () => {
   const value = fixture(), result = await producePresentation(value, value);

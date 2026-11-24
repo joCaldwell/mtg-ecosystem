@@ -11,12 +11,17 @@ fn prepared(commanders: bool) -> Prepared {
     )
     .unwrap()
 }
-fn respond(game: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn respond(game: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         panic!("missing decision")
     };
-    game.respond(r.player(), r.decision_id(), response).unwrap();
+    game.respond(r.player, r.id, response).unwrap();
     if finish {
         game.complete_test_mana();
     }
@@ -24,22 +29,23 @@ fn respond(game: &mut Game, response: Response) {
 fn cast(game: &mut Game) {
     respond(
         game,
-        Response::ActivateMana {
-            object: game.object_id(CardId(0)).unwrap(),
-        },
+        game.next_test_decision()
+            .activate_mana(game.object_id(CardId(0)).unwrap()),
     );
-    respond(game, Response::Cast { card: CardId(1) });
+    respond(game, game.next_test_decision().cast(CardId(1)));
     assert!(matches!(
         game.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Targets { .. })
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Targets { .. },
+            ..
+        })
     ));
 }
 fn select(game: &mut Game) {
     respond(
         game,
-        Response::Targets {
-            objects: vec![game.object_id(CardId(2)).unwrap()],
-        },
+        game.next_test_decision()
+            .targets(vec![game.object_id(CardId(2)).unwrap()]),
     );
 }
 fn depart(game: &mut Game, player: u8) {
@@ -63,7 +69,10 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
     for departing in [1, 2, 3] {
         let mut game = Game::with_trace(prepared(false), mode);
         let original = game.object_id(CardId(1)).unwrap();
-        respond(&mut game, Response::Cast { card: CardId(1) });
+        {
+            let selected_answer = game.next_test_decision().cast(CardId(1));
+            respond(&mut game, selected_answer)
+        };
         let journal = game.journal().clone();
 
         game.concede(PlayerId(departing)).unwrap();
@@ -88,8 +97,8 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
             assert!(game.state.rules.pending.is_some());
             assert!(matches!(
                 game.advance(Budget::unlimited()),
-                Advance::AwaitingDecision(Request::Targets { candidates, .. })
-                    if candidates.len() == 1
+                Advance::AwaitingDecision(found @ Decision {reason:Reason::Targets{..},..})
+                    if found.objects_offered().len() == 1
             ));
         } else {
             // Either removal by the owner or exile by the default
@@ -101,16 +110,18 @@ fn departure_revalidates_pending_priority_casts_without_losing_the_journal() {
             };
             assert!(matches!(
                 outcome,
-                Advance::AwaitingDecision(Request::Priority {
+                Advance::AwaitingDecision(Decision {
                     player: PlayerId(0),
+                    reason: Reason::Priority,
                     ..
                 })
             ));
             assert!(game.state.rules.pending.is_none());
             assert!(matches!(
                 observation(&game, 0).decision,
-                Some(PlayerRequest::Priority {
+                Some(Decision {
                     player: PlayerId(0),
+                    reason: Reason::Priority,
                     ..
                 })
             ));
@@ -132,12 +143,18 @@ fn queued_departures_finish_before_empty_stack_phase_advancement() {
     let mode = TraceMode::Detailed;
     let mut game = Game::with_trace(prepared(false), mode);
     for _ in 0..2 {
-        respond(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            respond(&mut game, selected_answer)
+        };
     }
     assert!(matches!(
         game.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(2),
+            reason: Reason::Priority,
             ..
         })
     ));
@@ -184,14 +201,27 @@ fn queued_departures_finish_before_resolution_target_legality_is_captured() {
     let mut game = Game::with_trace(prepared(false), mode);
     cast(&mut game);
     select(&mut game);
-    respond(&mut game, Response::FinishMana { undo_mana: false });
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        };
+        respond(&mut game, selected_answer)
+    };
     for _ in 0..3 {
-        respond(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            respond(&mut game, selected_answer)
+        };
     }
     assert!(matches!(
         game.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(3),
+            reason: Reason::Priority,
             ..
         })
     ));
@@ -389,12 +419,17 @@ fn active_departure_keeps_turn_owner_and_surviving_priority_order() {
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         panic!()
     };
-    assert_eq!(r.player(), PlayerId(1));
-    respond(&mut game, Response::Pass);
+    assert_eq!(r.player, PlayerId(1));
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        respond(&mut game, selected_answer)
+    };
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         panic!()
     };
-    assert_eq!(r.player(), PlayerId(2));
+    assert_eq!(r.player, PlayerId(2));
 }
 #[test]
 fn target_departure_reverses_only_before_proposal_finishes() {
@@ -416,9 +451,13 @@ fn target_departure_reverses_only_before_proposal_finishes() {
                 panic!("mana request")
             };
             game.respond(
-                r.player(),
-                r.decision_id(),
-                Response::FinishMana { undo_mana: false },
+                r.player,
+                r.id,
+                Answer::Pay {
+                    pay: PayAnswer::Finish {
+                        undo_on_failure: false,
+                    },
+                },
             )
             .unwrap();
             let _ = game.advance(Budget::new(1));
@@ -445,16 +484,21 @@ fn target_departure_reverses_only_before_proposal_finishes() {
                 Some(Zone::Stack)
             );
             assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
-            if let Advance::AwaitingDecision(Request::Mana {
+            if let Advance::AwaitingDecision(Decision {
                 player,
-                decision_id,
+                id: decision_id,
+                reason: Reason::Mana { .. },
                 ..
             }) = game.advance(Budget::unlimited())
             {
                 game.respond(
                     player,
                     decision_id,
-                    Response::FinishMana { undo_mana: false },
+                    Answer::Pay {
+                        pay: PayAnswer::Finish {
+                            undo_on_failure: false,
+                        },
+                    },
                 )
                 .unwrap();
             }
@@ -470,7 +514,12 @@ fn target_departure_reverses_only_before_proposal_finishes() {
                 if game.state.rules.stack.is_empty() {
                     break;
                 }
-                respond(&mut game, Response::Pass);
+                {
+                    let selected_answer = Answer::Pick {
+                        picks: vec![vec![0]],
+                    };
+                    respond(&mut game, selected_answer)
+                };
             }
             let _ = game.advance(Budget::unlimited());
             assert!(game.state.rules.stack.is_empty());
@@ -500,12 +549,24 @@ fn source_departure_discards_casting_but_started_resolution_continues() {
             let _ = game.advance(Budget::new(1));
         }
         if boundary >= 2 {
-            respond(&mut game, Response::FinishMana { undo_mana: false });
+            {
+                let selected_answer = Answer::Pay {
+                    pay: PayAnswer::Finish {
+                        undo_on_failure: false,
+                    },
+                };
+                respond(&mut game, selected_answer)
+            };
             let _ = game.advance(Budget::unlimited());
         }
         if boundary == 3 {
             for _ in 0..4 {
-                respond(&mut game, Response::Pass);
+                {
+                    let selected_answer = Answer::Pick {
+                        picks: vec![vec![0]],
+                    };
+                    respond(&mut game, selected_answer)
+                };
             }
             let _ = game.advance(Budget::new(1));
             assert!(matches!(game.state.rules.frame, Frame::Resolve { .. }));
@@ -546,11 +607,23 @@ fn target_departure_after_casting_uses_resolution_legality_and_preserves_passes(
     let mut game = Game::new(prepared(false));
     cast(&mut game);
     select(&mut game);
-    respond(&mut game, Response::FinishMana { undo_mana: false });
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        };
+        respond(&mut game, selected_answer)
+    };
     let _ = game.advance(Budget::unlimited());
     depart(&mut game, 1);
     for _ in 0..2 {
-        respond(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            respond(&mut game, selected_answer)
+        };
     }
     let _ = game.advance(Budget::unlimited());
     assert_eq!(game.state.rules.passes, vec![PlayerId(0), PlayerId(2)]);
@@ -578,9 +651,21 @@ fn mid_resolution_target_departure_keeps_captured_legality_but_skips_removed_obj
     let mut game = Game::new(prepared(false));
     cast(&mut game);
     select(&mut game);
-    respond(&mut game, Response::FinishMana { undo_mana: false });
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        };
+        respond(&mut game, selected_answer)
+    };
     for _ in 0..4 {
-        respond(&mut game, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            respond(&mut game, selected_answer)
+        };
     }
     let _ = game.advance(Budget::new(1));
     assert!(matches!(game.state.rules.frame, Frame::Resolve { .. }));
@@ -610,7 +695,13 @@ fn queued_concessions_invalidate_queries_and_receipts_and_end_at_one_survivor() 
     };
     let request = game.decision_for(PlayerId(0)).unwrap().unwrap();
     let receipt = game
-        .check_response(PlayerId(0), request.decision_id(), Response::Pass)
+        .check_response(
+            PlayerId(0),
+            request.id,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        )
         .unwrap();
     for player in [0, 1, 2] {
         game.concede(PlayerId(player)).unwrap();
@@ -762,15 +853,13 @@ fn departed_default_controller_is_safe_under_a_remaining_live_grant_until_it_end
 #[test]
 fn queued_departure_budget_partitions_and_accepted_input_cancellation_restore_identically() {
     let mut initial = Game::new(prepared(true));
-    respond(
-        &mut initial,
-        Response::ActivateMana {
-            object: ObjectId {
-                card: CardId(0),
-                incarnation: 0,
-            },
-        },
-    );
+    {
+        let selected_answer = initial.next_test_decision().activate_mana(ObjectId {
+            card: CardId(0),
+            incarnation: 0,
+        });
+        respond(&mut initial, selected_answer)
+    };
     // An already accepted action by the departing player is retained as input
     // history but never attempts to tap an object that has left the game.
     for player in [0, 2, 3] {

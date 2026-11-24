@@ -1,9 +1,4 @@
 export declare const ROUTES: {
-    readonly query_actions: {
-        readonly method: "POST";
-        readonly path: "/v1/matches/{match_id}/actions/query";
-        readonly response_schema: "action_query";
-    };
     readonly get_client_config: {
         readonly method: "GET";
         readonly path: "/client-config.json";

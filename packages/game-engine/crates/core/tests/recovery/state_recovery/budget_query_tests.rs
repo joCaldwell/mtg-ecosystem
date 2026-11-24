@@ -45,7 +45,7 @@ fn execution_budget_partitions_and_every_suspended_boundary_restore_exactly() {
     for i in &input {
         let _ = reference.advance(Budget::unlimited());
         reference
-            .respond(i.player, i.decision_id, i.response.clone())
+            .respond(i.player, i.decision_id, i.answer.clone())
             .unwrap();
     }
     let _ = reference.advance(Budget::unlimited());
@@ -74,9 +74,9 @@ fn execution_budget_partitions_and_every_suspended_boundary_restore_exactly() {
                 Advance::AwaitingDecision(_) if index == input.len() => break,
                 Advance::AwaitingDecision(request) => {
                     let i = &input[index];
-                    assert_eq!(request.player(), i.player);
-                    assert_eq!(request.decision_id(), i.decision_id);
-                    game.respond(i.player, i.decision_id, i.response.clone())
+                    assert_eq!(request.player, i.player);
+                    assert_eq!(request.id, i.decision_id);
+                    game.respond(i.player, i.decision_id, i.answer.clone())
                         .unwrap();
                     index += 1;
                 }
@@ -146,7 +146,15 @@ fn query_budgets_work_sidecars_and_foreign_work_are_pure() {
     let QueryResult::Incomplete { work, .. } = game.observe(PlayerId(0), Budget::new(0)) else {
         panic!("expected work")
     };
-    let receipt = game.check_response(PlayerId(0), 0, Response::Pass).unwrap();
+    let receipt = game
+        .check_response(
+            PlayerId(0),
+            0,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        )
+        .unwrap();
     game.submit(receipt).unwrap();
     assert!(matches!(
         game.resume_work(work, Budget::new(1)),
@@ -227,7 +235,7 @@ fn player_handles_tokens_receipts_and_empty_domains_are_checked() {
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::land_return()));
     let own = observe(&game, PlayerId(0));
     let foreign = observe(&game, PlayerId(1));
-    let token = own.decision.unwrap().token().clone();
+    let token = own.decision.unwrap().id.clone();
     let own_land = own
         .view
         .objects
@@ -248,9 +256,7 @@ fn player_handles_tokens_receipts_and_empty_domains_are_checked() {
         game.check_player_response(
             PlayerId(0),
             token.clone(),
-            PlayerResponse::ActivateMana {
-                object: foreign_land
-            },
+            game.next_test_viewer_decision().activate_mana(foreign_land),
             Budget::unlimited()
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)
@@ -260,14 +266,22 @@ fn player_handles_tokens_receipts_and_empty_domains_are_checked() {
         game.check_player_response(
             PlayerId(0),
             token.clone(),
-            PlayerResponse::ActivateMana { object: own_land },
+            game.next_test_viewer_decision().activate_mana(own_land),
             Budget::new(1),
         ),
     ) {
         QueryValue::Validated(r) => r,
         _ => panic!("missing receipt"),
     };
-    let stale = game.check_response(PlayerId(0), 0, Response::Pass).unwrap();
+    let stale = game
+        .check_response(
+            PlayerId(0),
+            0,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        )
+        .unwrap();
     game.submit(receipt).unwrap();
     assert!(game.submit(stale).is_err());
     let _ = game.advance(Budget::unlimited());
@@ -275,12 +289,14 @@ fn player_handles_tokens_receipts_and_empty_domains_are_checked() {
         game.check_player_response(
             PlayerId(0),
             token,
-            PlayerResponse::Pass,
+            Answer::Pick {
+                picks: vec![vec![0]]
+            },
             Budget::unlimited()
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)
     ));
-    game.respond(PlayerId(0), 1, Response::Cast { card: CardId(1) })
+    game.respond(PlayerId(0), 1, game.next_test_decision().cast(CardId(1)))
         .unwrap();
     let _ = game.advance(Budget::unlimited());
     assert!(matches!(
@@ -304,20 +320,23 @@ fn player_handles_tokens_receipts_and_empty_domains_are_checked() {
     else {
         panic!("incomplete is not an empty domain")
     };
-    let QueryValue::Decision(Some(PlayerRequest::Targets {
-        token, candidates, ..
-    })) = finish_query(&game, game.resume_work(work, Budget::new(1)))
+    let QueryValue::Decision(Some(
+        found @ Decision {
+            reason: Reason::Targets { .. },
+            ..
+        },
+    )) = finish_query(&game, game.resume_work(work, Budget::new(1)))
     else {
         panic!("missing target request")
     };
+    let token = found.id.clone();
+    let candidates = found.objects_offered();
     assert!(candidates.is_empty());
     assert!(matches!(
         game.check_player_response(
             PlayerId(0),
             token,
-            PlayerResponse::Targets {
-                objects: vec![stale_handle]
-            },
+            game.next_test_viewer_decision().targets(vec![stale_handle]),
             Budget::unlimited()
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)
@@ -335,7 +354,7 @@ fn query_work_invalidates_during_automatic_execution_even_without_input_revision
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::land_return()));
     for i in inputs().iter().take(5) {
         let _ = game.advance(Budget::unlimited());
-        game.respond(i.player, i.decision_id, i.response.clone())
+        game.respond(i.player, i.decision_id, i.answer.clone())
             .unwrap();
     }
     assert!(matches!(

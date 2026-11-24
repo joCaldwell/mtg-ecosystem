@@ -44,7 +44,7 @@ fn observe(g: &Game, p: PlayerId) -> Observation {
     };
     o
 }
-fn request(g: &Game) -> (PlayerId, PlayerRequest) {
+fn request(g: &Game) -> (PlayerId, Decision<Viewer>) {
     for p in g.live_players() {
         let QueryValue::Decision(r) =
             finish_query(g, g.player_decision_for(p, Budget::new(100_000)))
@@ -67,11 +67,11 @@ fn settle(g: &mut Game) {
     }
     panic!("advance bound")
 }
-fn submit(g: &mut Game, response: PlayerResponse) {
+fn submit(g: &mut Game, response: Answer) {
     let (p, r) = request(g);
     let QueryValue::Validated(receipt) = finish_query(
         g,
-        g.check_player_response(p, r.token().clone(), response, Budget::new(100_000)),
+        g.check_player_response(p, r.id.clone(), response, Budget::new(100_000)),
     ) else {
         panic!("receipt")
     };
@@ -93,18 +93,31 @@ fn root(
     let mut seen = BTreeSet::new();
     for _ in 0..20_000 {
         let (player, r) = request(&g);
-        let response = match r {
-            PlayerRequest::Mulligan {
-                mulligans_taken, ..
-            } => PlayerResponse::Mulligan {
-                take: mulligans_taken < mulligans[player.0 as usize],
-            },
-            PlayerRequest::BottomOpening {
-                count, candidates, ..
-            } => PlayerResponse::BottomOpening {
-                objects: candidates.into_iter().rev().take(count).collect(),
-            },
-            PlayerRequest::Priority { .. } => {
+        let response = match r.clone() {
+            Decision {
+                reason: Reason::Mulligan {
+                    mulligans_taken, ..
+                },
+                ..
+            } => r.select(Candidate::Flag {
+                flag: if mulligans_taken < mulligans[player.0 as usize] {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            }),
+            found @ Decision {
+                reason: Reason::BottomOpening,
+                ..
+            } => {
+                let count = found.required_count();
+                let candidates = found.objects_offered();
+                r.order_objects(candidates.into_iter().rev().take(count).collect())
+            }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => {
                 let view = observe(&g, player).view;
                 if player == PlayerId(0)
                     && view.active == Some(player)
@@ -126,23 +139,38 @@ fn root(
                     && turn(&view).lands_played == 0
                 {
                     if let Some(land) = land {
-                        PlayerResponse::PlayLand {
-                            object: land.handle.clone(),
-                        }
+                        r.select(Candidate::Action {
+                            action: Action::PlayLand {
+                                object: land.handle.clone(),
+                            },
+                        })
                     } else {
-                        PlayerResponse::Pass
+                        Answer::Pick {
+                            picks: vec![vec![0]],
+                        }
                     }
                 } else {
-                    PlayerResponse::Pass
+                    Answer::Pick {
+                        picks: vec![vec![0]],
+                    }
                 }
             }
-            PlayerRequest::Attackers { .. } => PlayerResponse::Attackers { attacks: vec![] },
-            PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
-            PlayerRequest::Discard {
-                count, candidates, ..
-            } => PlayerResponse::Discard {
-                objects: candidates.into_iter().take(count).collect(),
-            },
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            } => r.attack(vec![]),
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            } => r.block(vec![]),
+            found @ Decision {
+                reason: Reason::Discard,
+                ..
+            } => {
+                let count = found.required_count();
+                let candidates = found.objects_offered();
+                r.pick_objects(candidates.into_iter().take(count).collect())
+            }
             _ => panic!("unexpected root preparation request"),
         };
         submit(&mut g, response);
@@ -600,40 +628,51 @@ fn paid_bottom() -> (Game, ObjectHandle, ObjectHandle) {
         settle(&mut g);
         for _ in 0..100 {
             let (player, r) = request(&g);
-            let response = match r {
-                PlayerRequest::Mulligan {
-                    mulligans_taken, ..
-                } => PlayerResponse::Mulligan {
-                    take: player == PlayerId(0) && mulligans_taken < 3,
-                },
-                PlayerRequest::BottomOpening {
-                    count, candidates, ..
+            let response = match r.clone() {
+                Decision {
+                    reason:
+                        Reason::Mulligan {
+                            mulligans_taken, ..
+                        },
+                    ..
+                } => r.select(Candidate::Flag {
+                    flag: if player == PlayerId(0) && mulligans_taken < 3 {
+                        Flag::Mulligan
+                    } else {
+                        Flag::Keep
+                    },
+                }),
+                found @ Decision {
+                    reason: Reason::BottomOpening,
+                    ..
                 } => {
-                    if player == PlayerId(0) && count == 2 {
-                        let view = observe(&g, player).view;
-                        for a in &candidates {
-                            for b in &candidates {
-                                let aid = &view
-                                    .objects
-                                    .iter()
-                                    .find(|o| o.handle == *a)
-                                    .unwrap()
-                                    .oracle_id;
-                                let bid = &view
-                                    .objects
-                                    .iter()
-                                    .find(|o| o.handle == *b)
-                                    .unwrap()
-                                    .oracle_id;
-                                if aid != bid {
-                                    return (g, a.clone(), b.clone());
+                    let count = found.required_count();
+                    let candidates = found.objects_offered();
+                    {
+                        if player == PlayerId(0) && count == 2 {
+                            let view = observe(&g, player).view;
+                            for a in &candidates {
+                                for b in &candidates {
+                                    let aid = &view
+                                        .objects
+                                        .iter()
+                                        .find(|o| o.handle == *a)
+                                        .unwrap()
+                                        .oracle_id;
+                                    let bid = &view
+                                        .objects
+                                        .iter()
+                                        .find(|o| o.handle == *b)
+                                        .unwrap()
+                                        .oracle_id;
+                                    if aid != bid {
+                                        return (g, a.clone(), b.clone());
+                                    }
                                 }
                             }
+                            break;
                         }
-                        break;
-                    }
-                    PlayerResponse::BottomOpening {
-                        objects: candidates.into_iter().take(count).collect(),
+                        r.order_objects(candidates.into_iter().take(count).collect())
                     }
                 }
                 _ => panic!("unexpected paid-bottom preparation stage"),
@@ -646,23 +685,38 @@ fn paid_bottom() -> (Game, ObjectHandle, ObjectHandle) {
 fn opening_to_main(g: &mut Game, final_takes: u8) {
     for _ in 0..1000 {
         let (player, r) = request(g);
-        let response = match r {
-            PlayerRequest::Mulligan {
-                mulligans_taken, ..
-            } => PlayerResponse::Mulligan {
-                take: player == PlayerId(0) && mulligans_taken < final_takes,
-            },
-            PlayerRequest::BottomOpening {
-                count, candidates, ..
-            } => PlayerResponse::BottomOpening {
-                objects: candidates.into_iter().rev().take(count).collect(),
-            },
-            PlayerRequest::Priority { .. } => {
+        let response = match r.clone() {
+            Decision {
+                reason: Reason::Mulligan {
+                    mulligans_taken, ..
+                },
+                ..
+            } => r.select(Candidate::Flag {
+                flag: if player == PlayerId(0) && mulligans_taken < final_takes {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            }),
+            found @ Decision {
+                reason: Reason::BottomOpening,
+                ..
+            } => {
+                let count = found.required_count();
+                let candidates = found.objects_offered();
+                r.order_objects(candidates.into_iter().rev().take(count).collect())
+            }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => {
                 let o = observe(g, player);
                 if player == PlayerId(0) && turn(&o.view).step == TurnStep::PrecombatMain {
                     return;
                 }
-                PlayerResponse::Pass
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                }
             }
             _ => panic!("unexpected opening completion stage"),
         };
@@ -676,18 +730,16 @@ fn applied_opposite_bottom_orders_change_knowledge_without_changing_old_permitte
     let (source, a, b) = paid_bottom();
     let mut left = source.fork();
     let mut right = source.fork();
-    submit(
-        &mut left,
-        PlayerResponse::BottomOpening {
-            objects: vec![a.clone(), b.clone()],
-        },
-    );
-    submit(
-        &mut right,
-        PlayerResponse::BottomOpening {
-            objects: vec![b, a],
-        },
-    );
+    {
+        let selected_answer = left
+            .next_test_viewer_decision()
+            .order_objects(vec![a.clone(), b.clone()]);
+        submit(&mut left, selected_answer)
+    };
+    {
+        let selected_answer = right.next_test_viewer_decision().order_objects(vec![b, a]);
+        submit(&mut right, selected_answer)
+    };
     opening_to_main(&mut left, 3);
     opening_to_main(&mut right, 3);
     let lc = capture(&left, 1);
@@ -721,12 +773,10 @@ fn applied_opposite_bottom_orders_change_knowledge_without_changing_old_permitte
 #[test]
 fn later_applied_redraw_keeps_memory_but_replaces_old_position_constraints() {
     let (mut game, a, b) = paid_bottom();
-    submit(
-        &mut game,
-        PlayerResponse::BottomOpening {
-            objects: vec![a, b],
-        },
-    );
+    {
+        let selected_answer = game.next_test_viewer_decision().order_objects(vec![a, b]);
+        submit(&mut game, selected_answer)
+    };
     // Take another mulligan after the earlier ordered two-card bottom.
     opening_to_main(&mut game, 4);
     let c = capture(&game, 100_000);
@@ -781,8 +831,10 @@ fn sample_pass(g: &mut SampledGame) {
         g,
         g.check_player_response(
             PlayerId(0),
-            r.token().clone(),
-            PlayerResponse::Pass,
+            r.id.clone(),
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
             Budget::new(100_000),
         ),
     ) else {
@@ -856,11 +908,13 @@ fn hypothetical_query_work_and_receipts_are_foreign_stale_and_recovery_prefix_sc
     let (mut a, _) = build(&c, proposal(&c, false), 1);
     let (b, _) = build(&c, proposal(&c, true), 1);
     let o = sample_observe(&a, PlayerId(0));
-    let token = o.decision.unwrap().token().clone();
+    let token = o.decision.unwrap().id.clone();
     let QueryResult::Incomplete { work, .. } = a.check_player_response(
         PlayerId(0),
         token.clone(),
-        PlayerResponse::Pass,
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
         Budget::new(0),
     ) else {
         panic!("zero-budget check")
@@ -883,7 +937,9 @@ fn hypothetical_query_work_and_receipts_are_foreign_stale_and_recovery_prefix_sc
         a.check_player_response(
             PlayerId(0),
             token,
-            PlayerResponse::Pass,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
             Budget::new(100_000),
         ),
     ) else {
@@ -912,7 +968,12 @@ fn capture_work_is_pure_and_rejects_foreign_or_mutated_actual_roots() {
     else {
         panic!("zero-budget capture")
     };
-    submit(&mut g, PlayerResponse::Pass);
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        submit(&mut g, selected_answer)
+    };
     assert!(matches!(
         g.resume_search_capture(work, Budget::new(1)),
         CaptureOutcome::Rejected(SearchRejection::StaleWork)
@@ -927,12 +988,12 @@ fn capture_work_is_pure_and_rejects_foreign_or_mutated_actual_roots() {
     ));
 }
 
-fn sample_step(g: &mut SampledGame) -> (PlayerId, PlayerRequest) {
+fn sample_step(g: &mut SampledGame) -> (PlayerId, Decision<Viewer>) {
     for _ in 0..10000 {
         match g.advance(Budget::new(1024)) {
             Advance::Suspended { .. } => {}
             Advance::AwaitingDecision(r) => {
-                let p = r.player();
+                let p = r.player;
                 let o = sample_observe(g, p);
                 return (p, o.decision.expect("sample acting decision"));
             }
@@ -941,10 +1002,10 @@ fn sample_step(g: &mut SampledGame) -> (PlayerId, PlayerRequest) {
     }
     panic!("sample automatic work bound")
 }
-fn sample_submit(g: &mut SampledGame, p: PlayerId, r: &PlayerRequest, response: PlayerResponse) {
+fn sample_submit(g: &mut SampledGame, p: PlayerId, r: &Decision<Viewer>, response: Answer) {
     let QueryValue::Validated(receipt) = sample_query(
         g,
-        g.check_player_response(p, r.token().clone(), response, Budget::new(100_000)),
+        g.check_player_response(p, r.id.clone(), response, Budget::new(100_000)),
     ) else {
         panic!("sample receipt")
     };
@@ -964,14 +1025,28 @@ fn sample_to_own_draw(g: &mut SampledGame, library: u32) -> Observation {
             }
         }
         let response = match &r {
-            PlayerRequest::Priority { .. } => PlayerResponse::Pass,
-            PlayerRequest::Attackers { .. } => PlayerResponse::Attackers { attacks: vec![] },
-            PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
-            PlayerRequest::Discard {
-                count, candidates, ..
-            } => PlayerResponse::Discard {
-                objects: candidates.iter().take(*count).cloned().collect(),
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
             },
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            } => r.attack(vec![]),
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            } => r.block(vec![]),
+            found @ Decision {
+                reason: Reason::Discard,
+                ..
+            } => {
+                let count = &found.required_count();
+                let candidates = found.objects_offered();
+                r.pick_objects(candidates.iter().take(*count).cloned().collect())
+            }
             _ => panic!("unexpected no-action sample rollout choice"),
         };
         sample_submit(g, p, &r, response);
@@ -1088,21 +1163,46 @@ fn completed_command_cast_preserves_public_tax_mana_and_newborn_readiness() {
         .unwrap()
         .handle
         .clone();
-    submit(&mut g, PlayerResponse::Cast { card: commander });
+    {
+        let selected_answer = g.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card: commander },
+        });
+        submit(&mut g, selected_answer)
+    };
     assert!(matches!(
         g.capture_search(PlayerId(0), Budget::new(1)),
         CaptureOutcome::Rejected(SearchRejection::UnsupportedRoot(_))
     ));
-    submit(&mut g, PlayerResponse::ActivateMana { object: land });
-    submit(&mut g, PlayerResponse::FinishMana { undo_mana: false });
-    submit(
-        &mut g,
-        PlayerResponse::SpendMana {
-            spending: BTreeMap::from([(mtg_contracts::Color::W, mtg_contracts::Quantity::from(1))]),
-        },
-    );
+    {
+        let selected_answer = g.next_test_viewer_decision().activate_mana(land);
+        submit(&mut g, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        };
+        submit(&mut g, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([(
+                    mtg_contracts::Color::W,
+                    mtg_contracts::Quantity::from(1),
+                )]),
+            },
+        };
+        submit(&mut g, selected_answer)
+    };
     for _ in 0..4 {
-        submit(&mut g, PlayerResponse::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            submit(&mut g, selected_answer)
+        };
     }
     let c = capture(&g, 100_000);
     let obj = c
@@ -1155,8 +1255,11 @@ fn root_after_failed_opponent_announcement() -> (Game, String) {
             {
                 return (g, oracle_id.clone());
             }
-            let response = match r {
-                PlayerRequest::Priority { .. } => {
+            let response = match r.clone() {
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                } => {
                     if revealed.is_none()
                         && player == PlayerId(1)
                         && view.active == Some(player)
@@ -1170,33 +1273,55 @@ fn root_after_failed_opponent_announcement() -> (Game, String) {
                         });
                         if let Some(creature) = creature {
                             revealed = Some(creature.oracle_id.clone());
-                            PlayerResponse::Cast {
-                                card: creature.handle.clone(),
-                            }
+                            r.select(Candidate::Action {
+                                action: Action::Cast {
+                                    card: creature.handle.clone(),
+                                },
+                            })
                         } else {
                             break;
                         }
                     } else {
-                        PlayerResponse::Pass
+                        Answer::Pick {
+                            picks: vec![vec![0]],
+                        }
                     }
                 }
-                PlayerRequest::Mana { .. } => PlayerResponse::FinishMana { undo_mana: true },
-                PlayerRequest::Discard {
-                    count, candidates, ..
-                } => PlayerResponse::Discard {
-                    objects: candidates
-                        .into_iter()
-                        .filter(|h| {
-                            view.objects
-                                .iter()
-                                .find(|o| o.handle == *h)
-                                .is_some_and(|o| Some(&o.oracle_id) != revealed.as_ref())
-                        })
-                        .take(count)
-                        .collect(),
+                Decision {
+                    reason: Reason::Mana { .. },
+                    ..
+                } => Answer::Pay {
+                    pay: PayAnswer::Finish {
+                        undo_on_failure: true,
+                    },
                 },
-                PlayerRequest::Attackers { .. } => PlayerResponse::Attackers { attacks: vec![] },
-                PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
+                found @ Decision {
+                    reason: Reason::Discard,
+                    ..
+                } => {
+                    let count = found.required_count();
+                    let candidates = found.objects_offered();
+                    r.pick_objects(
+                        candidates
+                            .into_iter()
+                            .filter(|h| {
+                                view.objects
+                                    .iter()
+                                    .find(|o| o.handle == *h)
+                                    .is_some_and(|o| Some(&o.oracle_id) != revealed.as_ref())
+                            })
+                            .take(count)
+                            .collect(),
+                    )
+                }
+                Decision {
+                    reason: Reason::Attackers,
+                    ..
+                } => r.attack(vec![]),
+                Decision {
+                    reason: Reason::Blockers,
+                    ..
+                } => r.block(vec![]),
                 _ => panic!("unexpected failed-announcement fixture choice"),
             };
             submit(&mut g, response);

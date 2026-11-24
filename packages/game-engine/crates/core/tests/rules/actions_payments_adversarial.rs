@@ -10,7 +10,7 @@ const EDICT: &str = "10c585c4-bf5b-4d8f-94a9-e9a5036a688f";
 const SWAMP: &str = "56719f6a-1a6c-4c0a-8d21-18f7d7350b68";
 const FOREST: &str = "b34bb2dc-c1af-4d77-b0b3-a0fb342a5fc6";
 
-fn input(game: &mut Game, response: PlayerResponse) {
+fn input(game: &mut Game, response: Answer) {
     submit(game, response);
 
     assert!(matches!(settle(game), Advance::AwaitingDecision(_)));
@@ -51,42 +51,64 @@ fn activate_land(game: &mut Game, oracle: &str) {
         })
         .expect("untapped mana source")
         .handle;
-    input(game, PlayerResponse::ActivateMana { object });
+    input(game, game.next_test_viewer_decision().activate_mana(object));
 }
 fn pass_four(game: &mut Game) {
     for _ in 0..4 {
-        input(game, PlayerResponse::Pass);
+        input(
+            game,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
 }
 fn edict(game: &mut Game, target: PlayerId) {
     let card = handle(game, PlayerId(0), EDICT, Zone::Hand { owner: PlayerId(0) });
-    input(game, PlayerResponse::Cast { card });
+    input(
+        game,
+        game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card },
+        }),
+    );
     let (actor, req) = request(game);
-    assert!(matches!(req, PlayerRequest::PlayerTargets { .. }));
+    assert!(matches!(
+        req,
+        Decision {
+            reason: Reason::Targets { .. },
+            ..
+        }
+    ));
     reject(
         game,
         actor,
-        req.token().clone(),
-        PlayerResponse::PlayerTargets {
-            players: vec![actor],
-        },
+        req.id.clone(),
+        game.next_test_viewer_decision().player_targets(vec![actor]),
     );
     input(
         game,
-        PlayerResponse::PlayerTargets {
-            players: vec![target],
-        },
+        game.next_test_viewer_decision()
+            .player_targets(vec![target]),
     );
     activate_land(game, SWAMP);
     activate_land(game, FOREST);
-    input(game, PlayerResponse::FinishMana { undo_mana: true });
     input(
         game,
-        PlayerResponse::SpendMana {
-            spending: BTreeMap::from([
-                (Color::B, Quantity::from(1)),
-                (Color::G, Quantity::from(1)),
-            ]),
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    input(
+        game,
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([
+                    (Color::B, Quantity::from(1)),
+                    (Color::G, Quantity::from(1)),
+                ]),
+            },
         },
     );
     pass_four(game);
@@ -97,7 +119,13 @@ fn opponent_with_no_creatures_is_legal_and_sacrifice_uses_control_not_ownership(
     let p = action_scenario(ScenarioConfig::actions_borrowed());
     let mut empty = Game::new(p.clone());
     edict(&mut empty, PlayerId(2));
-    assert!(matches!(request(&empty).1, PlayerRequest::Priority { .. }));
+    assert!(matches!(
+        request(&empty).1,
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
+    ));
     assert_eq!(
         empty.zone(empty.object_id(CardId(4)).unwrap()),
         Some(Zone::Graveyard { owner: PlayerId(0) })
@@ -111,17 +139,24 @@ fn opponent_with_no_creatures_is_legal_and_sacrifice_uses_control_not_ownership(
     edict(&mut game, PlayerId(1));
     let (actor, req) = request(&game);
     assert_eq!(actor, PlayerId(1));
-    assert!(matches!(req, PlayerRequest::Sacrifice { .. }));
+    assert!(matches!(
+        req,
+        Decision {
+            reason: Reason::Sacrifice,
+            ..
+        }
+    ));
     let chosen = borrowed_creature(&game, actor);
     reject(
         &game,
         PlayerId(0),
-        req.token().clone(),
-        PlayerResponse::Sacrifice {
-            object: chosen.clone(),
-        },
+        req.id.clone(),
+        game.next_test_viewer_decision().pick_object(chosen.clone()),
     );
-    input(&mut game, PlayerResponse::Sacrifice { object: chosen });
+    {
+        let selected_answer = game.next_test_viewer_decision().pick_object(chosen);
+        input(&mut game, selected_answer)
+    };
     assert_eq!(
         game.zone(game.object_id(CardId(5)).unwrap()),
         Some(Zone::Graveyard { owner: PlayerId(2) })
@@ -140,18 +175,22 @@ fn sacrifice_choice_revalidates_source_and_affected_player_departure() {
             let mut branch = game.fork();
             let chosen = borrowed_creature(&branch, PlayerId(1));
             if accepted {
-                submit(
-                    &mut branch,
-                    PlayerResponse::Sacrifice {
-                        object: chosen.clone(),
-                    },
-                );
+                {
+                    let selected_answer = branch
+                        .next_test_viewer_decision()
+                        .pick_object(chosen.clone());
+                    submit(&mut branch, selected_answer)
+                };
             }
             branch.concede(departing).unwrap();
             assert!(matches!(settle(&mut branch), Advance::AwaitingDecision(_)));
             if departing == PlayerId(0) {
                 if !accepted {
-                    input(&mut branch, PlayerResponse::Sacrifice { object: chosen });
+                    {
+                        let selected_answer =
+                            branch.next_test_viewer_decision().pick_object(chosen);
+                        input(&mut branch, selected_answer)
+                    };
                 }
                 assert_eq!(
                     branch.zone(branch.object_id(CardId(5)).unwrap()),
@@ -162,17 +201,29 @@ fn sacrifice_choice_revalidates_source_and_affected_player_departure() {
                     branch.zone(branch.object_id(CardId(5)).unwrap()),
                     Some(Zone::Exile)
                 );
-                assert!(matches!(request(&branch).1, PlayerRequest::Priority { .. }));
+                assert!(matches!(
+                    request(&branch).1,
+                    Decision {
+                        reason: Reason::Priority,
+                        ..
+                    }
+                ));
             } else {
                 assert!(branch.object_id(CardId(5)).is_none());
                 let (actor, req) = request(&branch);
                 assert_eq!(actor, PlayerId(1));
-                assert!(matches!(req, PlayerRequest::Sacrifice { .. }));
+                assert!(matches!(
+                    req,
+                    Decision {
+                        reason: Reason::Sacrifice,
+                        ..
+                    }
+                ));
                 reject(
                     &branch,
                     actor,
-                    req.token().clone(),
-                    PlayerResponse::Sacrifice { object: chosen },
+                    req.id.clone(),
+                    branch.next_test_viewer_decision().pick_object(chosen),
                 );
                 let replacement = handle(
                     &branch,
@@ -180,12 +231,11 @@ fn sacrifice_choice_revalidates_source_and_affected_player_departure() {
                     "14c8f55d-d177-4c25-a931-ebeb9e6062a0",
                     Zone::Battlefield,
                 );
-                input(
-                    &mut branch,
-                    PlayerResponse::Sacrifice {
-                        object: replacement,
-                    },
-                );
+                {
+                    let selected_answer =
+                        branch.next_test_viewer_decision().pick_object(replacement);
+                    input(&mut branch, selected_answer)
+                };
                 assert_eq!(
                     branch.zone(branch.object_id(CardId(1)).unwrap()),
                     Some(Zone::Graveyard { owner: PlayerId(1) })

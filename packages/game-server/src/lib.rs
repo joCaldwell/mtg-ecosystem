@@ -42,8 +42,6 @@ pub static SERVER_BUILD_ID: std::sync::LazyLock<String> = std::sync::LazyLock::n
 
 pub mod delivery;
 
-mod action_queries;
-
 pub mod admission;
 
 pub mod lifecycle;

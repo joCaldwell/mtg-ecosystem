@@ -173,7 +173,7 @@ test("real public host delivers only human bootstrap and proxies exact bytes und
       assert.ok(status === 400 || status === 404);
     }
     if (resume.state.status !== "available" || !resume.state.observation.decision) throw new Error("Expected human opening decision");
-    const prepared = prepareCommand({ protocol_version: PROTOCOL_VERSION, command_id: randomBytes(16).toString("hex"), expected_revision: resume.next, command: { kind: "decision", token: resume.state.observation.decision.token, response: { response: "mulligan", take: false } } });
+    const prepared = prepareCommand({ protocol_version: PROTOCOL_VERSION, command_id: randomBytes(16).toString("hex"), expected_revision: resume.next, command: { kind: "decision", token: resume.state.observation.decision.token, answer:{answer:'pick',picks:[[resume.state.observation.decision.candidates.findIndex(c=>c.candidate==='flag'&&c.flag==='keep')]]} } });
     const exact = `  ${prepared.exactBody}\n`;
     assert.equal((await client.submitExact(exact)).status, "accepted");
     assert.equal((await client.submitExact(exact)).status, "accepted");

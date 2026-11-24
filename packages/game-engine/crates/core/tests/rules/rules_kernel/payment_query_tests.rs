@@ -3,24 +3,17 @@ use super::*;
 fn payment_game() -> (Prepared, Game) {
     let prepared = FixtureCatalog::Base.admit(ScenarioConfig::land_return());
     let mut game = Game::new(prepared.clone());
-    for response in [
-        Response::Cast { card: CardId(1) },
-        Response::Targets {
-            objects: vec![ObjectId {
-                card: CardId(2),
-                incarnation: 0,
-            }],
-        },
-    ] {
-        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
-            panic!("expected casting decision")
-        };
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
-    }
+    Driver::cast(&mut game, CardId(1));
+    let decision = Driver::request(&mut game, u64::MAX);
+    let target = game.object_id(CardId(2)).unwrap();
+    game.respond(decision.player, decision.id, decision.targets(vec![target]))
+        .unwrap();
     assert!(matches!(
         game.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Mana { .. })
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Mana { .. },
+            ..
+        })
     ));
     (prepared, game)
 }
@@ -55,7 +48,13 @@ fn mana_window_is_caster_only_and_has_no_priority_recipient() {
         mtg_core::testkit::formats::OBSERVATION_VERSION
     );
     assert_eq!(own.view.priority, None);
-    let Some(PlayerRequest::Mana { player, cost, .. }) = own.decision else {
+    let Some(Decision {
+        player,
+        shape: Shape::Pay { cost, .. },
+        reason: Reason::Mana { .. },
+        ..
+    }) = own.decision
+    else {
         panic!("expected player mana request")
     };
     assert_eq!(player, PlayerId(0));
@@ -82,7 +81,7 @@ fn mana_window_is_caster_only_and_has_no_priority_recipient() {
 fn mana_response_queries_reject_priority_target_and_foreign_handle_actions() {
     let (_, game) = payment_game();
     let own = observation(&game, PlayerId(0));
-    let token = own.decision.unwrap().token().clone();
+    let token = own.decision.unwrap().id.clone();
     let land = own
         .view
         .objects
@@ -92,14 +91,15 @@ fn mana_response_queries_reject_priority_target_and_foreign_handle_actions() {
         .handle
         .clone();
     for response in [
-        PlayerResponse::Pass,
-        PlayerResponse::Cast { card: land.clone() },
-        PlayerResponse::Targets {
-            objects: vec![land],
+        Answer::Pick {
+            picks: vec![vec![0]],
         },
-        PlayerResponse::ActivateMana {
-            object: ObjectHandle("v1-o0".into()),
-        },
+        game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card: land.clone() },
+        }),
+        game.next_test_viewer_decision().targets(vec![land]),
+        game.next_test_viewer_decision()
+            .activate_mana(ObjectHandle("v1-o0".into())),
     ] {
         assert!(matches!(
             game.check_player_response(PlayerId(0), token.clone(), response, Budget::unlimited()),
@@ -110,7 +110,11 @@ fn mana_response_queries_reject_priority_target_and_foreign_handle_actions() {
         game.check_player_response(
             PlayerId(1),
             token.clone(),
-            PlayerResponse::FinishMana { undo_mana: true },
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true
+                }
+            },
             Budget::unlimited()
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)
@@ -120,7 +124,11 @@ fn mana_response_queries_reject_priority_target_and_foreign_handle_actions() {
             game.check_player_response(
                 PlayerId(0),
                 token.clone(),
-                PlayerResponse::FinishMana { undo_mana },
+                Answer::Pay {
+                    pay: PayAnswer::Finish {
+                        undo_on_failure: undo_mana
+                    }
+                },
                 Budget::unlimited()
             ),
             QueryResult::Complete(QueryValue::Validated(_))
@@ -132,7 +140,7 @@ fn mana_response_queries_reject_priority_target_and_foreign_handle_actions() {
 fn mana_validation_sidecar_recovers_and_activation_invalidates_queries() {
     let (prepared, mut game) = payment_game();
     let own = observation(&game, PlayerId(0));
-    let token = own.decision.unwrap().token().clone();
+    let token = own.decision.unwrap().id.clone();
     let land = own
         .view
         .objects
@@ -144,7 +152,7 @@ fn mana_validation_sidecar_recovers_and_activation_invalidates_queries() {
     let QueryResult::Incomplete { work, .. } = game.check_player_response(
         PlayerId(0),
         token.clone(),
-        PlayerResponse::ActivateMana { object: land },
+        game.next_test_viewer_decision().activate_mana(land),
         Budget::new(1),
     ) else {
         panic!("expected incomplete activation validation")
@@ -181,13 +189,20 @@ fn mana_validation_sidecar_recovers_and_activation_invalidates_queries() {
     ));
     assert!(matches!(
         game.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Mana { .. })
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Mana { .. },
+            ..
+        })
     ));
     assert!(matches!(
         game.check_player_response(
             PlayerId(0),
             token,
-            PlayerResponse::FinishMana { undo_mana: true },
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true
+                }
+            },
             Budget::unlimited()
         ),
         QueryResult::Rejected(QueryRejection::InvalidResponse)

@@ -290,11 +290,6 @@ impl Broker {
                 queue.next_request(&status, served, last_clock, tokio::time::Instant::now())
             };
             let command = if let Some(item) = item {
-                if matches!(item.command, WorkerCommand::QueryActions { .. })
-                    && item.replies.iter().all(oneshot::Sender::is_closed)
-                {
-                    continue;
-                }
                 let result = await_worker_reply(process.call(item.command, CALL_TIMEOUT))
                     .await
                     .map_err(|_| BrokerError::Unavailable);
@@ -384,7 +379,7 @@ mod tests {
         WorkerCommand::Submit {
             seat: 0,
             request: CommandEnvelope {
-                protocol_version: 1,
+                protocol_version: crate::protocol::PROTOCOL_VERSION,
                 command_id: format!("{id:032x}"),
                 expected_revision: Counter::new(0),
                 command: CommandBody::Concede,
@@ -400,17 +395,9 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn slow_clock_completion_services_queued_query_before_another_tick() {
+    async fn slow_clock_completion_services_queued_read_before_another_tick() {
         let broker = idle();
-        let _receiver = broker
-            .enqueue(WorkerCommand::QueryActions {
-                seat: 0,
-                request: crate::protocol::ActionQueryRequest::Continue {
-                    cursor: "a".repeat(64),
-                    work: 1,
-                },
-            })
-            .unwrap();
+        let _receiver = broker.enqueue(WorkerCommand::Resume { seat: 0 }).unwrap();
         let mut last_clock = tokio::time::Instant::now() - Duration::from_secs(2);
         assert!(
             broker
@@ -441,7 +428,7 @@ mod tests {
             .unwrap()
             .next_request(&ExecutionStatus::Waiting, 0, last_clock, finished)
             .expect("slow clock must leave a service interval for the queued query");
-        assert!(matches!(item.command, WorkerCommand::QueryActions { .. }));
+        assert!(matches!(item.command, WorkerCommand::Resume { .. }));
         assert_eq!(item.replies.len(), 1);
         assert!(!item.replies[0].is_closed());
         broker.enqueue(submission(8)).unwrap();

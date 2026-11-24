@@ -8,10 +8,10 @@ use serde_json::{Value, json};
 
 fn envelope(response: Value) -> Value {
     json!({
-        "protocol_version":1,
+        "protocol_version":2,
         "command_id":"0123456789abcdef0123456789abcdef",
         "expected_revision":"0",
-        "command":{"kind":"decision","token":"viewer-local-token","response":response}
+        "command":{"kind":"decision","token":"viewer-local-token","answer":response}
     })
 }
 fn validator(schema: Value) -> jsonschema::Validator {
@@ -68,12 +68,12 @@ fn decimal_counter_schema_matches_canonical_rust_u64_over_deterministic_u128_sam
 #[test]
 fn recursive_duplicates_and_unknown_unit_or_nested_response_fields_reject() {
     let decoder = CommandDecoder::new().unwrap();
-    let base = envelope(json!({"response":"pass"}));
+    let base = envelope(json!({"answer":"pick","picks":[[0]]}));
     decoder.decode(&base.to_string()).unwrap();
     for path in [
         vec!["unreviewed"],
         vec!["command", "unreviewed"],
-        vec!["command", "response", "unreviewed"],
+        vec!["command", "answer", "unreviewed"],
     ] {
         let mut value = base.clone();
         let mut object = &mut value;
@@ -85,14 +85,14 @@ fn recursive_duplicates_and_unknown_unit_or_nested_response_fields_reject() {
     }
     let duplicates = [
         base.to_string().replace(
-            "\"protocol_version\":1",
-            "\"protocol_version\":1,\"protocol_version\":1",
+            "\"protocol_version\":2",
+            "\"protocol_version\":2,\"protocol_version\":2",
         ),
         base.to_string().replace(
-            "\"response\":\"pass\"",
-            "\"response\":\"cast\",\"response\":\"pass\"",
+            "\"answer\":\"pick\"",
+            "\"answer\":\"order\",\"answer\":\"pick\"",
         ),
-        envelope(json!({"response":"spend_mana","spending":{"W":"1"}}))
+        envelope(json!({"answer":"pay","pay":{"step":"spend","unrestricted":{"W":"1"}}}))
             .to_string()
             .replace("\"W\":\"1\"", "\"W\":\"1\",\"W\":\"1\""),
     ];
@@ -109,12 +109,12 @@ fn recursive_duplicates_and_unknown_unit_or_nested_response_fields_reject() {
 #[test]
 fn command_body_limit_is_bytes_and_deep_or_malformed_json_cannot_bypass_it() {
     let decoder = CommandDecoder::new().unwrap();
-    let base = envelope(json!({"response":"pass"})).to_string();
+    let base = envelope(json!({"answer":"pick","picks":[[0]]})).to_string();
     let padded = format!("{base}{}", " ".repeat(MAX_COMMAND_BYTES - base.len()));
     assert_eq!(padded.len(), MAX_COMMAND_BYTES);
     decoder.decode(&padded).unwrap();
     assert!(decoder.decode(&(padded + " ")).is_err());
-    let mut unicode = envelope(json!({"response":"pass"}));
+    let mut unicode = envelope(json!({"answer":"pick","picks":[[0]]}));
     unicode["command"]["token"] = "é".repeat(MAX_COMMAND_BYTES / 2).into();
     let unicode = unicode.to_string();
     assert!(unicode.chars().count() < MAX_COMMAND_BYTES && unicode.len() > MAX_COMMAND_BYTES);
@@ -128,7 +128,7 @@ fn command_body_limit_is_bytes_and_deep_or_malformed_json_cannot_bypass_it() {
 
 fn page(number: u64, expiry: u64) -> StreamPage {
     serde_json::from_value(json!({
-        "protocol_version":1,
+        "protocol_version":2,
         "entries":[{"cursor":u64::MAX.to_string(),"publication":{"kind":"view_replaced","observation":{
             "observation_version":mtg_core::formats::OBSERVATION_VERSION,
             "view":{
@@ -139,7 +139,7 @@ fn page(number: u64, expiry: u64) -> StreamPage {
                 "objects":[],"stack":[],
                 "effects":[{"effect":"prevent_combat_damage","handle":"viewer-effect","origin":{"source":{"announced":"old-source","current":null},"oracle_id":"public-oracle","controller":0},"expires_in_cleanup_of_turn":expiry}]
             },
-            "decision":{"request":"priority","token":"viewer-token","player":0}
+            "decision":{"token":"viewer-token","player":0,"reason":{"reason":"priority"},"candidates":[{"candidate":"action","action":{"action":"pass"}}],"shape":{"shape":"pick","slots":[{"role":{"role":"choice"},"subject":null,"allowed":[0],"min":1,"max":1,"repeat":false}],"rules":[]}}
         }}}],
         "next":u64::MAX.to_string(),"has_more":false
     })).unwrap()
@@ -226,21 +226,19 @@ fn exported_schemas_are_self_contained_draft7_public_contracts() {
 #[test]
 fn tuple_shapes_and_exact_quantities_are_checked_before_typed_commands() {
     let decoder = CommandDecoder::new().unwrap();
-    for response in [
-        json!({"response":"attackers","attacks":[["a",1]]}),
-        json!({"response":"blockers","blocks":[["b","a"]]}),
-        json!({"response":"damage","assignments":[["a","3"]]}),
+    for answer in [
+        json!({"answer":"pick","picks":[[1],[]]}),
+        json!({"answer":"order","order":[1,0]}),
+        json!({"answer":"distribute","amounts":["9007199254740993"]}),
     ] {
-        decoder.decode(&envelope(response).to_string()).unwrap();
+        decoder.decode(&envelope(answer).to_string()).unwrap();
     }
-    for response in [
-        json!({"response":"attackers","attacks":[["a"]]}),
-        json!({"response":"blockers","blocks":[["b","a","extra"]]}),
-        json!({"response":"damage","assignments":[["a",3]]}),
-        // Phase 2C-2 retired the damage-allocation response with its producer.
-        json!({"response":"damage_allocation","allocations":[["d","3"]]}),
+    for answer in [
+        json!({"answer":"pick","picks":[["a"]]}),
+        json!({"answer":"order","order":[-1]}),
+        json!({"answer":"distribute","amounts":[3]}),
     ] {
-        assert!(decoder.decode(&envelope(response).to_string()).is_err());
+        assert!(decoder.decode(&envelope(answer).to_string()).is_err());
     }
 }
 
@@ -248,21 +246,21 @@ fn tuple_shapes_and_exact_quantities_are_checked_before_typed_commands() {
 fn outbound_optional_presence_matches_serde_serialization_not_inbound_defaults() {
     let validate = validator(serde_json::to_value(stream_schema()).unwrap());
     let mut page = serde_json::to_value(page(1, 1)).unwrap();
-    page["entries"][0]["publication"]["observation"]["decision"] = json!({
-        "request":"commander_return", "token":"viewer-token", "player":0,
-        "object":null,"designation":"public-commander-seat-0", "destination":{"zone":"hand","owner":0}
+    page["entries"][0]["publication"]["observation"]["decision"]["reason"] = json!({
+        "reason":"commander_return", "object":null, "designation":"public-commander-seat-0",
+        "previous":[], "destination":{"zone":"hand","owner":0}
     });
     let typed: StreamPage = serde_json::from_value(page).unwrap();
     let mut serialized: Value =
         serde_json::from_str(&checked_publication(&typed).unwrap()).unwrap();
     assert!(validate.is_valid(&serialized));
-    let decision = &serialized["entries"][0]["publication"]["observation"]["decision"];
-    assert!(decision.get("previous_choices").is_none());
-    assert_eq!(decision.get("object"), Some(&Value::Null));
+    let reason = &serialized["entries"][0]["publication"]["observation"]["decision"]["reason"];
+    assert_eq!(reason.get("previous"), Some(&json!([])));
+    assert_eq!(reason.get("object"), Some(&Value::Null));
     let source = &serialized["entries"][0]["publication"]["observation"]["view"]["effects"][0]["origin"]
         ["source"];
     assert_eq!(source.get("current"), Some(&Value::Null));
-    serialized["entries"][0]["publication"]["observation"]["decision"]
+    serialized["entries"][0]["publication"]["observation"]["decision"]["reason"]
         .as_object_mut()
         .unwrap()
         .remove("object");
@@ -334,7 +332,7 @@ fn nonempty_commander_maps_roundtrip_publication_store_and_exact_framed_ipc() {
     ));
     let stored = store.stream_page(0, 0, 32).unwrap();
     let expected = StreamPage {
-        protocol_version: 1,
+        protocol_version: 2,
         entries: vec![StreamEntry {
             cursor: Counter::new(1),
             publication: typed,
@@ -398,60 +396,35 @@ fn commander_history_key_aliases_reject_inside_publication_and_ipc() {
 }
 
 #[test]
-fn attachments_profile_variants_decode_strictly_through_commands_and_publications() {
+fn five_shape_answers_and_permitted_decisions_decode_strictly() {
     let decoder = CommandDecoder::new().unwrap();
-    for response in [
-        json!({"response":"legend_rule","keep":"legend"}),
-        json!({"response":"mana_color","color":"C"}),
-        json!({"response":"trample_damage","assignments":[["blocker","1"]],"player":2,"amount":"9007199254740993"}),
-        json!({"response":"activate_ability","object":"equipment","ability":0}),
+    for answer in [
+        json!({"answer":"pick","picks":[[0]]}),
+        json!({"answer":"order","order":[1,0]}),
+        json!({"answer":"distribute","amounts":["2","0"]}),
+        json!({"answer":"number","value":"9007199254740993"}),
+        json!({"answer":"pay","pay":{"step":"activate","source":2}}),
     ] {
         decoder
-            .decode(&envelope(response.clone()).to_string())
+            .decode(&envelope(answer.clone()).to_string())
             .unwrap();
-        let mut extra = response;
-        extra["ignored"] = json!(true);
+        let mut extra = answer;
+        extra["unknown"] = json!(true);
         assert!(decoder.decode(&envelope(extra).to_string()).is_err());
     }
-    for response in [
-        json!({"response":"legend_rule","keep":{"card":1,"incarnation":0}}),
-        json!({"response":"mana_color","color":"colorless"}),
-        // Phase 2C-2 retired these responses with their producers.
-        json!({"response":"search_lands","objects":["private-search"]}),
-        json!({"response":"optional_recursion","perform":true}),
-        json!({"response":"trample_damage","assignments":[["b","1","extra"]],"player":2,"amount":"0"}),
-        json!({"response":"trample_damage","assignments":[],"player":2,"amount":9007199254740993_u64}),
-    ] {
-        assert!(decoder.decode(&envelope(response).to_string()).is_err());
-    }
-    // Phase 2C-2 retired these requests with their producers.
-    for request in [
-        json!({"request":"search_lands","maximum":2,"candidates":[{"handle":"private-search","oracle_id":"public"}],"player":0,"token":"private-token"}),
-        json!({"request":"optional_recursion","player":0,"token":"private-token"}),
-    ] {
-        assert!(mtg_server::codec::exact::<mtg_core::PlayerRequest>(&request.to_string()).is_err());
-    }
     let validate = validator(serde_json::to_value(stream_schema()).unwrap());
-    for request in [
-        json!({"request":"mana_color","colors":["W","C"],"mana_ability_source":"rock"}),
-        json!({"request":"legend_rule","candidates":["legend-1","legend-2"],"previous_choices":[]}),
-        json!({"request":"mana","cost":{"generic":"1","colored":[]},"mana_ability_source":"signet"}),
-        json!({"request":"spend_mana","cost":{"generic":"1","colored":[]},"available":{"C":"1"},"mana_ability_source":"signet"}),
-        json!({"request":"damage","source":"attacker","power":"3","recipients":["blocker"],"player_recipient":1,"lethal_requirements":[["blocker","1"]]}),
-        json!({"request":"blockers","candidates":["blocker"],"attackers":["attacker"],"menace_attackers":["attacker"],"legal_attackers":[{"blocker":"blocker","attackers":["attacker"]}]}),
-    ] {
-        let mut request = request;
-        request["player"] = json!(0);
-        request["token"] = json!("private-token");
-        let typed: mtg_core::PlayerRequest =
-            mtg_server::codec::exact(&request.to_string()).unwrap();
-        assert_eq!(serde_json::to_value(typed).unwrap(), request);
-        let mut publication = serde_json::to_value(page(1, 1)).unwrap();
-        publication["entries"][0]["publication"]["observation"]["decision"] = request.clone();
-        assert!(validate.is_valid(&publication));
-        request["ignored"] = json!(true);
-        assert!(mtg_server::codec::exact::<mtg_core::PlayerRequest>(&request.to_string()).is_err());
-        publication["entries"][0]["publication"]["observation"]["decision"] = request;
-        assert!(!validate.is_valid(&publication));
-    }
+    let mut decision = json!({"token":"t","player":0,"reason":{"reason":"priority"},"candidates":[{"candidate":"action","action":{"action":"pass"}}],"shape":{"shape":"pick","slots":[{"role":{"role":"choice"},"subject":null,"allowed":[0],"min":1,"max":1,"repeat":false}],"rules":[]}});
+    let typed: mtg_core::Decision<mtg_core::Viewer> =
+        mtg_server::codec::exact(&decision.to_string()).unwrap();
+    assert_eq!(serde_json::to_value(typed).unwrap(), decision);
+    let mut stream = serde_json::to_value(page(1, 1)).unwrap();
+    stream["entries"][0]["publication"]["observation"]["decision"] = decision.clone();
+    assert!(validate.is_valid(&stream));
+    decision["ignored"] = json!(true);
+    assert!(
+        mtg_server::codec::exact::<mtg_core::Decision<mtg_core::Viewer>>(&decision.to_string())
+            .is_err()
+    );
+    stream["entries"][0]["publication"]["observation"]["decision"] = decision;
+    assert!(!validate.is_valid(&stream));
 }

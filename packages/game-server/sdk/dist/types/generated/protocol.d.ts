@@ -1,1 +1,1 @@
-export declare const PROTOCOL_VERSION: 1;
+export declare const PROTOCOL_VERSION: 2;

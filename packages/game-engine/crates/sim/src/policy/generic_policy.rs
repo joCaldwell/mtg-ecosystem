@@ -236,15 +236,6 @@ fn in_viewers_hand(view: &PermittedView, object: &VisibleObject) -> bool {
 }
 
 impl Strategy<'_> {
-    pub(super) fn legend_choice(
-        &self,
-        candidates: &[ObjectHandle],
-    ) -> Result<PlayerResponse, String> {
-        Ok(PlayerResponse::LegendRule {
-            keep: candidates.last().ok_or("empty legend choices")?.clone(),
-        })
-    }
-
     pub(super) fn reserve_reactive_tap(&self, o: &VisibleObject) -> bool {
         definition(self.catalog, &o.oracle_id).is_ok_and(|d| {
             d.activated.iter().any(|a| {
@@ -264,9 +255,7 @@ impl Strategy<'_> {
     ) -> Option<(&'a Definition, &'a SpellProgram)> {
         let (d, p) = if let Some(t) = &s.triggered {
             let d = definition(self.catalog, &t.oracle_id).ok()?;
-            let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &t.ability else {
-                return None; // Static spell grants have no policy admission.
-            };
+            let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &t.ability;
             (d, &d.triggered.get(*index as usize)?.program)
         } else if let Some(a) = &s.ability {
             let d = definition(self.catalog, &a.oracle_id).ok()?;
@@ -299,18 +288,6 @@ impl Strategy<'_> {
         n.add(&c.power.clone().unwrap_or_default().max(Quantity::zero()));
         n.add(&1.into());
         n
-    }
-    pub(super) fn best_permanent(
-        &self,
-        v: &PermittedView,
-        candidates: &[ObjectHandle],
-    ) -> Option<ObjectHandle> {
-        v.objects
-            .iter()
-            .filter(|o| candidates.contains(&o.handle))
-            .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
-            .map(|o| o.handle.clone())
-            .or_else(|| candidates.first().cloned())
     }
 
     fn harmful_attachment(&self, d: &Definition) -> bool {
@@ -474,7 +451,6 @@ impl Strategy<'_> {
             || threat.controller == v.viewer
             || threat.ability.is_some()
             || threat.triggered.is_some()
-            || threat.mode.is_some()
         {
             return None;
         }
@@ -1141,7 +1117,7 @@ impl Strategy<'_> {
         v: &PermittedView,
         o: &VisibleObject,
         d: &Definition,
-    ) -> Option<PlayerResponse> {
+    ) -> Option<Action<Viewer>> {
         if self.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
             matches!(failed, PaymentAction::Cast(id, zone) if id == &d.oracle_id && *zone == o.zone)
         }) {
@@ -1184,29 +1160,24 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let (choices, plan) = mana_policy::hybrid_plan_for(
+        let (choices, plan) = mana_policy::hybrid_plan(
             self.catalog,
             v,
             cost.clone(),
             &d.characteristics.hybrid_mana,
-            Some(mana_policy::ManaPurpose::Cast(
-                mtg_contracts::ManaSpellTraits::from_characteristics(
-                    o.characteristics.as_ref().unwrap_or(&d.characteristics),
-                ),
-            )),
         )?;
         self.payment.announced_cost = unchanged_cost.then_some(cost);
         self.hybrid_choices = choices;
         self.mana_plan = plan;
         self.payment.action = Some(PaymentAction::Cast(d.oracle_id.clone(), o.zone));
-        Some(PlayerResponse::Cast {
+        Some(Action::Cast {
             card: o.handle.clone(),
         })
     }
     pub(super) fn reactive_spells(
         &mut self,
         v: &PermittedView,
-    ) -> Result<Option<PlayerResponse>, String> {
+    ) -> Result<Option<Action<Viewer>>, String> {
         for o in v.objects.iter().filter(|o| in_viewers_hand(v, o)) {
             let d = definition(self.catalog, &o.oracle_id)?;
             let Some(p) = &d.spell else { continue };
@@ -1252,7 +1223,7 @@ impl Strategy<'_> {
         o: &VisibleObject,
         d: &Definition,
         ability: usize,
-    ) -> Option<PlayerResponse> {
+    ) -> Option<Action<Viewer>> {
         let a = &d.activated[ability];
         let in_zone = match a.functioning_zone {
             FunctioningZone::Battlefield => o.zone == Zone::Battlefield && !o.phased_out,
@@ -1374,20 +1345,19 @@ impl Strategy<'_> {
             v,
             &cost,
             if tap || sac { Some(&o.handle) } else { None },
-            Some(mana_policy::ManaPurpose::activation(v, &o.handle)),
         )?;
         self.payment.exclude = (tap || sac).then(|| o.handle.clone());
         self.payment.announced_cost = Some(cost);
         self.payment.action = Some(PaymentAction::Activate(o.handle.clone(), ability));
-        Some(PlayerResponse::ActivateAbility {
+        Some(Action::ActivateAbility {
             object: o.handle.clone(),
             ability: ability as u32,
         })
     }
-    pub(super) fn priority(&mut self, observation: &Observation) -> Result<PlayerResponse, String> {
+    pub(super) fn priority(&mut self, observation: &Observation) -> Result<Action<Viewer>, String> {
         let v = &observation.view;
         if self.policy == Policy::DrawOnly {
-            return Ok(PlayerResponse::Pass);
+            return Ok(Action::Pass);
         }
         self.payment.next_priority(v);
         self.mana_plan.clear();
@@ -1445,7 +1415,7 @@ impl Strategy<'_> {
                     }
                 }
             }
-            return Ok(PlayerResponse::Pass);
+            return Ok(Action::Pass);
         }
         let land_allowance = v
             .effects
@@ -1471,7 +1441,7 @@ impl Strategy<'_> {
                         .is_ok_and(|d| d.characteristics.kind == CardKind::Land)
             })
         {
-            return Ok(PlayerResponse::PlayLand {
+            return Ok(Action::PlayLand {
                 object: o.handle.clone(),
             });
         }
@@ -1536,7 +1506,7 @@ impl Strategy<'_> {
                 }
             }
         }
-        Ok(PlayerResponse::Pass)
+        Ok(Action::Pass)
     }
 
     fn library_count(&self, v: &PermittedView) -> usize {

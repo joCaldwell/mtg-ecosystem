@@ -11,7 +11,7 @@ test('live proxy exposes only exact reviewed query, cancel, submit and execution
   assert.ok(apiRouteAllowed('POST', '/v1/matches/a1/commands'));
   assert.ok(apiRouteAllowed('GET', command));
   assert.ok(apiRouteAllowed('POST', `${command}/cancel`));
-  assert.ok(apiRouteAllowed('POST', '/v1/matches/a1/actions/query'));
+  assert.equal(apiRouteAllowed('POST', '/v1/matches/a1/actions/query'),false);
   for (const [method, path] of [
     ['GET', '/v1/matches/a1/commands'], ['POST', command], ['GET', `${command}/cancel`],
     ['GET', '/v1/matches/a1/actions/query'], ['POST', '/v1/matches/a1/actions/query?viewer=0'], ['POST', `${command}/cancel/`], ['POST', '/v1/matches/a1/commands?viewer=0'],

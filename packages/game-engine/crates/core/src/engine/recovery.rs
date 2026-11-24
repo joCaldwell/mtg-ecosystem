@@ -93,12 +93,19 @@ mod tests {
                     Advance::AwaitingDecision(request) => {
                         saw_decision = true;
                         let response = match request {
-                            Request::Priority { .. } => Response::Pass,
-                            Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
+                            Decision {
+                                reason: Reason::Priority,
+                                ..
+                            } => Answer::Pick {
+                                picks: vec![vec![0]],
+                            },
+                            Decision {
+                                reason: Reason::Attackers,
+                                ..
+                            } => request.attack(vec![]),
                             _ => panic!("unexpected passive request"),
                         };
-                        game.respond(request.player(), request.decision_id(), response)
-                            .unwrap();
+                        game.respond(request.player, request.id, response).unwrap();
                     }
                     Advance::Suspended { .. } => saw_automatic_work = true,
                     Advance::Finished { winner } => {
@@ -149,8 +156,14 @@ mod tests {
             let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
                 panic!("expected priority before the unsupported transition");
             };
-            game.respond(request.player(), request.decision_id(), Response::Pass)
-                .unwrap();
+            game.respond(
+                request.player,
+                request.id,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            )
+            .unwrap();
             verifier.verify(&game.snapshot().unwrap()).unwrap();
         }
         let before_fault = game.snapshot().unwrap();
@@ -174,7 +187,15 @@ mod tests {
         let initial = game.snapshot().unwrap();
         verifier.verify(&initial).unwrap();
         let mut recovered = verifier.verify(&initial).unwrap();
-        let receipt = game.check_response(PlayerId(0), 0, Response::Pass).unwrap();
+        let receipt = game
+            .check_response(
+                PlayerId(0),
+                0,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            )
+            .unwrap();
         assert!(
             recovered.submit(receipt).is_err(),
             "restored games need a fresh receipt scope"
@@ -184,15 +205,28 @@ mod tests {
         forged.state_sha256 = digest(&forged.state).unwrap();
         assert!(verifier.verify(&canonical(&forged).unwrap()).is_err());
         assert_eq!(verifier.verify(&initial).unwrap().state, game.state);
-        game.respond(PlayerId(0), 0, Response::Pass).unwrap();
+        game.respond(
+            PlayerId(0),
+            0,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        )
+        .unwrap();
         let accepted = game.snapshot().unwrap();
         verifier.verify(&accepted).unwrap();
         let request = match game.advance(Budget::unlimited()) {
             Advance::AwaitingDecision(request) => request,
             other => panic!("unexpected {other:?}"),
         };
-        game.respond(request.player(), request.decision_id(), Response::Pass)
-            .unwrap();
+        game.respond(
+            request.player,
+            request.id,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        )
+        .unwrap();
         let valid = game.snapshot().unwrap();
         let mut later_forgery: Snapshot = strict_read(&valid).unwrap();
         later_forgery.state.rules.turn.lands_played = 1;
@@ -215,11 +249,8 @@ mod tests {
             1
         );
         let mut forged: Snapshot = strict_read(&valid).unwrap();
-        forged.state.audit.journal[0].response = Response::ActivateMana {
-            object: ObjectId {
-                card: CardId(0),
-                incarnation: 0,
-            },
+        forged.state.audit.journal[0].answer = Answer::Pick {
+            picks: vec![vec![u32::MAX]],
         };
         forged.state_sha256 = digest(&forged.state).unwrap();
         assert!(verifier.verify(&canonical(&forged).unwrap()).is_err());
@@ -230,7 +261,13 @@ mod tests {
         let recovered = verifier.verify(&valid).unwrap();
         assert_eq!(recovered.state, game.state);
         assert_eq!(recovered.trace, game.trace);
-        let receipt = game.check_response(request.player(), request.decision_id(), Response::Pass);
+        let receipt = game.check_response(
+            request.player,
+            request.id,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
         assert!(
             receipt.is_err(),
             "accepted pending input still suppresses another response"

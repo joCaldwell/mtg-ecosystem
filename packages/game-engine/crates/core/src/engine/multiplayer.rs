@@ -515,24 +515,7 @@ impl RulesTxn {
                     .rules
                     .pending
                     .as_ref()
-                    .is_some_and(|p| match &p.response {
-                        Response::EntityTargets { entities } => {
-                            self.validate_entity_targets(p.player, entities).is_err()
-                        }
-                        // Graveyard-card targets (Raise Dead) use their own domain.
-                        Response::Targets { objects } => self.top().map_or(true, |top| {
-                            objects.iter().any(|t| !self.object_target_legal(top, *t))
-                        }),
-                        Response::StackTargets { entries } => {
-                            self.validate_stack_targets(p.player, entries).is_err()
-                        }
-                        Response::PlayerTargets { players } => {
-                            players.iter().enumerate().any(|(slot, target)| {
-                                !self.player_target_legal(self.top().unwrap(), slot, *target)
-                            })
-                        }
-                        _ => false,
-                    });
+                    .is_some_and(|p| self.validate_pending(p).is_err());
             let no_domain = proposing && !self.top_has_target_domain()?;
             let source_bad = cast.origin == AnnouncementOrigin::Activated
                 && (matches!(self.state.rules.frame, Frame::EntityTargets { .. })
@@ -568,7 +551,7 @@ impl RulesTxn {
             .rules
             .pending
             .as_ref()
-            .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
+            .is_some_and(|p| self.validate_pending(p).is_err())
         {
             self.rules_mut().pending = None;
         }
@@ -711,10 +694,10 @@ impl Game {
                 let Advance::AwaitingDecision(request) = game.advance(budget) else {
                     return Err("replay decision is unreachable".into());
                 };
-                if request.player() != input.player || request.decision_id() != input.decision_id {
+                if request.player != input.player || request.id != input.decision_id {
                     return Err("replay decision mismatch".into());
                 }
-                game.respond(input.player, input.decision_id, input.response.clone())?;
+                game.respond(input.player, input.decision_id, input.answer.clone())?;
             }
         }
         if external != journal.concessions.len() {

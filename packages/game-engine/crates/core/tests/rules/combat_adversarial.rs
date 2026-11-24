@@ -19,7 +19,7 @@ fn settle(game: &mut Game, units: u64) -> Advance {
     }
     panic!("automatic work failed to settle")
 }
-fn reject(game: &Game, actor: PlayerId, token: DecisionToken, response: PlayerResponse) {
+fn reject(game: &Game, actor: PlayerId, token: DecisionToken, response: Answer) {
     let before = game.snapshot().unwrap();
     let mut result = game.check_player_response(actor, token, response, Budget::new(0));
     for _ in 0..200 {
@@ -40,8 +40,22 @@ fn priority_to_attackers(game: &mut Game) -> Vec<ObjectHandle> {
     for _ in 0..30 {
         assert!(matches!(settle(game, 1), Advance::AwaitingDecision(_)));
         match request(game).1 {
-            PlayerRequest::Attackers { candidates, .. } => return candidates,
-            PlayerRequest::Priority { .. } => input(game, PlayerResponse::Pass),
+            found @ Decision {
+                reason: Reason::Attackers,
+                ..
+            } => {
+                let candidates = found.subjects();
+                return candidates;
+            }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => input(
+                game,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            ),
             other => panic!("unexpected request before combat: {other:?}"),
         }
     }
@@ -68,39 +82,52 @@ fn multi_blocks(game: &mut Game) {
     assert_eq!(attackers.len(), 3);
     input(
         game,
-        PlayerResponse::Attackers {
-            attacks: vec![
-                (attackers[0].clone(), PlayerId(1)),
-                (attackers[1].clone(), PlayerId(1)),
-                (attackers[2].clone(), PlayerId(2)),
-            ],
-        },
+        game.next_test_viewer_decision().attack(vec![
+            (attackers[0].clone(), PlayerId(1)),
+            (attackers[1].clone(), PlayerId(1)),
+            (attackers[2].clone(), PlayerId(2)),
+        ]),
     );
     for _ in 0..12 {
         let (actor, req) = request(game);
-        match req {
-            PlayerRequest::Priority { .. } => input(game, PlayerResponse::Pass),
-            PlayerRequest::Blockers {
-                candidates,
-                attackers,
+        match req.clone() {
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => input(
+                game,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            ),
+            found @ Decision {
+                reason: Reason::Blockers,
                 ..
             } => {
-                assert_eq!(actor, PlayerId(1));
-                assert_eq!(candidates.len(), 2);
-                assert_eq!(attackers.len(), 2);
-                input(
-                    game,
-                    PlayerResponse::Blockers {
-                        blocks: vec![
+                let candidates = found.subjects();
+                let attackers = found.allowed_objects();
+                {
+                    assert_eq!(actor, PlayerId(1));
+                    assert_eq!(candidates.len(), 2);
+                    assert_eq!(attackers.len(), 2);
+                    input(
+                        game,
+                        req.block(vec![
                             (candidates[0].clone(), attackers[0].clone()),
                             (candidates[1].clone(), attackers[0].clone()),
-                        ],
-                    },
-                );
-                assert_eq!(request(game).0, PlayerId(2));
-                assert!(matches!(request(game).1, PlayerRequest::Blockers { .. }));
-                input(game, PlayerResponse::Blockers { blocks: vec![] });
-                return;
+                        ]),
+                    );
+                    assert_eq!(request(game).0, PlayerId(2));
+                    assert!(matches!(
+                        request(game).1,
+                        Decision {
+                            reason: Reason::Blockers,
+                            ..
+                        }
+                    ));
+                    input(game, request(game).1.block(vec![]));
+                    return;
+                }
             }
             other => panic!("unexpected declaration request: {other:?}"),
         }
@@ -110,10 +137,26 @@ fn multi_blocks(game: &mut Game) {
 fn damage_request(game: &mut Game) -> (Quantity, Vec<ObjectHandle>) {
     for _ in 0..12 {
         match request(game).1 {
-            PlayerRequest::Priority { .. } => input(game, PlayerResponse::Pass),
-            PlayerRequest::Damage {
-                power, recipients, ..
-            } => return (power, recipients),
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => input(
+                game,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            ),
+            found @ Decision {
+                reason: Reason::CombatDamage { .. },
+                ..
+            } => {
+                let power = match &found.reason {
+                    Reason::CombatDamage { power, .. } => power.clone(),
+                    _ => unreachable!(),
+                };
+                let recipients = found.objects_offered();
+                return (power, recipients);
+            }
             other => panic!("unexpected damage request: {other:?}"),
         }
     }
@@ -130,15 +173,13 @@ fn current_rules_allow_nonlethal_split_and_simultaneous_multiplayer_losses() {
     let (power, recipients) = damage_request(&mut game);
     assert_eq!(power, Quantity::from(2));
     assert_eq!(recipients.len(), 2);
-    submit(
-        &mut game,
-        PlayerResponse::Damage {
-            assignments: vec![
-                (recipients[0].clone(), Quantity::from(1)),
-                (recipients[1].clone(), Quantity::from(1)),
-            ],
-        },
-    );
+    {
+        let selected_answer = game.next_test_viewer_decision().damage_to(vec![
+            (recipients[0].clone(), Quantity::from(1)),
+            (recipients[1].clone(), Quantity::from(1)),
+        ]);
+        submit(&mut game, selected_answer)
+    };
     let before = game.snapshot().unwrap();
     assert!(matches!(
         game.advance(Budget::new(0)),
@@ -185,7 +226,7 @@ fn complete_declarations_reject_duplicates_foreign_defenders_and_stale_tokens() 
     let mut game = Game::new(prepared.clone());
     let attackers = priority_to_attackers(&mut game);
     let (actor, req) = request(&game);
-    let token = req.token().clone();
+    let token = req.id.clone();
     for attacks in [
         vec![(attackers[0].clone(), PlayerId(0))],
         vec![(attackers[0].clone(), PlayerId(4))],
@@ -203,46 +244,56 @@ fn complete_declarations_reject_duplicates_foreign_defenders_and_stale_tokens() 
             &game,
             actor,
             token.clone(),
-            PlayerResponse::Attackers { attacks },
+            game.next_test_viewer_decision().attack(attacks),
         );
     }
     reject(
         &game,
         PlayerId(1),
         token.clone(),
-        PlayerResponse::Attackers { attacks: vec![] },
+        game.next_test_viewer_decision().attack(vec![]),
     );
-    input(
-        &mut game,
-        PlayerResponse::Attackers {
-            attacks: vec![
-                (attackers[0].clone(), PlayerId(1)),
-                (attackers[1].clone(), PlayerId(2)),
-            ],
-        },
-    );
+    {
+        let selected_answer = game.next_test_viewer_decision().attack(vec![
+            (attackers[0].clone(), PlayerId(1)),
+            (attackers[1].clone(), PlayerId(2)),
+        ]);
+        input(&mut game, selected_answer)
+    };
     reject(
         &game,
         actor,
         token,
-        PlayerResponse::Attackers { attacks: vec![] },
+        game.next_test_viewer_decision().attack(vec![]),
     );
     for _ in 0..8 {
-        if matches!(request(&game).1, PlayerRequest::Blockers { .. }) {
+        if matches!(
+            request(&game).1,
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            }
+        ) {
             break;
         }
-        input(&mut game, PlayerResponse::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, selected_answer)
+        };
     }
     let (actor, req) = request(&game);
-    let PlayerRequest::Blockers {
-        candidates,
-        attackers,
-        token,
+    let found @ Decision {
+        reason: Reason::Blockers,
         ..
     } = req
     else {
         panic!()
     };
+    let candidates = found.subjects();
+    let attackers = found.allowed_objects();
+    let token = found.id.clone();
     assert_eq!(actor, PlayerId(1));
     assert_eq!(attackers.len(), 1, "defender-specific attack domain");
     let foreign_attacker = handle(&game, actor, PlayerId(0), Zone::Battlefield, 1);
@@ -261,11 +312,21 @@ fn complete_declarations_reject_duplicates_foreign_defenders_and_stale_tokens() 
             &game,
             actor,
             token.clone(),
-            PlayerResponse::Blockers { blocks },
+            game.next_test_viewer_decision().block(blocks),
         );
     }
-    reject(&game, actor, token, PlayerResponse::Pass);
-    input(&mut game, PlayerResponse::Blockers { blocks: vec![] });
+    reject(
+        &game,
+        actor,
+        token,
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
+    );
+    {
+        let selected_answer = game.next_test_viewer_decision().block(vec![]);
+        input(&mut game, selected_answer)
+    };
     assert_eq!(request(&game).0, PlayerId(2), "no intervening priority");
 }
 
@@ -282,7 +343,14 @@ fn damage_choice_validation_query_recovery_and_fork_isolation() {
             QueryValue::Decision(None)
         ));
     }
-    reject(&game, actor, req.token().clone(), PlayerResponse::Pass);
+    reject(
+        &game,
+        actor,
+        req.id.clone(),
+        Answer::Pick {
+            picks: vec![vec![0]],
+        },
+    );
     for assignments in [
         vec![],
         vec![(recipients[0].clone(), Quantity::from(1))],
@@ -299,8 +367,8 @@ fn damage_choice_validation_query_recovery_and_fork_isolation() {
         reject(
             &game,
             actor,
-            req.token().clone(),
-            PlayerResponse::Damage { assignments },
+            req.id.clone(),
+            game.next_test_viewer_decision().damage_to(assignments),
         );
     }
     let QueryResult::Incomplete { work, .. } = game.observe(PlayerId(3), Budget::new(0)) else {
@@ -321,15 +389,13 @@ fn damage_choice_validation_query_recovery_and_fork_isolation() {
     };
     assert_eq!(recovered_view, observe(&game, PlayerId(3)));
     assert_eq!(before, game.snapshot().unwrap());
-    let response = PlayerResponse::Damage {
-        assignments: vec![
-            (recipients[0].clone(), Quantity::from(2)),
-            (recipients[1].clone(), Quantity::zero()),
-        ],
-    };
+    let response = game.next_test_viewer_decision().damage_to(vec![
+        (recipients[0].clone(), Quantity::from(2)),
+        (recipients[1].clone(), Quantity::zero()),
+    ]);
     let QueryValue::Validated(receipt) = complete(
         &game,
-        game.check_player_response(actor, req.token().clone(), response.clone(), Budget::new(0)),
+        game.check_player_response(actor, req.id.clone(), response.clone(), Budget::new(0)),
     ) else {
         panic!()
     };
@@ -348,15 +414,13 @@ fn damage_choice_validation_query_recovery_and_fork_isolation() {
     else {
         panic!()
     };
-    submit(
-        &mut game,
-        PlayerResponse::Damage {
-            assignments: vec![
-                (recipients[0].clone(), Quantity::from(1)),
-                (recipients[1].clone(), Quantity::from(1)),
-            ],
-        },
-    );
+    {
+        let selected_answer = game.next_test_viewer_decision().damage_to(vec![
+            (recipients[0].clone(), Quantity::from(1)),
+            (recipients[1].clone(), Quantity::from(1)),
+        ]);
+        submit(&mut game, selected_answer)
+    };
     assert!(matches!(
         game.resume_work(work, Budget::unlimited()),
         QueryResult::Rejected(QueryRejection::StaleOrForeignWork)
@@ -367,15 +431,25 @@ fn single_attack(game: &mut Game) {
     let attackers = priority_to_attackers(game);
     input(
         game,
-        PlayerResponse::Attackers {
-            attacks: vec![(attackers[0].clone(), PlayerId(1))],
-        },
+        game.next_test_viewer_decision()
+            .attack(vec![(attackers[0].clone(), PlayerId(1))]),
     );
     for _ in 0..8 {
-        if matches!(request(game).1, PlayerRequest::Blockers { .. }) {
+        if matches!(
+            request(game).1,
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            }
+        ) {
             return;
         }
-        input(game, PlayerResponse::Pass);
+        input(
+            game,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     panic!("single defender never asked to block")
 }
@@ -385,10 +459,19 @@ fn pass_to_step(game: &mut Game, step: TurnStep) {
             return;
         }
         match request(game).1 {
-            PlayerRequest::Priority { .. } => input(game, PlayerResponse::Pass),
-            PlayerRequest::Blockers { .. } => {
-                input(game, PlayerResponse::Blockers { blocks: vec![] })
-            }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => input(
+                game,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            ),
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            } => input(game, game.next_test_viewer_decision().block(vec![])),
             other => panic!("unexpected request advancing steps: {other:?}"),
         }
     }
@@ -400,24 +483,30 @@ fn bounced_last_blocker_stays_blocked_and_the_instant_has_real_response_windows(
     let prepared = prepared(ScenarioConfig::combat_interactions());
     let mut game = Game::new(prepared.clone());
     single_attack(&mut game);
-    let PlayerRequest::Blockers {
-        candidates,
-        attackers,
+    let found @ Decision {
+        reason: Reason::Blockers,
         ..
     } = request(&game).1
     else {
         panic!()
     };
-    input(
-        &mut game,
-        PlayerResponse::Blockers {
-            blocks: vec![(candidates[0].clone(), attackers[0].clone())],
-        },
-    );
+    let candidates = found.subjects();
+    let attackers = found.allowed_objects();
+    {
+        let selected_answer = game
+            .next_test_viewer_decision()
+            .block(vec![(candidates[0].clone(), attackers[0].clone())]);
+        input(&mut game, selected_answer)
+    };
     assert_eq!(observe(&game, PlayerId(0)).view.combat[0].blockers.len(), 1);
     for player in 0..3 {
         assert_eq!(request(&game).0, PlayerId(player));
-        input(&mut game, PlayerResponse::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, selected_answer)
+        };
     }
     assert_eq!(request(&game).0, PlayerId(3));
     let spell = handle(
@@ -427,21 +516,47 @@ fn bounced_last_blocker_stays_blocked_and_the_instant_has_real_response_windows(
         Zone::Hand { owner: PlayerId(3) },
         0,
     );
-    input(&mut game, PlayerResponse::Cast { card: spell });
-    assert!(matches!(request(&game).1, PlayerRequest::Targets { .. }));
+    {
+        let selected_answer = game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card: spell },
+        });
+        input(&mut game, selected_answer)
+    };
+    assert!(matches!(
+        request(&game).1,
+        Decision {
+            reason: Reason::Targets { .. },
+            ..
+        }
+    ));
     let target = handle(&game, PlayerId(3), PlayerId(1), Zone::Battlefield, 0);
-    input(
-        &mut game,
-        PlayerResponse::Targets {
-            objects: vec![target.clone()],
-        },
-    );
+    {
+        let selected_answer = game
+            .next_test_viewer_decision()
+            .targets(vec![target.clone()]);
+        input(&mut game, selected_answer)
+    };
     let island = handle(&game, PlayerId(3), PlayerId(3), Zone::Battlefield, 0);
-    input(&mut game, PlayerResponse::ActivateMana { object: island });
-    input(&mut game, PlayerResponse::FinishMana { undo_mana: true });
+    {
+        let selected_answer = game.next_test_viewer_decision().activate_mana(island);
+        input(&mut game, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        };
+        input(&mut game, selected_answer)
+    };
     for expected in [3, 0, 1, 2] {
         assert_eq!(request(&game).0, PlayerId(expected));
-        input(&mut game, PlayerResponse::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, selected_answer)
+        };
     }
     assert!(observe(&game, PlayerId(0)).view.stack.is_empty());
     let combat = observe(&game, PlayerId(0)).view.combat;
@@ -509,20 +624,28 @@ fn empty_declaration_skips_steps_but_later_removed_attackers_do_not() {
     let prepared = prepared(ScenarioConfig::combat_interactions());
     let mut empty = Game::new(prepared.clone());
     priority_to_attackers(&mut empty);
-    input(&mut empty, PlayerResponse::Attackers { attacks: vec![] });
+    {
+        let selected_answer = empty.next_test_viewer_decision().attack(vec![]);
+        input(&mut empty, selected_answer)
+    };
     for _ in 0..4 {
-        input(&mut empty, PlayerResponse::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut empty, selected_answer)
+        };
     }
     assert_eq!(empty.turn().step, TurnStep::EndCombat);
 
     let mut departed = Game::new(prepared.clone());
     let attackers = priority_to_attackers(&mut departed);
-    input(
-        &mut departed,
-        PlayerResponse::Attackers {
-            attacks: vec![(attackers[0].clone(), PlayerId(1))],
-        },
-    );
+    {
+        let selected_answer = departed
+            .next_test_viewer_decision()
+            .attack(vec![(attackers[0].clone(), PlayerId(1))]);
+        input(&mut departed, selected_answer)
+    };
     departed.concede(PlayerId(0)).unwrap();
     settle(&mut departed, 1);
     assert_eq!(departed.active_player(), None);
@@ -533,16 +656,30 @@ fn empty_declaration_skips_steps_but_later_removed_attackers_do_not() {
     assert_eq!(departed.turn().number, 1);
 }
 
-fn passive(req: PlayerRequest) -> PlayerResponse {
-    match req {
-        PlayerRequest::Priority { .. } => PlayerResponse::Pass,
-        PlayerRequest::Attackers { .. } => PlayerResponse::Attackers { attacks: vec![] },
-        PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
-        PlayerRequest::Discard {
-            count, candidates, ..
-        } => PlayerResponse::Discard {
-            objects: candidates.into_iter().take(count).collect(),
+fn passive(req: Decision<Viewer>) -> Answer {
+    match req.clone() {
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => req.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => req.block(vec![]),
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let count = found.required_count();
+            let candidates = found.objects_offered();
+            req.pick_objects(candidates.into_iter().take(count).collect())
+        }
         other => panic!("passive policy cannot handle {other:?}"),
     }
 }
@@ -572,12 +709,9 @@ fn ordered_draws_and_cleanup_discard_preserve_hidden_information() {
                     .all(|object| !matches!(object.zone, Zone::Hand { owner } if owner != viewer))
             );
         }
-        if let PlayerRequest::Discard {
-            count,
-            ref candidates,
-            ..
-        } = req
-        {
+        if matches!(req.reason, Reason::Discard) {
+            let count = req.required_count();
+            let candidates = req.objects_offered();
             assert_eq!(actor, PlayerId(3));
             assert_eq!(count, 2, "unused Unsummon plus seven Islands plus draw");
             assert_eq!(candidates.len(), 9);
@@ -589,18 +723,17 @@ fn ordered_draws_and_cleanup_discard_preserve_hidden_information() {
                 reject(
                     &game,
                     actor,
-                    req.token().clone(),
-                    PlayerResponse::Discard { objects },
+                    req.id.clone(),
+                    game.next_test_viewer_decision().pick_objects(objects),
                 );
             }
             let foreign = handle(&game, actor, PlayerId(0), Zone::Battlefield, 0);
             reject(
                 &game,
                 actor,
-                req.token().clone(),
-                PlayerResponse::Discard {
-                    objects: vec![candidates[0].clone(), foreign],
-                },
+                req.id.clone(),
+                game.next_test_viewer_decision()
+                    .pick_objects(vec![candidates[0].clone(), foreign]),
             );
 
             discarded = true;
@@ -637,33 +770,34 @@ fn nonlethal_marked_damage_does_not_reduce_toughness_and_clears_at_cleanup() {
     let prepared = prepared(ScenarioConfig::combat_interactions());
     let mut game = Game::new(prepared.clone());
     single_attack(&mut game);
-    let PlayerRequest::Blockers {
-        candidates,
-        attackers,
+    let found @ Decision {
+        reason: Reason::Blockers,
         ..
     } = request(&game).1
     else {
         panic!()
     };
-    input(
-        &mut game,
-        PlayerResponse::Blockers {
-            blocks: candidates
+    let candidates = found.subjects();
+    let attackers = found.allowed_objects();
+    {
+        let selected_answer = game.next_test_viewer_decision().block(
+            candidates
                 .into_iter()
                 .map(|blocker| (blocker, attackers[0].clone()))
                 .collect(),
-        },
-    );
+        );
+        input(&mut game, selected_answer)
+    };
     let (_, recipients) = damage_request(&mut game);
-    input(
-        &mut game,
-        PlayerResponse::Damage {
-            assignments: recipients
+    {
+        let selected_answer = game.next_test_viewer_decision().damage_to(
+            recipients
                 .into_iter()
                 .map(|recipient| (recipient, Quantity::from(1)))
                 .collect(),
-        },
-    );
+        );
+        input(&mut game, selected_answer)
+    };
     assert_eq!(game.live_players().len(), 4);
     for card in [3, 4] {
         assert_eq!(
@@ -705,32 +839,46 @@ fn nonlethal_marked_damage_does_not_reduce_toughness_and_clears_at_cleanup() {
     panic!("cleanup did not complete")
 }
 
-fn interaction_policy(req: PlayerRequest) -> PlayerResponse {
-    match req {
-        PlayerRequest::Attackers { candidates, .. } => PlayerResponse::Attackers {
-            attacks: candidates
-                .into_iter()
-                .enumerate()
-                .map(|(index, object)| (object, PlayerId(if index < 2 { 1 } else { 2 })))
-                .collect(),
-        },
-        PlayerRequest::Blockers {
-            player: PlayerId(1),
-            candidates,
-            attackers,
+fn interaction_policy(req: Decision<Viewer>) -> Answer {
+    match req.clone() {
+        found @ Decision {
+            reason: Reason::Attackers,
             ..
-        } => PlayerResponse::Blockers {
-            blocks: candidates
-                .into_iter()
-                .map(|blocker| (blocker, attackers[0].clone()))
-                .collect(),
-        },
-        PlayerRequest::Damage { recipients, .. } => PlayerResponse::Damage {
-            assignments: recipients
-                .into_iter()
-                .map(|recipient| (recipient, Quantity::from(1)))
-                .collect(),
-        },
+        } => {
+            let candidates = found.subjects();
+            req.attack(
+                candidates
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, object)| (object, PlayerId(if index < 2 { 1 } else { 2 })))
+                    .collect(),
+            )
+        }
+        found @ Decision {
+            reason: Reason::Blockers,
+            ..
+        } if (found.player) == PlayerId(1) => {
+            let candidates = found.subjects();
+            let attackers = found.allowed_objects();
+            req.block(
+                candidates
+                    .into_iter()
+                    .map(|blocker| (blocker, attackers[0].clone()))
+                    .collect(),
+            )
+        }
+        found @ Decision {
+            reason: Reason::CombatDamage { .. },
+            ..
+        } => {
+            let recipients = found.objects_offered();
+            req.damage_to(
+                recipients
+                    .into_iter()
+                    .map(|recipient| (recipient, Quantity::from(1)))
+                    .collect(),
+            )
+        }
         other => passive(other),
     }
 }
@@ -781,25 +929,33 @@ fn concessions_at_every_interaction_boundary_preserve_recovery_and_budget_equiva
                     let (actor, req) = request(&small);
                     assert!(small.live_players().contains(&actor));
                     // Every surviving decision has at least one legal complete response.
-                    let response = match req {
-                        PlayerRequest::Damage {
-                            recipients, power, ..
-                        } => PlayerResponse::Damage {
-                            assignments: recipients
-                                .into_iter()
-                                .enumerate()
-                                .map(|(index, recipient)| {
-                                    (
-                                        recipient,
-                                        if index == 0 {
-                                            power.clone()
-                                        } else {
-                                            Quantity::zero()
-                                        },
-                                    )
-                                })
-                                .collect(),
-                        },
+                    let response = match req.clone() {
+                        found @ Decision {
+                            reason: Reason::CombatDamage { .. },
+                            ..
+                        } => {
+                            let recipients = found.objects_offered();
+                            let power = match &found.reason {
+                                Reason::CombatDamage { power, .. } => power.clone(),
+                                _ => unreachable!(),
+                            };
+                            req.damage_to(
+                                recipients
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(index, recipient)| {
+                                        (
+                                            recipient,
+                                            if index == 0 {
+                                                power.clone()
+                                            } else {
+                                                Quantity::zero()
+                                            },
+                                        )
+                                    })
+                                    .collect(),
+                            )
+                        }
                         other => passive(other),
                     };
                     submit(&mut small, response);
@@ -826,7 +982,12 @@ fn resolved_creature_cannot_attack_until_its_controller_begins_another_turn() {
         Zone::Hand { owner: PlayerId(0) },
         0,
     );
-    input(&mut game, PlayerResponse::PlayLand { object: land });
+    {
+        let selected_answer = game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::PlayLand { object: land },
+        });
+        input(&mut game, selected_answer)
+    };
     let creature = handle(
         &game,
         PlayerId(0),
@@ -834,14 +995,34 @@ fn resolved_creature_cannot_attack_until_its_controller_begins_another_turn() {
         Zone::Hand { owner: PlayerId(0) },
         0,
     );
-    input(&mut game, PlayerResponse::Cast { card: creature });
+    {
+        let selected_answer = game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card: creature },
+        });
+        input(&mut game, selected_answer)
+    };
     for index in [0, 2] {
         let land = handle(&game, PlayerId(0), PlayerId(0), Zone::Battlefield, index);
-        input(&mut game, PlayerResponse::ActivateMana { object: land });
+        {
+            let selected_answer = game.next_test_viewer_decision().activate_mana(land);
+            input(&mut game, selected_answer)
+        };
     }
-    input(&mut game, PlayerResponse::FinishMana { undo_mana: true });
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        };
+        input(&mut game, selected_answer)
+    };
     for _ in 0..4 {
-        input(&mut game, PlayerResponse::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, selected_answer)
+        };
     }
     let candidates = priority_to_attackers(&mut game);
     assert_eq!(candidates.len(), 1);
@@ -851,10 +1032,9 @@ fn resolved_creature_cannot_attack_until_its_controller_begins_another_turn() {
     reject(
         &game,
         actor,
-        req.token().clone(),
-        PlayerResponse::Attackers {
-            attacks: vec![(newer.clone(), PlayerId(1))],
-        },
+        req.id.clone(),
+        game.next_test_viewer_decision()
+            .attack(vec![(newer.clone(), PlayerId(1))]),
     );
     for _ in 0..350 {
         if game.turn().number == 5 {
@@ -888,13 +1068,10 @@ fn cleanup_discard_boundary(prepared: &Prepared) -> Game {
             Advance::AwaitingDecision(_)
         ));
         let (_, req) = request(&game);
-        if let PlayerRequest::Discard {
-            player,
-            count,
-            ref candidates,
-            ..
-        } = req
-        {
+        if matches!(req.reason, Reason::Discard) {
+            let count = req.required_count();
+            let candidates = req.objects_offered();
+            let player = req.player;
             assert_eq!(game.turn().number, 4);
             assert_eq!(player, PlayerId(3));
             assert_eq!(count, 2);
@@ -945,7 +1122,7 @@ fn cleanup_departures_preserve_or_discard_pending_choices_and_recover() {
                 if !accepted {
                     let (actor, req) = request(&small);
                     assert_eq!(actor, PlayerId(3));
-                    assert!(matches!(req, PlayerRequest::Discard { count: 2, .. }));
+                    assert!(matches!(req.reason, Reason::Discard) && req.required_count() == 2);
                     submit(&mut small, passive(req));
 
                     assert!(matches!(

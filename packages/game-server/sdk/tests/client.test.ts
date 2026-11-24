@@ -9,50 +9,41 @@ import { command, stream } from '../src/validation.ts';
 
 const commandId = '0123456789abcdef0123456789abcdef';
 const capability = 'test-seat-capability-never-in-a-url';
-const envelope = (response = { response: 'pass' }) => ({ protocol_version: 1, command_id: commandId, expected_revision: '0', command: { kind: 'decision', token: 'private-current-token', response } });
-const page = (cursors = ['1'], after = '0') => ({ protocol_version: 1, entries: cursors.map(cursor => ({ cursor, publication: { kind: 'lifecycle', status: { status: 'running' } } })), next: cursors.at(-1) ?? after, has_more: false });
+const envelope = (answer = { answer: 'pick', picks: [[0]] }) => ({ protocol_version: 2, command_id: commandId, expected_revision: '0', command: { kind: 'decision', token: 'private-current-token', answer } });
+const page = (cursors = ['1'], after = '0') => ({ protocol_version: 2, entries: cursors.map(cursor => ({ cursor, publication: { kind: 'lifecycle', status: { status: 'running' } } })), next: cursors.at(-1) ?? after, has_more: false });
 const json = value => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
 const client = fetch => new GameClient({ baseURL: 'https://engine.example', matchId: 'a'.repeat(32), capability, fetch });
 
-const responses = [
-  { response: 'legend_rule', keep: 'legend-handle' },
-  { response: 'mulligan', take: false }, { response: 'bottom_opening', objects: ['h'] },
-  { response: 'modes', mode: 0 },
-  { response: 'damage_effect', effect: 'e', damage: 'd' }, { response: 'order_triggers', order: ['t'] },
-  { response: 'entity_targets', entities: [{ entity: 'player', player: 1 }] },
-  { response: 'stack_targets', entries: ['stack'] }, { response: 'activate_ability', object: 'h', ability: 0 },
-  { response: 'player_targets', players: [1] }, { response: 'sacrifice', object: 'h' },
-  { response: 'resolve_discard', objects: ['h'] }, { response: 'spend_mana', spending: { W: '1' } },
-  { response: 'commander_return', to_command: true }, { response: 'attackers', attacks: [['h', 1]] },
-  { response: 'blockers', blocks: [['b', 'a']] }, { response: 'damage', assignments: [['h', '90071992547409931234567890']] },
-  { response: 'discard', objects: ['h'] }, { response: 'play_land', object: 'h' },
-  { response: 'activate_mana', object: 'h' }, { response: 'cast', card: 'h' }, { response: 'pass' },
-  { response: 'targets', objects: ['h', 'h', 'h'] }, { response: 'finish_mana', undo_mana: true },
+const answers=[
+  {answer:'pick',picks:[[7],[]]}, {answer:'order',order:[2,0]}, {answer:'number',value:'9007199254740993'},
+  {answer:'distribute',amounts:['9007199254740993','1']}, {answer:'pay',pay:{step:'activate',source:1}},
+  {answer:'pay',pay:{step:'finish',undo_on_failure:true}}, {answer:'pay',pay:{step:'spend',unrestricted:{W:'1'}}},
 ];
 
 test('Rust schemas validate representative responses and reject whole nested source shapes', () => {
-  assert.equal(responses.length, 24);
-  for (const response of responses) {
+  assert.equal(answers.length, 7);
+  for (const response of answers) {
     const input = envelope(response); const before = JSON.stringify(input);
     assert.deepEqual(command(input), input);
     assert.equal(JSON.stringify(input), before, 'validation must not coerce or remove fields');
     assert.throws(() => command(envelope({ ...response, raw_receipt: {} })), ProtocolError);
   }
   for (const response of [
-    { response: 'damage', assignments: [['h']] }, { response: 'damage', assignments: [['h', '3', 'extra']] },
-    { response: 'damage', assignments: [['h', 3]] }, { response: 'cast', card: { card: 0, incarnation: 0 } },
-    { response: 'spend_mana', spending: { Z: '1' } }, { response: 'modes', mode: 4_294_967_296 },
-    { response: 'player_targets', players: [256] }, { response: 'raw_receipt', receipt: {} },
+    { answer:'pick', picks:[[4294967296]] }, { answer:'pick', picks:[[{}]] },
+    { answer:'order', order:[-1] }, { answer:'distribute', amounts:[3] },
+    { answer:'pay', pay:{step:'spend',unrestricted:{Z:'1'}} },
+    { answer:'pay', pay:{step:'activate',source:{card:0,incarnation:0}} },
+    { answer:'number', value:'01' }, { answer:'raw_receipt',receipt:{} },
   ]) assert.throws(() => command(envelope(response)), ProtocolError);
   for (const quantity of ['01', '-0', '1\n', '\n1', '1\r', '1.0', '+1']) {
-    assert.throws(() => command(envelope({ response: 'damage', assignments: [['h', quantity]] })), ProtocolError);
+    assert.throws(() => command(envelope({ answer: 'distribute', amounts: [quantity] })), ProtocolError);
   }
   for (const revision of ['01', '-0', '1\n', '\n1', '1\r', '+1', '1.0', '18446744073709551616']) {
     assert.throws(() => counter(revision), ProtocolError);
     assert.throws(() => command({ ...envelope(), expected_revision: revision }), ProtocolError);
   }
   for (const revision of ['0', '9007199254740992', '18446744073709551615']) assert.equal(counter(revision), revision);
-  assert.throws(() => command({ ...envelope(), protocol_version: 2 }), ProtocolError);
+  assert.throws(() => command({ ...envelope(), protocol_version: 1 }), ProtocolError);
 });
 
 test('private capability is header-only, commands are never retried, and errors are redacted', async () => {
@@ -81,7 +72,7 @@ test('long polling preserves exact cursor and rejects reordered, duplicate, miss
   const url = new URL(seen.url); assert.equal(url.searchParams.get('after'), max);
   assert.equal(url.searchParams.get('limit'), '32'); assert.equal(url.searchParams.get('wait_ms'), '20000');
   assert(!url.href.includes(capability)); assert.equal(seen.init.method, 'GET'); assert.equal(seen.init.body, undefined);
-  for (const invalid of [page(['1', '1']), page(['2', '1']), { ...page(['1']), next: '2' }, { ...page([], '0'), next: '1' }, { ...page(['1']), protocol_version: 2 }, { ...page(['1']), raw_state: {} }]) {
+  for (const invalid of [page(['1', '1']), page(['2', '1']), { ...page(['1']), next: '2' }, { ...page([], '0'), next: '1' }, { ...page(['1']), protocol_version: 1 }, { ...page(['1']), raw_state: {} }]) {
     assert.throws(() => stream(invalid, '0'), ProtocolError);
   }
   await assert.rejects(sdk.poll({ after: '0', limit: 33 }), /bounds/);
@@ -99,12 +90,12 @@ function observation() {
 test('outbound serialize schema requires explicit nullable handles and safe numbers, preserving exact life', () => {
   const value = page(['1']); value.entries[0].publication = { kind: 'view_replaced', observation: observation() };
   assert.equal(stream(value, '0').entries[0].publication.observation.view.players[0].life, '90071992547409931234567890');
-  const request = { request: 'commander_return', token: 'token', player: 0, designation: 'commander', destination: { zone: 'hand', owner: 0 }, object: null };
-  value.entries[0].publication.observation.decision = request;
-  stream(value, '0');
-  delete request.object;
-  assert.throws(() => stream(value, '0'), ProtocolError);
-  request.object = null;
+  const reason = {reason:'commander_return',designation:'commander',destination:{zone:'hand',owner:0},object:null,previous:[]};
+  value.entries[0].publication.observation.decision={reason,player:0,token:'token',candidates:[],shape:{shape:'pick',slots:[],rules:[]}};
+  stream(value,'0');
+  delete reason.object;
+  assert.throws(()=>stream(value,'0'),ProtocolError);
+  reason.object=null;
   value.entries[0].publication.observation.view.turn.number = Number.MAX_SAFE_INTEGER + 1;
   assert.throws(() => stream(value, '0'), ProtocolError);
 });
@@ -138,7 +129,7 @@ test('body, media type, safe origin and invalid command limits fail explicitly',
   let calls = 0;
   const sdk = client(async () => { calls++; return json({}); });
   await assert.rejects(sdk.submit(envelope({ response: 'damage', assignments: [['h']] })), ProtocolError);
-  await assert.rejects(sdk.submit(envelope({ response: 'targets', objects: ['x'.repeat(65_536)] })), /body exceeds/);
+  await assert.rejects(sdk.submit(envelope({ answer:'order', order:Array(33_000).fill(0) })), /body exceeds/);
   assert.equal(calls, 0);
 });
 

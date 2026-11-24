@@ -3,39 +3,53 @@
 use mtg_core::testkit::*;
 use std::collections::BTreeMap;
 
-pub fn pass(r: &Request) -> Response {
-    match r {
-        Request::Priority { .. } => Response::Pass,
-        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-        Request::Discard {
-            candidates, count, ..
-        } => Response::Discard {
-            objects: candidates.iter().take(*count).copied().collect(),
+pub fn pass(r: &Decision<Rules>) -> Answer {
+    match r.clone() {
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => r.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => r.block(vec![]),
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let candidates = found.objects_offered();
+            let count = &found.required_count();
+            r.pick_objects(candidates.iter().take(*count).copied().collect())
+        }
         x => panic!("turn {x:?}"),
     }
 }
 pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
-    Driver::answer(g, q, Response::Cast { card: CardId(id) });
+    Driver::answer(g, q, g.next_test_decision().cast(CardId(id)));
     loop {
         let r = Driver::request(g, q);
         let response = match &r {
-            Request::Targets { .. } => Response::Targets {
-                objects: t
-                    .iter()
-                    .map(|t| match t {
-                        TargetEntity::Object { object } => *object,
-                        _ => panic!("object"),
-                    })
-                    .collect(),
-            },
-            Request::EntityTargets { .. } => Response::EntityTargets {
-                entities: t.clone(),
-            },
-            Request::Mana { cost, .. } => {
-                if g.payment_pool(r.player(), cost).is_ok() {
-                    Response::FinishMana { undo_mana: false }
+            Decision {
+                reason: Reason::Targets { .. },
+                ..
+            } => r.entity_targets(t.clone()),
+            Decision {
+                shape: Shape::Pay { cost, .. },
+                reason: Reason::Mana { .. },
+                ..
+            } => {
+                if g.payment_pool(r.player, cost).is_ok() {
+                    Answer::Pay {
+                        pay: PayAnswer::Finish {
+                            undo_on_failure: false,
+                        },
+                    }
                 } else {
                     let o = g
                         .state
@@ -43,18 +57,28 @@ pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
                         .objects
                         .values()
                         .find(|o| {
-                            o.controller == r.player()
+                            o.controller == r.player
                                 && o.zone == Zone::Battlefield
                                 && !o.tapped
                                 && g.definition(o.id.card).unwrap().characteristics.kind
                                     == CardKind::Land
                         })
                         .unwrap();
-                    Response::ActivateMana { object: o.id }
+                    r.activate_mana(o.id)
                 }
             }
-            Request::SpendMana {
-                cost, available, ..
+            Decision {
+                shape:
+                    Shape::Pay {
+                        cost,
+                        pool:
+                            ManaPool {
+                                unrestricted: available,
+                            },
+                        ..
+                    },
+                reason: Reason::SpendMana { .. },
+                ..
             } => {
                 let mut rest = available.clone();
                 let mut spending = BTreeMap::<Color, Quantity>::new();
@@ -71,14 +95,40 @@ pub fn announce(g: &mut Game, q: u64, id: u32, t: Vec<TargetEntity>) {
                     }
                 }
                 assert_eq!(generic, Quantity::zero());
-                Response::SpendMana { spending }
+                Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: spending,
+                    },
+                }
             }
-            Request::OrderTriggers { candidates, .. } => Response::OrderTriggers {
-                order: candidates.clone(),
-            },
-            Request::Priority { .. } => return,
+            found @ Decision {
+                reason: Reason::OrderTriggers,
+                ..
+            } => {
+                let candidates = found
+                    .candidates
+                    .iter()
+                    .filter_map(|c| {
+                        if let Candidate::Trigger { trigger } = c {
+                            Some(*trigger)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                Answer::Order {
+                    order: (candidates.clone())
+                        .into_iter()
+                        .map(|trigger| r.test_index(Candidate::Trigger { trigger }))
+                        .collect(),
+                }
+            }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => return,
             x => panic!("pay {x:?}"),
         };
-        g.respond(r.player(), r.decision_id(), response).unwrap();
+        g.respond(r.player, r.id, response).unwrap();
     }
 }

@@ -38,7 +38,7 @@ impl RulesTxn {
             return Ok(());
         }
         let decider = self.state.rules.frame.decider(self)?;
-        let cache = if self.republish_rows(decider)? {
+        let cache = if self.republish_rows(decider.as_ref())? {
             self.published
                 .as_ref()
                 .expect("reused a published view")

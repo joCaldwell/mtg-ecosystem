@@ -5,7 +5,7 @@ use mtg_contracts::{CardKind, Catalog, Quantity, digest};
 use mtg_core::{
     Advance, BatchCause, Budget, CardId, DeckRole, Decklist, DynamicDeckEntry, Event, EventGroup,
     EventOutcome, EvidenceRecord, Game, MoveOutcome, PlayerId, Prepared, QueryResult, QueryValue,
-    ReplayJournal, Request, SetupOutcome, TraceMode, TurnStep, Zone,
+    ReplayJournal, SetupOutcome, TraceMode, TurnStep, Zone,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -97,11 +97,11 @@ impl ReplayInput {
             let Advance::AwaitingDecision(request) = advance_to(&mut game, self.boundary)? else {
                 return Err("analytics decision is unreachable".into());
             };
-            let player = request.player();
-            if player != input.player || request.decision_id() != input.decision_id {
+            let player = request.player;
+            if player != input.player || request.id != input.decision_id {
                 return Err("analytics replay decision diverged".into());
             }
-            if matches!(request, Request::Priority { .. })
+            if matches!(request.reason, mtg_core::Reason::Priority)
                 && game.active_player() == Some(player)
                 && matches!(
                     game.turn().step,
@@ -117,7 +117,7 @@ impl ReplayInput {
                     }
                 }
             }
-            game.respond(player, input.decision_id, input.response.clone())?;
+            game.respond(player, input.decision_id, input.answer.clone())?;
         }
         match (advance_to(&mut game, self.boundary)?, outcome.winner) {
             (Advance::Finished { winner }, Some(expected)) if winner == expected => {}

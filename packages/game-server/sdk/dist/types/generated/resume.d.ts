@@ -63,283 +63,71 @@ export type ResumeState =
     };
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "PlayerRequest".
+ * via the `definition` "Candidate".
  */
-export type PlayerRequest =
+export type Candidate =
   | {
-      candidates: string[];
-      player: number;
-      request: "opening_placement";
-      token: string;
-    }
-  | {
+      candidate: "object";
       object: string;
-      /**
-       * OptionalEffect(true) selects this alternative to exile. Omission selects the printed shuffle.
-       */
-      offered?: GraveyardOrderOption | null;
-      player: number;
-      request: "graveyard_replacement_order";
-      token: string;
     }
   | {
-      candidates: AdditionalCostChoice[];
+      candidate: "player";
       player: number;
-      request: "additional_costs";
-      token: string;
     }
   | {
-      candidates: string[];
-      player: number;
-      request: "entry_copy";
-      source: string;
-      token: string;
+      candidate: "trigger";
+      trigger: string;
     }
   | {
-      candidates: string[];
-      player: number;
-      request: "entry_attachment";
-      source: string;
-      token: string;
+      candidate: "damage_effect";
+      damage: string;
+      effect: string;
     }
   | {
-      candidates: string[];
-      player: number;
-      previous_choices: string[];
-      request: "legend_rule";
-      token: string;
+      candidate: "color";
+      color: Color;
     }
   | {
-      player: number;
-      request: "hybrid_cost";
-      symbols: ColorHybridSymbol[];
-      token: string;
+      ability: ManaAbilityIdentity;
+      candidate: "mana_ability";
     }
   | {
-      player: number;
-      request: "announce_x";
-      token: string;
+      candidate: "additional_cost";
+      id: string;
+      mana: ManaCost;
     }
   | {
-      candidates: string[];
-      player: number;
-      request: "sacrifice_cost";
-      token: string;
+      candidate: "hybrid_payment";
+      payment: HybridPayment;
     }
   | {
-      candidates: string[];
-      player: number;
-      previous_choices: [number, string][];
-      request: "forced_sacrifice";
-      token: string;
+      candidate: "flag";
+      flag: Flag;
     }
   | {
-      choices: ManaAbilityIdentity[];
-      mana_ability_source: string;
-      player: number;
-      request: "choose_mana_ability";
-      token: string;
-    }
-  | {
-      colors: Color[];
-      player: number;
-      request: "mana_combination";
-      token: string;
-      total: ExactQuantity;
-    }
-  | {
-      colors: Color[];
-      mana_ability_source?: string | null;
-      player: number;
-      request: "mana_color";
-      token: string;
-    }
-  | {
-      candidates: string[];
-      player: number;
-      request: "entry_reveal";
-      source: string;
-      token: string;
-    }
-  | {
-      player: number;
-      request: "optional_effect";
-      token: string;
-    }
-  | {
-      bottom_if_mulligan: number;
-      can_mulligan: boolean;
-      mulligans_taken: number;
-      player: number;
-      request: "mulligan";
-      token: string;
-    }
-  | {
-      candidates: string[];
-      count: number;
-      player: number;
-      request: "bottom_opening";
-      token: string;
-    }
-  | {
-      allow_repeat?: boolean;
-      candidates: number[];
-      exactly?: number | null;
-      one_or_more?: boolean;
-      player: number;
-      request: "modes";
-      token: string;
-    }
-  | {
-      candidates: VisibleCounterPlacementCandidate[];
-      player: number;
-      recipient: string;
-      request: "counter_placement_effect";
-      token: string;
-    }
-  | {
-      candidates: VisibleDamageEffectCandidate[];
-      player: number;
-      recipient: PlayerTargetEntity;
-      request: "damage_effect";
-      token: string;
-    }
-  | {
-      candidates: VisiblePendingTrigger[];
-      player: number;
-      request: "order_triggers";
-      token: string;
-    }
-  | {
-      candidates: PlayerTargetEntity[];
-      occurrences: TargetSpec[];
-      player: number;
-      request: "entity_targets";
-      token: string;
-    }
-  | {
-      candidates: string[];
-      occurrences: TargetSpec[];
-      player: number;
-      request: "stack_targets";
-      token: string;
-    }
-  | {
-      candidates: number[];
-      occurrences: TargetSpec[];
-      player: number;
-      request: "player_targets";
-      token: string;
-    }
-  | {
-      candidates: string[];
-      player: number;
-      request: "sacrifice";
-      token: string;
-    }
-  | {
-      candidates: string[];
-      count: number;
-      player: number;
-      request: "resolve_discard";
-      token: string;
-    }
-  | {
-      available: {
-        B?: ExactQuantity;
-        C?: ExactQuantity;
-        G?: ExactQuantity;
-        R?: ExactQuantity;
-        U?: ExactQuantity;
-        W?: ExactQuantity;
-      };
-      cost: ManaCost;
-      /**
-       * The permanent whose mana ability this nested payment or color choice
-       * belongs to (CR 605.3a). Omitted outside nested mana-ability requests.
-       */
-      mana_ability_source?: string | null;
-      player: number;
-      request: "spend_mana";
-      restricted_available?: RestrictedMana[];
-      token: string;
-    }
-  | {
-      designation: string;
-      destination: Zone;
-      object: string | null;
-      player: number;
-      previous_choices?: VisibleCommanderReturnChoice[];
-      request: "commander_return";
-      token: string;
-    }
-  | {
-      candidates: string[];
-      defenders: number[];
-      player: number;
-      request: "attackers";
-      token: string;
-    }
-  | {
-      attackers: string[];
-      candidates: string[];
-      legal_attackers?: LegalBlockers[];
-      menace_attackers?: string[];
-      player: number;
-      request: "blockers";
-      token: string;
-    }
-  | {
-      lethal_requirements?: [string, ExactQuantity][];
-      player: number;
-      player_recipient?: number | null;
-      power: ExactQuantity;
-      recipients: string[];
-      request: "damage";
-      source: string;
-      token: string;
-    }
-  | {
-      candidates: string[];
-      count: number;
-      player: number;
-      request: "discard";
-      token: string;
-    }
-  | {
-      player: number;
-      request: "priority";
-      token: string;
-    }
-  | {
-      candidates: string[];
-      counter_division?: CounterDivision | null;
-      occurrences: TargetSpec[];
-      player: number;
-      request: "targets";
-      token: string;
-    }
-  | {
-      cost: ManaCost;
-      /**
-       * The permanent whose mana ability this nested payment or color choice
-       * belongs to (CR 605.3a). Omitted outside nested mana-ability requests.
-       */
-      mana_ability_source?: string | null;
-      player: number;
-      request: "mana";
-      token: string;
+      action: Action;
+      candidate: "action";
     };
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "GraveyardOrderOption".
- */
-export type GraveyardOrderOption = "regenerate";
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
  * via the `definition` "Color".
  */
 export type Color = "W" | "U" | "B" | "R" | "G" | "C";
+/**
+ * The intrinsic ability for a basic land type or an index into this source's printed mana abilities.
+ *
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "ManaAbilityIdentity".
+ */
+export type ManaAbilityIdentity =
+  | {
+      ability: "intrinsic";
+      color: Color;
+    }
+  | {
+      ability: "printed";
+      index: number;
+    };
 /**
  * This interface was referenced by `undefined`'s JSON-Schema definition
  * via the `patternProperty` "^\d+$".
@@ -357,89 +145,134 @@ export type ExactQuantity = string;
  */
 export type HybridPayment = "pay_two_life" | Color;
 /**
- * The intrinsic ability for a basic land type or an index into this source's printed mana abilities.
- *
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "ManaAbilityIdentity".
+ * via the `definition` "Flag".
  */
-export type ManaAbilityIdentity =
-  | {
-      ability: "granted_land_tap";
-      color: Color;
-    }
-  | {
-      ability: "intrinsic";
-      color: Color;
-    }
-  | {
-      ability: "printed";
-      index: number;
-    };
-/**
- * CR 614.1a/614.5: positive placement quantities only; removal is a cost.
- *
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "CounterPlacementModification".
- */
-export type CounterPlacementModification =
-  | {
-      amount: ExactQuantity;
-      operation: "add";
-    }
-  | {
-      factor: ExactQuantity;
-      operation: "multiply";
-    };
+export type Flag = "accept" | "decline" | "keep" | "mulligan" | "command_zone" | "destination";
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "DamageEffectKind".
+ * via the `definition` "Action".
  */
-export type DamageEffectKind =
-  | "double_damage"
-  | "prevent_combat_damage"
-  | "protection_from_each_color"
-  | "protection_from_everything"
-  | "protection_from_color";
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "PlayerTargetEntity".
- */
-export type PlayerTargetEntity =
+export type Action =
   | {
-      entity: "player";
-      player: number;
+      action: "pass";
     }
   | {
-      entity: "object";
+      action: "play_land";
+      object: string;
+    }
+  | {
+      action: "cast";
+      card: string;
+    }
+  | {
+      action: "activate_mana";
+      object: string;
+    }
+  | {
+      ability: number;
+      action: "activate_ability";
       object: string;
     };
 /**
- * Public origin uses only already captured public/historical handles.
+ * Display facts. Bounds and joint constraints are carried by the shape.
  *
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "VisibleTriggerAbility".
+ * via the `definition` "Reason".
  */
-export type VisibleTriggerAbility =
+export type Reason =
   | {
-      chapter: number;
-      origin: "delayed_chapter";
+      reason: "priority";
     }
   | {
-      index: number;
-      origin: "intrinsic";
+      reason: "targets";
+      specs: TargetSpec[];
     }
   | {
-      oracle_id: string;
-      origin: "granted";
-      source: VisibleTarget;
-      static_ability_index: number;
+      reason: "mana";
+      source: string | null;
     }
   | {
-      effect?: string | null;
-      oracle_id: string;
-      origin: "temporary_grant";
-      source: VisibleTarget;
-      triggered_ability_index: number;
+      reason: "attackers";
+    }
+  | {
+      reason: "blockers";
+    }
+  | {
+      power: ExactQuantity;
+      reason: "combat_damage";
+      source: string;
+    }
+  | {
+      reason: "discard";
+    }
+  | {
+      designation: string;
+      destination: Zone;
+      object: string | null;
+      previous: VisibleCommanderReturnChoice[];
+      reason: "commander_return";
+    }
+  | {
+      object: string;
+      offered: GraveyardOrderOption | null;
+      reason: "graveyard_replacement_order";
+    }
+  | {
+      reason: "optional_effect";
+    }
+  | {
+      reason: "damage_effect";
+      recipient: PlayerTargetEntity;
+    }
+  | {
+      reason: "order_triggers";
+    }
+  | {
+      bottom_if_mulligan: number;
+      mulligans_taken: number;
+      reason: "mulligan";
+    }
+  | {
+      reason: "bottom_opening";
+    }
+  | {
+      reason: "sacrifice";
+    }
+  | {
+      reason: "sacrifice_cost";
+    }
+  | {
+      previous: [number, string][];
+      reason: "forced_sacrifice";
+    }
+  | {
+      reason: "announce_x";
+    }
+  | {
+      previous: string[];
+      reason: "legend_rule";
+    }
+  | {
+      reason: "additional_costs";
+    }
+  | {
+      reason: "hybrid_cost";
+    }
+  | {
+      reason: "mana_ability";
+      source: string;
+    }
+  | {
+      reason: "mana_color";
+      source: string | null;
+    }
+  | {
+      reason: "spend_mana";
+      source: string | null;
+    }
+  | {
+      reason: "resolve_discard";
     };
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
@@ -499,26 +332,6 @@ export type CreaturePowerFilter =
 export type EvaluationStage = "announcement";
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "ManaSpendRestriction".
- */
-export type ManaSpendRestriction =
-  | ("activated_ability" | "colorless_spell_or_activated_ability" | "creature_spell_or_battlefield_creature_ability")
-  | {
-      spell_subtypes: {
-        /**
-         * @minItems 3
-         * @maxItems 3
-         */
-        any_of: [ManaSpellSubtype, ManaSpellSubtype, ManaSpellSubtype];
-      };
-    };
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "ManaSpellSubtype".
- */
-export type ManaSpellSubtype = "dwarf" | "equipment" | "saga";
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
  * via the `definition` "Zone".
  */
 export type Zone =
@@ -549,6 +362,110 @@ export type Zone =
     };
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "GraveyardOrderOption".
+ */
+export type GraveyardOrderOption = "regenerate";
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "PlayerTargetEntity".
+ */
+export type PlayerTargetEntity =
+  | {
+      entity: "player";
+      player: number;
+    }
+  | {
+      entity: "object";
+      object: string;
+    };
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "Shape".
+ */
+export type Shape =
+  | {
+      rules: JointRule[];
+      shape: "pick";
+      slots: Slot[];
+    }
+  | {
+      items: number[];
+      max: number;
+      min: number;
+      shape: "order";
+    }
+  | {
+      buckets: Bucket[];
+      gates: Gate[];
+      shape: "distribute";
+      total: ExactQuantity;
+    }
+  | {
+      max: ExactQuantity | null;
+      min: ExactQuantity;
+      shape: "number";
+    }
+  | {
+      cost: ManaCost;
+      pool: ManaPool;
+      shape: "pay";
+      step: PayStep;
+    };
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "JointRule".
+ */
+export type JointRule =
+  | {
+      rule: "distinct";
+      slots: number[];
+    }
+  | {
+      candidates: number[];
+      count: number;
+      rule: "picked_at_least";
+    }
+  | {
+      max: number;
+      min: number;
+      rule: "total";
+    };
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "SlotRole".
+ */
+export type SlotRole =
+  | {
+      role: "choice";
+    }
+  | {
+      role: "target";
+      spec: number;
+    }
+  | {
+      role: "attack_with";
+    }
+  | {
+      role: "block_with";
+    }
+  | {
+      index: number;
+      role: "hybrid_symbol";
+    };
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "PayStep".
+ */
+export type PayStep =
+  | {
+      sources: number[];
+      step: "produce";
+    }
+  | {
+      step: "spend";
+    };
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
  * via the `definition` "DecisionSourceKind".
  */
 export type DecisionSourceKind = "spell" | "activated" | "triggered" | "mana_ability" | "effect";
@@ -561,12 +478,6 @@ export type VisibleEffect =
       effect: "regeneration_shield";
       expires_in_cleanup_of_turn: number;
       handle: string;
-      origin: VisibleEffectSource;
-    }
-  | {
-      chapter: number;
-      effect: "delayed_chapter";
-      expires_in_cleanup_of_turn: number;
       origin: VisibleEffectSource;
     }
   | {
@@ -636,16 +547,6 @@ export type VisibleEffect =
       expires_in_cleanup_of_turn: number;
       handle: string;
       origin: VisibleEffectSource;
-    }
-  | {
-      effect: "double_damage_to_permanent_or_player";
-      handle: string;
-      origin: VisibleEffectSource;
-    }
-  | {
-      effect: "double_controller_creature_damage_to_permanent_or_player";
-      handle: string;
-      origin: VisibleEffectSource;
     };
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
@@ -693,7 +594,7 @@ export type PlayerStatus = "live" | "left";
  * This interface was referenced by `SeatResume`'s JSON-Schema
  * via the `definition` "VisibleSetupPhase".
  */
-export type VisibleSetupPhase = "opening_actions" | "declare" | "bottom";
+export type VisibleSetupPhase = "declare" | "bottom";
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
  * via the `definition` "VisibleEntityTarget".
@@ -707,6 +608,16 @@ export type VisibleEntityTarget =
       entity: "object";
       object: VisibleTarget;
     };
+/**
+ * Public origin uses only already captured public/historical handles.
+ *
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "VisibleTriggerAbility".
+ */
+export type VisibleTriggerAbility = {
+  index: number;
+  origin: "intrinsic";
+};
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
  * via the `definition` "TurnStep".
@@ -752,18 +663,21 @@ export interface SeatResume {
  * via the `definition` "Observation".
  */
 export interface Observation {
-  decision: PlayerRequest | null;
+  decision: Decision | null;
   decision_context?: DecisionContext | null;
   observation_version: number;
   view: PermittedView;
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "AdditionalCostChoice".
+ * via the `definition` "Decision".
  */
-export interface AdditionalCostChoice {
-  id: string;
-  mana: ManaCost;
+export interface Decision {
+  candidates: Candidate[];
+  player: number;
+  reason: Reason;
+  shape: Shape;
+  token: string;
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
@@ -772,74 +686,6 @@ export interface AdditionalCostChoice {
 export interface ManaCost {
   colored: Color[];
   generic: ExactQuantity;
-}
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "ColorHybridSymbol".
- */
-export interface ColorHybridSymbol {
-  /**
-   * @minItems 2
-   * @maxItems 2
-   */
-  colors: [HybridPayment, HybridPayment];
-}
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "VisibleCounterPlacementCandidate".
- */
-export interface VisibleCounterPlacementCandidate {
-  amount_after: ExactQuantity;
-  amount_before: ExactQuantity;
-  effect: CounterPlacementEffectHandle;
-  modification: CounterPlacementModification;
-}
-/**
- * A viewer's public provider reference plus the definition's ability index.
- * Decision tokens bind it to one exact instruction and applied prefix.
- *
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "CounterPlacementEffectHandle".
- */
-export interface CounterPlacementEffectHandle {
-  ability: number;
-  source: string;
-}
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "VisibleDamageEffectCandidate".
- */
-export interface VisibleDamageEffectCandidate {
-  amount_after: ExactQuantity;
-  amount_before: ExactQuantity;
-  damage: string;
-  damage_oracle_id: string;
-  damage_source: VisibleTarget;
-  effect: string;
-  effect_controller: number;
-  effect_oracle_id: string;
-  effect_source: VisibleTarget;
-  kind: DamageEffectKind;
-  label?: string | null;
-}
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "VisibleTarget".
- */
-export interface VisibleTarget {
-  announced: string;
-  current: string | null;
-}
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "VisiblePendingTrigger".
- */
-export interface VisiblePendingTrigger {
-  ability: VisibleTriggerAbility;
-  handle: string;
-  label?: string | null;
-  oracle_id: string;
-  source: VisibleTarget;
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
@@ -877,15 +723,6 @@ export interface PermanentFilter {
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "RestrictedMana".
- */
-export interface RestrictedMana {
-  amount: ExactQuantity;
-  color: Color;
-  restriction: ManaSpendRestriction;
-}
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
  * via the `definition` "VisibleCommanderReturnChoice".
  */
 export interface VisibleCommanderReturnChoice {
@@ -894,47 +731,66 @@ export interface VisibleCommanderReturnChoice {
   to_command: boolean;
 }
 /**
- * Public declaration hints, scoped to current attacker/blocker handles.
- *
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "LegalBlockers".
+ * via the `definition` "Slot".
  */
-export interface LegalBlockers {
-  attackers: string[];
-  blocker: string;
+export interface Slot {
+  allowed: number[];
+  max: number;
+  min: number;
+  repeat: boolean;
+  role: SlotRole;
+  subject: number | null;
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "CounterDivision".
+ * via the `definition` "Bucket".
  */
-export interface CounterDivision {
-  count: ExactQuantity;
-  maximum_targets: number;
-  minimum_targets: number;
+export interface Bucket {
+  candidate: number;
+  max: ExactQuantity;
+  min: ExactQuantity;
+}
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "Gate".
+ */
+export interface Gate {
+  /**
+   * Bucket ordinal whose positive allocation depends on the requirements.
+   */
+  bucket: number;
+  requires: [number, ExactQuantity][];
+}
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "ManaPool".
+ */
+export interface ManaPool {
+  unrestricted: {
+    B?: ExactQuantity;
+    C?: ExactQuantity;
+    G?: ExactQuantity;
+    R?: ExactQuantity;
+    U?: ExactQuantity;
+    W?: ExactQuantity;
+  };
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
  * via the `definition` "DecisionContext".
  */
 export interface DecisionContext {
+  candidates?: CandidateLabel[];
   instruction?: DecisionInstruction | null;
-  modes?: DecisionMode[];
   source?: DecisionSource | null;
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "DecisionInstruction".
+ * via the `definition` "CandidateLabel".
  */
-export interface DecisionInstruction {
-  source_block: number;
-  text: string;
-}
-/**
- * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "DecisionMode".
- */
-export interface DecisionMode {
-  mode: number;
+export interface CandidateLabel {
+  source?: DecisionSource | null;
   text: string;
 }
 /**
@@ -946,6 +802,14 @@ export interface DecisionSource {
   kind: DecisionSourceKind;
   object?: string | null;
   oracle_id: string;
+  text: string;
+}
+/**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "DecisionInstruction".
+ */
+export interface DecisionInstruction {
+  source_block: number;
   text: string;
 }
 /**
@@ -1013,6 +877,14 @@ export interface VisibleEffectSource {
   source: VisibleTarget;
 }
 /**
+ * This interface was referenced by `SeatResume`'s JSON-Schema
+ * via the `definition` "VisibleTarget".
+ */
+export interface VisibleTarget {
+  announced: string;
+  current: string | null;
+}
+/**
  * Fixed signed power/toughness changes belonging to one complete creature effect.
  *
  * This interface was referenced by `SeatResume`'s JSON-Schema
@@ -1044,14 +916,11 @@ export interface VisibleObject {
   attack_ready: boolean;
   characteristics?: Characteristics | null;
   controller: number;
-  copied_values?: VisiblePermanentCopy | null;
-  display_face?: string | null;
   entered_this_turn?: boolean;
   exiled_by?: string | null;
   face_down?: boolean;
   handle: string;
   keywords?: KeywordAbility[];
-  lore_counters?: ExactQuantity;
   mana_ability_used?: boolean | null;
   marked_damage: ExactQuantity;
   oracle_id: string;
@@ -1092,11 +961,14 @@ export interface Characteristics {
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
- * via the `definition` "VisiblePermanentCopy".
+ * via the `definition` "ColorHybridSymbol".
  */
-export interface VisiblePermanentCopy {
-  name: string;
-  oracle_id?: string | null;
+export interface ColorHybridSymbol {
+  /**
+   * @minItems 2
+   * @maxItems 2
+   */
+  colors: [HybridPayment, HybridPayment];
 }
 /**
  * This interface was referenced by `SeatResume`'s JSON-Schema
@@ -1129,7 +1001,6 @@ export interface VisiblePlayer {
     W?: ExactQuantity;
   };
   player: number;
-  restricted_mana?: RestrictedMana[];
   status: PlayerStatus;
 }
 /**
@@ -1159,17 +1030,14 @@ export interface VisibleSetupPlayer {
  */
 export interface VisibleStackEntry {
   ability?: VisibleAbility | null;
-  bestowed?: boolean;
   cast_complete: boolean;
   controller: number;
   entity_targets?: VisibleEntityTarget[];
   handle?: string | null;
   hybrid_colors?: HybridPayment[];
   mana_value?: ExactQuantity | null;
-  mode?: number | null;
   player_targets?: number[];
   selected_additional_costs?: string[] | null;
-  selected_modes?: number[];
   spell: string | null;
   spell_copy?: boolean;
   stack_targets?: VisibleStackTarget[];

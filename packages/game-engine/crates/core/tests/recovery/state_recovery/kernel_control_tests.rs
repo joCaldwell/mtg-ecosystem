@@ -80,8 +80,9 @@ pub(crate) fn suspended_control() -> Game {
     assert!(
         matches!(
             request,
-            Advance::AwaitingDecision(Request::OptionalEffect {
+            Advance::AwaitingDecision(Decision {
                 player: PlayerId(0),
+                reason: Reason::OptionalEffect,
                 ..
             })
         ),
@@ -92,13 +93,12 @@ pub(crate) fn suspended_control() -> Game {
     game
 }
 
-fn answer(game: &mut Game, response: Response) {
+fn answer(game: &mut Game, response: Answer) {
     let next = game.advance(Budget::unlimited());
     let Advance::AwaitingDecision(request) = next else {
         panic!("expected a decision, got {next:?}")
     };
-    game.respond(request.player(), request.decision_id(), response)
-        .unwrap();
+    game.respond(request.player, request.id, response).unwrap();
 }
 
 #[test]
@@ -115,12 +115,20 @@ fn nested_controls_restore_and_replay_at_live_choices() {
     let mut restored = Game::restore(prepared.clone(), &original.snapshot().unwrap()).unwrap();
     for game in [&mut original, &mut restored] {
         for _ in 0..4 {
-            answer(game, Response::OptionalEffect { perform: true });
+            {
+                let selected = game
+                    .next_test_decision()
+                    .select(Candidate::Flag { flag: Flag::Accept });
+                answer(game, selected)
+            };
             game.validate_state().unwrap();
         }
         assert!(matches!(
             game.advance(Budget::unlimited()),
-            Advance::AwaitingDecision(Request::Mana { .. })
+            Advance::AwaitingDecision(Decision {
+                reason: Reason::Mana { .. },
+                ..
+            })
         ));
         assert!(
             game.state
@@ -139,16 +147,28 @@ fn nested_controls_restore_and_replay_at_live_choices() {
             .map(stored_history::payload_charge)
             .sum::<usize>();
         assert_eq!(game.mana_continuation_charge(), payment_charge);
-        answer(game, Response::FinishMana { undo_mana: false });
         answer(
             game,
-            Response::SpendMana {
-                spending: BTreeMap::new(),
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: false,
+                },
+            },
+        );
+        answer(
+            game,
+            Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: BTreeMap::new(),
+                },
             },
         );
         assert!(matches!(
             game.advance(Budget::unlimited()),
-            Advance::AwaitingDecision(Request::Priority { .. })
+            Advance::AwaitingDecision(Decision {
+                reason: Reason::Priority,
+                ..
+            })
         ));
         game.validate_state().unwrap();
         for (seat, player) in game.state.rules.players.iter().enumerate() {
@@ -173,11 +193,19 @@ fn declining_optional_and_unless_payments_follows_only_selected_branches() {
     let mut g = suspended_control();
     let mut expected = g.state.rules.players[0].life.clone();
     for perform in [false, true, false, false] {
-        answer(&mut g, Response::OptionalEffect { perform });
+        {
+            let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                flag: if perform { Flag::Accept } else { Flag::Decline },
+            });
+            answer(&mut g, selected_answer)
+        };
     }
     assert!(matches!(
         g.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Priority { .. })
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Priority,
+            ..
+        })
     ));
     expected.add(&Quantity::from(21));
     assert_eq!(g.state.rules.players[0].life, expected);
@@ -232,29 +260,40 @@ fn a_nested_verb_keeps_its_own_player_choice_and_returns_to_the_sequence() {
     prepared.catalog_digest = mtg_contracts::digest(catalog).unwrap();
     let mut game = super::formats_tests::cast_edict(prepared.clone());
     let next = game.advance(Budget::unlimited());
-    let Advance::AwaitingDecision(Request::Sacrifice {
-        player, candidates, ..
-    }) = next
+    let Advance::AwaitingDecision(
+        found @ Decision {
+            reason: Reason::Sacrifice,
+            ..
+        },
+    ) = next
     else {
         panic!("expected nested sacrifice, got {next:?}")
     };
+    let player = found.player;
+    let candidates = found.objects_offered();
     assert_eq!(player, PlayerId(1));
     game.validate_state().unwrap();
     let before = game.state.rules.players[0].life.clone();
     let mut restored = Game::restore(prepared.clone(), &game.snapshot().unwrap()).unwrap();
     for g in [&mut game, &mut restored] {
-        answer(
-            g,
-            Response::Sacrifice {
-                object: candidates[0],
-            },
-        );
+        {
+            let selected = g.next_test_decision().pick_object(candidates[0]);
+            answer(g, selected)
+        };
         // Inspect the instruction boundary before resolving the rest of the spell.
         // The moving object may be a commander whose owner must choose a zone.
         for _ in 0..64 {
             match g.advance(Budget::new(1)) {
-                Advance::AwaitingDecision(Request::CommanderReturn { .. }) => {
-                    answer(g, Response::CommanderReturn { to_command: false });
+                Advance::AwaitingDecision(Decision {
+                    reason: Reason::CommanderReturn { .. },
+                    ..
+                }) => {
+                    {
+                        let selected = g.next_test_decision().select(Candidate::Flag {
+                            flag: Flag::Destination,
+                        });
+                        answer(g, selected)
+                    };
                 }
                 Advance::Suspended { .. } => {}
                 other => panic!("missing completed control instruction: {other:?}"),
@@ -322,7 +361,13 @@ fn a_nested_single_draw_restores_before_drawing() {
     for g in [&mut game, &mut restored] {
         let next = g.advance(Budget::unlimited());
         assert!(
-            matches!(next, Advance::AwaitingDecision(Request::Priority { .. })),
+            matches!(
+                next,
+                Advance::AwaitingDecision(Decision {
+                    reason: Reason::Priority,
+                    ..
+                })
+            ),
             "{next:?}"
         );
         assert_eq!(g.state.rules.libraries[&owner].as_slice(), &library[1..]);
@@ -380,7 +425,13 @@ fn a_forced_graveyard_choice_iterates_only_matching_cards() {
     expected[1].add(&Quantity::from(1));
     let next = game.advance(Budget::unlimited());
     assert!(
-        matches!(next, Advance::AwaitingDecision(Request::Priority { .. })),
+        matches!(
+            next,
+            Advance::AwaitingDecision(Decision {
+                reason: Reason::Priority,
+                ..
+            })
+        ),
         "{next:?}"
     );
     assert!(
