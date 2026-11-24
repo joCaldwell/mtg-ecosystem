@@ -394,7 +394,7 @@ test("Cargo must execute each named harness and both authority doctests", async 
   const core = "Doc-tests mtg_core";
   const example = (file: string, type: string) =>
     `test src/engine/${file}.rs - engine::${file}::${type} (line 15) - compile fail ... ok`;
-  const action = example("api::decision::model", "Decision");
+  const action = example("api::decision::model", "Rules");
   const session = example("player_session", "PlayerSession");
   for (const [label, lines, expected] of [
     ["workspace-tests", ordinary, 0],
