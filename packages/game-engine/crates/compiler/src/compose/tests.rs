@@ -810,3 +810,155 @@ fn explicit_nulls_reject_under_their_field_before_any_decoder() {
         assert_eq!(code(&qualified), format!("operand:ast:null:{field}"));
     }
 }
+
+// Wave W5 control (CR 118.12, 608.2c-d): frozen R4 witnesses.
+const RHYSTIC_STUDY: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/53236dd7-845a-444c-96d5-f41ed7325d8f.json");
+const WOODEN_SPHERE: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/0bd8917c-bec4-4603-bc3f-8e0c2afae56a.json");
+const SOULS_ATTENDANT: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/045a9d3d-c20d-427f-a77b-0bffc6f55526.json");
+const TEMPORAL_MACHINATIONS: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/f0adab66-c3fe-4989-b7c8-ab7bdc7f0fd1.json");
+
+/// A newly opened control surface earns `Executes` and nothing above it.
+fn executes_only(definition: &Definition) {
+    let tiers = kir::definition_tiers(definition).unwrap();
+    assert!(tiers.admits(kir::ExecutionTier::Executes));
+    for tier in [
+        kir::ExecutionTier::HeadlessQualified,
+        kir::ExecutionTier::Search,
+        kir::ExecutionTier::Hosting,
+    ] {
+        assert!(!tiers.admits(tier), "{} leaks {tier:?}", definition.name);
+    }
+    assert!(kir::definition_cells(definition)
+        .unwrap()
+        .contains(&kir::Cell::Control));
+}
+
+fn only_node(program: &SpellProgram) -> &kir::Node {
+    let [Instruction::Kernel { node, .. }] = program.instructions.as_slice() else {
+        panic!("one control instruction: {:?}", program.instructions);
+    };
+    node
+}
+
+#[test]
+fn printed_may_unless_and_if_lower_to_kernel_control_nodes() {
+    use kir::{Node, Payment};
+    let drawn = |node: &Node| {
+        matches!(node, Node::Do(Verb::Draw { player, amount })
+            if player.is_you() && amount.as_fixed() == Some(&Quantity::from(1)))
+    };
+    // "You may draw a card unless that player pays {1}": the caster's payment
+    // decides first, then the controller's choice (CR 118.12a, 608.2d).
+    let study = composed(RHYSTIC_STUDY);
+    let Node::UnlessPays {
+        payer,
+        payment: Payment::Generic { amount },
+        node,
+    } = only_node(&study.triggered[0].program)
+    else {
+        panic!("{:?}", study.triggered[0].program);
+    };
+    assert_eq!(*payer, PlayerExpr::event(kir::EventPlayerRole::Caster));
+    assert_eq!(amount.as_fixed(), Some(&Quantity::from(1)));
+    assert!(matches!(&**node, Node::Optional { chooser, node } if chooser.is_you() && drawn(node)));
+    // "You may pay {1}. If you do, you gain 1 life."
+    let sphere = composed(WOODEN_SPHERE);
+    assert!(matches!(
+        only_node(&sphere.triggered[0].program),
+        Node::IfPays { payer, payment: Payment::Generic { amount }, node }
+            if payer.is_you()
+                && amount.as_fixed() == Some(&Quantity::from(1))
+                && matches!(&**node, Node::Do(Verb::GainLife { .. }))
+    ));
+    // "You may gain 1 life."
+    let attendant = composed(SOULS_ATTENDANT);
+    assert!(matches!(
+        only_node(&attendant.triggered[0].program),
+        Node::Optional { chooser, node }
+            if chooser.is_you() && matches!(&**node, Node::Do(Verb::GainLife { .. }))
+    ));
+    // "Return target creature ... If you control an artifact, draw a card."
+    // The condition is read on resolution (CR 608.2c); the return is plain.
+    let machinations = composed(TEMPORAL_MACHINATIONS);
+    let spell = machinations.spell.as_ref().unwrap();
+    let [Instruction::Kernel { node: first, .. }, Instruction::Kernel { node: second, .. }] =
+        spell.instructions.as_slice()
+    else {
+        panic!("{spell:?}");
+    };
+    assert!(matches!(first, Node::Do(Verb::Move { .. })));
+    let Node::If {
+        condition: kir::Cond::Exists {
+            set: SetExpr::Matching { zone, filter },
+        },
+        then,
+        otherwise: None,
+    } = second
+    else {
+        panic!("{second:?}");
+    };
+    assert_eq!(*zone, kir::ZoneExpr::Battlefield);
+    assert!(filter.0.contains(&kir::Atom::Type {
+        kind: CardKind::Artifact
+    }));
+    assert!(filter.0.iter().any(|atom| matches!(atom,
+        kir::Atom::ControlledBy { player } if player.is_you())));
+    assert!(drawn(then));
+    for definition in [&study, &sphere, &attendant, &machinations] {
+        executes_only(definition);
+    }
+}
+
+#[test]
+fn control_without_its_printed_clause_or_with_an_unread_condition_rejects() {
+    let code = |raw: &str| match compile(R4, raw) {
+        CompileResult::Unsupported { path, reason } => {
+            crate::coverage::reason_code(&path, &reason, &serde_json::Value::Null)
+        }
+        other => panic!("expected a rejection, got {other:?}"),
+    };
+    fn ast(row: &mut serde_json::Value) -> &mut serde_json::Value {
+        &mut row["faces"][0]["result"]["abilities"][0]["effects"]
+    }
+    // A printed "may" whose AST choice was removed is mandatory against its text.
+    assert_eq!(
+        code(&changed(SOULS_ATTENDANT, |row| {
+            ast(row)[0]["steps"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("optional");
+        })),
+        "compose.effects:printed_choice_limit_or_condition_disagrees_with_the_ast"
+    );
+    // A payment no "if you do" reads is no control construct.
+    assert!(matches!(
+        compile(
+            R4,
+            &changed(WOODEN_SPHERE, |row| {
+                ast(row)[0]["steps"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("optional");
+            })
+        ),
+        CompileResult::Unsupported { .. }
+    ));
+    // "If that player pays" is not "unless": no payment row reads it.
+    assert_eq!(
+        code(&changed(RHYSTIC_STUDY, |row| {
+            ast(row)[0]["conditionKind"] = json!("if");
+        })),
+        "compose.control:condition_pays"
+    );
+    // A condition outside the board rows rejects instead of guessing.
+    assert_eq!(
+        code(&changed(TEMPORAL_MACHINATIONS, |row| {
+            ast(row)[1]["condition"]["what"]["count"]["value"] = json!(2);
+        })),
+        "compose.control:control_shape"
+    );
+}

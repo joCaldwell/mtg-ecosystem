@@ -489,3 +489,149 @@ fn missing_kernel_parent_rejects_the_step() {
         matches!(game.advance(Budget::new(1)), Advance::Fault(reason) if reason.contains("invalid continuation stack link"))
     );
 }
+
+/// CR 118.12, 608.2c: "you may pay N life. If you do, ..." and "you may pay
+/// {0}. If you do, ...": the node runs only after the payer has paid.
+fn if_pays_scenario() -> Prepared {
+    let mut prepared = super::formats_tests::actions_scenario();
+    let catalog = Arc::make_mut(&mut prepared.catalog);
+    let program = catalog
+        .definitions
+        .iter_mut()
+        .find(|def| def.name == "Cruel Edict")
+        .unwrap()
+        .spell
+        .as_mut()
+        .unwrap();
+    let if_pays = |payment, amount| Node::IfPays {
+        payer: controller(),
+        payment,
+        node: Box::new(gain(controller(), Amount::fixed(amount))),
+    };
+    let node = Node::Seq(vec![
+        if_pays(
+            Payment::Life {
+                amount: Amount::fixed(3),
+            },
+            10,
+        ),
+        if_pays(
+            Payment::Generic {
+                amount: Amount::fixed(0),
+            },
+            5,
+        ),
+    ]);
+    let derived = mtg_contracts::kir::check(
+        &node,
+        &mtg_contracts::kir::Env {
+            context: Context::Spell,
+            targets: &program.targets,
+            event: None,
+            announced_x: false,
+        },
+    )
+    .unwrap();
+    // A payment node is control: it earns no tier above Executes.
+    assert!(
+        derived
+            .cells
+            .contains(&mtg_contracts::kir::Cell::Control)
+    );
+    program.instructions = vec![Instruction::Kernel {
+        node,
+        source_block: 0,
+    }];
+    prepared.catalog_digest = mtg_contracts::digest(catalog).unwrap();
+    prepared
+}
+
+fn pay_generic_zero(game: &mut Game) {
+    answer(
+        game,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        },
+    );
+    answer(
+        game,
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::new(),
+            },
+        },
+    );
+}
+
+#[test]
+fn if_pays_performs_only_once_paid_and_restores_at_the_offer() {
+    let mut original = super::formats_tests::cast_edict(if_pays_scenario());
+    assert!(matches!(
+        original.advance(Budget::unlimited()),
+        Advance::AwaitingDecision(Decision {
+            player: PlayerId(0),
+            reason: Reason::OptionalEffect,
+            ..
+        })
+    ));
+    original.validate_state().unwrap();
+    let before = original.state.rules.players[0].life.clone();
+    let prepared = original.prepared.as_ref().clone();
+    let mut restored = Game::restore(prepared.clone(), &original.snapshot().unwrap()).unwrap();
+    for game in [&mut original, &mut restored] {
+        // Pay 3 life, then {0}: both nodes run.
+        for _ in 0..2 {
+            let accept = game
+                .next_test_decision()
+                .select(Candidate::Flag { flag: Flag::Accept });
+            answer(game, accept);
+            game.validate_state().unwrap();
+        }
+        pay_generic_zero(game);
+        assert!(matches!(
+            game.advance(Budget::unlimited()),
+            Advance::AwaitingDecision(Decision {
+                reason: Reason::Priority,
+                ..
+            })
+        ));
+        game.validate_state().unwrap();
+        let mut expected = before.clone();
+        expected.add(&Quantity::from(-3 + 10 + 5));
+        assert_eq!(game.state.rules.players[0].life, expected);
+        assert!(game.state.rules.frames.is_empty());
+    }
+    assert_eq!(original.snapshot().unwrap(), restored.snapshot().unwrap());
+    let mut replay = Game::replay(prepared, &original.replay_journal()).unwrap();
+    replay.advance(Budget::unlimited());
+    assert_eq!(
+        original.state_digest().unwrap(),
+        replay.state_digest().unwrap()
+    );
+}
+
+#[test]
+fn declining_an_if_pays_offer_skips_its_node() {
+    let mut game = super::formats_tests::cast_edict(if_pays_scenario());
+    let before = game.state.rules.players[0].life.clone();
+    for _ in 0..2 {
+        let decline = game
+            .next_test_decision()
+            .select(Candidate::Flag {
+                flag: Flag::Decline,
+            });
+        answer(&mut game, decline);
+        game.validate_state().unwrap();
+    }
+    assert!(matches!(
+        game.advance(Budget::unlimited()),
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Priority,
+            ..
+        })
+    ));
+    assert_eq!(game.state.rules.players[0].life, before);
+    game.validate_state().unwrap();
+}
