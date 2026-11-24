@@ -359,28 +359,34 @@ fn trigger(
     })
 }
 
-/// A printed choice, limit or condition must be carried by the block's AST,
-/// and an AST choice must be printed. Each printed word has a closed set of
-/// AST carriers, the parser's spelling of exactly that clause anywhere in the
-/// block (its effects, intervening condition, restriction or permission):
+/// Every printed choice, limit and condition is carried by the block's AST
+/// exactly once, with its polarity, and the AST carries no unprinted one.
+/// Each printed word has a closed set of AST carriers, the parser's spelling
+/// of exactly that clause anywhere in the block (effects, costs, intervening
+/// condition, restriction, permission or static effect), and the two counts
+/// must be equal:
 ///
 /// * "may" (CR 608.2d): an `optional` step or `optional-group`; a play or
-///   cast permission (CR 305.2, 601.3); "you may choose the same mode more
-///   than once" and "you may choose both instead" of a modal step (CR 700.2d);
-///   "any player may activate" (CR 602.2).
-/// * "if"/"unless": a `condition` (sentence, intervening-if CR 603.4,
-///   restriction CR 602.5b, conditional mode count) or the conditional
-///   replacement of a countered spell (CR 701.6), a created replacement
-///   (CR 614.1) and an "if able" combat requirement (CR 508.1d, 509.1c).
+///   cast permission or additional land play (CR 305.2, 601.3); "you may
+///   choose the same mode more than once" and "you may choose both instead"
+///   of a modal step (CR 700.2d); "any player may activate" (CR 602.2).
+/// * "if": a sentence condition of kind `if`, an intervening-if (CR 603.4)
+///   or restriction (CR 602.5b) condition, a conditional mode count, the
+///   conditional replacement of a countered spell (CR 701.6), a created
+///   replacement (CR 614.1) and an "if able" requirement (CR 508.1d,
+///   509.1c). In a static block a kindless condition is printed "if", "as
+///   long as" or "during" (CR 611.3a), so those phrases count together.
+/// * "unless": a condition of kind `unless`, so "if" and "unless" cannot
+///   stand in for each other.
 /// * "up to" (CR 601.2c, 700.2): an `upTo` operand or a chosen count whose
 ///   minimum is zero.
 ///
 /// A block whose text and AST disagree would otherwise lower as mandatory,
-/// optional, exact or unconditional against its printed text; a carrier's own
-/// lowering decides whether its semantics are supported. Only an `optional`
-/// flag or group is a choice the printed "may" must account for. Reminder
-/// text and quoted abilities are not the block's own words. Which printed
-/// clause produced which AST sentence is the resolution's span certificate.
+/// optional, exact, inverted or unconditional against its printed text; a
+/// carrier's own lowering decides whether its semantics are supported.
+/// Reminder text and quoted abilities are not the block's own words. Which
+/// printed clause produced which AST sentence is the resolution's span
+/// certificate.
 fn choices_printed(line: &str, ability: &serde_json::Value) -> Result<(), Failure> {
     use serde_json::Value;
     let mut rules_text = String::new();
@@ -394,50 +400,61 @@ fn choices_printed(line: &str, ability: &serde_json::Value) -> Result<(), Failur
             _ => {}
         }
     }
-    let words: Vec<&str> = rules_text
-        .split(|c: char| !c.is_alphabetic())
-        .filter(|w| !w.is_empty())
-        .collect();
-    let has = |word: &str| words.contains(&word);
-    // "up to" is one printed phrase: "rounded up, to you" is not a limit.
-    let up_to = rules_text
-        .split(|c: char| !(c.is_alphabetic() || c == ' '))
-        .any(|clause| {
-            let clause: Vec<&str> = clause.split_whitespace().collect();
-            clause.windows(2).any(|w| w == ["up", "to"])
-        });
-    #[derive(Default)]
-    struct Carriers {
-        choice: bool,
-        permission: bool,
-        condition: bool,
-        limit: bool,
+    // Phrases inside one clause: "rounded up, to you" is not "up to".
+    let phrases = |phrase: &[&str]| -> usize {
+        rules_text
+            .split(|c: char| !(c.is_alphabetic() || c == ' '))
+            .map(|clause| {
+                let clause: Vec<&str> = clause.split_whitespace().collect();
+                clause
+                    .windows(phrase.len())
+                    .filter(|w| *w == phrase)
+                    .count()
+            })
+            .sum()
+    };
+    let words = |word: &str| phrases(&[word]);
+    #[derive(Default, PartialEq, Debug)]
+    struct Counts {
+        may: usize,
+        condition: usize,
+        unless: usize,
+        limit: usize,
     }
-    fn walk(value: &Value, found: &mut Carriers) {
+    fn walk(value: &Value, found: &mut Counts) {
         match value {
             Value::Object(fields) => {
+                let kind = fields.get("conditionKind").and_then(Value::as_str);
                 for (key, child) in fields {
                     match (key.as_str(), child) {
-                        ("optional", Value::Bool(true)) => found.choice = true,
-                        ("effect", Value::String(effect)) => match effect.as_str() {
-                            "optional-group" => found.choice = true,
-                            "grant-play-permission" | "additional-land-plays" => {
-                                found.permission = true
+                        ("optional", Value::Bool(true)) => found.may += 1,
+                        ("effect" | "static", Value::String(tag)) => match tag.as_str() {
+                            "optional-group"
+                            | "grant-play-permission"
+                            | "additional-land-plays" => found.may += 1,
+                            "create-replacement" | "must-attack" | "must-block" => {
+                                found.condition += 1
                             }
-                            "create-replacement" | "combat-rule" => found.condition = true,
                             _ => {}
                         },
-                        ("allowRepeat" | "permission", _) => found.permission = true,
+                        ("allowRepeat" | "permission", _) => found.may += 1,
                         ("conditionalCount", _) => {
-                            found.permission = true;
-                            found.condition = true;
+                            found.may += 1;
+                            found.condition += 1;
                         }
-                        ("condition" | "conditionKind" | "conditionPosition" | "countered", _) => {
-                            found.condition = true
+                        ("conditionKind", Value::String(k)) => match k.as_str() {
+                            "if" => found.condition += 1,
+                            "unless" => found.unless += 1,
+                            _ => {}
+                        },
+                        ("condition", Value::Object(_)) if kind.is_none() => found.condition += 1,
+                        ("countered", _) => found.condition += 1,
+                        ("rule", Value::String(rule)) if rule.ends_with("-requirement") => {
+                            found.condition += 1
                         }
-                        ("upTo", Value::Bool(true)) => found.limit = true,
+                        ("upTo", Value::Bool(true)) => found.limit += 1,
                         ("minimum" | "min", Value::Number(n)) if n.as_u64() == Some(0) => {
-                            found.limit = true
+                            found.limit += 1
                         }
                         _ => {}
                     }
@@ -448,16 +465,52 @@ fn choices_printed(line: &str, ability: &serde_json::Value) -> Result<(), Failur
             _ => {}
         }
     }
-    let mut found = Carriers::default();
+    let statics = if ability["kind"] == "static" {
+        phrases(&["as", "long", "as"]) + words("during")
+    } else {
+        0
+    };
+    let printed = Counts {
+        may: words("may"),
+        condition: words("if") + statics,
+        unless: words("unless"),
+        limit: phrases(&["up", "to"]),
+    };
+    let mut found = Counts::default();
     walk(ability, &mut found);
-    if (has("may") && !(found.choice || found.permission))
-        || (!has("may") && found.choice)
-        || (up_to && !found.limit)
-        || ((has("if") || has("unless")) && !found.condition)
-    {
+    if printed != found {
         return Err(unsupported(
             "compose.effects",
             "printed choice, limit or condition disagrees with the AST",
+        ));
+    }
+    Ok(())
+}
+
+/// CR 603.4: "When/Whenever/At [event], if [condition], [effect]" is an
+/// intervening-if clause, checked as the ability triggers and again on
+/// resolution. It must be the block's own trigger condition; a sentence
+/// condition would only be read on resolution (CR 608.2a). The clause is an
+/// "if" printed immediately after the trigger event's comma.
+fn intervening_if(line: &str, ability: &serde_json::Value) -> Result<(), Failure> {
+    let text = match ability["abilityWord"].as_str() {
+        Some(word) => line
+            .strip_prefix(&format!("{word} \u{2014} "))
+            .unwrap_or(line),
+        None => line,
+    };
+    let text = text.to_lowercase();
+    let first = text.split('.').next().unwrap_or("");
+    let intervening = ["when ", "whenever ", "at "]
+        .iter()
+        .any(|event| first.starts_with(event))
+        && first
+            .split_once(',')
+            .is_some_and(|(_, rest)| rest.trim_start().starts_with("if "));
+    if intervening && ability.get("condition").is_none() {
+        return Err(unsupported(
+            "abilities.condition",
+            "printed intervening if outside the trigger condition",
         ));
     }
     Ok(())
@@ -680,6 +733,8 @@ fn compose(
             // A spell's printed blocks share one program; each announces its own
             // targets after the earlier blocks' (CR 601.2c).
             let spell_targets = definition.spell.as_ref().map_or(0, |p| p.targets.len());
+            // Keyword blocks print only keywords and their reminder text.
+            let guarded = !matches!(ability, Block::Keywords { .. });
             match ability {
                 Block::Keywords {
                     ability_word: word,
@@ -704,7 +759,6 @@ fn compose(
                     effects,
                 } if spell_kind => {
                     ability_word(&word, &result.lines[block].text)?;
-                    choices_printed(&result.lines[block].text, &printed[block])?;
                     slots.clear();
                     let peeled = control::peel(&effects)?;
                     let program = definition.spell.as_mut().expect("spell program");
@@ -748,7 +802,6 @@ fn compose(
                     effects,
                 } if !spell_kind => {
                     ability_word(&word, &result.lines[block].text)?;
-                    choices_printed(&result.lines[block].text, &printed[block])?;
                     let (timing, restriction) = timing(restriction)?;
                     let peeled = control::peel(&effects)?;
                     let core = parts(&peeled.sentences)?;
@@ -830,7 +883,7 @@ fn compose(
                     effects,
                 } if !spell_kind => {
                     ability_word(&word, &result.lines[block].text)?;
-                    choices_printed(&result.lines[block].text, &printed[block])?;
+                    intervening_if(&result.lines[block].text, &printed[block])?;
                     let peeled = control::peel(&effects)?;
                     let lower = |sentences: &[serde_json::Value]| {
                         trigger(&card, &event, parts(sentences)?, condition.as_ref(), block)
@@ -867,6 +920,12 @@ fn compose(
                         "ability kind outside the block tables",
                     ));
                 }
+            }
+            // A block that lowered must also print exactly the choices,
+            // limits and conditions its AST carries. Checked once lowering
+            // succeeded, so a block a table cannot lower keeps that blocker.
+            if guarded {
+                choices_printed(&result.lines[block].text, &printed[block])?;
             }
             // CR 601.2c: the block's announced targets are the resolution's
             // block-relative slots.

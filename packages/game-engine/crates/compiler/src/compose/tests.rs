@@ -818,8 +818,12 @@ const WOODEN_SPHERE: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/0bd8917c-bec4-4603-bc3f-8e0c2afae56a.json");
 const SOULS_ATTENDANT: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/045a9d3d-c20d-427f-a77b-0bffc6f55526.json");
-const COLLECTIVE_UNCONSCIOUS: &str =
-    include_str!("../../../../tests/fixtures/phase1-r4/38abf769-e4ef-4b47-9c79-c8cda0b90f6c.json");
+const ROADSIDE_RELIQUARY: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/2fb13687-0518-4ba0-a5ae-dd609464b026.json");
+const AESI: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/6511f317-bd38-46d0-b800-7125a3f420da.json");
+const MIRE_KAVU: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/0bc58096-7925-4870-bb95-58cce51ea8e7.json");
 const TEMPORAL_MACHINATIONS: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/f0adab66-c3fe-4989-b7c8-ab7bdc7f0fd1.json");
 
@@ -915,25 +919,7 @@ fn printed_may_unless_and_if_lower_to_kernel_control_nodes() {
     assert!(filter.0.iter().any(|atom| matches!(atom,
         kir::Atom::ControlledBy { player } if player.is_you())));
     assert!(drawn(then));
-    // "Draw a card for each creature you control": one draw per member of
-    // the set on resolution (CR 121.2).
-    let unconscious = composed(COLLECTIVE_UNCONSCIOUS);
-    let Node::ForEach {
-        over: kir::Domain::Objects {
-            set: SetExpr::Matching { zone, filter },
-        },
-        body,
-        ..
-    } = only_node(unconscious.spell.as_ref().unwrap())
-    else {
-        panic!("{:?}", unconscious.spell);
-    };
-    assert_eq!(*zone, kir::ZoneExpr::Battlefield);
-    assert!(filter.0.contains(&kir::Atom::Type {
-        kind: CardKind::Creature
-    }));
-    assert!(drawn(body));
-    for definition in [&study, &sphere, &attendant, &machinations, &unconscious] {
+    for definition in [&study, &sphere, &attendant, &machinations] {
         executes_only(definition);
     }
 }
@@ -972,7 +958,7 @@ fn control_without_its_printed_clause_or_with_an_unread_condition_rejects() {
         ),
         CompileResult::Unsupported { .. }
     ));
-    // "If that player pays" is not "unless": no payment row reads it.
+    // "If that player pays" has no payment row; it is not "unless".
     assert_eq!(
         code(&changed(RHYSTIC_STUDY, |row| {
             ast(row)[0]["conditionKind"] = json!("if");
@@ -986,4 +972,155 @@ fn control_without_its_printed_clause_or_with_an_unread_condition_rejects() {
         })),
         "compose.control:control_shape"
     );
+}
+
+/// Rewrite one reference entry of block `block` in the R4 resolution.
+fn reresolved(raw: &str, block: usize, path: &str, resolved: serde_json::Value) -> String {
+    changed(raw, |row| {
+        let refs = row["resolution"]["faces"][0]["blocks"][block]["refs"]
+            .as_array_mut()
+            .unwrap();
+        let entry = refs.iter_mut().find(|r| r["path"] == path).unwrap();
+        entry["ref"] = resolved;
+    })
+}
+
+fn rejection(raw: &str) -> String {
+    match compile(R4, raw) {
+        CompileResult::Unsupported { path, reason } => {
+            crate::coverage::reason_code(&path, &reason, &serde_json::Value::Null)
+        }
+        other => panic!("expected a rejection, got {other:?}"),
+    }
+}
+
+const DISAGREES: &str = "compose.effects:printed_choice_limit_or_condition_disagrees_with_the_ast";
+
+#[test]
+fn printed_choices_match_their_carriers_in_number_and_polarity() {
+    fn effects(row: &mut serde_json::Value, block: usize) -> &mut serde_json::Value {
+        &mut row["faces"][0]["result"]["abilities"][block]["effects"]
+    }
+    // Both conditions lower; dropping one leaves a printed "if" unconsumed.
+    let reliquary = composed(ROADSIDE_RELIQUARY);
+    assert!(matches!(
+        reliquary.activated[0].program.instructions.as_slice(),
+        [
+            Instruction::Kernel {
+                node: kir::Node::If { .. },
+                ..
+            },
+            Instruction::Kernel {
+                node: kir::Node::If { .. },
+                ..
+            },
+        ]
+    ));
+    let dropped = changed(ROADSIDE_RELIQUARY, |row| {
+        let first = effects(row, 1)[0].as_object_mut().unwrap();
+        first.remove("condition");
+        first.remove("conditionKind");
+        first.remove("conditionPosition");
+        row["faces"][0]["result"]["lines"][1]["ability"] =
+            row["faces"][0]["result"]["abilities"][1].clone();
+        row["resolution"]["faces"][0]["blocks"][1]["refs"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|r| {
+                !r["path"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("/effects/0/condition")
+            });
+    });
+    assert_eq!(rejection(&dropped), DISAGREES);
+    // "If" and "unless" cannot stand in for each other.
+    assert_eq!(
+        rejection(&changed(TEMPORAL_MACHINATIONS, |row| {
+            effects(row, 0)[1]["conditionKind"] = json!("unless");
+        })),
+        DISAGREES
+    );
+    // A static block is checked too. Aesi's printed "may" is its land-play
+    // permission; Mire Kavu's "as long as" is its condition, and without it
+    // the static would lower as an unconditional +1/+1.
+    composed(AESI);
+    composed(MIRE_KAVU);
+    let unconditional = changed(MIRE_KAVU, |row| {
+        let ability = &mut row["faces"][0]["result"]["abilities"][0];
+        ability["effect"]
+            .as_object_mut()
+            .unwrap()
+            .remove("condition");
+        row["faces"][0]["result"]["lines"][0]["ability"] = ability.clone();
+        row["resolution"]["faces"][0]["blocks"][0]["refs"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|r| !r["path"].as_str().unwrap().starts_with("/effect/condition"));
+    });
+    assert_eq!(rejection(&unconditional), DISAGREES);
+}
+
+#[test]
+fn a_printed_intervening_if_must_be_the_trigger_condition() {
+    let line = "At the beginning of your upkeep, if you don't control an Ogre, you lose 2 life.";
+    let sentence = json!({"kind": "triggered", "trigger": {"trigger": "phase"},
+        "effects": [{"steps": [], "condition": {"condition": "not"}, "conditionKind": "if"}]});
+    let failure = intervening_if(line, &sentence).unwrap_err();
+    assert_eq!(failure.path, "abilities.condition");
+    let mut trigger = sentence.clone();
+    trigger["condition"] = json!({"condition": "not"});
+    assert!(intervening_if(line, &trigger).is_ok());
+    // A condition after the effect is a resolution condition (CR 608.2c).
+    assert!(
+        intervening_if(
+            "At the beginning of your upkeep, you lose 2 life if you don't control an Ogre.",
+            &sentence
+        )
+        .is_ok()
+    );
+    assert!(
+        intervening_if(
+            "Landfall \u{2014} Whenever a land you control enters, if it's your turn, draw a card.",
+            &json!({"kind": "triggered", "abilityWord": "Landfall"})
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn payers_and_choosers_bind_exactly_the_printed_player() {
+    // The cost's implicit payer contradicts the explicit payer.
+    assert_eq!(
+        rejection(&reresolved(
+            WOODEN_SPHERE,
+            0,
+            "/effects/0/steps/0/costs/0/payer",
+            json!({"ref": "event-player", "role": "caster"}),
+        )),
+        "compose.control:payer_disagrees"
+    );
+    assert_eq!(
+        rejection(&reresolved(
+            RHYSTIC_STUDY,
+            0,
+            "/effects/0/condition/cost/0/payer",
+            json!({"ref": "controller", "role": "ability-controller"}),
+        )),
+        "compose.control:payer_disagrees"
+    );
+    // A chooser other than the controller (CR 800.4g reassignment is not
+    // performed by the continuation).
+    let other = changed(RHYSTIC_STUDY, |row| {
+        row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["decidedBy"] =
+            json!({"player": "that-player"});
+        row["faces"][0]["result"]["lines"][0]["ability"] =
+            row["faces"][0]["result"]["abilities"][0].clone();
+        row["resolution"]["faces"][0]["blocks"][0]["refs"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"path": "/effects/0/steps/0/decidedBy",
+                         "ref": {"ref": "event-player", "role": "caster"}}));
+    });
+    assert_eq!(rejection(&other), "compose.control:optional_chooser");
 }

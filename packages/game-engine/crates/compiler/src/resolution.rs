@@ -252,6 +252,15 @@ impl Resolution {
         Ok(format!("[{}]", out.join(",")))
     }
 
+    /// Whether block `index` records any reference entry at `path`.
+    pub(super) fn binds(&self, index: usize, path: &str) -> Result<bool, Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        Ok(block.refs.iter().any(|entry| entry_path(entry) == path))
+    }
+
     /// CR 109.5, 603.2, 608.2d: the kernel player a printed player operand
     /// of block `index` at `path` resolves to: the block's own controller
     /// ("you") or a kernel event player of its own trigger. Any other

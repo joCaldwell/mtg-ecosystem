@@ -207,3 +207,86 @@ fn wooden_sphere_paid_with_a_forest_gains_one_life() {
     assert!(g.current(forest).unwrap().tapped);
     assert_eq!(life(&g, 1), Quantity::from(LIFE + 1));
 }
+
+/// Pass priority until the next decision that is not priority; `None` once
+/// the stack is empty and the active player has priority again.
+fn next_choice_or_empty(g: &mut Game) -> Option<Decision<Rules>> {
+    for _ in 0..16 {
+        let d = Driver::request(g, u64::MAX);
+        if d.reason != Reason::Priority {
+            return Some(d);
+        }
+        if g.state.rules.stack.is_empty() {
+            return None;
+        }
+        let pass = d
+            .pick_one(&Candidate::Action {
+                action: Action::Pass,
+            })
+            .unwrap();
+        g.respond(d.player, d.id, pass).unwrap();
+    }
+    panic!("no boundary within 16 priority passes")
+}
+
+/// Seat 0 casts card `id` with its untapped Plains, choosing `targets`.
+fn cast_with(g: &mut Game, id: u32, targets: Vec<TargetEntity>) {
+    Driver::answer(g, u64::MAX, g.next_test_decision().cast(CardId(id)));
+    mtg_witness::equipped::pay_to_priority(g, u64::MAX, targets);
+}
+
+/// Leonin Snarecaster: "When this creature enters, you may tap target
+/// creature." Tapping an already tapped permanent is impossible (CR
+/// 701.26a), so no choice is offered (CR 608.2d); the target is still
+/// chosen when the trigger is put on the stack (CR 603.3d).
+#[test]
+fn leonin_snarecaster_offers_no_choice_to_tap_a_tapped_creature() {
+    for pre_tapped in [true, false] {
+        let mut g = Game::new(prepared(&[
+            ("Leonin Snarecaster", 0, true),
+            ("Pressure Point", 0, true),
+            ("Plains", 0, false),
+            ("Plains", 0, false),
+            ("Plains", 0, false),
+            ("Plains", 0, false),
+            ("Grizzly Bears", 1, false),
+        ]));
+        let bears = Driver::object(&g, 6);
+        if pre_tapped {
+            // "Tap target creature. Draw a card."
+            cast_with(&mut g, 1, vec![TargetEntity::Object { object: bears }]);
+            assert!(next_choice_or_empty(&mut g).is_none());
+            assert!(g.current(bears).unwrap().tapped);
+        }
+        cast_with(&mut g, 0, vec![]);
+        let d = next_choice_or_empty(&mut g).expect("the entry trigger's target");
+        assert!(matches!(d.reason, Reason::Targets { .. }), "{d:?}");
+        g.respond(
+            d.player,
+            d.id,
+            d.entity_targets(vec![TargetEntity::Object { object: bears }]),
+        )
+        .unwrap();
+        checked(&g);
+        match next_choice_or_empty(&mut g) {
+            None => assert!(pre_tapped, "an untapped target offers the choice"),
+            Some(d) => {
+                assert!(!pre_tapped, "a tapped target offered {d:?}");
+                assert_eq!(
+                    (d.player, &d.reason),
+                    (PlayerId(0), &Reason::OptionalEffect)
+                );
+                checked(&g);
+                g.respond(
+                    d.player,
+                    d.id,
+                    d.pick_one(&Candidate::Flag { flag: Flag::Accept }).unwrap(),
+                )
+                .unwrap();
+                assert!(next_choice_or_empty(&mut g).is_none());
+            }
+        }
+        assert!(g.current(bears).unwrap().tapped);
+        checked(&g);
+    }
+}

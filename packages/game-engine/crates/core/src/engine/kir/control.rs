@@ -390,20 +390,38 @@ impl RulesTxn {
             {
                 Ok(())
             }
-            (Stage::Leaf, Node::Do(_))
-            | (Stage::Run, _)
-            | (Stage::Optional { .. }, Node::Optional { .. })
-            | (
-                Stage::Life { .. },
+            (Stage::Leaf, Node::Do(_)) | (Stage::Run, _) => Ok(()),
+            // The saved chooser is the one the admitted node names.
+            (Stage::Optional { chooser }, Node::Optional { chooser: named, .. }) => {
+                if self.control_players(task, named)? != [*chooser] {
+                    return Err("kernel chooser differs from its node".into());
+                }
+                Ok(())
+            }
+            // CR 118.12: the saved payer and amount are the admitted terms.
+            (
+                Stage::Life { payer, amount },
                 Node::UnlessPays {
-                    payment: Payment::Life { .. },
+                    payer: named,
+                    payment: Payment::Life { amount: admitted },
                     ..
                 }
                 | Node::IfPays {
-                    payment: Payment::Life { .. },
+                    payer: named,
+                    payment: Payment::Life { amount: admitted },
                     ..
                 },
-            ) => Ok(()),
+            ) => {
+                if self.control_players(task, named)? != [*payer] {
+                    return Err("kernel payer differs from its node".into());
+                }
+                if self.control_amount(task, admitted)? != *amount
+                    || !self.state.rules.players[payer.0 as usize].can_pay_life(amount)
+                {
+                    return Err("kernel life payment differs from its node".into());
+                }
+                Ok(())
+            }
             (
                 Stage::Choose {
                     remaining,
@@ -496,10 +514,18 @@ impl RulesTxn {
                     self.return_kernel(task.resume)?;
                 }
             }
-            Node::Optional { chooser, .. } => {
+            Node::Optional {
+                chooser,
+                node: child,
+            } => {
                 let Some(chooser) = self.chooser(&task, chooser)? else {
                     return self.return_kernel(task.resume);
                 };
+                // CR 608.2d, 701.26a: no choice is offered to perform an
+                // action that cannot be performed.
+                if !self.performable(&task, child)? {
+                    return self.return_kernel(task.resume);
+                }
                 task.stage = Stage::Optional { chooser };
                 self.install_kernel(task);
             }
@@ -621,6 +647,35 @@ impl RulesTxn {
             }
         }
         Ok(())
+    }
+
+    /// Whether an optional body can be performed now: some object a tap,
+    /// untap, move or counter verb names is present in a state that verb can
+    /// change (CR 701.26a-b, 122.1). A sequence is performable when any of its
+    /// verbs is; every other admitted optional verb always is (CR 121.3,
+    /// 119.3, 701.17b).
+    fn performable(&self, task: &Task, node: &Node) -> Result<bool, String> {
+        let present = |set: &SetExpr, wanted: &dyn Fn(&Object) -> bool| -> Result<bool, String> {
+            Ok(self.control_objects(task, set)?.into_iter().any(|id| {
+                self.current(id)
+                    .is_ok_and(|object| object.present_on_battlefield() && wanted(object))
+            }))
+        };
+        Ok(match node {
+            Node::Seq(nodes) => {
+                for node in nodes {
+                    if self.performable(task, node)? {
+                        return Ok(true);
+                    }
+                }
+                false
+            }
+            Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
+            Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
+            Node::Do(Verb::PutCounters { on, .. }) => present(on, &|_| true)?,
+            Node::Do(Verb::Move { what, .. }) => !self.control_objects(task, what)?.is_empty(),
+            _ => true,
+        })
     }
 
     pub(in crate::engine) fn kernel_payment_terms(

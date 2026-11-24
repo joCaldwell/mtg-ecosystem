@@ -7,8 +7,11 @@
 //! instructions each wrapped step range produced are then nested under one
 //! Kernel IR control node, in printed order:
 //!
-//! * CR 608.2d: "may" is [`Node::Optional`]; its chooser is the player the
-//!   step names (or "you" for an imperative step).
+//! * CR 608.2d: "may" is [`Node::Optional`]. Its chooser must be the
+//!   ability's controller: a departed non-controlling chooser would need the
+//!   CR 800.4g reassignment the continuation does not perform. Its body is
+//!   made of verbs whose feasibility the continuation decides before offering
+//!   the choice (CR 701.26a: tapping a tapped permanent is impossible).
 //! * CR 118.12a: "unless [player] pays {N}" / "N life" is
 //!   [`Node::UnlessPays`].
 //! * CR 118.12, 608.2c: "[player] may pay [cost]. If they do/don't, ..."
@@ -16,8 +19,6 @@
 //! * CR 608.2c: "if"/"unless" is [`Node::If`] over a board condition the
 //!   continuation evaluates on resolution: a count of permanents a player
 //!   controls (CR 109.5).
-//! * CR 121.2: "draw a card for each [permanent]" is [`Node::ForEach`] over
-//!   the battlefield set, one draw per member.
 //!
 //! A wrapped step whose instruction range is empty, a wrap that overlaps
 //! another, a chooser or payer the resolution does not bind to a kernel
@@ -55,9 +56,6 @@ enum Kind {
     Optional { who: Option<String> },
     /// `path` is the printed sentence; its condition is read on lowering.
     Condition { path: String, unless: bool },
-    /// CR 121.2: "draw N for each [permanent]" draws N once per member of
-    /// the set as it is on resolution; `path` is the printed `forEach`.
-    EachDraw { path: String, var: u32 },
     /// `path` is the printed optional `pay-cost` step a following "if you
     /// do" (`unless` false) or "if you don't" (`unless` true) reads.
     Pays { path: String, unless: bool },
@@ -207,18 +205,22 @@ fn peel_step(
             if step.get("who").is_none() || inner.is_empty() {
                 return reject("optional_group_shape");
             }
-            for (k, child) in inner.iter().enumerate() {
-                peel_step(child, &format!("{path}/steps/{k}"), sentence, steps, wraps)?;
-            }
+            // Pushed before its children: among wraps over the same steps
+            // the earlier one is the printed ancestor and encloses the rest.
+            let at = wraps.len();
             wraps.push(Wrap {
                 sentence,
                 start,
-                end: steps.len(),
+                end: start,
                 depth: 1,
                 kind: Kind::Optional {
                     who: Some(format!("{path}/who")),
                 },
             });
+            for (k, child) in inner.iter().enumerate() {
+                peel_step(child, &format!("{path}/steps/{k}"), sentence, steps, wraps)?;
+            }
+            wraps[at].end = steps.len();
         }
         // The destroy verb lowers its own audited optional row.
         // The parser names a chooser other than "you" as `decidedBy`; "you
@@ -237,29 +239,6 @@ fn peel_step(
                 end: steps.len(),
                 depth: 2,
                 kind: Kind::Optional { who },
-            });
-        }
-        // Draws are performed one at a time (CR 121.2), so drawing a card
-        // for each member is the same draws as one draw per member. Every
-        // other verb would change how many events it produces.
-        Some("draw") if step.get("forEach").is_some() => {
-            if step.get("optional").is_some() {
-                return reject("for_each_shape");
-            }
-            let mut core = step.clone();
-            core.as_object_mut().expect("step object").remove("forEach");
-            steps.push(core);
-            let var =
-                u32::try_from(wraps.len()).map_err(|_| invalid("compose.control", "wraps"))?;
-            wraps.push(Wrap {
-                sentence,
-                start,
-                end: steps.len(),
-                depth: 3,
-                kind: Kind::EachDraw {
-                    path: format!("{path}/forEach"),
-                    var,
-                },
             });
         }
         _ => steps.push(step.clone()),
@@ -292,26 +271,18 @@ impl Site<'_> {
     fn node(&self, kind: &Kind, body: Node) -> Result<Node, Failure> {
         let node = Box::new(body);
         Ok(match kind {
-            Kind::Optional { who } => Node::Optional {
-                chooser: match who {
+            Kind::Optional { who } => {
+                let chooser = match who {
                     Some(path) => self.player(path)?,
                     None => PlayerExpr::you(self.context),
-                },
-                node,
-            },
-            Kind::EachDraw { path, var } => {
-                let filter = self.sentence(path)?;
-                if filter.get("zone").is_some() || filter.get("controlledBy").is_some() {
-                    return reject("for_each_set");
+                };
+                if !chooser.is_you() {
+                    return reject("optional_chooser");
                 }
-                let filter: ast::ObjectFilter = typed(filter, "filter")?;
-                Node::ForEach {
-                    var: *var,
-                    over: kir::Domain::Objects {
-                        set: SetExpr::battlefield(lower_filter(&filter, self.context)?),
-                    },
-                    body: node,
+                if !decided(&node) {
+                    return reject("optional_feasibility");
                 }
+                Node::Optional { chooser, node }
             }
             Kind::Pays { path, unless } => {
                 let step = self.sentence(path)?;
@@ -324,6 +295,7 @@ impl Site<'_> {
                 if chooser != payer || costs.as_array().map(Vec::len) != Some(1) {
                     return reject("payment_shape");
                 }
+                self.implicit_payer(&format!("{path}/costs/0/payer"), &payer)?;
                 let payment = payment(costs)?;
                 if *unless {
                     Node::UnlessPays {
@@ -374,15 +346,23 @@ impl Site<'_> {
             return reject("payment_shape");
         }
         let payer = self.player(&format!("{path}/condition/who"))?;
-        let implicit = format!("{path}/condition/cost/0/payer");
-        if let Some(other) =
-            self.resolution
-                .control_player(self.index, self.printed, &implicit, self.context)?
-            && other != payer
+        self.implicit_payer(&format!("{path}/condition/cost/0/payer"), &payer)?;
+        Ok(payer)
+    }
+
+    /// A cost's implicit payer, when the resolution binds one, is exactly
+    /// the explicit payer; any other binding contradicts it.
+    fn implicit_payer(&self, path: &str, payer: &PlayerExpr) -> Result<(), Failure> {
+        if self.resolution.binds(self.index, path)?
+            && self
+                .resolution
+                .control_player(self.index, self.printed, path, self.context)?
+                .as_ref()
+                != Some(payer)
         {
             return reject("payer_disagrees");
         }
-        Ok(payer)
+        Ok(())
     }
 
     /// CR 608.2c, 109.5: a board condition the continuation reads.
@@ -450,6 +430,36 @@ impl Site<'_> {
     }
 }
 
+/// CR 608.2d, 701.26a: the verbs an optional choice may wrap. A player
+/// cannot choose to perform an impossible action; the continuation decides
+/// before offering the choice whether a target or source verb can be
+/// performed (`core` `kir::control`). A draw, life change or mill can
+/// always be performed (CR 121.3, 119.3, 701.17b).
+fn decided(node: &Node) -> bool {
+    use kir::Verb;
+    match node {
+        Node::Seq(nodes) => nodes.iter().all(decided),
+        Node::Do(
+            Verb::Draw { .. } | Verb::GainLife { .. } | Verb::LoseLife { .. } | Verb::Mill { .. },
+        ) => true,
+        Node::Do(Verb::Tap { what } | Verb::Untap { what } | Verb::Move { what, .. }) => matches!(
+            what,
+            SetExpr::One {
+                object: kir::Ref::Target { .. }
+            }
+        ),
+        Node::Do(Verb::PutCounters { on, .. }) => {
+            matches!(
+                on,
+                SetExpr::One {
+                    object: kir::Ref::Source | kir::Ref::Target { .. }
+                }
+            )
+        }
+        _ => false,
+    }
+}
+
 /// CR 118.12a: one generic mana or life payment.
 fn payment(cost: &Value) -> Result<Payment, Failure> {
     let cost = &cost[0];
@@ -502,7 +512,12 @@ fn comparison(comparison: &Value) -> Result<(Cmp, Quantity), Failure> {
         .ok_or_else(|| unsupported("compose.control", "comparison_shape"))?;
     let (cmp, n) = match comparison["op"].as_str() {
         Some("ge") => (Cmp::AtLeast, fixed),
-        Some("gt") => (Cmp::AtLeast, fixed + 1),
+        Some("gt") => (
+            Cmp::AtLeast,
+            fixed
+                .checked_add(1)
+                .ok_or_else(|| unsupported("compose.control", "comparison_range"))?,
+        ),
         Some("le") => (Cmp::AtMost, fixed),
         Some("lt") if fixed > 0 => (Cmp::AtMost, fixed - 1),
         Some("eq") => (Cmp::Exactly, fixed),
@@ -524,11 +539,7 @@ pub(super) fn admitted(
     for Instruction::Kernel { node, .. } in instructions {
         if matches!(
             node,
-            Node::Optional { .. }
-                | Node::ForEach { .. }
-                | Node::UnlessPays { .. }
-                | Node::IfPays { .. }
-                | Node::If { .. }
+            Node::Optional { .. } | Node::UnlessPays { .. } | Node::IfPays { .. } | Node::If { .. }
         ) {
             kir::check(node, env)
                 .map_err(|e| unsupported("compose.control", format!("kir {e}")))?;
@@ -587,7 +598,7 @@ pub(super) fn apply(
     };
     // Absolute instruction ranges, outermost first.
     let mut ranges = Vec::with_capacity(peeled.wraps.len());
-    for wrap in &peeled.wraps {
+    for (order, wrap) in peeled.wraps.iter().enumerate() {
         let (start, end) = (
             position(wrap.sentence, wrap.start)?,
             position(wrap.sentence, wrap.end)?,
@@ -595,9 +606,11 @@ pub(super) fn apply(
         if start >= end || end > total {
             return reject("empty_wrapped_range");
         }
-        ranges.push((start, end, wrap));
+        ranges.push((start, end, order, wrap));
     }
-    ranges.sort_by_key(|(start, end, wrap)| (*start, std::cmp::Reverse(*end), wrap.depth));
+    ranges.sort_by_key(|(start, end, order, wrap)| {
+        (*start, std::cmp::Reverse(*end), wrap.depth, *order)
+    });
     // A forest of properly nested ranges.
     struct Tree<'w> {
         start: usize,
@@ -633,7 +646,7 @@ pub(super) fn apply(
         kind: None,
         children: vec![],
     };
-    for (start, end, wrap) in &ranges {
+    for (start, end, _, wrap) in &ranges {
         insert(&mut root, *start, *end, &wrap.kind)?;
     }
     let block: Vec<Instruction> = instructions.drain(base..).collect();
@@ -678,4 +691,80 @@ pub(super) fn apply(
         instructions.push(Instruction::Kernel { node, source_block });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_strict_comparison_at_the_integer_limit_rejects() {
+        let gt = |value: i64| json!({"op": "gt", "value": {"amount": "fixed", "value": value}});
+        assert_eq!(
+            comparison(&gt(3)).unwrap(),
+            (Cmp::AtLeast, Quantity::from(4))
+        );
+        let failure = comparison(&gt(i64::MAX)).unwrap_err();
+        assert_eq!(failure.reason, "comparison_range");
+    }
+
+    #[test]
+    fn nested_groups_over_the_same_steps_keep_printed_ancestry() {
+        let group = |who: &str, steps: Value| json!({"effect": "optional-group", "who": {"player": who}, "steps": steps});
+        let draw = json!({"effect": "draw", "who": {"player": "you"},
+                          "amount": {"amount": "fixed", "value": 1}});
+        let peeled =
+            peel(&[json!({"steps": [group("you", json!([group("you", json!([draw]))]))]})])
+                .unwrap();
+        let whos: Vec<_> = peeled
+            .wraps
+            .iter()
+            .map(|w| match &w.kind {
+                Kind::Optional { who } => who.clone().unwrap(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        // The outer group precedes the inner one over the same range, so
+        // the stable nesting order encloses the inner choice in the outer.
+        assert_eq!(
+            whos,
+            ["/effects/0/steps/0/who", "/effects/0/steps/0/steps/0/who"]
+        );
+        assert!(
+            peeled
+                .wraps
+                .iter()
+                .all(|w| (w.start, w.end, w.depth) == (0, 1, 1))
+        );
+    }
+
+    #[test]
+    fn optional_bodies_are_verbs_whose_feasibility_is_decided() {
+        use kir::Verb;
+        let you = PlayerExpr::you(Context::Triggered);
+        let draw = Node::Do(Verb::Draw {
+            player: you.clone(),
+            amount: kir::Amount::fixed(1),
+        });
+        let tap = Node::Do(Verb::Tap {
+            what: SetExpr::One {
+                object: kir::Ref::Target { slot: 0 },
+            },
+        });
+        assert!(decided(&draw) && decided(&tap));
+        assert!(decided(&Node::Seq(vec![draw.clone(), tap])));
+        // A sacrifice can be impossible in ways the continuation does not
+        // check, and nested control is not a verb.
+        let sacrifice = Node::Do(Verb::Sacrifice {
+            player: you.clone(),
+            count: kir::Amount::fixed(1),
+            filter: kir::Pred(vec![]),
+        });
+        assert!(!decided(&sacrifice));
+        assert!(!decided(&Node::Optional {
+            chooser: you,
+            node: Box::new(draw),
+        }));
+    }
 }

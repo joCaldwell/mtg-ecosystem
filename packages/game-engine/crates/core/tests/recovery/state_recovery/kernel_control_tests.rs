@@ -629,3 +629,56 @@ fn declining_an_if_pays_offer_skips_its_node() {
     assert_eq!(game.state.rules.players[0].life, before);
     game.validate_state().unwrap();
 }
+
+/// CR 118.12: a suspended life payment is exactly its admitted terms. A
+/// snapshot whose saved amount or payer differs from the node's is rejected.
+#[test]
+fn a_suspended_life_payment_must_match_its_admitted_terms() {
+    let mut game = super::formats_tests::cast_edict(if_pays_scenario());
+    assert!(matches!(
+        game.advance(Budget::unlimited()),
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::OptionalEffect,
+            ..
+        })
+    ));
+    game.validate_state().unwrap();
+    // The suspended stage lives in the current frame; edit it in place.
+    let frame = serde_json::to_value(&game.state.rules.frame).unwrap();
+    fn stages(value: &mut serde_json::Value, edit: &dyn Fn(&mut serde_json::Value)) -> usize {
+        match value {
+            serde_json::Value::Object(fields) => {
+                if fields.get("stage") == Some(&serde_json::json!("life")) {
+                    edit(value);
+                    return 1;
+                }
+                fields.values_mut().map(|child| stages(child, edit)).sum()
+            }
+            serde_json::Value::Array(items) => {
+                items.iter_mut().map(|item| stages(item, edit)).sum()
+            }
+            _ => 0,
+        }
+    }
+    let original = game.state.rules.frame.clone();
+    let mut with = |edit: &dyn Fn(&mut serde_json::Value)| {
+        let mut changed = frame.clone();
+        assert_eq!(stages(&mut changed, edit), 1);
+        game.state.rules.frame = serde_json::from_value(changed).unwrap();
+        let result = game.validate_state();
+        game.state.rules.frame = original.clone();
+        result
+    };
+    // The same terms validate.
+    with(&|_| {}).unwrap();
+    // A different amount or payer than the admitted node's does not.
+    let amount = with(&|stage| {
+        stage["amount"] = match &stage["amount"] {
+            serde_json::Value::String(_) => serde_json::json!("4"),
+            _ => serde_json::json!(4),
+        }
+    });
+    assert!(amount.unwrap_err().contains("life payment differs"));
+    let payer = with(&|stage| stage["payer"] = serde_json::json!(1));
+    assert!(payer.unwrap_err().contains("payer differs"));
+}

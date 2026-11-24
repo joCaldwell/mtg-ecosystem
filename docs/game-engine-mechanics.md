@@ -449,30 +449,39 @@ counters.
 
 ### Printed choices, payments and conditions
 
-A printed "may", "if", "unless" or "up to" must have its AST carrier somewhere
-in the block: an optional step or group, a permission, a modal repeat, a
-condition, a countered or created replacement, an "if able" requirement, or a
-zero-minimum count. A block without one rejects as
-`printed_choice_limit_or_condition_disagrees_with_the_ast`. Composition peels
-control off ordinary steps and lowers the core through the verb lowerers. It
-then nests each wrapped step range under one kernel control node:
+Each printed "may", "if", "unless" and "up to" of a resolving or static block
+must match its AST carriers in number and kind: an optional step or group, a
+permission, a modal repeat, a condition of that kind, a countered or created
+replacement, an "if able" requirement, or a zero-minimum count. In a static
+block a kindless condition prints as "if", "as long as" or "during". A block
+whose counts differ, including an "if" read as "unless", rejects as
+`printed_choice_limit_or_condition_disagrees_with_the_ast`. A trigger whose
+event clause is followed by ", if" must carry that clause as its intervening
+condition (CR 603.4). Composition peels control off ordinary steps and lowers
+the core through the verb lowerers. It then nests each wrapped step range
+under one kernel control node:
 
 | Printed | Kernel IR |
 | --- | --- |
-| "you may [step]", "[player] may [steps]" (`decidedBy` names a chooser other than you) | `Optional` (CR 608.2d) |
+| "you may [step]", "you may [steps]" | `Optional` (CR 608.2d) |
 | "[step] unless [player] pays {N} / N life" | `UnlessPays` (CR 118.12a) |
 | "[player] may pay [cost]. If they do / don't, [steps]" | `IfPays` / `UnlessPays` (CR 118.12) |
 | "if/unless you control a [filter]", "N or more [filter]", not/all of these | `If` over a battlefield count read on resolution (CR 608.2c) |
-| "draw a card for each [permanent]" | `ForEach` of single draws (CR 121.2) |
 
-A chooser or payer must resolve to the block's controller or its trigger's
-kernel event player. `IfPays` performs its node only after the payer pays. A
-payer who has left the game pays nothing. A destroy step keeps its own optional
+An optional chooser is the controller; a chooser named by `decidedBy` would
+need CR 800.4g reassignment and rejects. A payer binds to the controller or the
+trigger's kernel event player, and a cost's implicit payer must be the same
+player. An optional body is a draw, life change, mill, or a tap, untap, move or
+counter verb on a target or the source. The continuation offers no choice when
+none of those objects can change (CR 701.26a). Nested equal-range wrappers keep
+printed ancestry. `IfPays` performs its node only after payment. A payer who has
+left the game pays nothing. State validation checks a suspended chooser, payer
+and life amount against the admitted node. A destroy step keeps its own optional
 row. These cards earn `Executes` only (`Cell::Control`, `kernel_control_v1`).
 Everything else rejects under `compose.control:<detail>`:
 - "if you do" after an action other than a payment
 - another condition, a nested leaf that needs persistent provenance
-- `forEach` on any verb other than draw
+- `forEach` amounts (CR 121.2a: a counted draw is one replaceable event)
 
 Modal steps (W14) and "up to N" targets also reject.
 
