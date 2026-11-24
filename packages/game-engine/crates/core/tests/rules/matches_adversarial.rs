@@ -1479,8 +1479,8 @@ fn naturally_cast_pumped_ready_defender_cannot_attack_and_later_blocks_normally(
     let forest = oracle("Forest");
     let plains = oracle("Plains");
     let commander = oracle("Isamaru, Hound of Konda");
-    // Fixed R4 opening with Wall, Growth and Forest in seat three's private hand.
-    let c = MatchConfig::for_profile("commander-foundations-v1", defender_seed(430), PlayerId(0))
+    // RNG v2 R4 opening with Wall, Growth and Forest in seat three's private hand.
+    let c = MatchConfig::for_profile("commander-foundations-v1", defender_seed(201), PlayerId(0))
         .unwrap();
     let (p, mut g) = initial_match(c, 4096);
     let opening = observation(&g, PlayerId(3));
