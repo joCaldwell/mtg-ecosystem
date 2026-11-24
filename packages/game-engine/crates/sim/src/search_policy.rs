@@ -14,9 +14,7 @@ fn selected_program<'a>(
 ) -> Option<&'a SpellProgram> {
     let entry = observation.view.stack.last()?;
     let program = if let Some(trigger) = &entry.triggered {
-        let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &trigger.ability else {
-            return None; // Static spell grants have no search admission.
-        };
+        let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &trigger.ability;
         &search_candidates::definition(catalog, &trigger.oracle_id)
             .ok()?
             .triggered
