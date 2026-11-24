@@ -136,8 +136,9 @@ of an instruction for the resolving stack object.
 `kir::check(node, env)` is the one admission decision. It proves each reference
 is in scope and of the right kind for the context, targets and event; rejects a
 filtered count of a hand or library (CR 400.2); and admits a verb only in an
-audited cell, one the core interpreter (`core/src/engine/kir.rs`) executes and
-recovers. Composition calls the checker for each program and derives the required capabilities
+audited cell (`kir/check/<verb>.rs`, which names the `kir::Cell` it admits), one
+the core interpreter (`core/src/engine/kir/exec/<verb>.rs` or the executor it
+dispatches to) executes and recovers. Composition calls the checker for each program and derives the required capabilities
 from the node and its operands. The published JSON Schema describes the wire
 structure. Rust checks target bindings, operand scope and capability closure.
 A well-scoped node without a cell is rejected as unaudited. The resolving
@@ -225,16 +226,25 @@ took from the pool; any other role rejects. A printed target's resolved
 block-relative slot must be the slot announced for its selection, and a
 pronoun resolved to a target must name the block's sole announced target.
 
+Each resolved reference is looked up in one table keyed by its role and where
+it is printed (`resolution::reference_row`): a row returns its lowering or the
+card rejects under `ref:<role>:<block kind>`, so a wave opens a role in its row.
+Steps dispatch on their AST `effect` tag to `compiler/src/rules/verbs/<verb>.rs`;
+operands lower from the generated AST types in `operands.rs` (target, filter,
+set, amount, player, destination, duration), and a shape with no IR form rejects
+under `verb:<effect>:<detail>` or `operand:<kind>:<shape>`.
+
 Composition also rejects "may", "up to" and "if"/"unless" against `optional`,
 `upTo` and a condition; a printed number absent from the block's AST; a cost
 term; an ability word the block does not print; and an evergreen keyword present
 in only one of the source keyword list and the AST. Hand-built test rows with
 placeholder text cannot carry a resolution: `tests::synthetic_compile` lowers them
 through the block tables only (`cfg(test)`), and `tests::composed_near_miss`
-asserts `composed` with the exact changed operands. `--example composition_gaps ARCHIVE` lists the
-table row each remaining card lacks. Lowering still rejects at the first card-wide
-resolution check; the report defers those checks, so `reason` is the first blocker
-after them, `binding` the card-wide rejection and `block` the failing printed block.
+asserts `composed` with the exact changed operands. `--example composition_gaps ARCHIVE` lists
+every blocker of each remaining card: each card-wide binding failure, the first
+failure of each printed block and any card-wide failure outside the blocks.
+Lowering still rejects at the first; `catalog coverage` publishes the same rows
+as `blockers.tsv`, which the [deck scoreboard](game-engine-development.md#measurement-and-deck-work) ranks.
 `--example ast_decode ARCHIVE` decodes every face and resolution through the generated types.
 `--example inspect ARCHIVE NAME` prints one compile result. New lowerers start IR
 structs from `PermanentFilter::any()`, `TargetSpec::new` and `SpellProgram::instructions`
@@ -245,8 +255,8 @@ Adding a primitive touches the row that owns it, not every card:
 | Primitive | Files |
 | --- | --- |
 | Cost term, self event, keyword or step shape that lowers to existing IR | One `compose/*.rs` table row and its test; a frozen fixture when it opens a new runtime path |
-| Existing instruction, target route or cost in another kind of stack object | One `contracts/src/composition.rs` row, a witness in `witness/tests/permanents_mana/composition_tests.rs`, and the core fix if recovery assumed a shape |
-| New instruction | A [kernel](#kernel-ir) cell in `kir::check` with its capability, the executor in `core/src/engine/kir.rs`, a `composition.rs` kernel row, the emitting row and a witness. |
+| Existing instruction, target route or cost in another kind of stack object | One `contracts/src/kir/tiers/executes.rs` row, a witness in `witness/tests/permanents_mana/composition_tests.rs`, and the core fix if recovery assumed a shape |
+| New instruction | A [kernel](#kernel-ir) cell in `kir/check/<verb>.rs` with its capability and `kir::Cell` (tier row at `Executes`), the executor in `core/src/engine/kir/exec/<verb>.rs`, the `rules/verbs/<verb>.rs` lowerer and a witness. |
 
 Capabilities, schema, labels and source blocks come from the shared assembly;
 no per-card capability, schema branch or family validator is added.
@@ -265,7 +275,7 @@ fail the build with their input path.
 | `decks` | Four defaults with commander/cards `{oracle_id,count>0}`; commander is within the 100 |
 | `commanders` | Supported Oracle identities as data |
 | `commander_policy` | `color_identity: commander_subset`, `eligibility: legendary_creature`, relative dated `banned_list`; unknown policies reject |
-| `hosted`, `search` | Requests validated against reviewed capability sets in `core/src/profile_data.rs`; names/digests grant neither feature |
+| `hosted`, `search` | Every definition must earn the `Hosting` or `Search` [tier](game-engine-mechanics.md#derived-capability-tiers); names/digests grant neither feature |
 | `completion` | Deterministic `rotate` and two `homogeneous_seats` deck indices, not mechanics |
 
 Admission checks 100 cards, singleton name, commander count/eligibility,
@@ -304,13 +314,13 @@ Dynamic decks contain 100 cards including one or two designated legendary
 creatures. Two designations require ordinary Partner on both or Doctor’s
 companion paired with a Time Lord Doctor that has no other creature types.
 Pairing can be inspected independently of compilation. Admission additionally
-requires executable definitions and reviewed capabilities. The two color
+requires executable definitions (the `Executes` tier). The two color
 identities combine for deck legality and commander-color mana. Each physical
 designation keeps its own command-zone cast and combat damage history
 ([CR 702.124, 903.3–903.10](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
 Dynamic identities carry headless admission only. Every deck passes the same
-reviewed capability set and trigger-capacity bound; no roster identity grants an
-exception (the former R3 copy-roster review is retired, admission domain v3).
+tier and trigger-capacity bound; no roster identity grants an exception
+(admission domain v4 retired the hand-listed capability set).
 
 `mtg-sim bench-pods --bulk-artifact DIR --manifest-sha SHA --pod-decks JSON`
 reads an object with a `decks` array of four seat lists. Each entry contains
@@ -318,7 +328,8 @@ reads an object with a `decks` array of four seat lists. Each entry contains
 single validated projection. The bulk manifest, policy, projection and
 per-case admission digest identify the benchmark. The existing worker options,
 sampled replay checks and `--analytics-out` apply to both input modes; analytics
-group decks by sorted commander designations and physical quantities.
+require every deck card to earn `HeadlessQualified` and group decks by sorted
+commander designations and physical quantities.
 
 ## Single matches and deck work
 

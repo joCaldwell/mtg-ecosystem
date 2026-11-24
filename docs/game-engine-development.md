@@ -217,8 +217,11 @@ npm run engine:decks -- bench SIM --bulk-artifact DIR --manifest-sha SHA --a A.j
 ```
 
 `coverage` lowers only the deck snapshot's Oracle IDs (`--all`: the whole
-archive) and reports compiled slots, blocking cards, top blockers and baseline
-deltas. `stage` accepts only the registered Archive R4 file, requires every card
+archive) and reports compiled slots, blocking cards, top blockers, the Track 3A
+family scoreboard and baseline deltas. The scoreboard classifies every blocker
+of each unsupported card into a family and counts, deck-first, the deck slots
+and cards each family touches and alone blocks ("sole"), plus Commander-legal
+archive cards with `--all`; every 3A PR reports against it. `stage` accepts only the registered Archive R4 file, requires every card
 to compile and templates the reviewed `commander-foundations-v1` profile.
 `play` stages and plays one seeded match from a detached HEAD under
 `generated/deck-play.*`, with live journals in its `live-journals/`. `bench` runs
