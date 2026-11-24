@@ -58,7 +58,7 @@
     "unreachableDefinitions": true
   },
   "schema_dialect": "Draft7",
-  "schema_sha256": "f0874457845f1df7f5596ba9813d1b937ade18798c35e3d2afe06aae02ecd24c",
+  "schema_sha256": "544786c28d3897e7ec733f241a18244dc24859ad03ff5157e69eeb7c6d3c4069",
   "files": [
     {
       "path": "command.d.ts",
@@ -66,7 +66,7 @@
     },
     {
       "path": "stream.d.ts",
-      "sha256": "509b3ef00978c5aa6049746d1f6c943e2e8dac71145a9f96cf1323f417941fec"
+      "sha256": "06ebf2a24a961ac90669b6778524fe936799c76b21140ae6bf2e5e4cb54df2df"
     },
     {
       "path": "submission.d.ts",
@@ -82,7 +82,7 @@
     },
     {
       "path": "resume.d.ts",
-      "sha256": "e0147937513349734bb9fe882aad071b8c1c7d1c281ffe385d4a70731683c824"
+      "sha256": "1b7b62f06ff0eaa5adf9550f82574aabfa1df3bc7967a9d5ab44e1dd87028b45"
     },
     {
       "path": "bootstrap.d.ts",
@@ -106,7 +106,7 @@
     },
     {
       "path": "validators.js",
-      "sha256": "23f180588f9c1414806a99e5a31c284ad3658cab3a7fa0ab12f77b50bc3654e7"
+      "sha256": "b65cf95a89f681845d916197735fe9b127469224c71fd0df54c942ad111259bf"
     },
     {
       "path": "validators.d.ts",

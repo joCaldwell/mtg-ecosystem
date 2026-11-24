@@ -29,10 +29,11 @@ test('Rust schemas validate representative responses and reject whole nested sou
     assert.throws(() => command(envelope({ ...response, raw_receipt: {} })), ProtocolError);
   }
   for (const response of [
-    { response: 'damage', assignments: [['h']] }, { response: 'damage', assignments: [['h', '3', 'extra']] },
-    { response: 'damage', assignments: [['h', 3]] }, { response: 'cast', card: { card: 0, incarnation: 0 } },
-    { response: 'spend_mana', spending: { Z: '1' } }, { response: 'modes', mode: 4_294_967_296 },
-    { response: 'player_targets', players: [256] }, { response: 'raw_receipt', receipt: {} },
+    { answer:'pick', picks:[[4294967296]] }, { answer:'pick', picks:[[{}]] },
+    { answer:'order', order:[-1] }, { answer:'distribute', amounts:[3] },
+    { answer:'pay', pay:{step:'spend',unrestricted:{Z:'1'}} },
+    { answer:'pay', pay:{step:'activate',source:{card:0,incarnation:0}} },
+    { answer:'number', value:'01' }, { answer:'raw_receipt',receipt:{} },
   ]) assert.throws(() => command(envelope(response)), ProtocolError);
   for (const quantity of ['01', '-0', '1\n', '\n1', '1\r', '1.0', '+1']) {
     assert.throws(() => command(envelope({ answer: 'distribute', amounts: [quantity] })), ProtocolError);

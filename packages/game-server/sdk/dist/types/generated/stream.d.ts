@@ -587,24 +587,10 @@ export type VisibleEntityTarget =
  * This interface was referenced by `StreamPage`'s JSON-Schema
  * via the `definition` "VisibleTriggerAbility".
  */
-export type VisibleTriggerAbility =
-  | {
-      index: number;
-      origin: "intrinsic";
-    }
-  | {
-      oracle_id: string;
-      origin: "granted";
-      source: VisibleTarget;
-      static_ability_index: number;
-    }
-  | {
-      effect?: string | null;
-      oracle_id: string;
-      origin: "temporary_grant";
-      source: VisibleTarget;
-      triggered_ability_index: number;
-    };
+export type VisibleTriggerAbility = {
+  index: number;
+  origin: "intrinsic";
+};
 /**
  * This interface was referenced by `StreamPage`'s JSON-Schema
  * via the `definition` "TurnStep".
