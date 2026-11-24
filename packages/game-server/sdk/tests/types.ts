@@ -73,4 +73,3 @@ export function publicCatalog(manifest: PublicManifest): [Catalog, Decklist] {
 export type ForbiddenManifestSeed = PublicManifest['seed'];
 // @ts-expect-error public manifest never transports a hidden profile digest.
 export type ForbiddenManifestDigest = PublicManifest['profile_digest'];
-

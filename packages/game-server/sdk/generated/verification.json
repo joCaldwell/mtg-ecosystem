@@ -305,7 +305,7 @@
       "signal": null
     }
   ],
-  "log_sha256": "428767835bfc01e8f6165f4139af94696e0b4586f44b81618b14fc7cc54fa7ad",
+  "log_sha256": "0767636517fa926cc3e3d7eab878ee743ad8f24f7656823c304b33935298cc8a",
   "source_files": [
     {
       "path": ".gitignore",
@@ -524,8 +524,8 @@
     },
     {
       "path": "tests/types.ts",
-      "bytes": 3697,
-      "sha256": "f194ffc044181c065d793cb616c2606fd025ba09a136b7d8e5912a69dce52ce1"
+      "bytes": 3696,
+      "sha256": "c6c42ca86a53f51b38bd297a8dd801e702707b680fc9262d3c7772153513bae0"
     },
     {
       "path": "tests/validator-parity.test.ts",
