@@ -173,16 +173,10 @@ impl Resolution {
     /// reference addresses an AST operand (or an implicit operand of an
     /// existing object), and the printed steps are exactly the step entries,
     /// each under its own AST discriminant. A clause removed, added or
-    /// changed after resolution leaves a dangling or missing entry.
-    pub(super) fn covers(&self, abilities: &Value) -> Result<(), Failure> {
-        match self.unaccounted_steps(abilities)?.first() {
-            Some((_, _, effect)) => Err(unsupported("resolution", format!("step:{effect}"))),
-            None => Ok(()),
-        }
-    }
-
-    /// The structural checks of `covers`, returning every unaccounted step as
-    /// (block, path, effect) instead of rejecting at the first one.
+    /// changed after resolution leaves a dangling or missing entry. Returns
+    /// every step the resolution does not account for as (block, path,
+    /// effect); composition rejects at the first and the gap report names
+    /// them all.
     pub(super) fn unaccounted_steps(
         &self,
         abilities: &Value,

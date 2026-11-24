@@ -407,7 +407,7 @@ pub(crate) enum Step {
         token: SourceToken,
     },
     PutCounters {
-        on: SourceCounterRecipient,
+        on: serde_json::Value,
         counter: SourceCounter,
         count: serde_json::Value,
     },
@@ -508,13 +508,6 @@ pub(crate) struct SourceToken {
     pub(crate) toughness: Count,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub(crate) enum SourceCounterRecipient {
-    Target(Target),
-    Source(ThisObject),
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "restriction", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum SourceActivationRestriction {
@@ -579,14 +572,6 @@ pub(crate) enum DamageDestination {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ThisObject {
-    #[serde(rename = "ref")]
-    pub(crate) reference: String,
-    pub(crate) noun: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct PlayerSelector {
     pub(crate) player: String,
@@ -616,16 +601,6 @@ pub(crate) enum ObjectFilter {
 #[serde(deny_unknown_fields)]
 pub(crate) struct CardFilter {
     pub(crate) cls: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct Target {
-    #[serde(rename = "ref")]
-    pub(crate) reference: String,
-    pub(crate) filter: Filter,
-    pub(crate) count: Count,
-    pub(crate) selection_id: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

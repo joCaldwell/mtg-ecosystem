@@ -230,14 +230,35 @@ impl PlayerBinding {
 // ---------------------------------------------------------------------------
 
 /// Decode one printed operand as its generated AST type. The block already
-/// decoded as the complete AST, so a failure here is an archive defect.
+/// decoded as the complete AST, so a failure here is an archive defect. The
+/// generated `Option` fields read an explicit `null` as absent; a printed
+/// operand never spells a term as `null`, so one anywhere in the operand
+/// rejects it rather than silently dropping that term.
 pub(crate) fn typed<T: serde::de::DeserializeOwned>(
     value: &impl serde::Serialize,
     kind: &str,
 ) -> Result<T, Failure> {
-    serde_json::to_value(value)
-        .and_then(serde_json::from_value)
-        .map_err(|e| invalid("operand", format!("operand:{kind}: {e}")))
+    let value = serde_json::to_value(value)
+        .map_err(|e| invalid("operand", format!("operand:{kind}: {e}")))?;
+    if let Some(field) = null_member(&value) {
+        return Err(operand(kind, format!("null:{field}")));
+    }
+    serde_json::from_value(value).map_err(|e| invalid("operand", format!("operand:{kind}: {e}")))
+}
+
+/// The first object member, at any depth, whose value is `null`.
+fn null_member(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Object(members) => members.iter().find_map(|(key, member)| {
+            if member.is_null() {
+                Some(key.clone())
+            } else {
+                null_member(member)
+            }
+        }),
+        serde_json::Value::Array(items) => items.iter().find_map(null_member),
+        _ => None,
+    }
 }
 
 /// The named rejection of one operand shape.

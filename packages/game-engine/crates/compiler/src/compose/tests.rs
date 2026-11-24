@@ -274,6 +274,26 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
         [(0, "resolution.spans"), (1, "resolution.spans")]
     );
     assert!(found.card.is_none());
+    // Every step the resolution leaves unaccounted is its own binding
+    // blocker; lowering still rejects at the first.
+    let unaccounted = changed(STRIP, |row| {
+        for (block, effect) in [(0, "add-mana"), (1, "destroy")] {
+            row["resolution"]["faces"][0]["blocks"][block]["steps"] = json!([
+                {"path":"/effects/0/steps/0","astEffect":effect,"unaccounted":true}]);
+        }
+    });
+    assert_eq!(
+        lower(archive, &unaccounted).unwrap_err().reason,
+        "step:add-mana"
+    );
+    assert_eq!(
+        blockers(archive, &unaccounted)
+            .bindings
+            .iter()
+            .map(|f| f.reason.as_str())
+            .collect::<Vec<_>>(),
+        ["step:add-mana", "step:destroy"]
+    );
 }
 
 #[test]

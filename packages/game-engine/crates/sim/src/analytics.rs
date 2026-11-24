@@ -575,17 +575,17 @@ fn markdown_cell(text: &str) -> String {
 /// CR 113.3: analytics and paired comparisons read rules outcomes, so every
 /// card a deck uses must have earned the headless-qualified tier
 /// (`mtg_contracts::kir::tiers`): a `RulesFault` would invalidate the
-/// comparison rather than measure it.
-pub fn require_headless_qualified<'a>(
-    catalog: &Catalog,
-    oracle_ids: impl IntoIterator<Item = &'a str>,
-) -> Result<(), String> {
-    for id in oracle_ids {
-        let definition = catalog
+/// comparison rather than measure it. `pods::run` calls this before any pod
+/// is played; `write` checks it again.
+pub fn require_headless_qualified(profile: &AnalyticsProfile<'_>) -> Result<(), String> {
+    for id in profile.decks.iter().flat_map(|deck| deck.cards.keys()) {
+        let definition = profile
+            .catalog
             .definition_by_oracle_id(id)
             .ok_or_else(|| format!("analytics card {id} is not in the catalog"))?;
         let (capabilities, cells) =
-            kir::unqualified(definition, kir::ExecutionTier::HeadlessQualified);
+            kir::unqualified(definition, kir::ExecutionTier::HeadlessQualified)
+                .map_err(|e| format!("analytics card {}: {e}", definition.name))?;
         if !capabilities.is_empty() || !cells.is_empty() {
             return Err(format!(
                 "analytics requires the headless-qualified tier; {} has unqualified surfaces {capabilities:?} and cells {cells:?}",
@@ -606,13 +606,7 @@ pub fn write(
     input: impl Iterator<Item = (PodOutcome, Option<ReplayInput>)>,
 ) -> Result<(), String> {
     let catalog = profile.catalog;
-    require_headless_qualified(
-        catalog,
-        profile
-            .decks
-            .iter()
-            .flat_map(|deck| deck.cards.keys().map(String::as_str)),
-    )?;
+    require_headless_qualified(profile)?;
     let mut groups = BTreeMap::<String, (Vec<usize>, DeckStats)>::new();
     let mut keys = Vec::with_capacity(4);
     for (slot, deck) in profile.decks.iter().enumerate() {

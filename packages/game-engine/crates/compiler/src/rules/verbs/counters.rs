@@ -5,7 +5,7 @@ use super::*;
 /// source or one announced creature.
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
-    on: &SourceCounterRecipient,
+    on: &serde_json::Value,
     counter: &SourceCounter,
     count: &serde_json::Value,
 ) -> Result<Instruction, Failure> {
@@ -13,7 +13,7 @@ pub(super) fn lower(
     if counter.r#type != "+1/+1" {
         return Err(step("put-counters", "counter_kind"));
     }
-    let on: ast::ObjectRef = typed(on, "object")?;
+    let on = object(on)?;
     let on = if is_this_creature(&on) {
         kir::SetExpr::source()
     } else {

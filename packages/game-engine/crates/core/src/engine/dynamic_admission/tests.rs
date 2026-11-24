@@ -243,8 +243,13 @@ fn headless_pods_admit_every_executing_definition() {
     let names = BTreeMap::new();
     let mut below_headless_qualified = 0;
     for definition in &catalog.definitions {
-        assert!(mtg_contracts::kir::definition_tiers(definition).admits(HEADLESS_TIER));
+        assert!(
+            mtg_contracts::kir::definition_tiers(definition)
+                .unwrap()
+                .admits(HEADLESS_TIER)
+        );
         if !mtg_contracts::kir::definition_tiers(definition)
+            .unwrap()
             .admits(mtg_contracts::kir::ExecutionTier::HeadlessQualified)
         {
             below_headless_qualified += 1;
@@ -459,6 +464,7 @@ fn stage1d_foundations_projection_earns_the_headless_qualified_tier() {
         let definition = profile.catalog().definition_by_oracle_id(id).unwrap();
         assert!(
             mtg_contracts::kir::definition_tiers(definition)
+                .unwrap()
                 .admits(mtg_contracts::kir::ExecutionTier::HeadlessQualified),
             "{}",
             definition.name

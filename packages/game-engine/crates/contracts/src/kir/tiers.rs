@@ -371,12 +371,15 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
     }
 }
 
-/// The audited kernel cells of every program of a definition. Every
-/// admitted definition's nodes check; a node that does not occupies no cell
-/// and the definition does not execute.
-pub fn definition_cells(d: &Definition) -> BTreeSet<Cell> {
+/// The audited kernel cells of every program of a definition. A node that
+/// does not check occupies no cell: its error is returned, so an invalid
+/// definition can never be read as one that earned a tier.
+pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     let mut cells = BTreeSet::new();
-    let mut add = |p: &SpellProgram, context: Context, event: Option<&TriggerCondition>| {
+    let mut add = |p: &SpellProgram,
+                   context: Context,
+                   event: Option<&TriggerCondition>|
+     -> Result<(), KirError> {
         let env = Env {
             context,
             targets: &p.targets,
@@ -384,44 +387,48 @@ pub fn definition_cells(d: &Definition) -> BTreeSet<Cell> {
             announced_x: false,
         };
         for Instruction::Kernel { node, .. } in &p.instructions {
-            if let Ok(derived) = check(node, &env) {
-                cells.extend(derived.cells);
-            }
+            cells.extend(check(node, &env)?.cells);
         }
+        Ok(())
     };
     if let Some(p) = &d.spell {
-        add(p, Context::Spell, None);
+        add(p, Context::Spell, None)?;
     }
     for a in &d.activated {
-        add(&a.program, Context::Activated, None);
+        add(&a.program, Context::Activated, None)?;
     }
     for a in &d.triggered {
-        add(&a.program, Context::Triggered, Some(&a.condition));
+        add(&a.program, Context::Triggered, Some(&a.condition))?;
     }
-    cells
+    Ok(cells)
 }
 
 /// What keeps a definition below `tier`: the surfaces (by capability) and
 /// kernel cells that have not earned it. Both empty means the definition
-/// earns the tier, the meet over its cells.
-pub fn unqualified(d: &Definition, tier: ExecutionTier) -> (Vec<Capability>, Vec<Cell>) {
-    (
+/// earns the tier, the meet over its cells. A node that does not check is
+/// an error, never a qualified cell.
+pub fn unqualified(
+    d: &Definition,
+    tier: ExecutionTier,
+) -> Result<(Vec<Capability>, Vec<Cell>), KirError> {
+    Ok((
         d.requirements()
             .into_iter()
             .filter(|c| !surface_tiers(*c).admits(tier))
             .collect(),
-        definition_cells(d)
+        definition_cells(d)?
             .into_iter()
             .filter(|c| !cell_tiers(*c).admits(tier))
             .collect(),
-    )
+    ))
 }
 
-/// The tiers a definition has earned: the meet over its surfaces and cells.
-pub fn definition_tiers(d: &Definition) -> Tiers {
-    d.requirements()
+/// The tiers a definition has earned: the meet over its surfaces and cells,
+/// or the check error of a node that occupies no cell.
+pub fn definition_tiers(d: &Definition) -> Result<Tiers, KirError> {
+    Ok(d.requirements()
         .into_iter()
         .map(surface_tiers)
-        .chain(definition_cells(d).into_iter().map(cell_tiers))
-        .fold(Tiers::ALL, Tiers::meet)
+        .chain(definition_cells(d)?.into_iter().map(cell_tiers))
+        .fold(Tiers::ALL, Tiers::meet))
 }

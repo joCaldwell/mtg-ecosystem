@@ -71,6 +71,18 @@ fn target_occurrences_name_their_qualifier() {
             .expect_err("qualified target");
         assert_eq!(code(failure), expected);
     }
+    // An explicit null is never an absent term (CR 601.2c: no printed
+    // qualifier is dropped): "target creature" with a null controller or
+    // "other" term rejects instead of lowering as an unqualified creature.
+    for (field, expected) in [
+        ("control", "operand:object:null:control"),
+        ("other", "operand:object:null:other"),
+    ] {
+        let mut what = json!({"ref":"target","filter":{"types":["creature"]},
+            "count":{"amount":"fixed","value":1},"selectionId":"line:0:1"});
+        what["filter"][field] = serde_json::Value::Null;
+        assert_eq!(code(object(&what).unwrap_err()), expected);
+    }
     // A set is not a target occurrence.
     let all = object(&json!({"ref":"all","filter":{"types":["creature"]}})).unwrap();
     let failure = bind_permanent_target(&mut program(), &mut BTreeMap::new(), &all).unwrap_err();
@@ -162,4 +174,24 @@ fn verbs_without_a_module_name_their_effect_tag() {
     )
     .unwrap_err();
     assert_eq!(code(failure), "verb:scry:unlowered");
+}
+
+#[test]
+fn counter_recipients_decode_as_generated_objects() {
+    // CR 608.2c: "put a +1/+1 counter on it" names a pronoun recipient; the
+    // step reaches its verb and rejects under the recipient's own code.
+    let sentence: Sentence = serde_json::from_value(json!({"steps":[
+        {"effect":"put-counters","on":{"ref":"it"},"counter":{"type":"+1/+1"},
+         "count":{"amount":"fixed","value":1}}]}))
+    .unwrap();
+    let failure = append_spell_effects(
+        &mut program(),
+        &[sentence],
+        0,
+        &mut BTreeMap::new(),
+        PlayerBinding::Unbound,
+        Context::Activated,
+    )
+    .unwrap_err();
+    assert_eq!(code(failure), "operand:target:ref_it");
 }

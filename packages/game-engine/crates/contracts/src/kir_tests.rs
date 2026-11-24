@@ -1107,12 +1107,15 @@ fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
         .into_iter()
         .find(|d| d.name == "Grizzly Bears")
         .unwrap();
-    assert_eq!(definition_tiers(&bears), Tiers::ALL);
-    assert_eq!(unqualified(&bears, T::Hosting), (vec![], vec![]));
+    assert_eq!(definition_tiers(&bears).unwrap(), Tiers::ALL);
+    assert_eq!(unqualified(&bears, T::Hosting).unwrap(), (vec![], vec![]));
     // A keyword reviewed for hosting only lowers the definition to hosting.
     bears.keywords.push(crate::KeywordAbility::Flying);
-    assert_eq!(definition_tiers(&bears), Tiers::HOSTING);
-    assert_eq!(unqualified(&bears, T::Search).0, vec![Capability::FlyingV1]);
+    assert_eq!(definition_tiers(&bears).unwrap(), Tiers::HOSTING);
+    assert_eq!(
+        unqualified(&bears, T::Search).unwrap().0,
+        vec![Capability::FlyingV1]
+    );
     // A kernel cell that executes but has passed no review keeps the
     // definition at executes, whatever its surfaces earned.
     bears.keywords.clear();
@@ -1138,14 +1141,44 @@ fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
         },
     });
     assert_eq!(
-        definition_cells(&bears),
+        definition_cells(&bears).unwrap(),
         BTreeSet::from([Cell::LifeEachOpponent])
     );
-    assert!(!definition_tiers(&bears).admits(T::HeadlessQualified));
-    assert!(definition_tiers(&bears).admits(T::Executes));
+    assert!(
+        !definition_tiers(&bears)
+            .unwrap()
+            .admits(T::HeadlessQualified)
+    );
+    assert!(definition_tiers(&bears).unwrap().admits(T::Executes));
     assert!(
         unqualified(&bears, T::HeadlessQualified)
+            .unwrap()
             .1
             .contains(&Cell::LifeEachOpponent)
     );
+}
+
+#[test]
+fn tier_helpers_never_qualify_a_node_that_does_not_check() {
+    use ExecutionTier as T;
+    // CR 109.5: a spell's "you" is its controller, never an ability's; this
+    // unvalidated spell's node does not check, so it earns no tier at all.
+    let mut spell = crate::Catalog::read(include_str!("../../../tests/fixtures/expected-ir.json"))
+        .unwrap()
+        .definitions
+        .into_iter()
+        .find(|d| d.name == "Grizzly Bears")
+        .unwrap();
+    spell.spell.as_mut().unwrap().instructions = vec![crate::Instruction::act(
+        Verb::GainLife {
+            player: PlayerExpr::you(Context::Activated),
+            amount: Amount::fixed(2),
+        },
+        0,
+    )];
+    assert!(matches!(definition_cells(&spell), Err(KirError::Scope(_))));
+    assert!(definition_tiers(&spell).is_err());
+    for tier in [T::Executes, T::HeadlessQualified, T::Search, T::Hosting] {
+        assert!(unqualified(&spell, tier).is_err());
+    }
 }

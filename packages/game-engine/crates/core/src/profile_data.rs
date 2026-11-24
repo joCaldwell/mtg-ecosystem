@@ -208,7 +208,8 @@ impl MatchProfile {
         let mut capabilities = BTreeSet::new();
         let mut cells = BTreeSet::new();
         for d in &catalog.definitions {
-            let (surfaces, kernel) = kir::unqualified(d, tier);
+            let (surfaces, kernel) = kir::unqualified(d, tier)
+                .map_err(|e| ProfileError::from(format!("{}: {e}", d.name)))?;
             capabilities.extend(surfaces);
             cells.extend(kernel);
         }

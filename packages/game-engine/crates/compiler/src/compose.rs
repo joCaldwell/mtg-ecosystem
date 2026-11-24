@@ -507,7 +507,19 @@ fn compose(
     {
         binding_gate(resolution.complete(), &mut deferred)?;
         binding_gate(resolution.references(&printed), &mut deferred)?;
-        binding_gate(resolution.covers(&printed), &mut deferred)?;
+        // Every unaccounted step is its own binding blocker; `lower`
+        // rejects at the first.
+        match resolution.unaccounted_steps(&printed) {
+            Err(failure) => binding_gate(Err(failure), &mut deferred)?,
+            Ok(steps) => {
+                for (_, _, effect) in steps {
+                    binding_gate(
+                        Err(unsupported("resolution", format!("step:{effect}"))),
+                        &mut deferred,
+                    )?;
+                }
+            }
+        }
         binding_gate(resolution.referenced(&printed), &mut deferred)?;
     }
     let types = type_line::parse_source(&source.type_line, &source.layout)?;

@@ -124,6 +124,23 @@ class DeckHarnessTests(unittest.TestCase):
         self.assertEqual('W1 attachments', decks.family('ref:attached-to:static'))
         self.assertEqual('Parser residue', decks.family('resolution:diagnostic_unsupported_scope'))
 
+    def test_printed_optionality_is_a_control_flow_blocker(self):
+        snapshot = self.write('decks.json', {'deckCount': 1, 'decks': [{'id': 1, 'name': 'Test', 'cards': [
+            {'oracle_id': 'may', 'quantity': 2}, {'oracle_id': 'scry', 'quantity': 1}]}]})
+        archive = self.write('archive.jsonl', {})
+        os.environ['FAKE_STATUSES'] = json.dumps({k: ['unsupported', 'x'] for k in ('may', 'scry')})
+        os.environ['FAKE_BLOCKERS'] = json.dumps({'may': ['true', ['verb:draw:optional']],
+                                                  'scry': ['true', ['verb:scry:unlowered']]})
+        out = self.dir / 'optional'
+        self.assertEqual(0, decks.main(['coverage', str(self.sim), '--out', str(out), '--decks', str(snapshot),
+                                        '--archive', str(archive), '--all']))
+        rows = {row['family']: row for row in json.loads((out / 'report.json').read_text())['families']}
+        control = rows['W5 step results, may, if, up to, for each']
+        operands = rows['W6 operand totality for existing verbs']
+        self.assertEqual((2, 1), (control['deck_slots_sole'], control['archive_sole']))
+        self.assertEqual((1, 1), (operands['deck_slots_sole'], operands['archive_sole']))
+        self.assertEqual('W6 operand totality for existing verbs', decks.family('verb:damage:optional_target'))
+
     def bench(self, out, *extra):
         return decks.main(['bench', str(self.sim), '--bulk-artifact', str(self.dir), '--manifest-sha', 'f' * 64,
                            '--a', str(self.dir / 'a.json'), '--games', '8', '--out', str(self.dir / out), *extra])
