@@ -38,7 +38,12 @@ fn hand(g: &Game, seat: u8) -> usize {
         .rules
         .objects
         .values()
-        .filter(|o| o.zone == (Zone::Hand { owner: PlayerId(seat) }))
+        .filter(|o| {
+            o.zone
+                == (Zone::Hand {
+                    owner: PlayerId(seat),
+                })
+        })
         .count()
 }
 
@@ -73,8 +78,12 @@ fn choose(g: &mut Game, player: u8, accept: bool) {
     );
     checked(g);
     let flag = if accept { Flag::Accept } else { Flag::Decline };
-    g.respond(d.player, d.id, d.pick_one(&Candidate::Flag { flag }).unwrap())
-        .unwrap();
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Flag { flag }).unwrap(),
+    )
+    .unwrap();
 }
 
 /// Seat 0 casts Grizzly Bears (card 0) with its two Forests (cards 1-2).

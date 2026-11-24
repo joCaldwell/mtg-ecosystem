@@ -149,8 +149,7 @@ pub(super) fn peel(effects: &[Value]) -> Result<Peeled, Failure> {
                     unless,
                 },
             });
-        } else if fields.contains_key("conditionKind") || fields.contains_key("conditionPosition")
-        {
+        } else if fields.contains_key("conditionKind") || fields.contains_key("conditionPosition") {
             return reject("condition_kind");
         }
         sentences.push(Value::Object(core));
@@ -172,9 +171,12 @@ fn paid_sentence(sentence: &Value, next: Option<&Value>) -> Option<&'static str>
     (fields.len() == 1
         && step["effect"] == "pay-cost"
         && step["optional"] == true
-        && step_fields
-            .keys()
-            .all(|k| matches!(k.as_str(), "effect" | "who" | "costs" | "optional" | "decidedBy"))
+        && step_fields.keys().all(|k| {
+            matches!(
+                k.as_str(),
+                "effect" | "who" | "costs" | "optional" | "decidedBy"
+            )
+        })
         && step_fields.contains_key("who")
         && next.get("conditionKind") == Some(&Value::from("if"))
         && !next.contains_key("conditionPosition")
@@ -245,11 +247,10 @@ fn peel_step(
                 return reject("for_each_shape");
             }
             let mut core = step.clone();
-            core.as_object_mut()
-                .expect("step object")
-                .remove("forEach");
+            core.as_object_mut().expect("step object").remove("forEach");
             steps.push(core);
-            let var = u32::try_from(wraps.len()).map_err(|_| invalid("compose.control", "wraps"))?;
+            let var =
+                u32::try_from(wraps.len()).map_err(|_| invalid("compose.control", "wraps"))?;
             wraps.push(Wrap {
                 sentence,
                 start,
@@ -374,12 +375,10 @@ impl Site<'_> {
         }
         let payer = self.player(&format!("{path}/condition/who"))?;
         let implicit = format!("{path}/condition/cost/0/payer");
-        if let Some(other) = self.resolution.control_player(
-            self.index,
-            self.printed,
-            &implicit,
-            self.context,
-        )? && other != payer
+        if let Some(other) =
+            self.resolution
+                .control_player(self.index, self.printed, &implicit, self.context)?
+            && other != payer
         {
             return reject("payer_disagrees");
         }
@@ -430,10 +429,7 @@ impl Site<'_> {
                 })
             }
             Some("you-do" | "you-dont") => reject("you_do"),
-            Some(other) => Err(unsupported(
-                "compose.control",
-                format!("condition:{other}"),
-            )),
+            Some(other) => Err(unsupported("compose.control", format!("condition:{other}"))),
             None => reject("condition_shape"),
         }
     }
@@ -488,10 +484,7 @@ fn payment(cost: &Value) -> Result<Payment, Failure> {
                 },
             })
         }
-        Some(other) => Err(unsupported(
-            "compose.control",
-            format!("payment:{other}"),
-        )),
+        Some(other) => Err(unsupported("compose.control", format!("payment:{other}"))),
         None => reject("payment_shape"),
     }
 }
@@ -612,7 +605,12 @@ pub(super) fn apply(
         kind: Option<&'w Kind>,
         children: Vec<Tree<'w>>,
     }
-    fn insert<'w>(tree: &mut Tree<'w>, start: usize, end: usize, kind: &'w Kind) -> Result<(), Failure> {
+    fn insert<'w>(
+        tree: &mut Tree<'w>,
+        start: usize,
+        end: usize,
+        kind: &'w Kind,
+    ) -> Result<(), Failure> {
         if let Some(last) = tree.children.last_mut()
             && start < last.end
         {
@@ -643,13 +641,18 @@ pub(super) fn apply(
         Some(Instruction::Kernel { source_block, .. }) => *source_block,
         None => return reject("empty_wrapped_range"),
     };
-    if block
-        .iter()
-        .any(|Instruction::Kernel { source_block: b, .. }| *b != source_block)
-    {
+    if block.iter().any(
+        |Instruction::Kernel {
+             source_block: b, ..
+         }| *b != source_block,
+    ) {
         return reject("mixed_source_blocks");
     }
-    fn render(tree: &Tree<'_>, block: &[Instruction], site: &Site<'_>) -> Result<Vec<Node>, Failure> {
+    fn render(
+        tree: &Tree<'_>,
+        block: &[Instruction],
+        site: &Site<'_>,
+    ) -> Result<Vec<Node>, Failure> {
         let mut nodes = vec![];
         let mut at = tree.start;
         let mut children = tree.children.iter().peekable();

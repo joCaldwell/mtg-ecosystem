@@ -730,7 +730,8 @@ fn compose(
                     };
                     let base = before.instructions.len();
                     control::apply(&peeled, &site, &mut program.instructions, base, |prefix| {
-                        let (mut scratch, mut scratch_slots) = (before.clone(), before_slots.clone());
+                        let (mut scratch, mut scratch_slots) =
+                            (before.clone(), before_slots.clone());
                         lower(&mut scratch, &mut scratch_slots, prefix)?;
                         Ok(scratch.instructions.len() - base)
                     })?;

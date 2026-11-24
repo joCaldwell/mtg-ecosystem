@@ -834,9 +834,11 @@ fn executes_only(definition: &Definition) {
     ] {
         assert!(!tiers.admits(tier), "{} leaks {tier:?}", definition.name);
     }
-    assert!(kir::definition_cells(definition)
-        .unwrap()
-        .contains(&kir::Cell::Control));
+    assert!(
+        kir::definition_cells(definition)
+            .unwrap()
+            .contains(&kir::Cell::Control)
+    );
 }
 
 fn only_node(program: &SpellProgram) -> &kir::Node {
@@ -887,16 +889,19 @@ fn printed_may_unless_and_if_lower_to_kernel_control_nodes() {
     // The condition is read on resolution (CR 608.2c); the return is plain.
     let machinations = composed(TEMPORAL_MACHINATIONS);
     let spell = machinations.spell.as_ref().unwrap();
-    let [Instruction::Kernel { node: first, .. }, Instruction::Kernel { node: second, .. }] =
-        spell.instructions.as_slice()
+    let [
+        Instruction::Kernel { node: first, .. },
+        Instruction::Kernel { node: second, .. },
+    ] = spell.instructions.as_slice()
     else {
         panic!("{spell:?}");
     };
     assert!(matches!(first, Node::Do(Verb::Move { .. })));
     let Node::If {
-        condition: kir::Cond::Exists {
-            set: SetExpr::Matching { zone, filter },
-        },
+        condition:
+            kir::Cond::Exists {
+                set: SetExpr::Matching { zone, filter },
+            },
         then,
         otherwise: None,
     } = second

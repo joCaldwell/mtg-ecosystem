@@ -533,11 +533,7 @@ fn if_pays_scenario() -> Prepared {
     )
     .unwrap();
     // A payment node is control: it earns no tier above Executes.
-    assert!(
-        derived
-            .cells
-            .contains(&mtg_contracts::kir::Cell::Control)
-    );
+    assert!(derived.cells.contains(&mtg_contracts::kir::Cell::Control));
     program.instructions = vec![Instruction::Kernel {
         node,
         source_block: 0,
@@ -617,11 +613,9 @@ fn declining_an_if_pays_offer_skips_its_node() {
     let mut game = super::formats_tests::cast_edict(if_pays_scenario());
     let before = game.state.rules.players[0].life.clone();
     for _ in 0..2 {
-        let decline = game
-            .next_test_decision()
-            .select(Candidate::Flag {
-                flag: Flag::Decline,
-            });
+        let decline = game.next_test_decision().select(Candidate::Flag {
+            flag: Flag::Decline,
+        });
         answer(&mut game, decline);
         game.validate_state().unwrap();
     }
