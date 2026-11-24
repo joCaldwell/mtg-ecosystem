@@ -175,6 +175,28 @@ land-play usage atomically. Paid land-search continuations retain ownership,
 privacy and recovery. Fetch activations atomically tap, pay life and sacrifice the source
 before typed search; paid roots retain LKI through source-owner departure.
 
+### Mana abilities
+
+A mana ability (CR 605.1a) is a tap cost, optionally with a mana cost paid
+through a nested activation (Signets) or a life payment (CR 119.4), and one
+production: fixed symbols, any color, commander color, N mana of one color
+chosen from a printed list (duals, tri-lands, "any one color"), or one mana of
+a type the controller's or opponents' lands could produce. CR 106.7 is the
+least fixed point over battlefield lands, each read relative to its own
+controller from intrinsic and printed abilities, ignoring costs; it does not
+depend on object order. If a departure leaves no defined type while the color
+is being chosen, the paid ability adds no mana. A source with an intrinsic
+and a printed ability, or several printed ones, first asks which to activate
+(CR 605.3a). After adding mana the ability performs its Kernel riders in
+order: damage to its controller through the ordinary damage transaction, or
+life gain (CR 605.3b, 608.2c). A nested activation's payment rechecks every
+outer cost before the spend decision.
+
+Reversal (CR 733.1) restores receipt-recorded mana, taps and counters. An
+activation that paid life or performed riders is kept, and with it every
+activation of that attempt. Spend-restricted mana has no producer and no spend
+answer, so payment never counts or spends it (CR 106.6).
+
 ## Casting, costs, targets and stack
 
 Fixed mana-producing spells and exact per-permanent mana multipliers use the
@@ -459,9 +481,9 @@ the derived decisions equal the capability lists they replaced.
 | --- | --- |
 | Instruction × stack object | A checked KIR node with operands bound in its spell, activated or triggered context. Unsupported operands and verbs reject. |
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
-| Cost × route | Tap, mana, source sacrifice, one sacrificed permanent of a type, type union or subtype, and tap/mana/sacrifice combinations, only where that announcement route pays the complete cost (CR 602.2b). |
+| Cost × route | Tap, mana, source sacrifice, one sacrificed permanent of a type, type union or subtype, tap/mana/sacrifice combinations, and untargeted tap, pay life and sacrifice the source, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | Self entry of any permanent type, self dies, becomes tapped, beginning steps, casts, attacks, damage to a player, other creature entries, creature deaths and controlled land entries, without intervening conditions. |
-| Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; tap-only fixed/any/commander-color mana; evergreen keywords without parameters. |
+| Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
 | Card shell | A single-face normal card with a fixed cost and complete bound source. Unsupported shells and keywords reject. |
 

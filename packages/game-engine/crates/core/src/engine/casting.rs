@@ -318,6 +318,8 @@ impl RulesTxn {
         if stack.id != cast.stack_id || !self.is_live(stack.controller) {
             return Err("casting reversal source/player invariant".into());
         }
+        // CR 733.1: a kept activation (life paid, riders) keeps the whole set.
+        let undo_mana = undo_mana && mana_permanents::reversible_receipts(&cast.mana_activations);
         if undo_mana && !cast.mana_activations.is_empty() {
             let mut children = vec![];
             for receipt in cast.mana_activations.iter().rev() {

@@ -260,8 +260,11 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                     Some(Route::Player) => false,
                 }
         }
+        // A life payment is a mana-ability cost only; no stack activation
+        // pays it as part of a composite cost.
         ActivationCost::Composite { costs } => {
             costs.remove_source_plus_one_counters.is_none()
+                && costs.pay_life.is_none()
                 && costs.mana.as_ref().is_none_or(mana_ok)
                 && (costs.tap || costs.sacrifice)
                 && match route {
@@ -272,9 +275,13 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                     Some(Route::Player) => false,
                 }
         }
-        ActivationCost::DiscardSource { .. } | ActivationCost::TapPayLifeSacrificeSource { .. } => {
-            false
+        // CR 118.3, 119.4, 701.21a: "{T}, Pay N life, Sacrifice [this]" is
+        // paid as one ordered batch at activation; with no announcement the
+        // runtime validates every term before paying any.
+        ActivationCost::TapPayLifeSacrificeSource { life } => {
+            route.is_none() && !life.is_negative()
         }
+        ActivationCost::DiscardSource { .. } => false,
     };
     if !payable {
         let route = match route {
@@ -359,23 +366,47 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     program(&a.program, Context::Triggered, Some(&a.condition))
 }
 
-/// The mana row: tap-only fixed, any-color or commander-color production.
+/// The mana row: a tap ability of a creature, artifact or land that adds
+/// fixed, chosen, any-color, commander-color or "could produce" mana, may
+/// also cost mana (CR 605.3a, 601.2g-h) or life (CR 119.4), and may perform
+/// admitted riders after adding mana ([`kir::mana_rider`]).
 /// CR 605.1a, 605.3: mana abilities do not use the stack.
 fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
+    let distinct = |colors: &[Color]| {
+        colors
+            .iter()
+            .enumerate()
+            .all(|(i, c)| !colors[..i].contains(c))
+    };
     if !matches!(
         d.characteristics.kind,
         CardKind::Creature | CardKind::Artifact | CardKind::Land
     ) || !a.costs.tap
         || a.costs.sacrifice
-        || a.costs.mana.is_some()
+        || a.costs
+            .mana
+            .as_ref()
+            .is_some_and(|m| m.generic.is_negative() || m.colored.contains(&Color::C))
+        || a.costs
+            .pay_life
+            .as_ref()
+            .is_some_and(|life| *life < Quantity::from(1))
         || a.costs.remove_source_plus_one_counters.is_some()
         || a.restriction.is_some()
         || !match &a.production {
             ManaProduction::Fixed { symbols } => !symbols.is_empty(),
-            ManaProduction::AnyColor | ManaProduction::CommanderColor => true,
+            ManaProduction::AnyColor
+            | ManaProduction::CommanderColor
+            | ManaProduction::LandsCouldProduce { .. } => true,
+            ManaProduction::Choose { colors, amount } => {
+                colors.len() >= 2 && distinct(colors) && *amount >= Quantity::from(1)
+            }
         }
     {
         return cell("mana", name(&a.production));
+    }
+    if let Some(error) = a.riders.iter().find_map(|r| kir::mana_rider(r).err()) {
+        return cell("mana", format!("rider:{error}"));
     }
     Ok(())
 }
@@ -456,6 +487,15 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
             return Err("invalid source label provenance".into());
         }
     }
+    surfaces(d)
+}
+
+/// The surface rows alone: card shell, keywords, statics, mana abilities,
+/// activated and triggered abilities and the spell program. The public tier
+/// queries run these, so a definition whose surface no runtime executes
+/// earns no tier, however its capabilities and cells are reviewed.
+pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
+    let c = &d.characteristics;
     // Whole-card characteristics the composition tables do not describe
     // reject: second faces, hybrid and X costs, snow, attachments and Sagas.
     // CR 205.4: the basic supertype is admitted only on a land, whose shell
@@ -617,6 +657,150 @@ mod tests {
     }
     fn damage() -> Instruction {
         Instruction::damage_target(0, kir::Amount::Fixed { value: 1.into() }, 0)
+    }
+
+    /// CR 118.3, 119.4: a life payment is a mana-ability cost only. A
+    /// deserialized stack activation whose composite cost pays life is not
+    /// admitted at any tier, so it can never keep the reviewed composite
+    /// cost's Hosting tier.
+    #[test]
+    fn composite_activation_life_payment_is_rejected() {
+        let tap = |pay_life: Option<Quantity>| {
+            with(|d| {
+                d.activated.push(ability(
+                    ActivationCost::Composite {
+                        costs: PermanentActivationCosts {
+                            remove_source_plus_one_counters: None,
+                            tap: true,
+                            mana: Some(ManaCost {
+                                generic: 1.into(),
+                                colored: vec![],
+                            }),
+                            sacrifice: true,
+                            pay_life,
+                        },
+                    },
+                    program(vec![gain(Context::Activated)], vec![]),
+                ))
+            })
+        };
+        tap(None).validate().unwrap();
+        let mut json = serde_json::to_value(tap(None)).unwrap();
+        json["activated"][0]["cost"]["composite"]["costs"]["pay_life"] =
+            serde_json::to_value(Quantity::from(1)).unwrap();
+        let forged: Definition = serde_json::from_value(json).unwrap();
+        assert_eq!(forged, tap(Some(1.into())));
+        assert!(
+            forged
+                .validate()
+                .unwrap_err()
+                .contains("cell:cost:composite")
+        );
+        assert!(validate(&forged).is_err());
+        // The public tier queries agree: the forged surface earns no tier
+        // and is never reported as having no Hosting blockers.
+        assert!(
+            kir::definition_tiers(&tap(None))
+                .unwrap()
+                .admits(kir::ExecutionTier::Hosting)
+        );
+        assert!(matches!(
+            kir::definition_tiers(&forged),
+            Err(kir::KirError::Unaudited(detail)) if detail.contains("cell:cost:composite")
+        ));
+        assert!(kir::unqualified(&forged, kir::ExecutionTier::Hosting).is_err());
+        assert!(kir::definition_cells(&forged).is_err());
+    }
+
+    /// The new mana shapes execute only: their cells start at Executes and
+    /// every rider outside `kir::mana_rider` rejects the mana row.
+    #[test]
+    fn mana_ability_shapes_are_executes_only_cells() {
+        let mana =
+            |production: ManaProduction, riders: Vec<kir::Node>, pay_life: Option<Quantity>| {
+                let mut d = with(|d| {
+                    d.mana_abilities.push(ManaAbility {
+                        restriction: None,
+                        costs: PermanentActivationCosts {
+                            remove_source_plus_one_counters: None,
+                            tap: true,
+                            mana: None,
+                            sacrifice: false,
+                            pay_life,
+                        },
+                        production,
+                        riders,
+                        source_block: 0,
+                    })
+                });
+                d.capabilities = d.requirements();
+                d
+            };
+        let fixed = mana(
+            ManaProduction::Fixed {
+                symbols: vec![Color::G],
+            },
+            vec![],
+            None,
+        );
+        fixed.validate().unwrap();
+        assert!(kir::definition_cells(&fixed).unwrap().is_empty());
+        let damage = kir::Node::Do(Verb::Damage {
+            source: kir::Ref::Source,
+            to: kir::DamageTo::Ref {
+                who: kir::Ref::controller(Context::Activated),
+            },
+            amount: kir::Amount::Fixed { value: 1.into() },
+        });
+        let pain = mana(
+            ManaProduction::Choose {
+                colors: vec![Color::G, Color::U],
+                amount: 1.into(),
+            },
+            vec![damage],
+            Some(1.into()),
+        );
+        pain.validate().unwrap();
+        let cells = kir::definition_cells(&pain).unwrap();
+        assert_eq!(
+            cells,
+            BTreeSet::from([
+                kir::Cell::ManaChoose,
+                kir::Cell::ManaAbilityPayLife,
+                kir::Cell::ManaRiderDamageController
+            ])
+        );
+        let tiers = kir::definition_tiers(&pain).unwrap();
+        for tier in [
+            kir::ExecutionTier::HeadlessQualified,
+            kir::ExecutionTier::Search,
+            kir::ExecutionTier::Hosting,
+        ] {
+            assert!(!tiers.admits(tier));
+        }
+        // A rider read from a target or another player is outside the row.
+        let opponent = kir::Node::Do(Verb::GainLife {
+            player: PlayerExpr::EachOpponent,
+            amount: kir::Amount::Fixed { value: 1.into() },
+        });
+        let grove = mana(
+            ManaProduction::Fixed {
+                symbols: vec![Color::G],
+            },
+            vec![opponent],
+            None,
+        );
+        assert!(grove.validate().unwrap_err().contains("cell:mana:rider"));
+        // A one-color choice is a fixed production, not a choice.
+        let single = mana(
+            ManaProduction::Choose {
+                colors: vec![Color::G],
+                amount: 1.into(),
+            },
+            vec![],
+            None,
+        );
+        assert!(single.validate().is_err());
     }
 
     #[test]

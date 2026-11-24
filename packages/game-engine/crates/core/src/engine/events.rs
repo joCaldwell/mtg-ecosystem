@@ -2187,19 +2187,13 @@ impl RulesTxn {
                 spending,
                 restricted,
             } => {
-                let (pool, buckets) = if restricted.is_empty() {
-                    (self.selected_payment_pool(*player, cost, spending)?, None)
-                } else {
-                    let consumer = self.allocated_payment_consumer(*player)?;
-                    let (pool, buckets) =
-                        self.allocated_mana_pools(*player, cost, spending, restricted, consumer)?;
-                    (pool, Some(buckets))
-                };
-                let p = &mut self.rules_mut().players[player.0 as usize];
-                p.mana = pool;
-                if let Some(buckets) = buckets {
-                    p.restricted_mana = buckets;
+                // CR 106.6, 601.2h: `Pay { Spend }` offers only unrestricted
+                // mana, so no decision produces a restricted allocation.
+                if !restricted.is_empty() {
+                    return Err("restricted mana has no spend decision".into());
                 }
+                let pool = self.selected_payment_pool(*player, cost, spending)?;
+                self.rules_mut().players[player.0 as usize].mana = pool;
                 EventOutcome::ManaPaidSelected {
                     player: *player,
                     cost: cost.clone(),

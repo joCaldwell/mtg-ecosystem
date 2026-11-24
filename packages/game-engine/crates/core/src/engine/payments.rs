@@ -48,17 +48,26 @@ impl RulesTxn {
         }
     }
 
-    fn can_pay_announced(&self, stack: &StackInstance, cost: &ManaCost) -> Result<bool, String> {
-        let player = stack.controller;
-        if self.state.rules.players[player.0 as usize]
-            .restricted_mana
-            .is_empty()
-        {
-            return self.can_pay(player, cost);
-        }
-        self.can_pay_with_restricted(player, cost, self.announced_mana_consumer(stack)?)
+    /// CR 106.6, 601.2g-h: whether the controller can pay with mana the
+    /// `Pay { Spend }` decision offers. That decision lists only the
+    /// unrestricted pool (`api/decision/build.rs`), and no admitted ability
+    /// adds spend-restricted mana, so restricted mana is never counted here:
+    /// this answer and the spend decision cannot disagree.
+    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    pub(super) fn can_pay_offered(
+        &self,
+        player: PlayerId,
+        cost: &ManaCost,
+    ) -> Result<bool, String> {
+        self.can_pay(player, cost)
     }
 
+    fn can_pay_announced(&self, stack: &StackInstance, cost: &ManaCost) -> Result<bool, String> {
+        self.can_pay_offered(stack.controller, cost)
+    }
+
+    /// The spend answer carries only unrestricted mana; a restricted
+    /// allocation has no decision that could produce it.
     fn validate_announced_allocation(
         &self,
         stack: &StackInstance,
@@ -66,17 +75,10 @@ impl RulesTxn {
         spending: &BTreeMap<Color, Quantity>,
         restricted: &[RestrictedMana],
     ) -> Result<(), String> {
-        if restricted.is_empty() {
-            self.selected_payment_pool(stack.controller, cost, spending)?;
-        } else {
-            self.allocated_mana_pools(
-                stack.controller,
-                cost,
-                spending,
-                restricted,
-                self.announced_mana_consumer(stack)?,
-            )?;
+        if !restricted.is_empty() {
+            return Err("restricted mana has no spend decision".into());
         }
+        self.selected_payment_pool(stack.controller, cost, spending)?;
         Ok(())
     }
 
@@ -256,16 +258,7 @@ impl RulesTxn {
                 .clone()
                 .ok_or("missing explicit mana spending")?;
             let restricted = cast.spending_restricted.clone();
-            if let Err(error) =
-                self.validate_announced_allocation(&stack, &cost, &spending, &restricted)
-            {
-                if restricted.is_empty() {
-                    return Err(error);
-                }
-                // Departure during sacrifice selection can change which
-                // restrictions the current spell qualifies for.
-                return Ok(AnnouncementPayment::Unpayable);
-            }
+            self.validate_announced_allocation(&stack, &cost, &spending, &restricted)?;
             ProposedEvent::PayManaSelected {
                 player: stack.controller,
                 cost: cost.clone(),

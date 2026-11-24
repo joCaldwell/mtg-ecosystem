@@ -44,7 +44,7 @@ impl RulesTxn {
             Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } => match &mut transaction.continuation {
                 DamageContinuation::Instruction { frame } => Some(frame),
-                DamageContinuation::Combat => None,
+                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
             },
             Frame::CommanderReturn { continuation, .. } => match continuation {
                 CommanderContinuation::BoardReturn { frame, .. }

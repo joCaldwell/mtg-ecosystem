@@ -652,9 +652,14 @@ fn compose(
                         })
                         .collect();
                     let mana = match &typed {
-                        Some(typed) => {
-                            lower_mana_ability(&costs, typed, restriction.as_ref(), block, kind)?
-                        }
+                        Some(typed) => lower_mana_ability(
+                            &costs,
+                            typed,
+                            restriction.as_ref(),
+                            block,
+                            kind,
+                            &|noun| card.is_self(noun),
+                        )?,
                         None => None,
                     };
                     if let Some(mana) = mana {

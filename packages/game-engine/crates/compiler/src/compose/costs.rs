@@ -3,7 +3,8 @@
 //! atomic cost is rejected; no term is dropped or reordered.
 //!
 //! CR 602.1a (cost before the colon), 118.1-118.3 (costs are paid in full),
-//! 701.21a (sacrifice), 106.1/107.4 (mana symbols) - pinned 2026-09-25.
+//! 701.21a (sacrifice), 106.1/107.4 (mana symbols), 119.4 (paying life) -
+//! pinned 2026-09-25.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
@@ -13,6 +14,7 @@ struct Terms {
     mana: Option<ManaCost>,
     sacrifice_source: bool,
     sacrifice_other: Option<SacrificeFilter>,
+    life: Option<Quantity>,
 }
 
 fn duplicate() -> Failure {
@@ -147,10 +149,17 @@ fn term(card: &Card<'_>, terms: &mut Terms, cost: &SourceCost) -> Result<(), Fai
                 return Err(duplicate());
             }
         }
-        SourceCost::PayLife { .. } | SourceCost::RemoveCounters { .. } => {
+        // CR 119.4: a fixed positive life payment.
+        SourceCost::PayLife { amount } => {
+            let life = fixed_positive_amount(&typed(amount, "amount")?)?;
+            if terms.life.replace(life).is_some() {
+                return Err(duplicate());
+            }
+        }
+        SourceCost::RemoveCounters { .. } => {
             return Err(unsupported(
                 "compose.cost",
-                "life and counter costs outside the block tables",
+                "counter costs outside the block tables",
             ));
         }
     }
@@ -206,7 +215,19 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
         mana,
         sacrifice_source,
         sacrifice_other,
+        life,
     } = terms;
+    if let Some(life) = life {
+        // CR 602.2b, 118.3: "{T}, Pay N life, Sacrifice [this]" is the one
+        // life-paying term set the runtime pays as an atomic ordered batch.
+        return match (tap, mana, sacrifice_source, sacrifice_other) {
+            (true, None, true, None) => Ok(ActivationCost::TapPayLifeSacrificeSource { life }),
+            _ => Err(unsupported(
+                "compose.cost",
+                "life payment combines only with tapping and sacrificing the source",
+            )),
+        };
+    }
     Ok(match (tap, mana, sacrifice_source, sacrifice_other) {
         (false, mana, false, Some(filter)) => ActivationCost::SacrificePermanent {
             count: 1,
@@ -230,6 +251,7 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
                 tap,
                 mana,
                 sacrifice,
+                pay_life: None,
             },
         },
     })

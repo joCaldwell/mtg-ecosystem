@@ -8,12 +8,14 @@ mod destroy;
 mod discard;
 mod draw;
 mod life;
+mod mana;
 mod mill;
 mod modify;
 mod move_zone;
 mod sacrifice;
 mod tap;
 mod tokens;
+pub use mana::{mana_ability_cells, mana_rider};
 
 // ---------------------------------------------------------------------------
 // Checking
