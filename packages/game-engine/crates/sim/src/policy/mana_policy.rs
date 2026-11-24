@@ -142,7 +142,11 @@ fn available_tap(object: &mtg_core::VisibleObject) -> bool {
             || object.keywords.contains(&KeywordAbility::Haste))
 }
 
-fn usable_printed(ability: &ManaAbility, object: &mtg_core::VisibleObject, life: &Quantity) -> bool {
+fn usable_printed(
+    ability: &ManaAbility,
+    object: &mtg_core::VisibleObject,
+    life: &Quantity,
+) -> bool {
     !ability.costs.sacrifice
         && ability.costs.pay_life.as_ref().is_none_or(|n| life >= n)
         && (!ability.costs.tap || available_tap(object))

@@ -54,7 +54,11 @@ impl RulesTxn {
     /// adds spend-restricted mana, so restricted mana is never counted here:
     /// this answer and the spend decision cannot disagree.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(super) fn can_pay_offered(&self, player: PlayerId, cost: &ManaCost) -> Result<bool, String> {
+    pub(super) fn can_pay_offered(
+        &self,
+        player: PlayerId,
+        cost: &ManaCost,
+    ) -> Result<bool, String> {
         self.can_pay(player, cost)
     }
 

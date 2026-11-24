@@ -8,24 +8,44 @@ use super::*;
 use mtg_contracts::{ManaLandController, ManaProduction};
 use mtg_core::ManaAbilityIdentity;
 
-const MANIFEST: &str = include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json");
+const MANIFEST: &str =
+    include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json");
 const SOURCES: [&str; 9] = [
-    include_str!("../../../../../tests/fixtures/phase1-r4/14d2979d-5728-42d7-a027-0eb1f754655d.json"),
-    include_str!("../../../../../tests/fixtures/phase1-r4/40b36bc6-c185-4bda-99e7-0118953c2c97.json"),
-    include_str!("../../../../../tests/fixtures/phase1-r4/27b047e3-0d41-45e2-98e9-9391d7923a1e.json"),
-    include_str!("../../../../../tests/fixtures/phase1-r4/67f43ac6-2a58-4b53-b5d7-0330e2a252e2.json"),
-    include_str!("../../../../../tests/fixtures/phase1-r4/9a02a9a7-39d9-4763-85d3-747a0540b60b.json"),
-    include_str!("../../../../../tests/fixtures/phase1-r4/2fda4fe7-8b0c-489c-a000-6d358e614e34.json"),
-    include_str!("../../../../../tests/fixtures/phase1-r4/d0ee5bdc-2b69-4b73-9a20-ffcc18783b29.json"),
-    include_str!("../../../../../tests/fixtures/phase1-r4/1b3d7fce-e9fe-4176-9d9a-472415826cdd.json"),
-    include_str!("../../../../../tests/fixtures/phase1-r4/7190debf-708b-4f41-9714-0d0a5bd5a74e.json"),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/14d2979d-5728-42d7-a027-0eb1f754655d.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/40b36bc6-c185-4bda-99e7-0118953c2c97.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/27b047e3-0d41-45e2-98e9-9391d7923a1e.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/67f43ac6-2a58-4b53-b5d7-0330e2a252e2.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/9a02a9a7-39d9-4763-85d3-747a0540b60b.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/2fda4fe7-8b0c-489c-a000-6d358e614e34.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/d0ee5bdc-2b69-4b73-9a20-ffcc18783b29.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/1b3d7fce-e9fe-4176-9d9a-472415826cdd.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/7190debf-708b-4f41-9714-0d0a5bd5a74e.json"
+    ),
 ];
 const LIFE: i64 = 20;
 
 fn catalog() -> Catalog {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in SOURCES {
-        let mtg_compiler::CompileResult::Lowered { definition } = mtg_witness::compile(MANIFEST, raw)
+        let mtg_compiler::CompileResult::Lowered { definition } =
+            mtg_witness::compile(MANIFEST, raw)
         else {
             panic!("complete W3 mana source must lower");
         };
@@ -143,10 +163,12 @@ fn w3_sources_lower_to_exact_productions_costs_and_riders() {
     );
     assert!(matches!(
         talisman.mana_abilities[1].riders.as_slice(),
-        [mtg_contracts::kir::Node::Do(mtg_contracts::kir::Verb::Damage {
-            source: mtg_contracts::kir::Ref::Source,
-            ..
-        })]
+        [mtg_contracts::kir::Node::Do(
+            mtg_contracts::kir::Verb::Damage {
+                source: mtg_contracts::kir::Ref::Source,
+                ..
+            }
+        )]
     ));
     assert_eq!(
         definition(&c, "Gilded Lotus").mana_abilities[0].production,
@@ -172,15 +194,24 @@ fn w3_sources_lower_to_exact_productions_costs_and_riders() {
     let signet = &definition(&c, "Izzet Signet").mana_abilities[0];
     assert!(signet.costs.tap && signet.costs.mana.is_some());
     assert_eq!(
-        definition(&c, "Mana Confluence").mana_abilities[0].costs.pay_life,
+        definition(&c, "Mana Confluence").mana_abilities[0]
+            .costs
+            .pay_life,
         Some(1.into())
     );
     assert_eq!(
-        definition(&c, "Pristine Talisman").mana_abilities[0].riders.len(),
+        definition(&c, "Pristine Talisman").mana_abilities[0]
+            .riders
+            .len(),
         1
     );
     // CR 605.3a: every new shape executes, and none is yet reviewed above it.
-    for name in ["Talisman of Creativity", "Exotic Orchard", "Izzet Signet", "Mana Confluence"] {
+    for name in [
+        "Talisman of Creativity",
+        "Exotic Orchard",
+        "Izzet Signet",
+        "Mana Confluence",
+    ] {
         let tiers = mtg_contracts::kir::definition_tiers(definition(&c, name)).unwrap();
         assert!(!tiers.admits(mtg_contracts::kir::ExecutionTier::HeadlessQualified));
     }
@@ -332,7 +363,10 @@ fn reflecting_pool_offers_every_type_its_controllers_lands_could_produce() {
 /// activation before it adds {U}{R}.
 #[test]
 fn signet_pays_its_mana_cost_through_a_nested_activation() {
-    let mut g = Game::new(prepared(&[("Izzet Signet", 0, false), ("Forest", 0, false)]));
+    let mut g = Game::new(prepared(&[
+        ("Izzet Signet", 0, false),
+        ("Forest", 0, false),
+    ]));
     activate(&mut g, 0);
     let d = Driver::request(&mut g, u64::MAX);
     assert!(matches!(d.reason, Reason::Mana { .. }), "{:?}", d.reason);
@@ -368,7 +402,10 @@ fn signet_pays_its_mana_cost_through_a_nested_activation() {
 /// CR 601.2g-h: an unpaid Signet cost pays nothing; undo restores the land.
 #[test]
 fn unpaid_signet_activation_is_cancelled_without_paying_its_tap_cost() {
-    let mut g = Game::new(prepared(&[("Izzet Signet", 0, false), ("Forest", 0, false)]));
+    let mut g = Game::new(prepared(&[
+        ("Izzet Signet", 0, false),
+        ("Forest", 0, false),
+    ]));
     activate(&mut g, 0);
     Driver::answer(
         &mut g,
@@ -493,7 +530,10 @@ fn reversal_keeps_a_damaging_activation_and_undoes_a_plain_one() {
 /// a spend decision no answer satisfies.
 #[test]
 fn restricted_mana_never_reaches_a_spend_decision() {
-    let mut g = Game::new(prepared(&[("Izzet Signet", 0, false), ("Forest", 0, false)]));
+    let mut g = Game::new(prepared(&[
+        ("Izzet Signet", 0, false),
+        ("Forest", 0, false),
+    ]));
     let forest = Driver::object(&g, 1);
     g.apply_occurrence(&ProposedEvent::AddMana {
         player: PlayerId(0),

@@ -43,7 +43,9 @@ pub fn mana_rider(node: &Node) -> Result<Cell, KirError> {
 pub fn mana_ability_cells(d: &Definition, a: &ManaAbility) -> Result<BTreeSet<Cell>, KirError> {
     let mut cells = BTreeSet::new();
     match &a.production {
-        ManaProduction::Fixed { .. } | ManaProduction::AnyColor | ManaProduction::CommanderColor => {}
+        ManaProduction::Fixed { .. }
+        | ManaProduction::AnyColor
+        | ManaProduction::CommanderColor => {}
         ManaProduction::Choose { .. } => {
             cells.insert(Cell::ManaChoose);
         }
