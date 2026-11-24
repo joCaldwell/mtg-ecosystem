@@ -447,6 +447,35 @@ incarnation, including when the source also has supported intrinsic keywords
 (CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
 counters.
 
+### Printed choices, payments and conditions
+
+A printed "may", "if", "unless" or "up to" must have its AST carrier somewhere
+in the block: an optional step or group, a permission, a modal repeat, a
+condition, a countered or created replacement, an "if able" requirement, or a
+zero-minimum count. A block without one rejects as
+`printed_choice_limit_or_condition_disagrees_with_the_ast`. Composition peels
+control off ordinary steps and lowers the core through the verb lowerers. It
+then nests each wrapped step range under one kernel control node:
+
+| Printed | Kernel IR |
+| --- | --- |
+| "you may [step]", "[player] may [steps]" (`decidedBy` names a chooser other than you) | `Optional` (CR 608.2d) |
+| "[step] unless [player] pays {N} / N life" | `UnlessPays` (CR 118.12a) |
+| "[player] may pay [cost]. If they do / don't, [steps]" | `IfPays` / `UnlessPays` (CR 118.12) |
+| "if/unless you control a [filter]", "N or more [filter]", not/all of these | `If` over a battlefield count read on resolution (CR 608.2c) |
+| "draw a card for each [permanent]" | `ForEach` of single draws (CR 121.2) |
+
+A chooser or payer must resolve to the block's controller or its trigger's
+kernel event player. `IfPays` performs its node only after the payer pays. A
+payer who has left the game pays nothing. A destroy step keeps its own optional
+row. These cards earn `Executes` only (`Cell::Control`, `kernel_control_v1`).
+Everything else rejects under `compose.control:<detail>`:
+- "if you do" after an action other than a payment
+- another condition, a nested leaf that needs persistent provenance
+- `forEach` on any verb other than draw
+
+Modal steps (W14) and "up to N" targets also reject.
+
 ## Derived capability tiers
 
 Every compiled card is lowered one printed block at a time. Its definition
