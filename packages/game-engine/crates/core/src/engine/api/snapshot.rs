@@ -64,14 +64,6 @@ impl Game {
         }
         let mut game = RulesTxn {
             opening_library_sizes: prepared.config.initial_library_sizes(),
-            catalog_has_land_type_grant: prepared.has_land_type_grant(),
-            catalog_has_land_reclamation: prepared
-                .catalog
-                .definitions
-                .iter()
-                .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
-            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
-            catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
             definition_index: RulesTxn::definition_index(&prepared.catalog, &s.state.rules.cards),
             prepared: Arc::new(prepared),
             state: s.state,

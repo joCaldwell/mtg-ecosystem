@@ -171,39 +171,6 @@ pub(crate) mod source_dies_nonland_destroy {
         )
     }
 }
-pub(crate) mod cast_origin {
-    use super::*;
-    fn hand() -> Value {
-        json!({"zone":"hand","owner":"your"})
-    }
-
-    fn unsupported_shape() -> Failure {
-        unsupported(
-            "trigger.cast.origin",
-            "requires the complete controller cast-origin draw source and reference bindings",
-        )
-    }
-
-    pub(crate) fn lower_condition(
-        caster: CasterRelation,
-        spell: TypePredicate,
-        zone: &Value,
-    ) -> Result<TriggerCondition, Failure> {
-        if caster != CasterRelation::Controller
-            || spell != (TypePredicate::Any {})
-            || *zone != hand()
-        {
-            return Err(unsupported_shape());
-        }
-        Ok(TriggerCondition::SpellCastWithOrigin {
-            caster,
-            spell,
-            origin: CastOriginPredicate::Outside {
-                zone: CastOriginZone::ControllerHand,
-            },
-        })
-    }
-}
 pub(crate) mod land_entry_gain_life {
     use super::*;
     pub(crate) fn lower(
@@ -271,7 +238,6 @@ pub(crate) mod land_entry_gain_life {
                     },
                     source_block(block)?,
                 )],
-                modes: vec![],
             },
         }))
     }
@@ -288,15 +254,14 @@ pub(crate) mod power_entry_draw {
     pub(crate) fn minimum_power(
         filter: &TriggerFilter,
         count: &Count,
-        entering: bool,
     ) -> Result<Quantity, Failure> {
         let Some([property]) = &filter.properties else {
             return Err(shape_error());
         };
         if !fixed_one(count)
             || filter.types != ["creature"]
-            || filter.control.as_deref() != entering.then_some("you")
-            || (!entering && filter.other)
+            || filter.control.is_some()
+            || filter.other
             || filter.non_token
             || !filter.non_subtypes.is_empty()
             || property.property != "power"

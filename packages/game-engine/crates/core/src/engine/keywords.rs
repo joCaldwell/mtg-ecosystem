@@ -131,14 +131,10 @@ impl RulesTxn {
             if object.controller != attack.defender || !object.present_on_battlefield() {
                 return false;
             }
-            let Ok(mut land) = self.structural_characteristics(object.id) else {
+            let Ok(land) = self.structural_characteristics(object.id) else {
                 return false;
             };
             land.has_type(CardKind::Land)
-                && (!self.catalog_has_land_type_grant
-                    || self
-                        .apply_land_subtype_grants(object.id, land.to_mut())
-                        .is_ok())
                 && land_types
                     .iter()
                     .any(|land_type| land.subtypes.iter().any(|s| s == land_type.subtype()))
@@ -163,11 +159,7 @@ impl RulesTxn {
                 let fact = appearances
                     .get(&damage.id)
                     .ok_or("missing damage-time source appearance")?;
-                self.validate_characteristic_identity(
-                    fact.object,
-                    fact.zone,
-                    &fact.characteristics,
-                )?;
+                self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
                 if fact.object != damage.source.object
                     || fact.owner != damage.source.owner
                     || fact.default_controller != damage.source.default_controller

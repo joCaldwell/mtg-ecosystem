@@ -26,18 +26,6 @@ fn zero_cost() -> ManaCost {
         colored: vec![],
     }
 }
-fn program_mode(p: &SpellProgram, mode: Option<u32>) -> &SpellProgram {
-    mode.and_then(|m| p.modes.get(m as usize))
-        .map(|m| &m.program)
-        .unwrap_or(p)
-}
-
-fn requires_copy_entry_choice(definition: &Definition) -> bool {
-    definition
-        .static_abilities
-        .iter()
-        .any(|ability| ability.effect == StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn)
-}
 
 fn announced_x(instruction: &I) -> bool {
     matches!(
@@ -73,8 +61,7 @@ fn entity_matches(visible: &VisibleEntityTarget, target: &PlayerTargetEntity) ->
     }
 }
 fn blocking_pump_program(p: &SpellProgram) -> bool {
-    p.modes.is_empty()
-        && !p.targets.is_empty()
+    !p.targets.is_empty()
         && p.targets
             .iter()
             .all(|t| t.domain == TargetDomain::BlockingBattlefieldCreature)
@@ -130,12 +117,10 @@ fn reactive_program(p: &SpellProgram) -> bool {
             scored_wipe(i)
                 .is_some_and(|what| *what == ObjectSet::AttackingCreatures.kernel(Context::Spell))
         })
-        || p.modes.iter().any(|m| reactive_program(&m.program))
 }
 // A sole ordinary destruction has no other mandatory benefit to preserve.
 fn sole_target_destruction(p: &SpellProgram, slot: u32) -> bool {
-    p.modes.is_empty()
-        && p.targets.len() == 1
+    p.targets.len() == 1
         && matches!(p.instructions.as_slice(),
         [i] if i.target_destroy().is_some_and(|(target_slot, ..)| target_slot == slot))
 }
@@ -145,7 +130,6 @@ fn tapped_destroy_program(d: &Definition, p: &SpellProgram) -> bool {
         CardKind::Instant | CardKind::Sorcery
     ) && d.spell.as_ref() == Some(p)
         && p.resolution == SpellResolution::Instructions
-        && p.modes.is_empty()
         && p.additional_sacrifice.is_none()
         && !p.targets.is_empty()
         && p.targets.iter().all(|t| {
@@ -168,7 +152,6 @@ fn defensive_untap_spell(d: &Definition, p: &SpellProgram) -> bool {
         && d.spell.as_ref() == Some(p)
         && p.timing == SpellTiming::Instant
         && p.resolution == SpellResolution::Instructions
-        && p.modes.is_empty()
         && p.additional_sacrifice.is_none()
         && matches!(
             p.instructions.as_slice(),
@@ -193,7 +176,6 @@ fn tap_source_creature_untap(d: &Definition, p: &SpellProgram) -> bool {
         && p.timing == SpellTiming::Instant
         && p.functioning_zone == FunctioningZone::Stack
         && p.resolution == SpellResolution::Instructions
-        && p.modes.is_empty()
         && p.additional_sacrifice.is_none()
         && matches!(
             p.instructions.as_slice(),
@@ -228,11 +210,10 @@ fn contains_untap(p: &SpellProgram) -> bool {
                 what: target_object!(_)
             })
         )
-    }) || p.modes.iter().any(|m| contains_untap(&m.program))
+    })
 }
 fn activated_permanent_tap_program(d: &Definition, p: &SpellProgram) -> bool {
     d.characteristics.kind == CardKind::Artifact
-        && p.modes.is_empty()
         && p.additional_sacrifice.is_none()
         && p.timing == SpellTiming::Instant
         && p.resolution == SpellResolution::Instructions
@@ -298,7 +279,7 @@ impl Strategy<'_> {
             let d = definition(self.catalog, &o.oracle_id).ok()?;
             (d, d.spell.as_ref()?)
         };
-        Some((d, program_mode(p, s.mode)))
+        Some((d, p))
     }
     pub(super) fn top_program<'a>(
         &'a self,
@@ -333,8 +314,7 @@ impl Strategy<'_> {
     }
 
     fn harmful_attachment(&self, d: &Definition) -> bool {
-        d.static_abilities.iter().any(|a| a.effect == StaticEffect::ControlEnchantedPermanent
-            || matches!(&a.effect,
+        d.static_abilities.iter().any(|a| matches!(&a.effect,
             StaticEffect::ModifyCreatures { power, toughness, restrictions, .. }
             if power.is_negative() || toughness.is_negative() || restrictions.contains(&CreatureRestriction::CantAttackOrBlock)))
     }
@@ -632,7 +612,7 @@ impl Strategy<'_> {
                             .get(*target_slot as usize)
                             .is_some_and(|t| entity_matches(t, target))
                         {
-                            damage.add(&self.scaled_damage(v, amount));
+                            damage.add(amount);
                         }
                     }
                     i if let Some(set_damage) = i.set_damage() => {
@@ -656,7 +636,7 @@ impl Strategy<'_> {
                                 &s.x.clone().unwrap_or_default(),
                             )
                         {
-                            damage.add(&self.scaled_damage(v, &amount));
+                            damage.add(&amount);
                         }
                     }
                     _ => {}
@@ -690,7 +670,7 @@ impl Strategy<'_> {
                         .find(|o| &o.handle == h)
                         .and_then(|o| o.characteristics.as_ref()?.power.as_ref())
                     {
-                        damage.add(&self.scaled_damage(v, &power.clone().max(Quantity::zero())));
+                        damage.add(&power.clone().max(Quantity::zero()));
                     }
                 }
             }
@@ -743,7 +723,6 @@ impl Strategy<'_> {
             return true;
         }
         let amount = { self.damage_amount(v, p) };
-        let amount = self.scaled_damage(v, &amount);
         v.players.iter().any(|r| {
             r.player != v.viewer && v.live_turn_order.contains(&r.player) && r.life <= amount
         }) || v.objects.iter().any(|t| {
@@ -826,29 +805,13 @@ impl Strategy<'_> {
             })
             .unwrap_or_default()
     }
-    fn scaled_damage(&self, v: &PermittedView, amount: &Quantity) -> Quantity {
-        let mut n = amount.clone();
-        for o in &v.objects {
-            if o.zone == Zone::Battlefield
-                && definition(self.catalog, &o.oracle_id).is_ok_and(|d| {
-                    d.static_abilities
-                        .iter()
-                        .any(|a| a.effect == StaticEffect::DoubleDamageToPermanentOrPlayer)
-                })
-            {
-                let copy = n.clone();
-                n.add(&copy);
-            }
-        }
-        n
-    }
     pub(super) fn damage_target(
         &self,
         v: &PermittedView,
         p: &SpellProgram,
         candidates: &[PlayerTargetEntity],
     ) -> Option<PlayerTargetEntity> {
-        let amount = self.scaled_damage(v, &self.damage_amount(v, p));
+        let amount = self.damage_amount(v, p);
         let player = candidates
             .iter()
             .filter_map(|e| {
@@ -948,7 +911,7 @@ impl Strategy<'_> {
                     (vec![what.clone()], Some(q))
                 }
                 i if let Some(set_damage) = i.set_damage() => {
-                    let damage = self.scaled_damage(v, &self.wipe_amount(v, set_damage.amount, x)?);
+                    let damage = self.wipe_amount(v, set_damage.amount, x)?;
                     if set_damage.each_player {
                         if v.players
                             .iter()
@@ -1042,7 +1005,6 @@ impl Strategy<'_> {
                             .iter()
                             .map(|a| match &a.production {
                                 mtg_contracts::ManaProduction::Fixed { symbols } => symbols.len(),
-                                mtg_contracts::ManaProduction::OpponentLandColors => 0,
                                 _ => 1,
                             })
                             .max()
@@ -1068,7 +1030,7 @@ impl Strategy<'_> {
         // This is a bounded policy search, including on views with extended mana production.
         for n in 1..=upper.min(64) {
             let x = Quantity::from(n as i64);
-            let mut cost = self.base_cost(v, d);
+            let mut cost = d.characteristics.mana_cost.clone();
             cost.generic.add(&x);
             if mana_policy::hybrid_plan(self.catalog, v, cost, &d.characteristics.hybrid_mana)
                 .is_none()
@@ -1105,35 +1067,7 @@ impl Strategy<'_> {
         }
         chosen
     }
-    fn base_cost(&self, v: &PermittedView, d: &Definition) -> ManaCost {
-        let mut cost = d.characteristics.mana_cost.clone();
-        if d.static_abilities
-            .iter()
-            .any(|a| a.effect == StaticEffect::ReduceGenericByCreatureCount)
-        {
-            cost.generic.subtract(&Quantity::from(
-                v.objects
-                    .iter()
-                    .filter(|o| self.in_set(v, o, &ObjectSet::Creatures))
-                    .count() as i64,
-            ));
-            cost.generic = cost.generic.max(Quantity::zero());
-        }
-        cost
-    }
     fn program_ready(&self, v: &PermittedView, d: &Definition, p: &SpellProgram) -> bool {
-        if !p.modes.is_empty() {
-            let mut ready = p
-                .modes
-                .iter()
-                .filter(|m| self.program_ready(v, d, &m.program));
-            return match p.resolution {
-                SpellResolution::ChooseModes { exactly } => {
-                    ready.nth(exactly.saturating_sub(1) as usize).is_some()
-                }
-                _ => ready.next().is_some(),
-            };
-        }
         if p.instructions.iter().any(|i| {
             matches!(
                 i,
@@ -1196,14 +1130,8 @@ impl Strategy<'_> {
     }
 
     fn reactive_ready(&self, v: &PermittedView, d: &Definition, p: &SpellProgram) -> bool {
-        if !p.modes.is_empty() {
-            return p
-                .modes
-                .iter()
-                .any(|m| self.reactive_ready(v, d, &m.program));
-        }
-        // Only the ordinary nonmodal spell is recognized here. In particular,
-        // a modal child or activated program does not acquire this new policy.
+        // Only the ordinary spell is recognized here. An activated program
+        // does not acquire this policy.
         self.program_ready(v, d, p)
             && (reactive_program(p) || tapped_destroy_spell(d, p) || defensive_untap_spell(d, p))
     }
@@ -1214,31 +1142,9 @@ impl Strategy<'_> {
         o: &VisibleObject,
         d: &Definition,
     ) -> Option<PlayerResponse> {
-        // The pinned core can expose a trusted EntryCopy request without a
-        // permitted decision token. Avoid originating that continuation.
-        if requires_copy_entry_choice(d) {
-            return None;
-        }
         if self.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
             matches!(failed, PaymentAction::Cast(id, zone) if id == &d.oracle_id && *zone == o.zone)
         }) {
-            return None;
-        }
-        // The prohibition is fully public: inspect current battlefield
-        // controllers and their catalog static effects, using the retained
-        // turn owner rather than active-player presence (CR 800.4j).
-        if v.turn_owner != v.viewer
-            && v.objects.iter().any(|source| {
-                source.zone == Zone::Battlefield
-                    && !source.phased_out
-                    && source.controller == v.turn_owner
-                    && definition(self.catalog, &source.oracle_id).is_ok_and(|d| {
-                        d.static_abilities.iter().any(|a| {
-                            a.effect == StaticEffect::OpponentsCantCastDuringControllerTurn
-                        })
-                    })
-            })
-        {
             return None;
         }
         if !self.definition_ready(v, d) {
@@ -1253,7 +1159,7 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let mut cost = self.base_cost(v, d);
+        let mut cost = d.characteristics.mana_cost.clone();
         if let Some(p) = &d.spell
             && p.instructions.iter().any(announced_x)
         {
@@ -1339,118 +1245,6 @@ impl Strategy<'_> {
                         && (o.controller == v.viewer) == self.target_beneficial(d, p, slot as u32)
                 })
             })
-    }
-    pub(super) fn mode_response(
-        &self,
-        v: &PermittedView,
-        candidates: &[u32],
-        exactly: Option<u32>,
-        allow_repeat: bool,
-        one_or_more: bool,
-    ) -> Option<PlayerResponse> {
-        let first = self.choose_mode(v, candidates)?;
-        if let Some(count) = exactly {
-            let modes = if allow_repeat {
-                let (_, root) = self.top_program(v)?;
-                // Repeated direct damage can advance the game with every occurrence.
-                let repeat = candidates
-                    .iter()
-                    .copied()
-                    .find(|i| {
-                        root.modes.get(*i as usize).is_some_and(|m| {
-                            matches!(
-                                m.program.instructions.as_slice(),
-                                [kernel!(Damage {
-                                    to: kir::DamageTo::Ref {
-                                        who: kir::Ref::Target { slot: _ }
-                                    },
-                                    amount: fixed!(_),
-                                    ..
-                                })]
-                            ) && m
-                                .program
-                                .targets
-                                .first()
-                                .is_some_and(|t| t.domain == TargetDomain::AnyDamageTarget)
-                        })
-                    })
-                    .unwrap_or(first);
-                vec![repeat; count as usize]
-            } else {
-                let mut available = candidates.to_vec();
-                let mut chosen = Vec::new();
-                for _ in 0..count {
-                    let next = self.choose_mode(v, &available)?;
-                    chosen.push(next);
-                    available.retain(|index| *index != next);
-                }
-                chosen.sort_unstable();
-                chosen
-            };
-            Some(PlayerResponse::ModeSubset { modes })
-        } else if one_or_more {
-            Some(PlayerResponse::ModeSubset { modes: vec![first] })
-        } else {
-            Some(PlayerResponse::Modes { mode: first })
-        }
-    }
-
-    pub(super) fn occurrence_program<'a>(
-        &'a self,
-        v: &PermittedView,
-        occurrences: &[TargetSpec],
-    ) -> Option<(&'a Definition, &'a SpellProgram)> {
-        let (d, p) = self.top_program(v)?;
-        let selected = &v.stack.last()?.selected_modes;
-        let mut children = selected
-            .iter()
-            .filter_map(|&index| p.modes.get(index as usize));
-        let program = children
-            .find(|child| child.program.targets == occurrences)
-            .or_else(|| {
-                p.modes
-                    .iter()
-                    .find(|child| child.program.targets == occurrences)
-            })
-            .map_or(p, |child| &child.program);
-        Some((d, program))
-    }
-    pub(super) fn choose_mode(&self, v: &PermittedView, candidates: &[u32]) -> Option<u32> {
-        let (d, p) = self.top_program(v)?;
-        candidates
-            .iter()
-            .copied()
-            .find(|n| {
-                p.modes
-                    .get(*n as usize)
-                    .is_some_and(|m| self.reactive_ready(v, d, &m.program))
-            })
-            .or_else(|| {
-                candidates
-                    .iter()
-                    .copied()
-                    .filter_map(|index| {
-                        let child = &p.modes.get(index as usize)?.program;
-                        self.program_ready(v, d, child).then_some((index, child))
-                    })
-                    .min_by_key(|(index, child)| {
-                        let impact = child.instructions.iter().any(|i| {
-                            matches!(
-                                i,
-                                kernel!(CreateTokens {
-                                    token: kir::TokenSpec::Creature { .. },
-                                    ..
-                                }) | kernel!(Draw {
-                                    player: kir::PlayerExpr::Is { .. },
-                                    amount: fixed!(_)
-                                })
-                            )
-                        });
-                        (!impact, *index)
-                    })
-                    .map(|(index, _)| index)
-            })
-            .or_else(|| candidates.first().copied())
     }
     fn activation(
         &mut self,
@@ -1599,7 +1393,6 @@ impl Strategy<'_> {
         self.mana_plan.clear();
         self.mana_ability = None;
         self.mana_color = None;
-        self.mana_combination = None;
         self.hybrid_choices.clear();
         if let Some(r) = self.reactive_spells(v)? {
             return Ok(r);
@@ -1654,50 +1447,26 @@ impl Strategy<'_> {
             }
             return Ok(PlayerResponse::Pass);
         }
-        let mut land_allowance =
-            v.effects
-                .iter()
-                .fold(Quantity::from(1), |mut allowance, effect| {
-                    if let mtg_core::VisibleEffect::AdditionalLandPlays {
-                        origin,
-                        count,
-                        expires_in_cleanup_of_turn,
-                        ..
-                    } = effect
-                        && origin.controller == v.viewer
-                        && *expires_in_cleanup_of_turn == v.turn.number
-                    {
-                        allowance.add(count);
-                    }
-                    allowance
-                });
-        let mut graveyard_lands = false;
-        for object in &v.objects {
-            if object.zone != Zone::Battlefield
-                || object.controller != v.viewer
-                || object.phased_out
-            {
-                continue;
-            }
-            let identity = object
-                .copied_values
-                .as_ref()
-                .and_then(|copy| copy.oracle_id.as_deref())
-                .unwrap_or(&object.oracle_id);
-            if let Ok(definition) = definition(self.catalog, identity) {
-                for ability in &definition.static_abilities {
-                    match ability.effect {
-                        StaticEffect::AdditionalLandPlay => land_allowance.add(&1.into()),
-                        StaticEffect::PlayLandsFromOwnGraveyard => graveyard_lands = true,
-                        _ => {}
-                    }
+        let land_allowance = v
+            .effects
+            .iter()
+            .fold(Quantity::from(1), |mut allowance, effect| {
+                if let mtg_core::VisibleEffect::AdditionalLandPlays {
+                    origin,
+                    count,
+                    expires_in_cleanup_of_turn,
+                    ..
+                } = effect
+                    && origin.controller == v.viewer
+                    && *expires_in_cleanup_of_turn == v.turn.number
+                {
+                    allowance.add(count);
                 }
-            }
-        }
+                allowance
+            });
         if Quantity::from(i64::from(v.turn.lands_played)) < land_allowance
             && let Some(o) = v.objects.iter().find(|o| {
-                (in_viewers_hand(v, o)
-                    || (graveyard_lands && o.zone == (Zone::Graveyard { owner: v.viewer })))
+                in_viewers_hand(v, o)
                     && definition(self.catalog, &o.oracle_id)
                         .is_ok_and(|d| d.characteristics.kind == CardKind::Land)
             })

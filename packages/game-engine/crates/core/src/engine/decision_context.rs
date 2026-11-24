@@ -51,8 +51,7 @@ impl RulesTxn {
         ability: EffectiveTriggerAbility,
     ) -> Option<&str> {
         let (source, index, is_static) = match ability {
-            EffectiveTriggerAbility::DelayedChapter { chapter: index, .. }
-            | EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
+            EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
         };
         let labels = self
             .copiable_definition(source)
@@ -97,11 +96,7 @@ impl RulesTxn {
                 oracle_id: self.visible_ability_oracle_id(object).ok()?.into(),
                 object: Some(self.handle_for(viewer, object).ok()?),
                 ability: None,
-                text: if self.has_granted_land_mana(object).unwrap_or(false) {
-                    format!("Tap: Add {symbols}. (Available land mana abilities.)")
-                } else {
-                    format!("Tap: Add {symbols}. (Intrinsic basic land mana ability.)")
-                },
+                text: format!("Tap: Add {symbols}. (Intrinsic basic land mana ability.)"),
             });
         }
         let labels = definition.source_labels.as_ref()?;
@@ -135,9 +130,7 @@ impl RulesTxn {
             StackKind::Spell => (DecisionSourceKind::Spell, None),
             StackKind::Activated { ability, .. } => (DecisionSourceKind::Activated, Some(ability)),
             StackKind::Triggered {
-                ability:
-                    EffectiveTriggerAbility::Intrinsic { index }
-                    | EffectiveTriggerAbility::DelayedChapter { chapter: index, .. },
+                ability: EffectiveTriggerAbility::Intrinsic { index },
                 ..
             } => (DecisionSourceKind::Triggered, Some(index)),
         };
@@ -178,52 +171,6 @@ impl RulesTxn {
             });
         }
 
-        if matches!(
-            request,
-            PlayerRequest::EntryCopy { .. } | PlayerRequest::EntryAttachment { .. }
-        ) && let Some(
-            Request::EntryCopy { player, source, .. }
-            | Request::EntryAttachment { player, source, .. },
-        ) = self.land_entry_request().ok()?
-            && player == viewer
-        {
-            let definition = self.definition(source.card).ok()?;
-            let ability = definition.static_abilities.iter().position(|ability| {
-                ability.effect == StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn
-            })?;
-            return self.effect_decision_context(
-                viewer,
-                &EffectKey::Static {
-                    source,
-                    ability: u32::try_from(ability).ok()?,
-                },
-            );
-        }
-        if let Some((player, source, ability)) = self.land_entry_offer().ok()? {
-            return (player == viewer)
-                .then(|| {
-                    self.effect_decision_context(viewer, &EffectKey::Static { source, ability })
-                })
-                .flatten();
-        }
-
-        if let Frame::DamageEffects { transaction } = &self.state.rules.frame
-            && let DamageContinuation::Mana { activation, .. } = &transaction.continuation
-            && activation.player == viewer
-        {
-            return self
-                .described_source(
-                    viewer,
-                    activation.source,
-                    DecisionSourceKind::ManaAbility,
-                    Some(activation.ability_index()),
-                )
-                .map(|source| DecisionContext {
-                    source: Some(source),
-                    ..Default::default()
-                });
-        }
-
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, request) {
@@ -241,7 +188,7 @@ impl RulesTxn {
                         viewer,
                         activation.source,
                         DecisionSourceKind::ManaAbility,
-                        Some(activation.ability_index()),
+                        Some(0),
                     )
                     .map(|source| DecisionContext {
                         source: Some(source),
@@ -322,34 +269,19 @@ impl RulesTxn {
         viewer: PlayerId,
         effect: &EffectKey,
     ) -> Option<DecisionContext> {
-        let (object, source_block, mode) = match effect {
+        let (object, source_block) = match effect {
             // SourceLabels maps indexed static abilities but has no block
             // mapping for intrinsic keywords. The candidate names its source.
             EffectKey::IntrinsicProtectionFromEverything { .. }
             | EffectKey::IntrinsicProtectionFromColor { .. } => return None,
-            EffectKey::Static { source, ability } => {
-                let labels = self
-                    .copiable_definition(*source)
-                    .ok()?
-                    .source_labels
-                    .as_ref()?;
-                (*source, *labels.statics.get(*ability as usize)?, None)
-            }
             EffectKey::Resolved { id } => {
                 let effect = self.state.rules.effects.iter().find(|e| e.id == *id)?;
-                (
-                    effect.origin.source,
-                    effect.origin.source_block,
-                    effect.origin.mode,
-                )
+                (effect.origin.source, effect.origin.source_block)
             }
         };
         let definition = self.copiable_definition(object).ok()?;
         let labels = definition.source_labels.as_ref()?;
-        let text = mode
-            .and_then(|mode| labels.spell_modes.get(mode as usize))
-            .or_else(|| labels.blocks.get(source_block as usize))?
-            .clone();
+        let text = labels.blocks.get(source_block as usize)?.clone();
         Some(DecisionContext {
             source: Some(DecisionSource {
                 kind: DecisionSourceKind::Effect,

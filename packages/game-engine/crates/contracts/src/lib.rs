@@ -1,39 +1,20 @@
 //! Executable Card IR contracts. No rules execution or parser dependency.
 mod basic_landwalk;
 mod builders;
-mod mana_combination;
-pub use mana_combination::{MANA_COMBINATION_COLORS, validate_mana_combination};
-
-mod bestow;
-pub use bestow::{BestowCastPlan, BestowForm, bestow_alternative};
-
-mod opening_placement;
-pub use opening_placement::opening_placement_ability;
 
 mod color_hybrid_cost;
 pub use color_hybrid_cost::{ColorHybridSymbol, HybridPayment, color_hybrid_cost};
 mod cycling;
-pub mod paid_restricted_land;
 
 pub use cycling::hand_discard_draw_activation;
 
-mod hybrid_filter_mana;
 mod mana_spend;
 
 pub use mana_spend::{ManaSpellSubtype, ManaSpellTraits, ManaSpendRestriction, RestrictedMana};
-mod listed_mana_choice;
-mod pain_mana;
-pub use hybrid_filter_mana::hybrid_filter_colors;
-pub use pain_mana::disjoint_pain_mana_family;
 
 pub mod cast_subtype;
 
 pub mod fixed_color_protection;
-pub mod modal_land;
-pub mod transform_face;
-
-mod successor_tuck;
-pub use successor_tuck::{LibraryPosition, SourceMoveOrigin, TriggerSuccessorZone};
 
 mod typed_land_search;
 pub use typed_land_search::BasicLandType;
@@ -52,16 +33,11 @@ mod controller_library;
 pub mod equipped_trigger;
 pub mod impulse_play;
 
-pub mod mana_tap_observer;
-pub use mana_tap_observer::ManaTapFilter;
-
 pub use impulse_play::PlayWindow;
 pub mod resolution_mana;
 pub use resolution_mana::ManaResolutionQuantity;
 pub mod predefined_tokens;
 pub use predefined_tokens::PredefinedToken;
-
-pub mod modal_targets;
 
 pub mod scoped_static;
 
@@ -1137,122 +1113,14 @@ impl CounterPlacementModification {
         result
     }
 }
-/// Disjoint predicates on a completed spell; history is global to its caster.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "eligibility", rename_all = "snake_case", deny_unknown_fields)]
-pub enum SpellCascadeEligibility {
-    ManaValueAtLeast { minimum: Quantity },
-    FirstCastEachTurn {},
-    FirstCastFromExileEachTurn {},
-}
-impl SpellCascadeEligibility {}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum HandSizeScope {
-    Controller,
-    Opponents,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
-    AdditionalLandPlay,
-    PlayLandsFromOwnGraveyard,
-    KeepUnspentManaAsBlack,
-    Bestow {
-        cost: ManaCost,
-        program: SpellProgram,
-    },
-    GrantControllerLandsAnyColorMana,
-    MayBeginOnBattlefield,
-    GrantControllerLandsAllBasicTypes,
-    ControllerNonlandsAllColors,
-    /// CR 109.5/113.10/601.2i/611.3/613.1f/702.85: each vector slot
-    /// grants one independent cascade to this controller's qualifying cast.
-    /// The program is exactly canonical_cascade_program, never arbitrary code.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    GrantSpellCascade {
-        eligibility: SpellCascadeEligibility,
-        program: SpellProgram,
-    },
-    /// CR 109.5/110.2a/608.2d/702.85b: this battlefield source's controller
-    /// may put one of their resolving cascade's still-exiled lands onto the
-    /// battlefield tapped before the cascade cast decision.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    CascadeLandEntry,
-    /// CR 400.7, 614.12a, 707.2, 707.5–6: before entry, the entering
-    /// controller may choose a current battlefield incarnation that entered
-    /// this turn and apply its copiable values to the entering object.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    EnterAsCopyOfPermanentEnteredThisTurn,
-    /// CR 109.5/303.4m/611.3/613.1b: the current source controller controls
-    /// its enchanted permanent; this is not a frozen invocation recipient.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    ControlEnchantedPermanent,
-    /// CR 101.2/109.5/601.3: opponents cannot cast during this controller's turn.
-    OpponentsCantCastDuringControllerTurn,
-    /// CR 109.5, 611.3, 613.11, 514.1: the battlefield source's current
-    /// controller has no maximum hand size.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    UnlimitedControllerHandSize,
-    /// CR 109.5, 611.3, 613.11, 514.1: subtract from the maximum hand size
-    /// of the current controller or that controller's opponents.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    ReduceMaximumHandSize {
-        scope: HandSizeScope,
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
-    },
-    /// CR 109.5, 611.3, 613.11, 514.1: add to the maximum hand size
-    /// of the current controller of this battlefield source.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    IncreaseMaximumHandSize {
-        #[schemars(with = "String", regex(pattern = r"^[1-9][0-9]*$"))]
-        amount: Quantity,
-    },
     EntersTapped,
-    /// CR 109.5/205.4c/614.12: count prior basic lands of the entering controller.
-    EntersTappedUnlessControllerBasicLands {
-        minimum: Quantity,
-    },
-    /// CR 614.12: compare the entering controller's other lands in the common prior state.
-    EntersTappedUnlessControllerOtherLands {
-        comparison: LandCountComparison,
-        #[schemars(with = "String", regex(pattern = r"^(0|[1-9][0-9]*)$"))]
-        threshold: Quantity,
-    },
-    EntersTappedUnlessOpponentCount {
-        minimum: Quantity,
-    },
-    EntersTappedUnlessRevealLandTypes {
-        subtypes: [BasicLandType; 2],
-    },
-    EntersTappedUnlessControllerLandType {
-        subtype: BasicLandType,
-    },
-    EntersTappedUnlessControllerLandTypes {
-        subtypes: [BasicLandType; 2],
-    },
-    /// CR 118.4/614.12: intended controller may pay this exact entry life cost.
-    EntersTappedUnlessPayLife {
-        amount: Quantity,
-    },
-    ReduceGenericByCreatureCount,
-    ReduceSelfGenericCost {
-        per_object: Quantity,
-        count: BattlefieldCount,
-    },
     /// CR 101.2/113.6: the source spell on the stack can't be countered.
     /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     CantBeCountered,
-    /// CR 113.6b/614.1a/701.24c: replace a move of this card from any zone to
-    /// a graveyard by revealing it and shuffling it into its owner's library.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    SelfGraveyardRevealShuffle,
-    /// CR 109.5/611.3/613.1f/702.12: the current controller's other
-    /// battlefield permanents have indestructible while this source is present.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    GrantOtherControlledPermanentsIndestructible,
     ModifyCreatures {
         scope: CreatureScope,
         power: Quantity,
@@ -1260,84 +1128,12 @@ pub enum StaticEffect {
         keywords: Vec<KeywordAbility>,
         restrictions: Vec<CreatureRestriction>,
     },
-    ModifySourceByDistinctPermanentColors {
-        scope: PermanentColorScope,
-        power_per_color: Quantity,
-        toughness_per_color: Quantity,
-    },
     ControllerCreatureAnthem {
         power: Quantity,
         toughness: Quantity,
     },
-    /// A continuously reselected controller-side layer 7c modifier.
-    ControllerScopedCreatureStats {
-        filter: ControllerCreatureStatFilter,
-        other: bool,
-        power: Quantity,
-        toughness: Quantity,
-    },
-    ControllerCreaturePlusOneCounterReplacement {
-        modification: CounterPlacementModification,
-    },
-    DoubleDamageToPermanentOrPlayer,
-    /// Double damage from creatures controlled by this battlefield source's controller.
-    DoubleControllerCreatureDamageToPermanentOrPlayer,
-}
-/// Restrictions evaluated on the affected creature's earlier-layer characteristics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "selector", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ControllerCreatureStatFilter {
-    Any,
-    Artifact,
-    Subtypes { subtypes: Vec<String> },
 }
 
-/// Inclusive comparison for a common-prior land count (CR 614.12).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum LandCountComparison {
-    AtLeast,
-    AtMost,
-}
-
-/// Count current battlefield types and control, never ownership (CR 702.41).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct BattlefieldCount {
-    pub kind: CardKind,
-    pub controller: CountController,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum CountController {
-    Any,
-    Caster,
-}
-/// CR 109.5/110.1: battlefield permanents controlled by the static source's
-/// current controller or by the player who activated the mana ability.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum PermanentColorScope {
-    Controller,
-}
-impl StaticEffect {
-    /// Preserve the canonical legacy IR while sharing one arithmetic path.
-    pub fn counted_generic_reduction(&self) -> Option<(Quantity, BattlefieldCount)> {
-        match self {
-            Self::ReduceGenericByCreatureCount => Some((
-                1.into(),
-                BattlefieldCount {
-                    kind: CardKind::Creature,
-                    controller: CountController::Any,
-                },
-            )),
-            Self::ReduceSelfGenericCost { per_object, count } => {
-                Some((per_object.clone(), count.clone()))
-            }
-            _ => None,
-        }
-    }
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StaticAbility {
@@ -1380,9 +1176,6 @@ pub enum SpellTiming {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum SpellResolution {
-    ChooseModes { exactly: u32 },
-    ChooseRepeatedModes { exactly: u32 },
-    OneOrMoreModes,
     Instructions,
     Permanent,
 }
@@ -1407,13 +1200,6 @@ pub struct SpellProgram {
     pub functioning_zone: FunctioningZone,
     pub targets: Vec<TargetSpec>,
     pub instructions: Vec<Instruction>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub modes: Vec<SpellMode>,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SpellMode {
-    pub program: SpellProgram,
 }
 fn single_sacrifice() -> u32 {
     1
@@ -1467,49 +1253,13 @@ pub struct PermanentActivationCosts {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "mana", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaProduction {
-    RestrictedFixed {
-        symbols: Vec<Color>,
-        spend: ManaSpendRestriction,
-    },
-    FixedWithLifeGain {
-        symbols: Vec<Color>,
-        life: Quantity,
-    },
-    HybridFilter {
-        colors: [Color; 2],
-    },
-    GreatestControlledPowerCombination,
-    Fixed {
-        symbols: Vec<Color>,
-    },
+    Fixed { symbols: Vec<Color> },
     AnyColor,
-    AnyOneColor {
-        amount: SingleColorManaAmount,
-    },
     CommanderColor,
-    /// Add one mana of a color an opponent's land could produce.
-    OpponentLandColors,
-    /// Add one mana of every distinct color in the selected battlefield set.
-    EachPermanentColor {
-        scope: PermanentColorScope,
-    },
-    /// Add one mana of the selected color.
-    Choice {
-        colors: Vec<Color>,
-    },
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum SingleColorManaAmount {
-    Fixed { quantity: Quantity },
-    ControllerEnchantments,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ManaAbility {
-    /// Damage dealt by the source to the activating player after producing mana.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub self_damage: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub restriction: Option<ManaActivationRestriction>,
     pub costs: PermanentActivationCosts,
@@ -1541,20 +1291,6 @@ pub enum CascadeThreshold {
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
     ControlledLandEntersBattlefield,
-    DelayedControllerCreatureEntry,
-    DelayedControllerSpellCast,
-    SagaChapter {
-        number: std::num::NonZeroU32,
-    },
-    /// CR 702.85a and 702.144a: functions on the casting spell itself, on the stack.
-    SelfSpellCast,
-    /// One occurrence per damaged player and simultaneous combat-damage event.
-    GroupedDamageDealt {
-        source: DamageTriggerSource,
-        kind: TriggerDamageKind,
-        recipient: DamageTriggerRecipient,
-        source_power: DamageSourcePowerPredicate,
-    },
     DamageDealt {
         source: DamageTriggerSource,
         kind: TriggerDamageKind,
@@ -1568,56 +1304,19 @@ pub enum TriggerCondition {
         #[schemars(schema_with = "cast_spell_predicate_schema")]
         spell: TypePredicate,
     },
-    SpellCastWithOrigin {
-        caster: CasterRelation,
-        spell: TypePredicate,
-        origin: CastOriginPredicate,
-    },
     StepBegan {
         step: BeginningStep,
         turn_relation: TurnRelation,
     },
     OpponentCreatureDies,
     SelfEntersBattlefield,
-    EquippedCombatDamage,
-    EquippedDies,
     /// The exact source incarnation actually changes from untapped to tapped.
     SelfBecomesTapped,
-    ManaTapped {
-        filter: ManaTapFilter,
-    },
     /// Excludes the exact source incarnation, never every copy of its card.
     OtherCreatureEntersBattlefield,
-    /// CR 603.6a/603.10: read the entering creature's derived battlefield power
-    /// and controller immediately after the completed entry event.
-    ControlledCreatureEntersWithPower {
-        minimum_power: Quantity,
-        other: bool,
-    },
     /// The disjoint union of this creature and all other creatures dying.
     AnyCreatureDies,
     SelfDies,
-    SelfAuraToGraveyard,
-    SelfMoved {
-        from: SourceMoveOrigin,
-        to: TriggerSuccessorZone,
-    },
-}
-/// Candidate-local event-time comparison; no printed-source pronoun binding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DamageSourcePowerPredicate {
-    GreaterThanBase,
-}
-impl<'de> Deserialize<'de> for DamageSourcePowerPredicate {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        match String::deserialize(deserializer)?.as_str() {
-            "greater_than_base" => Ok(Self::GreaterThanBase),
-            _ => Err(serde::de::Error::custom(
-                "unsupported damage source power predicate",
-            )),
-        }
-    }
 }
 /// CR 120.2/120.7/603.2c: independent source, kind and recipient dimensions.
 /// Source means the observer's exact incarnation; CreatureFilter separately
@@ -1687,25 +1386,6 @@ pub enum CasterRelation {
     Controller,
     AnyPlayer,
     Opponent,
-}
-/// CR 601.2a: compare the zone the spell left during announcement.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
-pub enum CastOriginPredicate {
-    Outside { zone: CastOriginZone },
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum CastOriginZone {
-    ControllerHand,
-}
-impl<'de> Deserialize<'de> for CastOriginZone {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        match String::deserialize(deserializer)?.as_str() {
-            "controller_hand" => Ok(Self::ControllerHand),
-            _ => Err(serde::de::Error::custom("unsupported cast origin zone")),
-        }
-    }
 }
 /// Source ObjectFilter fields are conjunctive; explicit anyOf retains OR.
 /// Type membership includes additional types. Spell color uses frozen characteristics.
@@ -1807,26 +1487,13 @@ impl TriggerCondition {
             Self::StepBegan { .. } => "step_began",
             Self::CreatureAttacked { .. } => "creature_attacked",
             Self::DamageDealt { .. } => "damage_dealt",
-            Self::GroupedDamageDealt { .. } => "grouped_damage_dealt",
-            Self::DelayedControllerCreatureEntry => "delayed_controller_creature_entry",
-            Self::DelayedControllerSpellCast => "delayed_controller_spell_cast",
-            Self::SagaChapter { .. } => "saga_chapter",
-            Self::SelfSpellCast => "self_spell_cast",
-            Self::SpellCast { .. } | Self::SpellCastWithOrigin { .. } => "spell_cast",
+            Self::SpellCast { .. } => "spell_cast",
             Self::OpponentCreatureDies => "opponent_creature_dies",
             Self::SelfEntersBattlefield => "self_enters_battlefield",
-            Self::EquippedCombatDamage => "equipped_combat_damage",
-            Self::EquippedDies => "equipped_dies",
             Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
-            Self::ControlledCreatureEntersWithPower { .. } => {
-                "controlled_creature_enters_with_power"
-            }
             Self::AnyCreatureDies => "any_creature_dies",
             Self::SelfDies => "self_dies",
             Self::SelfBecomesTapped => "self_becomes_tapped",
-            Self::ManaTapped { .. } => "mana_tapped",
-            Self::SelfAuraToGraveyard => "self_aura_to_graveyard",
-            Self::SelfMoved { .. } => "self_moved",
             Self::ControlledLandEntersBattlefield => "controlled_land_enters_battlefield",
         }
     }
@@ -1999,10 +1666,6 @@ impl<'de> Deserialize<'de> for KeywordAbility {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub modal_land: Option<Box<modal_land::ModalLand>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub transform_faces: Option<Box<transform_face::TransformFaces>>,
     /// Offline compiler-owned labels; absent on historical IR and synthetic definitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_labels: Option<SourceLabels>,
@@ -2102,119 +1765,6 @@ fn static_creature_modification_valid(
                 .any(|(n, k)| restrictions[..n].contains(k)))
 }
 
-/// Nonserialized target domain of a complete admitted Aura-control definition.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum AuraControlDomain {
-    Creature,
-    Artifact,
-    Land,
-    Permanent,
-}
-impl AuraControlDomain {
-    /// CR 110.4: only permanent kinds represented by this engine are admitted.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub fn accepts(self, characteristics: &Characteristics) -> bool {
-        match self {
-            Self::Creature => characteristics.has_type(CardKind::Creature),
-            Self::Artifact => characteristics.has_type(CardKind::Artifact),
-            Self::Land => characteristics.has_type(CardKind::Land),
-            Self::Permanent => [
-                CardKind::Creature,
-                CardKind::Artifact,
-                CardKind::Land,
-                CardKind::Enchantment,
-            ]
-            .into_iter()
-            .any(|kind| characteristics.has_type(kind)),
-        }
-    }
-}
-
-/// Complete Aura-control shape, without recursive validation, capabilities or
-/// source identity dispatch. Only creature control composes with a modifier.
-/// CR 303.4a/m, 109.5, 611.3; explicit filters preserve target validation.
-/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub fn aura_control_domain(definition: &Definition) -> Option<AuraControlDomain> {
-    let c = &definition.characteristics;
-    let p = definition.spell.as_ref()?;
-    let [target] = p.targets.as_slice() else {
-        return None;
-    };
-    let target_type = match (&target.domain, &target.filter) {
-        (TargetDomain::BattlefieldCreature, None) => AuraControlDomain::Creature,
-        (TargetDomain::BattlefieldPermanent, Some(f))
-            if matches!(
-                f.types.as_slice(),
-                [] | [CardKind::Artifact] | [CardKind::Land]
-            ) && f.non_types.is_empty()
-                && f.non_colors.is_empty()
-                && !f.opponent
-                && f.power.is_none()
-                && !f.tapped =>
-        {
-            match f.types.as_slice() {
-                [] => AuraControlDomain::Permanent,
-                [CardKind::Artifact] => AuraControlDomain::Artifact,
-                [CardKind::Land] => AuraControlDomain::Land,
-                _ => unreachable!(),
-            }
-        }
-        _ => return None,
-    };
-    let valid = c.kind == CardKind::Enchantment
-        && c.additional_types.is_empty()
-        && c.subtypes == ["Aura"]
-        && !c.basic
-        && !c.legendary
-        && !c.snow
-        && c.power.is_none()
-        && c.toughness.is_none()
-        && !c.mana_cost.generic.is_negative()
-        && !definition.x_mana_cost
-        && definition.intrinsic_zone.is_none()
-        && definition.keywords.is_empty()
-        && definition.activated.is_empty()
-        && definition.mana_abilities.is_empty()
-        && definition.triggered.is_empty()
-        && (1..=2).contains(&definition.static_abilities.len())
-        && definition
-            .static_abilities
-            .iter()
-            .filter(|a| a.effect == StaticEffect::ControlEnchantedPermanent)
-            .count()
-            == 1
-        && definition.static_abilities.iter().all(|a| {
-            a.functioning_zone == FunctioningZone::Battlefield
-                && (a.effect == StaticEffect::ControlEnchantedPermanent
-                    || (target_type == AuraControlDomain::Creature
-                        && matches!(
-                            a.effect,
-                            StaticEffect::ModifyCreatures {
-                                scope: CreatureScope::Enchanted,
-                                ..
-                            }
-                        )
-                        && !attachment_modifiers::advanced(&a.effect)
-                        && static_creature_modification_valid(c.kind, false, true, &a.effect)))
-        })
-        && p.timing == SpellTiming::MainPhase
-        && p.resolution == SpellResolution::Permanent
-        && p.functioning_zone == FunctioningZone::Stack
-        && p.additional_sacrifice.is_none()
-        && p.optional_additional_costs.is_empty()
-        && p.instructions.is_empty()
-        && p.modes.is_empty()
-        && target.slot == 0
-        && !target.selection_id.is_empty()
-        && target.chooser == Chooser::Controller
-        && target.stage == EvaluationStage::Announcement;
-    valid.then_some(target_type)
-}
-/// Whether this definition has the complete narrow Aura-control shape.
-pub fn aura_control_source(definition: &Definition) -> bool {
-    aura_control_domain(definition).is_some()
-}
-
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1, Capability::ComposedAbilityV1]);
@@ -2223,9 +1773,7 @@ impl Definition {
                 set.insert(Capability::LandPlayV1);
                 if self.characteristics.basic {
                     set.insert(Capability::BasicLandManaV1);
-                } else if !self.characteristics.subtypes.is_empty()
-                    && !listed_mana_choice::descriptive_land_subtype(self)
-                {
+                } else if !self.characteristics.subtypes.is_empty() {
                     set.insert(Capability::TypedNonbasicIntrinsicManaV1);
                 }
             }
@@ -2372,7 +1920,6 @@ impl Definition {
                 }
                 TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
                 TriggerCondition::SelfDies => Capability::SelfDiesV1,
-                _ => continue, // Composition rejects unsupported events.
             };
             set.insert(trigger);
             add_program_requirements(&mut set, &ability.program);
@@ -2464,10 +2011,6 @@ fn has_destroy_permanent(program: &SpellProgram) -> bool {
         .instructions
         .iter()
         .any(|i| permanent_destroy(program, i))
-        || program
-            .modes
-            .iter()
-            .any(|mode| has_destroy_permanent(&mode.program))
 }
 fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
     program
@@ -2483,10 +2026,6 @@ fn has_permanent_owner_hand(program: &SpellProgram) -> bool {
                 .is_some_and(|target| target.domain == TargetDomain::BattlefieldPermanent),
             _ => false,
         })
-        || program
-            .modes
-            .iter()
-            .any(|mode| has_permanent_owner_hand(&mode.program))
 }
 fn has_tap(program: &SpellProgram) -> bool {
     program.instructions.iter().any(|i| {
@@ -2496,7 +2035,7 @@ fn has_tap(program: &SpellProgram) -> bool {
                 what: target_object!(_)
             })
         )
-    }) || program.modes.iter().any(|m| has_tap(&m.program))
+    })
 }
 fn has_untap(program: &SpellProgram) -> bool {
     program.instructions.iter().any(|i| {
@@ -2506,17 +2045,13 @@ fn has_untap(program: &SpellProgram) -> bool {
                 what: target_object!(_)
             })
         )
-    }) || program.modes.iter().any(|m| has_untap(&m.program))
+    })
 }
 fn has_controller_discard(program: &SpellProgram) -> bool {
     program
         .instructions
         .iter()
         .any(|i| i.controller_discard().is_some())
-        || program
-            .modes
-            .iter()
-            .any(|m| has_controller_discard(&m.program))
 }
 // Intrinsic keyword capability closure is shared by Rust and exported schema.
 fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
@@ -2652,23 +2187,15 @@ pub struct Catalog {
     pub definitions: Vec<Definition>,
 }
 impl Catalog {
-    /// Each physical source contributes its native observer/self slots and its
-    /// static grant slots once per cast, never once per recipient permanent.
-    /// Tokens/copies with abilities are outside this physical-source proof.
+    /// Each physical source contributes its native observer/self slots once
+    /// per cast, never once per recipient permanent. Tokens/copies with
+    /// abilities are outside this physical-source proof.
     pub fn cast_trigger_fanout_bound(&self, physical_sources: usize) -> Option<usize> {
         self.definitions
             .iter()
-            .try_fold(0usize, |max, d| {
-                let grants = d
-                    .static_abilities
-                    .iter()
-                    .filter(|a| matches!(a.effect, StaticEffect::GrantSpellCascade { .. }))
-                    .count();
-                d.triggered
-                    .len()
-                    .checked_add(grants)
-                    .map(|slots| max.max(slots))
-            })?
+            .map(|d| d.triggered.len())
+            .max()
+            .unwrap_or(0)
             .checked_mul(physical_sources)
     }
 

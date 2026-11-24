@@ -36,13 +36,7 @@ fn selected_program<'a>(
             .spell
             .as_ref()?
     };
-    match entry.mode {
-        Some(mode) => program
-            .modes
-            .get(usize::try_from(mode).ok()?)
-            .map(|m| &m.program),
-        None => Some(program),
-    }
+    Some(program)
 }
 pub fn initial_response(plan: &ActionPlan) -> PlayerResponse {
     match plan {
@@ -76,6 +70,7 @@ pub fn choose(
         PlayerRequest::CounterPlacementEffect { .. } => {
             return Err("counter placement replacement choices outside this policy".into());
         }
+        PlayerRequest::Modes { .. } => return Err("no admitted spell offers modes".into()),
 
         PlayerRequest::LegendRule { candidates, .. } => PlayerResponse::LegendRule {
             keep: candidates.last().ok_or("empty legend choices")?.clone(),
@@ -118,9 +113,6 @@ pub fn choose(
                     .unwrap_or(PlayerResponse::Pass)
             }
         }
-        PlayerRequest::Modes { candidates, .. } => PlayerResponse::Modes {
-            mode: *candidates.first().ok_or("empty rollout modes")?,
-        },
         PlayerRequest::Targets {
             occurrences,
             candidates,

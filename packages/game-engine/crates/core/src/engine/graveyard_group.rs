@@ -176,44 +176,6 @@ impl GraveyardGroup {
         }
     }
 
-    fn candidate(game: &RulesTxn, event: &ProposedEvent) -> Result<Option<Member>, String> {
-        let object = match event {
-            ProposedEvent::DestroyPermanent { object }
-            | ProposedEvent::DestroyCreature { object }
-                if !game.has_keyword(*object, KeywordAbility::Indestructible) =>
-            {
-                *object
-            }
-            ProposedEvent::StateBasedGraveyard { object, .. }
-            | ProposedEvent::Move {
-                object,
-                destination: Zone::Graveyard { .. },
-            }
-            | ProposedEvent::Sacrifice { object, .. }
-            | ProposedEvent::DiscardCard { object, .. } => *object,
-            _ => return Ok(None),
-        };
-        if !game.has_self_graveyard_replacement(object)? {
-            return Ok(None);
-        }
-        let owner = game.state.rules.cards[&object.card].owner;
-        let current = game.current(object)?;
-        let affected = if matches!(current.zone, Zone::Battlefield | Zone::Stack) {
-            current.controller
-        } else {
-            owner
-        };
-        let competing = game.anger_replaces_death(object, Zone::Graveyard { owner });
-        Ok(Some(Member {
-            object,
-            owner,
-            affected,
-            printed: (!competing).then_some(true),
-            commander: game.state.rules.commanders.history(object.card).is_some(),
-            command: None,
-        }))
-    }
-
     pub(super) fn is_publication(&self, cause: &BatchCause, group: &EventGroup) -> bool {
         cause == &self.cause && group == &self.group && self.publishing_shuffle.is_none()
     }
@@ -377,27 +339,15 @@ impl GraveyardGroup {
             return Err("graveyard wave retention bounds".into());
         }
         let mut seen = BTreeSet::new();
-        let mut candidates = Vec::new();
         for event in leaves {
             if let Some(object) = Self::object(event)
                 && !seen.insert(object)
             {
                 return Err("duplicate object in retained wave".into());
             }
-            if let Some(m) = Self::candidate(game, event)? {
-                candidates.push(m);
-            }
         }
-        if candidates.len() != self.members.len()
-            || candidates.iter().zip(&self.members).any(|(c, m)| {
-                c.object != m.object
-                    || c.owner != m.owner
-                    || c.affected != m.affected
-                    || c.commander != m.commander
-                    || (m.printed.is_none() && c.printed == Some(true))
-                    || (m.command.is_some() && (!m.commander || m.printed != Some(true)))
-            })
-        {
+        // No admitted printed graveyard replacement produces wave members.
+        if !self.members.is_empty() {
             return Err("graveyard replacement member invariant".into());
         }
         let expected_shields = game.regeneration_members(&self.group, &self.finish)?;
@@ -558,37 +508,17 @@ impl RulesTxn {
                 capacity: self.event_group_limit(),
             }));
         }
-        let mut members = vec![];
-        for event in leaves {
-            if let Some(m) = GraveyardGroup::candidate(self, event)? {
-                members.push(m)
-            }
-        }
         let shields = self.regeneration_members(&group, &finish)?;
-        if members.is_empty() && shields.is_empty() {
+        if shields.is_empty() {
             let batch = self.commit_batch(cause, group)?;
             return finish.complete(self, Some(&batch));
-        }
-        if !members.is_empty() && self.state.rules.match_state.is_none() {
-            return Err("printed graveyard shuffle requires a seeded match".into());
-        }
-        let revealed: Vec<_> = members
-            .iter()
-            .filter(|m| m.printed == Some(true))
-            .map(|m| m.object)
-            .collect();
-        if !revealed.is_empty() {
-            self.record_event(Event::GraveyardReplacementRevealed {
-                cause: cause.clone(),
-                objects: revealed,
-            })?;
         }
         self.rules_mut().frame = Frame::GraveyardGroup {
             tx: Box::new(GraveyardGroup {
                 finish,
                 cause,
                 group,
-                members,
+                members: vec![],
                 shields,
                 owed: vec![],
                 draft: None,
@@ -676,39 +606,7 @@ impl RulesTxn {
                 leaves.push(event.clone());
             }
         }
-        let mut next = vec![];
-        let mut reveal = vec![];
-        for event in &leaves {
-            let Some(mut m) = GraveyardGroup::candidate(self, event)? else {
-                continue;
-            };
-            if let Some(old) = tx.members.iter().find(|o| o.object == m.object) {
-                if let Some(selected) = old.printed {
-                    m.printed = Some(selected);
-                    m.command = old.command;
-                } else if m.printed == Some(true) {
-                    reveal.push(m.object);
-                }
-            } else if m.printed == Some(true) {
-                reveal.push(m.object);
-            }
-            next.push(m);
-        }
         tx.owed.retain(|p| self.is_live(*p));
-        for old in &tx.members {
-            if old.printed == Some(true)
-                && self.is_live(old.owner)
-                && !next.iter().any(|m| m.object == old.object)
-            {
-                tx.owed.push(old.owner);
-            }
-        }
-        if !reveal.is_empty() {
-            self.record_event(Event::GraveyardReplacementRevealed {
-                cause: tx.cause.clone(),
-                objects: reveal,
-            })?;
-        }
         let next_group = if matches!(tx.group, EventGroup::Occurrence { .. }) && leaves.len() == 1 {
             EventGroup::Occurrence {
                 proposed: leaves.remove(0),
@@ -728,11 +626,10 @@ impl RulesTxn {
                 m.regenerate = old.regenerate;
             }
         }
-        if tx.members != next || tx.group != next_group || tx.shields != shields {
+        if tx.group != next_group || tx.shields != shields {
             self.rules_mut().pending = None;
         }
         tx.group = next_group;
-        tx.members = next;
         tx.shields = shields;
         // No uncommitted trials have changed the live random stream. Rebuild
         // against the remaining libraries before sampling the next paid word.

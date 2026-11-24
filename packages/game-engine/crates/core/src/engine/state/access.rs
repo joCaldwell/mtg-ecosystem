@@ -12,7 +12,6 @@ impl RulesTxn {
                 .saturating_add(self.kernel_charge())
                 .saturating_add(self.cost_lock_charge())
                 .saturating_add(self.mana_continuation_charge()?)
-                .saturating_add(self.land_entry_charge())
                 .saturating_add(self.replacement_charge())
                 .saturating_add(self.counter_placement_charge())
                 .saturating_add(self.trigger_payload_charge()),
@@ -114,18 +113,7 @@ impl RulesTxn {
             .ok_or_else(|| "missing stack frame".into())
     }
     pub(crate) fn program(&self) -> Result<&SpellProgram, RuleError> {
-        let entry = self.top()?;
-        if matches!(
-            self.state.rules.frame,
-            Frame::PlayerTargets { .. }
-                | Frame::Targets { .. }
-                | Frame::StackTargets { .. }
-                | Frame::EntityTargets { .. }
-        ) && let Some(child) = self.next_mode_target(entry)?
-        {
-            return Ok(child);
-        }
-        self.program_for(entry)
+        self.program_for(self.top()?)
     }
     pub(crate) fn program_for<'a>(
         &'a self,
@@ -139,35 +127,17 @@ impl RulesTxn {
         self.original_program_for(stack)
     }
 
-    pub(in crate::engine) fn original_program_for<'a>(
-        &'a self,
-        stack: &'a StackInstance,
-    ) -> Result<&'a SpellProgram, RuleError> {
-        if let Some(plan) = &stack.mode_subset {
-            return Ok(plan.program(self.root_program_for(stack)?)?);
-        }
-
-        Ok(self.selected_program(self.root_program_for(stack)?, stack.mode)?)
-    }
-    pub(in crate::engine) fn root_program_for(
+    pub(in crate::engine) fn original_program_for(
         &self,
         stack: &StackInstance,
     ) -> Result<&SpellProgram, RuleError> {
         let definition = self.copiable_definition(stack.source)?;
         match &stack.kind {
-            StackKind::Spell if stack.alternative_cost == Some(AlternativeCost::Bestow) => {
-                Ok(mtg_contracts::bestow_alternative(definition)
-                    .map(|(_, program)| program)
-                    .ok_or_else(|| "missing bestow cast program".to_owned())?)
-            }
             StackKind::Spell => Ok(definition
                 .spell
                 .as_ref()
                 .ok_or_else(|| "missing spell program".to_string())?),
             StackKind::Triggered { ability, .. } => match *ability {
-                EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
-                    Ok(self.delayed_chapter_program(stack.source, chapter)?)
-                }
                 EffectiveTriggerAbility::Intrinsic { index } => Ok(definition
                     .triggered
                     .get(index as usize)
@@ -175,7 +145,7 @@ impl RulesTxn {
                     .ok_or_else(|| "missing triggered program".to_string())?),
             },
             StackKind::Activated { ability, .. } => Ok(self
-                .activation_definition(stack.source)?
+                .copiable_definition(stack.source)?
                 .activated
                 .get(*ability as usize)
                 .map(|ability| &ability.program)

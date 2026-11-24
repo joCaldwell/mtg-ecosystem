@@ -782,56 +782,13 @@ pub(crate) fn life_player(
     }
 }
 
-// CR 509.1g/601.2c/608.2b: consume the entire blocking-creature target.
-// The blocking exception stays pump-only; keyword grants use the ordinary/controlled binder.
+// CR 601.2c/608.2b: the strict decoder admits only an unqualified creature
+// target; controller, blocking or other filter qualifiers reject.
 pub(crate) fn bind_pump_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
     what: &serde_json::Value,
 ) -> Result<u32, Failure> {
-    let id = what["selectionId"].as_str().unwrap_or("");
-    if *what
-        == serde_json::json!({"ref":"target","filter":{"status":["blocking"],"types":["creature"]},
-        "count":{"amount":"fixed","value":1},"selectionId":id})
-    {
-        // bind_target rejects mixed domains before looking up a reused ID, so
-        // a second use cannot discard or overwrite the blocking restriction.
-        return bind_target(
-            program,
-            slots,
-            id,
-            TargetDomain::BlockingBattlefieldCreature,
-        );
-    }
-    bind_temporary_creature_target(program, slots, what)
-}
-
-// CR 109.5/601.2c/608.2b: “you” is the invocation controller and remains a
-// target restriction, not an owner test. Consume the exact controlled shape
-// before the ordinary strict decoder; null/other actors and extra filters fail.
-// Only pump and temporary keyword grants use this binder. Contracts require a
-// complete keyword program for controlled pumps; other creature operators keep
-// bind_creature_target's unqualified scope.
-// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub(crate) fn bind_temporary_creature_target(
-    program: &mut SpellProgram,
-    slots: &mut BTreeMap<String, u32>,
-    what: &serde_json::Value,
-) -> Result<u32, Failure> {
-    let id = what["selectionId"].as_str().unwrap_or("");
-    if *what
-        == serde_json::json!({"ref":"target","filter":{"types":["creature"],"control":"you"},
-        "count":{"amount":"fixed","value":1},"selectionId":id})
-    {
-        // bind_target checks domain consistency before reusing any selection
-        // slot, so a second operation cannot drop the controller restriction.
-        return bind_target(
-            program,
-            slots,
-            id,
-            TargetDomain::ControlledBattlefieldCreature,
-        );
-    }
     let target = serde_json::from_value(what.clone())
         .map_err(|_| unsupported("targets", "unsupported complete temporary creature target"))?;
     bind_creature_target(program, slots, &target)

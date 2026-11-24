@@ -16,40 +16,14 @@ pub struct NoncombatDamageOccurrence {
     pub recipient: DamageRecipient,
     pub amount: Quantity,
 }
-fn update_entrant(w: &mut TriggerEventWitness, fact: &ObjectBefore) {
-    if let TriggerEventWitness::CreatureEnteredWithPower {
-        entrant,
-        last_appearance: Some(last),
-        ..
-    } = w
-        && entrant.object == fact.object
-        && fact.zone == Zone::Battlefield
-    {
-        **last = fact.clone();
-    }
-}
 fn update_entry(entry: &mut StackInstance, fact: &ObjectBefore) {
-    if let StackKind::Triggered { witness, .. } = &mut entry.kind {
-        update_entrant(witness, fact);
-    }
     if entry.source == fact.object && entry.source_facts.is_some() {
         entry.source_facts = Some(fact.clone());
     }
 }
 /// Whether `update_entry` would write `entry` for this departure.
 fn reads_last_known(entry: &StackInstance, fact: &ObjectBefore) -> bool {
-    (entry.source == fact.object && entry.source_facts.is_some())
-        || matches!(
-            &entry.kind,
-            StackKind::Triggered {
-                witness: TriggerEventWitness::CreatureEnteredWithPower {
-                    entrant,
-                    last_appearance: Some(_),
-                    ..
-                },
-                ..
-            } if entrant.object == fact.object && fact.zone == Zone::Battlefield
-        )
+    entry.source == fact.object && entry.source_facts.is_some()
 }
 fn update_source_appearances(entries: &mut [effects::PreparedDamage], fact: &ObjectBefore) {
     for entry in entries {
@@ -113,7 +87,6 @@ impl RulesTxn {
         let object = fact.object;
         let rules = self.rules_mut();
         for trigger in &mut rules.pending_triggers {
-            update_entrant(&mut trigger.witness, fact);
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
             }
@@ -277,7 +250,7 @@ impl RulesTxn {
             }
         }
         if cast.origin.is_spell() {
-            self.rules_mut().frame = self.continue_spell_targeting(cast)?;
+            self.rules_mut().frame = self.announcement_mana_frame(cast)?;
         } else {
             self.continue_activation_after_targets(cast, input.decision_id)?;
         }
@@ -360,23 +333,7 @@ impl RulesTxn {
     }
     pub(super) fn validate_damage_bindings(&self, entry: &StackInstance) -> Result<(), String> {
         if let Some(fact) = &entry.source_facts {
-            if entry.kind.is_spell()
-                && mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_some()
-            {
-                let bestowed = entry.alternative_cost == Some(AlternativeCost::Bestow);
-                if fact.zone != Zone::Stack
-                    || fact.characteristics
-                        != self.proposed_cast_characteristics(entry.source.card, bestowed)?
-                {
-                    return Err("snapshot bestow spell characteristics invariant".into());
-                }
-            } else {
-                self.validate_characteristic_identity(
-                    entry.source,
-                    fact.zone,
-                    &fact.characteristics,
-                )?;
-            }
+            self.validate_characteristic_identity(entry.source, &fact.characteristics)?;
         }
         if entry.kind.is_spell() {
             if entry.effect_source_handles.len() != 4 {
@@ -386,7 +343,6 @@ impl RulesTxn {
             return Err("unexpected spell effect source references".into());
         }
         let program = self.program_for(entry)?;
-        let mixed = self.mixed_mode_children(entry)?;
         let damage = program
             .targets
             .iter()
@@ -412,9 +368,9 @@ impl RulesTxn {
         }
         if !entry.entity_targets.is_empty() {
             if !damage
-                || (mixed.is_none() && !entry.targets.is_empty())
-                || (mixed.is_none() && !entry.player_targets.is_empty())
-                || (mixed.is_none() && !entry.stack_targets.is_empty())
+                || !entry.targets.is_empty()
+                || !entry.player_targets.is_empty()
+                || !entry.stack_targets.is_empty()
                 || entry.entity_targets.len() > program.targets.len()
                 || entry.announced_entity_targets.len() != 4
                 || entry.announced_entity_targets.iter().any(|row| {
@@ -436,11 +392,10 @@ impl RulesTxn {
         } else if !entry.announced_entity_targets.is_empty() {
             return Err("snapshot entity announcement invariant".into());
         }
-        if mixed.is_none()
-            && damage
+        if damage
             && (!entry.targets.is_empty()
-                || (mixed.is_none() && !entry.player_targets.is_empty())
-                || (mixed.is_none() && !entry.stack_targets.is_empty()))
+                || !entry.player_targets.is_empty()
+                || !entry.stack_targets.is_empty())
         {
             return Err("snapshot wrong damage binding domain".into());
         }
@@ -625,21 +580,6 @@ impl RulesTxn {
                     },
                     true,
                 )
-            }
-            kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::EventPlayer { role: mtg_contracts::kir::EventPlayerRole::ActivatingPlayer } }, amount: fixed!(amount), .. } @ source_block) =>
-            {
-                let player = Self::mana_tap_activator(self.entry(frame.stack_id)?)?;
-                if !self.is_live(player) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Damage { actual: None });
-                }
-                let damage = NoncombatDamageOccurrence {
-                    source: self.source_facts(self.entry(frame.stack_id)?)?,
-                    controller: self.entry(frame.stack_id)?.controller,
-                    recipient: DamageRecipient::Player { player },
-                    amount,
-                };
-                return self.prepare_noncombat_damage(frame, damage, source_block);
             }
             kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Controller { .. } }, amount: fixed!(amount), .. } @ source_block) =>
             {

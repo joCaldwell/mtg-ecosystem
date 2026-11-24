@@ -36,7 +36,6 @@ impl RulesTxn {
     pub(super) fn previous_commander_choices(&self) -> Vec<(ObjectId, bool)> {
         match &self.state.rules.frame {
             Frame::GraveyardGroup { tx } => tx.prior_choices(self),
-            Frame::GraveyardReplacement { transaction } => transaction.prior_choices(),
             Frame::CommanderReturn {
                 continuation:
                     CommanderContinuation::StateBasedBatch { choices, .. }
@@ -91,27 +90,8 @@ impl RulesTxn {
         caster: PlayerId,
         from: Zone,
     ) -> Result<ManaCost, String> {
-        self.announcement_cost(card, caster, from, None)
-    }
-    pub(super) fn announcement_cost(
-        &self,
-        card: CardId,
-        caster: PlayerId,
-        from: Zone,
-        alternative: Option<AlternativeCost>,
-    ) -> Result<ManaCost, String> {
-        self.announcement_cost_with_additional(card, caster, from, alternative, &[])
-    }
-    pub(super) fn announcement_cost_with_additional(
-        &self,
-        card: CardId,
-        caster: PlayerId,
-        from: Zone,
-        alternative: Option<AlternativeCost>,
-        selected: &[String],
-    ) -> Result<ManaCost, String> {
         let lock = self.cost_lock_inputs(card, caster, from)?;
-        self.construct_spell_cost(card, alternative, None, selected, None, &lock)
+        self.construct_spell_cost(card, None, &[], None, &lock)
     }
 
     // CR 903.9a / 704.3: consume a fresh graveyard/exile incarnation's next

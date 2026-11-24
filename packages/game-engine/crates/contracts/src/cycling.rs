@@ -13,7 +13,6 @@ pub fn hand_discard_draw_activation(a: &ActivatedAbility) -> bool {
         && p.optional_additional_costs.is_empty()
         && p.additional_sacrifice.is_none()
         && p.targets.is_empty()
-        && p.modes.is_empty()
         && matches!(p.instructions.as_slice(), [kernel!(Draw { player: you!(), amount: fixed!(count) })] if *count == Quantity::from(1))
 }
 

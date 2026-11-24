@@ -17,22 +17,13 @@ impl RulesTxn {
         if let Frame::Kernel { task } = &self.state.rules.frame {
             return self.kernel_request(task);
         }
-        if matches!(
-            self.state.rules.frame,
-            Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
-        ) {
+        if matches!(self.state.rules.frame, Frame::GraveyardGroup { .. }) {
             return Ok(self.replacement_request());
         }
         if matches!(self.state.rules.frame, Frame::Setup) {
             return self.setup_request();
         }
 
-        if let Some(req) = self.modes_request()? {
-            return Ok(Some(req));
-        }
-        if let Some(req) = self.counter_placement_request()? {
-            return Ok(Some(req));
-        }
         if let Some(req) = self.damage_effect_request()? {
             return Ok(Some(req));
         }
@@ -119,9 +110,6 @@ impl RulesTxn {
             Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. } => {
                 return self.sacrifice_request();
             }
-            Frame::LandEntry { .. } => {
-                return self.land_entry_request();
-            }
             Frame::ManaSourceChoice {
                 player,
                 source,
@@ -206,10 +194,7 @@ impl RulesTxn {
         player: PlayerId,
         response: &Response,
     ) -> Result<(), String> {
-        if matches!(
-            self.state.rules.frame,
-            Frame::GraveyardReplacement { .. } | Frame::GraveyardGroup { .. }
-        ) {
+        if matches!(self.state.rules.frame, Frame::GraveyardGroup { .. }) {
             return if self.replacement_request().is_some_and(|r| {
                 r.player() == player
                     && matches!(
@@ -231,9 +216,6 @@ impl RulesTxn {
         if let Frame::Kernel { task } = &self.state.rules.frame {
             return self.validate_kernel_response(task, player, response);
         }
-        if matches!(self.state.rules.frame, Frame::LandEntry { .. }) {
-            return self.validate_land_entry_response(player, response);
-        }
         if let Frame::ResolutionPayment { payment, .. } = &self.state.rules.frame {
             return self.validate_resolution_payment_response(payment, player, response);
         }
@@ -254,7 +236,6 @@ impl RulesTxn {
                 && entry.id == cast.stack_id
                 && entry.controller == player
                 && entry.kind.is_spell()
-                && entry.alternative_cost.is_none()
                 && entry.hybrid_colors.is_empty()
             {
                 self.validate_hybrid_colors(entry.source.card, colors)?;
@@ -288,26 +269,12 @@ impl RulesTxn {
             validation.rules_mut().frame = self.saved_frame(*resume)?.clone();
             return validation.validate_response(player, response);
         }
-        if let (Frame::CounterPlacement { .. }, Response::CounterPlacementEffect { effect }) =
-            (&self.state.rules.frame, response)
-        {
-            return self.validate_counter_placement_response(player, effect);
-        }
         if let (Frame::DamageEffects { .. }, Response::DamageEffect { effect, damage }) =
             (&self.state.rules.frame, response)
         {
             return self.validate_damage_effect(player, effect, *damage);
         }
 
-        if let (Frame::Modes { .. }, Response::ModeSubset { modes }) =
-            (&self.state.rules.frame, response)
-        {
-            return self.authorize_mode_subset(player, modes).map(|_| ());
-        }
-        if let (Frame::Modes { .. }, Response::Modes { mode }) = (&self.state.rules.frame, response)
-        {
-            return self.validate_mode(player, *mode);
-        }
         if let Some(result) = self.validate_actions_response(player, response) {
             return result;
         }
@@ -367,11 +334,6 @@ impl RulesTxn {
             {
                 self.validate_land_play(player, *card)
             }
-            (Frame::Priority, Response::PlayBackLand { card })
-                if self.state.rules.priority == player =>
-            {
-                self.validate_land_face(player, *card, true)
-            }
             (Frame::Priority, Response::Pass) if self.state.rules.priority == player => Ok(()),
             (Frame::Priority, Response::ActivateMana { object })
                 if self.state.rules.priority == player =>
@@ -387,9 +349,6 @@ impl RulesTxn {
                 if self.top()?.controller == player =>
             {
                 Ok(())
-            }
-            (Frame::Priority, Response::Bestow { card }) if self.state.rules.priority == player => {
-                self.validate_priority_bestow(player, *card)
             }
             (Frame::Priority, Response::Cast { card }) if self.state.rules.priority == player => {
                 self.validate_priority_spell_cast(player, *card)

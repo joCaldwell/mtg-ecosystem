@@ -145,336 +145,27 @@ pub enum TriggerPlacementFailure {
     NoLegalTargets,
 }
 
-// Only canonical indices enter the snapshot and replay identity. The selected
-// instruction sequence is derived afresh from the build-fenced catalog after restore.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BoundModeSubset {
-    pub indices: Vec<u32>,
-    #[serde(skip)]
-    compiled: std::sync::OnceLock<Result<SpellProgram, String>>,
-}
-impl PartialEq for BoundModeSubset {
-    fn eq(&self, other: &Self) -> bool {
-        self.indices == other.indices
-    }
-}
-
-impl BoundModeSubset {
-    fn build(root: &SpellProgram, chosen: &[u32]) -> Result<Self, String> {
-        let indices = mtg_contracts::modal_targets::ModeCount::for_root(root)
-            .ok_or("not a subset selection")?
-            .selected(root.modes.len(), chosen)?;
-        let plan = Self {
-            indices,
-            compiled: Default::default(),
-        };
-        plan.validate(root)?;
-        Ok(plan)
-    }
-    fn validate(&self, root: &SpellProgram) -> Result<(), String> {
-        let count = mtg_contracts::modal_targets::ModeCount::for_root(root)
-            .ok_or("invalid mode subset source")?;
-        if count.selected(root.modes.len(), &self.indices)? != self.indices {
-            return Err("selected modes out of printed order".into());
-        }
-        Ok(())
-    }
-    pub(super) fn program(&self, root: &SpellProgram) -> Result<&SpellProgram, String> {
-        self.compiled
-            .get_or_init(|| {
-                self.validate(root)?;
-                let indices = &self.indices;
-                let mut instructions = Vec::with_capacity(indices.len());
-                let mut targets = vec![];
-                for index in indices {
-                    let child = &root
-                        .modes
-                        .get(*index as usize)
-                        .ok_or("unknown printed mode")?
-                        .program;
-                    let [instruction] = child.instructions.as_slice() else {
-                        return Err("unexpected mode instructions".into());
-                    };
-                    let offset = u32::try_from(targets.len())
-                        .map_err(|_| "mode target capacity exceeded")?;
-                    let mut instruction = instruction.clone();
-                    match (&mut instruction, child.targets.as_slice()) {
-                        (_, []) => {}
-
-                        (
-                            kernel!(GainLife {
-                                player: target_player!(target_slot),
-                                ..
-                            })
-                            | kernel!(LoseLife {
-                                player: target_player!(target_slot),
-                                ..
-                            })
-                            | kernel!(Draw {
-                                player: target_player!(target_slot),
-                                amount: fixed!(_)
-                            })
-                            | kernel!(Move {
-                                what: mtg_contracts::kir::SetExpr::Matching {
-                                    zone: mtg_contracts::kir::ZoneExpr::Graveyard {
-                                        of: target_player!(target_slot)
-                                    },
-                                    ..
-                                },
-                                to: mtg_contracts::kir::Destination::Exile
-                            })
-                            | kernel!(Damage {
-                                to: mtg_contracts::kir::DamageTo::Ref {
-                                    who: mtg_contracts::kir::Ref::Target { slot: target_slot }
-                                },
-                                amount: fixed!(_),
-                                ..
-                            })
-                            | kernel!(Destroy {
-                                what: target_object!(target_slot),
-                                ..
-                            })
-                            | kernel!(Move {
-                                what: target_object!(target_slot),
-                                to: mtg_contracts::kir::Destination::OwnerHand
-                            })
-                            | kernel!(PutCounters {
-                                on: target_object!(target_slot),
-                                ..
-                            }),
-                            [target],
-                        ) if *target_slot == 0 && target.slot == 0 => {
-                            *target_slot = offset;
-                        }
-                        // CR 608.2d: "you may destroy" the mode's one target.
-                        (
-                            Instruction::Kernel {
-                                node: mtg_contracts::kir::Node::Optional { node, .. },
-                                ..
-                            },
-                            [target],
-                        ) if target.slot == 0 => match &mut **node {
-                            mtg_contracts::kir::Node::Do(mtg_contracts::kir::Verb::Destroy {
-                                what: target_object!(target_slot),
-                                ..
-                            }) if *target_slot == 0 => *target_slot = offset,
-                            _ => return Err("unsupported targeted mode effect".into()),
-                        },
-                        _ => return Err("unsupported targeted mode effect".into()),
-                    }
-                    for (local, target) in child.targets.iter().enumerate() {
-                        if usize::try_from(target.slot).ok() != Some(local) {
-                            return Err("noncontiguous child target occurrence".into());
-                        }
-                        let mut target = target.clone();
-                        target.slot = offset
-                            .checked_add(target.slot)
-                            .ok_or("mode target capacity exceeded")?;
-                        if let TargetDomain::PlayerGraveyardCards { owner_slot, .. } =
-                            &mut target.domain
-                        {
-                            *owner_slot = offset
-                                .checked_add(*owner_slot)
-                                .ok_or("mode owner occurrence exceeds capacity")?;
-                        }
-                        targets.push(target);
-                    }
-                    instructions.push(instruction);
-                }
-                let program = SpellProgram {
-                    timing: root.timing,
-                    functioning_zone: FunctioningZone::Stack,
-                    resolution: SpellResolution::Instructions,
-                    targets,
-                    modes: vec![],
-                    instructions,
-                    additional_sacrifice: None,
-                    optional_additional_costs: vec![],
-                };
-                Ok(program)
-            })
-            .as_ref()
-            .map_err(Clone::clone)
-    }
-}
 impl RulesTxn {
-    // Fixed heterogeneous modes announce in printed order. The typed target
-    // vectors are the receipt, including a player with zero graveyard cards.
-    pub(super) fn mixed_mode_children<'a>(
-        &'a self,
-        entry: &'a StackInstance,
-    ) -> Result<Option<Vec<&'a SpellProgram>>, String> {
-        let Some(plan) = &entry.mode_subset else {
-            return Ok(None);
-        };
-        let root = self.root_program_for(entry)?;
-        let children = plan
-            .indices
-            .iter()
-            .map(|index| {
-                root.modes
-                    .get(*index as usize)
-                    .map(|m| &m.program)
-                    .ok_or_else(|| "missing selected mode".to_string())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        if matches!(root.resolution, SpellResolution::ChooseRepeatedModes { .. }) {
-            return Ok(Some(children));
-        }
-        Ok(children
-            .iter()
-            .any(|p| {
-                p.targets.iter().any(|t| {
-                    matches!(
-                        t.domain,
-                        TargetDomain::CreatureOrPlaneswalker
-                            | TargetDomain::StackSpell
-                            | TargetDomain::PlayerGraveyardCards { .. }
-                            | TargetDomain::BattlefieldCreature
-                    )
-                })
-            })
-            .then_some(children))
-    }
-
-    pub(super) fn next_mode_target<'a>(
-        &'a self,
-        entry: &'a StackInstance,
-    ) -> Result<Option<&'a SpellProgram>, String> {
-        let Some(children) = self.mixed_mode_children(entry)? else {
-            return Ok(None);
-        };
-        let mut players = entry.player_targets.len();
-        let mut entities = entry.entity_targets.len();
-        let mut objects = entry.targets.len();
-        let mut stack = entry.stack_targets.len();
-        for child in children {
-            let used = match child.targets.first().map(|t| t.domain) {
-                None => continue,
-                Some(
-                    TargetDomain::BattlefieldPermanent
-                    | TargetDomain::BattlefieldCreature
-                    | TargetDomain::CreatureOrPlaneswalker,
-                ) => &mut objects,
-                Some(TargetDomain::StackSpell) => &mut stack,
-
-                Some(TargetDomain::AnyPlayer) => &mut players,
-                Some(TargetDomain::AnyDamageTarget) => &mut entities,
-                _ => return Err("unsupported selected-mode target group".into()),
-            };
-            if *used == 0 {
-                return Ok(Some(child));
-            }
-            *used -= 1;
-        }
-        Ok(None)
-    }
-
-    pub(super) fn valid_mixed_target_receipt(
-        &self,
-        entry: &StackInstance,
-        complete: bool,
-    ) -> Result<bool, String> {
-        let Some(children) = self.mixed_mode_children(entry)? else {
-            return Ok(false);
-        };
-        let mut found = [0usize; 4];
-        let actual = [
-            entry.targets.len(),
-            entry.stack_targets.len(),
-            entry.player_targets.len(),
-            entry.entity_targets.len(),
-        ];
-        for child in children {
-            let (bucket, count) = match child.targets.first().map(|t| t.domain) {
-                None => continue,
-                Some(
-                    TargetDomain::CreatureOrPlaneswalker
-                    | TargetDomain::BattlefieldCreature
-                    | TargetDomain::BattlefieldPermanent,
-                ) => (0, 1),
-                Some(TargetDomain::StackSpell) => (1, 1),
-                Some(TargetDomain::AnyDamageTarget) => (3, 1),
-                Some(TargetDomain::AnyPlayer) => (2, 1),
-                _ => return Ok(false),
-            };
-            if found[bucket] == actual[bucket] {
-                return Ok(!complete && found == actual);
-            }
-            found[bucket] += count;
-        }
-        Ok(found == actual)
-    }
-    pub(super) fn continue_spell_targeting(&mut self, cast: Casting) -> Result<Frame, String> {
-        if self.mixed_mode_children(self.top()?)?.is_some() {
-            self.spell_announcement_frame(cast)
-        } else {
-            self.announcement_mana_frame(cast)
-        }
-    }
-    /// Stack targets and permanent targets retain separate typed vectors. A
-    /// selected mode operand is numbered in the complete printed occurrence list.
-    pub(super) fn selected_storage_index(
-        &self,
-        entry: &StackInstance,
-        slot: usize,
-        matches: impl Fn(TargetDomain) -> bool,
-    ) -> Option<usize> {
-        if entry.mode_subset.is_none() {
-            return Some(slot);
-        }
-        let targets = &self.program_for(entry).ok()?.targets;
-        matches(targets.get(slot)?.domain).then(|| {
-            targets[..slot]
-                .iter()
-                .filter(|spec| matches(spec.domain))
-                .count()
-        })
-    }
-
     pub(super) fn bound_player_target<'a>(
         &self,
         entry: &'a StackInstance,
         slot: usize,
     ) -> Option<&'a PlayerId> {
-        let i = self.selected_storage_index(entry, slot, |d| {
-            matches!(
-                d,
-                TargetDomain::AnyPlayer
-                    | TargetDomain::OpponentPlayer
-                    | TargetDomain::PlayerOrPlaneswalker
-            )
-        })?;
-        entry.player_targets.get(i)
+        entry.player_targets.get(slot)
     }
     pub(super) fn bound_damage_target<'a>(
         &self,
         entry: &'a StackInstance,
         slot: usize,
     ) -> Option<&'a TargetEntity> {
-        let i = self.selected_storage_index(entry, slot, |d| d == TargetDomain::AnyDamageTarget)?;
-        entry.entity_targets.get(i)
+        entry.entity_targets.get(slot)
     }
     pub(super) fn bound_object_target<'a>(
         &self,
         entry: &'a StackInstance,
         slot: usize,
     ) -> Option<&'a ObjectId> {
-        let index = self.selected_storage_index(entry, slot, |d| {
-            matches!(
-                d,
-                TargetDomain::CreatureOrPlaneswalker
-                    | TargetDomain::BattlefieldCreature
-                    | TargetDomain::ControlledBattlefieldCreature
-                    | TargetDomain::BlockingBattlefieldCreature
-                    | TargetDomain::BattlefieldPermanent
-                    | TargetDomain::ControlledBattlefieldPermanent
-                    | TargetDomain::OwnGraveyardCard
-                    | TargetDomain::OwnGraveyardCreatureCard
-            )
-        })?;
-        entry.targets.get(index)
+        entry.targets.get(slot)
     }
 
     pub(super) fn bound_stack_target<'a>(
@@ -482,166 +173,7 @@ impl RulesTxn {
         entry: &'a StackInstance,
         slot: usize,
     ) -> Option<&'a StackId> {
-        let index = self.selected_storage_index(entry, slot, |d| {
-            matches!(
-                d,
-                TargetDomain::StackSpell
-                    | TargetDomain::ControlledCreatureSpell
-                    | TargetDomain::StackActivatedOrTriggeredAbility
-            )
-        })?;
-        entry.stack_targets.get(index)
-    }
-    pub(super) fn authorize_mode_subset(
-        &self,
-        player: PlayerId,
-        indices: &[u32],
-    ) -> Result<BoundModeSubset, String> {
-        let top = self.top()?;
-        if !matches!(&self.state.rules.frame,Frame::Modes{cast} if cast.stack_id==top.id)
-            || !top.kind.is_spell()
-            || top.controller != player
-            || top.mode.is_some()
-            || top.mode_subset.is_some()
-        {
-            return Err("unauthorized mode subset".into());
-        }
-        let Some(Request::Modes { candidates, .. }) = self.modes_request()? else {
-            return Err("missing printed mode choices".into());
-        };
-        if indices.iter().any(|index| !candidates.contains(index)) {
-            return Err("a selected mode has no legal target".into());
-        }
-        BoundModeSubset::build(self.root_program_for(top)?, indices)
-    }
-}
-impl RulesTxn {
-    pub(crate) fn selected_program<'a>(
-        &self,
-        root: &'a SpellProgram,
-        mode: Option<u32>,
-    ) -> Result<&'a SpellProgram, String> {
-        match mode {
-            None => Ok(root),
-            Some(mode) => root
-                .modes
-                .get(mode as usize)
-                .map(|m| &m.program)
-                .ok_or_else(|| "invalid frozen spell mode".into()),
-        }
-    }
-    pub(crate) fn modes_request(&self) -> Result<Option<Request>, String> {
-        if !matches!(self.state.rules.frame, Frame::Modes { .. }) {
-            return Ok(None);
-        }
-        let top = self.top()?;
-        let root = self.root_program_for(top)?;
-        // CR 601.2b, 700.2a, 903.3: choose both at announcement using the
-        // current controller of a physically designated battlefield commander.
-        let source = self.targeting_characteristics(top)?;
-        let candidates = root
-            .modes
-            .iter()
-            .enumerate()
-            .filter(|(_, m)| self.has_target_domain(&m.program, top.controller, &source))
-            .map(|(i, _)| i as u32)
-            .collect();
-        Ok(Some(Request::Modes {
-            decision_id: self.state.rules.revision,
-            player: top.controller,
-            one_or_more: root.resolution == SpellResolution::OneOrMoreModes,
-            allow_repeat: matches!(root.resolution, SpellResolution::ChooseRepeatedModes { .. }),
-            exactly: match root.resolution {
-                SpellResolution::ChooseModes { exactly }
-                | SpellResolution::ChooseRepeatedModes { exactly } => Some(exactly),
-                _ => None,
-            },
-            candidates,
-        }))
-    }
-    pub(super) fn validate_mode(&self, player: PlayerId, mode: u32) -> Result<(), String> {
-        let Some(Request::Modes {
-            player: p,
-            candidates,
-            ..
-        }) = self.modes_request()?
-        else {
-            return Err("no mode choice".into());
-        };
-        if matches!(self.root_program_for(self.top()?)?.resolution,SpellResolution::ChooseModes{exactly} | SpellResolution::ChooseRepeatedModes{exactly} if exactly!=1)
-            || p != player
-            || !candidates.contains(&mode)
-        {
-            return Err("invalid mode choice".into());
-        }
-        Ok(())
-    }
-    pub(super) fn bind_mode(&mut self, cast: Casting) -> Result<(), String> {
-        let input = self
-            .rules_mut()
-            .pending
-            .take()
-            .ok_or("missing mode input")?;
-        let root = self.root_program_for(self.top()?)?;
-        if mtg_contracts::modal_targets::ModeCount::for_root(root).is_some() {
-            let modes = match input.response {
-                Response::ModeSubset { modes } => modes,
-                Response::Modes { mode } => vec![mode],
-                _ => return Err("expected mode subset".into()),
-            };
-            let selected = self.authorize_mode_subset(input.player, &modes)?;
-            let indices = selected.indices.clone();
-            let top = self
-                .rules_mut()
-                .stack
-                .last_mut()
-                .ok_or("missing modal spell")?;
-            top.mode_subset = Some(selected);
-            let stack_id = top.id;
-            self.record_event(Event::ModeSubsetSelected {
-                stack_id,
-                player: input.player,
-                modes: indices,
-            })?;
-        } else {
-            let Response::Modes { mode } = input.response else {
-                return Err("mode response invariant".into());
-            };
-            self.validate_mode(input.player, mode)?;
-            let top = self
-                .rules_mut()
-                .stack
-                .last_mut()
-                .ok_or("missing modal spell")?;
-            if top.mode.is_some() {
-                return Err("mode already selected".into());
-            }
-            top.mode = Some(mode);
-            let stack_id = top.id;
-            self.record_event(Event::ModeSelected {
-                stack_id,
-                player: input.player,
-                mode,
-            })?;
-        }
-        if cast.origin.is_spell() {
-            self.rules_mut().frame = self.spell_announcement_frame(cast)?;
-        } else {
-            match self.program()?.targets.first().map(|t| t.domain) {
-                Some(TargetDomain::AnyDamageTarget) => {
-                    self.rules_mut().frame = Frame::EntityTargets { cast }
-                }
-                Some(TargetDomain::PlayerOrPlaneswalker) => {
-                    self.rules_mut().frame = Frame::PlayerTargets { cast }
-                }
-                Some(TargetDomain::BattlefieldCreature) => {
-                    self.rules_mut().frame = Frame::Targets { cast }
-                }
-                None => self.continue_activation_after_targets(cast, input.decision_id)?,
-                Some(_) => return Err("unsupported activated mode target".into()),
-            }
-        }
-        Ok(())
+        entry.stack_targets.get(slot)
     }
     pub(super) fn completed_entry_cast(
         &self,
@@ -665,7 +197,7 @@ impl RulesTxn {
             && movement.previous == *source
             && movement.successor.card == source.card
             && source.incarnation.checked_add(1) == Some(movement.successor.incarnation)
-            && matches!(&self.state.rules.frame, Frame::Resolve { frame } | Frame::LandEntry { origin: EntryOrigin::Copy { frame, .. }, .. } if frame.stack_id == *stack_id && self.entry(frame.stack_id).is_ok_and(|entry| entry.source == *source))
+            && matches!(&self.state.rules.frame, Frame::Resolve { frame } if frame.stack_id == *stack_id && self.entry(frame.stack_id).is_ok_and(|entry| entry.source == *source))
             && spell.source == *source
             && spell.id == *stack_id
             && spell.controller == *player
@@ -805,64 +337,10 @@ impl RulesTxn {
         Ok(Some(check))
     }
     pub(super) fn validate_choices_state(&self) -> Result<(), String> {
-        if let Frame::Modes { cast } = &self.state.rules.frame {
-            let top = self.top()?;
-            let root = self.root_program_for(top)?;
-            if top.kind.is_spell() != cast.origin.is_spell()
-                || cast.stack_id != top.id
-                || root.modes.is_empty()
-                || top.mode.is_some()
-                || top.mode_subset.is_some()
-                || top.paid.is_some()
-                || self.bound_target_count(top) != 0
-            {
-                return Err("modal announcement invariant".into());
-            }
-        }
-        for entry in &self.state.rules.stack {
-            self.validate_mode_binding(entry)?;
-        }
-        if let Frame::Resolve { frame }
-        | Frame::ResolutionChoice { frame, .. }
-        | Frame::LandEntry {
-            origin: EntryOrigin::Copy { frame, .. },
-            ..
-        } = &self.state.rules.frame
+        if let Frame::Resolve { frame } | Frame::ResolutionChoice { frame, .. } =
+            &self.state.rules.frame
         {
-            self.validate_mode_binding(self.entry(frame.stack_id)?)?;
             self.validate_condition_cache(frame)?;
-        }
-        Ok(())
-    }
-    pub(super) fn validate_mode_binding(&self, entry: &StackInstance) -> Result<(), String> {
-        if let Some(subset) = &entry.mode_subset {
-            let root = self.root_program_for(entry)?;
-            if !entry.kind.is_spell() || entry.mode.is_some() || subset.validate(root).is_err() {
-                return Err("invalid reconstructed subset program".into());
-            }
-            return Ok(());
-        }
-        if matches!(entry.kind, StackKind::Triggered { .. }) {
-            return if entry.mode.is_none() {
-                Ok(())
-            } else {
-                Err("unexpected triggered mode".into())
-            };
-        }
-        let root = self.root_program_for(entry)?;
-        if root.modes.is_empty() {
-            if entry.mode.is_some() {
-                return Err("nonmodal spell selected mode".into());
-            }
-        } else {
-            match entry.mode {
-                Some(mode)
-                    if mtg_contracts::modal_targets::ModeCount::for_root(root).is_none()
-                        && (mode as usize) < root.modes.len() => {}
-                None if matches!(&self.state.rules.frame,Frame::Modes{cast} if cast.stack_id==entry.id) =>
-                    {}
-                _ => return Err("missing/invalid modal selection".into()),
-            }
         }
         Ok(())
     }
@@ -958,22 +436,12 @@ impl RulesTxn {
                 .get(index as usize)
                 .ok_or("missing activated effect origin")?
                 .program;
-            if origin.mode.is_some() == root.modes.is_empty() {
-                return Err("invalid activated effect mode".into());
-            }
-            return Ok(vec![self.selected_program(root, origin.mode)?]);
-        }
-        if let Some(mode) = origin.mode {
-            let root = d.spell.as_ref().ok_or("mode on nonspell effect origin")?;
-            return Ok(vec![self.selected_program(root, Some(mode))?]);
+            return Ok(vec![root]);
         }
         Ok(d.spell
             .iter()
-            .filter(|p| p.modes.is_empty())
             .chain(d.activated.iter().map(|a| &a.program))
             .chain(d.triggered.iter().map(|a| &a.program))
             .collect())
     }
 }
-
-impl Eq for BoundModeSubset {}

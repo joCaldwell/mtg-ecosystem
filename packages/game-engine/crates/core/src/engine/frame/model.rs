@@ -32,8 +32,6 @@ pub struct ManaActivationUndo {
     pub color: Color,
     pub amount: Quantity,
     pub mana_was_absent: bool,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(in crate::engine) tap_triggers: Vec<TriggerId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permanent: Option<Box<PermanentManaUndo>>,
 }
@@ -86,15 +84,7 @@ pub enum Frame {
     GraveyardGroup {
         tx: Box<GraveyardGroup>,
     },
-    GraveyardReplacement {
-        transaction: Box<GraveyardReplacement>,
-    },
 
-    LandEntry {
-        origin: EntryOrigin,
-        objects: Vec<ObjectId>,
-        choices: Vec<land_entry::EntryChoice>,
-    },
     /// CR305.6/605.3: select an intrinsic ability before activation or costs.
     ManaSourceChoice {
         player: PlayerId,
@@ -136,9 +126,6 @@ pub enum Frame {
     },
     Setup,
 
-    Modes {
-        cast: Casting,
-    },
     CounterPlacement {
         transaction: CounterPlacementTransaction,
     },

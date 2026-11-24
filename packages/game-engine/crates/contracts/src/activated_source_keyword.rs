@@ -10,7 +10,6 @@ pub fn keywords(a: &ActivatedAbility) -> Option<&[KeywordAbility]> {
         || p.timing != SpellTiming::Instant
         || p.resolution != SpellResolution::Instructions
         || !p.targets.is_empty()
-        || !p.modes.is_empty()
         || p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
     {

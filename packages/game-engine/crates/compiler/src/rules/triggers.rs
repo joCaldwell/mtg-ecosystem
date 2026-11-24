@@ -170,20 +170,6 @@ pub(crate) fn lower_trigger(
         ));
     }
     let condition=match trigger {
-        SourceTrigger::DealsDamage { what:SourceDamageObject::Filter {filter,count},combat:Some(true),to,grouping:Some(grouping) }
-            if grouping == "one-or-more" && *to == serde_json::json!("any")
-                && fixed_one(count) && filter.types == ["creature"]
-                && filter.control.as_deref() == Some("you") && filter.non_types.is_none()
-                && filter.all_of.is_none() && filter.any_of.is_none()
-                && filter.properties.as_deref() == Some(&[serde_json::json!({"property":"power","comparison":{"op":"gt","value":{"amount":"attribute","of":{"ref":"it"},"attribute":"base-power"}}})]) => {
-            // CR 208.4b/603.2c/603.10: the property's "it" is EACH candidate
-            // creature, not the observing source. Diagnostic references remain
-            // unchanged even when their earlier binder chose another object.
-            TriggerCondition::GroupedDamageDealt {
-                source:DamageTriggerSource::CreatureFilter {controller:DamageSourceRelation::Controller,types:TypePredicate::Type {kind:CardKind::Creature}},
-                kind:TriggerDamageKind::Combat,recipient:DamageTriggerRecipient::Player,source_power:DamageSourcePowerPredicate::GreaterThanBase,
-            }
-        },
         SourceTrigger::DealsDamage { what, combat: Some(true), to, grouping:None }
             if *to == serde_json::json!("any") => {
             TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
@@ -207,10 +193,10 @@ pub(crate) fn lower_trigger(
                 _ => return Err(unsupported("trigger.who", "unsupported caster relation")),
             };
             let spell = lower_type_predicate(what, Some("spell"), true, 0)?;
-            match not_from {
-                None => TriggerCondition::SpellCast { caster, spell },
-                Some(zone) => cast_origin::lower_condition(caster, spell, zone)?,
+            if not_from.is_some() {
+                return Err(unsupported("trigger.cast.origin", "unsupported cast-origin predicate"));
             }
+            TriggerCondition::SpellCast { caster, spell }
         },
         SourceTrigger::Phase { phase, whose } => {
             let step = match phase.as_str() {
@@ -229,12 +215,6 @@ pub(crate) fn lower_trigger(
         },
         SourceTrigger::Dies { what: TriggerObject::Filter { filter, count } } if fixed_one(count) && filter.properties.is_none() && filter.types == ["creature"] && filter.control.as_deref() == Some("opponent") && !filter.other && !filter.non_token && filter.non_subtypes.is_empty() => TriggerCondition::OpponentCreatureDies,
         _ if death_filter.is_some() => TriggerCondition::AnyCreatureDies,
-        SourceTrigger::Enters { what: TriggerObject::Filter { filter, count } } if filter.properties.is_some() => {
-            TriggerCondition::ControlledCreatureEntersWithPower {
-                minimum_power: power_entry_draw::minimum_power(filter, count, true)?,
-                other: filter.other,
-            }
-        },
         SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment" => TriggerCondition::SelfEntersBattlefield,
         SourceTrigger::Dies {what} if is_source_creature(what)=>TriggerCondition::SelfDies,
         SourceTrigger::Enters {what} if is_source_creature(what)=>TriggerCondition::SelfEntersBattlefield,
@@ -245,17 +225,6 @@ pub(crate) fn lower_trigger(
         _=>return Err(unsupported("abilities.trigger","unsupported complete event/source/other/alternative trigger binding")),
     };
     validate_trigger_damage_sources(&condition, effects)?;
-    if matches!(condition, TriggerCondition::GroupedDamageDealt { .. })
-        && (intervening.is_some()
-            || !matches!(effects, [Sentence {bindings, steps, condition: None, condition_kind: None}] if bindings.is_empty()
-            && matches!(steps.as_slice(), [Step::Draw {who,amount:DrawAmount::Fixed {value:1},optional:false}]
-                if who.player == "you" && who.of.is_none() && who.selection_id.is_none())))
-    {
-        return Err(unsupported(
-            "effects.grouped_damage",
-            "grouped damage requires one standalone mandatory controller draw",
-        ));
-    }
     let mut program = SpellProgram {
         optional_additional_costs: vec![],
         additional_sacrifice: None,
@@ -264,7 +233,6 @@ pub(crate) fn lower_trigger(
         functioning_zone: FunctioningZone::Stack,
         targets: vec![],
         instructions: vec![],
-        modes: vec![],
     };
     if let Some(instruction) = source_dies_nonland_destroy::instruction(
         &condition,
@@ -336,7 +304,7 @@ pub(crate) fn lower_trigger(
             && who.player == "you" =>
         {
             Some(InterveningCondition::ControllerHasCreatureWithPower {
-                minimum_power: power_entry_draw::minimum_power(filter, count, false)?,
+                minimum_power: power_entry_draw::minimum_power(filter, count)?,
             })
         }
         Some(SourceCondition::CardsInHand { who, comparison })

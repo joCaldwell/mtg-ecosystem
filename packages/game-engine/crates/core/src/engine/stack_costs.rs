@@ -136,10 +136,6 @@ impl RulesTxn {
                 | ActivationCost::DiscardSource { .. }
                 | ActivationCost::SacrificePermanent { mana: Some(_), .. }
         ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
-        let modal = !self.copiable_definition(object)?.activated[ability as usize]
-            .program
-            .modes
-            .is_empty();
         let targeted = !self.copiable_definition(object)?.activated[ability as usize]
             .program
             .targets
@@ -148,14 +144,11 @@ impl RulesTxn {
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
-            alternative_cost: None,
 
             x: None,
             death_controller: None,
             sacrificed: None,
             sacrificed_set: vec![],
-            mode_subset: None,
-            mode: None,
             effect_source_handles: vec![],
             source_facts: { Some(self.object_before(object)?) },
             entity_targets: vec![],
@@ -177,7 +170,7 @@ impl RulesTxn {
             cast_from,
         };
         self.rules_mut().stack.push(entry);
-        if modal || targeted {
+        if targeted {
             if cost != ActivationCost::TapSource
                 && !matches!(
                     cost,
@@ -200,23 +193,20 @@ impl RulesTxn {
                 mana_activations: vec![],
                 undo_mana: false,
             };
-            self.rules_mut().frame = if modal {
-                Frame::Modes { cast }
-            } else {
-                match self.copiable_definition(object)?.activated[ability as usize]
-                    .program
-                    .targets[0]
-                    .domain
-                {
-                    TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
-                    TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-                        Frame::StackTargets { cast }
-                    }
-                    TargetDomain::ControlledBattlefieldCreature
-                    | TargetDomain::BattlefieldCreature
-                    | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
-                    _ => Frame::EntityTargets { cast },
+            self.rules_mut().frame = match self.copiable_definition(object)?.activated
+                [ability as usize]
+                .program
+                .targets[0]
+                .domain
+            {
+                TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
+                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
+                    Frame::StackTargets { cast }
                 }
+                TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::BattlefieldCreature
+                | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
+                _ => Frame::EntityTargets { cast },
             };
         } else if mana {
             self.rules_mut().frame = Frame::Mana {
@@ -315,7 +305,7 @@ impl RulesTxn {
         ability: u32,
         source_handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
-        let definition = self.activation_definition(entry.source)?;
+        let definition = self.copiable_definition(entry.source)?;
         let activated = definition
             .activated
             .get(ability as usize)
@@ -336,8 +326,7 @@ impl RulesTxn {
         };
         let program = self.program_for(entry)?;
         let announcing = match self.underlying_mana_frame(&self.state.rules.frame)? {
-            Frame::Modes { cast }
-            | Frame::Targets { cast }
+            Frame::Targets { cast }
             | Frame::PlayerTargets { cast }
             | Frame::EntityTargets { cast }
             | Frame::StackTargets { cast }
@@ -429,29 +418,15 @@ impl RulesTxn {
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
 
-        if entry.alternative_cost == Some(AlternativeCost::Bestow)
-            && (!entry.kind.is_spell()
-                || mtg_contracts::bestow_alternative(self.definition(entry.source.card)?).is_none()
-                || (!self.is_spell_copy(entry)
-                    && !matches!(entry.cast_from,Zone::Hand{owner}|Zone::Command{owner} if owner==entry.controller)))
-        {
-            return Err("invalid bestow casting authority".into());
-        }
-        if entry.alternative_cost == Some(AlternativeCost::WithoutManaCost)
-            || (entry.kind.is_spell() && entry.cast_from == Zone::Exile)
-        {
+        if entry.kind.is_spell() && entry.cast_from == Zone::Exile {
             return Err("snapshot alternative casting cost/origin invariant".into());
         }
         let x_spell = self.copiable_definition(entry.source)?.x_mana_cost && entry.kind.is_spell();
-        let choosing_mode =
-            matches!(&self.state.rules.frame, Frame::Modes { cast } if cast.stack_id == entry.id);
         let announcing_x = matches!(&self.state.rules.frame, Frame::AnnounceX { cast } if cast.stack_id == entry.id);
-        // An alternative cast fixes X at zero even while a mode is pending.
-        let x_fixed_by_alternative = entry.alternative_cost.is_some();
-        let x_bound = x_spell && (x_fixed_by_alternative || (!choosing_mode && !announcing_x));
+        let x_bound = x_spell && !announcing_x;
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
             || entry.x.is_some() != x_bound
-            || (announcing_x && (!x_spell || x_fixed_by_alternative))
+            || (announcing_x && !x_spell)
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()
                 != matches!(&entry.kind,StackKind::Triggered {ability,..} if self.effective_trigger(entry.source, *ability)?.condition==TriggerCondition::OpponentCreatureDies)
@@ -459,10 +434,6 @@ impl RulesTxn {
             return Err("snapshot X/death LKI binding invariant".into());
         }
         let program = self.program_for(entry)?;
-        let mixed = self.mixed_mode_children(entry)?.is_some();
-        if mixed && !self.valid_mixed_target_receipt(entry, entry.paid.is_some())? {
-            return Err("malformed selected-mode target receipt".into());
-        }
         let stack_domain = program.targets.first().is_some_and(|target| {
             matches!(
                 target.domain,
@@ -472,7 +443,8 @@ impl RulesTxn {
             )
         });
         if !entry.stack_targets.is_empty() {
-            if (!mixed && (!stack_domain || !entry.targets.is_empty()))
+            if !stack_domain
+                || !entry.targets.is_empty()
                 || !entry.player_targets.is_empty()
                 || entry.stack_targets.len() > program.targets.len()
                 || entry.announced_stack_targets.len() != 4
@@ -487,8 +459,7 @@ impl RulesTxn {
         } else if !entry.announced_stack_targets.is_empty() {
             return Err("snapshot stack target announcement invariant".into());
         }
-        if !mixed && stack_domain && (!entry.targets.is_empty() || !entry.player_targets.is_empty())
-        {
+        if stack_domain && (!entry.targets.is_empty() || !entry.player_targets.is_empty()) {
             return Err("snapshot wrong target binding domain".into());
         }
         Ok(())
@@ -581,7 +552,7 @@ impl RulesTxn {
             .ok_or("missing stack target invocation")?;
         top.stack_targets = entries;
         top.announced_stack_targets = announced;
-        self.rules_mut().frame = self.continue_spell_targeting(cast)?;
+        self.rules_mut().frame = self.announcement_mana_frame(cast)?;
         Ok(())
     }
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs

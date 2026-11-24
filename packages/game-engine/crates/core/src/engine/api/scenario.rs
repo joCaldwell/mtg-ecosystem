@@ -166,26 +166,6 @@ testkit_fields! {
     }
 }
 impl Prepared {
-    pub(in crate::engine) fn has_nonland_color_grant(&self) -> bool {
-        self.catalog.definitions.iter().any(|d| {
-            d.capabilities
-                .contains(&Capability::ControllerNonlandColorsV1)
-        })
-    }
-    pub(in crate::engine) fn includes_opening_placement(&self) -> bool {
-        self.catalog
-            .definitions
-            .iter()
-            .any(|d| d.capabilities.contains(&Capability::OpeningPlacementV1))
-    }
-    // Existing reviewed catalogs keep their exact private snapshot envelope.
-    // The headless land-type family can retain new unpaid selection frames.
-    pub(in crate::engine) fn has_land_type_grant(&self) -> bool {
-        self.catalog.definitions.iter().any(|d| {
-            d.capabilities
-                .contains(&Capability::ControllerLandBasicTypesV1)
-        })
-    }
     pub fn admit_pod(catalog: Catalog, config: MatchConfig) -> Result<Self, MatchAdmissionError> {
         let pod = validate_pod(&catalog, &config)?;
         let profile_digest = pod
@@ -215,13 +195,6 @@ impl Prepared {
                 .contains(&Capability::RandomPlayerDiscardV1)
         }) {
             return Err("random discard requires a seeded match".into());
-        }
-        if catalog.definitions.iter().any(|d| {
-            d.static_abilities
-                .iter()
-                .any(|a| matches!(a.effect, StaticEffect::SelfGraveyardRevealShuffle))
-        }) {
-            return Err("printed graveyard shuffle requires a seeded match".into());
         }
         // Admission-only exact fixture/pin table. It never selects runtime rules.
         let allowed = [

@@ -8,14 +8,12 @@ pub use crate::engine::*;
 mod board;
 pub use board::*;
 mod driver;
-pub use driver::{Driver, JournalCase, assert_recoverable};
-// Engine modules shadow same-named contracts modules, as inside the engine.
-pub use crate::engine::mana_tap_observer;
 use crate::engine::{
     keywords::KeywordSource, object_facts::DerivedObject, payments::AnnouncementPayment,
     phasing::PhaseSelection, stored_history::StoredPermittedView,
 };
 pub use crate::{build_id, formats, query};
+pub use driver::{Driver, JournalCase, assert_recoverable};
 pub use mtg_contracts::kir::{Amount, Context, EventPlayerRole, PlayerExpr, Ref, SetExpr, Verb};
 pub use mtg_contracts::*;
 
@@ -39,7 +37,7 @@ pub fn witness_scenario(catalog: Catalog, config: ScenarioConfig) -> Prepared {
 }
 
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Crate-private generic `History` methods that white-box test binaries call.
 pub trait HistoryTestkit<T> {
@@ -114,16 +112,6 @@ impl CommanderLedgerTestkit for CommanderLedger {
     }
 }
 
-/// Crate-private `DelayedChapterRegistration` methods that white-box test binaries call.
-pub trait DelayedChapterRegistrationTestkit {
-    fn chapter(&self) -> Result<u32, String>;
-}
-impl DelayedChapterRegistrationTestkit for DelayedChapterRegistration {
-    fn chapter(&self) -> Result<u32, String> {
-        DelayedChapterRegistration::chapter(self)
-    }
-}
-
 /// Crate-private `Game` methods that white-box test binaries call.
 pub trait GameTestkit {
     fn action_hand(&self, player: PlayerId) -> Vec<ObjectId>;
@@ -161,7 +149,6 @@ pub trait GameTestkit {
         source: ObjectId,
         target: ObjectId,
     ) -> Result<bool, String>;
-    fn back_face_sequence(&self, object: ObjectId) -> Option<u64>;
     fn begin_trigger_placement(
         &mut self,
         resume: Frame,
@@ -176,7 +163,6 @@ pub trait GameTestkit {
         object: ObjectId,
     ) -> Result<Vec<publish::StoredObjectHandle>, String>;
 
-    fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String>;
     fn casting_cost(&self, card: CardId, caster: PlayerId, from: Zone) -> Result<ManaCost, String>;
     fn check_history_capacity(&mut self) -> Result<(), String>;
     fn check_resolution_condition(
@@ -219,8 +205,6 @@ pub trait GameTestkit {
         object: impl std::borrow::Borrow<ObjectId>,
     ) -> Result<&Definition, String>;
     fn cost_lock_charge(&self) -> usize;
-    fn counter_placement_candidates(&self) -> Vec<CounterPlacementEffectKey>;
-    fn counter_placement_request(&self) -> Result<Option<Request>, String>;
     fn creature_or_planeswalker(&self, id: ObjectId) -> bool;
     fn creatures(&self, player: PlayerId, attacking: bool) -> Vec<ObjectId>;
     fn current(&self, id: ObjectId) -> Result<&Object, String>;
@@ -257,9 +241,6 @@ pub trait GameTestkit {
     ) -> Vec<StackId>;
     fn enter_turn_step(&mut self) -> Result<(), String>;
     fn entity_legal(&self, target: TargetEntity) -> bool;
-    fn entry_cause_for_test(&self) -> BatchCause;
-    fn entry_copy_origin(&self, object: ObjectId) -> Option<(ObjectId, CardId)>;
-    fn entry_group_for_test(&self) -> EventGroup;
 
     fn event_group_limit(&self) -> usize;
     fn execute_damage_life_instruction(
@@ -281,7 +262,6 @@ pub trait GameTestkit {
     -> Result<(), String>;
     fn finish_committed_player_losses(&mut self, batch: &CommittedBatch) -> Result<bool, String>;
     fn trigger_payload_charge(&self) -> usize;
-    fn granted_land_mana_colors() -> [Color; 5];
     fn graveyard_target_legal(
         &self,
         object: &Object,
@@ -295,7 +275,6 @@ pub trait GameTestkit {
     ) -> Result<publish::StoredObjectHandle, String>;
     fn handle_for(&self, viewer: PlayerId, id: ObjectId) -> Result<ObjectHandle, String>;
     fn has_color(source: &Characteristics) -> bool;
-    fn has_granted_land_mana(&self, land: ObjectId) -> Result<bool, String>;
     fn has_keyword<'a>(
         &self,
         object: impl Into<KeywordSource<'a>>,
@@ -312,7 +291,6 @@ pub trait GameTestkit {
     fn history_charge(&self) -> usize;
     fn initial_query_task(&self, query: &Query) -> Result<Task, QueryRejection>;
     fn is_battlefield_creature(&self, id: ObjectId) -> bool;
-    fn is_bestowed_spell(&self, object: ObjectId) -> bool;
     fn is_blocking_creature(&self, object: ObjectId) -> bool;
     fn is_live(&self, player: PlayerId) -> bool;
     fn is_spell_copy(&self, entry: &StackInstance) -> bool;
@@ -320,8 +298,6 @@ pub trait GameTestkit {
         &self,
         viewer: PlayerId,
     ) -> Result<Vec<KnownLibraryPosition>, String>;
-    fn land_entry_charge(&self) -> usize;
-    fn land_entry_step(&mut self) -> Result<(), String>;
     fn lethal_requirement(&self, source: ObjectId, blocker: ObjectId) -> Result<Quantity, String>;
     fn library_prefix(&self, player: PlayerId, amount: &Quantity) -> Result<Vec<ObjectId>, String>;
     fn live_effect_keys(&self) -> Vec<EffectKey>;
@@ -340,7 +316,6 @@ pub trait GameTestkit {
         player: PlayerId,
         source: ObjectId,
     ) -> Result<Vec<ManaAbilityIdentity>, String>;
-    fn modes_request(&self) -> Result<Option<Request>, String>;
     fn move_object(&mut self, object: ObjectId, destination: Zone) -> Result<MoveOutcome, String>;
     fn move_object_for(
         &mut self,
@@ -355,18 +330,12 @@ pub trait GameTestkit {
     fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId>;
     fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String>;
     fn offer_commander_sba(&mut self, resume: Frame) -> Result<bool, String>;
-    fn opponent_land_mana_colors(&self, player: PlayerId) -> Result<Vec<Color>, String>;
     fn pay_announcement_costs(&mut self, cast: &Casting) -> Result<AnnouncementPayment, String>;
     fn payment_pool(
         &self,
         player: PlayerId,
         cost: &ManaCost,
     ) -> Result<BTreeMap<Color, Quantity>, payments::PaymentError>;
-    fn permanent_colors(
-        &self,
-        scope: PermanentColorScope,
-        controller: PlayerId,
-    ) -> Result<BTreeSet<Color>, String>;
     fn permanent_target_legal(
         &self,
         object: ObjectId,
@@ -383,7 +352,6 @@ pub trait GameTestkit {
         previous_owner: PlayerId,
     ) -> Result<Vec<ObjectId>, String>;
     fn phase_out_permanents(&mut self, selection: PhaseSelection) -> Result<EventOutcome, String>;
-    fn physical_transform_mana_value(&self, object: ObjectId) -> Option<Quantity>;
     fn player_entity(
         &self,
         viewer: PlayerId,
@@ -409,7 +377,6 @@ pub trait GameTestkit {
         source: &mut R,
     ) -> Result<(Game, String), String>;
     fn reconcile_controllers(&mut self) -> Result<(), String>;
-    fn record_entry_copy(&mut self, entering: ObjectId, donor: ObjectId) -> Result<(), String>;
     fn refresh_effect_handles(&mut self) -> Result<Vec<EffectKey>, String>;
     fn refresh_visibility(&mut self) -> Result<(), String>;
     fn replacement_reveals(&self, object: ObjectId) -> bool;
@@ -450,11 +417,6 @@ pub trait GameTestkit {
         cost: &ManaCost,
         spending: &BTreeMap<Color, Quantity>,
     ) -> Result<BTreeMap<Color, Quantity>, String>;
-    fn selected_program<'a>(
-        &self,
-        root: &'a SpellProgram,
-        mode: Option<u32>,
-    ) -> Result<&'a SpellProgram, String>;
 
     fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String>;
     fn stabilization_wave_with_legends(
@@ -469,7 +431,6 @@ pub trait GameTestkit {
     fn stack_limit(&self) -> usize;
     fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String>;
     fn start_work(&self, query: Query) -> Result<Work, QueryRejection>;
-    fn static_damage_effects(&self) -> Vec<EffectKey>;
     fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect>;
     fn step(&mut self) -> Result<(), String>;
     fn target_is_creature(&self, object: ObjectId) -> bool;
@@ -513,7 +474,6 @@ pub trait GameTestkit {
     fn validate_characteristic_identity(
         &self,
         source: ObjectId,
-        zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String>;
     fn validate_combat_response(&self, player: PlayerId, response: &Response)
@@ -521,14 +481,8 @@ pub trait GameTestkit {
     fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String>;
     fn validate_control_state(&self) -> Result<(), String>;
     fn validate_cost_lock(&self, entry: &StackInstance) -> Result<(), String>;
-    fn validate_counter_placement_response(
-        &self,
-        player: PlayerId,
-        key: &CounterPlacementEffectKey,
-    ) -> Result<(), String>;
     fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String>;
     fn validate_effect_state(&self) -> Result<(), String>;
-    fn validate_entry_copy_identities(&self) -> Result<(), String>;
     fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String>;
     fn validate_mana_activation(&self, player: PlayerId, object: ObjectId) -> Result<(), String>;
     fn validate_nested_mana_frame(&self, frame: &Frame) -> Result<(), String>;
@@ -643,9 +597,6 @@ impl GameTestkit for Game {
     ) -> Result<bool, String> {
         RulesTxn::attachment_target_type_valid(self, source, target)
     }
-    fn back_face_sequence(&self, object: ObjectId) -> Option<u64> {
-        RulesTxn::back_face_sequence(self, object)
-    }
     fn begin_trigger_placement(
         &mut self,
         resume: Frame,
@@ -670,9 +621,6 @@ impl GameTestkit for Game {
         RulesTxn::capture_trigger_source_handles(self, object)
     }
 
-    fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
-        RulesTxn::cast_is_prohibited(self, player)
-    }
     fn casting_cost(&self, card: CardId, caster: PlayerId, from: Zone) -> Result<ManaCost, String> {
         RulesTxn::casting_cost(self, card, caster, from)
     }
@@ -747,12 +695,6 @@ impl GameTestkit for Game {
     }
     fn cost_lock_charge(&self) -> usize {
         RulesTxn::cost_lock_charge(self)
-    }
-    fn counter_placement_candidates(&self) -> Vec<CounterPlacementEffectKey> {
-        RulesTxn::counter_placement_candidates(self)
-    }
-    fn counter_placement_request(&self) -> Result<Option<Request>, String> {
-        RulesTxn::counter_placement_request(self)
     }
     fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
         RulesTxn::creature_or_planeswalker(self, id)
@@ -830,15 +772,6 @@ impl GameTestkit for Game {
     fn entity_legal(&self, target: TargetEntity) -> bool {
         RulesTxn::entity_legal(self, target)
     }
-    fn entry_cause_for_test(&self) -> BatchCause {
-        RulesTxn::entry_cause_for_test(self)
-    }
-    fn entry_copy_origin(&self, object: ObjectId) -> Option<(ObjectId, CardId)> {
-        RulesTxn::entry_copy_origin(self, object)
-    }
-    fn entry_group_for_test(&self) -> EventGroup {
-        RulesTxn::entry_group_for_test(self)
-    }
 
     fn event_group_limit(&self) -> usize {
         RulesTxn::event_group_limit(self)
@@ -878,9 +811,6 @@ impl GameTestkit for Game {
     fn trigger_payload_charge(&self) -> usize {
         RulesTxn::trigger_payload_charge(self)
     }
-    fn granted_land_mana_colors() -> [Color; 5] {
-        RulesTxn::granted_land_mana_colors()
-    }
     fn graveyard_target_legal(
         &self,
         object: &Object,
@@ -901,9 +831,6 @@ impl GameTestkit for Game {
     }
     fn has_color(source: &Characteristics) -> bool {
         RulesTxn::has_color(source)
-    }
-    fn has_granted_land_mana(&self, land: ObjectId) -> Result<bool, String> {
-        RulesTxn::has_granted_land_mana(self, land)
     }
     fn has_keyword<'a>(
         &self,
@@ -935,9 +862,6 @@ impl GameTestkit for Game {
     fn is_battlefield_creature(&self, id: ObjectId) -> bool {
         RulesTxn::is_battlefield_creature(self, id)
     }
-    fn is_bestowed_spell(&self, object: ObjectId) -> bool {
-        RulesTxn::is_bestowed_spell(self, object)
-    }
     fn is_blocking_creature(&self, object: ObjectId) -> bool {
         RulesTxn::is_blocking_creature(self, object)
     }
@@ -952,12 +876,6 @@ impl GameTestkit for Game {
         viewer: PlayerId,
     ) -> Result<Vec<KnownLibraryPosition>, String> {
         RulesTxn::known_library_positions(self, viewer)
-    }
-    fn land_entry_charge(&self) -> usize {
-        RulesTxn::land_entry_charge(self)
-    }
-    fn land_entry_step(&mut self) -> Result<(), String> {
-        RulesTxn::land_entry_step(self)
     }
     fn lethal_requirement(&self, source: ObjectId, blocker: ObjectId) -> Result<Quantity, String> {
         RulesTxn::lethal_requirement(self, source, blocker)
@@ -992,9 +910,6 @@ impl GameTestkit for Game {
         source: ObjectId,
     ) -> Result<Vec<ManaAbilityIdentity>, String> {
         RulesTxn::mixed_mana_choices(self, player, source)
-    }
-    fn modes_request(&self) -> Result<Option<Request>, String> {
-        RulesTxn::modes_request(self)
     }
     fn move_object(&mut self, object: ObjectId, destination: Zone) -> Result<MoveOutcome, String> {
         RulesTxn::move_object(self, object, destination)
@@ -1037,9 +952,6 @@ impl GameTestkit for Game {
     fn offer_commander_sba(&mut self, resume: Frame) -> Result<bool, String> {
         RulesTxn::offer_commander_sba(self, resume)
     }
-    fn opponent_land_mana_colors(&self, player: PlayerId) -> Result<Vec<Color>, String> {
-        RulesTxn::opponent_land_mana_colors(self, player)
-    }
     fn pay_announcement_costs(&mut self, cast: &Casting) -> Result<AnnouncementPayment, String> {
         RulesTxn::pay_announcement_costs(self, cast)
     }
@@ -1049,13 +961,6 @@ impl GameTestkit for Game {
         cost: &ManaCost,
     ) -> Result<BTreeMap<Color, Quantity>, payments::PaymentError> {
         RulesTxn::payment_pool(self, player, cost)
-    }
-    fn permanent_colors(
-        &self,
-        scope: PermanentColorScope,
-        controller: PlayerId,
-    ) -> Result<BTreeSet<Color>, String> {
-        RulesTxn::permanent_colors(self, scope, controller)
     }
     fn permanent_target_legal(
         &self,
@@ -1080,9 +985,6 @@ impl GameTestkit for Game {
     }
     fn phase_out_permanents(&mut self, selection: PhaseSelection) -> Result<EventOutcome, String> {
         RulesTxn::phase_out_permanents(self, selection)
-    }
-    fn physical_transform_mana_value(&self, object: ObjectId) -> Option<Quantity> {
-        RulesTxn::physical_transform_mana_value(self, object)
     }
     fn player_entity(
         &self,
@@ -1134,9 +1036,6 @@ impl GameTestkit for Game {
     }
     fn reconcile_controllers(&mut self) -> Result<(), String> {
         RulesTxn::reconcile_controllers(self)
-    }
-    fn record_entry_copy(&mut self, entering: ObjectId, donor: ObjectId) -> Result<(), String> {
-        RulesTxn::record_entry_copy(self, entering, donor)
     }
     fn refresh_effect_handles(&mut self) -> Result<Vec<EffectKey>, String> {
         RulesTxn::refresh_effect_handles(self)
@@ -1204,13 +1103,6 @@ impl GameTestkit for Game {
     ) -> Result<BTreeMap<Color, Quantity>, String> {
         RulesTxn::selected_payment_pool(self, player, cost, spending)
     }
-    fn selected_program<'a>(
-        &self,
-        root: &'a SpellProgram,
-        mode: Option<u32>,
-    ) -> Result<&'a SpellProgram, String> {
-        RulesTxn::selected_program(self, root, mode)
-    }
 
     fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
         RulesTxn::source_facts(self, entry)
@@ -1238,9 +1130,6 @@ impl GameTestkit for Game {
     }
     fn start_work(&self, query: Query) -> Result<Work, QueryRejection> {
         RulesTxn::start_work(self, query)
-    }
-    fn static_damage_effects(&self) -> Vec<EffectKey> {
-        RulesTxn::static_damage_effects(self)
     }
     fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
         RulesTxn::static_modifications(self, target)
@@ -1321,10 +1210,9 @@ impl GameTestkit for Game {
     fn validate_characteristic_identity(
         &self,
         source: ObjectId,
-        zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
-        RulesTxn::validate_characteristic_identity(self, source, zone, c)
+        RulesTxn::validate_characteristic_identity(self, source, c)
     }
     fn validate_combat_response(
         &self,
@@ -1342,21 +1230,11 @@ impl GameTestkit for Game {
     fn validate_cost_lock(&self, entry: &StackInstance) -> Result<(), String> {
         RulesTxn::validate_cost_lock(self, entry)
     }
-    fn validate_counter_placement_response(
-        &self,
-        player: PlayerId,
-        key: &CounterPlacementEffectKey,
-    ) -> Result<(), String> {
-        RulesTxn::validate_counter_placement_response(self, player, key)
-    }
     fn validate_damage_transaction(&self, tx: &DamageTransaction) -> Result<(), String> {
         RulesTxn::validate_damage_transaction(self, tx)
     }
     fn validate_effect_state(&self) -> Result<(), String> {
         RulesTxn::validate_effect_state(self)
-    }
-    fn validate_entry_copy_identities(&self) -> Result<(), String> {
-        RulesTxn::validate_entry_copy_identities(self)
     }
     fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
         RulesTxn::validate_land_play(self, player, card)

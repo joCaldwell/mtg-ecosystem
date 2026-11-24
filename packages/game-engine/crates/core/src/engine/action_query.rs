@@ -174,8 +174,6 @@ struct ObjectCandidates {
     handle: ObjectHandle,
     index: usize,
     activated: usize,
-    bestow: bool,
-    back_land: bool,
 }
 
 impl RulesTxn {
@@ -369,15 +367,7 @@ impl RulesTxn {
             work.object = Some(ObjectCandidates {
                 handle,
                 index: 0,
-                bestow: priority
-                    && self
-                        .definition(id.card)
-                        .is_ok_and(|d| mtg_contracts::bestow_alternative(d).is_some()),
                 activated,
-                back_land: priority
-                    && self
-                        .definition(id.card)
-                        .is_ok_and(|d| d.modal_land.is_some()),
             });
         }
         let object = work.object.as_mut().ok_or(ActionUnavailable::Invariant)?;
@@ -387,15 +377,6 @@ impl RulesTxn {
                 0 => ActionInitiation::PlayLand { object: handle },
                 1 => ActionInitiation::Cast { card: handle },
                 2 => ActionInitiation::ActivateMana { object: handle },
-                index if object.bestow && index == 3 + object.activated => {
-                    ActionInitiation::Bestow { card: handle }
-                }
-                index
-                    if object.back_land
-                        && index == 3 + object.activated + usize::from(object.bestow) =>
-                {
-                    ActionInitiation::PlayBackLand { object: handle }
-                }
                 index => ActionInitiation::ActivateAbility {
                     object: handle,
                     ability: u32::try_from(index - 3).map_err(|_| ActionUnavailable::Invariant)?,
@@ -405,13 +386,7 @@ impl RulesTxn {
             ActionInitiation::ActivateMana { object: handle }
         };
         object.index += 1;
-        if object.index
-            == if priority {
-                3 + object.activated + usize::from(object.bestow) + usize::from(object.back_land)
-            } else {
-                1
-            }
-        {
+        if object.index == if priority { 3 + object.activated } else { 1 } {
             work.object = None;
         }
         Ok(Some(initiation))

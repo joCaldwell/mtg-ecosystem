@@ -88,21 +88,6 @@ impl RulesTxn {
         player: PlayerId,
         source: &Characteristics,
     ) -> bool {
-        if let SpellResolution::ChooseModes { exactly } = program.resolution {
-            return program
-                .modes
-                .iter()
-                .filter(|mode| self.has_target_domain(&mode.program, player, source))
-                .take(exactly as usize)
-                .count()
-                == exactly as usize;
-        }
-        if !program.modes.is_empty() {
-            return program
-                .modes
-                .iter()
-                .any(|mode| self.has_target_domain(&mode.program, player, source));
-        }
         match program.targets.first().map(|target| target.domain) {
             Some(TargetDomain::PlayerGraveyardCards { .. }) => false,
             None => true,
@@ -164,63 +149,6 @@ impl RulesTxn {
         }
     }
     pub(crate) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
-        if entry.mode_subset.is_some() {
-            let Ok(program) = self.program_for(entry) else {
-                return vec![];
-            };
-            let mut legal = vec![];
-            for (slot, target) in program.targets.iter().enumerate() {
-                match target.domain {
-                    TargetDomain::PlayerGraveyardCards { .. } => {
-                        if let Some((TargetEntity::Player { player }, cards)) =
-                            entry.entity_targets.split_first()
-                        {
-                            legal.extend(cards.iter().map(|target|
-                                matches!(target, TargetEntity::Object { object } if self.current(*object).is_ok_and(|o| self.player_graveyard_card(o,*player)))
-                            ));
-                        }
-                    }
-                    TargetDomain::AnyPlayer
-                        if matches!(program.targets.get(slot + 1).map(|t|t.domain),
-                        Some(TargetDomain::PlayerGraveyardCards {owner_slot,..}) if owner_slot as usize==slot) =>
-                    {
-                        legal.push(matches!(entry.entity_targets.first(),Some(TargetEntity::Player{player}) if self.player_target_legal(entry,slot,*player)));
-                    }
-                    TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
-                        let index = self.selected_storage_index(entry, slot, |d| {
-                            matches!(d, TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)
-                        });
-                        legal.push(
-                            index
-                                .and_then(|i| entry.player_targets.get(i))
-                                .is_some_and(|p| self.player_target_legal(entry, slot, *p)),
-                        );
-                    }
-                    TargetDomain::StackSpell
-                    | TargetDomain::ControlledCreatureSpell
-                    | TargetDomain::StackActivatedOrTriggeredAbility => {
-                        legal.push(self.bound_stack_target(entry, slot).is_some_and(|id| {
-                            self.eligible_stack_targets_for(
-                                target,
-                                entry.controller,
-                                Some(entry.id),
-                            )
-                            .contains(id)
-                        }));
-                    }
-                    TargetDomain::AnyDamageTarget => legal.push(
-                        self.bound_damage_target(entry, slot)
-                            .is_some_and(|t| self.entity_target_legal(*t, entry)),
-                    ),
-                    _ => {
-                        legal.push(self.bound_object_target(entry, slot).is_some_and(|id| {
-                            self.object_target_legal_for(entry, *id, Some(target))
-                        }))
-                    }
-                }
-            }
-            return legal;
-        }
         if !entry.entity_targets.is_empty() {
             entry
                 .entity_targets
@@ -280,13 +208,7 @@ impl RulesTxn {
                 let StackKind::Triggered { witness, .. } = &self.entry(frame.stack_id)?.kind else {
                     return Err("unbound damage-recipient action".into());
                 };
-                let event = match witness {
-                    TriggerEventWitness::Equipped {
-                        occurrence: event, ..
-                    } => event.as_ref(),
-                    other => other,
-                };
-                match event {
+                match witness {
                     TriggerEventWitness::DamageDealt { damage, .. } => match damage.recipient {
                         DamageRecipient::Player { player } => Ok(player),
                         DamageRecipient::Creature { .. } => {
@@ -575,7 +497,7 @@ impl RulesTxn {
                 if cast.origin == AnnouncementOrigin::Activated {
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.rules_mut().frame = self.continue_spell_targeting(cast)?;
+                    self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
@@ -1250,7 +1172,6 @@ impl RulesTxn {
         self.validate_trigger_entry(self.entry(frame.stack_id)?)?;
         self.validate_cost_lock(self.entry(frame.stack_id)?)?;
         self.validate_additional_cost_entry(self.entry(frame.stack_id)?)?;
-        self.validate_mode_binding(self.entry(frame.stack_id)?)?;
         self.validate_condition_cache(frame)?;
         self.validate_target_facts(frame)?;
         self.validate_set_damage_facts(frame)?;

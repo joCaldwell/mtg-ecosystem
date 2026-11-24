@@ -6,17 +6,9 @@ use super::*;
 /// Priority and the exact one-use cascade permission supply separate authorities;
 /// both consume this proposal and use the same announcement/payment stages.
 struct SpellAnnouncement {
-    bestow: bool,
     player: PlayerId,
     original_object: ObjectId,
     cast_from: Zone,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AlternativeCost {
-    Bestow,
-    WithoutManaCost,
 }
 
 impl RulesTxn {
@@ -29,7 +21,6 @@ impl RulesTxn {
         &self,
         player: PlayerId,
         card: CardId,
-        bestow: bool,
     ) -> Result<SpellAnnouncement, String> {
         if !matches!(self.state.rules.frame, Frame::Priority) || self.state.rules.priority != player
         {
@@ -46,28 +37,19 @@ impl RulesTxn {
         {
             return Err("invalid or unsupported cast".into());
         }
-        let program = if bestow {
-            mtg_contracts::bestow_alternative(definition)
-                .ok_or("missing bestow permission")?
-                .1
-        } else {
-            definition.spell.as_ref().ok_or("missing cast program")?
-        };
+        let program = definition.spell.as_ref().ok_or("missing cast program")?;
         // CR 601.2/702.8a: only the permission authority supplies timing/zone
         // access. Global prohibitions still apply to every eventual authority.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         if program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
-        if let Some(reason) = self.spell_proposal_obstacle(
-            program,
-            player,
-            &self.proposed_cast_characteristics(card, bestow)?,
-        ) {
+        if let Some(reason) =
+            self.spell_proposal_obstacle(program, player, &definition.characteristics)
+        {
             return Err(reason.into());
         }
         Ok(SpellAnnouncement {
-            bestow,
             player,
             original_object: object.id,
             cast_from: object.zone,
@@ -101,8 +83,7 @@ impl RulesTxn {
         player: PlayerId,
         card: CardId,
     ) -> Result<(), String> {
-        self.priority_spell_announcement(player, card, false)
-            .map(|_| ())
+        self.priority_spell_announcement(player, card).map(|_| ())
     }
 
     pub(crate) fn announce_priority_spell(
@@ -110,78 +91,21 @@ impl RulesTxn {
         player: PlayerId,
         card: CardId,
     ) -> Result<(), String> {
-        let announcement = self.priority_spell_announcement(player, card, false)?;
+        let announcement = self.priority_spell_announcement(player, card)?;
         self.begin_spell_announcement(announcement)
-    }
-
-    pub(super) fn validate_priority_bestow(
-        &self,
-        player: PlayerId,
-        card: CardId,
-    ) -> Result<(), String> {
-        self.priority_spell_announcement(player, card, true)
-            .map(|_| ())
-    }
-    pub(super) fn announce_priority_bestow(
-        &mut self,
-        player: PlayerId,
-        card: CardId,
-    ) -> Result<(), String> {
-        let announcement = self.priority_spell_announcement(player, card, true)?;
-        self.begin_spell_announcement(announcement)
-    }
-    pub(crate) fn is_bestowed_spell(&self, object: ObjectId) -> bool {
-        // CR 702.103e: the Aura effect ends as resolution starts if its target
-        // is illegal. The stack entry keeps the alternative payment as history.
-        if let Frame::Resolve { frame } = &self.state.rules.frame
-            && self
-                .entry(frame.stack_id)
-                .is_ok_and(|entry| entry.source == object && entry.kind.is_spell())
-            && frame.legal_targets == [false]
-        {
-            return false;
-        }
-        self.state.rules.stack.iter().any(|s| {
-            s.source == object
-                && s.kind.is_spell()
-                && s.alternative_cost == Some(AlternativeCost::Bestow)
-        })
-    }
-    pub(super) fn proposed_cast_characteristics(
-        &self,
-        card: CardId,
-        bestow: bool,
-    ) -> Result<Characteristics, String> {
-        let definition = self.definition(card)?;
-        if !bestow {
-            return Ok(definition.characteristics.clone());
-        }
-        let (cost, _) = mtg_contracts::bestow_alternative(definition)
-            .ok_or("missing printed bestow permission")?;
-        Ok(
-            mtg_contracts::BestowCastPlan::new(&definition.characteristics, cost.clone())?
-                .characteristics(mtg_contracts::BestowForm::Aura),
-        )
     }
 
     // CR 601.2a-i: one proposal constructor owns the move, fresh stack identity
     // and unfinished payment marker. No cast occurrence is emitted here.
     fn begin_spell_announcement(&mut self, announcement: SpellAnnouncement) -> Result<(), String> {
         let SpellAnnouncement {
-            bestow,
             player,
             original_object,
             cast_from,
         } = announcement;
         let card = original_object.card;
         self.check_stack_capacity(1)?;
-        let alternative_cost = bestow.then_some(AlternativeCost::Bestow);
-        let total_cost = match alternative_cost {
-            None => self.casting_cost(card, player, cast_from)?,
-            Some(alternative) => {
-                self.announcement_cost(card, player, cast_from, Some(alternative))?
-            }
-        };
+        let total_cost = self.casting_cost(card, player, cast_from)?;
         let id = StackId(self.state.rules.next_stack_id);
         self.rules_mut().next_stack_id = self
             .state
@@ -202,22 +126,15 @@ impl RulesTxn {
             )?
             .successor;
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
-        let mut source_facts = self.object_before(source)?;
-        if bestow {
-            source_facts.characteristics = self.proposed_cast_characteristics(card, true)?;
-        }
+        let source_facts = self.object_before(source)?;
         let entry = StackInstance {
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
-            alternative_cost,
-            x: (alternative_cost.is_some() && self.definition(card)?.x_mana_cost)
-                .then(Quantity::zero),
+            x: None,
             death_controller: None,
             sacrificed: None,
             sacrificed_set: vec![],
-            mode_subset: None,
-            mode: None,
             effect_source_handles,
             source_facts: Some(source_facts),
             entity_targets: vec![],
@@ -270,34 +187,13 @@ impl RulesTxn {
         {
             return Ok(Frame::AdditionalCosts { cast });
         }
-        if !definition
-            .spell
-            .as_ref()
-            .ok_or("missing spell")?
-            .modes
-            .is_empty()
-            && stack.mode.is_none()
-            && stack.mode_subset.is_none()
-        {
-            return Ok(Frame::Modes { cast });
-        }
-        if !definition.characteristics.hybrid_mana.is_empty()
-            && stack.alternative_cost.is_none()
-            && stack.hybrid_colors.is_empty()
-        {
+        if !definition.characteristics.hybrid_mana.is_empty() && stack.hybrid_colors.is_empty() {
             return Ok(Frame::HybridCost { cast });
         }
         if definition.x_mana_cost && stack.x.is_none() {
             return Ok(Frame::AnnounceX { cast });
         }
-        let program = if self.mixed_mode_children(stack)?.is_some() {
-            let Some(next) = self.next_mode_target(stack)? else {
-                return self.announcement_mana_frame(cast);
-            };
-            next
-        } else {
-            self.program_for(stack)?
-        };
+        let program = self.program_for(stack)?;
         Ok(match program.targets.first().map(|target| target.domain) {
             None => self.announcement_mana_frame(cast)?,
             Some(
@@ -328,47 +224,18 @@ impl RulesTxn {
             ) => Frame::Targets { cast },
         })
     }
-    /// CR 101.2/109.5/601.3/611.3a, 800.4j: "your turn" names the
-    /// retained turn owner even when there is no active player. The current
-    /// battlefield controller supplies "your"; ownership does not.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    /// CR 800.4a: a departed player casts nothing.
     pub(crate) fn validate_cast_permission(&self, player: PlayerId) -> Result<(), String> {
         if !self.is_live(player) {
             return Err("departed player cannot cast spells".into());
         }
-        if self.cast_is_prohibited(player)? {
-            return Err("opponent cannot cast during source controller's turn".into());
-        }
         Ok(())
-    }
-    pub(crate) fn cast_is_prohibited(&self, player: PlayerId) -> Result<bool, String> {
-        for source in self.state.rules.objects.values().filter(|o| {
-            o.present_on_battlefield()
-                && o.controller == self.state.rules.turn_owner
-                && o.controller != player
-        }) {
-            if self
-                .copiable_definition(source.id)?
-                .static_abilities
-                .iter()
-                .any(|a| a.effect == StaticEffect::OpponentsCantCastDuringControllerTurn)
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
     pub(crate) fn validate_mana_activation(
         &self,
         player: PlayerId,
         object: ObjectId,
     ) -> Result<(), String> {
-        if self.has_granted_land_mana(object)? {
-            if self.reserved_mana_source(object)? {
-                return Err("reserved granted mana source".into());
-            }
-            return self.mixed_mana_choices(player, object).map(|_| ());
-        }
         if self.is_permanent_mana(object) {
             return self.validate_permanent_mana_activation(player, object);
         }
@@ -392,16 +259,15 @@ impl RulesTxn {
         self.commit_unrestricted_tap_mana(input, object, color)
     }
 
-    /// Called only after binding a concrete intrinsic or granted ability.
-    pub(super) fn commit_unrestricted_tap_mana(
+    /// Called only after binding a concrete intrinsic ability.
+    fn commit_unrestricted_tap_mana(
         &mut self,
         input: &AcceptedInput,
         object: ObjectId,
         color: Color,
     ) -> Result<ManaActivationUndo, String> {
-        let mut receipt = ManaActivationUndo {
+        let receipt = ManaActivationUndo {
             permanent: None,
-            tap_triggers: vec![],
             object,
             player: input.player,
             color,
@@ -410,8 +276,7 @@ impl RulesTxn {
                 .mana
                 .contains_key(&color),
         };
-        let first_trigger = self.state.rules.next_trigger_id;
-        let batch = self.commit_batch(
+        self.commit_batch(
             BatchCause::ManaActivation {
                 decision_id: input.decision_id,
                 player: input.player,
@@ -434,17 +299,6 @@ impl RulesTxn {
                 ],
             },
         )?;
-        if self.catalog_has_mana_tap_observer {
-            self.collect_mana_tap(&batch, object, None, input.player)?;
-            receipt.tap_triggers = self
-                .state
-                .rules
-                .pending_triggers
-                .iter()
-                .filter(|trigger| trigger.id.0 >= first_trigger)
-                .map(|trigger| trigger.id)
-                .collect();
-        }
         Ok(receipt)
     }
 
@@ -487,7 +341,6 @@ impl RulesTxn {
                         amount: receipt.amount.clone(),
                         source,
                         remove_zero: receipt.mana_was_absent,
-                        tap_triggers: receipt.tap_triggers.clone(),
                     },
                 });
             }

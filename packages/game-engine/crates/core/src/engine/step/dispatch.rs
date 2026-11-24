@@ -32,10 +32,6 @@ impl RulesTxn {
         match frame {
             Frame::Kernel { task } => self.step_kernel_task(*task)?,
             Frame::GraveyardGroup { tx } => self.graveyard_group_step(tx)?,
-            Frame::GraveyardReplacement { transaction } => {
-                self.graveyard_replacement_step(transaction)?
-            }
-            Frame::LandEntry { .. } => self.land_entry_step()?,
 
             Frame::ResolutionPayment { frame, payment } => {
                 self.resolution_payment_step(frame, payment)?
@@ -65,7 +61,6 @@ impl RulesTxn {
                 self.rules_mut().frame = self.spell_announcement_frame(cast)?;
             }
             Frame::AnnounceX { cast } => self.bind_x(cast)?,
-            Frame::Modes { cast } => self.bind_mode(cast)?,
             Frame::CounterPlacement { .. } => self.counter_placement_step()?,
             Frame::DamageEffects { .. } => self.damage_effect_step()?,
             Frame::Priority => {
@@ -79,16 +74,10 @@ impl RulesTxn {
                         self.activate_ability(input.player, input.decision_id, object, ability)?
                     }
                     Response::PlayLand { card } => {
-                        self.play_land(input.player, input.decision_id, card, false)?;
-                    }
-                    Response::PlayBackLand { card } => {
-                        self.play_land(input.player, input.decision_id, card, true)?;
+                        self.play_land(input.player, input.decision_id, card)?;
                     }
                     Response::ActivateMana { object } => {
                         self.begin_payment_mana(&input, object, Frame::Priority)?;
-                    }
-                    Response::Bestow { card } => {
-                        self.announce_priority_bestow(input.player, card)?
                     }
                     Response::Cast { card } => {
                         self.announce_priority_spell(input.player, card)?;
@@ -152,7 +141,7 @@ impl RulesTxn {
                     // The activation cost determines its next payment stage.
                     self.continue_activation_after_targets(cast, input.decision_id)?;
                 } else {
-                    self.rules_mut().frame = self.continue_spell_targeting(cast)?;
+                    self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                 }
             }
             Frame::Mana { mut cast } => {
@@ -205,14 +194,7 @@ impl RulesTxn {
                     .is_some_and(|check| !check.passed())
                     || (!frame.legal_targets.is_empty() && !frame.legal_targets.iter().any(|l| *l))
                 {
-                    if stack.alternative_cost == Some(AlternativeCost::Bestow)
-                        && frame.condition_check.is_none()
-                        && frame.legal_targets == [false]
-                    {
-                        self.complete_spell(stack.id, true, true)?;
-                    } else {
-                        self.finish_spell(stack.id, false)?;
-                    }
+                    self.finish_spell(stack.id, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
                     match instruction {
                         kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerHand } @ source_block)
@@ -275,13 +257,6 @@ impl RulesTxn {
                         .ok_or("instruction cursor resource limit")?;
                     self.rules_mut().frame = Frame::Resolve { frame };
                 } else {
-                    if stack.kind.is_spell()
-                        && program.resolution == SpellResolution::Permanent
-                        && self.current(stack.source).is_ok()
-                        && self.begin_copy_entry(&frame, stack.source)?
-                    {
-                        return Ok(());
-                    }
                     self.finish_spell(stack.id, true)?;
                 }
             }

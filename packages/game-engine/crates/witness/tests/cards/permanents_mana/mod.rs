@@ -7,8 +7,3 @@ mod tap_source_untap_tests;
 mod tap_tests;
 mod tapped_target_tests;
 mod untap_tests;
-mod control {
-    use super::*;
-    pub use mtg_core::testkit::control::*;
-    mod tests;
-}

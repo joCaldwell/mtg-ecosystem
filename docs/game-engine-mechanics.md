@@ -44,8 +44,7 @@ and holds progress only, so a rule step has no copy to reconcile.
 `engine/frame.rs` traverses every frame, continuation, completion, owner and
 origin variant with no wildcard arm; a new variant fails to compile there, in
 `Frame::decider` (who decides) and in the publication classifier until it is
-classified. A hand-cast permission names its issuer, and a delayed chapter
-registration is a frozen record of what its issuer fixed.
+classified. A hand-cast permission names its issuer.
 
 The committed `Game` lends its `RulesState` for reads. Each rule step or accepted
 input runs on a copy-on-write stage whose `RulesTxn::rules_mut` grants exclusive
@@ -185,15 +184,13 @@ and enchantment sources (CR 611.3, 613.4c).
 Stack projections run bottom to top. Saved announcement handles are historical
 and never bind successor incarnations; reversal restores living players' passes.
 Resolving frames retain frozen instances through supported source departure
-(CR 608.2m). Only the caster answers targets and casting mana; modes are chosen
-before payment and resolve in printed order.
+(CR 608.2m). Only the caster answers targets and casting mana.
 
 Targets precede costs. Casting always offers a mana window and cannot cancel a
 payable spell; reversal refunds only receipt-recorded casting-time mana and taps.
-Costs never guess colors. X is announced nonnegative and frozen. Base or
-alternative cost, X, additional costs and increases precede floor-zero
-reductions; counted reductions freeze at CR 601.2f and replay without later-board
-repricing. Additional costs never change mana value.
+Costs never guess colors. X is announced nonnegative and frozen. Base cost, X,
+additional costs and increases compose in that order and freeze at CR 601.2f.
+Additional costs never change mana value.
 
 Activated abilities use a separate stack ID and historical source handle. Tap
 costs enforce readiness and continuous control; mana, tap and sacrifice costs
@@ -253,29 +250,9 @@ Replacement/prevention applies once per effect/member, under affected-recipient
 choices and APNAP ordering. Freeze the consumed prefix; later source departure
 cannot undo it. Remaining eligibility rechecks current facts. Damage allocation,
 prevention budgets, zero damage and actual outcomes remain exact. Unsupported
-general replacement/layer interactions reject instead of approximating; damage
-doubling compares the provider's current controller with the source's current or
-exact-LKI facts (CR 609.7c).
+general replacement/layer interactions reject instead of approximating.
 
 ## Movement, sacrifice and board-wide effects
-
-The modal land subset binds two fixed-mana land faces, or an ordinary
-own-graveyard return sorcery followed by a fixed-mana land. Each back-land play
-uses its own accepted action, including a linked Hideaway play. Entry
-replacements use the chosen land, and only the battlefield incarnation retains
-that face. Direct entry uses the front. An entry copy freezes the donor's
-chosen face. Owner-visible hand and priority views keep the front
-characteristics, and concealed objects keep their normal visibility rules
-([CR 712.8d/f, 712.11–14](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)).
-Casting a front-face sorcery uses the existing payment and reversal path.
-The transforming subset supports complete artifact-creature faces with
-Defender and a fixed self-transform activation on the front and Flying on the
-back. Resolution preserves incarnation, counters, marked damage and
-attachments. An already stacked second activation retains its front program
-and does nothing after the first transform (CR 701.27f). The physical
-permanent retains front-face mana value, and a single-face copy of its back
-uses the copied face's values (CR 202.3b and 707.2).
-Back-face spells and other transforming programs remain open.
 
 Indestructible takes precedence over destruction. A paid regeneration shield
 replaces destruction when permitted, tapping its source, clearing damage and
@@ -333,12 +310,6 @@ from object IDs, map iteration or trace retention. Simultaneous competing
 attachments need the unimplemented ordering of CR 613.7m and reject explicitly.
 Timestamps and their allocator are canonical state and replay inputs.
 
-Equipment-owned combat-damage and death triggers capture the exact attached
-creature incarnation when matching the committed event. Damage uses the
-resulting battlefield and death uses the prior battlefield. The Equipment's
-controller receives the trigger through normal APNAP placement. Reequipping
-or removing the Equipment leaves the collected witness intact.
-
 Signed attachment stats apply in the creature power and toughness layer.
 Fixed-color protection follows the current creature and affects targeting,
 blocking, damage prevention and attachment legality. Applied prevention keeps
@@ -353,17 +324,11 @@ Continuous subtype grants evaluate each permanent's current controller and
 structural subtypes. An explicit creature restriction limits eligibility to
 creatures. Additive Golem stats apply in the creature power/toughness layer.
 
-### Continuous permanent control from Auras
+### Continuous permanent control
 
-Aura programs from the retired catalogs require fresh R4 lowering. The shared
-control rules retain the following invariants for attachment state.
-
-The current source, exact attached target incarnation and attachment timestamp
-determine authority. Acyclic attachment graphs reevaluate CR 613.8 dependencies
-after each attempted operation; independent effects use timestamps. Structural
-cycles, and an Aura combined with a synthetic control grant on one permanent,
-reject atomically. Removing authority reveals remaining effects or default
-control; a successor never inherits its predecessor's attachment.
+Kernel control grants determine control in layer 2; the latest supported grant
+wins and removing it reveals the default controller (CR 613.1b). A grant whose
+static source would itself need control-related exile rejects atomically.
 
 Reconciliation finishes each occurrence or simultaneous group before observers,
 keeping common-prior damage/death facts frozen. An actual controller change
@@ -400,15 +365,11 @@ The shared trigger pipeline operates on the events admitted by composition.
 
 Collect triggers from actual typed occurrences, wait through SBAs/Commander
 choices, then place APNAP, selecting targets/order at the proper boundary. Freeze
-controllers, actors, incarnations and witnesses. Power-filtered entries use
-derived post-event power; intervening conditions recheck at resolution. Source
+controllers, actors, incarnations and witnesses. Intervening conditions recheck
+at resolution. Source
 status uses current incarnation or departure-refreshed LKI. Cast triggers collect
 after successful payment; declared attacks use the real declaration batch.
 
-Mana-tap damage observers require a tap-cost mana ability to produce mana
-(CR 106.12a, 605.1b). Each matching observer keeps the activating player and
-joins the usual APNAP placement after the mana window. Reversing the mana
-activation also cancels its pending triggers (CR 733.1).
 Intrinsic landwalk and fixed-color protection can share a card with separately
 proved entry effects and fixed paid creature activations. Entry triggers on
 artifacts, Equipment and Auras use the entering incarnation. Supported entry
@@ -429,12 +390,6 @@ the creature that dealt the damage. The instruction retains that battlefield
 incarnation, including when the source also has supported intrinsic keywords
 (CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
 counters.
-
-Grouped combat-damage triggers fire once per observer, ability, occurrence and
-damaged player, using trigger-time appearance and frozen membership. Opponent
-cast prohibition bars opponent spells, not lands, abilities or already-cast
-spells; prohibition arising during cost determination or payment preserves a
-completed proposal (CR 601.6).
 
 ## Composition matrix
 

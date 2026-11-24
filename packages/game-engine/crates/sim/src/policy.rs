@@ -42,7 +42,6 @@ pub struct Strategy<'a> {
     mana_color: Option<Color>,
     mana_ability: Option<mtg_core::ManaAbilityIdentity>,
     payment: PaymentAttempt,
-    mana_combination: Option<[Quantity; 5]>,
     hybrid_choices: Vec<mtg_contracts::HybridPayment>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,7 +86,6 @@ impl<'a> Strategy<'a> {
             mana_color: None,
             mana_ability: None,
             payment: PaymentAttempt::default(),
-            mana_combination: None,
             hybrid_choices: vec![],
         }
     }
@@ -161,30 +159,8 @@ impl Strategy<'_> {
                 }
                 PlayerResponse::ChooseManaAbility { ability }
             }
-            PlayerRequest::ManaCombination { total, colors, .. } => {
-                let planned = self.mana_combination.take();
-                let preferred = self.mana_color.take();
-                let amounts = if let Some(amounts) = planned.filter(|amounts| {
-                    mtg_contracts::validate_mana_combination(colors, total, amounts).is_ok()
-                }) {
-                    amounts
-                } else {
-                    let mut amounts = std::array::from_fn(|_| Quantity::zero());
-                    if *total > Quantity::zero() {
-                        let color = preferred
-                            .filter(|c| colors.contains(c))
-                            .or_else(|| colors.first().copied())
-                            .ok_or("empty combination domain")?;
-                        let index = mtg_contracts::MANA_COMBINATION_COLORS
-                            .iter()
-                            .position(|c| *c == color)
-                            .ok_or("invalid mana combination color")?;
-                        amounts[index] = total.clone();
-                    }
-                    mtg_contracts::validate_mana_combination(colors, total, &amounts)?;
-                    amounts
-                };
-                PlayerResponse::ManaCombination { amounts }
+            PlayerRequest::ManaCombination { .. } => {
+                return Err("no admitted mana ability requests a mana combination".into());
             }
             PlayerRequest::ManaColor { colors, .. } => PlayerResponse::ManaColor {
                 color: self
@@ -245,23 +221,15 @@ impl Strategy<'_> {
                 objects: candidates.iter().rev().take(*count).cloned().collect(),
             },
             PlayerRequest::Priority { .. } => return self.priority(o),
-            PlayerRequest::Modes {
-                candidates,
-                exactly,
-                allow_repeat,
-                one_or_more,
-                ..
-            } => self
-                .mode_response(v, candidates, *exactly, *allow_repeat, *one_or_more)
-                .ok_or("insufficient offered modes")?,
+            PlayerRequest::Modes { .. } => {
+                return Err("no admitted spell offers modes".into());
+            }
             PlayerRequest::Targets {
                 occurrences,
                 candidates,
                 ..
             } => {
-                let (d, p) = self
-                    .occurrence_program(v, occurrences)
-                    .ok_or("missing target program")?;
+                let (d, p) = self.top_program(v).ok_or("missing target program")?;
                 let objects = occurrences
                     .iter()
                     .map(|t| {
@@ -277,9 +245,7 @@ impl Strategy<'_> {
                 candidates,
                 ..
             } => {
-                let (d, p) = self
-                    .occurrence_program(v, occurrences)
-                    .ok_or("missing player program")?;
+                let (d, p) = self.top_program(v).ok_or("missing player program")?;
                 let players = occurrences
                     .iter()
                     .map(|t| {
@@ -328,9 +294,7 @@ impl Strategy<'_> {
                     }
                     return Ok(PlayerResponse::EntityTargets { entities });
                 }
-                let (_, p) = self
-                    .occurrence_program(v, occurrences)
-                    .ok_or("missing damage program")?;
+                let (_, p) = self.top_program(v).ok_or("missing damage program")?;
                 let mut entities: Vec<PlayerTargetEntity> = vec![];
                 for _ in occurrences {
                     let distinct: Vec<_> = candidates
@@ -413,7 +377,6 @@ impl Strategy<'_> {
                 } else if let Some(next) = self.mana_plan.pop_front() {
                     self.mana_color = next.color;
                     self.mana_ability = next.ability;
-                    self.mana_combination = next.combination;
                     PlayerResponse::ActivateMana {
                         object: next.source,
                     }

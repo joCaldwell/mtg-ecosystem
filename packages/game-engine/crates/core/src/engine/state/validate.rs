@@ -137,8 +137,6 @@ impl RulesTxn {
                 return Err("snapshot zone-owner invariant".into());
             }
         }
-        self.validate_back_face_objects()?;
-        self.validate_entry_copy_identities()?;
         self.validate_attachment_state()?;
         self.validate_control_state()?;
         self.validate_hideaway_links()?;
@@ -211,7 +209,6 @@ impl RulesTxn {
                         | Frame::AdditionalCosts { .. }
                         | Frame::HybridCost { .. }
                         | Frame::AnnounceX { .. }
-                        | Frame::Modes { .. }
                         | Frame::EntityTargets { .. }
                         | Frame::Targets { .. }
                         | Frame::StackTargets { .. }
@@ -247,7 +244,6 @@ impl RulesTxn {
             return Err("snapshot stack/zone invariant".into());
         }
         self.validate_graveyard_replacement()?;
-        self.validate_land_entry_state()?;
         self.validate_sacrifice_state()?;
         self.validate_nested_mana_frame(&s.rules.frame)?;
         // Paid mana damage can retain the resolving instruction even after its
@@ -261,7 +257,6 @@ impl RulesTxn {
             Frame::AdditionalCosts { cast }
             | Frame::HybridCost { cast }
             | Frame::AnnounceX { cast }
-            | Frame::Modes { cast }
             | Frame::EntityTargets { cast }
             | Frame::Targets { cast }
             | Frame::StackTargets { cast }
@@ -301,7 +296,6 @@ impl RulesTxn {
                         Frame::AdditionalCosts { .. }
                             | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
-                            | Frame::Modes { .. }
                             | Frame::EntityTargets { .. }
                             | Frame::Targets { .. }
                             | Frame::PlayerTargets { .. }
@@ -322,41 +316,12 @@ impl RulesTxn {
                         | Frame::PlayerTargets { .. }
                         | Frame::StackTargets { .. }
                 );
-                if target_stage && self.mixed_mode_children(top)?.is_some() {
-                    // CR 601.2c: the selected modes announce their targets in
-                    // printed order, each in the stage casting opens for its
-                    // first target's domain (`RulesTxn::spell_announcement_frame`).
-                    let next = self.next_mode_target(top)?;
-
-                    let opened = matches!(
-                        (
-                            stage,
-                            next.and_then(|p| p.targets.first()).map(|t| t.domain),
-                        ),
-                        (
-                            Frame::Targets { .. },
-                            Some(
-                                TargetDomain::BattlefieldCreature
-                                    | TargetDomain::BattlefieldPermanent
-                                    | TargetDomain::CreatureOrPlaneswalker,
-                            ),
-                        ) | (Frame::StackTargets { .. }, Some(TargetDomain::StackSpell))
-                            | (
-                                Frame::EntityTargets { .. },
-                                Some(TargetDomain::AnyDamageTarget)
-                            )
-                            | (Frame::PlayerTargets { .. }, Some(TargetDomain::AnyPlayer))
-                    );
-                    if !self.valid_mixed_target_receipt(top, false)? || !opened {
-                        return Err("snapshot selected-mode announcement target invariant".into());
-                    }
-                } else if (target_stage
+                if (target_stage
                     || matches!(
                         stage,
                         Frame::AdditionalCosts { .. }
                             | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
-                            | Frame::Modes { .. }
                     ))
                     && self.bound_target_count(top) != 0
                 {

@@ -328,7 +328,6 @@ mod tests {
             id: EffectId(2),
             origin: EffectOrigin {
                 activated_ability: None,
-                mode: Some(1),
                 stack_id: StackId(3),
                 source: ObjectId {
                     card: CardId(0),

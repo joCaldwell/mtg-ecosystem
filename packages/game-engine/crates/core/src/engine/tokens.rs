@@ -247,7 +247,6 @@ impl RulesTxn {
                 battlefield_entry_turn: (zone == Zone::Battlefield).then_some(turn),
                 keyword_timestamp: (zone == Zone::Battlefield).then_some(batch),
                 plus_one_counters: Quantity::zero(),
-                lore_counters: Quantity::zero(),
                 marked_damage: Quantity::zero(),
                 deathtouch_damage: false,
                 attack_ready: false,
@@ -482,7 +481,7 @@ impl RulesTxn {
             }
             let source = self.copiable_definition(t.source)?;
             fn creates(p: &SpellProgram, spec: &CreatureToken) -> bool {
-                p.instructions.iter().any(|i| matches!(i, kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Creature { spec: token }, .. }) if token == spec)) || p.modes.iter().any(|m| creates(&m.program,spec))
+                p.instructions.iter().any(|i| matches!(i, kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Creature { spec: token }, .. }) if token == spec))
             }
             let expected = match &t.spec {
                 TokenTemplate::Created(spec) => {
@@ -521,12 +520,6 @@ impl RulesTxn {
             }
         }
         for (id, o) in &self.state.rules.objects {
-            if o.lore_counters.is_negative()
-                || (o.lore_counters != Quantity::zero()
-                    && (o.zone != Zone::Battlefield || self.saga_final_chapter(o.id)?.is_none()))
-            {
-                return Err("snapshot Saga lore invariant".into());
-            }
             if o.plus_one_counters.is_negative()
                 || (o.plus_one_counters > Quantity::zero()
                     && (o.zone != Zone::Battlefield

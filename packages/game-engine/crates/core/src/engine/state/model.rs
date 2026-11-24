@@ -72,8 +72,6 @@ pub struct Object {
     pub(in crate::engine) battlefield_entry_turn: Option<u64>,
     #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
     pub plus_one_counters: Quantity,
-    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
-    pub lore_counters: Quantity,
     pub marked_damage: Quantity,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deathtouch_damage: bool,
@@ -99,8 +97,6 @@ pub struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub alternative_cost: Option<AlternativeCost>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub death_controller: Option<PlayerId>,
@@ -108,10 +104,6 @@ pub struct StackInstance {
     pub sacrificed: Option<ObjectBefore>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrificed_set: Vec<ObjectId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode_subset: Option<choices::BoundModeSubset>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effect_source_handles: Vec<publish::StoredObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

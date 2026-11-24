@@ -125,10 +125,6 @@ state_layout! {
         mana_ability_uses: BTreeSet<mana_permanents::ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "shared_map::is_empty", with = "shared_map")]
         tokens: Arc<BTreeMap<CardId, tokens::TokenIdentity>>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        entry_copies: BTreeMap<CardId, BTreeMap<u32, copiable_identity::EntryCopy>>,
-        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-        back_face_objects: BTreeMap<CardId, BTreeMap<u32, u64>>,
         // Deterministic conservative charge for inputs and potential detailed
         // evidence, even in Off/Compact modes. Replay proves the counter.
         #[serde(default, skip_serializing_if = "stored_history::is_zero_charge")]
@@ -139,8 +135,6 @@ state_layout! {
         match_state: Option<MatchState>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         effects: Shared<Vec<ResolvedEffect>>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        delayed_chapters: Vec<DelayedChapterRegistration>,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]
         next_effect_id: u64,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]

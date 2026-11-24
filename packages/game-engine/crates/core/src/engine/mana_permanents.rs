@@ -1,56 +1,12 @@
 //! CR 106.1b/4, 302.6, 602.5a, 605.1a/3a-c, 702.10c, 733.1-2, 903.4a:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::{disjoint_pain_mana_family, hybrid_filter_colors};
-
-mod hybrid_filter;
-use hybrid_filter::uses_indexed_paid_mana;
-
-mod mana_damage;
-mod mana_life_gain;
-use mana_life_gain::ManaLifeUndo;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ManaSourceScope {
     Intrinsic,
-    Disjoint,
     Mixed,
-    PrintedDisjoint { index: u32 },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManaBranch {
-    index: u32,
-    color: Color,
-}
-
-/// A producing ability and its chosen output are separate. An intrinsic ability
-/// is identified by its basic subtype's mana color (CR 305.6), while a printed
-/// ability is identified by its index on this source incarnation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ManaSourceChoice {
-    Intrinsic(Color),
-    Printed(ManaBranch),
-}
-
-impl ManaSourceChoice {
-    fn color(self) -> Color {
-        match self {
-            Self::Intrinsic(color) => color,
-            Self::Printed(branch) => branch.color,
-        }
-    }
-
-    fn from_color(choices: &[Self], color: Color) -> Result<Self, String> {
-        let mut matching = choices.iter().copied().filter(|c| c.color() == color);
-        let choice = matching.next().ok_or("invalid mana source choice")?;
-        if matching.next().is_some() {
-            return Err("mana color identifies multiple source abilities".into());
-        }
-        Ok(choice)
-    }
 }
 
 // Four Healers plus eight once-only sacrifice-draw artifact activations.
@@ -65,11 +21,9 @@ pub fn zero_mana_cost() -> ManaCost {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ManaStage {
-    FilterInput,
     Payment,
     Spend,
     Color,
-    Combination { total: Quantity },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -77,12 +31,6 @@ pub struct ManaActivation {
     pub(super) player: PlayerId,
     pub source: ObjectId,
     ability: ManaAbility,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    printed_index: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    filter_input: Option<Color>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    branch: Option<ManaBranch>,
     decision_id: u64,
     pub stage: ManaStage,
     pub(super) resume: FrameLink,
@@ -90,10 +38,13 @@ pub struct ManaActivation {
     paid: Option<Box<PermanentManaUndo>>,
 }
 impl ManaActivation {
-    pub(super) fn ability_index(&self) -> u32 {
-        self.printed_index
-            .or(self.branch.map(|branch| branch.index))
-            .unwrap_or_default()
+    fn payment_cost(&self) -> Option<ManaCost> {
+        self.ability.costs.mana.clone()
+    }
+
+    /// The activation is the source's single printed mana ability.
+    fn matches_definition(&self, definition: &Definition) -> bool {
+        definition.mana_abilities.as_slice() == std::slice::from_ref(&self.ability)
     }
 
     fn cause(&self) -> BatchCause {
@@ -135,39 +86,14 @@ testkit_fields! {
         pub ability_use: Option<ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pub previously_used: bool,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub(super) combination_total: Option<Quantity>,
         pub produced: BTreeMap<Color, Quantity>,
         pub spent: BTreeMap<Color, Quantity>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub spent_restricted: Vec<RestrictedMana>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub produced_restricted: Vec<RestrictedMana>,
         pub absent: BTreeSet<Color>,
         pub sacrificed: bool,
         pub cost_triggers: Vec<TriggerId>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub(super) branch: Option<ManaBranch>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub(super) damage: Option<Box<ManaDamageUndo>>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub(super) life_gain: Option<ManaLifeUndo>,
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManaDamageUndo {
-    pub(super) life: Vec<ManaDamageLife>,
-    triggers: Vec<(TriggerId, PlayerId)>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ManaDamageLife {
-    pub(super) player: PlayerId,
-    before: Quantity,
-    after: Quantity,
 }
 
 impl RulesTxn {
@@ -215,20 +141,8 @@ impl RulesTxn {
         production: &ManaProduction,
     ) -> Result<Vec<Color>, String> {
         Ok(match production {
-            ManaProduction::Fixed { symbols }
-            | ManaProduction::FixedWithLifeGain { symbols, .. }
-            | ManaProduction::RestrictedFixed { symbols, .. }
-            | ManaProduction::Choice { colors: symbols } => symbols.clone(),
-            ManaProduction::HybridFilter { colors } => colors.to_vec(),
-            ManaProduction::GreatestControlledPowerCombination
-            | ManaProduction::AnyColor
-            | ManaProduction::AnyOneColor { .. } => {
-                vec![Color::W, Color::U, Color::B, Color::R, Color::G]
-            }
-            ManaProduction::OpponentLandColors => return self.opponent_land_mana_colors(player),
-            ManaProduction::EachPermanentColor { scope } => {
-                self.permanent_colors(*scope, player)?.into_iter().collect()
-            }
+            ManaProduction::Fixed { symbols } => symbols.clone(),
+            ManaProduction::AnyColor => vec![Color::W, Color::U, Color::B, Color::R, Color::G],
             // CR 702.124c, 903.4: both designations contribute their
             // original color identities, independently of zone or control.
             ManaProduction::CommanderColor => {
@@ -264,16 +178,6 @@ impl RulesTxn {
                     continue;
                 }
                 Frame::ManaAbility { activation } => activation,
-                Frame::DamageEffects { transaction } => {
-                    let DamageContinuation::Mana { activation, .. } = &transaction.continuation
-                    else {
-                        break;
-                    };
-                    charge = charge
-                        .saturating_add(stored_history::payload_charge(&transaction.entries))
-                        .saturating_add(stored_history::payload_charge(&transaction.applications));
-                    activation
-                }
                 // Payment owns the resolution and its nested mana receipts.
                 // kernel_charge already accounts for every saved Kernel task.
                 Frame::ResolutionPayment { .. } => {
@@ -300,23 +204,9 @@ impl RulesTxn {
                 }
                 _ => break,
             };
-            if let Some(index) = activation.printed_index {
-                charge = charge.saturating_add(stored_history::payload_charge(&(
-                    index,
-                    activation.filter_input,
-                )));
-            }
-            if let ManaStage::Combination { total } = &activation.stage {
-                charge = charge.saturating_add(stored_history::payload_charge(total));
-            }
             charge = charge.saturating_add(self.mana_receipt_charge(&activation.receipts));
             if let Some(paid) = &activation.paid
-                && ((self.catalog_has_mana_tap_observer && !paid.cost_triggers.is_empty())
-                    || paid.branch.is_some()
-                    || paid.combination_total.is_some()
-                    || paid.life_gain.is_some()
-                    || !paid.spent_restricted.is_empty()
-                    || !paid.produced_restricted.is_empty())
+                && !paid.spent_restricted.is_empty()
             {
                 charge = charge.saturating_add(stored_history::payload_charge(paid));
             }
@@ -327,15 +217,10 @@ impl RulesTxn {
 
     fn mana_receipt_charge(&self, receipts: &[ManaActivationUndo]) -> usize {
         receipts.iter().fold(0usize, |charge, receipt| {
-            if !receipt.tap_triggers.is_empty()
-                || receipt.permanent.as_ref().is_some_and(|r| {
-                    (self.catalog_has_mana_tap_observer && !r.cost_triggers.is_empty())
-                        || r.branch.is_some()
-                        || r.combination_total.is_some()
-                        || r.life_gain.is_some()
-                        || !r.spent_restricted.is_empty()
-                        || !r.produced_restricted.is_empty()
-                })
+            if receipt
+                .permanent
+                .as_ref()
+                .is_some_and(|r| !r.spent_restricted.is_empty())
             {
                 charge.saturating_add(stored_history::payload_charge(receipt))
             } else {
@@ -357,14 +242,6 @@ impl RulesTxn {
                 },
                 Frame::ManaAbility { activation } => self.saved_frame(activation.resume)?,
                 Frame::ManaSourceChoice { resume, .. } => self.saved_frame(*resume)?,
-                Frame::DamageEffects { transaction } => match &transaction.continuation {
-                    DamageContinuation::Mana { activation, .. }
-                        if self.mana_damage_resume_available(activation)? =>
-                    {
-                        self.saved_frame(activation.resume)?
-                    }
-                    _ => break,
-                },
                 _ => break,
             };
         }
@@ -415,10 +292,7 @@ impl RulesTxn {
             return Err("reserved permanent mana source".into());
         }
         let definition = self.copiable_definition(source)?;
-        if definition.mana_abilities.len() != 1
-            && !disjoint_pain_mana_family(definition)
-            && !uses_indexed_paid_mana(definition)
-        {
+        if definition.mana_abilities.len() != 1 {
             return Err("unsupported permanent mana source".into());
         }
         if !self.intrinsic_mana_colors(source)?.is_empty() {
@@ -464,24 +338,13 @@ impl RulesTxn {
         source: ObjectId,
     ) -> Result<Vec<ManaAbilityIdentity>, String> {
         let definition = self.copiable_definition(source)?;
-        let grant = self.has_granted_land_mana(source)?;
-        let printed = definition.mana_abilities.len() == 1
-            || disjoint_pain_mana_family(definition)
-            || uses_indexed_paid_mana(definition);
+        let printed = definition.mana_abilities.len() == 1;
         let mut choices: Vec<_> = self
             .intrinsic_choice_colors(player, source)
             .unwrap_or_default()
             .into_iter()
             .map(|color| ManaAbilityIdentity::Intrinsic { color })
             .collect();
-        // Identical grants are interchangeable in the closed mana rules. They
-        // stay distinct from the land's intrinsic and printed abilities.
-        if grant && self.validate_simple_tap_mana(player, source).is_ok() {
-            choices.extend(
-                Self::granted_land_mana_colors()
-                    .map(|color| ManaAbilityIdentity::GrantedLandTap { color }),
-            );
-        }
         for index in 0..if printed {
             definition.mana_abilities.len()
         } else {
@@ -500,59 +363,19 @@ impl RulesTxn {
         }
         Ok(choices)
     }
-    fn mana_source_choices(
-        &self,
-        player: PlayerId,
-        source: ObjectId,
-        scope: ManaSourceScope,
-    ) -> Result<Vec<ManaSourceChoice>, String> {
-        match scope {
-            ManaSourceScope::Mixed => Err("mixed provider requires an ability identity".into()),
-            ManaSourceScope::Intrinsic if self.is_permanent_mana(source) => {
-                Err("printed provider cannot select an intrinsic-only scope".into())
-            }
-            ManaSourceScope::Intrinsic => Ok(self
-                .intrinsic_choice_colors(player, source)?
-                .into_iter()
-                .map(ManaSourceChoice::Intrinsic)
-                .collect()),
-            ManaSourceScope::Disjoint | ManaSourceScope::PrintedDisjoint { .. } => {
-                let definition = self.copiable_definition(source)?;
-                if !disjoint_pain_mana_family(definition) {
-                    return Err("invalid disjoint mana source".into());
-                }
-                let mut choices = Vec::new();
-                for (index, ability) in definition.mana_abilities.iter().enumerate() {
-                    let index = u32::try_from(index).map_err(|_| "mana ability index overflow")?;
-                    if matches!(scope,ManaSourceScope::PrintedDisjoint{index:selected} if selected!=index)
-                    {
-                        continue;
-                    }
-                    self.validate_permanent_mana_costs(player, source, index)?;
-                    for color in self.mana_colors(player, &ability.production)? {
-                        choices.push(ManaSourceChoice::Printed(ManaBranch { index, color }));
-                    }
-                }
-                if choices.is_empty() {
-                    return Err("missing printed mana branch".into());
-                }
-                Ok(choices)
-            }
-        }
-    }
-
     pub(super) fn mana_source_colors(
         &self,
         player: PlayerId,
         source: ObjectId,
         scope: ManaSourceScope,
     ) -> Result<Vec<Color>, String> {
-        let choices = self.mana_source_choices(player, source, scope)?;
-        let colors: Vec<_> = choices.iter().map(|c| c.color()).collect();
-        if colors.iter().collect::<BTreeSet<_>>().len() != colors.len() {
-            return Err("mana source requires a choice of ability".into());
+        match scope {
+            ManaSourceScope::Mixed => Err("mixed provider requires an ability identity".into()),
+            ManaSourceScope::Intrinsic if self.is_permanent_mana(source) => {
+                Err("printed provider cannot select an intrinsic-only scope".into())
+            }
+            ManaSourceScope::Intrinsic => self.intrinsic_choice_colors(player, source),
         }
-        Ok(colors)
     }
 
     pub(super) fn mana_source_choice_step(
@@ -578,40 +401,15 @@ impl RulesTxn {
                 return Err("invalid selected mana ability".into());
             }
             return match ability {
-                ManaAbilityIdentity::GrantedLandTap { color } => {
-                    let receipt = self.commit_unrestricted_tap_mana(&input, source, color)?;
-                    self.resume_mana(resume, vec![receipt])
+                ManaAbilityIdentity::GrantedLandTap { .. } => {
+                    Err("unsupported granted mana ability".into())
                 }
                 ManaAbilityIdentity::Intrinsic { color } => {
                     let receipt = self.activate_selected_intrinsic_mana(&input, source, color)?;
                     self.resume_mana(resume, vec![receipt])
                 }
-                ManaAbilityIdentity::Printed { index } => {
-                    if uses_indexed_paid_mana(self.copiable_definition(source)?) && index == 1 {
-                        return self.start_indexed_mana_ability(
-                            &input,
-                            source,
-                            None,
-                            Some(index),
-                            resume,
-                        );
-                    }
-                    if !disjoint_pain_mana_family(self.copiable_definition(source)?) {
-                        return self.start_mana_ability(&input, source, None, resume);
-                    }
-                    let scope = ManaSourceScope::PrintedDisjoint { index };
-                    let choices = self.mana_source_choices(player, source, scope)?;
-                    if let [ManaSourceChoice::Printed(branch)] = choices.as_slice() {
-                        self.start_mana_ability(&input, source, Some(*branch), resume)
-                    } else {
-                        self.rules_mut().frame = Frame::ManaSourceChoice {
-                            player,
-                            source,
-                            scope,
-                            resume: self.save_frame(resume),
-                        };
-                        Ok(())
-                    }
+                ManaAbilityIdentity::Printed { .. } => {
+                    self.start_mana_ability(&input, source, resume)
                 }
             };
         }
@@ -621,16 +419,14 @@ impl RulesTxn {
         if input.player != player || !self.mana_resume_player(&resume, player) {
             return Err("invalid mana source choice".into());
         }
-        let choices = self.mana_source_choices(player, source, scope)?;
-        match ManaSourceChoice::from_color(&choices, color)? {
-            ManaSourceChoice::Intrinsic(color) => {
-                let receipt = self.activate_selected_intrinsic_mana(&input, source, color)?;
-                self.resume_mana(resume, vec![receipt])
-            }
-            ManaSourceChoice::Printed(branch) => {
-                self.start_mana_ability(&input, source, Some(branch), resume)
-            }
+        if !self
+            .mana_source_colors(player, source, scope)?
+            .contains(&color)
+        {
+            return Err("invalid mana source choice".into());
         }
+        let receipt = self.activate_selected_intrinsic_mana(&input, source, color)?;
+        self.resume_mana(resume, vec![receipt])
     }
 
     pub(super) fn begin_payment_mana(
@@ -639,19 +435,7 @@ impl RulesTxn {
         source: ObjectId,
         resume: Frame,
     ) -> Result<(), String> {
-        if self.has_granted_land_mana(source)? {
-            self.validate_mana_activation(input.player, source)?;
-            if !self.mana_resume_player(&resume, input.player) {
-                return Err("invalid granted mana continuation".into());
-            }
-            self.rules_mut().frame = Frame::ManaSourceChoice {
-                player: input.player,
-                source,
-                scope: ManaSourceScope::Mixed,
-                resume: self.save_frame(resume),
-            };
-            Ok(())
-        } else if self.is_permanent_mana(source) {
+        if self.is_permanent_mana(source) {
             self.begin_permanent_mana(input, source, resume)
         } else {
             self.begin_intrinsic_mana(input, source, resume)
@@ -668,9 +452,7 @@ impl RulesTxn {
         if !self.mana_resume_player(&resume, input.player) {
             return Err("invalid permanent mana continuation".into());
         }
-        if !self.intrinsic_mana_colors(source)?.is_empty()
-            || uses_indexed_paid_mana(self.copiable_definition(source)?)
-        {
+        if !self.intrinsic_mana_colors(source)?.is_empty() {
             self.rules_mut().frame = Frame::ManaSourceChoice {
                 player: input.player,
                 source,
@@ -678,16 +460,8 @@ impl RulesTxn {
                 resume: self.save_frame(resume),
             };
             Ok(())
-        } else if disjoint_pain_mana_family(self.copiable_definition(source)?) {
-            self.rules_mut().frame = Frame::ManaSourceChoice {
-                player: input.player,
-                source,
-                scope: ManaSourceScope::Disjoint,
-                resume: self.save_frame(resume),
-            };
-            Ok(())
         } else {
-            self.start_mana_ability(input, source, None, resume)
+            self.start_mana_ability(input, source, resume)
         }
     }
 
@@ -695,48 +469,25 @@ impl RulesTxn {
         &mut self,
         input: &AcceptedInput,
         source: ObjectId,
-        branch: Option<ManaBranch>,
         resume: Frame,
     ) -> Result<(), String> {
-        self.start_indexed_mana_ability(input, source, branch, None, resume)
-    }
-
-    fn start_indexed_mana_ability(
-        &mut self,
-        input: &AcceptedInput,
-        source: ObjectId,
-        branch: Option<ManaBranch>,
-        printed_index: Option<u32>,
-        resume: Frame,
-    ) -> Result<(), String> {
-        let index = printed_index
-            .or(branch.map(|b| b.index))
-            .unwrap_or_default();
         let ability = self
             .copiable_definition(source)?
             .mana_abilities
-            .get(index as usize)
+            .first()
             .ok_or("missing selected mana ability")?
             .clone();
-        let stage = if matches!(ability.production, ManaProduction::HybridFilter { .. }) {
-            ManaStage::FilterInput
-        } else {
-            ManaStage::Payment
-        };
         let activation = ManaActivation {
             player: input.player,
             source,
             decision_id: input.decision_id,
             ability,
-            branch,
-            printed_index,
-            filter_input: None,
-            stage,
+            stage: ManaStage::Payment,
             resume: self.save_frame(resume),
             receipts: vec![],
             paid: None,
         };
-        if activation.stage != ManaStage::FilterInput && activation.payment_cost().is_none() {
+        if activation.payment_cost().is_none() {
             self.pay_mana_ability(activation, BTreeMap::new(), vec![])
         } else {
             self.rules_mut().frame = Frame::ManaAbility {
@@ -747,11 +498,6 @@ impl RulesTxn {
     }
     pub(super) fn permanent_mana_request(&self, a: &ManaActivation) -> Result<Request, String> {
         Ok(match a.stage {
-            ManaStage::FilterInput => Request::ManaColor {
-                decision_id: self.state.rules.revision,
-                player: a.player,
-                colors: a.filter_input_colors()?,
-            },
             ManaStage::Payment => Request::Mana {
                 decision_id: self.state.rules.revision,
                 player: a.player,
@@ -764,15 +510,6 @@ impl RulesTxn {
                 available: self.state.rules.players[a.player.0 as usize].mana.clone(),
                 restricted_available: self
                     .eligible_restricted(a.player, self.activation_mana_consumer(a.source)),
-            },
-            ManaStage::Combination { ref total } => Request::ManaCombination {
-                decision_id: self.state.rules.revision,
-                player: a.player,
-                total: total.clone(),
-                colors: a.filter_colors().map_or_else(
-                    || MANA_COMBINATION_COLORS.to_vec(),
-                    |colors| colors.to_vec(),
-                ),
             },
             ManaStage::Color => Request::ManaColor {
                 decision_id: self.state.rules.revision,
@@ -791,12 +528,6 @@ impl RulesTxn {
             return Err("wrong mana ability payer".into());
         }
         match (&a.stage, response) {
-            (ManaStage::FilterInput, Response::ManaColor { color })
-                if a.filter_colors()
-                    .is_some_and(|colors| colors.contains(color)) =>
-            {
-                Ok(())
-            }
             (ManaStage::Payment, Response::ActivateMana { object }) => {
                 self.validate_mana_activation(player, *object)
             }
@@ -823,16 +554,6 @@ impl RulesTxn {
                     self.activation_mana_consumer(a.source),
                 )
                 .map(|_| ()),
-            (ManaStage::Combination { total }, Response::ManaCombination { amounts }) => {
-                let colors = a.filter_colors();
-                validate_mana_combination(
-                    colors
-                        .as_ref()
-                        .map_or(MANA_COMBINATION_COLORS.as_slice(), |pair| pair.as_slice()),
-                    total,
-                    amounts,
-                )
-            }
             (ManaStage::Color, Response::ManaColor { color })
                 if self
                     .mana_colors(player, &a.ability.production)?
@@ -850,18 +571,6 @@ impl RulesTxn {
             .take()
             .ok_or("missing mana ability input")?;
         match input.response {
-            Response::ManaColor { color } if a.stage == ManaStage::FilterInput => {
-                self.validate_permanent_mana_response(
-                    &a,
-                    input.player,
-                    &Response::ManaColor { color },
-                )?;
-                a.filter_input = Some(color);
-                a.stage = ManaStage::Payment;
-                self.rules_mut().frame = Frame::ManaAbility {
-                    activation: Box::new(a),
-                };
-            }
             Response::ActivateMana { object } if a.stage == ManaStage::Payment => {
                 self.begin_payment_mana(
                     &input,
@@ -897,23 +606,6 @@ impl RulesTxn {
                 spending,
                 restricted,
             } if a.stage == ManaStage::Spend => self.pay_mana_ability(a, spending, restricted)?,
-            Response::ManaCombination { amounts }
-                if matches!(a.stage, ManaStage::Combination { .. }) =>
-            {
-                self.validate_permanent_mana_response(
-                    &a,
-                    input.player,
-                    &Response::ManaCombination {
-                        amounts: amounts.clone(),
-                    },
-                )?;
-                let units = MANA_COMBINATION_COLORS
-                    .into_iter()
-                    .zip(amounts)
-                    .filter(|(_, n)| *n > Quantity::zero())
-                    .collect();
-                self.produce_mana_units(a, units)?;
-            }
             Response::ManaColor { color } if a.stage == ManaStage::Color => {
                 self.resolve_mana_ability(a, Some(color))?
             }
@@ -927,7 +619,7 @@ impl RulesTxn {
         spending: BTreeMap<Color, Quantity>,
         restricted: Vec<RestrictedMana>,
     ) -> Result<(), String> {
-        self.validate_permanent_mana_costs(a.player, a.source, a.ability_index())?;
+        self.validate_permanent_mana_costs(a.player, a.source, 0)?;
         // No costs are paid until the nested payment succeeds (601.2g-h).
         let pool = &self.state.rules.players[a.player.0 as usize].mana;
         let mut receipt = PermanentManaUndo {
@@ -936,20 +628,15 @@ impl RulesTxn {
             counters: self.current(a.source)?.plus_one_counters.clone(),
             ability_use: a.ability.restriction.map(|_| self.mana_use_key(a.source)),
             previously_used: self.mana_ability_used(a.source),
-            combination_total: None,
             produced: BTreeMap::new(),
             spent: spending.clone(),
             spent_restricted: restricted.clone(),
-            produced_restricted: vec![],
             absent: [Color::W, Color::U, Color::B, Color::R, Color::G, Color::C]
                 .into_iter()
                 .filter(|c| !pool.contains_key(c))
                 .collect(),
             sacrificed: a.ability.costs.sacrifice,
             cost_triggers: vec![],
-            branch: a.branch,
-            damage: None,
-            life_gain: None,
         };
         let cause = a.cause();
         if let Some(cost) = a.payment_cost() {
@@ -977,56 +664,8 @@ impl RulesTxn {
             .map(|t| t.id)
             .collect();
         a.paid = Some(Box::new(receipt));
-        if let Some(branch) = a.branch {
-            return self.resolve_mana_ability(a, Some(branch.color));
-        }
         match a.ability.production {
-            ManaProduction::HybridFilter { .. } => {
-                let total = Quantity::from(2);
-                a.paid
-                    .as_mut()
-                    .ok_or("missing paid filter activation")?
-                    .combination_total = Some(total.clone());
-                a.stage = ManaStage::Combination { total };
-                self.rules_mut().frame = Frame::ManaAbility {
-                    activation: Box::new(a),
-                };
-                Ok(())
-            }
-            ManaProduction::GreatestControlledPowerCombination => {
-                let mut total = Quantity::zero();
-                for o in self
-                    .state
-                    .rules
-                    .objects
-                    .values()
-                    .filter(|o| o.present_on_battlefield() && o.controller == a.player)
-                {
-                    if self.is_battlefield_creature(o.id) {
-                        total = total.max(
-                            self.characteristics(o.id)?
-                                .power
-                                .ok_or("creature without power")?,
-                        );
-                    }
-                }
-                a.paid
-                    .as_mut()
-                    .ok_or("missing paid activation")?
-                    .combination_total = Some(total.clone());
-                if total == Quantity::zero() {
-                    return self.produce_mana_units(a, vec![]);
-                }
-                a.stage = ManaStage::Combination { total };
-                self.rules_mut().frame = Frame::ManaAbility {
-                    activation: Box::new(a),
-                };
-                Ok(())
-            }
-            ManaProduction::Fixed { .. }
-            | ManaProduction::FixedWithLifeGain { .. }
-            | ManaProduction::RestrictedFixed { .. }
-            | ManaProduction::EachPermanentColor { .. } => self.resolve_mana_ability(a, None),
+            ManaProduction::Fixed { .. } => self.resolve_mana_ability(a, None),
             _ if self
                 .mana_colors(a.player, &a.ability.production)?
                 .is_empty() =>
@@ -1102,19 +741,8 @@ impl RulesTxn {
         a: ManaActivation,
         color: Option<Color>,
     ) -> Result<(), String> {
-        if let ManaProduction::AnyOneColor { amount } = &a.ability.production {
-            let units = self.single_color_mana_units(a.player, color, amount)?;
-            return self.produce_mana_units(a, units);
-        }
         let symbols = match &a.ability.production {
-            ManaProduction::Fixed { symbols }
-            | ManaProduction::FixedWithLifeGain { symbols, .. }
-            | ManaProduction::RestrictedFixed { symbols, .. } => symbols.clone(),
-            ManaProduction::EachPermanentColor { .. } => {
-                // CR 605.3b/608.2h: resolve once, after the activation costs
-                // commit. The whole output is fixed before any mana is added.
-                self.mana_colors(a.player, &a.ability.production)?
-            }
+            ManaProduction::Fixed { symbols } => symbols.clone(),
             _ => color.into_iter().collect(),
         };
         self.produce_mana_units(
@@ -1136,60 +764,20 @@ impl RulesTxn {
         // ability still resolves (113.7a); AddMana uses that current identity.
         let source = self.object_id(a.source.card).unwrap_or(a.source);
         let mut children = vec![];
-        let restriction = match a.ability.production {
-            ManaProduction::RestrictedFixed { spend, .. } => Some(spend),
-            _ => None,
-        };
         for (color, amount) in units {
-            if let Some(restriction) = restriction {
-                restricted_mana::credit(
-                    &mut receipt.produced_restricted,
-                    &RestrictedMana {
-                        restriction,
-                        color,
-                        amount: amount.clone(),
-                    },
-                );
-            } else {
-                receipt.produced.entry(color).or_default().add(&amount);
-            }
+            receipt.produced.entry(color).or_default().add(&amount);
             children.push(EventGroup::Occurrence {
                 proposed: ProposedEvent::AddMana {
                     player: a.player,
                     color,
                     amount,
                     source,
-                    restriction,
+                    restriction: None,
                 },
             });
         }
-        let life_index = if let ManaProduction::FixedWithLifeGain { life, .. } =
-            &a.ability.production
-        {
-            let index = u32::try_from(children.len()).map_err(|_| "mana effect index overflow")?;
-            children.push(EventGroup::Occurrence {
-                proposed: ProposedEvent::GainLife {
-                    player: a.player,
-                    amount: life.clone(),
-                },
-            });
-            Some(index)
-        } else {
-            None
-        };
         if !children.is_empty() {
-            let batch = self.commit_batch(cause, EventGroup::Ordered { children })?;
-            if a.ability.costs.tap {
-                let triggers =
-                    self.collect_mana_tap(&batch, a.source, Some(&receipt.source), a.player)?;
-                receipt.cost_triggers.extend(triggers);
-            }
-            if let Some(index) = life_index {
-                receipt.life_gain = mana_life_gain::actual(&batch, index, a.player)?;
-            }
-        }
-        if let Some(amount) = a.ability.self_damage.clone() {
-            return self.begin_mana_damage(a, amount);
+            self.commit_batch(cause, EventGroup::Ordered { children })?;
         }
         self.finish_mana_ability(a)
     }
@@ -1202,7 +790,6 @@ impl RulesTxn {
             color: Color::C,
             amount: Quantity::zero(),
             mana_was_absent: false,
-            tap_triggers: vec![],
             permanent: Some(receipt),
         });
         self.resume_mana(self.saved_frame(a.resume)?.clone(), a.receipts)
@@ -1249,7 +836,6 @@ impl RulesTxn {
                     amount: r.amount.clone(),
                     source: self.current(r.object).ok().map(|o| o.id),
                     remove_zero: r.mana_was_absent,
-                    tap_triggers: r.tap_triggers.clone(),
                 }
             };
             self.commit(
@@ -1270,16 +856,7 @@ impl RulesTxn {
         if !self.is_live(r.player) {
             return Err("departed mana reversal payer".into());
         }
-        if let Some(life) = &r.life_gain {
-            self.reverse_mana_life(r.player, life)?;
-        }
-        if let Some(damage) = &r.damage {
-            self.reverse_mana_damage(damage)?;
-        }
         let p = &mut self.rules_mut().players[r.player.0 as usize];
-        for unit in &r.produced_restricted {
-            restricted_mana::debit(&mut p.restricted_mana, unit)?;
-        }
         for unit in &r.spent_restricted {
             restricted_mana::credit(&mut p.restricted_mana, unit);
         }
@@ -1338,7 +915,6 @@ impl RulesTxn {
                         marked_damage: r.source.marked_damage.clone(),
                         deathtouch_damage: r.source.deathtouch_damage,
                         plus_one_counters: r.counters.clone(),
-                        lore_counters: 0.into(),
                     },
                 );
                 // CR 733.1/800.4c: restore only the recorded object, then
@@ -1353,9 +929,7 @@ impl RulesTxn {
                     .get_mut(&r.source.object.card)
                     .ok_or("missing surviving mana source")?;
                 if o.id == r.source.object && o.zone == Zone::Battlefield {
-                    if (r.ability_use.is_none() && !o.tapped)
-                        || (r.branch.is_some() && o.plus_one_counters != r.counters)
-                    {
+                    if r.ability_use.is_none() && !o.tapped {
                         return Err("mana reversal source changed".into());
                     }
                     o.tapped = r.source.tapped;
@@ -1380,14 +954,6 @@ impl RulesTxn {
         })
     }
     pub(super) fn revalidate_mana_departure(&mut self) -> Result<(), String> {
-        if let Frame::DamageEffects { transaction } = &mut self.rules_mut().frame
-            && let DamageContinuation::Mana { departed, .. } = &mut transaction.continuation
-        {
-            // Let the paid invocation finish before unwinding the suspended
-            // payment. Source and recipient departures are handled by damage.
-            *departed = true;
-            return Ok(());
-        }
         if let Frame::ManaSourceChoice {
             player,
             source,
@@ -1414,10 +980,8 @@ impl RulesTxn {
                             false
                         } else {
                             self.rules_mut().pending = None;
-                            !uses_indexed_paid_mana(self.copiable_definition(*source)?)
-                                && !self.has_granted_land_mana(*source)?
-                                && (self.intrinsic_mana_colors(*source)?.is_empty()
-                                    || !self.is_permanent_mana(*source))
+                            self.intrinsic_mana_colors(*source)?.is_empty()
+                                || !self.is_permanent_mana(*source)
                         }
                     }
                 }
@@ -1440,7 +1004,7 @@ impl RulesTxn {
             invalid |= !self.is_live(a.player)
                 || (a.paid.is_none()
                     && self
-                        .validate_permanent_mana_costs(a.player, a.source, a.ability_index())
+                        .validate_permanent_mana_costs(a.player, a.source, 0)
                         .is_err());
             f = self.saved_frame(a.resume)?;
         }
@@ -1463,7 +1027,6 @@ impl RulesTxn {
                         color: Color::C,
                         amount: Quantity::zero(),
                         mana_was_absent: false,
-                        tap_triggers: vec![],
                         permanent: Some(receipt),
                     });
                 }
@@ -1484,16 +1047,6 @@ impl RulesTxn {
                 self.rules_mut().frame = self.saved_frame(a.resume)?.clone();
             }
             self.rules_mut().pending = None;
-        } else if let Frame::ManaAbility { activation } = &self.state.rules.frame
-            && activation.stage == ManaStage::Color
-            && activation.ability.production == ManaProduction::OpponentLandColors
-            && self
-                .opponent_land_mana_colors(activation.player)?
-                .is_empty()
-        {
-            let activation = *activation.clone();
-            self.rules_mut().pending = None;
-            return self.resolve_mana_ability(activation, None);
         }
         self.revalidate_resolution_payment_departure()
     }
@@ -1509,10 +1062,9 @@ impl RulesTxn {
         {
             if match scope {
                 ManaSourceScope::Mixed => self.mixed_mana_choices(*player, *source)?.is_empty(),
-                ManaSourceScope::Intrinsic if self.catalog_has_land_type_grant => self
-                    .mana_source_colors(*player, *source, *scope)?
-                    .is_empty(),
-                _ => self.mana_source_colors(*player, *source, *scope)?.len() < 2,
+                ManaSourceScope::Intrinsic => {
+                    self.mana_source_colors(*player, *source, *scope)?.len() < 2
+                }
             } || !self.mana_resume_player(self.saved_frame(*resume)?, *player)
             {
                 return Err("mana source choice snapshot invariant".into());
@@ -1523,18 +1075,10 @@ impl RulesTxn {
         while let Frame::ManaAbility { activation: a } = f {
             if !self.is_live(a.player)
                 || !sources.insert(a.source)
-                || a.branch.is_some()
-                || !a.validate_filter_stage(self.copiable_definition(a.source)?)
+                || !a.matches_definition(self.copiable_definition(a.source)?)
                 || !self.mana_resume_player(self.saved_frame(a.resume)?, a.player)
-                || matches!(a.stage, ManaStage::Color | ManaStage::Combination { .. })
-                    != a.paid.is_some()
-                || matches!(&a.stage,ManaStage::Combination{total} if *total<=Quantity::zero() || a.paid.as_ref().and_then(|receipt| receipt.combination_total.as_ref()) != Some(total) || (a.ability.production != ManaProduction::GreatestControlledPowerCombination && a.filter_colors().is_none()))
-                || (a.stage == ManaStage::Color
-                    && a.ability.production == ManaProduction::GreatestControlledPowerCombination)
+                || (a.stage == ManaStage::Color) != a.paid.is_some()
                 || a.receipts.iter().any(|r| r.player != a.player)
-                || (a.stage == ManaStage::Color
-                    && a.ability.production == ManaProduction::OpponentLandColors
-                    && self.opponent_land_mana_colors(a.player)?.is_empty())
             {
                 return Err("nested mana snapshot invariant".into());
             }
@@ -1544,33 +1088,5 @@ impl RulesTxn {
             return Err("buried mana source choice continuation".into());
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod source_choice_tests {
-    use super::*;
-
-    #[test]
-    fn mana_source_selection_preserves_ability_identity_for_overlapping_outputs() {
-        let intrinsic = ManaSourceChoice::Intrinsic(Color::G);
-        let free = ManaSourceChoice::Printed(ManaBranch {
-            index: 3,
-            color: Color::U,
-        });
-        let paid = ManaSourceChoice::Printed(ManaBranch {
-            index: 1,
-            color: Color::G,
-        });
-        assert_eq!(
-            ManaSourceChoice::from_color(&[paid, free], Color::G),
-            Ok(paid)
-        );
-        assert_eq!(
-            ManaSourceChoice::from_color(&[intrinsic, free], Color::U),
-            Ok(free)
-        );
-        assert!(ManaSourceChoice::from_color(&[intrinsic, paid], Color::G).is_err());
-        assert!(ManaSourceChoice::from_color(&[intrinsic, free], Color::W).is_err());
     }
 }

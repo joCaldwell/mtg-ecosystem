@@ -406,10 +406,8 @@ impl ObjectFacts for VisibleObject {
     fn is_token(&self) -> bool {
         self.token.is_some()
     }
-    // A permitted view publishes one derived record. Its card types equal the
-    // copiable ones except that a bestowed Aura is no creature (CR 702.103b);
-    // `BestowCastPlan` admits only an enchantment creature, so the artifact,
-    // enchantment and land tests that read copiable types answer alike.
+    // A permitted view publishes one derived record; its card types equal the
+    // copiable ones.
     fn copiable(&self) -> Option<Cow<'_, Characteristics>> {
         self.characteristics.as_ref().map(Cow::Borrowed)
     }

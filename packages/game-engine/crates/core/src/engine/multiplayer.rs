@@ -431,7 +431,6 @@ impl RulesTxn {
         }
         self.revalidate_trigger_departure()?;
         self.revalidate_damage_departure()?;
-        self.revalidate_counter_placement_departure()?;
         for stack_id in &lost_stack {
             self.record_event(Event::StackRemovedForDeparture {
                 stack_id: *stack_id,
@@ -465,9 +464,6 @@ impl RulesTxn {
         if !self.state.rules.simultaneous_losses && self.finish_if_ended()? {
             return Ok(());
         }
-        self.rules_mut()
-            .delayed_chapters
-            .retain(|registration| registration.controller != player);
         self.revalidate_graveyard_departure()?;
         self.revalidate_mana_departure()?;
         // CR 608.2m: a started invocation owns its frozen instance and keeps
@@ -500,7 +496,6 @@ impl RulesTxn {
                 Frame::AdditionalCosts { .. }
                     | Frame::HybridCost { .. }
                     | Frame::AnnounceX { .. }
-                    | Frame::Modes { .. }
                     | Frame::EntityTargets { .. }
                     | Frame::Targets { .. }
                     | Frame::StackTargets { .. }
@@ -562,7 +557,6 @@ impl RulesTxn {
         if matches!(
             self.state.rules.frame,
             Frame::Priority
-                | Frame::Modes { .. }
                 | Frame::ResolutionPayment { .. }
                 | Frame::Mana { .. }
                 | Frame::SacrificeCost { .. }
@@ -594,7 +588,6 @@ impl RulesTxn {
             frame.random_discard = None;
         }
         self.revalidate_commander_departure()?;
-        self.revalidate_land_entry_departure()?;
         self.remove_group_discard_recipient(player);
         self.revalidate_actions_departure()?;
 

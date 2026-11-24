@@ -9,10 +9,6 @@ impl RulesTxn {
         let revealed_move = matches!(actual, EventOutcome::Moved { movement }
             if self.replacement_reveals(movement.previous));
         let objects = &self.state.rules.objects;
-        let fixed = match &self.state.rules.frame {
-            Frame::GraveyardReplacement { transaction } => transaction.reserved_top(),
-            _ => &[],
-        };
         for knowledge in &mut self.state.knowledge.visibility {
             // A secret choice from hand into a hidden zone cannot identify
             // which previously revealed card stayed. Forget that hand's rows.
@@ -57,9 +53,7 @@ impl RulesTxn {
                 }
                 match event {
                     ProposedEvent::FinishLibraryShuffle { player }
-                    | ProposedEvent::ShuffleLibraryWord { player, .. } => {
-                        player != owner || fixed.contains(id)
-                    }
+                    | ProposedEvent::ShuffleLibraryWord { player, .. } => player != owner,
 
                     // Scry can hide the size of the portion sent to the
                     // bottom. Opponents cannot update positions from that count.

@@ -627,7 +627,7 @@ impl RulesTxn {
             .filter(|o| o.present_on_battlefield() && o.deathtouch_damage)
             .map(|o| o.id)
             .collect::<Vec<_>>();
-        let mut occurrences = self.completed_sagas()?;
+        let mut occurrences = vec![];
         // Nothing changes during this sweep: index the static sources once.
         // A reason exists only for a battlefield creature.
         let sources = self.static_source_index();

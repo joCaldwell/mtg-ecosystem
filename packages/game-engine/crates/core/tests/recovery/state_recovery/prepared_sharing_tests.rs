@@ -33,10 +33,6 @@ fn old_deep_owned_fork(game: &Game) -> Game {
             executor: Arc::new(()),
             state_token: Arc::new(()),
             in_rule_step: false,
-            catalog_has_land_type_grant: game.catalog_has_land_type_grant,
-            catalog_has_land_reclamation: game.catalog_has_land_reclamation,
-            catalog_has_nonland_color_grant: game.catalog_has_nonland_color_grant,
-            catalog_has_mana_tap_observer: game.catalog_has_mana_tap_observer,
             // The deep fork owns nothing derived: its first publication is complete.
             kernel_leaf: game.kernel_leaf.clone(),
             published: None,

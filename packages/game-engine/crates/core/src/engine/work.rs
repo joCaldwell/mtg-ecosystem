@@ -70,11 +70,7 @@ pub struct WorkCache {
     pub last_object: Option<CardId>,
     pub effects: Option<Vec<EffectKey>>,
     triggers: Option<Vec<TriggerId>>,
-    modes: Option<Option<Vec<u32>>>,
-    counter_placement: Option<Vec<CounterPlacementEffectKey>>,
     damage: Option<Vec<DamageEffectCandidate>>,
-
-    entry_candidates: Option<Vec<ObjectId>>,
 }
 impl WorkCache {
     fn projection(&mut self, game: &RulesTxn) -> &visibility::ProjectionIndex {
@@ -103,38 +99,6 @@ impl WorkCache {
     fn triggers(&mut self, game: &RulesTxn) -> &[TriggerId] {
         self.triggers
             .get_or_insert_with(|| game.trigger_order_ids())
-    }
-    fn modes(&mut self, game: &RulesTxn) -> Result<Option<&[u32]>, QueryRejection> {
-        if self.modes.is_none() {
-            self.modes = Some(
-                match game
-                    .modes_request()
-                    .map_err(|_| QueryRejection::Invariant)?
-                {
-                    Some(Request::Modes { candidates, .. }) => Some(candidates),
-                    _ => None,
-                },
-            );
-        }
-        Ok(self.modes.as_ref().and_then(|ids| ids.as_deref()))
-    }
-
-    fn entry_candidates(
-        &mut self,
-        game: &RulesTxn,
-        viewer: PlayerId,
-    ) -> Result<&[ObjectId], QueryRejection> {
-        if self.entry_candidates.is_none() {
-            self.entry_candidates = Some(
-                game.entry_work_candidates(viewer)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
-        }
-        Ok(self.entry_candidates.as_deref().unwrap_or_default())
-    }
-    fn counter_placement(&mut self, game: &RulesTxn) -> &[CounterPlacementEffectKey] {
-        self.counter_placement
-            .get_or_insert_with(|| game.counter_placement_candidates())
     }
     fn damage(&mut self, game: &RulesTxn) -> Result<&[DamageEffectCandidate], QueryRejection> {
         if self.damage.is_none() {
@@ -479,7 +443,7 @@ impl RulesTxn {
         }
         let base = 4 + self.state.rules.objects.len() + self.state.rules.stack.len();
         let live_effect_count = cache.effects(self).len();
-        let effect_count = live_effect_count + self.state.rules.delayed_chapters.len();
+        let effect_count = live_effect_count;
         if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = &mut b.decision {
             let offset = base + effect_count;
             if cursor >= offset
@@ -493,46 +457,12 @@ impl RulesTxn {
         }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
         if cursor >= base && cursor < base + effect_count {
-            let index = cursor - base;
-            let effect = if index < live_effect_count {
-                self.visible_effect(viewer, &cache.effects(self)[index])
-            } else {
-                self.visible_delayed_chapter(
-                    viewer,
-                    &self.state.rules.delayed_chapters[index - live_effect_count],
-                )
-            };
+            let effect = self.visible_effect(viewer, &cache.effects(self)[cursor - base]);
             b.view
                 .effects
                 .push(effect.map_err(|_| QueryRejection::Invariant)?);
         }
-        if let Some(
-            PlayerRequest::EntryCopy { candidates, .. }
-            | PlayerRequest::EntryAttachment { candidates, .. }
-            | PlayerRequest::EntryReveal { candidates, .. },
-        ) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(&object) = cache
-                .entry_candidates(self, viewer)?
-                .get(cursor - base - effect_count)
-        {
-            candidates.push(
-                self.handle_for(viewer, object)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
-        }
 
-        if let Some(PlayerRequest::CounterPlacementEffect { candidates, .. }) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(key) = cache
-                .counter_placement(self)
-                .get(cursor - base - effect_count)
-        {
-            candidates.push(
-                self.visible_counter_candidate(viewer, key)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
-        }
         if let Some(PlayerRequest::DamageEffect { candidates, .. }) = &mut b.decision
             && cursor >= base + effect_count
             && let Some(pair) = cache.damage(self)?.get(cursor - base - effect_count)
@@ -542,32 +472,9 @@ impl RulesTxn {
                     .map_err(|_| QueryRejection::Invariant)?,
             );
         }
-        if let Some(PlayerRequest::Modes { candidates, .. }) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(ids) = cache.modes(self)?
-            && let Some(id) = ids.get(cursor - base - effect_count)
-        {
-            candidates.push(*id);
-        }
 
         let extra = effect_count
-            + if matches!(
-                b.decision,
-                Some(
-                    PlayerRequest::EntryCopy { .. }
-                        | PlayerRequest::EntryAttachment { .. }
-                        | PlayerRequest::EntryReveal { .. }
-                )
-            ) {
-                cache.entry_candidates(self, viewer)?.len()
-            } else if matches!(b.decision, Some(PlayerRequest::Modes { .. })) {
-                cache.modes(self)?.map_or(0, |ids| ids.len())
-            } else if matches!(
-                b.decision,
-                Some(PlayerRequest::CounterPlacementEffect { .. })
-            ) {
-                cache.counter_placement(self).len()
-            } else if matches!(b.decision, Some(PlayerRequest::DamageEffect { .. })) {
+            + if matches!(b.decision, Some(PlayerRequest::DamageEffect { .. })) {
                 cache.damage(self)?.len()
             } else if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
                 cache.triggers(self).len()
@@ -617,24 +524,6 @@ impl RulesTxn {
                 })))
             }
             (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
-                if let Some(
-                    PlayerRequest::EntryCopy { candidates, .. }
-                    | PlayerRequest::EntryAttachment { candidates, .. }
-                    | PlayerRequest::EntryReveal { candidates, .. },
-                ) = request
-                {
-                    let objects = cache.entry_candidates(self, *viewer)?;
-                    if let Some(&object) = objects.get(*cursor as usize) {
-                        candidates.push(
-                            self.handle_for(*viewer, object)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= objects.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
-
                 if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
                     let ids = cache.triggers(self);
                     if let Some(id) = ids.get(*cursor as usize) {
@@ -648,29 +537,6 @@ impl RulesTxn {
                         .then(|| QueryValue::Decision(request.take())));
                 }
 
-                if let Some(PlayerRequest::Modes { candidates, .. }) = request {
-                    let Some(ids) = cache.modes(self)? else {
-                        return Err(QueryRejection::Invariant);
-                    };
-                    if let Some(id) = ids.get(*cursor as usize) {
-                        candidates.push(*id);
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= ids.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
-                if let Some(PlayerRequest::CounterPlacementEffect { candidates, .. }) = request {
-                    let keys = cache.counter_placement(self);
-                    if let Some(key) = keys.get(*cursor as usize) {
-                        candidates.push(
-                            self.visible_counter_candidate(*viewer, key)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= keys.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
                 if let Some(PlayerRequest::DamageEffect { candidates, .. }) = request {
                     let pairs = cache.damage(self)?;
                     if let Some(pair) = pairs.get(*cursor as usize) {
@@ -765,7 +631,6 @@ impl RulesTxn {
                         .map_err(invalid)?;
                     let timing_valid = match (&self.state.rules.frame, response) {
                         (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
-                        (Frame::Setup, PlayerResponse::OpeningPlacement { .. }) => true,
                         (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
                             objects.len() <= 7
                         }
@@ -816,23 +681,12 @@ impl RulesTxn {
                         (Frame::GraveyardGroup { .. }, PlayerResponse::OptionalEffect { .. }) => {
                             true
                         }
-                        (
-                            Frame::LandEntry { .. },
-                            PlayerResponse::OptionalEffect { .. }
-                            | PlayerResponse::EntryCopy { .. }
-                            | PlayerResponse::EntryAttachment { .. }
-                            | PlayerResponse::EntryReveal { .. },
-                        ) => true,
 
                         (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
                             true
                         }
                         (Frame::HybridCost { .. }, PlayerResponse::HybridCost { .. }) => true,
                         (Frame::AnnounceX { .. }, PlayerResponse::AnnounceX { .. }) => true,
-                        (
-                            Frame::Modes { .. },
-                            PlayerResponse::Modes { .. } | PlayerResponse::ModeSubset { .. },
-                        ) => true,
                         (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })
                         | (Frame::ForcedSacrifice { .. }, PlayerResponse::ForcedSacrifice { .. })
                         | (Frame::Kernel { .. }, PlayerResponse::OptionalEffect { .. }) => true,
@@ -866,16 +720,10 @@ impl RulesTxn {
                             | PlayerResponse::ResolveDiscard { .. },
                         )
                         | (Frame::LegendRule { .. }, PlayerResponse::LegendRule { .. })
-                        | (
-                            Frame::CounterPlacement { .. },
-                            PlayerResponse::CounterPlacementEffect { .. },
-                        )
                         | (Frame::DamageEffects { .. }, PlayerResponse::DamageEffect { .. })
                         | (Frame::SpendMana { .. }, PlayerResponse::SpendMana { .. })
                         | (
-                            Frame::CommanderReturn { .. }
-                            | Frame::GraveyardReplacement { .. }
-                            | Frame::GraveyardGroup { .. },
+                            Frame::CommanderReturn { .. } | Frame::GraveyardGroup { .. },
                             PlayerResponse::CommanderReturn { .. },
                         )
                         | (Frame::Attackers, PlayerResponse::Attackers { .. })
@@ -898,7 +746,6 @@ impl RulesTxn {
                             | PlayerResponse::Cast { .. }
                             | PlayerResponse::Bestow { .. }
                             | PlayerResponse::PlayLand { .. }
-                            | PlayerResponse::PlayBackLand { .. }
                             | PlayerResponse::Pass,
                         ) => true,
                         (
@@ -1115,23 +962,7 @@ impl RulesTxn {
 impl RulesTxn {
     fn request_extra_units(&self, viewer: PlayerId) -> Result<u64, String> {
         Ok(match self.request_header(viewer)? {
-            Some(
-                PlayerRequest::EntryCopy { .. }
-                | PlayerRequest::EntryAttachment { .. }
-                | PlayerRequest::EntryReveal { .. },
-            ) => self.entry_work_candidates(viewer)?.len() as u64,
-
             Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
-            Some(PlayerRequest::Modes { .. }) => {
-                if let Some(Request::Modes { candidates, .. }) = self.modes_request()? {
-                    candidates.len() as u64
-                } else {
-                    0
-                }
-            }
-            Some(PlayerRequest::CounterPlacementEffect { .. }) => {
-                self.counter_placement_candidates().len() as u64
-            }
             Some(PlayerRequest::DamageEffect { .. }) => self
                 .damage_effect_group()?
                 .map_or(0, |(_, _, p)| p.len() as u64),
@@ -1139,23 +970,6 @@ impl RulesTxn {
             _ => 0,
         })
     }
-    fn entry_work_candidates(&self, viewer: PlayerId) -> Result<Vec<ObjectId>, String> {
-        Ok(match self.land_entry_request()? {
-            Some(
-                Request::EntryCopy {
-                    player, candidates, ..
-                }
-                | Request::EntryAttachment {
-                    player, candidates, ..
-                }
-                | Request::EntryReveal {
-                    player, candidates, ..
-                },
-            ) if viewer == player => candidates,
-            _ => vec![],
-        })
-    }
-
     pub(crate) fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
         4u64.checked_add(self.state.rules.objects.len() as u64)
             .and_then(|n| n.checked_add(self.state.rules.stack.len() as u64))
@@ -1175,15 +989,9 @@ impl RulesTxn {
                 Some(PlayerRequest::EntityTargets { .. }) => 4u64
                     .checked_add(self.state.rules.objects.len() as u64)
                     .ok_or("decision work resource limit")?,
-                Some(
-                    PlayerRequest::OrderTriggers { .. }
-                    | PlayerRequest::EntryCopy { .. }
-                    | PlayerRequest::EntryAttachment { .. }
-                    | PlayerRequest::EntryReveal { .. }
-                    | PlayerRequest::Modes { .. }
-                    | PlayerRequest::CounterPlacementEffect { .. }
-                    | PlayerRequest::DamageEffect { .. },
-                ) => std::cmp::max(1, self.request_extra_units(*viewer)?),
+                Some(PlayerRequest::OrderTriggers { .. } | PlayerRequest::DamageEffect { .. }) => {
+                    std::cmp::max(1, self.request_extra_units(*viewer)?)
+                }
                 _ => 1,
             }),
             Query::Check { response, .. } => {

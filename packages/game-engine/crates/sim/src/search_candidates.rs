@@ -59,7 +59,6 @@ pub enum ActionPlan {
     },
     Cast {
         card: ObjectHandle,
-        mode: Option<u32>,
         targets: TargetPlan,
         mana_sources: Vec<ObjectHandle>,
         spending: BTreeMap<Color, Quantity>,
@@ -448,35 +447,17 @@ pub fn generate(
         else {
             continue;
         };
-        let programs = if program.modes.is_empty() {
-            vec![(None, program)]
-        } else {
-            program
-                .modes
-                .iter()
-                .enumerate()
-                .map(|(i, m)| {
-                    Ok((
-                        Some(u32::try_from(i).map_err(|_| "mode index overflow")?),
-                        &m.program,
-                    ))
-                })
-                .collect::<Result<Vec<_>, String>>()?
-        };
-        for (mode, selected) in programs {
-            for targets in target_plans(selected, observation, check)? {
-                if !push(
-                    &mut set,
-                    ActionPlan::Cast {
-                        card: object.handle.clone(),
-                        mode,
-                        targets,
-                        mana_sources: mana_sources.clone(),
-                        spending: spending.clone(),
-                    },
-                )? {
-                    return Ok(set);
-                }
+        for targets in target_plans(program, observation, check)? {
+            if !push(
+                &mut set,
+                ActionPlan::Cast {
+                    card: object.handle.clone(),
+                    targets,
+                    mana_sources: mana_sources.clone(),
+                    spending: spending.clone(),
+                },
+            )? {
+                return Ok(set);
             }
         }
     }

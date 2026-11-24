@@ -478,7 +478,6 @@ fn evaluations(
         .collect()
 }
 struct PlanRecipe {
-    mode: Option<u32>,
     targets: TargetPlan,
     mana: Vec<mtg_core::ObjectHandle>,
     spending: std::collections::BTreeMap<mtg_contracts::Color, Quantity>,
@@ -487,7 +486,6 @@ struct PlanRecipe {
 struct PlanSteps {
     initial: PlayerResponse,
     initial_sent: bool,
-    mode: Option<u32>,
     targets: TargetPlan,
     mana_sources: VecDeque<mtg_core::ObjectHandle>,
     spending: std::collections::BTreeMap<mtg_contracts::Color, Quantity>,
@@ -496,15 +494,13 @@ struct PlanSteps {
 }
 impl PlanSteps {
     fn recipe(candidate: &Candidate) -> PlanRecipe {
-        let (mode, targets, mana, spending, invocation) = match &candidate.plan {
+        let (targets, mana, spending, invocation) = match &candidate.plan {
             ActionPlan::Cast {
-                mode,
                 targets,
                 mana_sources,
                 spending,
                 ..
             } => (
-                *mode,
                 targets.clone(),
                 mana_sources.clone(),
                 spending.clone(),
@@ -516,16 +512,14 @@ impl PlanSteps {
                 spending,
                 ..
             } => (
-                None,
                 targets.clone(),
                 mana_sources.clone(),
                 spending.clone(),
                 true,
             ),
-            _ => (None, TargetPlan::None, vec![], Default::default(), false),
+            _ => (TargetPlan::None, vec![], Default::default(), false),
         };
         PlanRecipe {
-            mode,
             targets,
             mana,
             spending,
@@ -534,7 +528,6 @@ impl PlanSteps {
     }
     fn new(candidate: &Candidate, map: &RootHandleMap) -> Result<Self, String> {
         let PlanRecipe {
-            mode,
             targets,
             mana,
             spending,
@@ -543,7 +536,6 @@ impl PlanSteps {
         Ok(Self {
             initial: map.response(&search_policy::initial_response(&candidate.plan))?,
             initial_sent: false,
-            mode,
             targets: targets.mapped(map)?,
             mana_sources: mana
                 .iter()
@@ -583,9 +575,6 @@ impl PlanSteps {
             return Ok(None);
         }
         Ok(Some(match request {
-            PlayerRequest::Modes { .. } => PlayerResponse::Modes {
-                mode: self.mode.ok_or("root plan omitted mandatory mode")?,
-            },
             PlayerRequest::Targets { .. }
             | PlayerRequest::PlayerTargets { .. }
             | PlayerRequest::EntityTargets { .. } => {

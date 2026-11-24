@@ -52,7 +52,6 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
             production: ManaProduction::AnyColor,
             source_block: 0,
             restriction: None,
-            self_damage: None,
         });
     } else {
         let instruction = match kind {
@@ -79,7 +78,6 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
                 additional_sacrifice: None,
                 targets: vec![],
                 instructions: vec![instruction],
-                modes: vec![],
             },
         });
     }

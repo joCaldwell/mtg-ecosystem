@@ -1303,9 +1303,6 @@ impl RulesTxn {
         ability: EffectiveTriggerAbility,
     ) -> VisibleTriggerAbility<O, E> {
         match ability {
-            EffectiveTriggerAbility::DelayedChapter { chapter, .. } => {
-                VisibleTriggerAbility::DelayedChapter { chapter }
-            }
             EffectiveTriggerAbility::Intrinsic { index } => {
                 VisibleTriggerAbility::Intrinsic { index }
             }
@@ -1363,7 +1360,7 @@ impl RulesTxn {
         // CR 701.20a-b: only this selected set is temporarily public; it
         // remains in the library, without publishing positions or other candidates.
 
-        if self.replacement_reveals(object.id) || self.land_entry_visible_to(viewer, object.id) {
+        if self.replacement_reveals(object.id) {
             return true;
         }
         false
@@ -1586,16 +1583,7 @@ impl RulesTxn {
                 phased_out: false,
             });
         }
-        let copied_values = if self.entry_copy_origin(object.id).is_some() {
-            let definition = self.copiable_definition(object.id)?;
-            Some(VisiblePermanentCopy {
-                name: definition.source_face_name().to_owned(),
-                oracle_id: (!definition.oracle_id.starts_with("token:"))
-                    .then(|| definition.oracle_id.clone()),
-            })
-        } else {
-            None
-        };
+        let copied_values = None;
         let attached_to = object
             .attached_to
             .filter(|t| self.current(*t).is_ok())
@@ -1640,19 +1628,7 @@ impl RulesTxn {
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
-            display_face: {
-                let printed = self.definition(object.id.card)?;
-                if printed.modal_land.is_some() || printed.transform_faces.is_some() {
-                    let face = if copied_values.is_none() {
-                        self.copiable_definition(object.id)?
-                    } else {
-                        printed
-                    };
-                    Some(face.source_face_name().to_owned())
-                } else {
-                    None
-                }
-            },
+            display_face: None,
             copied_values,
             face_down: false,
             exiled_by: None,
@@ -1665,7 +1641,7 @@ impl RulesTxn {
             token,
             mana_ability_used,
             plus_one_counters: object.plus_one_counters.clone(),
-            lore_counters: object.lore_counters.clone(),
+            lore_counters: Quantity::zero(),
             characteristics: Some(characteristics),
             marked_damage: object.marked_damage.clone(),
             attack_ready: object.attack_ready,
@@ -1879,7 +1855,7 @@ impl RulesTxn {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
-            bestowed: instance.alternative_cost == Some(AlternativeCost::Bestow),
+            bestowed: false,
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),
@@ -1888,12 +1864,8 @@ impl RulesTxn {
                 .as_ref()
                 .map(|_| self.stack_mana_value(instance))
                 .transpose()?,
-            mode: instance.mode,
-            selected_modes: instance
-                .mode_subset
-                .as_ref()
-                .map(|s| s.indices.clone())
-                .unwrap_or_default(),
+            mode: None,
+            selected_modes: vec![],
             triggered,
             entity_targets,
             handle: { Some(H::from(self.stack_handle_id(viewer, instance.id)?)) },
@@ -2115,16 +2087,6 @@ impl RulesTxn {
                     bottom_if_mulligan,
                     can_mulligan,
                 }),
-                Some(Request::OpeningPlacement {
-                    player, candidates, ..
-                }) if player == viewer => Some(PlayerRequest::OpeningPlacement {
-                    token,
-                    player,
-                    candidates: candidates
-                        .into_iter()
-                        .map(|id| self.handle_for(viewer, id))
-                        .collect::<Result<_, _>>()?,
-                }),
                 Some(Request::BottomOpening { player, count, .. }) if player == viewer => {
                     Some(PlayerRequest::BottomOpening {
                         token,
@@ -2170,70 +2132,6 @@ impl RulesTxn {
                     player: self.top()?.controller,
                 }),
             );
-        }
-        if let Some(request) = self.land_entry_request()? {
-            if request.player() != viewer {
-                return Ok(None);
-            }
-            return Ok(Some(match request {
-                Request::EntryCopy { player, source, .. } => PlayerRequest::EntryCopy {
-                    token,
-                    player,
-                    source: self.handle_for(viewer, source)?,
-                    candidates: vec![],
-                },
-                Request::EntryAttachment { player, source, .. } => PlayerRequest::EntryAttachment {
-                    token,
-                    player,
-                    source: self.handle_for(viewer, source)?,
-                    candidates: vec![],
-                },
-                Request::OptionalEffect { player, .. } => {
-                    PlayerRequest::OptionalEffect { token, player }
-                }
-                Request::EntryReveal { player, source, .. } => PlayerRequest::EntryReveal {
-                    token,
-                    player,
-                    source: self.handle_for(viewer, source)?,
-                    candidates: vec![],
-                },
-                _ => return Err("unknown battlefield entry decision".into()),
-            }));
-        }
-
-        if let Some(Request::Modes {
-            player,
-            one_or_more,
-            allow_repeat,
-            exactly,
-            ..
-        }) = self.modes_request()?
-        {
-            return Ok((player == viewer).then_some(PlayerRequest::Modes {
-                one_or_more,
-                allow_repeat,
-                exactly,
-                token,
-                player,
-                candidates: vec![],
-            }));
-        }
-        if let Some(Request::CounterPlacementEffect {
-            player, recipient, ..
-        }) = self.counter_placement_request()?
-        {
-            return (player == viewer)
-                .then(|| {
-                    self.handle_for(viewer, recipient).map(|recipient| {
-                        PlayerRequest::CounterPlacementEffect {
-                            token: token.clone(),
-                            player,
-                            recipient,
-                            candidates: vec![],
-                        }
-                    })
-                })
-                .transpose();
         }
         if let Some(Request::DamageEffect {
             player, recipient, ..
@@ -2757,8 +2655,6 @@ impl RulesTxn {
         let same_definitions = previous.as_ref().is_some_and(|old| {
             Arc::ptr_eq(&rules.cards, &old.rules.cards)
                 && Arc::ptr_eq(&rules.tokens, &old.rules.tokens)
-                && rules.entry_copies == old.rules.entry_copies
-                && rules.back_face_objects == old.rules.back_face_objects
         });
         let projection = match previous.as_ref().zip(dirty.as_ref()) {
             Some((old, dirty)) if same_definitions => self.update_projection_index(old, dirty),
@@ -2767,7 +2663,7 @@ impl RulesTxn {
         // Dependencies of project_visible_object, its derived characteristics and
         // ability restrictions: the physical card/token definitions, entry copies
         // and back faces above; the object incarnation and its dirty chunk; active
-        // effects, stack and bestow frame, turn number, mana uses, and combat below.
+        // effects, stack, turn number, mana uses, and combat below.
         // Static sources can read other permanents, so a dirty board with a static
         // source in either revision or an active effect invalidates the whole layer.
         // Reusing a viewer row also requires unchanged viewer knowledge, the same
@@ -2779,11 +2675,6 @@ impl RulesTxn {
                 same_definitions
                     && Shared::same(&rules.effects, &old.rules.effects)
                     && Shared::same(&rules.stack, &old.rules.stack)
-                    && (rules.frame == old.rules.frame
-                        || !rules
-                            .stack
-                            .iter()
-                            .any(|entry| entry.alternative_cost == Some(AlternativeCost::Bestow)))
                     && rules.turn.number == old.rules.turn.number
                     && rules.mana_ability_uses == old.rules.mana_ability_uses
                     && rules.combat == old.rules.combat
@@ -2841,10 +2732,7 @@ impl RulesTxn {
             let current: Vec<_> = if reference
                 || matches!(
                     self.state.rules.frame,
-                    Frame::ResolutionChoice { .. }
-                        | Frame::GraveyardGroup { .. }
-                        | Frame::GraveyardReplacement { .. }
-                        | Frame::LandEntry { .. }
+                    Frame::ResolutionChoice { .. } | Frame::GraveyardGroup { .. }
                 ) {
                 self.state
                     .rules
@@ -3041,10 +2929,8 @@ impl RulesTxn {
                 modes: modes.clone(),
             }),
             PlayerResponse::Modes { mode } => Ok(Response::Modes { mode: *mode }),
-            PlayerResponse::CounterPlacementEffect { effect } => {
-                Ok(Response::CounterPlacementEffect {
-                    effect: self.resolve_counter_effect(viewer, effect)?,
-                })
+            PlayerResponse::CounterPlacementEffect { .. } => {
+                Err("no counter placement replacement is admitted".into())
             }
             PlayerResponse::DamageEffect { effect, damage } => {
                 let (effect, damage) = self.resolve_damage_effect_pair(viewer, effect, damage)?;

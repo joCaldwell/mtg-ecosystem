@@ -298,7 +298,6 @@ impl RulesTxn {
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
                 activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
-                mode: self.entry(frame.stack_id)?.mode,
                 stack_id: frame.stack_id,
                 source: self.entry(frame.stack_id)?.source,
                 controller: self.entry(frame.stack_id)?.controller,

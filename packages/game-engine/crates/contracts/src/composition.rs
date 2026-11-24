@@ -69,7 +69,6 @@ fn program(
     if p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
         || p.instructions.is_empty()
-        || !p.modes.is_empty()
         || p.additional_sacrifice.is_some()
         || !p.optional_additional_costs.is_empty()
         // CR 602.5d: only an activated ability may carry sorcery timing.
@@ -308,18 +307,6 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
             DamageTriggerSource::Source {} => creature,
             DamageTriggerSource::CreatureFilter { types, .. } => types.validate().is_ok(),
         },
-        TriggerCondition::DelayedControllerCreatureEntry
-        | TriggerCondition::DelayedControllerSpellCast
-        | TriggerCondition::ManaTapped { .. }
-        | TriggerCondition::SagaChapter { .. }
-        | TriggerCondition::SelfSpellCast
-        | TriggerCondition::GroupedDamageDealt { .. }
-        | TriggerCondition::SpellCastWithOrigin { .. }
-        | TriggerCondition::EquippedCombatDamage
-        | TriggerCondition::EquippedDies
-        | TriggerCondition::ControlledCreatureEntersWithPower { .. }
-        | TriggerCondition::SelfAuraToGraveyard
-        | TriggerCondition::SelfMoved { .. } => false,
     };
     if !event
         || a.functioning_zone != FunctioningZone::Battlefield
@@ -362,7 +349,6 @@ fn static_ability(d: &Definition, a: &StaticAbility) -> Result<(), String> {
                 && *power > Quantity::zero()
                 && power == toughness
         }
-        _ => false,
     };
     if !ok {
         return Err("composition matrix does not admit this static ability".into());
@@ -381,11 +367,9 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
         || a.costs.mana.is_some()
         || a.costs.remove_source_plus_one_counters.is_some()
         || a.restriction.is_some()
-        || a.self_damage.is_some()
         || !match &a.production {
             ManaProduction::Fixed { symbols } => !symbols.is_empty(),
             ManaProduction::AnyColor | ManaProduction::CommanderColor => true,
-            _ => false,
         }
     {
         return Err("composition matrix does not admit this mana ability".into());
@@ -473,9 +457,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
     // reject: second faces, hybrid and X costs, snow, attachments and Sagas.
     // CR 205.4: the basic supertype is admitted only on a land, whose shell
     // below then requires the land's intrinsic mana (CR 305.6).
-    if d.modal_land.is_some()
-        || d.transform_faces.is_some()
-        || !c.hybrid_mana.is_empty()
+    if !c.hybrid_mana.is_empty()
         || d.x_mana_cost
         || c.snow
         || (c.basic && c.kind != CardKind::Land)
@@ -514,7 +496,6 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
             && p.resolution == SpellResolution::Permanent
             && p.targets.is_empty()
             && p.instructions.is_empty()
-            && p.modes.is_empty()
             && p.additional_sacrifice.is_none()
             && p.optional_additional_costs.is_empty()
     };
@@ -739,12 +720,6 @@ mod tests {
             .is_err()
         );
 
-        // Event row: an event that carries family data is not composable.
-        let mut equipped = trigger(TargetDomain::AnyDamageTarget, damage());
-        equipped.triggered[0].condition = TriggerCondition::EquippedDies;
-        equipped.capabilities = equipped.requirements();
-        assert!(equipped.validate().is_err());
-
         // Shell: attachments, snow, hybrid and basic nonland cards reject.
         let aura = with(|d| {
             d.activated.push(tap_gain());
@@ -777,7 +752,6 @@ mod tests {
             functioning_zone: FunctioningZone::Stack,
             targets,
             instructions,
-            modes: vec![],
         }
     }
     fn gain(context: Context) -> Instruction {

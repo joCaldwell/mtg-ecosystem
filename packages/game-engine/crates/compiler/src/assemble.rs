@@ -45,8 +45,6 @@ pub(crate) fn shell(
         ..SourceLabels::default()
     };
     let definition = Definition {
-        modal_land: None,
-        transform_faces: None,
         source_labels: None,
         composed: true,
         x_mana_cost: false,
