@@ -1,5 +1,6 @@
 //! Product-owned one-match lifecycle. Registry mutation stays offline; there is
 //! no shared hot registry. Stdin EOF is the supervisor lifetime lease.
+use crate::file_lock::FileLock;
 use crate::{
     broker::Broker,
     ipc::{WorkerCommand, WorkerReply},
@@ -200,7 +201,7 @@ pub fn stop(root: &Path) -> Result<(), String> {
         .mode(0o600)
         .open(root.join("fence.lock"))
         .map_err(err)?;
-    fence_lock.lock().map_err(err)?;
+    let fence_lock = FileLock::lock(fence_lock).map_err(err)?;
     let next = generation(root)?
         .checked_add(1)
         .ok_or("lifecycle generation exhausted")?;
@@ -218,7 +219,7 @@ pub fn join(root: &Path) -> Result<(), String> {
         .mode(0o600)
         .open(root.join("owner.lock"))
         .map_err(err)?;
-    lease.lock().map_err(err)?;
+    let _lease = FileLock::lock(lease).map_err(err)?;
     quiesce(root)
 }
 /// Query/stop only our persisted generated transient service; never a caller
@@ -348,7 +349,7 @@ pub async fn run(root: &Path) -> Result<(), String> {
         .mode(0o600)
         .open(root.join("owner.lock"))
         .map_err(err)?;
-    lease.try_lock().map_err(|_| "lifecycle already owned")?;
+    let lease = FileLock::try_lock(lease).map_err(|_| "lifecycle already owned")?;
     let alive = Arc::new(AtomicBool::new(true));
     let (tx, rx) = tokio::sync::oneshot::channel();
     let life = alive.clone();

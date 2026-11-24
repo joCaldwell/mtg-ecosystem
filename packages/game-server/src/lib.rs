@@ -16,6 +16,7 @@ pub mod http;
 pub mod codec;
 pub mod registry;
 
+mod file_lock;
 mod recovery_hashes;
 mod resume_reader;
 

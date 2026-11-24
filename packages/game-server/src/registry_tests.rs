@@ -128,8 +128,12 @@ fn private_bound_capacity_lock_and_restart() {
             .collect::<Vec<_>>(),
         vec!["a1", "b2"]
     );
+    // Like a forked child before exec, this descriptor keeps the same open
+    // file description alive through the next supervisor's acquisition.
+    let inherited = r.owner_lock.file().try_clone().unwrap();
     drop(r);
     let r = MatchRegistry::open(&a.root()).unwrap();
+    drop(inherited);
     assert!(r.snapshot_auth().unwrap()["a1"] == auth["a1"]);
     assert!(r.load_all_matches().unwrap()[0].config == config());
 }

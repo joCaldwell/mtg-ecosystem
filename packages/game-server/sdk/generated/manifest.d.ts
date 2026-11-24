@@ -113,6 +113,13 @@ export type Node =
       };
     }
   | {
+      if_pays: {
+        node: Node;
+        payer: PlayerExpr;
+        payment: Payment;
+      };
+    }
+  | {
       delayed: {
         event: DelayedEvent;
         node: Node;
@@ -303,6 +310,11 @@ export type Amount =
       amount: "stat_of";
       object: Ref;
       stat: Stat;
+    }
+  | {
+      amount: "devotion";
+      colors: Color[];
+      player: PlayerExpr;
     }
   | {
       amount: "life_of";
@@ -995,6 +1007,10 @@ export type Cond =
       right: Amount;
     }
   | {
+      cond: "active_player";
+      player: PlayerExpr;
+    }
+  | {
       cond: "exists";
       set: SetExpr;
     }
@@ -1221,6 +1237,8 @@ export type Capability =
   | "own_graveyard_card_return_v1"
   | "basic_land_search_v1"
   | "creature_anthem_v1"
+  | "continuous_statics_v1"
+  | "rule_statics_v1"
   | "target_player_draw_v1"
   | "attachments_v1"
   | "permanent_removal_v1"
@@ -1241,6 +1259,8 @@ export type Capability =
  */
 export type HybridPayment = "pay_two_life" | Color;
 /**
+ * CR 106.1, 106.4: the mana one resolving mana ability adds.
+ *
  * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "ManaProduction".
  */
@@ -1254,7 +1274,25 @@ export type ManaProduction =
     }
   | {
       mana: "commander_color";
+    }
+  | {
+      amount: ExactQuantity;
+      colors: Color[];
+      mana: "choose";
+    }
+  | {
+      colors_only: boolean;
+      controller: ManaLandController;
+      mana: "lands_could_produce";
     };
+/**
+ * Whose lands a "could produce" ability inspects, relative to the mana
+ * ability's controller (CR 109.5, 102.3).
+ *
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "ManaLandController".
+ */
+export type ManaLandController = "you" | "opponents";
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "ManaActivationRestriction".
@@ -1266,48 +1304,130 @@ export type ManaActivationRestriction = "once_each_turn";
  */
 export type StaticEffect =
   | "enters_tapped"
-  | "cant_be_countered"
   | {
-      modify_creatures: {
-        keywords: KeywordAbility[];
-        power: ExactQuantity;
-        restrictions: CreatureRestriction[];
-        scope: CreatureScope;
-        toughness: ExactQuantity;
+      continuous: {
+        affects: Scope;
+        changes: Change[];
+        condition?: Cond | null;
       };
     }
   | {
-      controller_creature_anthem: {
-        power: ExactQuantity;
-        toughness: ExactQuantity;
+      rule: {
+        condition?: Cond | null;
+        rule: StaticRule;
       };
     };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "CreatureRestriction".
+ * via the `definition` "Scope".
  */
-export type CreatureRestriction = "cant_block" | "cant_be_blocked" | "cant_attack_or_block" | "can_block_only_flying";
-/**
- * Static scopes in the finite attachment pool (CR 611.3a, 613.1f/4c).
- *
- * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "CreatureScope".
- */
-export type CreatureScope =
-  | ("equipped" | "equipped_legendary" | "enchanted" | "controller" | "source")
-  | "attacking_controller"
+export type Scope =
   | {
-      controlled_subtype: {
-        creatures_only: boolean;
-        other: boolean;
-        subtype: Subtype;
+      scope: "source";
+    }
+  | {
+      filter: Pred;
+      scope: "matching";
+    }
+  | {
+      filter: Pred;
+      kind: AttachmentKind;
+      scope: "attachment";
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "AttachmentKind".
+ */
+export type AttachmentKind = "equipped" | "enchanted";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "StaticRule".
+ */
+export type StaticRule =
+  | {
+      affects: Scope;
+      requirement: CombatRequirement;
+      rule: "combat";
+    }
+  | {
+      affects: Scope;
+      rule: "cant_be_countered";
+    }
+  | {
+      affects: Scope;
+      caster: PlayerExpr;
+      change: SpellCostChange;
+      multiplier?: Amount | null;
+      rule: "spell_cost";
+    }
+  | {
+      change: HandSizeChange;
+      player: PlayerExpr;
+      rule: "maximum_hand_size";
+    }
+  | {
+      allowance: Allowance;
+      player: PlayerExpr;
+      rule: "additional_land_plays";
+    }
+  | {
+      affects: Scope;
+      caster: PlayerExpr;
+      rule: "cast_as_though_flash";
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "CombatRequirement".
+ */
+export type CombatRequirement =
+  | "cant_attack"
+  | "cant_block"
+  | "cant_attack_or_block"
+  | "cant_be_blocked"
+  | "can_block_only_flying"
+  | "attack_each_combat";
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "SpellCostChange".
+ */
+export type SpellCostChange =
+  | {
+      increase: {
+        mana: ManaCost;
+      };
+    }
+  | {
+      reduce: {
+        mana: ManaCost;
       };
     };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
- * via the `definition` "Subtype".
+ * via the `definition` "HandSizeChange".
  */
-export type Subtype = "elf" | "goblin" | "golem" | "merfolk" | "sliver" | "soldier" | "vampire" | "warrior" | "zombie";
+export type HandSizeChange =
+  | "unlimited"
+  | {
+      set: {
+        size: ExactQuantity;
+      };
+    }
+  | {
+      adjust: {
+        delta: ExactQuantity;
+      };
+    };
+/**
+ * This interface was referenced by `PublicManifest`'s JSON-Schema
+ * via the `definition` "Allowance".
+ */
+export type Allowance =
+  | "unlimited"
+  | {
+      additional: {
+        count: ExactQuantity;
+      };
+    };
 /**
  * This interface was referenced by `PublicManifest`'s JSON-Schema
  * via the `definition` "InterveningCondition".
@@ -1423,6 +1543,11 @@ export interface SacrificeFilter {
  */
 export interface PermanentActivationCosts {
   mana?: ManaCost | null;
+  /**
+   * CR 118.3, 119.4: "Pay N life", paid only by a player whose life total
+   * is at least N; paying life is loss of life, never damage.
+   */
+  pay_life?: ExactQuantity | null;
   remove_source_plus_one_counters?: ExactQuantity | null;
   sacrifice: boolean;
   tap: boolean;
@@ -1558,6 +1683,13 @@ export interface ManaAbility {
   costs: PermanentActivationCosts;
   production: ManaProduction;
   restriction?: ManaActivationRestriction | null;
+  /**
+   * CR 605.1a, 605.3b: the ability's other printed instructions, Kernel
+   * nodes performed in order after the mana is added, while the ability
+   * resolves immediately and without the stack. A mana ability has no
+   * targets; [`kir::mana_rider`] admits each node.
+   */
+  riders?: Node[];
   source_block: number;
 }
 /**
