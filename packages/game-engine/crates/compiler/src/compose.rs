@@ -447,14 +447,6 @@ pub(super) struct Blockers {
     pub card: Option<Failure>,
 }
 
-impl Blockers {
-    /// The failure `lower` would report once binding checks are deferred:
-    /// the first block blocker, else the card-wide one.
-    pub fn lowering(&self) -> Option<&Failure> {
-        self.blocks.first().map(|(_, f)| f).or(self.card.as_ref())
-    }
-}
-
 /// The sentinel a deferred composition returns once some block failed.
 const BLOCKS_FAILED: &str = "blocks failed";
 

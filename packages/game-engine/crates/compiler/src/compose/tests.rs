@@ -195,6 +195,11 @@ fn frozen_witnesses_lower_block_by_block_and_round_trip_executable_ir() {
     }
 }
 
+/// The failure lowering reports once binding checks are deferred.
+fn lowering(found: &Blockers) -> Option<&Failure> {
+    found.blocks.first().map(|(_, f)| f).or(found.card.as_ref())
+}
+
 #[test]
 fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     let archive = accepted_manifest(R4).unwrap();
@@ -210,7 +215,7 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     let summary = |found: &Blockers| {
         (
             found.bindings.first().map(|f| f.path.clone()),
-            found.lowering().map(|f| f.path.clone()),
+            lowering(found).map(|f| f.path.clone()),
             found.blocks.first().map(|(block, _)| *block),
         )
     };
@@ -249,7 +254,7 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     let failure = lower(archive, &only_block).unwrap_err();
     let found = blockers(archive, &only_block);
     assert_eq!(summary(&found), (None, Some(failure.path), Some(1)));
-    assert_eq!(found.lowering().unwrap().reason, failure.reason);
+    assert_eq!(lowering(&found).unwrap().reason, failure.reason);
     assert_eq!(found.blocks.len(), 1);
     // Every failing block is named, not only the first: lowering stops at
     // block 0, the report goes on to block 1.
