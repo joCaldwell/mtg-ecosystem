@@ -1446,8 +1446,7 @@ impl RulesTxn {
         let mut staged = self.fork();
         match staged.apply_batch(cause, group, before, batch_id, next_batch, authority) {
             Ok(result) => {
-                self.state = staged.state;
-                self.trace = staged.trace;
+                self.commit_staged_state(staged);
                 self.state_token = Arc::new(());
                 Ok(result)
             }

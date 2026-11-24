@@ -170,12 +170,7 @@ impl SampleBuildWork {
         game.rules_mut().frame = Frame::Priority;
         game.rules_mut().match_state = Some(MatchState {
             library_shuffles: [0; 4],
-            random: MatchRandom {
-                version: 1,
-                seed: proposal.future_seed,
-                stream: 0,
-                word_position: RngPosition(0),
-            },
+            random: MatchRandom::new(proposal.future_seed),
             setup: None,
         });
         for knowledge in &mut game.state.knowledge.visibility {
@@ -188,6 +183,11 @@ impl SampleBuildWork {
         game.state.knowledge.visibility[view.viewer.0 as usize].own_knowledge =
             data.own_knowledge.clone();
         for row in &view.players {
+            game.rules_mut()
+                .match_state
+                .as_mut()
+                .expect("sample match")
+                .library_shuffles[usize::from(row.player.0)] = row.library_shuffles;
             let p = game
                 .rules_mut()
                 .players

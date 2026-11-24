@@ -366,35 +366,6 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     program(&a.program, Context::Triggered, Some(&a.condition))
 }
 
-/// The static row: effects that are complete without any sibling ability.
-fn static_ability(d: &Definition, a: &StaticAbility) -> Result<(), String> {
-    let kind = d.characteristics.kind;
-    let permanent = !matches!(kind, CardKind::Instant | CardKind::Sorcery);
-    let battlefield = a.functioning_zone == FunctioningZone::Battlefield;
-    let ok = match &a.effect {
-        // CR 614.12: the source's own entry replacement.
-        StaticEffect::EntersTapped => permanent && battlefield,
-        // CR 101.2, 113.6: functions on the stack for this spell only.
-        StaticEffect::CantBeCountered => !permanent && a.functioning_zone == FunctioningZone::Stack,
-        // CR 611.3a-c, 613.4c: live controller-relative creature modifiers.
-        StaticEffect::ModifyCreatures { scope, .. } => {
-            battlefield
-                && matches!(scope, CreatureScope::Source | CreatureScope::Controller)
-                && static_creature_modification_valid(kind, false, false, &a.effect)
-        }
-        StaticEffect::ControllerCreatureAnthem { power, toughness } => {
-            battlefield
-                && matches!(kind, CardKind::Creature | CardKind::Enchantment)
-                && *power > Quantity::zero()
-                && power == toughness
-        }
-    };
-    if !ok {
-        return cell("static", name(&a.effect));
-    }
-    Ok(())
-}
-
 /// The mana row: a tap ability of a creature, artifact or land that adds
 /// fixed, chosen, any-color, commander-color or "could produce" mana, may
 /// also cost mana (CR 605.3a, 601.2g-h) or life (CR 119.4), and may perform
@@ -628,7 +599,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
         )?;
     }
     for a in &d.static_abilities {
-        static_ability(d, a)?;
+        a.validate_static(d)?;
     }
     for a in &d.mana_abilities {
         mana_ability(d, a)?;

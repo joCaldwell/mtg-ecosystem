@@ -19,6 +19,7 @@ testkit_fields! {
         pub(in crate::engine) definition_index: Arc<[u32]>,
         pub(in crate::engine) state: State,
         pub(in crate::engine) trace: TraceEvidence,
+        pub(in crate::engine) stream_buffer: Vec<TraceRecord>,
         pub(in crate::engine) executor: Arc<()>,
         pub(in crate::engine) state_token: Arc<()>,
         // Derived from this committed state's handles and rules. A stage starts cold.
@@ -200,6 +201,7 @@ impl RulesTxn {
             prepared: Arc::new(prepared),
             state,
             trace: Self::initial_trace(),
+            stream_buffer: Vec::new(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
             priority_cache: Default::default(),
@@ -232,6 +234,7 @@ impl RulesTxn {
             definition_index: self.definition_index.clone(),
             state: self.state.clone(),
             trace: self.trace.clone(),
+            stream_buffer: Vec::new(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
             priority_cache: Default::default(),

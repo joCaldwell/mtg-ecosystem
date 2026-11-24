@@ -76,7 +76,7 @@ enum Block {
     Static {
         #[serde(rename = "abilityWord")]
         ability_word: Option<String>,
-        effect: SourceStaticEffect,
+        effect: serde_json::Value,
     },
     Triggered {
         #[serde(rename = "abilityWord")]
@@ -612,8 +612,9 @@ fn compose(
                     effect,
                 } => {
                     ability_word(&word, &result.lines[block].text)?;
-                    labels.statics.push(label);
-                    definition.static_abilities.push(lower_static(&effect)?);
+                    let abilities = lower_static(&effect)?;
+                    labels.statics.extend(abilities.iter().map(|_| label));
+                    definition.static_abilities.extend(abilities);
                 }
                 Block::Spell {
                     ability_word: word,

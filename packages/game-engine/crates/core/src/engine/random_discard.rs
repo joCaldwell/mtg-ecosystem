@@ -5,6 +5,7 @@ use super::*;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RandomDiscardProgress {
+    pub stream: u64,
     // Canonical order records only membership, including exact incarnations.
     pub selected: Vec<ObjectId>,
 }
@@ -66,7 +67,13 @@ impl RulesTxn {
         let hand = self.action_hand(player);
         if !self.is_live(player)
             || !matches!(&self.state.rules.frame, Frame::Resolve { .. })
-            || progress.selected.is_empty()
+            || !self.state.rules.match_state.as_ref().is_some_and(|s| {
+                s.random.open.is_some_and(|p| p.stream == progress.stream)
+                    && s.random.seat_random[player.0 as usize]
+                        .checked_sub(1)
+                        .and_then(|n| setup::stream_id(setup::SEAT_RANDOM, player, n).ok())
+                        == Some(progress.stream)
+            })
             || !progress.selected.windows(2).all(|pair| pair[0] < pair[1])
             || !progress
                 .selected
@@ -81,6 +88,7 @@ impl RulesTxn {
     }
 
     pub(super) fn random_discard_step(&mut self, mut frame: Resolving) -> Result<(), String> {
+        let ongoing = frame.random_discard.is_some();
         let mut progress = frame.random_discard.take().unwrap_or_default();
         let (player, count, source_block) = self.random_discard_spec(&frame)?;
         if !self.is_live(player) {
@@ -107,18 +115,24 @@ impl RulesTxn {
                 .as_mut()
                 .ok_or("random discard requires a seeded match")?
                 .random;
-            if let Some(index) = setup::sample_bounded_word(random.word()?, upper) {
+            if !ongoing {
+                let ordinal = &mut random.seat_random[player.0 as usize];
+                progress.stream = setup::stream_id(setup::SEAT_RANDOM, player, *ordinal)?;
+                *ordinal += 1;
+            }
+            if let Some(index) = setup::sample_bounded_word(random.word(progress.stream)?, upper) {
                 let id = hand[index as usize];
                 let position = progress.selected.partition_point(|selected| *selected < id);
                 progress.selected.insert(position, id);
             }
-            if !progress.selected.is_empty() {
-                frame.random_discard = Some(progress);
-            }
+            frame.random_discard = Some(progress);
             self.rules_mut().frame = Frame::Resolve { frame };
             return Ok(());
         };
 
+        if ongoing {
+            self.rules_mut().match_state.as_mut().unwrap().random.open = None;
+        }
         let cause = self.instruction_cause(&frame, source_block)?;
         self.complete_resolving_discards(frame, cause, player, objects)
     }

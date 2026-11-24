@@ -26,8 +26,6 @@ mod activated_artifact_draw;
 pub mod activated_source_keyword;
 pub use activated_artifact_draw::activated_artifact_draw_ability;
 
-pub mod attachment_modifiers;
-
 mod controller_library;
 
 pub mod equipped_trigger;
@@ -39,9 +37,6 @@ pub use resolution_mana::ManaResolutionQuantity;
 pub mod predefined_tokens;
 pub use predefined_tokens::PredefinedToken;
 
-pub mod scoped_static;
-
-pub mod source_combat_restrictions;
 pub use controller_library::matches_fixed_amount;
 
 use kir::{Context, PlayerExpr, SetExpr, Verb};
@@ -318,6 +313,8 @@ pub enum Capability {
     BasicLandSearchV1,
 
     CreatureAnthemV1,
+    ContinuousStaticsV1,
+    RuleStaticsV1,
 
     TargetPlayerDrawV1,
     AttachmentsV1,
@@ -1104,25 +1101,7 @@ impl CounterPlacementModification {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum StaticEffect {
-    EntersTapped,
-    /// CR 101.2/113.6: the source spell on the stack can't be countered.
-    /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    CantBeCountered,
-    ModifyCreatures {
-        scope: CreatureScope,
-        power: Quantity,
-        toughness: Quantity,
-        keywords: Vec<KeywordAbility>,
-        restrictions: Vec<CreatureRestriction>,
-    },
-    ControllerCreatureAnthem {
-        power: Quantity,
-        toughness: Quantity,
-    },
-}
+pub use kir::StaticEffect;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1130,23 +1109,7 @@ pub struct StaticAbility {
     pub functioning_zone: FunctioningZone,
     pub effect: StaticEffect,
 }
-/// Static scopes in the finite attachment pool (CR 611.3a, 613.1f/4c).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum CreatureScope {
-    Equipped,
-    EquippedLegendary,
-    Enchanted,
-    Controller,
-    /// Dynamic attacking creatures controlled by this battlefield source.
-    AttackingController,
-    ControlledSubtype {
-        subtype: scoped_static::Subtype,
-        creatures_only: bool,
-        other: bool,
-    },
-    Source,
-}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CreatureRestriction {
@@ -1719,79 +1682,6 @@ pub struct Definition {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub composed: bool,
 }
-// Shared live creature-modifier boundary, including attachments. Keep family
-// recognition and Definition validation on the same keyword/restriction rules.
-// CR 611.3a-c: Controller modifiers use live source presence/current control
-// for both supported creature and non-Aura enchantment sources.
-// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-fn static_creature_modification_valid(
-    kind: CardKind,
-    equipment: bool,
-    aura: bool,
-    effect: &StaticEffect,
-) -> bool {
-    let StaticEffect::ModifyCreatures {
-        scope,
-        power,
-        toughness,
-        keywords,
-        restrictions,
-    } = effect
-    else {
-        return false;
-    };
-    let attached = matches!(scope, CreatureScope::Equipped | CreatureScope::Enchanted);
-    attachment_modifiers::scope_valid(effect, equipment)
-        && !(!attached && (power.is_negative() || toughness.is_negative())
-            || (power == &Quantity::zero()
-                && toughness == &Quantity::zero()
-                && keywords.is_empty()
-                && restrictions.is_empty())
-            || (*scope == CreatureScope::Source
-                && (kind != CardKind::Creature
-                    || *power != Quantity::zero()
-                    || *toughness != Quantity::zero()
-                    || !keywords.is_empty()
-                    || (restrictions != &[CreatureRestriction::CantBlock]
-                        && source_combat_restrictions::restriction(effect).is_none())))
-            || (*scope != CreatureScope::Source
-                && restrictions.contains(&CreatureRestriction::CanBlockOnlyFlying))
-            || (*scope == CreatureScope::AttackingController
-                && (!matches!(
-                    kind,
-                    CardKind::Creature | CardKind::Artifact | CardKind::Enchantment
-                ) || *power != Quantity::zero()
-                    || *toughness != Quantity::zero()
-                    || keywords != &[KeywordAbility::Deathtouch]
-                    || !restrictions.is_empty()))
-            || (*scope == CreatureScope::Equipped && !equipment)
-            || (*scope == CreatureScope::Enchanted && !aura)
-            || (*scope == CreatureScope::Controller
-                && (!matches!(kind, CardKind::Creature | CardKind::Enchantment) || aura))
-            || keywords.contains(&KeywordAbility::ProtectionFromEachColor)
-            || keywords.contains(&KeywordAbility::ProtectionFromEverything)
-            || keywords.iter().any(|k| {
-                k.basic_landwalk_type().is_some()
-                    || (!attached && k.fixed_protection_color().is_some())
-            })
-            || keywords.contains(&KeywordAbility::Flash)
-            || (keywords.contains(&KeywordAbility::Indestructible)
-                && (!equipment
-                    || *scope != CreatureScope::Equipped
-                    || *power != Quantity::zero()
-                    || *toughness != Quantity::zero()
-                    || keywords != &[KeywordAbility::Indestructible]
-                    || !restrictions.is_empty()))
-            || keywords
-                .iter()
-                .enumerate()
-                .any(|(n, k)| keywords[..n].contains(k))
-            || restrictions
-                .iter()
-                .enumerate()
-                .any(|(n, k)| restrictions[..n].contains(k)))
-}
-
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1, Capability::ComposedAbilityV1]);
@@ -1954,33 +1844,8 @@ impl Definition {
         for keyword in &self.keywords {
             set.extend(intrinsic_keyword_capability(*keyword));
         }
-        for a in &self.static_abilities {
-            if matches!(&a.effect, StaticEffect::ModifyCreatures { keywords, .. }
-                if keywords.contains(&KeywordAbility::Indestructible))
-            {
-                set.insert(Capability::IndestructibleV1);
-            }
-            let static_capability = match &a.effect {
-                StaticEffect::EntersTapped => Capability::EntersTappedV1,
-                StaticEffect::CantBeCountered => Capability::SelfSpellProtectionV1,
-                StaticEffect::ControllerCreatureAnthem { .. } => Capability::CreatureAnthemV1,
-                StaticEffect::ModifyCreatures {
-                    scope: CreatureScope::Source,
-                    ..
-                } => {
-                    if source_combat_restrictions::restriction(&a.effect).is_some() {
-                        Capability::SourceCombatRestrictionsV1
-                    } else {
-                        Capability::SacrificeV1
-                    }
-                }
-                StaticEffect::ModifyCreatures {
-                    scope: CreatureScope::Controller,
-                    ..
-                } => Capability::AttachmentsV1,
-                _ => continue, // Composition rejects unsupported static abilities.
-            };
-            set.insert(static_capability);
+        for ability in &self.static_abilities {
+            set.insert(ability.effect.capability(self.characteristics.kind));
         }
         set
     }

@@ -1,6 +1,7 @@
 //! Headless throughput for admitted four-seat pods. Worker clocks measure elapsed
 //! time in each phase and are summed across workers. Proof runs are outside the
 //! measured window and go through the ordinary snapshot verifier.
+use crate::events::{EventSink, drain};
 use crate::play::{DECISION_LIMIT, TURN_LIMIT, WORK_LIMIT, complete, observe, seed_for};
 use crate::policy::{Policy, Strategy};
 use mtg_contracts::Catalog;
@@ -14,7 +15,7 @@ use std::{fs, time::Instant};
 
 pub mod bulk_input;
 use crate::analytics::{self, AnalyticsDeck, AnalyticsProfile, PodOutcome};
-use mtg_core::{DYNAMIC_PROFILE, DynamicDeckEntry, DynamicPodTemplate, MatchProfile};
+use mtg_core::{DYNAMIC_PROFILE, DynamicPodTemplate, MatchProfile};
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicUsize, Ordering},
@@ -29,7 +30,7 @@ OPTIONS: [--threads 1..32] [--games N] \
 Each rotated group reuses one seed and starting seat while cycling the four deck slots.\n\
 The first and last seed groups are independently rerun and replayed.\n\
 Pod JSON is an object with four decks of {oracle_id, quantity, role} rows.\n\
---analytics-out writes aggregate analytics.json and summary.md from independent terminal replays.";
+--analytics-out writes aggregate analytics.json and summary.md from live committed events.";
 
 pub struct Options {
     threads: usize,
@@ -106,6 +107,7 @@ impl Options {
     fn case(&self, index: usize) -> Case {
         Case {
             index,
+            paired_focal: None,
             seed_index: self.seed_start + (index / self.rotations()) as u32,
             rotation: index % self.rotations(),
         }
@@ -118,18 +120,28 @@ impl Options {
 
 #[derive(Clone, Copy, Serialize, PartialEq, Eq)]
 struct Case {
+    #[serde(skip)]
+    paired_focal: Option<usize>,
     index: usize,
     seed_index: u32,
     rotation: usize,
 }
 impl Case {
-    fn config(self, profile: &str) -> Result<MatchConfig, String> {
-        let mut config = MatchConfig::for_profile(
-            profile,
-            seed_for("bench-pods-v1", self.seed_index),
-            PlayerId((self.seed_index % 4) as u8),
+    fn seed(self) -> [u8; 32] {
+        seed_for(
+            if self.paired_focal.is_some() {
+                "bench-pair-v1"
+            } else {
+                "bench-pods-v1"
+            },
+            self.seed_index,
         )
-        .map_err(|error| error.to_string())?;
+    }
+
+    fn config(self, profile: &str) -> Result<MatchConfig, String> {
+        let mut config =
+            MatchConfig::for_profile(profile, self.seed(), PlayerId((self.seed_index % 4) as u8))
+                .map_err(|error| error.to_string())?;
         config.decks.rotate_right(self.rotation);
         Ok(config)
     }
@@ -142,10 +154,7 @@ impl Case {
 #[derive(Clone, Copy)]
 pub enum PodSource<'a> {
     Embedded(&'a MatchProfile),
-    Dynamic {
-        template: &'a DynamicPodTemplate,
-        decks: &'a [Vec<DynamicDeckEntry>; 4],
-    },
+    Dynamic(&'a DynamicPodTemplate<'a>),
 }
 impl<'a> PodSource<'a> {
     fn prepare(
@@ -163,9 +172,9 @@ impl<'a> PodSource<'a> {
                 .map_err(|error| error.to_string())?;
                 Ok((prepared, starting, None))
             }
-            Self::Dynamic { template, .. } => {
+            Self::Dynamic(template) => {
                 let starting = PlayerId((case.seed_index % 4) as u8);
-                let seed = seed_for("bench-pods-v1", case.seed_index);
+                let seed = case.seed();
                 let pod = timed(admission_ns, || {
                     template.prepare(starting, seed, case.rotation)
                 })
@@ -181,7 +190,7 @@ impl<'a> PodSource<'a> {
     fn catalog(self) -> &'a Catalog {
         match self {
             Self::Embedded(profile) => profile.catalog(),
-            Self::Dynamic { template, .. } => template.catalog().catalog(),
+            Self::Dynamic(template) => template.catalog().catalog(),
         }
     }
     fn timing_scope(self) -> &'static str {
@@ -189,18 +198,19 @@ impl<'a> PodSource<'a> {
             Self::Embedded(_) => {
                 "wall includes worker startup, pod admission, play and unsampled disposal; excludes catalog load, sampled disposal/proofs, aggregation and output. Phase clocks sum concurrent worker elapsed times."
             }
-            Self::Dynamic { .. } => {
+            Self::Dynamic(_) => {
                 "wall includes worker startup, pod setup, play and unsampled disposal. Bulk load, projection, sampled disposal/proofs, aggregation and output are outside worker wall time. Phase clocks sum concurrent worker elapsed times."
             }
         }
     }
-    fn analytics_profile(self, build: BuildIdentity) -> AnalyticsProfile<'a> {
+    pub(crate) fn analytics_profile(self, build: BuildIdentity) -> AnalyticsProfile<'a> {
         let (_, name, catalog_sha256) = self.report_profile();
         let decks = match self {
             Self::Embedded(profile) => profile.decks.each_ref().map(AnalyticsDeck::embedded),
-            Self::Dynamic { decks, .. } => {
-                decks.each_ref().map(|rows| AnalyticsDeck::dynamic(rows))
-            }
+            Self::Dynamic(template) => template
+                .rows()
+                .each_ref()
+                .map(|rows| AnalyticsDeck::dynamic(rows)),
         };
         AnalyticsProfile {
             build,
@@ -213,7 +223,7 @@ impl<'a> PodSource<'a> {
     fn report_profile(self) -> (&'static str, &'a str, &'a str) {
         match self {
             Self::Embedded(profile) => ("bench-pods-v1", &profile.name, &profile.catalog_sha256),
-            Self::Dynamic { template, .. } => (
+            Self::Dynamic(template) => (
                 "bench-pods-bulk-v1",
                 DYNAMIC_PROFILE,
                 template.catalog().digest(),
@@ -224,7 +234,7 @@ impl<'a> PodSource<'a> {
 
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
-enum Outcome {
+pub(crate) enum Outcome {
     Win,
     Draw,
     DecisionLimit,
@@ -236,7 +246,7 @@ enum Outcome {
     QueryFailure,
 }
 impl Outcome {
-    fn terminal(self) -> bool {
+    pub(crate) fn terminal(self) -> bool {
         matches!(self, Self::Win | Self::Draw)
     }
     fn capped(self) -> bool {
@@ -291,11 +301,28 @@ struct ResultRow {
     rule_steps: u64,
     query_calls: usize,
 }
+impl ResultRow {
+    fn pod_outcome(&self) -> PodOutcome {
+        PodOutcome {
+            index: self.case.index,
+            slots: std::array::from_fn(|seat| self.case.deck_slot(seat)),
+            starter: self.starting_seat as usize,
+            terminal: self.outcome.terminal(),
+            decision_capped: self.outcome == Outcome::DecisionLimit,
+            budget_capped: self.outcome.capped(),
+            winner: self.winner,
+            placements: self.placements,
+            turns: self.turns,
+            decisions: self.decisions,
+        }
+    }
+}
 struct Pod {
+    opening: Option<Vec<mtg_core::CardId>>,
     row: ResultRow,
     clocks: Clocks,
     proof: Option<(Prepared, Game)>,
-    analytics: Option<Box<analytics::ReplayInput>>,
+    analytics: Option<Box<[analytics::SeatFacts; 4]>>,
 }
 
 fn play(
@@ -308,12 +335,21 @@ fn play(
     let mut clocks = Clocks::default();
     let (prepared, starting_seat, admission_sha256) =
         source.prepare(case, &mut clocks.admission)?;
-    let replay_start = (sample || analytics).then(|| prepared.clone());
-    let mut game = Game::with_trace(prepared, TraceMode::Off);
+    let replay_start = sample.then(|| prepared.clone());
+    let mode = if analytics {
+        TraceMode::Stream
+    } else {
+        TraceMode::Off
+    };
+    let mut game = Game::with_trace(prepared, mode);
+    let mut sink = analytics.then(|| {
+        analytics::AnalyticsSink::new(source.catalog(), game.config(), game.turn().number)
+    });
     let mut strategy = Strategy::new(source.catalog(), Policy::Develop, [0; 4]);
     let mut placements = Placements::default();
     let mut winner = None;
     let mut detail = None;
+    let mut opening = None;
     let mut work = 0;
     let mut decisions = 0;
     let mut query_calls = 0;
@@ -323,6 +359,9 @@ fn play(
         }
         work += 1;
         let next = timed(&mut clocks.rules, || game.advance(Budget::new(QUANTUM)));
+        if let Some(sink) = &mut sink {
+            drain(&mut game, sink)?;
+        }
         if !matches!(&next, Advance::AwaitingDecision(_)) {
             placements.observe(&game.live_players());
         }
@@ -344,6 +383,24 @@ fn play(
             }
             Advance::AwaitingDecision(request) => request,
         };
+        if opening.is_none()
+            && let Some(slot) = case.paired_focal
+            && matches!(request.reason, mtg_core::Reason::Mulligan { .. })
+        {
+            let owner = PlayerId(((slot + case.rotation) % 4) as u8);
+            opening = Some(
+                game.config()
+                    .cards
+                    .iter()
+                    .filter(|c| {
+                        c.owner == owner
+                            && game.object_id(c.id).and_then(|id| game.zone(id))
+                                == Some(mtg_core::Zone::Hand { owner })
+                    })
+                    .map(|c| c.id)
+                    .collect(),
+            );
+        }
         if decisions >= decision_limit || game.turn().number > TURN_LIMIT {
             placements.observe(&game.live_players());
             break if decisions >= decision_limit {
@@ -400,6 +457,16 @@ fn play(
                 break query_stop(detail.as_deref());
             }
         }
+        if let Some(sink) = &mut sink {
+            sink.decision(
+                &observation,
+                &game
+                    .journal()
+                    .last()
+                    .ok_or("missing accepted answer")?
+                    .answer,
+            )?;
+        }
         decisions += 1;
     };
     let row = ResultRow {
@@ -415,14 +482,9 @@ fn play(
         rule_steps: game.rule_boundary(),
         query_calls,
     };
-    let analytics = if analytics && outcome.terminal() {
-        Some(Box::new(analytics::ReplayInput::capture(
-            replay_start
-                .as_ref()
-                .ok_or("missing analytics admission")?
-                .clone(),
-            &game,
-        )?))
+    let analytics = if let Some(mut sink) = sink {
+        sink.finish(&row.pod_outcome())?;
+        (sample || outcome.terminal()).then(|| Box::new(sink.facts))
     } else {
         None
     };
@@ -433,6 +495,7 @@ fn play(
         None
     };
     Ok(Pod {
+        opening,
         row,
         clocks,
         proof,
@@ -440,9 +503,45 @@ fn play(
     })
 }
 
-struct Placements {
+pub(crate) struct PairedGame {
+    pub outcome: Outcome,
+    pub detail: Option<String>,
+    pub winner: Option<usize>,
+    pub placement: Option<usize>,
+    pub turns: u64,
+    pub journal: Vec<mtg_core::AcceptedInput>,
+    pub opening: Option<Vec<mtg_core::CardId>>,
+}
+pub(crate) fn paired_game(
+    source: PodSource<'_>,
+    block: u32,
+    rotation: usize,
+    focal: usize,
+    limit: usize,
+) -> Result<PairedGame, String> {
+    let case = Case {
+        index: rotation,
+        seed_index: block,
+        rotation,
+        paired_focal: Some(focal),
+    };
+    let pod = play(source, case, limit, true, true)?;
+    let (_, game) = pod.proof.ok_or("missing paired game")?;
+    Ok(PairedGame {
+        outcome: pod.row.outcome,
+        detail: pod.row.detail,
+        winner: pod.row.winner.map(|w| case.deck_slot(w.0 as usize)),
+        placement: pod.analytics.ok_or("missing paired loss waves")?[(focal + rotation) % 4]
+            .placement,
+        turns: pod.row.turns,
+        journal: game.journal().iter().cloned().collect(),
+        opening: pod.opening,
+    })
+}
+
+pub(crate) struct Placements {
     living: u8,
-    ranks: [Option<usize>; 4],
+    pub(crate) ranks: [Option<usize>; 4],
 }
 impl Default for Placements {
     fn default() -> Self {
@@ -453,7 +552,7 @@ impl Default for Placements {
     }
 }
 impl Placements {
-    fn observe(&mut self, live: &[PlayerId]) {
+    pub(crate) fn observe(&mut self, live: &[PlayerId]) {
         let mask = live.iter().fold(0u8, |mask, player| mask | (1 << player.0));
         if mask != self.living {
             let rank = live.len() + 1;
@@ -497,7 +596,16 @@ fn check_sample(source: PodSource<'_>, options: &Options, measured: &mut Pod) ->
         {
             return Err("independent policy rerun diverged".into());
         }
-        let replay = if measured.row.outcome.terminal() {
+        let replay = if let Some(facts) = &measured.analytics {
+            analytics::verify_facts(
+                prepared,
+                &journal,
+                measured.row.rule_steps,
+                source.catalog(),
+                &measured.row.pod_outcome(),
+                facts,
+            )?
+        } else if measured.row.outcome.terminal() {
             Game::replay_with_trace(prepared, &journal, TraceMode::Off)?
         } else {
             let snapshot = original.snapshot()?;
@@ -506,6 +614,8 @@ fn check_sample(source: PodSource<'_>, options: &Options, measured: &mut Pod) ->
         if replay.rule_boundary() != measured.row.rule_steps
             || replay.replay_journal() != journal
             || replay.state_digest()? != state_sha256
+            || (measured.analytics.is_some()
+                && original.trace().verification != replay.trace().verification)
         {
             return Err("snapshot replay diverged".into());
         }
@@ -625,19 +735,11 @@ pub fn run(
             pods.iter_mut().map(|pod| {
                 let row = &pod.row;
                 (
-                    PodOutcome {
-                        index: row.case.index,
-                        slots: std::array::from_fn(|seat| row.case.deck_slot(seat)),
-                        starter: row.starting_seat as usize,
-                        terminal: row.outcome.terminal(),
-                        decision_capped: row.outcome == Outcome::DecisionLimit,
-                        budget_capped: row.outcome.capped(),
-                        winner: row.winner,
-                        placements: row.placements,
-                        turns: row.turns,
-                        decisions: row.decisions,
-                    },
-                    pod.analytics.take().map(|input| *input),
+                    row.pod_outcome(),
+                    pod.analytics
+                        .take()
+                        .filter(|_| row.outcome.terminal())
+                        .map(|facts| *facts),
                 )
             }),
         )?;
@@ -685,7 +787,7 @@ pub fn run(
         "profile": profile,
         "catalog_sha256": catalog_sha256,
         "policy": Policy::Develop,
-        "trace_mode": TraceMode::Off,
+        "trace_mode": if analytics {TraceMode::Stream} else {TraceMode::Off},
         "threads": workers, "threads_requested": options.threads,
         "games": options.games, "seed_start": options.seed_start, "rotate_seats": options.rotate,
         "limits": {"quantum": QUANTUM, "decisions": options.decision_limit, "turns": TURN_LIMIT, "host_calls": WORK_LIMIT},
@@ -713,7 +815,7 @@ pub fn run(
         report["analytics_wall_ns"] = serde_json::json!(elapsed);
         report["analytics_out"] = serde_json::json!(options.analytics_out);
         report["timing_scope"] = serde_json::json!(format!(
-            "{} Wall also includes optional terminal journal/digest capture. Detailed analytics replays and file output are measured separately.",
+            "{} Wall includes live analytics. Proofs, aggregation and output are measured separately.",
             source.timing_scope()
         ));
     }
@@ -806,7 +908,7 @@ mod tests {
         assert_eq!(instrumented["proofs"], parallel["proofs"]);
         assert!(instrumented["analytics_wall_ns"].is_number());
         assert!(parallel.get("analytics_wall_ns").is_none());
-        assert_eq!(analytics["verified_terminal_replays"], 0);
+        assert_eq!(analytics["terminal_pods"], 0);
         let decks = analytics["decks"].as_array().unwrap();
         assert_eq!(decks.len(), 2);
         for deck in decks {
@@ -816,7 +918,7 @@ mod tests {
         }
     }
     #[test]
-    fn terminal_analytics_replay_preserves_state_and_journal() {
+    fn live_seat_facts_match_detailed_replay_and_uninstrumented_journal() {
         let profile = mtg_core::match_profile("commander-foundations-v1").unwrap();
         let source = PodSource::Embedded(profile);
         let mut options = Options::parse(
@@ -845,7 +947,7 @@ mod tests {
         assert_eq!(enabled["unfinished"], 0);
         assert_eq!(enabled["rows"], serde_json::json!([plain.row]));
         assert_eq!(enabled["proofs"], serde_json::json!([proof]));
-        assert_eq!(analytics["verified_terminal_replays"], 1);
+        assert_eq!(analytics["terminal_pods"], 1);
         assert!(markdown.contains("OH WR") && markdown.contains("GIH WR"));
 
         let decks = analytics["decks"].as_array().unwrap();

@@ -264,6 +264,9 @@ impl RulesTxn {
                 }
             }
             Cond::Exists { set } => !self.control_objects(task, set)?.is_empty(),
+            Cond::ActivePlayer { .. } => {
+                return Err("active-player condition outside statics".into());
+            }
             Cond::CostPaid { identity } => self
                 .entry(self.kernel_root()?.stack_id)?
                 .selected_additional_costs

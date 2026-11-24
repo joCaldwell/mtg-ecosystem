@@ -38,37 +38,27 @@ fn hand(g: &Game, p: PlayerId) -> Vec<ObjectId> {
         .collect()
 }
 #[test]
-fn chacha_official_vectors_cursor_and_exhaustion_are_exact() {
-    // rand_chacha0.10.0's independently cited IETF test vectors1/2:
-    // https://datatracker.ietf.org/doc/html/draft-nir-cfrg-chacha20-poly1305-04
-    let mut random = MatchRandom {
-        version: 1,
-        seed: [0; 32],
-        stream: 0,
-        word_position: RngPosition(0),
-    };
-    let expected = [
-        0xade0b876, 0x903df1a0, 0xe56a5d40, 0x28bd8653, 0xb819d2bd, 0x1aed8da0, 0xccef36a8,
-        0xc70d778b, 0x7c5941da, 0x8d485751, 0x3fe02477, 0x374ad8b8, 0xf4b8436a, 0x1ca11815,
-        0x69b687c3, 0x8665eeb2,
-    ];
-    for value in expected {
-        assert_eq!(random.word().unwrap(), value);
-    }
-    assert_eq!(random.word_position, RngPosition(16));
-    assert_eq!(random.word().unwrap(), 0xbee7079f);
-    let json = canonical(&random).unwrap();
-    let mut copy: MatchRandom = strict_read(&json).unwrap();
-    assert_eq!(copy.word().unwrap(), random.word().unwrap());
-    random.word_position = RngPosition((1u128 << 68) - 1);
-    random.word().unwrap();
-    assert_eq!(random.word_position, RngPosition(1u128 << 68));
+fn chacha_substreams_restart_at_zero_and_reject_legacy_or_overflow() {
+    let mut random = MatchRandom::new([0; 32]);
+    let stream = 1 << 56;
+    assert!(random.word(0).is_err());
+    // Independent OpenSSL ChaCha20 KAT: zero key, LE 64-bit block counter
+    // followed by LE stream ID in the 16-byte IV.
+    let first = random.word(stream).unwrap();
+    assert_eq!(first, 0x7bba9cde);
+    let mut copy: MatchRandom = strict_read(&canonical(&random).unwrap()).unwrap();
+    assert_eq!(random.word(stream).unwrap(), copy.word(stream).unwrap());
+    assert_eq!(random.word((1 << 56) | (3 << 48) | 17).unwrap(), 0xc30a88a5);
+    assert_eq!(random.word(2 << 56).unwrap(), 0x374dc6c2);
+    assert!(random.word((3 << 56) | (1 << 48)).is_err());
+    assert_eq!(random.word(stream).unwrap(), first);
+    random.open = Some(OpenStream {
+        stream,
+        word: u32::MAX,
+    });
     let before = random.clone();
-    assert!(random.word().is_err());
+    assert!(random.word(stream).is_err());
     assert_eq!(random, before);
-    for bad in ["01", "-1", "295147905179352825857"] {
-        assert!(strict_read::<RngPosition>(&format!("\"{bad}\"")).is_err());
-    }
     assert_eq!(sample_shuffle_word(u32::MAX, 3), None);
     assert_eq!(sample_shuffle_word(u32::MAX - 1, 3), Some(2));
     assert_eq!(sample_shuffle_word(u32::MAX, 2), Some(1));
@@ -278,7 +268,7 @@ fn first_player_draws_and_seed_order_are_trusted_only() {
         panic!("observation")
     };
     let text = canonical(&o).unwrap();
-    assert!(!text.contains("word_position"));
+    assert!(!text.contains("seat_random"));
     assert!(!text.contains("seed"));
     assert_eq!(
         o.view
@@ -366,11 +356,23 @@ fn setup_atomic_events_reject_wrong_phase_and_rehashed_rng_queue_order_forgeries
     assert_eq!(g.trace, trace);
     let _ = g.advance(Budget::new(3));
     let json = g.snapshot().unwrap();
+    // Reject a well-formed stream from the wrong event at decode time, before replay.
+    for forged in [(1u64 << 56) | (2 << 48) | 1, (2u64 << 56) | (2 << 48)] {
+        let mut raw: serde_json::Value = serde_json::from_str(&json).unwrap();
+        raw["state"]["match_state"]["random"]["open"]["stream"] = forged.into();
+        raw["state_sha256"] = digest(&raw["state"]).unwrap().into();
+        assert_eq!(
+            Game::read_snapshot(p.clone(), &canonical(&raw).unwrap())
+                .err()
+                .as_deref(),
+            Some("snapshot random identity")
+        );
+    }
     for path in 0..6 {
         let mut raw: serde_json::Value = serde_json::from_str(&json).unwrap();
         match path {
             0 => raw["state"]["match_state"]["random"]["seed"][0] = 1.into(),
-            1 => raw["state"]["match_state"]["random"]["word_position"] = "4".into(),
+            1 => raw["state"]["match_state"]["random"]["open"]["word"] = 4.into(),
             2 => raw["state"]["match_state"]["setup"]["phase"]["index"] = 94.into(),
             3 => {
                 raw["state"]["match_state"]["setup"]["phase"]["players"] =

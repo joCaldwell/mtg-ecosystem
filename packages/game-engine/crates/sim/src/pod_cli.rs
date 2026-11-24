@@ -33,10 +33,7 @@ pub fn bench(build: BuildIdentity, args: &[String]) -> Result<(), String> {
         let template = DynamicPodTemplate::admit(&artifact, &decks)
             .map_err(|error| serde_json::to_string(&error).unwrap_or_else(|_| error.to_string()))?;
         let projection_ns = start.elapsed().as_nanos();
-        let source = PodSource::Dynamic {
-            template: &template,
-            decks: &decks,
-        };
+        let source = PodSource::Dynamic(&template);
         let (mut report, verified) = run(build, source, &options)?;
         report["bulk"] = serde_json::json!({
             "manifest_sha256": artifact.manifest_sha256(),
@@ -104,5 +101,74 @@ pub fn inspect(build: BuildIdentity, args: &[String]) -> Result<(), String> {
         );
         return Err(detail);
     }
+    Ok(())
+}
+
+pub fn pair(build: BuildIdentity, args: &[String]) -> Result<(), String> {
+    const HELP: &str = "mtg-sim bench-pair --bulk-artifact DIR --manifest-sha SHA --pod-decks A.json --swap SLOT:REMOVE:ADD [--swap ...] --blocks N [--seed-start S] [--threads T] [--decision-limit D] --out NEW_DIR";
+    if args == ["--help"] {
+        println!("{HELP}");
+        return Ok(());
+    }
+    let mut options = std::collections::BTreeMap::new();
+    let mut swaps = Vec::new();
+    for chunk in args.chunks(2) {
+        let [flag, value] = chunk else {
+            return Err(HELP.into());
+        };
+        match flag.as_str() {
+            "--swap" => {
+                let parts: Vec<_> = value.split(':').collect();
+                let [slot, remove, add] = parts.as_slice() else {
+                    return Err(HELP.into());
+                };
+                swaps.push((slot.parse::<usize>().map_err(|_| HELP)?, *remove, *add));
+            }
+            "--bulk-artifact" | "--manifest-sha" | "--pod-decks" | "--blocks" | "--out"
+            | "--threads" | "--decision-limit" | "--seed-start"
+                if options.insert(flag.as_str(), value.as_str()).is_none() => {}
+            _ => return Err(HELP.into()),
+        }
+    }
+    let get = |key: &str| options.get(key).copied().ok_or(HELP);
+    let focal = swaps.first().ok_or(HELP)?.0;
+    if swaps.iter().any(|s| s.0 != focal) {
+        return Err("all substitutions must share one deck slot".into());
+    }
+    let pin = get("--manifest-sha")?;
+    let artifact = bulk_input::load(build, Path::new(get("--bulk-artifact")?), pin)?;
+    let decks = bulk_input::read_pod_decks(Path::new(get("--pod-decks")?))?;
+    let base = DynamicPodTemplate::admit(&artifact, &decks).map_err(|e| e.to_string())?;
+    let replacements: Vec<_> = swaps
+        .into_iter()
+        .map(|(_, remove, add)| (remove, add))
+        .collect();
+    let number = |s: &str| {
+        s.parse::<usize>()
+            .map_err(|_| format!("invalid unsigned number {s}"))
+    };
+    let threads = options
+        .get("--threads")
+        .map(|s| number(s))
+        .transpose()?
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get().min(32)));
+    let report = mtg_sim::paired::run(
+        build,
+        &base,
+        focal,
+        &replacements,
+        number(get("--blocks")?)?,
+        get("--seed-start")
+            .unwrap_or("0")
+            .parse()
+            .map_err(|_| HELP)?,
+        threads,
+        number(get("--decision-limit").unwrap_or("100000"))?,
+        Path::new(get("--out")?),
+    )?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
+    );
     Ok(())
 }

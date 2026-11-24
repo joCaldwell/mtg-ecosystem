@@ -328,13 +328,13 @@ pub(crate) fn lower_reviewed_set(
 }
 
 /// CR 205.2a: a printed card type, by its AST spelling.
-fn card_kind(kind: &str, name: &str) -> Result<CardKind, Failure> {
+pub(crate) fn card_kind(kind: &str, name: &str) -> Result<CardKind, Failure> {
     serde_json::from_value(serde_json::Value::String(kind.to_owned()))
         .map_err(|_| operand(name, format!("type:{kind}")))
 }
 
 /// CR 105.1: the five colors.
-fn color(color: &ast::Color) -> Color {
+pub(crate) fn color(color: &ast::Color) -> Color {
     match color {
         ast::Color::White => Color::W,
         ast::Color::Blue => Color::U,
@@ -379,6 +379,10 @@ fn type_alternatives(all_of: &[ast::ObjectFilter], kind: &str) -> Result<Vec<Car
 /// CR 608.2h: every printed term of a board filter becomes one predicate
 /// atom, in this fixed order; a term with no atom rejects the operand.
 pub(crate) fn lower_filter(filter: &ast::ObjectFilter, context: Context) -> Result<Pred, Failure> {
+    lower_filter_for(filter, PlayerExpr::you(context))
+}
+
+fn lower_filter_for(filter: &ast::ObjectFilter, you: PlayerExpr) -> Result<Pred, Failure> {
     if let Some(field) = present_fields(filter)
         .into_iter()
         .find(|field| !BOARD_FILTER_TERMS.contains(field))
@@ -454,10 +458,8 @@ pub(crate) fn lower_filter(filter: &ast::ObjectFilter, context: Context) -> Resu
     }
     match &filter.control {
         None => {}
-        // CR 109.5: "you control" is the controller of this stack object.
-        Some(ast::ObjectFilterControl::You) => atoms.push(Atom::ControlledBy {
-            player: PlayerExpr::you(context),
-        }),
+        // CR 109.5: "you control" uses the binding for this ability.
+        Some(ast::ObjectFilterControl::You) => atoms.push(Atom::ControlledBy { player: you }),
         // CR 102.3: "your opponents control".
         Some(ast::ObjectFilterControl::Opponent) => atoms.push(Atom::ControlledBy {
             player: PlayerExpr::EachOpponent,
@@ -523,6 +525,42 @@ pub(crate) fn lower_filter(filter: &ast::ObjectFilter, context: Context) -> Resu
         });
     }
     Ok(Pred(atoms))
+}
+
+/// CR 109.5, 201.5: bind a live static predicate, including "other".
+pub(crate) fn lower_static_filter(filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
+    let mut plain = filter.clone();
+    let each = plain.all_of.take();
+    let any = plain.any_of.take();
+    let other = plain.other.take();
+    if other == Some(false) {
+        return Err(operand("filter", "other:false"));
+    }
+    let mut pred = lower_filter_for(&plain, PlayerExpr::static_controller())?;
+    if let Some(children) = each {
+        if children.is_empty() {
+            return Err(operand("filter", "all_of:empty"));
+        }
+        for child in &children {
+            pred.0.extend(lower_static_filter(child)?.0);
+        }
+    }
+    if let Some(children) = any {
+        if children.is_empty() {
+            return Err(operand("filter", "any_of:empty"));
+        }
+        let alternatives = children
+            .iter()
+            .map(lower_static_filter)
+            .collect::<Result<_, _>>()?;
+        pred.0.push(Atom::AnyOf { alternatives });
+    }
+    if other.is_some() {
+        pred.0.push(Atom::IsNot {
+            object: kir::Ref::Source,
+        });
+    }
+    Ok(pred)
 }
 
 /// The filter terms a board set represents.

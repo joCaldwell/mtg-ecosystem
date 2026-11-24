@@ -2,9 +2,9 @@
 //! coarse value estimates; only core decides legality and executes rules.
 use super::*;
 use mtg_contracts::{
-    ActivationCost, CreatureRestriction, Definition, FunctioningZone, Instruction as I,
-    KeywordAbility, ObjectSet, SacrificeFilter, SpellProgram, SpellResolution, SpellTiming,
-    StaticEffect, TargetDomain, TargetSpec, announced_x, fixed, kernel,
+    ActivationCost, Definition, FunctioningZone, Instruction as I, KeywordAbility, ObjectSet,
+    SacrificeFilter, SpellProgram, SpellResolution, SpellTiming, StaticEffect, TargetDomain,
+    TargetSpec, announced_x, fixed, kernel,
     kir::{self, Context, SetExpr},
     source_object, target_object, target_player,
 };
@@ -291,9 +291,18 @@ impl Strategy<'_> {
     }
 
     fn harmful_attachment(&self, d: &Definition) -> bool {
-        d.static_abilities.iter().any(|a| matches!(&a.effect,
-            StaticEffect::ModifyCreatures { power, toughness, restrictions, .. }
-            if power.is_negative() || toughness.is_negative() || restrictions.contains(&CreatureRestriction::CantAttackOrBlock)))
+        use mtg_contracts::kir::{Change, CombatRequirement, Scope, StaticRule};
+        d.static_abilities.iter().any(|ability| match &ability.effect {
+            StaticEffect::Continuous { affects: Scope::Attachment { .. }, changes, .. } => changes.iter().any(|change| {
+                matches!(change, Change::PowerToughness { power, toughness }
+                    if [power, toughness].into_iter().filter_map(|n| n.as_fixed()).any(Quantity::is_negative))
+            }),
+            StaticEffect::Rule { rule: StaticRule::Combat {
+                affects: Scope::Attachment { .. },
+                requirement: CombatRequirement::CantAttackOrBlock, ..
+            }, .. } => true,
+            _ => false,
+        })
     }
     pub(super) fn target_beneficial(&self, d: &Definition, p: &SpellProgram, slot: u32) -> bool {
         if d.characteristics.subtypes.iter().any(|s| s == "Aura") {

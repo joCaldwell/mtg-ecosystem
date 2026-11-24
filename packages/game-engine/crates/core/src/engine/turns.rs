@@ -89,6 +89,9 @@ impl RulesTxn {
     pub(crate) fn has_land_play_allowance(&self, player: PlayerId) -> bool {
         let turn = &self.state.rules.turn;
         let mut allowance = Quantity::from(1);
+        if self.static_land_allowance(player, &mut allowance) {
+            return true;
+        }
         for effect in &self.state.rules.effects {
             if let Some(count) = effect.additional_land_plays(player, turn.number) {
                 allowance.add(count);
@@ -220,7 +223,12 @@ impl RulesTxn {
             .filter(|o| o.zone == (Zone::Hand { owner: player }))
             .count();
         // CR 402.2/514.1: the maximum hand size is seven.
-        Ok(hand_size.saturating_sub(7))
+        let Some(maximum) = self.static_hand_size(player)? else {
+            return Ok(0);
+        };
+        Ok(maximum
+            .to_u32()
+            .map_or(0, |limit| hand_size.saturating_sub(limit as usize)))
     }
 
     pub(crate) fn enter_turn_step(&mut self) -> Result<(), String> {

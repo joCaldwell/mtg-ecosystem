@@ -36,7 +36,9 @@ impl Game {
                     Err(reason) => return self.enter_fault(RuleError::invariant(reason)),
                 }
             }
-            if !budget.consume() {
+            // Backpressure at a rule boundary. One atomic step can append its
+            // bounded event group before the next delivery opportunity.
+            if self.stream_buffer.len() >= 2048 || !budget.consume() {
                 return Advance::Suspended {
                     required_minimum: 1,
                 };

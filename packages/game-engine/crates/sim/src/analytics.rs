@@ -1,5 +1,5 @@
-//! Trusted post-game analysis of verified, terminal bench journals. This module
-//! does not provide any inputs to live play or persist private replay material.
+//! Live trusted analysis of committed pod events and permitted decisions.
+use crate::events::EventSink;
 use crate::policy::can_fund;
 use mtg_contracts::{CardKind, Catalog, Quantity, digest, kir};
 use mtg_core::{
@@ -7,6 +7,7 @@ use mtg_core::{
     EventOutcome, EvidenceRecord, Game, MoveOutcome, PlayerId, Prepared, QueryResult, QueryValue,
     ReplayJournal, SetupOutcome, TraceMode, TurnStep, Zone,
 };
+use mtg_core::{Answer, CardSetup, Observation, ScenarioConfig, StackId, TraceRecord};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
@@ -69,76 +70,50 @@ pub struct PodOutcome {
     pub decisions: usize,
 }
 
-pub struct ReplayInput {
+/// Verify the measured facts at a proof boundary with an independent Detailed
+/// replay. Reconstruct decision observations and read the retained record log.
+pub(crate) fn verify_facts(
     prepared: Prepared,
-    journal: ReplayJournal,
+    journal: &ReplayJournal,
     boundary: u64,
-    state_sha256: String,
-}
-impl ReplayInput {
-    pub fn capture(prepared: Prepared, game: &Game) -> Result<Self, String> {
-        Ok(Self {
-            prepared,
-            journal: game.replay_journal(),
-            boundary: game.rule_boundary(),
-            state_sha256: game.state_digest()?,
-        })
+    catalog: &Catalog,
+    outcome: &PodOutcome,
+    expected: &[SeatFacts; 4],
+) -> Result<Game, String> {
+    let mut game = Game::with_trace(prepared, TraceMode::Detailed);
+    let mut sink = AnalyticsSink::new(catalog, game.config(), game.turn().number);
+    for input in &journal.decisions {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::new(
+            boundary
+                .checked_sub(game.rule_boundary())
+                .ok_or("analytics replay overshot")?,
+        )) else {
+            return Err("analytics proof decision unreachable".into());
+        };
+        if request.player != input.player || request.id != input.decision_id {
+            return Err("analytics proof input mismatch".into());
+        }
+        let QueryResult::Complete(QueryValue::Observation(o)) =
+            game.observe(request.player, Budget::unlimited())
+        else {
+            return Err("analytics proof observation unavailable".into());
+        };
+        sink.decision(&o, &input.answer)?;
+        game.respond(input.player, input.decision_id, input.answer.clone())?;
     }
-
-    fn analyze(self, outcome: &PodOutcome, catalog: &Catalog) -> Result<[SeatFacts; 4], String> {
-        if !self.journal.concessions.is_empty() || self.journal.decisions.len() != outcome.decisions
-        {
-            return Err("unexpected bench input journal".into());
-        }
-        let mut game = Game::with_trace(self.prepared, TraceMode::Detailed);
-        let first_turn = game.turn().number;
-        let mut probes = std::array::from_fn(|_| BTreeMap::new());
-        for input in &self.journal.decisions {
-            let Advance::AwaitingDecision(request) = advance_to(&mut game, self.boundary)? else {
-                return Err("analytics decision is unreachable".into());
-            };
-            let player = request.player;
-            if player != input.player || request.id != input.decision_id {
-                return Err("analytics replay decision diverged".into());
-            }
-            if matches!(request.reason, mtg_core::Reason::Priority)
-                && game.active_player() == Some(player)
-                && matches!(
-                    game.turn().step,
-                    TurnStep::PrecombatMain | TurnStep::PostcombatMain
-                )
-            {
-                let player_probes = &mut probes[seat(player)];
-                let turn = game.turn().number;
-                if player_probes.len() < 4 || player_probes.contains_key(&turn) {
-                    let status = player_probes.entry(turn).or_insert_with(ManaProbe::default);
-                    if !status.payable {
-                        status.sample(&game, player, catalog)?;
-                    }
-                }
-            }
-            game.respond(player, input.decision_id, input.answer.clone())?;
-        }
-        match (advance_to(&mut game, self.boundary)?, outcome.winner) {
-            (Advance::Finished { winner }, Some(expected)) if winner == expected => {}
-            (Advance::Draw, None) => {}
-            _ => return Err("analytics replay result diverged".into()),
-        }
-        if game.rule_boundary() != self.boundary
-            || game.state_digest()? != self.state_sha256
-            || game.journal().len() != self.journal.decisions.len()
-        {
-            return Err("analytics replay state diverged".into());
-        }
-        collect(&game, catalog, outcome, first_turn, &probes)
+    game.advance(Budget::new(
+        boundary
+            .checked_sub(game.rule_boundary())
+            .ok_or("analytics replay overshot")?,
+    ));
+    for record in game.trace().records.iter() {
+        sink.record(record)?;
     }
-}
-
-fn advance_to(game: &mut Game, boundary: u64) -> Result<Advance, String> {
-    let remaining = boundary
-        .checked_sub(game.rule_boundary())
-        .ok_or("analytics boundary overshot")?;
-    Ok(game.advance(Budget::new(remaining)))
+    sink.finish(outcome)?;
+    if game.rule_boundary() != boundary || &sink.facts != expected {
+        return Err("live and Detailed analytics disagree".into());
+    }
+    Ok(game)
 }
 
 fn seat(player: PlayerId) -> usize {
@@ -154,13 +129,9 @@ struct ManaProbe {
 impl ManaProbe {
     // A mana-only estimate for a nonland card in the chooser's hand. This does
     // not solve timing, targets, cost modifications, X, or alternative costs.
-    fn sample(&mut self, game: &Game, player: PlayerId, catalog: &Catalog) -> Result<(), String> {
-        let QueryResult::Complete(QueryValue::Observation(observation)) =
-            game.observe(player, Budget::unlimited())
-        else {
-            return Err("early analytics observation unavailable".into());
-        };
+    fn sample(&mut self, observation: &Observation, catalog: &Catalog) -> Result<(), String> {
         let view = &observation.view;
+        let player = view.viewer;
         if !view.stack.is_empty() {
             return Ok(());
         }
@@ -194,7 +165,7 @@ impl ManaProbe {
     }
 }
 
-#[derive(Default, Serialize)]
+#[derive(Debug, Default, Serialize, PartialEq, Eq)]
 struct EarlyTurns {
     completed: u64,
     missed_land_drop: u64,
@@ -222,8 +193,8 @@ impl EarlyTurns {
     }
 }
 
-#[derive(Default)]
-struct SeatFacts {
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct SeatFacts {
     opening: BTreeSet<CardId>,
     in_hand: BTreeSet<CardId>,
     drawn: BTreeSet<CardId>,
@@ -231,13 +202,13 @@ struct SeatFacts {
     played_lands: BTreeSet<CardId>,
     casts: BTreeMap<CardId, (u64, u64)>,
     first_commander_cast: Option<u64>,
-    placement: Option<usize>,
+    pub(crate) placement: Option<usize>,
     early: EarlyTurns,
     cards: BTreeMap<String, CardFacts>,
     unresolved_draws: u64,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 struct CardFacts {
     opening: bool,
     in_hand: bool,
@@ -255,23 +226,58 @@ enum DrawKind {
     Unresolved,
 }
 
-fn collect(
-    game: &Game,
-    catalog: &Catalog,
-    outcome: &PodOutcome,
-    first_turn: u64,
-    probes: &[BTreeMap<u64, ManaProbe>; 4],
-) -> Result<[SeatFacts; 4], String> {
-    let config = game.config();
-    let cards: BTreeMap<_, _> = config.cards.iter().map(|card| (card.id, card)).collect();
-    let mut facts: [SeatFacts; 4] = std::array::from_fn(|_| SeatFacts::default());
-    let mut casting = BTreeMap::new();
-    let mut copied_spells = BTreeMap::new();
-    let mut opening_complete = false;
-    let mut turn = first_turn;
-    let mut remaining = 4usize;
-
-    for record in game.trace().records.iter() {
+pub struct AnalyticsSink<'a> {
+    catalog: &'a Catalog,
+    cards: BTreeMap<CardId, CardSetup>,
+    commanders: Vec<CardId>,
+    pub(crate) facts: [SeatFacts; 4],
+    probes: [BTreeMap<u64, ManaProbe>; 4],
+    casting: BTreeMap<StackId, (PlayerId, CardId)>,
+    copied_spells: BTreeMap<StackId, CardId>,
+    opening_complete: bool,
+    turn: u64,
+    remaining: usize,
+}
+impl<'a> AnalyticsSink<'a> {
+    pub fn new(catalog: &'a Catalog, config: &ScenarioConfig, first_turn: u64) -> Self {
+        Self {
+            catalog,
+            cards: config.cards.iter().map(|c| (c.id, c.clone())).collect(),
+            commanders: config.commanders.clone(),
+            facts: Default::default(),
+            probes: Default::default(),
+            casting: Default::default(),
+            copied_spells: Default::default(),
+            opening_complete: false,
+            turn: first_turn,
+            remaining: 4,
+        }
+    }
+}
+impl EventSink for AnalyticsSink<'_> {
+    fn decision(&mut self, o: &Observation, _: &Answer) -> Result<(), String> {
+        let view = &o.view;
+        if o.decision
+            .as_ref()
+            .is_some_and(|d| matches!(d.reason, mtg_core::Reason::Priority))
+            && view.active == Some(view.viewer)
+            && matches!(
+                view.turn.step,
+                TurnStep::PrecombatMain | TurnStep::PostcombatMain
+            )
+        {
+            let probes = &mut self.probes[seat(view.viewer)];
+            if probes.len() < 4 || probes.contains_key(&view.turn.number) {
+                let probe = probes.entry(view.turn.number).or_default();
+                if !probe.payable {
+                    probe.sample(o, self.catalog)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    fn record(&mut self, record: &TraceRecord) -> Result<(), String> {
+        let facts = &mut self.facts;
         match &record.record {
             EvidenceRecord::Batch { batch } => {
                 let mut exiled_land = None;
@@ -293,8 +299,8 @@ fn collect(
                         EventOutcome::Setup {
                             actual: SetupOutcome::Complete { .. },
                         } => {
-                            opening_complete = true;
-                            for row in &mut facts {
+                            self.opening_complete = true;
+                            for row in facts.iter_mut() {
                                 row.in_hand.clone_from(&row.opening);
                             }
                         }
@@ -313,11 +319,11 @@ fn collect(
                                 {
                                     facts[seat].early.observe(
                                         previous.lands_played,
-                                        probes[seat].get(&previous.number),
+                                        self.probes[seat].get(&previous.number),
                                     );
                                 }
                             }
-                            turn = current.number;
+                            self.turn = current.number;
                         }
                         EventOutcome::LandPlayCounted { player, .. } => {
                             let card = match batch.cause {
@@ -331,7 +337,7 @@ fn collect(
                                 facts[seat(*player)].played_lands.insert(card);
                             }
                         }
-                        EventOutcome::Moved { movement } if opening_complete => {
+                        EventOutcome::Moved { movement } if self.opening_complete => {
                             if movement.from == Zone::Exile
                                 && movement.destination == Zone::Battlefield
                             {
@@ -345,7 +351,7 @@ fn collect(
                                 && movement.destination == Zone::Stack
                                 && movement.previous == source
                             {
-                                casting.insert(stack_id, (player, source.card));
+                                self.casting.insert(stack_id, (player, source.card));
                             }
                             if let Zone::Hand { owner } = movement.destination {
                                 let draw = if movement.from != (Zone::Library { owner }) {
@@ -362,12 +368,14 @@ fn collect(
                                             EventGroup::Occurrence { .. }
                                         ) =>
                                         {
-                                            let id = copied_spells
+                                            let id = self
+                                                .copied_spells
                                                 .get(&stack_id)
                                                 .copied()
                                                 .unwrap_or(source.card);
-                                            match cards.get(&id).and_then(|card| {
-                                                catalog.definition_by_oracle_id(&card.oracle_id)
+                                            match self.cards.get(&id).and_then(|card| {
+                                                self.catalog
+                                                    .definition_by_oracle_id(&card.oracle_id)
                                             }) {
                                                 Some(_) => DrawKind::Draw,
                                                 None => DrawKind::Unresolved,
@@ -384,7 +392,7 @@ fn collect(
                                         _ => DrawKind::Unresolved,
                                     }
                                 };
-                                note_hand(&mut facts, movement, draw);
+                                note_hand(facts, movement, draw);
                             }
                         }
 
@@ -394,67 +402,78 @@ fn collect(
             }
             EvidenceRecord::Event { event } => match event.as_ref() {
                 Event::SpellCast { stack_id } => {
-                    let &(player, card) = casting
+                    let &(player, card) = self
+                        .casting
                         .get(stack_id)
                         .ok_or("paid cast has no casting movement")?;
-                    if cards
+                    if self
+                        .cards
                         .get(&card)
                         .is_some_and(|source| source.owner == player)
                     {
                         let row = &mut facts[seat(player)];
                         let cast = row.casts.entry(card).or_default();
                         cast.0 += 1;
-                        cast.1 += turn;
+                        cast.1 += self.turn;
                         if row.drawn.contains(&card) {
                             row.drawn_then_cast.insert(card);
                         }
-                        if config.commanders.contains(&card) {
-                            row.first_commander_cast.get_or_insert(turn);
+                        if self.commanders.contains(&card) {
+                            row.first_commander_cast.get_or_insert(self.turn);
                         }
                     }
                 }
                 Event::SpellCopied { target, copy, .. } => {
-                    if let Some(card) = copied_spells
+                    if let Some(card) = self
+                        .copied_spells
                         .get(target)
                         .copied()
-                        .or_else(|| casting.get(target).map(|&(_, card)| card))
+                        .or_else(|| self.casting.get(target).map(|&(_, card)| card))
                     {
-                        copied_spells.insert(*copy, card);
+                        self.copied_spells.insert(*copy, card);
                     }
                 }
                 Event::PlayersLost { losses } => {
-                    remaining = remaining
+                    self.remaining = self
+                        .remaining
                         .checked_sub(losses.len())
                         .ok_or("invalid analytics loss wave")?;
                     for (player, _) in losses {
-                        facts[seat(*player)].placement = Some(remaining + 1);
+                        facts[seat(*player)].placement = Some(self.remaining + 1);
                     }
                 }
                 _ => {}
             },
         }
+        Ok(())
     }
-    if !opening_complete {
-        return Err("terminal analytics replay has no completed opening".into());
-    }
-    if let Some(winner) = outcome.winner {
-        facts[seat(winner)].placement = Some(1);
-    }
-    for (&id, card) in &cards {
-        let row = &mut facts[seat(card.owner)];
-        let aggregate = row.cards.entry(card.oracle_id.clone()).or_default();
-        aggregate.opening |= row.opening.contains(&id);
-        aggregate.in_hand |= row.in_hand.contains(&id);
-        aggregate.land_played |= row.played_lands.contains(&id);
-        let (casts, cast_turn_sum) = row.casts.get(&id).copied().unwrap_or_default();
-        if row.drawn.contains(&id) {
-            aggregate.drawn = true;
-            aggregate.drawn_cast |= row.drawn_then_cast.contains(&id);
+    fn finish(&mut self, outcome: &PodOutcome) -> Result<(), String> {
+        if !outcome.terminal {
+            return Ok(());
         }
-        aggregate.casts += casts;
-        aggregate.cast_turn_sum += cast_turn_sum;
+        let facts = &mut self.facts;
+        if !self.opening_complete {
+            return Err("terminal analytics replay has no completed opening".into());
+        }
+        if let Some(winner) = outcome.winner {
+            facts[seat(winner)].placement = Some(1);
+        }
+        for (&id, card) in &self.cards {
+            let row = &mut facts[seat(card.owner)];
+            let aggregate = row.cards.entry(card.oracle_id.clone()).or_default();
+            aggregate.opening |= row.opening.contains(&id);
+            aggregate.in_hand |= row.in_hand.contains(&id);
+            aggregate.land_played |= row.played_lands.contains(&id);
+            let (casts, cast_turn_sum) = row.casts.get(&id).copied().unwrap_or_default();
+            if row.drawn.contains(&id) {
+                aggregate.drawn = true;
+                aggregate.drawn_cast |= row.drawn_then_cast.contains(&id);
+            }
+            aggregate.casts += casts;
+            aggregate.cast_turn_sum += cast_turn_sum;
+        }
+        Ok(())
     }
-    Ok(facts)
 }
 
 fn note_hand(facts: &mut [SeatFacts; 4], movement: &MoveOutcome, draw: DrawKind) {
@@ -596,14 +615,14 @@ pub fn require_headless_qualified(profile: &AnalyticsProfile<'_>) -> Result<(), 
     Ok(())
 }
 
-pub fn write(
+pub(crate) fn write(
     dest: &Path,
     profile: &AnalyticsProfile<'_>,
     workers: usize,
     seed_start: u32,
     rotation: bool,
     decision_limit: usize,
-    input: impl Iterator<Item = (PodOutcome, Option<ReplayInput>)>,
+    input: impl Iterator<Item = (PodOutcome, Option<[SeatFacts; 4]>)>,
 ) -> Result<(), String> {
     let catalog = profile.catalog;
     require_headless_qualified(profile)?;
@@ -618,61 +637,27 @@ pub fn write(
         }
         keys.push(key);
     }
-    let workers = workers.min(8);
     let mut games = 0;
     let mut completed = 0;
-    let mut input = input;
-    loop {
-        // Bound simultaneous Detailed traces and discard them before processing
-        // another wave. Each worker emits aggregates with no private objects.
-        let wave: Vec<_> = input.by_ref().take(workers).collect();
-        if wave.is_empty() {
-            break;
+    for (outcome, facts) in input {
+        if outcome.terminal != facts.is_some() {
+            return Err(format!(
+                "inconsistent analytics facts for pod {}",
+                outcome.index
+            ));
         }
-        let measured = std::thread::scope(|scope| {
-            let handles: Vec<_> = wave
-                .into_iter()
-                .map(|(outcome, replay)| {
-                    scope.spawn(move || {
-                        if outcome.terminal != replay.is_some() {
-                            return Err(format!(
-                                "pod {} has inconsistent terminal input",
-                                outcome.index
-                            ));
-                        }
-                        let facts = replay
-                            .map(|replay| replay.analyze(&outcome, catalog))
-                            .transpose()
-                            .map_err(|error| format!("pod {} analytics: {error}", outcome.index))?;
-                        Ok((outcome, facts))
-                    })
-                })
-                .collect();
-            let results: Vec<_> = handles
-                .into_iter()
-                .map(|handle| {
-                    handle
-                        .join()
-                        .map_err(|_| "analytics worker panicked".to_string())
-                        .and_then(|result| result)
-                })
-                .collect();
-            results.into_iter().collect::<Result<Vec<_>, String>>()
-        })?;
-        for (outcome, facts) in measured {
-            games += 1;
-            completed += u64::from(outcome.terminal);
-            let facts = facts.map_or_else(|| std::array::from_fn(|_| None), |rows| rows.map(Some));
-            for (seat, facts) in facts.into_iter().enumerate() {
-                let deck = &mut groups.get_mut(&keys[outcome.slots[seat]]).unwrap().1;
-                deck.add(
-                    &outcome,
-                    (seat + 4 - outcome.starter) % 4,
-                    outcome.winner == Some(PlayerId(seat as u8)),
-                    outcome.placements[seat],
-                    facts,
-                );
-            }
+        games += 1;
+        completed += u64::from(outcome.terminal);
+        let facts = facts.map_or_else(|| std::array::from_fn(|_| None), |rows| rows.map(Some));
+        for (seat, facts) in facts.into_iter().enumerate() {
+            let deck = &mut groups.get_mut(&keys[outcome.slots[seat]]).unwrap().1;
+            deck.add(
+                &outcome,
+                (seat + 4 - outcome.starter) % 4,
+                outcome.winner == Some(PlayerId(seat as u8)),
+                outcome.placements[seat],
+                facts,
+            );
         }
     }
     let (decks, summary) = reports(profile, catalog, groups, games, completed)?;
@@ -682,7 +667,7 @@ pub fn write(
         "build_id": profile.build.id,
         "catalog_sha256": profile.catalog_sha256,
         "seed_start": seed_start, "rotate_seats": rotation, "decision_limit": decision_limit,
-        "pods": games, "verified_terminal_replays": completed, "analytics_workers": workers,
+        "pods": games, "terminal_pods": completed, "analytics_workers": workers,
         "definitions": {
             "win_rates": "Distinct completed pod seats. Rules draws count as nonwins. Unfinished seats contribute to cap/unfinished and observed length only.",
             "placement": "Ranks 1–4 from committed loss waves. Simultaneous losses tie. Bucket 0 is unplaced.",
@@ -709,7 +694,7 @@ fn reports(
     completed: u64,
 ) -> Result<(Vec<Value>, String), String> {
     let mut summary = format!(
-        "# Commander deck analytics\n\n{} · {completed}/{games} pods completed and replayed. Rates use completed seats unless stated otherwise. Early mana flags are estimates.\n\n",
+        "# Commander deck analytics\n\n{} · {completed}/{games} pods completed. Rates use completed seats unless stated otherwise. Early mana flags are estimates.\n\n",
         markdown_cell(profile.name)
     );
     summary.push_str("| Deck | Seats | Win | Mean rank | Unfinished | Decision cap | Mean turns | Mean decisions | Missed land | Mana blocked | Color blocked |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n");

@@ -13,6 +13,10 @@ pub enum Cond {
         cmp: Cmp,
         right: Amount,
     },
+    /// CR 102.1: whether the active player is among these players.
+    ActivePlayer {
+        player: PlayerExpr,
+    },
     Exists {
         set: SetExpr,
     },

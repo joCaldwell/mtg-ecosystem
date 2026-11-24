@@ -104,6 +104,7 @@ pub fn run(
     policy: Policy,
     mulligans: [u8; 4],
     quantum: u64,
+    mut sink: Option<&mut dyn crate::events::EventSink>,
     mut record: impl FnMut(&serde_json::Value) -> Result<(), String>,
 ) -> Result<Evidence, String> {
     if quantum == 0 {
@@ -111,7 +112,9 @@ pub fn run(
     }
     let prepared =
         Prepared::admit_pod(catalog.clone(), config.clone()).map_err(|e| format!("{e:?}"))?;
-    let trace_mode = if config.seed == seed_for(&config.profile, 0) || policy == Policy::DrawOnly {
+    let trace_mode = if sink.is_some() {
+        TraceMode::Stream
+    } else if config.seed == seed_for(&config.profile, 0) || policy == Policy::DrawOnly {
         TraceMode::Detailed
     } else {
         TraceMode::Off
@@ -131,6 +134,8 @@ pub fn run(
             snapshot: game.snapshot()?,
         });
     }
+    let mut stream_losses = Vec::new();
+    let mut placements = crate::pods::Placements::default();
     let mut survivor_counts = vec![4];
 
     let mut decisions = 0;
@@ -143,6 +148,24 @@ pub fn run(
         advances += 1;
         work += 1;
         let next = game.advance(Budget::new(quantum));
+        if let Some(sink) = sink.as_deref_mut() {
+            let mut result = Ok(());
+            game.drain_trace(&mut |record| {
+                if let mtg_core::EvidenceRecord::Event { event } = &record.record
+                    && let mtg_core::Event::Committed {
+                        actual: mtg_core::EventOutcome::Lost { player, reason },
+                        ..
+                    } = event.as_ref()
+                {
+                    stream_losses.push((*player, *reason));
+                }
+                if result.is_ok() {
+                    result = sink.record(record);
+                }
+            });
+            result?;
+            placements.observe(&game.live_players());
+        }
         let living = game.live_players().len();
         if survivor_counts.last() != Some(&living) {
             survivor_counts.push(living)
@@ -181,7 +204,7 @@ pub fn run(
                     outcome = "host_limit".into();
                     break;
                 }
-                let response_result = (|| -> Result<(), String> {
+                let response_result = (|| -> Result<Observation, String> {
                     let observation =
                         observe(&game, r.player, quantum, &mut work, &mut query_calls)?;
                     let response = strategy.choose(&observation).map_err(|e| {
@@ -214,11 +237,25 @@ pub fn run(
                         QueryValue::Validated(receipt) => game.submit(receipt)?,
                         _ => return Err("wrong match receipt type".into()),
                     }
-                    Ok(())
+                    Ok(observation)
                 })();
-                if let Err(e) = response_result {
-                    outcome = format!("policy_or_query_failure: {e}");
-                    break;
+                match response_result {
+                    Ok(o) => {
+                        if let Some(sink) = sink.as_deref_mut() {
+                            sink.decision(
+                                &o,
+                                &game
+                                    .journal()
+                                    .last()
+                                    .ok_or("missing accepted answer")?
+                                    .answer,
+                            )?;
+                        }
+                    }
+                    Err(e) => {
+                        outcome = format!("policy_or_query_failure: {e}");
+                        break;
+                    }
                 }
                 record(
                     &serde_json::json!({"kind":"accepted","input":game.journal().last().ok_or("missing accepted journal entry")?}),
@@ -238,6 +275,23 @@ pub fn run(
     record(
         &serde_json::json!({"kind":"footer","outcome":outcome,"winner":winner,"state_sha256":final_state_sha256,"rule_boundary":game.rule_boundary()}),
     )?;
+    if let Some(sink) = sink {
+        if let Some(w) = winner {
+            placements.ranks[usize::from(w.0)] = Some(1);
+        }
+        sink.finish(&crate::events::PodOutcome {
+            index: 0,
+            slots: [0, 1, 2, 3],
+            starter: usize::from(config.starting_player.0),
+            terminal: matches!(outcome.as_str(), "finished" | "draw"),
+            decision_capped: decisions >= DECISION_LIMIT,
+            budget_capped: matches!(outcome.as_str(), "advance_limit" | "host_limit"),
+            winner,
+            placements: placements.ranks,
+            decisions,
+            turns: game.turn().number,
+        })?;
+    }
     let survivors = game.live_players();
     Ok(Evidence {
         config,
@@ -245,7 +299,11 @@ pub fn run(
         mulligans,
         journal: game.replay_journal(),
         trace_mode,
-        losses: losses(&game),
+        losses: if trace_mode == TraceMode::Stream {
+            stream_losses
+        } else {
+            losses(&game)
+        },
         checkpoints,
         outcome,
         winner,
@@ -337,7 +395,7 @@ fn verify_replay(
     if survivor_counts != e.survivor_counts {
         return Err("replayed survivor sequence mismatch".into());
     }
-    if e.trace_mode == TraceMode::Detailed && loss_facts != e.losses {
+    if matches!(e.trace_mode, TraceMode::Detailed | TraceMode::Stream) && loss_facts != e.losses {
         return Err("match typed loss evidence mismatch".into());
     }
     if e.trace_mode == TraceMode::Off && !e.losses.is_empty() {

@@ -23,6 +23,7 @@ const USAGE: &str = "usage: mtg-sim COMMAND
   match-game PROFILE INDEX --journal-dir ABSOLUTE_DIR
   match-replay PROFILE EVIDENCE
   match-replay-live PROFILE JOURNAL
+  bench-pair --help
   bench-pods (PROFILE | --bulk-artifact DIR --manifest-sha SHA --pod-decks JSON) [OPTIONS]";
 
 fn embedded_profile_catalog(name: &str) -> Result<mtg_contracts::Catalog, String> {
@@ -87,6 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             serde_json::to_string_pretty(&mtg_contracts::catalog_schema())?
         ),
         Some("deck-inspect") => pod_cli::inspect(BUILD, &args)?,
+        Some("bench-pair") => pod_cli::pair(BUILD, &args[1..])?,
         Some("bench-pods") => pod_cli::bench(BUILD, &args[1..])?,
         Some("match-game") if args.len() == 5 && args[3] == "--journal-dir" => {
             let index: u32 = args[2].parse()?;
@@ -106,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Policy::Develop,
                 std::array::from_fn(|p| ((index as usize + p) % 3) as u8),
                 1024,
+                None,
                 |record| match &mut journal {
                     Some(journal) => journal.append(record),
                     None => {

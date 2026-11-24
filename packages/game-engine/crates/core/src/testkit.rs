@@ -420,7 +420,6 @@ pub trait GameTestkit {
     fn stack_limit(&self) -> usize;
     fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String>;
     fn start_work(&self, query: Query) -> Result<Work, QueryRejection>;
-    fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect>;
     fn step(&mut self) -> Result<(), String>;
     fn target_is_creature(&self, object: ObjectId) -> bool;
     fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool;
@@ -1095,9 +1094,6 @@ impl GameTestkit for Game {
     fn start_work(&self, query: Query) -> Result<Work, QueryRejection> {
         RulesTxn::start_work(self, query)
     }
-    fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
-        RulesTxn::static_modifications(self, target)
-    }
     fn step(&mut self) -> Result<(), String> {
         Ok(RulesTxn::step(self)?)
     }
@@ -1289,11 +1285,11 @@ impl GameTestkit for Game {
 
 /// Crate-private `MatchRandom` methods that white-box test binaries call.
 pub trait MatchRandomTestkit {
-    fn word(&mut self) -> Result<u32, String>;
+    fn word(&mut self, stream: u64) -> Result<u32, String>;
 }
 impl MatchRandomTestkit for MatchRandom {
-    fn word(&mut self) -> Result<u32, String> {
-        MatchRandom::word(self)
+    fn word(&mut self, stream: u64) -> Result<u32, String> {
+        MatchRandom::word(self, stream)
     }
 }
 

@@ -22,6 +22,11 @@ pub enum Amount {
         object: Ref,
         stat: Stat,
     },
+    /// CR 700.5: count matching mana symbols in permanents this player controls.
+    Devotion {
+        player: PlayerExpr,
+        colors: Vec<Color>,
+    },
     /// The life total of one player.
     LifeOf {
         player: PlayerExpr,

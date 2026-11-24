@@ -498,15 +498,10 @@ impl RulesTxn {
     // the source spell. Its stack target legality is evaluated separately.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn spell_cannot_be_countered(&self, entry: &StackInstance) -> Result<bool, String> {
-        Ok(entry.kind.is_spell()
-            && self
-                .copiable_definition(entry.source)?
-                .static_abilities
-                .iter()
-                .any(|ability| {
-                    ability.functioning_zone == FunctioningZone::Stack
-                        && ability.effect == StaticEffect::CantBeCountered
-                }))
+        if !entry.kind.is_spell() {
+            return Ok(false);
+        }
+        self.has_uncounterable_static(entry.source, entry.controller)
     }
 
     // CR 701.6a-b/608.2b: remove precisely the bound stack object. Paid costs

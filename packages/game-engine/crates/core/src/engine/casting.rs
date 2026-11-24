@@ -41,7 +41,10 @@ impl RulesTxn {
         // CR 601.2/702.8a: only the permission authority supplies timing/zone
         // access. Global prohibitions still apply to every eventual authority.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        if program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
+        if program.timing == SpellTiming::MainPhase
+            && !self.main_phase_action(player)
+            && !self.has_flash_permission(object, player)?
+        {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
         if let Some(reason) =
