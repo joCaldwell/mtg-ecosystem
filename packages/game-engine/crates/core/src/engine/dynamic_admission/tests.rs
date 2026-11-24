@@ -161,7 +161,7 @@ fn dynamic_pair_runtime_preserves_split_ledger_union_and_mixed_opening_replay() 
         let Advance::AwaitingDecision(request) = game.advance(Budget::new(20_000)) else {
             panic!("bounded opening should reach a decision");
         };
-        if matches!(request, Request::Priority { player, .. } if player == caster)
+        if matches!(request, Decision {reason:Reason::Priority, player, .. } if player == caster)
             && game.turn().step == TurnStep::PrecombatMain
         {
             let QueryResult::Complete(QueryValue::Observation(observed)) =
@@ -184,18 +184,24 @@ fn dynamic_pair_runtime_preserves_split_ledger_union_and_mixed_opening_replay() 
             return;
         }
         let response = match &request {
-            Request::Mulligan {
+            Decision {
                 player,
-                mulligans_taken,
+                reason: Reason::Mulligan {
+                    mulligans_taken, ..
+                },
                 ..
-            } => Response::Mulligan {
-                take: *player == caster && *mulligans_taken == 0,
+            } => Answer::Pick {
+                picks: vec![vec![u32::from(*player == caster && *mulligans_taken == 0)]],
             },
-            Request::Priority { .. } => Response::Pass,
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
+            },
             other => panic!("unexpected opening decision {other:?}"),
         };
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
+        game.respond(request.player, request.id, response).unwrap();
     }
     panic!("mixed opening did not finish");
 }
@@ -421,7 +427,7 @@ fn deck_row_order_never_changes_admission_or_the_opening() {
             let Advance::AwaitingDecision(request) = game.advance(Budget::new(100_000)) else {
                 panic!("opening must reach an ordinary decision");
             };
-            if matches!(request, Request::Priority { player, .. } if player == PlayerId(0))
+            if matches!(request, Decision {reason:Reason::Priority, player, .. } if player == PlayerId(0))
                 && game.turn().step == TurnStep::PrecombatMain
             {
                 return (
@@ -432,12 +438,21 @@ fn deck_row_order_never_changes_admission_or_the_opening() {
                 );
             }
             let response = match &request {
-                Request::Mulligan { .. } => Response::Mulligan { take: false },
-                Request::Priority { .. } => Response::Pass,
+                Decision {
+                    reason: Reason::Mulligan { .. },
+                    ..
+                } => Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                } => Answer::Pick {
+                    picks: vec![vec![0]],
+                },
                 other => panic!("unexpected opening decision {other:?}"),
             };
-            game.respond(request.player(), request.decision_id(), response)
-                .unwrap();
+            game.respond(request.player, request.id, response).unwrap();
         }
         panic!("opening exceeded its decision bound")
     };

@@ -22,7 +22,7 @@ impl Budget {
 }
 pub enum QueryValue {
     Observation(Observation),
-    Decision(Option<PlayerRequest>),
+    Decision(Option<Decision<Viewer>>),
     Validated(ValidatedResponse),
     SearchContext(SearchContext),
 }
@@ -69,8 +69,6 @@ pub struct WorkCache {
     pub projection: Option<visibility::ProjectionIndex>,
     pub last_object: Option<CardId>,
     pub effects: Option<Vec<EffectKey>>,
-    triggers: Option<Vec<TriggerId>>,
-    damage: Option<Vec<DamageEffectCandidate>>,
 }
 impl WorkCache {
     fn projection(&mut self, game: &RulesTxn) -> &visibility::ProjectionIndex {
@@ -96,20 +94,6 @@ impl WorkCache {
     fn effects(&mut self, game: &RulesTxn) -> &[EffectKey] {
         self.effects.get_or_insert_with(|| game.live_effect_keys())
     }
-    fn triggers(&mut self, game: &RulesTxn) -> &[TriggerId] {
-        self.triggers
-            .get_or_insert_with(|| game.trigger_order_ids())
-    }
-    fn damage(&mut self, game: &RulesTxn) -> Result<&[DamageEffectCandidate], QueryRejection> {
-        if self.damage.is_none() {
-            self.damage = Some(
-                game.damage_effect_group()
-                    .map_err(|_| QueryRejection::Invariant)?
-                    .map_or(vec![], |(_, _, pairs)| pairs),
-            );
-        }
-        Ok(self.damage.as_deref().unwrap_or_default())
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,7 +108,7 @@ pub enum Query {
     Check {
         viewer: PlayerId,
         token: DecisionToken,
-        response: PlayerResponse,
+        answer: Answer,
     },
     Search {
         viewer: PlayerId,
@@ -136,7 +120,7 @@ pub enum Query {
 pub struct ObservationWork {
     pub cursor: u32,
     pub view: PermittedView,
-    pub decision: Option<PlayerRequest>,
+    pub decision: Option<Decision<Viewer>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "task", rename_all = "snake_case", deny_unknown_fields)]
@@ -148,17 +132,8 @@ pub enum Task {
     Observe {
         builder: ObservationWork,
     },
-    Decision {
-        cursor: u32,
-        request: Option<PlayerRequest>,
-    },
-    Check {
-        header_checked: bool,
-        converted: Vec<ObjectId>,
-        converted_entities: Vec<TargetEntity>,
-        converted_triggers: Vec<TriggerId>,
-        value: Option<Response>,
-    },
+    Decision,
+    Check,
     Search {
         builder: ObservationWork,
         observation: Option<Box<Observation>>,
@@ -204,17 +179,7 @@ impl RulesTxn {
                 >= 5 + self.state.rules.objects.len() as u64
                     + self.state.rules.stack.len() as u64
                     + row.effects.len() as u64
-            && let Ok(
-                decision @ (None
-                | Some(
-                    PlayerRequest::Priority { .. }
-                    | PlayerRequest::Mana { .. }
-                    | PlayerRequest::SpendMana { .. }
-                    | PlayerRequest::OptionalEffect { .. }
-                    | PlayerRequest::Attackers { .. }
-                    | PlayerRequest::Blockers { .. },
-                )),
-            ) = self.request_header(viewer)
+            && let Ok(decision) = self.viewer_decision(viewer)
         {
             let observation = Observation {
                 observation_version: crate::formats::OBSERVATION_VERSION,
@@ -248,14 +213,14 @@ impl RulesTxn {
         &self,
         viewer: PlayerId,
         token: DecisionToken,
-        response: PlayerResponse,
+        answer: Answer,
         budget: Budget,
     ) -> QueryResult {
         self.begin_query(
             Query::Check {
                 viewer,
                 token,
-                response,
+                answer,
             },
             budget,
         )
@@ -324,7 +289,7 @@ impl RulesTxn {
                     .blank_view(viewer)
                     .map_err(|_| QueryRejection::Invariant)?,
                 decision: self
-                    .request_header(viewer)
+                    .viewer_decision(viewer)
                     .map_err(|_| QueryRejection::Invariant)?,
             })
         };
@@ -332,19 +297,8 @@ impl RulesTxn {
             Query::Observe { .. } => Task::Observe {
                 builder: observe()?,
             },
-            Query::Decision { .. } => Task::Decision {
-                cursor: 0,
-                request: self
-                    .request_header(viewer)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            },
-            Query::Check { .. } => Task::Check {
-                header_checked: false,
-                converted: vec![],
-                converted_entities: vec![],
-                converted_triggers: vec![],
-                value: None,
-            },
+            Query::Decision { .. } => Task::Decision,
+            Query::Check { .. } => Task::Check,
             Query::Search { .. } => Task::Search {
                 builder: observe()?,
                 observation: None,
@@ -390,13 +344,6 @@ impl RulesTxn {
         let cursor = b.cursor as usize;
         let viewer = b.view.viewer;
         if cursor < 4 {
-            if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
-                && self.targetable_player(PlayerId(cursor as u8))
-            {
-                candidates.push(PlayerTargetEntity::Player {
-                    player: PlayerId(cursor as u8),
-                });
-            }
             b.view.players.push(
                 self.visible_player_indexed(PlayerId(cursor as u8), cache.projection(self))
                     .map_err(|_| QueryRejection::Invariant)?,
@@ -407,27 +354,6 @@ impl RulesTxn {
                     .visible_object_indexed(viewer, object, cache.projection(self))
                     .map_err(|_| QueryRejection::Invariant)?
             {
-                if let Some(PlayerRequest::BottomOpening { candidates, .. }) = &mut b.decision
-                    && object.zone == (Zone::Hand { owner: viewer })
-                {
-                    candidates.push(visible.handle.clone());
-                }
-                if let Some(PlayerRequest::Targets { candidates, .. }) = &mut b.decision
-                    && self
-                        .top()
-                        .is_ok_and(|entry| self.object_target_legal(entry, object.id))
-                {
-                    candidates.push(visible.handle.clone());
-                }
-                if let Some(PlayerRequest::EntityTargets { candidates, .. }) = &mut b.decision
-                    && self.top().is_ok_and(|entry| {
-                        self.entity_target_legal(TargetEntity::Object { object: object.id }, entry)
-                    })
-                {
-                    candidates.push(PlayerTargetEntity::Object {
-                        object: visible.handle.clone(),
-                    });
-                }
                 if visible.zone == Zone::Exile {
                     b.view.players[visible.owner.0 as usize]
                         .exile
@@ -444,17 +370,6 @@ impl RulesTxn {
         let base = 4 + self.state.rules.objects.len() + self.state.rules.stack.len();
         let live_effect_count = cache.effects(self).len();
         let effect_count = live_effect_count;
-        if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = &mut b.decision {
-            let offset = base + effect_count;
-            if cursor >= offset
-                && let Some(id) = cache.triggers(self).get(cursor - offset)
-            {
-                candidates.push(
-                    self.visible_pending_trigger(viewer, *id)
-                        .map_err(|_| QueryRejection::Invariant)?,
-                );
-            }
-        }
         b.cursor = b.cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
         if cursor >= base && cursor < base + effect_count {
             let effect = self.visible_effect(viewer, &cache.effects(self)[cursor - base]);
@@ -463,24 +378,7 @@ impl RulesTxn {
                 .push(effect.map_err(|_| QueryRejection::Invariant)?);
         }
 
-        if let Some(PlayerRequest::DamageEffect { candidates, .. }) = &mut b.decision
-            && cursor >= base + effect_count
-            && let Some(pair) = cache.damage(self)?.get(cursor - base - effect_count)
-        {
-            candidates.push(
-                self.visible_damage_effect_candidate(viewer, pair)
-                    .map_err(|_| QueryRejection::Invariant)?,
-            );
-        }
-
-        let extra = effect_count
-            + if matches!(b.decision, Some(PlayerRequest::DamageEffect { .. })) {
-                cache.damage(self)?.len()
-            } else if matches!(b.decision, Some(PlayerRequest::OrderTriggers { .. })) {
-                cache.triggers(self).len()
-            } else {
-                0
-            };
+        let extra = effect_count;
         if b.cursor as usize
             >= 4 + self.state.rules.objects.len() + self.state.rules.stack.len() + extra
         {
@@ -498,7 +396,6 @@ impl RulesTxn {
             data.task = self.initial_query_task(&data.query)?;
             return Ok(None);
         }
-        let invalid = |_: String| QueryRejection::InvalidResponse;
         match (&data.query, &mut data.task) {
             (Query::Observe { .. }, Task::Observe { builder }) => {
                 if !self.observation_unit(builder, cache)? {
@@ -506,13 +403,8 @@ impl RulesTxn {
                 }
                 // Work is consumed at completion. Move its assembled rows out;
                 // no observable incomplete prefix is changed by this placeholder.
-                let Task::Observe { builder } = std::mem::replace(
-                    &mut data.task,
-                    Task::Decision {
-                        cursor: 0,
-                        request: None,
-                    },
-                ) else {
+                let Task::Observe { builder } = std::mem::replace(&mut data.task, Task::Decision)
+                else {
                     return Err(QueryRejection::Invariant);
                 };
                 Ok(Some(QueryValue::Observation(Observation {
@@ -523,328 +415,23 @@ impl RulesTxn {
                     decision: builder.decision,
                 })))
             }
-            (Query::Decision { viewer }, Task::Decision { cursor, request }) => {
-                if let Some(PlayerRequest::OrderTriggers { candidates, .. }) = request {
-                    let ids = cache.triggers(self);
-                    if let Some(id) = ids.get(*cursor as usize) {
-                        candidates.push(
-                            self.visible_pending_trigger(*viewer, *id)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= ids.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
-
-                if let Some(PlayerRequest::DamageEffect { candidates, .. }) = request {
-                    let pairs = cache.damage(self)?;
-                    if let Some(pair) = pairs.get(*cursor as usize) {
-                        candidates.push(
-                            self.visible_damage_effect_candidate(*viewer, pair)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= pairs.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
-                if let Some(PlayerRequest::EntityTargets { candidates, .. }) = request {
-                    let cursor_index = *cursor as usize;
-                    let target = if cursor_index < 4 {
-                        self.targetable_player(PlayerId(cursor_index as u8))
-                            .then_some(TargetEntity::Player {
-                                player: PlayerId(cursor_index as u8),
-                            })
-                    } else {
-                        cache
-                            .next_object(self)
-                            .filter(|o| {
-                                self.top().is_ok_and(|e| {
-                                    self.entity_target_legal(
-                                        TargetEntity::Object { object: o.id },
-                                        e,
-                                    )
-                                })
-                            })
-                            .map(|o| TargetEntity::Object { object: o.id })
-                    };
-                    if let Some(target) = target {
-                        candidates.push(
-                            self.player_entity(*viewer, target)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= 4 + self.state.rules.objects.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
-
-                if let Some(PlayerRequest::BottomOpening { candidates, .. }) = request {
-                    if let Some(o) = cache.next_object(self)
-                        && o.zone == (Zone::Hand { owner: *viewer })
-                    {
-                        candidates.push(
-                            self.handle_for(*viewer, o.id)
-                                .map_err(|_| QueryRejection::Invariant)?,
-                        );
-                    }
-                    *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                    return Ok((*cursor as usize >= self.state.rules.objects.len())
-                        .then(|| QueryValue::Decision(request.take())));
-                }
-                if !matches!(request, Some(PlayerRequest::Targets { .. })) {
-                    return Ok(Some(QueryValue::Decision(request.take())));
-                }
-                if let Some(object) = cache.next_object(self)
-                    && self
-                        .top()
-                        .is_ok_and(|entry| self.object_target_legal(entry, object.id))
-                {
-                    let handle = self
-                        .handle_for(*viewer, object.id)
-                        .map_err(|_| QueryRejection::Invariant)?;
-                    if let Some(PlayerRequest::Targets { candidates, .. }) = request {
-                        candidates.push(handle);
-                    }
-                }
-                *cursor = cursor.checked_add(1).ok_or(QueryRejection::Invariant)?;
-                Ok((*cursor as usize >= self.state.rules.objects.len())
-                    .then(|| QueryValue::Decision(request.take())))
-            }
+            (Query::Decision { viewer }, Task::Decision) => Ok(Some(QueryValue::Decision(
+                self.viewer_decision(*viewer)
+                    .map_err(|_| QueryRejection::Invariant)?,
+            ))),
             (
                 Query::Check {
                     viewer,
                     token,
-                    response,
+                    answer,
                 },
-                Task::Check {
-                    header_checked,
-                    converted,
-                    converted_entities,
-                    converted_triggers,
-                    value,
-                },
+                Task::Check,
             ) => {
-                if !*header_checked {
-                    self.validate_player_token(*viewer, token)
-                        .map_err(invalid)?;
-                    let timing_valid = match (&self.state.rules.frame, response) {
-                        (Frame::Setup, PlayerResponse::Mulligan { .. }) => true,
-                        (Frame::Setup, PlayerResponse::BottomOpening { objects }) => {
-                            objects.len() <= 7
-                        }
-                        (
-                            Frame::EntityTargets { .. },
-                            PlayerResponse::EntityTargets { entities },
-                        ) => {
-                            let p = self.program().map_err(|e| invalid(e.into()))?;
-                            entities.len() == p.targets.len()
-                        }
-
-                        (
-                            Frame::ManaAbility { .. } | Frame::SpendMana { .. },
-                            PlayerResponse::SpendManaAllocated {
-                                spending,
-                                restricted,
-                            },
-                        ) => {
-                            spending.len() <= 6
-                                && restricted.len() <= restricted_mana::MAX_RESTRICTED_BUCKETS
-                        }
-                        (
-                            Frame::ManaAbility { .. },
-                            PlayerResponse::ActivateMana { .. }
-                            | PlayerResponse::FinishMana { .. }
-                            | PlayerResponse::SpendMana { .. }
-                            | PlayerResponse::ManaCombination { .. }
-                            | PlayerResponse::ManaColor { .. },
-                        ) => true,
-                        (
-                            Frame::ResolutionPayment { .. },
-                            PlayerResponse::OptionalEffect { .. }
-                            | PlayerResponse::ActivateMana { .. }
-                            | PlayerResponse::FinishMana { .. }
-                            | PlayerResponse::SpendMana { .. },
-                        ) => true,
-                        (
-                            Frame::ManaSourceChoice {
-                                scope: ManaSourceScope::Mixed,
-                                ..
-                            },
-                            PlayerResponse::ChooseManaAbility { .. },
-                        ) => true,
-                        (
-                            Frame::ManaSourceChoice { scope, .. },
-                            PlayerResponse::ManaColor { .. },
-                        ) => *scope != ManaSourceScope::Mixed,
-                        (Frame::GraveyardGroup { .. }, PlayerResponse::OptionalEffect { .. }) => {
-                            true
-                        }
-
-                        (Frame::AdditionalCosts { .. }, PlayerResponse::AdditionalCosts { .. }) => {
-                            true
-                        }
-                        (Frame::HybridCost { .. }, PlayerResponse::HybridCost { .. }) => true,
-                        (Frame::AnnounceX { .. }, PlayerResponse::AnnounceX { .. }) => true,
-                        (Frame::SacrificeCost { .. }, PlayerResponse::SacrificeCost { .. })
-                        | (Frame::ForcedSacrifice { .. }, PlayerResponse::ForcedSacrifice { .. })
-                        | (Frame::Kernel { .. }, PlayerResponse::OptionalEffect { .. }) => true,
-                        (
-                            Frame::TriggerTargets { .. },
-                            PlayerResponse::EntityTargets { entities },
-                        ) => {
-                            let p = self.program().map_err(|e| invalid(e.into()))?;
-                            entities.len() == p.targets.len()
-                        }
-                        (Frame::TriggerTargets { .. }, PlayerResponse::Targets { objects }) => {
-                            objects.len()
-                                == self.program().map_err(|e| invalid(e.into()))?.targets.len()
-                        }
-                        (Frame::TriggerOrder { .. }, PlayerResponse::OrderTriggers { order }) => {
-                            order.len() == self.trigger_order_ids().len()
-                        }
-                        (
-                            Frame::TriggerTargets { .. },
-                            PlayerResponse::PlayerTargets { players },
-                        ) => {
-                            players.len()
-                                == self.program().map_err(|e| invalid(e.into()))?.targets.len()
-                        }
-                        (Frame::StackTargets { .. }, PlayerResponse::StackTargets { .. })
-                        | (Frame::PlayerTargets { .. }, PlayerResponse::PlayerTargets { .. })
-                        | (
-                            Frame::ResolutionChoice { .. },
-                            PlayerResponse::OptionalEffect { .. }
-                            | PlayerResponse::Sacrifice { .. }
-                            | PlayerResponse::ResolveDiscard { .. },
-                        )
-                        | (Frame::LegendRule { .. }, PlayerResponse::LegendRule { .. })
-                        | (Frame::DamageEffects { .. }, PlayerResponse::DamageEffect { .. })
-                        | (Frame::SpendMana { .. }, PlayerResponse::SpendMana { .. })
-                        | (
-                            Frame::CommanderReturn { .. } | Frame::GraveyardGroup { .. },
-                            PlayerResponse::CommanderReturn { .. },
-                        )
-                        | (Frame::Attackers, PlayerResponse::Attackers { .. })
-                        | (Frame::Blockers { .. }, PlayerResponse::Blockers { .. })
-                        | (
-                            Frame::DamageChoice { .. },
-                            PlayerResponse::Damage { .. } | PlayerResponse::TrampleDamage { .. },
-                        )
-                        | (Frame::Discard { .. }, PlayerResponse::Discard { .. }) => true,
-                        (Frame::Targets { .. }, PlayerResponse::Targets { objects }) => {
-                            Self::object_target_number_valid(
-                                self.program().map_err(|e| invalid(e.into()))?,
-                                objects.len(),
-                            )
-                        }
-                        (
-                            Frame::Priority,
-                            PlayerResponse::ActivateMana { .. }
-                            | PlayerResponse::ActivateAbility { .. }
-                            | PlayerResponse::Cast { .. }
-                            | PlayerResponse::Bestow { .. }
-                            | PlayerResponse::PlayLand { .. }
-                            | PlayerResponse::Pass,
-                        ) => true,
-                        (
-                            Frame::Mana { .. },
-                            PlayerResponse::ActivateMana { .. } | PlayerResponse::FinishMana { .. },
-                        ) => true,
-                        _ => false,
-                    };
-                    if !timing_valid {
-                        return Err(QueryRejection::InvalidResponse);
-                    }
-                    *header_checked = true;
-                    return Ok(None);
-                }
-                if let PlayerResponse::BottomOpening { objects } = response
-                    && converted.len() < objects.len()
-                {
-                    let object = self
-                        .resolve_handle(*viewer, &objects[converted.len()])
-                        .map_err(invalid)?;
-                    if self.current(object).map_err(|e| invalid(e.into()))?.zone
-                        != (Zone::Hand { owner: *viewer })
-                    {
-                        return Err(QueryRejection::InvalidResponse);
-                    }
-                    converted.push(object);
-                    return Ok(None);
-                }
-                if let PlayerResponse::Targets { objects } = response
-                    && converted.len() < objects.len()
-                {
-                    let id = self
-                        .resolve_handle(*viewer, &objects[converted.len()])
-                        .map_err(invalid)?;
-                    if !self
-                        .top()
-                        .is_ok_and(|entry| self.object_target_legal(entry, id))
-                    {
-                        return Err(QueryRejection::InvalidResponse);
-                    }
-                    converted.push(id);
-                    return Ok(None);
-                }
-                if let PlayerResponse::EntityTargets { entities } = response
-                    && converted_entities.len() < entities.len()
-                {
-                    let target = self
-                        .resolve_entity(*viewer, &entities[converted_entities.len()])
-                        .map_err(invalid)?;
-                    if !self
-                        .top()
-                        .is_ok_and(|e| self.entity_target_legal(target, e))
-                    {
-                        return Err(QueryRejection::InvalidResponse);
-                    }
-                    converted_entities.push(target);
-                    return Ok(None);
-                }
-                if let PlayerResponse::OrderTriggers { order } = response
-                    && converted_triggers.len() < order.len()
-                {
-                    converted_triggers.push(
-                        self.resolve_trigger_handle(*viewer, &order[converted_triggers.len()])
-                            .map_err(invalid)?,
-                    );
-                    return Ok(None);
-                }
-
-                if value.is_none() {
-                    *value = Some(
-                        if matches!(response, PlayerResponse::BottomOpening { .. }) {
-                            Response::BottomOpening {
-                                objects: converted.clone(),
-                            }
-                        } else if matches!(response, PlayerResponse::Targets { .. }) {
-                            Response::Targets {
-                                objects: converted.clone(),
-                            }
-                        } else if matches!(response, PlayerResponse::EntityTargets { .. }) {
-                            Response::EntityTargets {
-                                entities: converted_entities.clone(),
-                            }
-                        } else if matches!(response, PlayerResponse::OrderTriggers { .. }) {
-                            Response::OrderTriggers {
-                                order: converted_triggers.clone(),
-                            }
-                        } else {
-                            self.convert_response(*viewer, response).map_err(invalid)?
-                        },
-                    );
-                    return Ok(None);
-                }
+                self.validate_player_token(*viewer, token)
+                    .map_err(|_| QueryRejection::InvalidResponse)?;
                 let receipt = self
-                    .check_response(
-                        *viewer,
-                        self.state.rules.revision,
-                        value.take().ok_or(QueryRejection::Invariant)?,
-                    )
-                    .map_err(invalid)?;
+                    .check_response(*viewer, self.state.rules.revision, answer.clone())
+                    .map_err(|_| QueryRejection::InvalidResponse)?;
                 Ok(Some(QueryValue::Validated(receipt)))
             }
             (
@@ -960,21 +547,10 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    fn request_extra_units(&self, viewer: PlayerId) -> Result<u64, String> {
-        Ok(match self.request_header(viewer)? {
-            Some(PlayerRequest::OrderTriggers { .. }) => self.trigger_order_ids().len() as u64,
-            Some(PlayerRequest::DamageEffect { .. }) => self
-                .damage_effect_group()?
-                .map_or(0, |(_, _, p)| p.len() as u64),
-
-            _ => 0,
-        })
-    }
-    pub(crate) fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String> {
+    pub(crate) fn observation_work_units(&self, _viewer: PlayerId) -> Result<u64, String> {
         4u64.checked_add(self.state.rules.objects.len() as u64)
             .and_then(|n| n.checked_add(self.state.rules.stack.len() as u64))
             .and_then(|n| n.checked_add(self.live_effect_keys().len() as u64))
-            .and_then(|n| n.checked_add(self.request_extra_units(viewer).ok()?))
             .ok_or_else(|| "observation work resource limit".into())
     }
     // A saved prefix must fit this exact task's row/conversion count. History
@@ -982,31 +558,7 @@ impl RulesTxn {
     pub(crate) fn query_work_units(&self, query: &Query) -> Result<u64, String> {
         let body_units: Result<u64, String> = match query {
             Query::Observe { viewer } => self.observation_work_units(*viewer),
-            Query::Decision { viewer } => Ok(match self.request_header(*viewer)? {
-                Some(PlayerRequest::Targets { .. } | PlayerRequest::BottomOpening { .. }) => {
-                    std::cmp::max(1, self.state.rules.objects.len() as u64)
-                }
-                Some(PlayerRequest::EntityTargets { .. }) => 4u64
-                    .checked_add(self.state.rules.objects.len() as u64)
-                    .ok_or("decision work resource limit")?,
-                Some(PlayerRequest::OrderTriggers { .. } | PlayerRequest::DamageEffect { .. }) => {
-                    std::cmp::max(1, self.request_extra_units(*viewer)?)
-                }
-                _ => 1,
-            }),
-            Query::Check { response, .. } => {
-                let entries = match response {
-                    PlayerResponse::Targets { objects }
-                    | PlayerResponse::BottomOpening { objects } => objects.len(),
-                    PlayerResponse::ModeSubset { modes } => modes.len(),
-                    PlayerResponse::EntityTargets { entities } => entities.len(),
-                    PlayerResponse::OrderTriggers { order } => order.len(),
-
-                    _ => 0,
-                };
-                3u64.checked_add(entries as u64)
-                    .ok_or_else(|| "response work resource limit".into())
-            }
+            Query::Decision { .. } | Query::Check { .. } => Ok(1),
             Query::Search { viewer, .. } => self
                 .observation_work_units(*viewer)?
                 .checked_add(

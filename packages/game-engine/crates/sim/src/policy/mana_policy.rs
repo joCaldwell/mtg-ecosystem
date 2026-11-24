@@ -188,18 +188,10 @@ impl ManaPurpose {
 
 pub(super) fn spendable_pool(
     view: &PermittedView,
-    purpose: Option<ManaPurpose>,
+    _purpose: Option<ManaPurpose>,
 ) -> Option<BTreeMap<Color, Quantity>> {
     let player = view.players.iter().find(|p| p.player == view.viewer)?;
-    let mut pool = player.mana.clone();
-    if let Some(purpose) = purpose {
-        for unit in &player.restricted_mana {
-            if purpose.permits(unit.restriction) {
-                pool.entry(unit.color).or_default().add(&unit.amount);
-            }
-        }
-    }
-    Some(pool)
+    Some(player.mana.clone())
 }
 
 pub(super) fn plan_for(
@@ -265,22 +257,11 @@ pub(super) fn plan_for(
             }
         }
     }
-    let player = view.players.iter().find(|p| p.player == view.viewer)?;
-    let mut nested_pool = pool;
-    let mut spell_only = BTreeMap::<Color, Quantity>::new();
-    for unit in &player.restricted_mana {
-        if !unit.restriction.permits_activation(false)
-            && purpose.is_some_and(|purpose| purpose.permits(unit.restriction))
-        {
-            nested_pool.get_mut(&unit.color)?.subtract(&unit.amount);
-            spell_only.entry(unit.color).or_default().add(&unit.amount);
-        }
-    }
     let mut planner = Planner {
         sources,
         used: vec![false; view.objects.len()],
-        pool: nested_pool,
-        spell_only,
+        pool,
+        spell_only: BTreeMap::new(),
         plan: vec![],
     };
     planner.fund(cost, false).then(|| planner.plan.into())

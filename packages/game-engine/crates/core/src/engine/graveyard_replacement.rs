@@ -19,7 +19,7 @@ impl RulesTxn {
         )
     }
 
-    pub(super) fn replacement_request(&self) -> Option<Request> {
+    pub(super) fn replacement_request(&self) -> Option<Decision<Rules>> {
         match &self.state.rules.frame {
             Frame::GraveyardGroup { .. } => self.group_replacement_request(),
             _ => None,

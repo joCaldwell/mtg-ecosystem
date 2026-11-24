@@ -158,65 +158,34 @@ impl RulesTxn {
         }
         Ok(())
     }
-    pub(super) fn sacrifice_request(&self) -> Result<Option<Request>, String> {
-        let decision_id = self.state.rules.revision;
+
+    pub(super) fn sacrifice_request(&self) -> Result<Option<Decision<Rules>>, String> {
         Ok(match &self.state.rules.frame {
             Frame::SacrificeCost { cast } => {
                 let stack = self.top()?;
-                let candidates = self.next_sacrifices(stack, &cast.sacrifices)?;
-                (!candidates.is_empty()).then_some(Request::SacrificeCost {
-                    decision_id,
-                    player: stack.controller,
-                    candidates,
-                })
+                let choices = self.next_sacrifices(stack, &cast.sacrifices)?;
+                (!choices.is_empty())
+                    .then(|| self.pick_objects(stack.controller, Reason::SacrificeCost, choices, 1))
             }
             Frame::ForcedSacrifice {
                 remaining, choices, ..
-            } => remaining.first().and_then(|player| {
-                let candidates = self.controlled_creatures(*player);
-                (self.is_live(*player) && !candidates.is_empty()).then_some(
-                    Request::ForcedSacrifice {
-                        decision_id,
-                        player: *player,
-                        candidates,
-                        previous_choices: choices.clone(),
-                    },
-                )
+            } => remaining.first().and_then(|&p| {
+                let creatures = self.controlled_creatures(p);
+                (self.is_live(p) && !creatures.is_empty()).then(|| {
+                    self.pick_objects(
+                        p,
+                        Reason::ForcedSacrifice {
+                            previous: choices.clone(),
+                        },
+                        creatures,
+                        1,
+                    )
+                })
             }),
-
             _ => None,
         })
     }
-    pub(super) fn validate_sacrifice_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        match (self.sacrifice_request()?, response) {
-            (
-                Some(Request::SacrificeCost {
-                    player: p,
-                    candidates,
-                    ..
-                }),
-                Response::SacrificeCost { object },
-            )
-            | (
-                Some(Request::ForcedSacrifice {
-                    player: p,
-                    candidates,
-                    ..
-                }),
-                Response::ForcedSacrifice { object },
-            ) if p == player && candidates.contains(object) => Ok(()),
-            (Some(Request::OptionalEffect { player: p, .. }), Response::OptionalEffect { .. })
-                if p == player =>
-            {
-                Ok(())
-            }
-            _ => Err("invalid sacrifice continuation response".into()),
-        }
-    }
+
     pub(super) fn sacrifice_step(&mut self, frame: Frame) -> Result<(), String> {
         match frame {
             Frame::SacrificeCost { mut cast } => {
@@ -230,10 +199,8 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing sacrifice cost input")?;
-                self.validate_sacrifice_response(input.player, &input.response)?;
-                let Response::SacrificeCost { object } = input.response else {
-                    return Err("cost response invariant".into());
-                };
+
+                let object = input.object()?;
                 cast.sacrifices.push(object);
                 let (_, count) = self.invocation_sacrifice(&stack).ok_or("missing cost")?;
                 if u32::try_from(cast.sacrifices.len()) != Ok(count) {
@@ -256,10 +223,8 @@ impl RulesTxn {
                             .pending
                             .take()
                             .ok_or("missing forced sacrifice input")?;
-                        self.validate_sacrifice_response(input.player, &input.response)?;
-                        let Response::ForcedSacrifice { object } = input.response else {
-                            return Err("forced sacrifice response".into());
-                        };
+
+                        let object = input.object()?;
                         choices.push((player, object));
                     }
                     remaining.remove(0);

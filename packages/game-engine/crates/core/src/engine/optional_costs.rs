@@ -30,9 +30,7 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing optional cost input")?;
-        let Response::AdditionalCosts { selected } = input.response else {
-            return Err("optional cost response invariant".into());
-        };
+        let selected = input.additional_costs()?;
         self.validate_additional_cost_selection(input.player, &selected)?;
         self.rules_mut()
             .stack

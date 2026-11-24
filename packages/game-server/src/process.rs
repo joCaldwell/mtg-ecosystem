@@ -272,10 +272,6 @@ fn reply_matches(command: &WorkerCommand, reply: &WorkerReply) -> bool {
             | (WorkerCommand::Page { .. }, WorkerReply::Page { .. })
             | (WorkerCommand::Resume { .. }, WorkerReply::Resume { .. })
             | (
-                WorkerCommand::QueryActions { .. },
-                WorkerReply::Actions { .. }
-            )
-            | (
                 WorkerCommand::Execution { .. },
                 WorkerReply::Execution { .. }
             )

@@ -21,6 +21,8 @@ testkit_fields! {
         pub(in crate::engine) trace: TraceEvidence,
         pub(in crate::engine) executor: Arc<()>,
         pub(in crate::engine) state_token: Arc<()>,
+        // Derived from this committed state's handles and rules. A stage starts cold.
+        pub(in crate::engine) priority_cache: std::sync::OnceLock<Decision<Rules>>,
         // Private staging scope: nested event batches share the outer rollback.
         pub(in crate::engine) in_rule_step: bool,
         // Reconstructed from the admitted program and a saved node address.
@@ -34,7 +36,7 @@ testkit_fields! {
         pub(in crate::engine) executor: Arc<()>,
         pub(in crate::engine) revision: u64,
         pub(in crate::engine) state_token: Arc<()>,
-        pub(in crate::engine) input: AcceptedInput,
+        pub(in crate::engine) input: PendingInput,
     }
 }
 testkit_fields! {
@@ -64,7 +66,7 @@ pub struct SnapshotRef<'a> {
 pub enum Advance {
     Draw,
     Finished { winner: PlayerId },
-    AwaitingDecision(Request),
+    AwaitingDecision(Decision<Rules>),
     Fault(String),
     Suspended { required_minimum: u64 },
 }
@@ -200,6 +202,7 @@ impl RulesTxn {
             trace: Self::initial_trace(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
+            priority_cache: Default::default(),
             in_rule_step: false,
             kernel_leaf: None,
             published: None,
@@ -231,6 +234,7 @@ impl RulesTxn {
             trace: self.trace.clone(),
             executor: Arc::new(()),
             state_token: Arc::new(()),
+            priority_cache: Default::default(),
             in_rule_step: false,
             kernel_leaf: self.kernel_leaf.clone(),
             published: self.published.clone(),
@@ -310,24 +314,35 @@ impl RulesTxn {
 impl Game {
     /// Historical scenario drivers now answer the common explicit spending request.
     pub(crate) fn complete_test_mana(&mut self) {
-        if let Advance::AwaitingDecision(Request::SpendMana {
+        if let Advance::AwaitingDecision(Decision {
             player,
-            decision_id,
-            cost,
-            available,
-            restricted_available: _,
+            id,
+            shape:
+                Shape::Pay {
+                    cost,
+                    pool,
+                    step: PayStep::Spend,
+                },
+            ..
         }) = self.advance(Budget::unlimited())
         {
             let remaining = self.payment_pool(player, &cost).unwrap();
-            let spending = available
+            let unrestricted = pool
+                .unrestricted
                 .into_iter()
                 .filter_map(|(color, mut amount)| {
                     amount.subtract(&remaining.get(&color).cloned().unwrap_or_default());
                     (amount > Quantity::zero()).then_some((color, amount))
                 })
                 .collect();
-            self.respond(player, decision_id, Response::SpendMana { spending })
-                .unwrap();
+            self.respond(
+                player,
+                id,
+                Answer::Pay {
+                    pay: PayAnswer::Spend { unrestricted },
+                },
+            )
+            .unwrap();
             self.advance(Budget::unlimited());
         }
     }

@@ -192,7 +192,7 @@ state_layout! {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         frames: Vec<Frame>,
         frame: Frame,
-        pending: Option<AcceptedInput>,
+        pending: Option<PendingInput>,
         next_batch_id: u64,
         next_event_sequence: u64,
     }

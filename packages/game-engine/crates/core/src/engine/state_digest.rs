@@ -360,16 +360,29 @@ mod tests {
             match game.advance(Budget::new(1)) {
                 Advance::AwaitingDecision(r) => {
                     let response = match &r {
-                        Request::Priority { .. } => Response::Pass,
-                        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-                        Request::Discard {
-                            count, candidates, ..
-                        } => Response::Discard {
-                            objects: candidates.iter().take(*count).copied().collect(),
+                        Decision {
+                            reason: Reason::Priority,
+                            ..
+                        } => Answer::Pick {
+                            picks: vec![vec![0]],
+                        },
+                        Decision {
+                            reason: Reason::Attackers,
+                            ..
+                        } => r.attack(vec![]),
+                        Decision {
+                            reason: Reason::Discard,
+                            shape: Shape::Pick { slots, .. },
+                            ..
+                        } => Answer::Pick {
+                            picks: slots
+                                .iter()
+                                .map(|s| s.allowed.iter().take(s.min as usize).copied().collect())
+                                .collect(),
                         },
                         _ => panic!("unexpected {r:?}"),
                     };
-                    game.respond(r.player(), r.decision_id(), response).unwrap();
+                    game.respond(r.player, r.id, response).unwrap();
                     check(&game);
                 }
                 Advance::Suspended { .. } => {}

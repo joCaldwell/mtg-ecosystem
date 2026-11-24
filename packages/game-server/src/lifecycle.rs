@@ -537,7 +537,7 @@ pub async fn run(root: &Path) -> Result<(), String> {
         while !fenced(root, &alive, binding.generation) && !task.is_finished() && !server.is_finished() {
             let WorkerReply::Resume { resume } = broker.call(WorkerCommand::Resume { seat: 0 }).await.map_err(|_| "native resume unavailable")? else { return Err("native resume unavailable".into()); };
             allow_recovery_pause = matches!(resume.lifecycle, Some(crate::protocol::ExecutionStatus::Running | crate::protocol::ExecutionStatus::Waiting | crate::protocol::ExecutionStatus::Applied | crate::protocol::ExecutionStatus::Queued));
-            let token = match &resume.state { ResumeState::Available { observation } => observation.decision.as_ref().map(|d| d.token().0.clone()), ResumeState::Pending => None };
+            let token = match &resume.state { ResumeState::Available { observation } => observation.decision.as_ref().map(|d| d.id.0.clone()), ResumeState::Pending => None };
             if token != waiting.token { waiting = Wait { since: if token.is_some() { Some(now()?) } else { None }, token }; save(&root.join("wait.json"), &waiting)?; }
             save(&root.join("status.json"), &Status { version: 1, human_waiting_since: waiting.since, human_decision_token: waiting.token.as_deref(), outcome: &resume.outcome })?;
             if !ready {

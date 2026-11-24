@@ -115,7 +115,7 @@ impl CommanderLedgerTestkit for CommanderLedger {
 /// Crate-private `Game` methods that white-box test binaries call.
 pub trait GameTestkit {
     fn action_hand(&self, player: PlayerId) -> Vec<ObjectId>;
-    fn actions_request(&self) -> Result<Option<Request>, String>;
+    fn actions_request(&self) -> Result<Option<Decision<Rules>>, String>;
     fn advance_internal<const REPORT: bool, const COALESCE: bool>(
         &mut self,
         budget: Budget,
@@ -195,11 +195,6 @@ pub trait GameTestkit {
     fn complete_test_mana(&mut self);
     fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String>;
     fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId>;
-    fn convert_response(
-        &self,
-        viewer: PlayerId,
-        response: &PlayerResponse,
-    ) -> Result<Response, String>;
     fn copiable_definition(
         &self,
         object: impl std::borrow::Borrow<ObjectId>,
@@ -213,7 +208,7 @@ pub trait GameTestkit {
     fn damage_effect_group(
         &self,
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String>;
-    fn damage_effect_request(&self) -> Result<Option<Request>, String>;
+    fn damage_effect_request(&self) -> Result<Option<Decision<Rules>>, String>;
     fn damage_effect_step(&mut self) -> Result<(), String>;
     fn damage_keywords(
         &mut self,
@@ -345,7 +340,7 @@ pub trait GameTestkit {
     fn permitted_decision_context(
         &self,
         viewer: PlayerId,
-        request: Option<&PlayerRequest>,
+        request: Option<&Decision<Viewer>>,
     ) -> Option<DecisionContext>;
     fn phase_in_for_next_untap(
         &mut self,
@@ -386,7 +381,6 @@ pub trait GameTestkit {
         boundary: Option<u64>,
         mode: TraceMode,
     ) -> Result<Game, String>;
-    fn request_header(&self, viewer: PlayerId) -> Result<Option<PlayerRequest>, String>;
     fn resolve_damage_effect_pair(
         &self,
         viewer: PlayerId,
@@ -457,11 +451,6 @@ pub trait GameTestkit {
         targets: &[ObjectId],
         set: Option<&ObjectSet>,
     ) -> bool;
-    fn validate_actions_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Option<Result<(), String>>;
     fn validate_actions_state(&self) -> Result<(), String>;
     fn validate_activation(
         &self,
@@ -476,8 +465,6 @@ pub trait GameTestkit {
         source: ObjectId,
         c: &Characteristics,
     ) -> Result<(), String>;
-    fn validate_combat_response(&self, player: PlayerId, response: &Response)
-    -> Result<(), String>;
     fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String>;
     fn validate_control_state(&self) -> Result<(), String>;
     fn validate_cost_lock(&self, entry: &StackInstance) -> Result<(), String>;
@@ -498,7 +485,6 @@ pub trait GameTestkit {
         payment: &ResolutionPayment,
     ) -> Result<(), String>;
     fn validate_resolving(&self, frame: &Resolving) -> Result<(), String>;
-    fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String>;
     fn validate_state(&self) -> Result<(), String>;
     fn validate_tap_life_sacrifice_source(
         &self,
@@ -539,7 +525,7 @@ impl GameTestkit for Game {
     fn action_hand(&self, player: PlayerId) -> Vec<ObjectId> {
         RulesTxn::action_hand(self, player)
     }
-    fn actions_request(&self) -> Result<Option<Request>, String> {
+    fn actions_request(&self) -> Result<Option<Decision<Rules>>, String> {
         RulesTxn::actions_request(self)
     }
     fn advance_internal<const REPORT: bool, const COALESCE: bool>(
@@ -680,13 +666,6 @@ impl GameTestkit for Game {
     fn controlled_creatures(&self, player: PlayerId) -> Vec<ObjectId> {
         RulesTxn::controlled_creatures(self, player)
     }
-    fn convert_response(
-        &self,
-        viewer: PlayerId,
-        response: &PlayerResponse,
-    ) -> Result<Response, String> {
-        RulesTxn::convert_response(self, viewer, response)
-    }
     fn copiable_definition(
         &self,
         object: impl std::borrow::Borrow<ObjectId>,
@@ -714,7 +693,7 @@ impl GameTestkit for Game {
     ) -> Result<Option<(PlayerId, TargetEntity, Vec<DamageEffectCandidate>)>, String> {
         RulesTxn::damage_effect_group(self)
     }
-    fn damage_effect_request(&self) -> Result<Option<Request>, String> {
+    fn damage_effect_request(&self) -> Result<Option<Decision<Rules>>, String> {
         RulesTxn::damage_effect_request(self)
     }
     fn damage_effect_step(&mut self) -> Result<(), String> {
@@ -973,7 +952,7 @@ impl GameTestkit for Game {
     fn permitted_decision_context(
         &self,
         viewer: PlayerId,
-        request: Option<&PlayerRequest>,
+        request: Option<&Decision<Viewer>>,
     ) -> Option<DecisionContext> {
         RulesTxn::permitted_decision_context(self, viewer, request)
     }
@@ -1053,9 +1032,6 @@ impl GameTestkit for Game {
         mode: TraceMode,
     ) -> Result<Game, String> {
         Game::replay_to(prepared, journal, boundary, mode)
-    }
-    fn request_header(&self, viewer: PlayerId) -> Result<Option<PlayerRequest>, String> {
-        RulesTxn::request_header(self, viewer)
     }
     fn resolve_damage_effect_pair(
         &self,
@@ -1183,13 +1159,6 @@ impl GameTestkit for Game {
     ) -> bool {
         RulesTxn::valid_set_effect_targets(self, e, targets, set)
     }
-    fn validate_actions_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Option<Result<(), String>> {
-        RulesTxn::validate_actions_response(self, player, response)
-    }
     fn validate_actions_state(&self) -> Result<(), String> {
         RulesTxn::validate_actions_state(self)
     }
@@ -1213,13 +1182,6 @@ impl GameTestkit for Game {
         c: &Characteristics,
     ) -> Result<(), String> {
         RulesTxn::validate_characteristic_identity(self, source, c)
-    }
-    fn validate_combat_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        RulesTxn::validate_combat_response(self, player, response)
     }
     fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
         RulesTxn::validate_condition_cache(self, frame)
@@ -1264,9 +1226,6 @@ impl GameTestkit for Game {
     }
     fn validate_resolving(&self, frame: &Resolving) -> Result<(), String> {
         RulesTxn::validate_resolving(self, frame)
-    }
-    fn validate_response(&self, player: PlayerId, response: &Response) -> Result<(), String> {
-        RulesTxn::validate_response(self, player, response)
     }
     fn validate_state(&self) -> Result<(), String> {
         Ok(RulesTxn::validate_state(self)?)

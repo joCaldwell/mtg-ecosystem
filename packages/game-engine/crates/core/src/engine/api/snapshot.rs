@@ -70,6 +70,7 @@ impl Game {
             trace: s.trace,
             executor: Arc::new(()),
             state_token: Arc::new(()),
+            priority_cache: Default::default(),
             in_rule_step: false,
             kernel_leaf: None,
             published: None,

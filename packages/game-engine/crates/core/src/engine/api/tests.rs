@@ -11,35 +11,45 @@ fn prepared() -> Prepared {
     )
     .unwrap()
 }
-fn respond(game: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn respond(game: &mut Game, choose: impl FnOnce(&Decision<Rules>) -> Answer) {
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         panic!("expected decision")
     };
-    game.respond(r.player(), r.decision_id(), response).unwrap();
+    let response = choose(&r);
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
+    game.respond(r.player, r.id, response).unwrap();
     if finish {
         game.complete_test_mana();
     }
 }
 fn cast(game: &mut Game) {
-    respond(
-        game,
-        Response::ActivateMana {
-            object: game.object_id(CardId(0)).unwrap(),
-        },
-    );
-    respond(game, Response::Cast { card: CardId(1) });
+    respond(game, |d| {
+        d.activate_mana(ObjectId {
+            card: CardId(0),
+            incarnation: 0,
+        })
+    });
+    respond(game, |d| d.cast(CardId(1)));
 }
 fn complete(game: &mut Game) {
-    respond(
-        game,
-        Response::Targets {
-            objects: vec![game.object_id(CardId(2)).unwrap()],
+    respond(game, |d| {
+        d.targets(vec![ObjectId {
+            card: CardId(2),
+            incarnation: 0,
+        }])
+    });
+    respond(game, |_| Answer::Pay {
+        pay: PayAnswer::Finish {
+            undo_on_failure: false,
         },
-    );
-    respond(game, Response::FinishMana { undo_mana: false });
+    });
     for _ in 0..4 {
-        respond(game, Response::Pass);
+        respond(game, |d| d.pass());
     }
     assert!(matches!(
         game.advance(Budget::unlimited()),
@@ -73,13 +83,9 @@ fn snapshot_fork_and_replay_agree_and_receipts_do_not_cross_executors() {
     let _ = game.advance(Budget::unlimited());
     let mut restored = Game::restore(p.clone(), &game.snapshot().unwrap()).unwrap();
     let mut fork = game.fork();
-    let response = Response::Targets {
-        objects: vec![game.object_id(CardId(2)).unwrap()],
-    };
     let req = game.decision_for(PlayerId(0)).unwrap().unwrap();
-    let receipt = game
-        .check_response(PlayerId(0), req.decision_id(), response)
-        .unwrap();
+    let response = req.targets(vec![game.object_id(CardId(2)).unwrap()]);
+    let receipt = game.check_response(PlayerId(0), req.id, response).unwrap();
     assert!(fork.submit(receipt).is_err());
     complete(&mut game);
     complete(&mut restored);
@@ -104,17 +110,32 @@ fn queries_and_invalid_responses_leave_state_unchanged() {
             .mana_abilities(game.object_id(CardId(0)).unwrap())
             .unwrap();
     }
-    assert!(game.respond(PlayerId(1), 0, Response::Pass).is_err());
-    assert!(game.respond(PlayerId(0), 99, Response::Pass).is_err());
+    assert!(
+        game.respond(
+            PlayerId(1),
+            0,
+            Answer::Pick {
+                picks: vec![vec![0]]
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        game.respond(
+            PlayerId(0),
+            99,
+            Answer::Pick {
+                picks: vec![vec![0]]
+            }
+        )
+        .is_err()
+    );
     assert!(
         game.respond(
             PlayerId(0),
             0,
-            Response::ActivateMana {
-                object: ObjectId {
-                    card: CardId(0),
-                    incarnation: 9
-                }
+            Answer::Pick {
+                picks: vec![vec![u32::MAX]]
             }
         )
         .is_err()
@@ -127,11 +148,8 @@ fn queries_and_invalid_responses_leave_state_unchanged() {
         game.respond(
             PlayerId(0),
             game.state.rules.revision,
-            Response::Targets {
-                objects: vec![ObjectId {
-                    card: CardId(2),
-                    incarnation: 9
-                }]
+            Answer::Pick {
+                picks: vec![vec![u32::MAX]]
             }
         )
         .is_err()
@@ -142,17 +160,18 @@ fn queries_and_invalid_responses_leave_state_unchanged() {
 fn payment_reversal_retains_inputs_and_original_incarnation() {
     let mut game = Game::new(prepared());
     let original = game.object_id(CardId(1)).unwrap();
-    respond(&mut game, Response::Cast { card: CardId(1) });
-    respond(
-        &mut game,
-        Response::Targets {
-            objects: vec![ObjectId {
-                card: CardId(2),
-                incarnation: 0,
-            }],
+    respond(&mut game, |d| d.cast(CardId(1)));
+    respond(&mut game, |d| {
+        d.targets(vec![ObjectId {
+            card: CardId(2),
+            incarnation: 0,
+        }])
+    });
+    respond(&mut game, |_| Answer::Pay {
+        pay: PayAnswer::Finish {
+            undo_on_failure: true,
         },
-    );
-    respond(&mut game, Response::FinishMana { undo_mana: true });
+    });
     let _ = game.advance(Budget::unlimited());
     assert_eq!(game.zone(original), Some(Zone::Hand { owner: PlayerId(0) }));
     assert!(game.state.rules.stack.is_empty());
@@ -173,13 +192,11 @@ fn pending_accepted_input_survives_restore_and_rehashed_impossible_state_rejects
     };
     game.respond(
         PlayerId(0),
-        request.decision_id(),
-        Response::ActivateMana {
-            object: ObjectId {
-                card: CardId(0),
-                incarnation: 0,
-            },
-        },
+        request.id,
+        request.activate_mana(ObjectId {
+            card: CardId(0),
+            incarnation: 0,
+        }),
     )
     .unwrap();
     let mut restored = Game::restore(p.clone(), &game.snapshot().unwrap()).unwrap();
@@ -228,25 +245,26 @@ fn forest_intrinsic_is_derived_and_partial_multiblock_legality_keeps_other_block
     p.catalog = Arc::new(c);
     let mut game = Game::new(p);
     cast(&mut game);
-    respond(
-        &mut game,
-        Response::Targets {
-            objects: vec![
-                ObjectId {
-                    card: CardId(2),
-                    incarnation: 0
-                };
-                2
-            ],
+    respond(&mut game, |d| {
+        d.targets(vec![
+            ObjectId {
+                card: CardId(2),
+                incarnation: 0
+            };
+            2
+        ])
+    });
+    respond(&mut game, |_| Answer::Pay {
+        pay: PayAnswer::Finish {
+            undo_on_failure: false,
         },
-    );
-    respond(&mut game, Response::FinishMana { undo_mana: false });
+    });
     let _ = game.advance(Budget::unlimited());
     // Test-only inaccessible mutation makes one occurrence stale. Both
     // blocks still share one resolution legality check and stack object.
     game.state.rules.stack.last_mut().unwrap().targets[0].incarnation = 99;
     for _ in 0..4 {
-        respond(&mut game, Response::Pass);
+        respond(&mut game, |d| d.pass());
     }
     let _ = game.advance(Budget::unlimited());
     assert_eq!(
@@ -272,16 +290,17 @@ fn unsupported_configuration_and_modified_ir_reject_admission() {
 fn stale_resolution_target_does_not_follow_physical_card() {
     let mut game = Game::new(prepared());
     cast(&mut game);
-    respond(
-        &mut game,
-        Response::Targets {
-            objects: vec![ObjectId {
-                card: CardId(2),
-                incarnation: 0,
-            }],
+    respond(&mut game, |d| {
+        d.targets(vec![ObjectId {
+            card: CardId(2),
+            incarnation: 0,
+        }])
+    });
+    respond(&mut game, |_| Answer::Pay {
+        pay: PayAnswer::Finish {
+            undo_on_failure: false,
         },
-    );
-    respond(&mut game, Response::FinishMana { undo_mana: false });
+    });
     let _ = game.advance(Budget::unlimited());
     let target = game.object_id(CardId(2)).unwrap();
     let moved = game
@@ -290,7 +309,7 @@ fn stale_resolution_target_does_not_follow_physical_card() {
     game.move_object(moved.successor, Zone::Battlefield)
         .unwrap();
     for _ in 0..4 {
-        respond(&mut game, Response::Pass);
+        respond(&mut game, |d| d.pass());
     }
     let _ = game.advance(Budget::unlimited());
     assert_eq!(game.state.rules.objects[&CardId(2)].zone, Zone::Battlefield);

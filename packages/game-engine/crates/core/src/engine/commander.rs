@@ -194,9 +194,7 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing commander return choice")?;
-        let Response::CommanderReturn { to_command } = input.response else {
-            return Err("commander return response invariant".into());
-        };
+        let to_command = input.flag(Flag::CommandZone)?;
         if input.player != self.state.rules.cards[&object.card].owner {
             return Err("commander return owner invariant".into());
         }

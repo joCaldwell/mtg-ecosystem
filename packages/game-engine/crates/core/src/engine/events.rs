@@ -2328,12 +2328,7 @@ impl RulesTxn {
             }
             ProposedEvent::DeclareAttackers { attacks } => {
                 let player = self.state.rules.active.ok_or("missing attacking player")?;
-                self.validate_combat_response(
-                    player,
-                    &Response::Attackers {
-                        attacks: attacks.clone(),
-                    },
-                )?;
+                self.validate_attacks(player, attacks)?;
                 for (object, _) in attacks {
                     if !self.has_keyword(*object, KeywordAbility::Vigilance) {
                         self.apply_occurrence(&ProposedEvent::Tap { object: *object })?;
@@ -2354,12 +2349,7 @@ impl RulesTxn {
                 }
             }
             ProposedEvent::DeclareBlockers { player, blocks } => {
-                self.validate_combat_response(
-                    *player,
-                    &Response::Blockers {
-                        blocks: blocks.clone(),
-                    },
-                )?;
+                self.validate_blocks(*player, blocks)?;
                 for (b, a) in blocks {
                     let attacker = self
                         .rules_mut()

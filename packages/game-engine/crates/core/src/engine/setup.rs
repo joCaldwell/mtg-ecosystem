@@ -281,83 +281,54 @@ impl RulesTxn {
                 .collect(),
         })
     }
-    pub(super) fn setup_request(&self) -> Result<Option<Request>, String> {
+
+    pub(super) fn setup_request(&self) -> Result<Option<Decision<Rules>>, String> {
         if !matches!(self.state.rules.frame, Frame::Setup) {
             return Ok(None);
         }
         let s = self.opening()?;
-        let req = match &s.phase {
+        Ok(match &s.phase {
             SetupPhase::Declare { players } => players
                 .iter()
                 .copied()
                 .find(|p| self.is_live(*p) && !s.players[p.0 as usize].kept)
                 .map(|player| {
                     let n = s.players[player.0 as usize].mulligans_taken;
-                    Request::Mulligan {
-                        decision_id: self.state.rules.revision,
+                    let flags = if n < 8 {
+                        &[Flag::Keep, Flag::Mulligan][..]
+                    } else {
+                        &[Flag::Keep][..]
+                    };
+                    self.pick_flags(
                         player,
-                        mulligans_taken: n,
-                        bottom_if_mulligan: n,
-                        can_mulligan: n < 8,
-                    }
+                        Reason::Mulligan {
+                            mulligans_taken: n,
+                            bottom_if_mulligan: n,
+                        },
+                        flags,
+                    )
                 }),
             SetupPhase::Bottom { players } => players
                 .iter()
                 .copied()
                 .find(|p| self.is_live(*p))
-                .map(|player| Request::BottomOpening {
-                    decision_id: self.state.rules.revision,
-                    player,
-                    count: usize::from(
+                .map(|player| {
+                    let count = u32::from(
                         s.players[player.0 as usize]
                             .mulligans_taken
                             .saturating_sub(1),
-                    ),
-                    candidates: self
-                        .state
-                        .rules
-                        .objects
-                        .values()
-                        .filter(|o| o.zone == (Zone::Hand { owner: player }))
-                        .map(|o| o.id)
-                        .collect(),
+                    );
+                    let cards = self
+                        .action_hand(player)
+                        .into_iter()
+                        .map(|object| Candidate::Object { object })
+                        .collect();
+                    self.order(player, Reason::BottomOpening, cards, count)
                 }),
             _ => None,
-        };
-        Ok(req)
+        })
     }
-    pub(super) fn validate_setup_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        match (self.setup_request()?, response) {
-            (
-                Some(Request::Mulligan {
-                    player: p,
-                    can_mulligan,
-                    ..
-                }),
-                Response::Mulligan { take },
-            ) if p == player && (!take || can_mulligan) => Ok(()),
-            (
-                Some(Request::BottomOpening {
-                    player: p,
-                    count,
-                    candidates,
-                    ..
-                }),
-                Response::BottomOpening { objects },
-            ) if p == player
-                && objects.len() == count
-                && objects.iter().collect::<BTreeSet<_>>().len() == count
-                && objects.iter().all(|o| candidates.contains(o)) =>
-            {
-                Ok(())
-            }
-            _ => Err("invalid opening-hand decision".into()),
-        }
-    }
+
     fn setup_order(&self) -> Vec<PlayerId> {
         let anchor = self
             .prepared
@@ -492,17 +463,17 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing opening input")?;
-                self.validate_setup_response(input.player, &input.response)?;
-                match input.response {
-                    Response::Mulligan { take } => SetupAction::Declare {
+
+                match self.opening()?.phase {
+                    SetupPhase::Declare { .. } => SetupAction::Declare {
                         player: input.player,
-                        take,
+                        take: input.flag(Flag::Mulligan)?,
                     },
-                    Response::BottomOpening { objects } => SetupAction::Bottom {
+                    SetupPhase::Bottom { .. } => SetupAction::Bottom {
                         player: input.player,
-                        objects,
+                        objects: input.objects()?,
                     },
-                    _ => return Err("wrong opening input".into()),
+                    _ => return Err("unexpected opening phase".into()),
                 }
             }
             SetupPhase::Finish => SetupAction::Finish,
@@ -646,7 +617,12 @@ impl RulesTxn {
             (SetupAction::Declare { player, take }, SetupPhase::Declare { players })
                 if players.first() == Some(player) =>
             {
-                self.validate_setup_response(*player, &Response::Mulligan { take: *take })?;
+                if !self.is_live(*player)
+                    || s.players[player.0 as usize].kept
+                    || (*take && s.players[player.0 as usize].mulligans_taken >= 8)
+                {
+                    return Err("invalid mulligan declaration".into());
+                }
                 let p = &mut s.players[player.0 as usize];
                 if *take {
                     p.mulligans_taken = p.mulligans_taken.checked_add(1).ok_or("mulligan count")?;
@@ -664,12 +640,22 @@ impl RulesTxn {
             (SetupAction::Bottom { player, objects }, SetupPhase::Bottom { players })
                 if players.first() == Some(player) =>
             {
-                self.validate_setup_response(
-                    *player,
-                    &Response::BottomOpening {
-                        objects: objects.clone(),
-                    },
-                )?;
+                let count = usize::from(
+                    s.players[player.0 as usize]
+                        .mulligans_taken
+                        .saturating_sub(1),
+                );
+                if !self.is_live(*player)
+                    || count != objects.len()
+                    || objects.iter().collect::<BTreeSet<_>>().len() != count
+                    || objects.iter().any(|o| {
+                        !self
+                            .current(*o)
+                            .is_ok_and(|o| o.zone == (Zone::Hand { owner: *player }))
+                    })
+                {
+                    return Err("invalid opening bottom".into());
+                }
                 self.remember_opening_bottom(*player, objects)?;
                 let mut moves = vec![];
                 for object in objects {

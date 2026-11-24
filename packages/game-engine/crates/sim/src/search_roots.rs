@@ -3,8 +3,8 @@
 //! Every policy choice below uses only that chooser's current Observation.
 use mtg_contracts::{CardKind, Catalog, sha256};
 use mtg_core::{
-    Advance, Budget, Game, MatchConfig, Observation, PlayerId, PlayerRequest, PlayerResponse,
-    Prepared, QueryResult, QueryValue, TraceMode, TurnStep, Zone,
+    Action, Advance, Answer, Budget, Candidate, Decision, Flag, Game, MatchConfig, Observation,
+    PlayerId, Prepared, QueryResult, QueryValue, Reason, Shape, TraceMode, TurnStep, Zone,
 };
 use serde::{Deserialize, Serialize};
 
@@ -104,49 +104,50 @@ fn basic_land(catalog: &Catalog, o: &Observation) -> Option<mtg_core::ObjectHand
     })
 }
 
-fn choose(
-    catalog: &Catalog,
-    case: &RootCase,
-    observation: &Observation,
-) -> Result<PlayerResponse, String> {
+fn choose(catalog: &Catalog, case: &RootCase, observation: &Observation) -> Result<Answer, String> {
     let request = observation
         .decision
         .as_ref()
         .ok_or("root generator missing decision")?;
-    Ok(match request {
-        PlayerRequest::OpeningPlacement { .. } => PlayerResponse::OpeningPlacement { object: None },
-        PlayerRequest::Mulligan {
-            player,
-            mulligans_taken,
-            can_mulligan,
-            ..
-        } => PlayerResponse::Mulligan {
-            take: *can_mulligan && *mulligans_taken < case.mulligans[player.0 as usize],
-        },
-        PlayerRequest::BottomOpening {
-            count, candidates, ..
-        } => PlayerResponse::BottomOpening {
-            objects: candidates.iter().rev().take(*count).cloned().collect(),
-        },
-        PlayerRequest::Discard {
-            count, candidates, ..
-        } => PlayerResponse::Discard {
-            objects: candidates.iter().rev().take(*count).cloned().collect(),
-        },
-        PlayerRequest::Attackers { .. } => PlayerResponse::Attackers { attacks: vec![] },
-        PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
-        PlayerRequest::CommanderReturn { .. } => {
-            PlayerResponse::CommanderReturn { to_command: true }
+    let d = request;
+    Ok(match (&d.reason, &d.shape) {
+        (
+            Reason::Mulligan {
+                mulligans_taken, ..
+            },
+            _,
+        ) => {
+            let take = *mulligans_taken < case.mulligans[d.player.0 as usize]
+                && d.index(&Candidate::Flag {
+                    flag: Flag::Mulligan,
+                })
+                .is_some();
+            crate::policy::flag(d, if take { Flag::Mulligan } else { Flag::Keep })?
         }
-        PlayerRequest::Priority { .. } => basic_land(catalog, observation)
-            .map_or(PlayerResponse::Pass, |object| PlayerResponse::PlayLand {
-                object,
-            }),
-        _ => {
-            return Err(format!(
-                "unsupported frozen root-generator request: {request:?}"
-            ));
+        (Reason::BottomOpening, Shape::Order { items, min, .. }) => Answer::Order {
+            order: items.iter().rev().take(*min as usize).copied().collect(),
+        },
+        (Reason::Discard | Reason::Attackers | Reason::Blockers, Shape::Pick { slots, .. }) => {
+            Answer::Pick {
+                picks: slots
+                    .iter()
+                    .map(|s| {
+                        s.allowed
+                            .iter()
+                            .rev()
+                            .take(s.min as usize)
+                            .copied()
+                            .collect()
+                    })
+                    .collect(),
+            }
         }
+        (Reason::CommanderReturn { .. }, _) => crate::policy::flag(d, Flag::CommandZone)?,
+        (Reason::Priority, _) => d.pick_one(&Candidate::Action {
+            action: basic_land(catalog, observation)
+                .map_or(Action::Pass, |object| Action::PlayLand { object }),
+        })?,
+        _ => return Err(format!("unsupported root decision {:?}", d.reason)),
     })
 }
 
@@ -172,11 +173,17 @@ pub(super) fn prepare(catalog: &Catalog, index: usize) -> Result<RootFixture, St
                 ));
             }
         };
-        let observation = observation(&game, request.player())?;
+        let observation = observation(&game, request.player)?;
         let is_viewer_main = observation.view.viewer == case.viewer
             && observation.view.active == Some(case.viewer)
             && observation.view.turn.step == TurnStep::PrecombatMain
-            && matches!(observation.decision, Some(PlayerRequest::Priority { .. }));
+            && matches!(
+                observation.decision,
+                Some(Decision {
+                    reason: Reason::Priority,
+                    ..
+                })
+            );
         if is_viewer_main {
             if last_viewer_main != Some(observation.view.turn.number) {
                 last_viewer_main = Some(observation.view.turn.number);
@@ -197,10 +204,10 @@ pub(super) fn prepare(catalog: &Catalog, index: usize) -> Result<RootFixture, St
             .decision
             .as_ref()
             .ok_or("root decision disappeared")?
-            .token()
+            .id
             .clone();
         let receipt = match game.check_player_response(
-            request.player(),
+            request.player,
             token,
             response,
             Budget::unlimited(),

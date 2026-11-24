@@ -196,12 +196,12 @@ impl SampleBuildWork {
             p.life_frozen_until_next_turn = row.life_frozen_until_next_turn;
             p.life = row.life.clone();
             p.mana = row.mana.clone();
-            p.restricted_mana = row.restricted_mana.clone();
+            p.restricted_mana.clear();
             p.status = row.status;
             p.last_known = (row.status == PlayerStatus::Left).then(|| PlayerLastKnown {
                 life: row.life.clone(),
                 mana: row.mana.clone(),
-                restricted_mana: row.restricted_mana.clone(),
+                restricted_mana: Vec::new(),
             });
         }
         for row in &view.commanders {
@@ -445,6 +445,7 @@ pub struct RootHandleMap {
     objects: Vec<(ObjectHandle, ObjectHandle)>,
     captured: Box<Observation>,
     sampled: Box<Observation>,
+    indices: Vec<u32>,
 }
 impl RootHandleMap {
     fn new(
@@ -457,7 +458,8 @@ impl RootHandleMap {
             QueryResult::Complete(QueryValue::Observation(o)) => o,
             _ => return Err(invariant("sample root observation")),
         };
-        let map = Self {
+        let mut map = Self {
+            indices: vec![],
             objects,
             captured: Box::new(capture.data().context.observation.clone()),
             sampled: Box::new(sampled),
@@ -475,15 +477,79 @@ impl RootHandleMap {
             .view
             .objects
             .sort_by(|a, b| a.handle.0.cmp(&b.handle.0));
-        match (&mut renamed.decision, &map.captured.decision) {
-            (
-                Some(PlayerRequest::Priority { token, player }),
-                Some(PlayerRequest::Priority {
-                    token: expected,
-                    player: expected_player,
-                }),
-            ) if player == expected_player => *token = expected.clone(),
-            _ => return Err(invariant("sample root priority decision differs")),
+        let captured = map
+            .captured
+            .decision
+            .as_ref()
+            .ok_or_else(|| invariant("missing root decision"))?;
+        let sampled = renamed
+            .decision
+            .as_mut()
+            .ok_or_else(|| invariant("missing sample decision"))?;
+        if !matches!(
+            (&captured.reason, &sampled.reason),
+            (Reason::Priority, Reason::Priority)
+        ) || captured.player != sampled.player
+            || captured.shape != sampled.shape
+            || captured.candidates.len() != sampled.candidates.len()
+        {
+            return Err(invariant("sample root priority decision differs"));
+        }
+        for candidate in &captured.candidates {
+            let Candidate::Action { action } = candidate else {
+                return Err(invariant("non-action in priority window"));
+            };
+            let object = |handle| map.object(handle).map_err(invariant);
+            let action = match action {
+                Action::Pass => Action::Pass,
+                Action::Cast { card } => Action::Cast {
+                    card: object(card)?,
+                },
+                Action::PlayLand { object: id } => Action::PlayLand {
+                    object: object(id)?,
+                },
+                Action::ActivateMana { object: id } => Action::ActivateMana {
+                    object: object(id)?,
+                },
+                Action::ActivateAbility {
+                    object: id,
+                    ability,
+                } => Action::ActivateAbility {
+                    object: object(id)?,
+                    ability: *ability,
+                },
+            };
+            let index = sampled
+                .index(&Candidate::Action { action })
+                .ok_or_else(|| invariant("sample omits captured action"))?;
+            if map.indices.contains(&index) {
+                return Err(invariant("sample action map is not one-to-one"));
+            }
+            map.indices.push(index);
+        }
+        sampled.id = captured.id.clone();
+        sampled.candidates.clone_from(&captured.candidates);
+        if let Some(context) = &mut renamed.decision_context {
+            context.candidates = map
+                .indices
+                .iter()
+                .map(|i| {
+                    let mut label = context
+                        .candidates
+                        .get(*i as usize)
+                        .cloned()
+                        .ok_or_else(|| invariant("missing sampled label"))?;
+                    if let Some(handle) = label.source.as_mut().and_then(|s| s.object.as_mut()) {
+                        *handle = map
+                            .objects
+                            .iter()
+                            .find(|(_, h)| h == handle)
+                            .map(|(h, _)| h.clone())
+                            .ok_or_else(|| invariant("sample label handle"))?;
+                    }
+                    Ok(label)
+                })
+                .collect::<Result<_, SearchRejection>>()?;
         }
         if renamed != map.captured || map.objects.len() != map.captured.view.objects.len() {
             return Err(invariant(
@@ -501,33 +567,40 @@ impl RootHandleMap {
     }
     pub fn token(&self, token: &DecisionToken) -> Result<DecisionToken, String> {
         match (&self.captured.decision, &self.sampled.decision) {
-            (Some(a), Some(b)) if a.token() == token => Ok(b.token().clone()),
+            (Some(a), Some(b)) if &a.id == token => Ok(b.id.clone()),
             _ => Err("not the captured root decision token".into()),
         }
     }
-    pub fn response(&self, response: &PlayerResponse) -> Result<PlayerResponse, String> {
-        Ok(match response {
-            PlayerResponse::Bestow { card } => PlayerResponse::Bestow {
-                card: self.object(card)?,
-            },
-            PlayerResponse::Cast { card } => PlayerResponse::Cast {
-                card: self.object(card)?,
-            },
-            PlayerResponse::PlayLand { object } => PlayerResponse::PlayLand {
-                object: self.object(object)?,
-            },
-            PlayerResponse::ActivateMana { object } => PlayerResponse::ActivateMana {
-                object: self.object(object)?,
-            },
-            PlayerResponse::ActivateAbility { object, ability } => {
-                PlayerResponse::ActivateAbility {
-                    object: self.object(object)?,
-                    ability: *ability,
-                }
-            }
-            PlayerResponse::Pass => PlayerResponse::Pass,
-            _ => return Err("not a fresh-root priority action".into()),
-        })
+    pub fn captured_decision(&self) -> Result<&Decision<Viewer>, String> {
+        self.captured
+            .decision
+            .as_ref()
+            .ok_or_else(|| "missing root decision".into())
+    }
+    pub fn answer(&self, answer: &Answer) -> Result<Answer, String> {
+        let decision = self
+            .captured
+            .decision
+            .as_ref()
+            .ok_or("missing root decision")?;
+        decision.shape.check(answer)?;
+        let Answer::Pick { picks } = answer else {
+            return Err("expected priority pick".into());
+        };
+        let mapped = picks
+            .iter()
+            .map(|slot| {
+                slot.iter()
+                    .map(|i| {
+                        self.indices
+                            .get(*i as usize)
+                            .copied()
+                            .ok_or("invalid root index")
+                    })
+                    .collect()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Answer::Pick { picks: mapped })
     }
     pub fn mapped_observation(&self, observation: &Observation) -> Result<Observation, String> {
         if observation != self.sampled.as_ref() {

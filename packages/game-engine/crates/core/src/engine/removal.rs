@@ -407,9 +407,7 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing optional effect answer")?;
-        let Response::OptionalEffect { perform } = input.response else {
-            return Err("invalid optional effect answer".into());
-        };
+        let perform = input.flag(Flag::Accept)?;
         if input.player != player {
             return Err("wrong optional effect player".into());
         }

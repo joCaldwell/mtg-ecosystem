@@ -14,38 +14,69 @@ impl Driver {
         panic!("no boundary within 2000 advances")
     }
 
-    pub fn request(game: &mut Game, quantum: u64) -> Request {
+    pub fn request(game: &mut Game, quantum: u64) -> Decision<Rules> {
         match Self::settle(game, quantum) {
             Advance::AwaitingDecision(request) => request,
             other => panic!("expected decision, got {other:?}"),
         }
     }
 
-    pub fn answer(game: &mut Game, quantum: u64, response: Response) {
+    pub fn answer(game: &mut Game, quantum: u64, answer: Answer) {
         let request = Self::request(game, quantum);
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
+        game.respond(request.player, request.id, answer).unwrap();
     }
 
     pub fn object(game: &Game, id: u32) -> ObjectId {
         game.object_id(CardId(id)).unwrap()
     }
 
+    pub fn action(game: &mut Game, action: Action<Rules>) {
+        let decision = Self::request(game, u64::MAX);
+        let answer = decision.pick_one(&Candidate::Action { action }).unwrap();
+        game.respond(decision.player, decision.id, answer).unwrap();
+    }
+    pub fn pick_object(game: &mut Game, object: ObjectId) {
+        let decision = Self::request(game, u64::MAX);
+        let answer = decision.pick_one(&Candidate::Object { object }).unwrap();
+        game.respond(decision.player, decision.id, answer).unwrap();
+    }
+
     pub fn cast(game: &mut Game, card: CardId) {
-        Self::answer(game, u64::MAX, Response::Cast { card });
+        let object = game.object_id(card).unwrap();
+        Self::action(game, Action::Cast { card: object });
     }
 
     pub fn pay(game: &mut Game, lands: &[u32]) {
         for id in lands {
             let object = Self::object(game, *id);
-            Self::answer(game, u64::MAX, Response::ActivateMana { object });
+            let decision = Self::request(game, u64::MAX);
+            let source = decision
+                .index(&Candidate::Action {
+                    action: Action::ActivateMana { object },
+                })
+                .unwrap();
+            Self::answer(
+                game,
+                u64::MAX,
+                Answer::Pay {
+                    pay: PayAnswer::Activate { source },
+                },
+            );
         }
-        Self::answer(game, u64::MAX, Response::FinishMana { undo_mana: true });
+        Self::answer(
+            game,
+            u64::MAX,
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true,
+                },
+            },
+        );
         game.complete_test_mana();
     }
 
     pub fn pass(game: &mut Game) {
-        Self::answer(game, u64::MAX, Response::Pass);
+        Self::action(game, Action::Pass);
     }
 }
 
@@ -88,10 +119,10 @@ fn recover_journal(case: &JournalCase, mode: TraceMode, quantum: u64) -> Game {
         if let Some(input) = case.inputs.decisions.get(ordinal) {
             let request = Driver::request(&mut game, quantum);
             assert_eq!(
-                (request.player(), request.decision_id()),
+                (request.player, request.id),
                 (input.player, input.decision_id)
             );
-            game.respond(input.player, input.decision_id, input.response.clone())
+            game.respond(input.player, input.decision_id, input.answer.clone())
                 .unwrap();
         }
     }

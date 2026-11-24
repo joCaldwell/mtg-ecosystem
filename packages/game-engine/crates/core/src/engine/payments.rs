@@ -94,39 +94,6 @@ impl RulesTxn {
         )
     }
 
-    pub(super) fn spend_mana_request(&self) -> Result<Request, String> {
-        let stack = self.top()?;
-        Ok(Request::SpendMana {
-            decision_id: self.state.rules.revision,
-            player: stack.controller,
-            cost: stack.total_cost.clone(),
-            available: self.state.rules.players[stack.controller.0 as usize]
-                .mana
-                .clone(),
-            restricted_available: if self.state.rules.players[stack.controller.0 as usize]
-                .restricted_mana
-                .is_empty()
-            {
-                vec![]
-            } else {
-                self.eligible_restricted(stack.controller, self.announced_mana_consumer(stack)?)
-            },
-        })
-    }
-
-    pub(super) fn validate_spending(
-        &self,
-        player: PlayerId,
-        spending: &BTreeMap<Color, Quantity>,
-        restricted: &[RestrictedMana],
-    ) -> Result<(), String> {
-        let stack = self.top()?;
-        if stack.controller != player {
-            return Err("mana spending controller invariant".into());
-        }
-        self.validate_announced_allocation(stack, &stack.total_cost, spending, restricted)
-    }
-
     // CR 601.2h / 118.3: the payer chooses which available mana pays generic
     // costs. A complete selection must satisfy every colored symbol and pay
     // exactly the total cost. Never silently spend a different color.
@@ -200,17 +167,13 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing spending input")?;
-        let (spending, restricted) = match input.response {
-            Response::SpendMana { spending } => (spending, vec![]),
-            Response::SpendManaAllocated {
-                spending,
-                restricted,
-            } => (spending, restricted),
-            _ => return Err("mana spending response/frame invariant".into()),
+        let Answer::Pay {
+            pay: PayAnswer::Spend { unrestricted },
+        } = &input.answer
+        else {
+            return Err("expected mana spending".into());
         };
-        self.validate_spending(input.player, &spending, &restricted)?;
-        cast.spending = Some(spending);
-        cast.spending_restricted = restricted;
+        cast.spending = Some(unrestricted.clone());
         if self.invocation_sacrifice(self.top()?).is_some() {
             self.rules_mut().frame = Frame::SacrificeCost { cast };
             Ok(())

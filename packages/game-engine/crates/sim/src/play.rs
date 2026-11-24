@@ -168,7 +168,7 @@ pub fn run(
             }
             Advance::AwaitingDecision(r) => {
                 if selected_checkpoints
-                    && ((checkpoints.len() == 1 && matches!(r, mtg_core::Request::Priority { .. }))
+                    && ((checkpoints.len() == 1 && matches!(r.reason, mtg_core::Reason::Priority))
                         || (checkpoints.len() == 2 && game.turn().number >= 16))
                 {
                     checkpoints.push(Checkpoint {
@@ -183,7 +183,7 @@ pub fn run(
                 }
                 let response_result = (|| -> Result<(), String> {
                     let observation =
-                        observe(&game, r.player(), quantum, &mut work, &mut query_calls)?;
+                        observe(&game, r.player, quantum, &mut work, &mut query_calls)?;
                     let response = strategy.choose(&observation).map_err(|e| {
                         format!(
                             "turn{} decision{decisions} {:?}: {e}",
@@ -195,13 +195,13 @@ pub fn run(
                         .decision
                         .as_ref()
                         .ok_or("missing decision token")?
-                        .token()
+                        .id
                         .clone();
                     match complete(
                         &game,
                         || {
                             game.check_player_response(
-                                r.player(),
+                                r.player,
                                 token,
                                 response,
                                 Budget::new(quantum),
@@ -542,10 +542,10 @@ pub fn replay_live(
         let Advance::AwaitingDecision(request) = game.advance(budget) else {
             return Err("live accepted input is unreachable".into());
         };
-        if request.player() != input.player || request.decision_id() != input.decision_id {
+        if request.player != input.player || request.id != input.decision_id {
             return Err("live accepted-input order or identity mismatch".into());
         }
-        game.respond(input.player, input.decision_id, input.response.clone())?;
+        game.respond(input.player, input.decision_id, input.answer.clone())?;
     }
     if let Some(footer) = decoded.footer {
         let remaining = footer
@@ -770,8 +770,8 @@ mod admission_and_host_tests {
         };
         assert!(matches!(request, mtg_core::Request::Mulligan { .. }));
         game.respond(
-            request.player(),
-            request.decision_id(),
+            request.player,
+            request.id,
             mtg_core::Response::Mulligan { take: false },
         )
         .unwrap();

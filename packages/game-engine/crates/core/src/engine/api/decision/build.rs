@@ -117,7 +117,11 @@ impl RulesTxn {
             .handles
             .entries;
         for &id in visible.values() {
-            let obj = self.current(id)?;
+            // Visibility retains handles for known earlier incarnations.
+            let Ok(obj) = self.current(id) else { continue };
+            if !self.visible_to(player, obj) {
+                continue;
+            }
             let hand = obj.zone == (Zone::Hand { owner: player });
             let command = obj.zone == (Zone::Command { owner: player });
             let controlled = obj.present_on_battlefield() && obj.controller == player;

@@ -10,7 +10,7 @@ impl Game {
         &mut self,
         player: PlayerId,
         decision_id: u64,
-        response: Response,
+        response: Answer,
     ) -> Result<(), String> {
         let r = self.check_response(player, decision_id, response)?;
         self.submit(r)

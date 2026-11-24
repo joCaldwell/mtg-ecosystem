@@ -256,7 +256,7 @@ mod tests {
             match game.advance(Budget::new(1024)) {
                 Advance::Suspended { .. } => continue,
                 Advance::AwaitingDecision(request) => {
-                    let player = request.player();
+                    let player = request.player;
                     let QueryResult::Complete(QueryValue::Observation(observation)) =
                         game.observe(player, Budget::new(100_000))
                     else {
@@ -302,7 +302,7 @@ mod tests {
         else {
             panic!("decision");
         };
-        request.token().clone()
+        request.id.clone()
     }
 
     #[test]

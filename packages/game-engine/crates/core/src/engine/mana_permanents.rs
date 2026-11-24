@@ -391,7 +391,7 @@ impl RulesTxn {
             .take()
             .ok_or("missing mana source choice input")?;
         if scope == ManaSourceScope::Mixed {
-            let Response::ChooseManaAbility { ability } = input.response else {
+            let Candidate::ManaAbility { ability } = *input.one()? else {
                 return Err("expected mana ability identity".into());
             };
             if input.player != player
@@ -410,7 +410,7 @@ impl RulesTxn {
                 }
             };
         }
-        let Response::ManaColor { color } = input.response else {
+        let Candidate::Color { color } = *input.one()? else {
             return Err("mana source choice input invariant".into());
         };
         if input.player != player || !self.mana_resume_player(&resume, player) {
@@ -493,82 +493,47 @@ impl RulesTxn {
             Ok(())
         }
     }
-    pub(super) fn permanent_mana_request(&self, a: &ManaActivation) -> Result<Request, String> {
-        Ok(match a.stage {
-            ManaStage::Payment => Request::Mana {
-                decision_id: self.state.rules.revision,
-                player: a.player,
-                cost: a.payment_cost().ok_or("missing mana ability cost")?,
-            },
-            ManaStage::Spend => Request::SpendMana {
-                decision_id: self.state.rules.revision,
-                player: a.player,
-                cost: a.payment_cost().ok_or("missing mana ability cost")?,
-                available: self.state.rules.players[a.player.0 as usize].mana.clone(),
-                restricted_available: self
-                    .eligible_restricted(a.player, self.activation_mana_consumer(a.source)),
-            },
-            ManaStage::Color => Request::ManaColor {
-                decision_id: self.state.rules.revision,
-                player: a.player,
-                colors: self.mana_colors(a.player, &a.ability.production)?,
-            },
-        })
-    }
-    pub(super) fn validate_permanent_mana_response(
+    pub(super) fn permanent_mana_request(
         &self,
         a: &ManaActivation,
-        player: PlayerId,
-        response: &Response,
-    ) -> Result<(), String> {
-        if a.player != player || !self.is_live(player) {
-            return Err("wrong mana ability payer".into());
-        }
-        match (&a.stage, response) {
-            (ManaStage::Payment, Response::ActivateMana { object }) => {
-                self.validate_mana_activation(player, *object)
+    ) -> Result<Decision<Rules>, String> {
+        match a.stage {
+            ManaStage::Payment | ManaStage::Spend => self.payment_decision(
+                a.player,
+                a.payment_cost().ok_or("missing mana ability cost")?,
+                Some(a.source),
+                a.stage == ManaStage::Payment,
+            ),
+            ManaStage::Color => {
+                let candidates = self
+                    .mana_colors(a.player, &a.ability.production)?
+                    .into_iter()
+                    .map(|color| Candidate::Color { color })
+                    .collect();
+                Ok(self.pick(
+                    a.player,
+                    Reason::ManaColor {
+                        source: Some(a.source),
+                    },
+                    candidates,
+                    1,
+                    1,
+                ))
             }
-            (ManaStage::Payment, Response::FinishMana { .. }) => Ok(()),
-            (ManaStage::Spend, Response::SpendMana { spending }) => self
-                .selected_payment_pool(
-                    player,
-                    &a.payment_cost().ok_or("missing nested cost")?,
-                    spending,
-                )
-                .map(|_| ()),
-            (
-                ManaStage::Spend,
-                Response::SpendManaAllocated {
-                    spending,
-                    restricted,
-                },
-            ) => self
-                .allocated_mana_pools(
-                    player,
-                    &a.payment_cost().ok_or("missing nested cost")?,
-                    spending,
-                    restricted,
-                    self.activation_mana_consumer(a.source),
-                )
-                .map(|_| ()),
-            (ManaStage::Color, Response::ManaColor { color })
-                if self
-                    .mana_colors(player, &a.ability.production)?
-                    .contains(color) =>
-            {
-                Ok(())
-            }
-            _ => Err("invalid mana ability response".into()),
         }
     }
+
     pub(super) fn permanent_mana_step(&mut self, mut a: ManaActivation) -> Result<(), String> {
         let input = self
             .rules_mut()
             .pending
             .take()
             .ok_or("missing mana ability input")?;
-        match input.response {
-            Response::ActivateMana { object } if a.stage == ManaStage::Payment => {
+        match &input.answer {
+            Answer::Pay {
+                pay: PayAnswer::Activate { source },
+            } if a.stage == ManaStage::Payment => {
+                let object = input.mana_source(*source)?;
                 self.begin_payment_mana(
                     &input,
                     object,
@@ -577,7 +542,12 @@ impl RulesTxn {
                     },
                 )?;
             }
-            Response::FinishMana { undo_mana } if a.stage == ManaStage::Payment => {
+            Answer::Pay {
+                pay:
+                    PayAnswer::Finish {
+                        undo_on_failure: undo_mana,
+                    },
+            } if a.stage == ManaStage::Payment => {
                 let cost = a.payment_cost().ok_or("missing nested mana cost")?;
                 if self.can_pay_with_restricted(
                     a.player,
@@ -589,22 +559,23 @@ impl RulesTxn {
                         activation: Box::new(a),
                     };
                 } else {
-                    if undo_mana {
+                    if *undo_mana {
                         self.undo_mana_receipts(a.player, &a.receipts)?;
                         a.receipts.clear();
                     }
                     self.resume_mana(self.saved_frame(a.resume)?.clone(), a.receipts)?;
                 }
             }
-            Response::SpendMana { spending } if a.stage == ManaStage::Spend => {
-                self.pay_mana_ability(a, spending, vec![])?
+            Answer::Pay {
+                pay: PayAnswer::Spend { unrestricted },
+            } if a.stage == ManaStage::Spend => {
+                self.pay_mana_ability(a, unrestricted.clone(), vec![])?;
             }
-            Response::SpendManaAllocated {
-                spending,
-                restricted,
-            } if a.stage == ManaStage::Spend => self.pay_mana_ability(a, spending, restricted)?,
-            Response::ManaColor { color } if a.stage == ManaStage::Color => {
-                self.resolve_mana_ability(a, Some(color))?
+            Answer::Pick { .. } if a.stage == ManaStage::Color => {
+                let Candidate::Color { color } = *input.one()? else {
+                    return Err("invalid mana color".into());
+                };
+                self.resolve_mana_ability(a, Some(color))?;
             }
             _ => return Err("nested mana frame/input invariant".into()),
         }
@@ -961,30 +932,31 @@ impl RulesTxn {
             // Copies, so the choice can be discarded while they are in use.
             let (player, source, scope) = (*player, *source, *scope);
             let (player, source, scope) = (&player, &source, &scope);
-            let invalid = if *scope == ManaSourceScope::Mixed {
-                match self.mixed_mana_choices(*player, *source) {
-                    Err(_) => true,
-                    Ok(choices) => {
-                        let selected = self.state.rules.pending.as_ref().and_then(|input| {
-                            match &input.response {
-                                Response::ChooseManaAbility { ability } => Some(*ability),
-                                _ => None,
+            let invalid =
+                if *scope == ManaSourceScope::Mixed {
+                    match self.mixed_mana_choices(*player, *source) {
+                        Err(_) => true,
+                        Ok(choices) => {
+                            let selected = self.state.rules.pending.as_ref().and_then(|input| {
+                                match input.one() {
+                                    Ok(Candidate::ManaAbility { ability }) => Some(*ability),
+                                    _ => None,
+                                }
+                            });
+                            if let Some(ability) = selected
+                                && choices.contains(&ability)
+                            {
+                                false
+                            } else {
+                                self.rules_mut().pending = None;
+                                self.intrinsic_mana_colors(*source)?.is_empty()
+                                    || !self.is_permanent_mana(*source)
                             }
-                        });
-                        if let Some(ability) = selected
-                            && choices.contains(&ability)
-                        {
-                            false
-                        } else {
-                            self.rules_mut().pending = None;
-                            self.intrinsic_mana_colors(*source)?.is_empty()
-                                || !self.is_permanent_mana(*source)
                         }
                     }
-                }
-            } else {
-                self.mana_source_colors(*player, *source, *scope).is_err()
-            };
+                } else {
+                    self.mana_source_colors(*player, *source, *scope).is_err()
+                };
             if invalid && let Frame::ManaSourceChoice { resume, .. } = &self.state.rules.frame {
                 let resume = self.saved_frame(*resume)?.clone();
                 let rules = self.rules_mut();

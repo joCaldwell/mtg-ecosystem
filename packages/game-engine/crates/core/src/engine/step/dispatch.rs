@@ -49,10 +49,8 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing hybrid cost choice")?;
-                self.validate_response(input.player, &input.response)?;
-                let Response::HybridCost { colors } = input.response else {
-                    return Err("missing hybrid cost response".into());
-                };
+
+                let colors = input.hybrid_colors()?;
                 self.rules_mut()
                     .stack
                     .last_mut()
@@ -69,20 +67,20 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing accepted priority input")?;
-                match input.response {
-                    Response::ActivateAbility { object, ability } => {
+                match input.action()? {
+                    Action::ActivateAbility { object, ability } => {
                         self.activate_ability(input.player, input.decision_id, object, ability)?
                     }
-                    Response::PlayLand { card } => {
-                        self.play_land(input.player, input.decision_id, card)?;
+                    Action::PlayLand { object } => {
+                        self.play_land(input.player, input.decision_id, object.card)?;
                     }
-                    Response::ActivateMana { object } => {
+                    Action::ActivateMana { object } => {
                         self.begin_payment_mana(&input, object, Frame::Priority)?;
                     }
-                    Response::Cast { card } => {
-                        self.announce_priority_spell(input.player, card)?;
+                    Action::Cast { card } => {
+                        self.announce_priority_spell(input.player, card.card)?;
                     }
-                    Response::Pass => {
+                    Action::Pass => {
                         self.record_event(Event::PriorityPassed {
                             player: input.player,
                         })?;
@@ -97,7 +95,6 @@ impl RulesTxn {
                             self.stabilize()?;
                         }
                     }
-                    _ => return Err("response/frame invariant".into()),
                 }
             }
             Frame::Targets { cast } => {
@@ -106,9 +103,7 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing accepted target input")?;
-                let Response::Targets { objects } = input.response else {
-                    return Err("target response/frame invariant".into());
-                };
+                let objects = input.objects()?;
                 let announced = (0..4)
                     .map(|v| {
                         objects
@@ -150,12 +145,17 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing accepted mana input")?;
-                match input.response {
-                    Response::ActivateMana { object } => {
+                match &input.answer {
+                    Answer::Pay {
+                        pay: PayAnswer::Activate { source },
+                    } => {
+                        let object = input.mana_source(*source)?;
                         self.begin_payment_mana(&input, object, Frame::Mana { cast })?;
                     }
-                    Response::FinishMana { undo_mana } => {
-                        cast.undo_mana = undo_mana;
+                    Answer::Pay {
+                        pay: PayAnswer::Finish { undo_on_failure },
+                    } => {
+                        cast.undo_mana = *undo_on_failure;
                         self.rules_mut().frame = self.finish_mana_frame(cast)?;
                     }
                     _ => return Err("mana response/frame invariant".into()),

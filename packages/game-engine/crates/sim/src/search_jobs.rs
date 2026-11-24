@@ -6,8 +6,8 @@ use super::{
 };
 use mtg_contracts::{Catalog, Quantity};
 use mtg_core::{
-    Advance, Budget, Observation, PlayerId, PlayerRequest, PlayerResponse, PlayerStatus,
-    QueryResult, QueryValue, RootHandleMap, SampleBuildOutcome, SampledGame, SearchCapture,
+    Advance, Answer, Budget, Observation, PayAnswer, PlayerId, PlayerStatus, QueryResult,
+    QueryValue, Reason, RootHandleMap, SampleBuildOutcome, SampledGame, SearchCapture,
     WorldProposal, Zone,
 };
 use serde::{Deserialize, Serialize};
@@ -301,7 +301,7 @@ trait TrialExecutor: Sized {
         &self,
         viewer: PlayerId,
         token: mtg_core::DecisionToken,
-        response: PlayerResponse,
+        response: Answer,
         budget: Budget,
     ) -> QueryResult;
     fn resume_work(&self, work: mtg_core::Work, budget: Budget) -> QueryResult;
@@ -327,7 +327,7 @@ macro_rules! trial_executor {
                 &self,
                 viewer: PlayerId,
                 token: mtg_core::DecisionToken,
-                response: PlayerResponse,
+                response: Answer,
                 budget: Budget,
             ) -> QueryResult {
                 <$kind>::check_player_response(self, viewer, token, response, budget)
@@ -402,7 +402,7 @@ fn observation<G: TrialExecutor>(
 fn respond<G: TrialExecutor>(
     game: &mut G,
     observation: &Observation,
-    response: PlayerResponse,
+    response: Answer,
     control: &Control,
     counts: &mut TrialCounts,
     timings: &mut TrialTimings,
@@ -411,7 +411,7 @@ fn respond<G: TrialExecutor>(
         .decision
         .as_ref()
         .ok_or("missing sampled decision")?
-        .token()
+        .id
         .clone();
     let value = complete_query(game, control, counts, timings, || {
         game.check_player_response(
@@ -486,7 +486,7 @@ struct PlanRecipe {
     invocation: bool,
 }
 struct PlanSteps {
-    initial: PlayerResponse,
+    initial: Answer,
     initial_sent: bool,
     targets: TargetPlan,
     mana_sources: VecDeque<mtg_core::ObjectHandle>,
@@ -536,7 +536,11 @@ impl PlanSteps {
             invocation,
         } = Self::recipe(candidate);
         Ok(Self {
-            initial: map.response(&search_policy::initial_response(&candidate.plan))?,
+            initial: map.answer(&map.captured_decision()?.pick_one(
+                &mtg_core::Candidate::Action {
+                    action: search_policy::initial_action(&candidate.plan),
+                },
+            )?)?,
             initial_sent: false,
             targets: targets.mapped(map)?,
             mana_sources: mana
@@ -548,7 +552,7 @@ impl PlanSteps {
             complete: false,
         })
     }
-    fn next(&mut self, observation: &Observation) -> Result<Option<PlayerResponse>, String> {
+    fn next(&mut self, observation: &Observation) -> Result<Option<Answer>, String> {
         if self.complete {
             return Ok(None);
         }
@@ -557,7 +561,7 @@ impl PlanSteps {
             .as_ref()
             .ok_or("root staged action lost its decision")?;
         if !self.initial_sent {
-            if !matches!(request, PlayerRequest::Priority { .. }) {
+            if !matches!(request.reason, Reason::Priority) {
                 return Err("root action did not start at ordinary priority".into());
             }
             self.initial_sent = true;
@@ -576,18 +580,20 @@ impl PlanSteps {
             self.complete = true;
             return Ok(None);
         }
-        Ok(Some(match request {
-            PlayerRequest::Targets { .. }
-            | PlayerRequest::PlayerTargets { .. }
-            | PlayerRequest::EntityTargets { .. } => {
-                search_policy::target_response(&self.targets, request)?
-            }
-            PlayerRequest::Mana { .. } => match self.mana_sources.pop_front() {
-                Some(object) => PlayerResponse::ActivateMana { object },
-                None => PlayerResponse::FinishMana { undo_mana: true },
+        Ok(Some(match request.reason {
+            Reason::Targets { .. } => search_policy::target_answer(&self.targets, request)?,
+            Reason::Mana { .. } => match self.mana_sources.pop_front() {
+                Some(object) => crate::policy::payment_source(request, object)?,
+                None => Answer::Pay {
+                    pay: PayAnswer::Finish {
+                        undo_on_failure: true,
+                    },
+                },
             },
-            PlayerRequest::SpendMana { .. } => PlayerResponse::SpendMana {
-                spending: self.spending.clone(),
+            Reason::SpendMana { .. } => Answer::Pay {
+                pay: PayAnswer::Spend {
+                    unrestricted: self.spending.clone(),
+                },
             },
             _ => return Err("unexpected root announcement continuation".into()),
         }))
@@ -684,9 +690,9 @@ fn run_trial_body<G: TrialExecutor>(
                     // Trusted host uses only chooser identity from the raw
                     // request; the policy receives the scoped observation.
                     let view =
-                        observation(&game, request.player(), control, &mut counts, &mut timings)?;
+                        observation(&game, request.player, control, &mut counts, &mut timings)?;
                     let policy_started = Instant::now();
-                    let chosen = (|| -> Result<PlayerResponse, String> {
+                    let chosen = (|| -> Result<Answer, String> {
                         if let Some(response) = plan.next(&view)? {
                             Ok(response)
                         } else {

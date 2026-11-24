@@ -5,8 +5,8 @@ use mtg_contracts::{
     SpellProgram, TargetDomain, canonical, fixed, kernel, sha256, target_object, target_player,
 };
 use mtg_core::{
-    ObjectHandle, Observation, PlayerId, PlayerRequest, PlayerTargetEntity, RootHandleMap,
-    VisibleObject, Zone,
+    Decision, ObjectHandle, Observation, PlayerId, PlayerTargetEntity, Reason, RootHandleMap,
+    Viewer, VisibleObject, Zone,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -352,7 +352,18 @@ fn target_plans(
     }
     Ok(plans)
 }
-fn push(set: &mut CandidateSet, plan: ActionPlan) -> Result<bool, String> {
+fn push(
+    decision: &Decision<Viewer>,
+    set: &mut CandidateSet,
+    plan: ActionPlan,
+) -> Result<bool, String> {
+    let action = super::search_policy::initial_action(&plan);
+    if decision
+        .index(&mtg_core::Candidate::Action { action })
+        .is_none()
+    {
+        return Ok(true);
+    }
     if set.candidates.len() == MAX_CANDIDATES {
         set.truncated_at_limit = true;
         return Ok(false);
@@ -370,7 +381,7 @@ pub fn generate(
     check: &mut dyn FnMut() -> Result<(), String>,
 ) -> Result<CandidateSet, String> {
     let view = &observation.view;
-    if !matches!(observation.decision, Some(PlayerRequest::Priority { player, .. }) if player == view.viewer)
+    if !matches!(observation.decision, Some(Decision { reason:Reason::Priority, player, .. }) if player == view.viewer)
         || view.active != Some(view.viewer)
         || !view.stack.is_empty()
         || !matches!(
@@ -380,6 +391,10 @@ pub fn generate(
     {
         return Err("candidate generation requires acting active empty-stack priority".into());
     }
+    let decision = observation
+        .decision
+        .as_ref()
+        .ok_or("missing priority decision")?;
     let mut set = CandidateSet {
         policy: CANDIDATE_POLICY.into(),
         candidates: vec![],
@@ -392,7 +407,7 @@ pub fn generate(
                 && land_color(catalog, &o.oracle_id).is_some()
         }),
     };
-    push(&mut set, ActionPlan::Pass)?;
+    push(decision, &mut set, ActionPlan::Pass)?;
     let mut seen_basics = BTreeSet::new();
     if view.turn.lands_played == 0 {
         for object in &view.objects {
@@ -409,6 +424,7 @@ pub fn generate(
                 continue;
             }
             if !push(
+                decision,
                 &mut set,
                 ActionPlan::PlayLand {
                     object: object.handle.clone(),
@@ -449,6 +465,7 @@ pub fn generate(
         };
         for targets in target_plans(program, observation, check)? {
             if !push(
+                decision,
                 &mut set,
                 ActionPlan::Cast {
                     card: object.handle.clone(),
@@ -487,6 +504,7 @@ pub fn generate(
             };
             for targets in target_plans(&activated.program, observation, check)? {
                 if !push(
+                    decision,
                     &mut set,
                     ActionPlan::Activate {
                         object: object.handle.clone(),

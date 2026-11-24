@@ -29,7 +29,7 @@ impl Game {
             {
                 // At most one decision is pending; only a live player can owe it.
                 match self.pending_decision() {
-                    Ok(Some(request)) if self.is_live(request.player()) => {
+                    Ok(Some(request)) if self.is_live(request.player) => {
                         return Advance::AwaitingDecision(request);
                     }
                     Ok(_) => {}

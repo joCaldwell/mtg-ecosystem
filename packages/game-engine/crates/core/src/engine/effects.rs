@@ -873,44 +873,30 @@ impl RulesTxn {
             .first()
             .is_some_and(|first| pairs.iter().all(|pair| pair.effect == first.effect))
     }
-    pub(crate) fn damage_effect_request(&self) -> Result<Option<Request>, String> {
-        let Some((player, recipient, candidates)) = self.damage_effect_group()? else {
+
+    pub(crate) fn damage_effect_request(&self) -> Result<Option<Decision<Rules>>, String> {
+        let Some((player, recipient, pairs)) = self.damage_effect_group()? else {
             return Ok(None);
         };
-        if self.automatic_pair(&candidates) {
+        if self.automatic_pair(&pairs) {
             return Ok(None);
         }
-        Ok(Some(Request::DamageEffect {
-            decision_id: self.state.rules.revision,
-            player,
-            recipient,
-            candidates,
-        }))
-    }
-    pub(super) fn validate_damage_effect(
-        &self,
-        player: PlayerId,
-        effect: &EffectKey,
-        damage: DamageId,
-    ) -> Result<(), String> {
-        let Some(Request::DamageEffect {
-            player: p,
-            candidates,
-            ..
-        }) = self.damage_effect_request()?
-        else {
-            return Err("no damage effect choice".into());
-        };
-        if player != p
-            || !candidates.contains(&DamageEffectCandidate {
-                effect: effect.clone(),
-                damage,
+        let candidates = pairs
+            .into_iter()
+            .map(|p| Candidate::DamageEffect {
+                effect: p.effect,
+                damage: p.damage,
             })
-        {
-            return Err("invalid damage effect application pair".into());
-        }
-        Ok(())
+            .collect();
+        Ok(Some(self.pick(
+            player,
+            Reason::DamageEffect { recipient },
+            candidates,
+            1,
+            1,
+        )))
     }
+
     pub(crate) fn damage_effect_step(&mut self) -> Result<(), String> {
         if let Some((_, _, pairs)) = self.damage_effect_group()? {
             let pair = if self.automatic_pair(&pairs) {
@@ -922,10 +908,9 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing damage effect choice")?;
-                let Response::DamageEffect { effect, damage } = input.response else {
+                let Candidate::DamageEffect { effect, damage } = input.one()?.clone() else {
                     return Err("damage effect response invariant".into());
                 };
-                self.validate_damage_effect(input.player, &effect, damage)?;
                 DamageEffectCandidate { effect, damage }
             };
             let tx = self.damage_transaction()?.clone();
@@ -958,12 +943,7 @@ impl RulesTxn {
         if let Frame::DamageEffects { .. } = self.state.rules.frame
             && let Some(input) = &self.state.rules.pending
         {
-            let valid = match &input.response {
-                Response::DamageEffect { effect, damage } => self
-                    .validate_damage_effect(input.player, effect, *damage)
-                    .is_ok(),
-                _ => false,
-            };
+            let valid = self.validate_pending(input).is_ok();
             if !valid {
                 self.rules_mut().pending = None;
             }
@@ -2039,7 +2019,6 @@ impl RulesTxn {
             .find(|((id, _), h)| *id == tx.id && h == damage)
             .map(|((_, d), _)| *d)
             .ok_or("invalid damage handle")?;
-        self.validate_damage_effect(viewer, &effect, damage)?;
         Ok((effect, damage))
     }
 }

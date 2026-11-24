@@ -888,53 +888,32 @@ impl RulesTxn {
             vec![]
         }
     }
-    pub(super) fn trigger_request(&self) -> Result<Option<Request>, String> {
+
+    pub(super) fn trigger_request(&self) -> Result<Option<Decision<Rules>>, String> {
         let Frame::TriggerOrder { placement } = &self.state.rules.frame else {
             return Ok(None);
         };
-        let candidates = self.trigger_order_ids();
-        if candidates.len() > 1 {
-            Ok(Some(Request::OrderTriggers {
-                decision_id: self.state.rules.revision,
-                player: *placement
-                    .remaining
-                    .first()
-                    .ok_or("missing trigger controller")?,
-                candidates,
-            }))
-        } else {
-            Ok(None)
+        let ids = self.trigger_order_ids();
+        if ids.len() < 2 {
+            return Ok(None);
         }
+        let player = *placement
+            .remaining
+            .first()
+            .ok_or("missing trigger controller")?;
+        let count = ids.len() as u32;
+        Ok(Some(
+            self.order(
+                player,
+                Reason::OrderTriggers,
+                ids.into_iter()
+                    .map(|trigger| Candidate::Trigger { trigger })
+                    .collect(),
+                count,
+            ),
+        ))
     }
-    pub(super) fn validate_trigger_response(
-        &self,
-        player: PlayerId,
-        response: &Response,
-    ) -> Option<Result<(), String>> {
-        let (Frame::TriggerOrder { .. }, Response::OrderTriggers { order }) =
-            (&self.state.rules.frame, response)
-        else {
-            return None;
-        };
-        Some((|| {
-            let Some(Request::OrderTriggers {
-                player: expected,
-                candidates,
-                ..
-            }) = self.trigger_request()?
-            else {
-                return Err("no trigger order decision".into());
-            };
-            if player != expected
-                || order.len() != candidates.len()
-                || order.iter().copied().collect::<BTreeSet<_>>()
-                    != candidates.into_iter().collect()
-            {
-                return Err("invalid trigger ordering".into());
-            }
-            Ok(())
-        })())
-    }
+
     fn finish_trigger_placement(&mut self, placement: TriggerPlacement) -> Result<(), String> {
         self.rules_mut().frame = Frame::Stabilize {
             resume: placement.resume,
@@ -1042,11 +1021,7 @@ impl RulesTxn {
                         .pending
                         .take()
                         .ok_or("missing trigger ordering input")?;
-                    self.validate_trigger_response(input.player, &input.response)
-                        .ok_or("trigger order response mismatch")??;
-                    let Response::OrderTriggers { order } = input.response else {
-                        return Err("trigger order response invariant".into());
-                    };
+                    let order = input.triggers()?;
                     self.record_event(Event::TriggersOrdered {
                         player: input.player,
                         order: order.clone(),
@@ -1112,16 +1087,7 @@ impl RulesTxn {
                     .pending
                     .take()
                     .ok_or("missing trigger target input")?;
-                let Response::PlayerTargets { players } = input.response else {
-                    return Err("trigger target response invariant".into());
-                };
-                self.validate_actions_response(
-                    input.player,
-                    &Response::PlayerTargets {
-                        players: players.clone(),
-                    },
-                )
-                .ok_or("missing trigger target validation")??;
+                let players = input.players()?;
                 let top = self
                     .rules_mut()
                     .stack
@@ -1173,7 +1139,7 @@ impl RulesTxn {
                     .rules
                     .pending
                     .as_ref()
-                    .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
+                    .is_some_and(|p| self.validate_pending(p).is_err())
                 {
                     self.rules_mut().pending = None;
                 }
@@ -1197,7 +1163,7 @@ impl RulesTxn {
                         .rules
                         .pending
                         .as_ref()
-                        .is_some_and(|p| self.validate_response(p.player, &p.response).is_err())
+                        .is_some_and(|p| self.validate_pending(p).is_err())
                     {
                         self.rules_mut().pending = None;
                     }
@@ -1662,9 +1628,7 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing trigger entity targets")?;
-        let Response::EntityTargets { entities } = input.response else {
-            return Err("trigger entity response".into());
-        };
+        let entities = input.entities()?;
         self.validate_entity_targets(input.player, &entities)?;
         let announced = (0..4)
             .map(|v| {
@@ -1713,10 +1677,8 @@ impl RulesTxn {
             .pending
             .take()
             .ok_or("missing creature-trigger targets")?;
-        self.validate_response(input.player, &input.response)?;
-        let Response::Targets { objects } = input.response else {
-            return Err("creature-trigger response invariant".into());
-        };
+
+        let objects = input.objects()?;
         let announced = (0..4)
             .map(|v| {
                 objects
