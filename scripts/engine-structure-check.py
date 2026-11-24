@@ -195,7 +195,14 @@ def topology_errors(root):
 
 def artifact_reason(path, size, prefix):
     parts = Path(path).parts
-    if any(p in {'target', 'node_modules', 'generated', '.scryfall-cache', 'dist', '__pycache__'} for p in parts):
+    sdk_output = (
+        path.startswith(('packages/game-server/sdk/dist/', 'packages/game-server/sdk/generated/'))
+        or path == 'packages/game/generated/sdk-identity.ts'
+    )
+    blocked_parts = {'target', 'node_modules', '.scryfall-cache', '__pycache__'}
+    if not sdk_output:
+        blocked_parts.update(('dist', 'generated'))
+    if blocked_parts.intersection(parts):
         return 'generated/cache directory'
     if path.startswith('packages/card-data/sets/') and path.endswith('.json'):
         return 'downloaded/compiled card corpus'
