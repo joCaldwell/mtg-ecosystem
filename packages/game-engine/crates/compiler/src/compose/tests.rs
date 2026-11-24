@@ -1041,6 +1041,37 @@ fn printed_choices_match_their_carriers_in_number_and_polarity() {
         })),
         DISAGREES
     );
+    // A condition moved to the sentence that does not print it.
+    let moved = changed(TEMPORAL_MACHINATIONS, |row| {
+        let effects = effects(row, 0);
+        let second = effects[1].as_object_mut().unwrap();
+        let (condition, kind) = (
+            second.remove("condition").unwrap(),
+            second.remove("conditionKind").unwrap(),
+        );
+        second.remove("conditionPosition");
+        effects[0]["condition"] = condition;
+        effects[0]["conditionKind"] = kind;
+        row["faces"][0]["result"]["lines"][0]["ability"] =
+            row["faces"][0]["result"]["abilities"][0].clone();
+        for entry in row["resolution"]["faces"][0]["blocks"][0]["refs"]
+            .as_array_mut()
+            .unwrap()
+        {
+            let path = entry["path"].as_str().unwrap().to_owned();
+            if let Some(rest) = path.strip_prefix("/effects/1/condition") {
+                entry["path"] = json!(format!("/effects/0/condition{rest}"));
+            }
+        }
+    });
+    assert_eq!(rejection(&moved), DISAGREES);
+    // "If you do" cannot lower as "if you don't" (CR 118.12).
+    let inverted = changed(WOODEN_SPHERE, |row| {
+        effects(row, 0)[1]["condition"] = json!({"condition": "you-dont"});
+        row["faces"][0]["result"]["lines"][0]["ability"] =
+            row["faces"][0]["result"]["abilities"][0].clone();
+    });
+    assert_eq!(rejection(&inverted), DISAGREES);
     // A static block is checked too. Aesi's printed "may" is its land-play
     // permission; Mire Kavu's "as long as" is its condition, and without it
     // the static would lower as an unconditional +1/+1.
@@ -1059,33 +1090,6 @@ fn printed_choices_match_their_carriers_in_number_and_polarity() {
             .retain(|r| !r["path"].as_str().unwrap().starts_with("/effect/condition"));
     });
     assert_eq!(rejection(&unconditional), DISAGREES);
-}
-
-#[test]
-fn a_printed_intervening_if_must_be_the_trigger_condition() {
-    let line = "At the beginning of your upkeep, if you don't control an Ogre, you lose 2 life.";
-    let sentence = json!({"kind": "triggered", "trigger": {"trigger": "phase"},
-        "effects": [{"steps": [], "condition": {"condition": "not"}, "conditionKind": "if"}]});
-    let failure = intervening_if(line, &sentence).unwrap_err();
-    assert_eq!(failure.path, "abilities.condition");
-    let mut trigger = sentence.clone();
-    trigger["condition"] = json!({"condition": "not"});
-    assert!(intervening_if(line, &trigger).is_ok());
-    // A condition after the effect is a resolution condition (CR 608.2c).
-    assert!(
-        intervening_if(
-            "At the beginning of your upkeep, you lose 2 life if you don't control an Ogre.",
-            &sentence
-        )
-        .is_ok()
-    );
-    assert!(
-        intervening_if(
-            "Landfall \u{2014} Whenever a land you control enters, if it's your turn, draw a card.",
-            &json!({"kind": "triggered", "abilityWord": "Landfall"})
-        )
-        .is_err()
-    );
 }
 
 #[test]

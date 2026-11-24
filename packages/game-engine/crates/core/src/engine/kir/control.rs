@@ -649,11 +649,16 @@ impl RulesTxn {
         Ok(())
     }
 
-    /// Whether an optional body can be performed now: some object a tap,
-    /// untap, move or counter verb names is present in a state that verb can
-    /// change (CR 701.26a-b, 122.1). A sequence is performable when any of its
-    /// verbs is; every other admitted optional verb always is (CR 121.3,
-    /// 119.3, 701.17b).
+    /// CR 608.2d: whether an optional body can be performed now, so that
+    /// accepting it is a legal choice. A sequence is performable when any of
+    /// its verbs is.
+    /// * Tap, untap, counters: an object the verb names is on the
+    ///   battlefield in a state it can change (CR 701.26a-b, 122.1).
+    /// * Move: the object's incarnation still exists; a zone change makes a
+    ///   new one (CR 400.7).
+    /// * Draw, life: a live player and a positive amount. An empty library
+    ///   does not make a draw impossible (CR 121.3, 608.2d).
+    /// * Mill: a live player whose library holds the whole amount (CR 701.17b).
     fn performable(&self, task: &Task, node: &Node) -> Result<bool, String> {
         let present = |set: &SetExpr, wanted: &dyn Fn(&Object) -> bool| -> Result<bool, String> {
             Ok(self.control_objects(task, set)?.into_iter().any(|id| {
@@ -673,7 +678,38 @@ impl RulesTxn {
             Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
             Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
             Node::Do(Verb::PutCounters { on, .. }) => present(on, &|_| true)?,
-            Node::Do(Verb::Move { what, .. }) => !self.control_objects(task, what)?.is_empty(),
+            Node::Do(Verb::Move { what, .. }) => self
+                .control_objects(task, what)?
+                .into_iter()
+                .any(|id| self.current(id).is_ok()),
+            Node::Do(
+                Verb::Draw { player, amount }
+                | Verb::GainLife { player, amount }
+                | Verb::LoseLife { player, amount },
+            ) => {
+                self.control_amount(task, amount)? > Quantity::zero()
+                    && self
+                        .control_players(task, player)?
+                        .into_iter()
+                        .any(|p| self.is_live(p))
+            }
+            Node::Do(Verb::Mill { player, amount }) => {
+                let amount = self.control_amount(task, amount)?;
+                amount > Quantity::zero()
+                    && self.control_players(task, player)?.into_iter().any(|p| {
+                        let library = self
+                            .state
+                            .rules
+                            .objects
+                            .values()
+                            .filter(|o| o.zone == Zone::Library { owner: p })
+                            .count();
+                        self.is_live(p) && Quantity::from(library as i64) >= amount
+                    })
+            }
+            // Composition admits optional bodies of the verbs above only
+            // (`compose::control::decided`); nested control decides its own
+            // choices when it runs.
             _ => true,
         })
     }
@@ -681,19 +717,19 @@ impl RulesTxn {
     pub(in crate::engine) fn kernel_payment_terms(
         &self,
         resume: FrameLink,
-    ) -> Result<(PlayerId, u32), String> {
+    ) -> Result<(PlayerId, u32, Quantity), String> {
         let Frame::Kernel { task } = self.saved_frame(resume)? else {
             return Err("missing kernel payment parent".into());
         };
         let (
             Node::UnlessPays {
                 payer,
-                payment: Payment::Generic { .. },
+                payment: Payment::Generic { amount },
                 ..
             }
             | Node::IfPays {
                 payer,
-                payment: Payment::Generic { .. },
+                payment: Payment::Generic { amount },
                 ..
             },
             block,
@@ -705,7 +741,8 @@ impl RulesTxn {
         let [player] = players.as_slice() else {
             return Err("invalid kernel payer".into());
         };
-        Ok((*player, block))
+        // CR 118.12: the generic amount the admitted node names.
+        Ok((*player, block, self.control_amount(task, amount)?))
     }
 
     pub(in crate::engine) fn finish_kernel_payment(

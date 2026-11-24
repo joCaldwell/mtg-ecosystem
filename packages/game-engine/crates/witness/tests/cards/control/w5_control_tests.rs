@@ -290,3 +290,57 @@ fn leonin_snarecaster_offers_no_choice_to_tap_a_tapped_creature() {
         checked(&g);
     }
 }
+
+/// Deathcap Marionette: "When this creature enters, you may mill two
+/// cards." A player can't choose to mill more cards than their library
+/// holds (CR 701.17b), so one card offers no choice; two are offered and
+/// milled.
+#[test]
+fn deathcap_marionette_offers_milling_only_a_whole_library_amount() {
+    for library in [1usize, 2] {
+        let mut board = Board::new(
+            FixtureCatalog::Witness.get().clone(),
+            "w5-control-private-witness",
+        )
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .permanent_or_hand("Deathcap Marionette", 0, 0, true)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false);
+        for _ in 0..library {
+            board = board.card("Forest", 0, 0, Zone::Library { owner: PlayerId(0) });
+        }
+        let mut g = Game::new(board.prepare());
+        let in_zone = |g: &Game, zone: Zone| {
+            g.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == zone)
+                .count()
+        };
+        let graveyard = Zone::Graveyard { owner: PlayerId(0) };
+        cast_with(&mut g, 0, vec![]);
+        match next_choice_or_empty(&mut g) {
+            None => assert_eq!(library, 1, "two cards must offer the mill"),
+            Some(d) => {
+                assert_eq!(library, 2, "one card offered {d:?}");
+                assert_eq!(
+                    (d.player, &d.reason),
+                    (PlayerId(0), &Reason::OptionalEffect)
+                );
+                checked(&g);
+                g.respond(
+                    d.player,
+                    d.id,
+                    d.pick_one(&Candidate::Flag { flag: Flag::Accept }).unwrap(),
+                )
+                .unwrap();
+                assert!(next_choice_or_empty(&mut g).is_none());
+            }
+        }
+        let milled = if library == 2 { 2 } else { 0 };
+        assert_eq!(in_zone(&g, graveyard), milled);
+        checked(&g);
+    }
+}

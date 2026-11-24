@@ -147,9 +147,10 @@ impl RulesTxn {
         payment: &ResolutionPayment,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        let (payer, _) = self.kernel_payment_terms(payment.resume)?;
+        let (payer, _, generic) = self.kernel_payment_terms(payment.resume)?;
         if frame != self.kernel_root()?
             || payment.cost.generic.is_negative()
+            || payment.cost.generic != generic
             || payment.payer.0 >= 4
             || payer != payment.payer
             || !payment.cost.colored.is_empty()
