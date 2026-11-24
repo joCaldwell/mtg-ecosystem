@@ -158,16 +158,6 @@ impl GroupFinish {
 }
 
 impl GraveyardGroup {
-    pub(super) fn payment_stack(&self, game: &RulesTxn) -> Result<Option<StackId>, String> {
-        let GroupFinish::Payment { resume } = &self.finish else {
-            return Ok(None);
-        };
-        let Frame::SacrificeCost { cast } = game.saved_frame(*resume)? else {
-            return Err("invalid retained payment frame".into());
-        };
-        Ok(Some(cast.stack_id))
-    }
-
     pub(super) fn leaves(group: &EventGroup) -> Result<&[ProposedEvent], String> {
         match group {
             EventGroup::Occurrence { proposed } => Ok(std::slice::from_ref(proposed)),

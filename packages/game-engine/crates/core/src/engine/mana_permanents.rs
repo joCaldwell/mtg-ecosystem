@@ -184,7 +184,7 @@ impl RulesTxn {
                 controller,
                 colors_only,
             } => self
-                .lands_could_produce(player, *controller, *colors_only, &mut BTreeSet::new())?
+                .lands_could_produce(player, *controller, *colors_only)?
                 .into_iter()
                 .collect(),
             // CR 702.124c, 903.4: both designations contribute their
@@ -213,57 +213,91 @@ impl RulesTxn {
     }
     /// CR 106.7: the types of mana the lands `controller` names, relative
     /// to `player`, could produce: every type an ability of theirs would
-    /// produce if it resolved now, ignoring costs. A land whose own ability
-    /// reads "could produce" is evaluated once (`visiting`), so a cycle of
-    /// such lands adds no type that none of them defines (CR 106.7).
+    /// produce if it resolved now, ignoring costs.
     fn lands_could_produce(
         &self,
         player: PlayerId,
         controller: ManaLandController,
         colors_only: bool,
-        visiting: &mut BTreeSet<ObjectId>,
     ) -> Result<BTreeSet<Color>, String> {
-        let mut colors = BTreeSet::new();
-        let lands: Vec<ObjectId> = self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| {
-                o.present_on_battlefield()
-                    && match controller {
-                        ManaLandController::You => o.controller == player,
-                        // CR 102.3: every other player in the game.
-                        ManaLandController::Opponents => {
-                            o.controller != player && self.is_live(o.controller)
-                        }
-                    }
-            })
-            .map(|o| o.id)
+        let table = self.could_produce_table()?;
+        let mut colors: BTreeSet<Color> = table
+            .iter()
+            .filter(|(land, _)| self.names_land(player, controller, land.1))
+            .flat_map(|(_, types)| types.iter().copied())
             .collect();
-        for land in lands {
-            if !self.characteristics(land)?.has_type(CardKind::Land) || !visiting.insert(land) {
-                continue;
-            }
-            colors.extend(self.intrinsic_mana_colors(land)?);
-            let owner = self.current(land)?.controller;
-            for ability in &self.copiable_definition(land)?.mana_abilities {
-                colors.extend(match &ability.production {
-                    ManaProduction::LandsCouldProduce {
-                        controller,
-                        colors_only,
-                    } => self
-                        .lands_could_produce(owner, *controller, *colors_only, visiting)?
-                        .into_iter()
-                        .collect(),
-                    production => self.mana_colors(owner, production)?,
-                });
-            }
-        }
         if colors_only {
             colors.remove(&Color::C);
         }
         Ok(colors)
+    }
+
+    /// Whether a land controlled by `land_controller` is one of the lands
+    /// `controller` names relative to `player` (CR 109.5, 102.3).
+    fn names_land(
+        &self,
+        player: PlayerId,
+        controller: ManaLandController,
+        land_controller: PlayerId,
+    ) -> bool {
+        match controller {
+            ManaLandController::You => land_controller == player,
+            ManaLandController::Opponents => {
+                land_controller != player && self.is_live(land_controller)
+            }
+        }
+    }
+
+    /// CR 106.7: the types each battlefield land could produce, keyed by
+    /// (land, controller). Abilities with a defined production seed the
+    /// table; a "could produce" ability then adds the types of the lands it
+    /// names, relative to its own land's controller, until nothing changes.
+    /// This least fixed point is independent of object order, and a cycle
+    /// of "could produce" lands adds no type that none of them defines.
+    fn could_produce_table(
+        &self,
+    ) -> Result<BTreeMap<(ObjectId, PlayerId), BTreeSet<Color>>, String> {
+        let mut table = BTreeMap::new();
+        let mut reads = vec![];
+        for o in self.state.rules.objects.values() {
+            if !o.present_on_battlefield() || !self.characteristics(o.id)?.has_type(CardKind::Land)
+            {
+                continue;
+            }
+            let key = (o.id, o.controller);
+            let mut types: BTreeSet<Color> =
+                self.intrinsic_mana_colors(o.id)?.into_iter().collect();
+            for ability in &self.copiable_definition(o.id)?.mana_abilities {
+                match &ability.production {
+                    ManaProduction::LandsCouldProduce {
+                        controller,
+                        colors_only,
+                    } => reads.push((key, *controller, *colors_only)),
+                    production => types.extend(self.mana_colors(o.controller, production)?),
+                }
+            }
+            table.insert(key, types);
+        }
+        loop {
+            let mut changed = false;
+            for &(key, controller, colors_only) in &reads {
+                let mut found: BTreeSet<Color> = table
+                    .iter()
+                    .filter(|(land, _)| self.names_land(key.1, controller, land.1))
+                    .flat_map(|(_, types)| types.iter().copied())
+                    .collect();
+                if colors_only {
+                    found.remove(&Color::C);
+                }
+                let types = table.get_mut(&key).ok_or("missing could-produce land")?;
+                let before = types.len();
+                types.extend(found);
+                changed |= types.len() != before;
+            }
+            if !changed {
+                return Ok(table);
+            }
+        }
     }
 
     pub(crate) fn mana_continuation_charge(&self) -> Result<usize, String> {
@@ -293,39 +327,11 @@ impl RulesTxn {
                             },
                         ));
                 }
-                Frame::Mana { cast }
-                | Frame::SpendMana { cast }
-                | Frame::SacrificeCost { cast }
-                | Frame::Payment { cast } => {
-                    charge =
-                        charge.saturating_add(self.mana_receipt_charge(&cast.mana_activations));
-                    break;
-                }
                 _ => break,
             };
-            charge = charge.saturating_add(self.mana_receipt_charge(&activation.receipts));
-            if let Some(paid) = &activation.paid
-                && !paid.spent_restricted.is_empty()
-            {
-                charge = charge.saturating_add(stored_history::payload_charge(paid));
-            }
             frame = self.saved_frame(activation.resume)?;
         }
         Ok(charge)
-    }
-
-    fn mana_receipt_charge(&self, receipts: &[ManaActivationUndo]) -> usize {
-        receipts.iter().fold(0usize, |charge, receipt| {
-            if receipt
-                .permanent
-                .as_ref()
-                .is_some_and(|r| !r.spent_restricted.is_empty())
-            {
-                charge.saturating_add(stored_history::payload_charge(receipt))
-            } else {
-                charge
-            }
-        })
     }
 
     pub(super) fn underlying_mana_frame<'a>(
@@ -340,6 +346,13 @@ impl RulesTxn {
                     _ => break,
                 },
                 Frame::ManaAbility { activation } => self.saved_frame(activation.resume)?,
+                // A mana rider's damage transaction suspends its activation.
+                Frame::DamageEffects { transaction } => match &transaction.continuation {
+                    DamageContinuation::Mana { activation } => {
+                        self.saved_frame(activation.resume)?
+                    }
+                    DamageContinuation::Combat | DamageContinuation::Instruction { .. } => break,
+                },
                 Frame::ManaSourceChoice { resume, .. } => self.saved_frame(*resume)?,
                 _ => break,
             };
@@ -592,7 +605,7 @@ impl RulesTxn {
             paid: None,
         };
         if activation.payment_cost().is_none() {
-            self.pay_mana_ability(activation, BTreeMap::new(), vec![])
+            self.pay_mana_ability(activation, BTreeMap::new())
         } else {
             self.rules_mut().frame = Frame::ManaAbility {
                 activation: Box::new(activation),
@@ -656,7 +669,15 @@ impl RulesTxn {
                     },
             } if a.stage == ManaStage::Payment => {
                 let cost = a.payment_cost().ok_or("missing nested mana cost")?;
-                if self.can_pay_offered(a.player, &cost)? {
+                // CR 601.2g-h: a nested activation may have changed the other
+                // costs (a life payment, the source's tap), so every cost is
+                // rechecked before the spend decision; otherwise the outer
+                // activation is cancelled and its legal nested ones remain.
+                if self.can_pay_offered(a.player, &cost)?
+                    && self
+                        .validate_permanent_mana_costs(a.player, a.source, a.index)
+                        .is_ok()
+                {
                     a.stage = ManaStage::Spend;
                     self.rules_mut().frame = Frame::ManaAbility {
                         activation: Box::new(a),
@@ -671,7 +692,7 @@ impl RulesTxn {
             Answer::Pay {
                 pay: PayAnswer::Spend { unrestricted },
             } if a.stage == ManaStage::Spend => {
-                self.pay_mana_ability(a, unrestricted.clone(), vec![])?;
+                self.pay_mana_ability(a, unrestricted.clone())?;
             }
             Answer::Pick { .. } if a.stage == ManaStage::Color => {
                 let Candidate::Color { color } = *input.one()? else {
@@ -687,7 +708,6 @@ impl RulesTxn {
         &mut self,
         mut a: ManaActivation,
         spending: BTreeMap<Color, Quantity>,
-        restricted: Vec<RestrictedMana>,
     ) -> Result<(), String> {
         self.validate_permanent_mana_costs(a.player, a.source, a.index)?;
         // No costs are paid until the nested payment succeeds (601.2g-h).
@@ -703,7 +723,7 @@ impl RulesTxn {
             previously_used: self.mana_ability_index_used(a.source, a.index),
             produced: BTreeMap::new(),
             spent: spending.clone(),
-            spent_restricted: restricted.clone(),
+            spent_restricted: vec![],
             absent: [Color::W, Color::U, Color::B, Color::R, Color::G, Color::C]
                 .into_iter()
                 .filter(|c| !pool.contains_key(c))
@@ -719,7 +739,7 @@ impl RulesTxn {
                     player: a.player,
                     cost,
                     spending,
-                    restricted,
+                    restricted: vec![],
                 },
                 cause.clone(),
             )?;
@@ -901,9 +921,10 @@ impl RulesTxn {
         self.finish_mana_ability(a)
     }
 
-    /// CR 120.3a: the source deals the damage to its controller. A plain
-    /// occurrence commits in this staged step; an applicable replacement or
-    /// prevention choice suspends the activation in the transaction.
+    /// CR 120.3a: the source deals the damage to its controller through the
+    /// ordinary damage transaction, which the step dispatcher advances like
+    /// any other: replacement and prevention effects apply (CR 615, 616) and
+    /// the activation stays suspended in the transaction until it commits.
     fn begin_mana_rider_damage(
         &mut self,
         a: ManaActivation,
@@ -928,11 +949,7 @@ impl RulesTxn {
             DamageContinuation::Mana {
                 activation: Box::new(a),
             },
-        )?;
-        if self.damage_effect_group()?.is_none() {
-            self.damage_effect_step()?;
-        }
-        Ok(())
+        )
     }
 
     /// The damage transaction committed: perform the remaining riders, or,
@@ -1083,8 +1100,9 @@ impl RulesTxn {
             return Err("departed mana reversal payer".into());
         }
         let p = &mut self.rules_mut().players[r.player.0 as usize];
-        for unit in &r.spent_restricted {
-            restricted_mana::credit(&mut p.restricted_mana, unit);
+        // CR 106.6: no payment spends restricted mana, so none is refunded.
+        if !r.spent_restricted.is_empty() {
+            return Err("restricted mana has no spend decision".into());
         }
         let pool = &mut p.mana;
         for (c, n) in &r.produced {
@@ -1272,6 +1290,19 @@ impl RulesTxn {
                 self.rules_mut().frame = self.saved_frame(a.resume)?.clone();
             }
             self.rules_mut().pending = None;
+        }
+        // CR 106.7: a departure can remove the last land that defined a
+        // "could produce" type. The paid ability then adds no mana.
+        if let Frame::ManaAbility { activation } = &self.state.rules.frame
+            && activation.stage == ManaStage::Color
+            && self.is_live(activation.player)
+            && self
+                .mana_colors(activation.player, &activation.ability.production)?
+                .is_empty()
+        {
+            let a = ManaActivation::clone(activation);
+            self.rules_mut().pending = None;
+            return self.resolve_mana_ability(a, None);
         }
         self.revalidate_resolution_payment_departure()
     }

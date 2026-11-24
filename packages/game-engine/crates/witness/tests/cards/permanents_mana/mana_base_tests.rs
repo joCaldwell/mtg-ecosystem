@@ -10,7 +10,7 @@ use mtg_core::ManaAbilityIdentity;
 
 const MANIFEST: &str =
     include_str!("../../../../../tests/fixtures/archive-manifest-phase1-r4.json");
-const SOURCES: [&str; 9] = [
+const SOURCES: [&str; 11] = [
     include_str!(
         "../../../../../tests/fixtures/phase1-r4/14d2979d-5728-42d7-a027-0eb1f754655d.json"
     ),
@@ -38,11 +38,19 @@ const SOURCES: [&str; 9] = [
     include_str!(
         "../../../../../tests/fixtures/phase1-r4/7190debf-708b-4f41-9714-0d0a5bd5a74e.json"
     ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/2cc8c24f-cca8-462c-a5ad-1f8662e69a8a.json"
+    ),
+    include_str!(
+        "../../../../../tests/fixtures/phase1-r4/0895c9b7-ae7d-4bb3-af17-3b75deb50a25.json"
+    ),
 ];
 const LIFE: i64 = 20;
 
+/// The witness catalog carries every W3 source; each still lowers to
+/// exactly its committed definition.
 fn catalog() -> Catalog {
-    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let catalog = FixtureCatalog::Witness.get().clone();
     for raw in SOURCES {
         let mtg_compiler::CompileResult::Lowered { definition } =
             mtg_witness::compile(MANIFEST, raw)
@@ -51,12 +59,11 @@ fn catalog() -> Catalog {
         };
         // CR 605.1a: every printed mana ability lowers to a mana ability.
         assert!(!definition.mana_abilities.is_empty() && definition.activated.is_empty());
-        catalog.definitions.push(*definition);
+        assert_eq!(
+            catalog.definition_by_oracle_id(&definition.oracle_id),
+            Some(definition.as_ref())
+        );
     }
-    catalog
-        .definitions
-        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
-    catalog.validate().unwrap();
     catalog
 }
 
@@ -66,11 +73,15 @@ fn definition<'a>(catalog: &'a Catalog, name: &str) -> &'a Definition {
 
 /// Cards are numbered in order: `(name, controller, in hand)`.
 fn prepared(cards: &[(&str, u8, bool)]) -> Prepared {
+    prepared_with(2, LIFE, cards)
+}
+
+fn prepared_with(seats: u8, life: i64, cards: &[(&str, u8, bool)]) -> Prepared {
     let mut board = Board::new(catalog(), "w3-mana-base-private-witness")
         .step(TurnStep::PrecombatMain)
-        .seats(2);
-    for seat in 0..2 {
-        board = board.life(PlayerId(seat), LIFE.into());
+        .seats(seats);
+    for seat in 0..seats {
+        board = board.life(PlayerId(seat), if seat == 0 { life } else { LIFE }.into());
     }
     for (name, seat, hand) in cards {
         board = board.permanent_or_hand(name, *seat, *seat, *hand);
@@ -556,4 +567,142 @@ fn restricted_mana_never_reaches_a_spend_decision() {
     priority(&mut g);
     assert!(!g.current(Driver::object(&g, 0)).unwrap().tapped);
     assert!(pool(&g, 0).is_empty());
+}
+
+/// Review P1: Standing Stones' {1} is paid by Mana Confluence, whose own
+/// life payment leaves 0 life, so Stones' "Pay 1 life" is no longer payable.
+/// Finishing cancels Stones without a spend decision (CR 601.2g-h); the
+/// legal Confluence activation stays (CR 733.1) and state-based actions
+/// handle the loss when priority resumes (CR 704.5a).
+#[test]
+fn nested_life_payment_that_empties_life_cancels_the_outer_activation() {
+    let mut g = Game::new(prepared_with(
+        3,
+        1,
+        &[("Standing Stones", 0, false), ("Mana Confluence", 0, false)],
+    ));
+    activate(&mut g, 0);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Mana { .. }), "{:?}", d.reason);
+    activate(&mut g, 1);
+    pick(
+        &mut g,
+        |r| matches!(r, Reason::ManaColor { .. }),
+        &colors(&[Color::W, Color::U, Color::B, Color::R, Color::G]),
+        color(Color::R),
+    );
+    assert_eq!(life(&g, 0), Quantity::zero());
+    checked(&g);
+    Driver::answer(
+        &mut g,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Priority), "{:?}", d.reason);
+    // Player 0 left the game with 0 life; no spend decision was offered.
+    assert!(!g.live_players().contains(&PlayerId(0)));
+    g.validate_state().unwrap();
+}
+
+/// Review P1: the only opponent whose land defined Exotic Orchard's color
+/// concedes while the color is being chosen. No type is defined any more,
+/// so the paid ability adds no mana (CR 106.7, 800.4a).
+#[test]
+fn orchard_color_choice_emptied_by_concession_adds_no_mana() {
+    let mut g = Game::new(prepared_with(
+        3,
+        LIFE,
+        &[("Exotic Orchard", 0, false), ("Mountain", 1, false)],
+    ));
+    activate(&mut g, 0);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::ManaColor { .. }));
+    assert_eq!(d.candidates, colors(&[Color::R]));
+    g.concede(PlayerId(1)).unwrap();
+    priority(&mut g);
+    assert!(pool(&g, 0).is_empty());
+    assert!(g.current(Driver::object(&g, 0)).unwrap().tapped);
+    checked(&g);
+}
+
+/// Review P1: CR 106.7 is a least fixed point, independent of object order:
+/// the opponent's Orchard reads this player's lands, this player's Orchard
+/// reads it back, and Reflecting Pool still sees Yavimaya Coast's {C}.
+#[test]
+fn could_produce_is_independent_of_object_order() {
+    for order in [
+        ["Reflecting Pool", "Exotic Orchard", "Yavimaya Coast"],
+        ["Yavimaya Coast", "Exotic Orchard", "Reflecting Pool"],
+        ["Exotic Orchard", "Yavimaya Coast", "Reflecting Pool"],
+    ] {
+        let mut cards: Vec<(&str, u8, bool)> = vec![("Exotic Orchard", 1, false)];
+        cards.extend(order.iter().map(|name| (*name, 0, false)));
+        let pool_card = 1 + order.iter().position(|n| *n == "Reflecting Pool").unwrap() as u32;
+        let orchard = 1 + order.iter().position(|n| *n == "Exotic Orchard").unwrap() as u32;
+        let mut g = Game::new(prepared(&cards));
+        activate(&mut g, pool_card);
+        pick(
+            &mut g,
+            |r| matches!(r, Reason::ManaColor { .. }),
+            &colors(&[Color::U, Color::G, Color::C]),
+            color(Color::C),
+        );
+        activate(&mut g, orchard);
+        pick(
+            &mut g,
+            |r| matches!(r, Reason::ManaColor { .. }),
+            &colors(&[Color::U, Color::G]),
+            color(Color::G),
+        );
+        priority(&mut g);
+        checked(&g);
+    }
+}
+
+/// Review P2: while a mana rider's damage transaction is suspended inside a
+/// cast's payment, the unpaid spell remains the incomplete top of the stack
+/// and the snapshot validates and round-trips (CR 605.3b, 120.3a).
+#[test]
+fn suspended_mana_rider_damage_keeps_the_payment_valid_in_snapshots() {
+    let mut g = Game::new(prepared(&[
+        ("Colossal Dreadmaw", 0, true),
+        ("Yavimaya Coast", 0, false),
+    ]));
+    Driver::cast(&mut g, CardId(0));
+    activate(&mut g, 1);
+    pick(
+        &mut g,
+        |r| matches!(r, Reason::ManaAbility { .. }),
+        &[printed(0), printed(1)],
+        printed(1),
+    );
+    let d = Driver::request(&mut g, u64::MAX);
+    g.respond(d.player, d.id, d.pick_one(&color(Color::G)).unwrap())
+        .unwrap();
+    let mut suspended = false;
+    for _ in 0..64 {
+        if matches!(
+            &g.state.rules.frame,
+            Frame::DamageEffects { transaction }
+                if matches!(transaction.continuation, DamageContinuation::Mana { .. })
+        ) {
+            suspended = true;
+            assert_eq!(life(&g, 0), Quantity::from(LIFE));
+            checked(&g);
+        }
+        if !matches!(g.advance(Budget::new(1)), Advance::Suspended { .. }) {
+            break;
+        }
+    }
+    assert!(suspended, "the rider damage is a suspended transaction");
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Mana { .. }), "{:?}", d.reason);
+    assert_eq!(life(&g, 0), Quantity::from(LIFE - 1));
+    assert_eq!(pool(&g, 0), BTreeMap::from([(Color::G, 1.into())]));
+    checked(&g);
 }

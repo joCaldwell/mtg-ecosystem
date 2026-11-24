@@ -9,7 +9,9 @@
 //! and a game paused inside a resolving spell's choice): every object key and
 //! JSON type reached, with ID-keyed maps folded. That catches added, removed,
 //! renamed or retyped fields on the reached state; payloads of enum variants
-//! a representative never reaches are not covered.
+//! a representative never reaches are not covered. A third representative
+//! pays a spell with a pain land's colored mana ability, reaching a selected
+//! printed mana ability, its rider's damage transaction and a kept receipt.
 use super::*;
 use mtg_contracts::{canonical, sha256};
 use mtg_core::testkit::formats::*;
@@ -21,8 +23,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "069e4186a70e0a1d45a8a55a1ae2f679459462ac5ff4d4ddb98b7a25449433a2",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    84,
-    "137dc434bf85c7f5e55331f0fd0480163a460b1be75ad78a1e8f61923addb762",
+    85,
+    "e3f84d37f522cd4fc08c3b1481d469f0a41739a3969dec1bee07bafe5a9e8689",
 );
 const WORK_PIN: (u32, &str) = (
     53,
@@ -181,6 +183,52 @@ pub(super) fn cast_edict(prepared: Prepared) -> Game {
     game
 }
 
+/// CR 605.3a-b, 733.1: a cast paid by Yavimaya Coast's second printed mana
+/// ability, sampled at its color choice (a nonzero ability index), inside its
+/// damage rider's suspended transaction, and with its kept receipt retained
+/// by the cast.
+fn mana_riders() -> Vec<Game> {
+    let prepared = Board::new(
+        FixtureCatalog::Witness.get().clone(),
+        "w3-mana-format-witness",
+    )
+    .step(TurnStep::PrecombatMain)
+    .seats(2)
+    .permanent_or_hand("Colossal Dreadmaw", 0, 0, true)
+    .permanent_or_hand("Yavimaya Coast", 0, 0, false)
+    .libraries("Forest", 4)
+    .prepare();
+    let mut game = Game::new(prepared);
+    Driver::cast(&mut game, CardId(0));
+    let coast = Driver::object(&game, 1);
+    let activate = game.next_test_decision().activate_mana(coast);
+    Driver::answer(&mut game, u64::MAX, activate);
+    let d = Driver::request(&mut game, u64::MAX);
+    let answer = d
+        .pick_one(&Candidate::ManaAbility {
+            ability: ManaAbilityIdentity::Printed { index: 1 },
+        })
+        .unwrap();
+    game.respond(d.player, d.id, answer).unwrap();
+    let mut samples = vec![];
+    let d = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(d.reason, Reason::ManaColor { .. }));
+    samples.push(game.fork());
+    let answer = d.pick_one(&Candidate::Color { color: Color::G }).unwrap();
+    game.respond(d.player, d.id, answer).unwrap();
+    while !matches!(&game.state.rules.frame, Frame::DamageEffects { .. }) {
+        assert!(matches!(
+            game.advance(Budget::new(1)),
+            Advance::Suspended { .. }
+        ));
+    }
+    samples.push(game.fork());
+    let d = Driver::request(&mut game, u64::MAX);
+    assert!(matches!(d.reason, Reason::Mana { .. }));
+    samples.push(game);
+    samples
+}
+
 fn mid_resolution() -> Game {
     let mut game = cast_edict(actions_scenario());
     let Advance::AwaitingDecision(Decision {
@@ -213,6 +261,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             mid_resolution(),
             super::kernel_control_tests::suspended_control(),
         ])
+        .chain(mana_riders())
         .map(|g| g.snapshot().unwrap())
         .collect::<Vec<_>>();
     for raw in &samples {

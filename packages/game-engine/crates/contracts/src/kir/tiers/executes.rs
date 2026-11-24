@@ -260,8 +260,11 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                     Some(Route::Player) => false,
                 }
         }
+        // A life payment is a mana-ability cost only; no stack activation
+        // pays it as part of a composite cost.
         ActivationCost::Composite { costs } => {
             costs.remove_source_plus_one_counters.is_none()
+                && costs.pay_life.is_none()
                 && costs.mana.as_ref().is_none_or(mana_ok)
                 && (costs.tap || costs.sacrifice)
                 && match route {
@@ -674,6 +677,137 @@ mod tests {
     }
     fn damage() -> Instruction {
         Instruction::damage_target(0, kir::Amount::Fixed { value: 1.into() }, 0)
+    }
+
+    /// CR 118.3, 119.4: a life payment is a mana-ability cost only. A
+    /// deserialized stack activation whose composite cost pays life is not
+    /// admitted at any tier, so it can never keep the reviewed composite
+    /// cost's Hosting tier.
+    #[test]
+    fn composite_activation_life_payment_is_rejected() {
+        let tap = |pay_life: Option<Quantity>| {
+            with(|d| {
+                d.activated.push(ability(
+                    ActivationCost::Composite {
+                        costs: PermanentActivationCosts {
+                            remove_source_plus_one_counters: None,
+                            tap: true,
+                            mana: Some(ManaCost {
+                                generic: 1.into(),
+                                colored: vec![],
+                            }),
+                            sacrifice: true,
+                            pay_life,
+                        },
+                    },
+                    program(vec![gain(Context::Activated)], vec![]),
+                ))
+            })
+        };
+        tap(None).validate().unwrap();
+        let mut json = serde_json::to_value(tap(None)).unwrap();
+        json["activated"][0]["cost"]["composite"]["costs"]["pay_life"] =
+            serde_json::to_value(Quantity::from(1)).unwrap();
+        let forged: Definition = serde_json::from_value(json).unwrap();
+        assert_eq!(forged, tap(Some(1.into())));
+        assert!(
+            forged
+                .validate()
+                .unwrap_err()
+                .contains("cell:cost:composite")
+        );
+        assert!(validate(&forged).is_err());
+    }
+
+    /// The new mana shapes execute only: their cells start at Executes and
+    /// every rider outside `kir::mana_rider` rejects the mana row.
+    #[test]
+    fn mana_ability_shapes_are_executes_only_cells() {
+        let mana =
+            |production: ManaProduction, riders: Vec<kir::Node>, pay_life: Option<Quantity>| {
+                let mut d = with(|d| {
+                    d.mana_abilities.push(ManaAbility {
+                        restriction: None,
+                        costs: PermanentActivationCosts {
+                            remove_source_plus_one_counters: None,
+                            tap: true,
+                            mana: None,
+                            sacrifice: false,
+                            pay_life,
+                        },
+                        production,
+                        riders,
+                        source_block: 0,
+                    })
+                });
+                d.capabilities = d.requirements();
+                d
+            };
+        let fixed = mana(
+            ManaProduction::Fixed {
+                symbols: vec![Color::G],
+            },
+            vec![],
+            None,
+        );
+        fixed.validate().unwrap();
+        assert!(kir::definition_cells(&fixed).unwrap().is_empty());
+        let damage = kir::Node::Do(Verb::Damage {
+            source: kir::Ref::Source,
+            to: kir::DamageTo::Ref {
+                who: kir::Ref::controller(Context::Activated),
+            },
+            amount: kir::Amount::Fixed { value: 1.into() },
+        });
+        let pain = mana(
+            ManaProduction::Choose {
+                colors: vec![Color::G, Color::U],
+                amount: 1.into(),
+            },
+            vec![damage],
+            Some(1.into()),
+        );
+        pain.validate().unwrap();
+        let cells = kir::definition_cells(&pain).unwrap();
+        assert_eq!(
+            cells,
+            BTreeSet::from([
+                kir::Cell::ManaChoose,
+                kir::Cell::ManaAbilityPayLife,
+                kir::Cell::ManaRiderDamageController
+            ])
+        );
+        let tiers = kir::definition_tiers(&pain).unwrap();
+        for tier in [
+            kir::ExecutionTier::HeadlessQualified,
+            kir::ExecutionTier::Search,
+            kir::ExecutionTier::Hosting,
+        ] {
+            assert!(!tiers.admits(tier));
+        }
+        // A rider read from a target or another player is outside the row.
+        let opponent = kir::Node::Do(Verb::GainLife {
+            player: PlayerExpr::EachOpponent,
+            amount: kir::Amount::Fixed { value: 1.into() },
+        });
+        let grove = mana(
+            ManaProduction::Fixed {
+                symbols: vec![Color::G],
+            },
+            vec![opponent],
+            None,
+        );
+        assert!(grove.validate().unwrap_err().contains("cell:mana:rider"));
+        // A one-color choice is a fixed production, not a choice.
+        let single = mana(
+            ManaProduction::Choose {
+                colors: vec![Color::G],
+                amount: 1.into(),
+            },
+            vec![],
+            None,
+        );
+        assert!(single.validate().is_err());
     }
 
     #[test]

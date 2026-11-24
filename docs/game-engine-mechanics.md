@@ -166,17 +166,21 @@ A mana ability (CR 605.1a) is a tap cost, optionally with a mana cost paid
 through a nested activation (Signets) or a life payment (CR 119.4), and one
 production: fixed symbols, any color, commander color, N mana of one color
 chosen from a printed list (duals, tri-lands, "any one color"), or one mana of
-a type the controller's or opponents' lands could produce (CR 106.7: intrinsic
-and printed abilities, ignoring costs; a "could produce" cycle adds nothing).
-A source with an intrinsic and a printed ability, or several printed ones,
-first asks which to activate (CR 605.3a). After adding mana the ability
-performs its Kernel riders in order: damage to its controller through the
-ordinary damage transaction, or life gain (CR 605.3b, 608.2c).
+a type the controller's or opponents' lands could produce. CR 106.7 is the
+least fixed point over battlefield lands, each read relative to its own
+controller from intrinsic and printed abilities, ignoring costs; it does not
+depend on object order. If a departure leaves no defined type while the color
+is being chosen, the paid ability adds no mana. A source with an intrinsic
+and a printed ability, or several printed ones, first asks which to activate
+(CR 605.3a). After adding mana the ability performs its Kernel riders in
+order: damage to its controller through the ordinary damage transaction, or
+life gain (CR 605.3b, 608.2c). A nested activation's payment rechecks every
+outer cost before the spend decision.
 
 Reversal (CR 733.1) restores receipt-recorded mana, taps and counters. An
 activation that paid life or performed riders is kept, and with it every
 activation of that attempt. Spend-restricted mana has no producer and no spend
-answer, so payment never counts it (CR 106.6).
+answer, so payment never counts or spends it (CR 106.6).
 
 ## Casting, costs, targets and stack
 
