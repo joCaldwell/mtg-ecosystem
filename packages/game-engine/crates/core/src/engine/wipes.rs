@@ -253,6 +253,21 @@ impl RulesTxn {
                     .map(|player| TargetEntity::Player { player }),
             );
         }
+        if let Some(players) = damage.selective_players {
+            let controller = self.entry(frame.stack_id)?.controller;
+            match self.kernel_players(frame, players)? {
+                kir::Players::One(player) if self.is_live(player) => {
+                    targets.push(TargetEntity::Player { player });
+                }
+                kir::Players::EachOpponent => targets.extend(
+                    self.apnap_players()
+                        .into_iter()
+                        .filter(|player| *player != controller)
+                        .map(|player| TargetEntity::Player { player }),
+                ),
+                kir::Players::One(_) | kir::Players::Nobody => {}
+            }
+        }
         Ok((amount, damage.source_block, targets))
     }
     /// Freezes the recipients and amount, then prepares one simultaneous

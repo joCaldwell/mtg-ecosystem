@@ -52,6 +52,25 @@ impl Walk<'_, '_> {
             {
                 Ok(Cell::SourceKeywordsUntilEndOfTurn)
             }
+            (Layer::Ability, Change::AddKeywords { keywords }, Until::EndOfTurn)
+                if crate::supported_temporary_keywords(keywords) =>
+            {
+                match what {
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    } if self.domain(*slot)? == TargetDomain::BattlefieldCreature => {
+                        Ok(Cell::TargetKeywordsUntilEndOfTurn)
+                    }
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Battlefield,
+                        filter,
+                    } => {
+                        Self::audited_filter(&ZoneExpr::Battlefield, filter)?;
+                        Ok(Cell::SetKeywordsUntilEndOfTurn)
+                    }
+                    _ => unaudited("keyword grant targets"),
+                }
+            }
             _ => unaudited("verb"),
         }
     }

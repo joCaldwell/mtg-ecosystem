@@ -105,6 +105,9 @@ pub enum Cell {
     LifeEachOpponent,
     LifeTargetPlayer,
     LifeTargetPlayerX,
+    LifeTargetController,
+    LifeTargetControllerPower,
+    LifeCounted,
     /// CR 119.3, 608.2c: the each-opponent drain pair.
     Drain,
     // CR 121: draw.
@@ -119,6 +122,7 @@ pub enum Cell {
     DamageTargetX,
     DamageController,
     DamageSet,
+    DamageSelectedPlayers,
     // CR 701.8: destroy.
     DestroyTargetPermanent,
     DestroyTargetCreature,
@@ -136,7 +140,9 @@ pub enum Cell {
     MoveSet,
     // CR 701.26: tap and untap.
     TapTarget,
+    TapSet,
     UntapTarget,
+    UntapSet,
     UntapControllerLands,
     // CR 701.17: mill.
     MillController,
@@ -157,6 +163,7 @@ pub enum Cell {
     PredefinedTokens,
     CreatureTokens,
     MultiTypeCreatureTokens,
+    TokensForTargetController,
     // CR 122: counters.
     PlusOneCountersSource,
     PlusOneCountersTarget,
@@ -165,6 +172,8 @@ pub enum Cell {
     PumpTarget,
     PumpSet,
     SourceKeywordsUntilEndOfTurn,
+    TargetKeywordsUntilEndOfTurn,
+    SetKeywordsUntilEndOfTurn,
     /// CR 608.2c-d: a control node (sequence with a decision or result,
     /// condition, choice, repetition, payment) run by the continuation.
     Control,
@@ -214,6 +223,9 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         C::LifeEventPlayer
         | C::LifeEachOpponent
         | C::LifeTargetPlayerX
+        | C::LifeTargetController
+        | C::LifeTargetControllerPower
+        | C::LifeCounted
         | C::Drain
         | C::DrawControllerCounted
         | C::DrawAnnouncedX
@@ -221,6 +233,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DrawEventPlayer
         | C::DamageTargetX
         | C::DamageSet
+        | C::DamageSelectedPlayers
         | C::DestroyTargetPermanent
         | C::OptionalTargetDestroy
         | C::DestroySet
@@ -230,7 +243,9 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ExileGraveyards
         | C::MoveSet
         | C::TapTarget
+        | C::TapSet
         | C::UntapTarget
+        | C::UntapSet
         | C::UntapControllerLands
         | C::MillController
         | C::MillTargetPlayer
@@ -244,8 +259,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeEachOpponent
         | C::PredefinedTokens
         | C::MultiTypeCreatureTokens
+        | C::TokensForTargetController
         | C::PumpSet
         | C::SourceKeywordsUntilEndOfTurn
+        | C::TargetKeywordsUntilEndOfTurn
+        | C::SetKeywordsUntilEndOfTurn
         | C::Control
         | C::ManaChoose
         | C::ManaLandsCouldProduce

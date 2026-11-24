@@ -152,17 +152,16 @@ fn announced_x_is_in_scope_only_when_the_object_has_x() {
         check(&x(PlayerExpr::EachOpponent), &targeted),
         Err(KirError::Unaudited(_))
     ));
-    // Any other computed amount stays unaudited.
+    // A battlefield count does not consume the announced X.
     let counted = gain(
         PlayerExpr::you(Context::Spell),
         Amount::Count {
             set: SetExpr::battlefield(Pred::default()),
         },
     );
-    assert!(matches!(
-        check(&counted, &with_x),
-        Err(KirError::Unaudited(_))
-    ));
+    let requirements = check(&counted, &with_x).unwrap();
+    assert!(!requirements.announced_x);
+    assert_eq!(requirements.cells, BTreeSet::from([Cell::LifeCounted]));
 }
 
 #[test]
@@ -679,23 +678,34 @@ fn a_filtered_count_of_a_hidden_zone_is_rejected() {
             check(&count(hidden.clone(), creatures()), &spell(&[])),
             Err(KirError::HiddenCount)
         );
-        // CR 402.3, 401.2: its size is public.
-        assert!(matches!(
-            check(&count(hidden, Pred::default()), &spell(&[])),
-            Err(KirError::Unaudited(_))
-        ));
     }
+    // CR 402.3, 401.2: zone sizes are public. The life cell reads hand size.
+    let hand_size = count(ZoneExpr::Hand { of: you.clone() }, Pred::default());
+    assert_eq!(
+        check(&hand_size, &spell(&[])).unwrap().cells,
+        BTreeSet::from([Cell::LifeCounted])
+    );
+    let library_size = count(ZoneExpr::Library { of: you.clone() }, Pred::default());
+    assert!(matches!(
+        check(&library_size, &spell(&[])),
+        Err(KirError::Unaudited(_))
+    ));
     for public in [
         ZoneExpr::Battlefield,
         ZoneExpr::Graveyard { of: you.clone() },
         ZoneExpr::Graveyards,
-        ZoneExpr::Exile,
     ] {
-        assert!(matches!(
-            check(&count(public, creatures()), &spell(&[])),
-            Err(KirError::Unaudited(_))
-        ));
+        assert_eq!(
+            check(&count(public, creatures()), &spell(&[]))
+                .unwrap()
+                .cells,
+            BTreeSet::from([Cell::LifeCounted])
+        );
     }
+    assert!(matches!(
+        check(&count(ZoneExpr::Exile, creatures()), &spell(&[])),
+        Err(KirError::Unaudited(_))
+    ));
 }
 
 #[test]
