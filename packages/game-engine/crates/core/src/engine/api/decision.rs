@@ -5,7 +5,10 @@ pub(in crate::engine) use build::candidate_index;
 mod intent;
 mod project;
 mod selected;
+#[cfg(not(feature = "testkit"))]
 pub(in crate::engine) use selected::PendingInput;
+#[cfg(feature = "testkit")]
+pub use selected::PendingInput;
 mod check;
 mod model;
 pub use model::*;

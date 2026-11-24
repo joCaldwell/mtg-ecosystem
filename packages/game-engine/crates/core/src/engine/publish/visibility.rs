@@ -425,12 +425,6 @@ pub struct PermittedView<O = ObjectHandle> {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct AdditionalCostChoice {
-    pub id: String,
-    pub mana: ManaCost,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct Observation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_context: Option<DecisionContext>,
@@ -865,19 +859,6 @@ impl RulesTxn {
             }),
         }
     }
-    pub(crate) fn resolve_entity(
-        &self,
-        viewer: PlayerId,
-        target: &PlayerTargetEntity,
-    ) -> Result<TargetEntity, String> {
-        match target {
-            PlayerTargetEntity::Player { player } => Ok(TargetEntity::Player { player: *player }),
-            PlayerTargetEntity::Object { object } => Ok(TargetEntity::Object {
-                object: self.resolve_handle(viewer, object)?,
-            }),
-        }
-    }
-
     // CR 400.2, 401.2, 402.3: own hand is visible; all libraries and other
     // hands remain hidden. https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(in crate::engine) fn visible_to(&self, viewer: PlayerId, object: &Object) -> bool {
@@ -932,26 +913,6 @@ impl RulesTxn {
             .get(viewer.0 as usize)
             .and_then(|knowledge| knowledge.ability_handles.get(&id))
             .ok_or_else(|| "stack object is not visible".into())
-    }
-    fn resolve_stack_handle(
-        &self,
-        viewer: PlayerId,
-        handle: &StackHandle,
-    ) -> Result<StackId, String> {
-        let handle = HandleId::parse(&handle.0);
-        self.state
-            .knowledge
-            .visibility
-            .get(viewer.0 as usize)
-            .and_then(|knowledge| {
-                knowledge
-                    .ability_handles
-                    .iter()
-                    .find(|(_, value)| **value == handle)
-            })
-            .map(|(id, _)| *id)
-            .filter(|id| self.state.rules.stack.iter().any(|entry| entry.id == *id))
-            .ok_or_else(|| "stale or foreign stack handle".into())
     }
     // Unindexed reference projection, kept for the frozen query oracle.
     #[cfg(feature = "testkit")]
@@ -1804,8 +1765,9 @@ impl RulesTxn {
                     }
                 }
                 let key = decider
+                    .as_ref()
                     .filter(|decider| decider.player == viewer)
-                    .map(|decider| (revision, decider.kind));
+                    .map(|decider| (revision, decider.reason.code()));
                 k.set_decision_key(v as usize, key)?;
             }
             #[cfg(debug_assertions)]
@@ -1839,29 +1801,6 @@ impl RulesTxn {
             index: projection,
             cores: cores.into_inner(),
         })
-    }
-    /// Existing permitted handle order only; no raw-object scan or handle minting.
-    /// Publication prunes this map when an incarnation ceases to be visible.
-    pub(in crate::engine) fn next_action_handle(
-        &self,
-        viewer: PlayerId,
-        after: Option<&ObjectHandle>,
-    ) -> Option<ObjectHandle> {
-        use std::ops::Bound::{Excluded, Unbounded};
-        let entries = &self
-            .state
-            .knowledge
-            .visibility
-            .get(viewer.0 as usize)?
-            .handles
-            .entries;
-        let row = match after {
-            None => entries.first_key_value(),
-            Some(handle) => entries
-                .range((Excluded(HandleId::parse(&handle.0)), Unbounded))
-                .next(),
-        };
-        row.map(|(handle, _)| ObjectHandle(handle.to_string()))
     }
 
     pub(crate) fn resolve_handle(

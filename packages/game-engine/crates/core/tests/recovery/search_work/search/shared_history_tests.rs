@@ -17,8 +17,9 @@ fn root() -> Game {
         };
         if matches!(
             r,
-            Request::Priority {
+            Decision {
                 player: PlayerId(0),
+                reason: Reason::Priority,
                 ..
             }
         ) && g.turn().step == TurnStep::PrecombatMain
@@ -27,22 +28,36 @@ fn root() -> Game {
             return g;
         }
         let response = match &r {
-            Request::Mulligan {
+            Decision {
                 player,
-                mulligans_taken,
+                reason: Reason::Mulligan {
+                    mulligans_taken, ..
+                },
                 ..
-            } => Response::Mulligan {
-                take: player.0 == 0 && *mulligans_taken < 2,
+            } => r.select(Candidate::Flag {
+                flag: if player.0 == 0 && *mulligans_taken < 2 {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            }),
+            found @ Decision {
+                reason: Reason::BottomOpening,
+                ..
+            } => {
+                let count = &found.required_count();
+                let candidates = found.objects_offered();
+                r.order_objects(candidates.iter().rev().take(*count).copied().collect())
+            }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
             },
-            Request::BottomOpening {
-                count, candidates, ..
-            } => Response::BottomOpening {
-                objects: candidates.iter().rev().take(*count).copied().collect(),
-            },
-            Request::Priority { .. } => Response::Pass,
             _ => panic!("unexpected opening {r:?}"),
         };
-        g.respond(r.player(), r.decision_id(), response).unwrap();
+        g.respond(r.player, r.id, response).unwrap();
     }
     panic!("root cap")
 }

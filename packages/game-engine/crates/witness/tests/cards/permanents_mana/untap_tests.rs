@@ -46,19 +46,39 @@ fn prepared(rows: &[(&str, u8, bool)]) -> Prepared {
 }
 fn passive(g: &mut Game, quantum: u64) {
     let r = Driver::request(g, quantum);
-    let response = match r {
-        Request::Priority { .. } => Response::Pass,
-        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
+    let response = match r.clone() {
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
+        },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => r.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => r.block(vec![]),
         other => panic!("untap passive {other:?}"),
     };
-    g.respond(r.player(), r.decision_id(), response).unwrap();
+    g.respond(r.player, r.id, response).unwrap();
 }
 fn priority(g: &mut Game, quantum: u64, seat: u8) {
     for _ in 0..8 {
         let r = Driver::request(g, quantum);
-        assert!(matches!(r, Request::Priority { .. }), "{r:?}");
-        if r.player() == PlayerId(seat) {
+        assert!(
+            matches!(
+                r,
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
+        if r.player == PlayerId(seat) {
             return;
         }
         passive(g, quantum);
@@ -69,23 +89,37 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId) {
     for _ in 0..40 {
         let r = Driver::request(g, quantum);
         let response = match &r {
-            Request::Targets { candidates, .. } => {
-                assert!(candidates.contains(&target));
-                Response::Targets {
-                    objects: vec![target],
+            found @ Decision {
+                reason: Reason::Targets { .. },
+                ..
+            } => {
+                let candidates = found.objects_offered();
+                {
+                    assert!(candidates.contains(&target));
+                    r.targets(vec![target])
                 }
             }
-            Request::Mana { cost, .. } if g.payment_pool(r.player(), cost).is_ok() => {
-                Response::FinishMana { undo_mana: false }
-            }
-            Request::Mana { cost, .. } => {
+            Decision {
+                shape: Shape::Pay { cost: cost, .. },
+                reason: Reason::Mana { .. },
+                ..
+            } if g.payment_pool(r.player, cost).is_ok() => Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: false,
+                },
+            },
+            Decision {
+                shape: Shape::Pay { cost: cost, .. },
+                reason: Reason::Mana { .. },
+                ..
+            } => {
                 let land = g
                     .state
                     .rules
                     .objects
                     .values()
                     .filter(|o| {
-                        o.controller == r.player()
+                        o.controller == r.player
                             && o.id != target
                             && o.zone == Zone::Battlefield
                             && !o.tapped
@@ -101,10 +135,20 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId) {
                         )
                     })
                     .expect("printed mana sources independent of the target");
-                Response::ActivateMana { object: land.id }
+                r.activate_mana(land.id)
             }
-            Request::SpendMana {
-                cost, available, ..
+            Decision {
+                shape:
+                    Shape::Pay {
+                        cost: cost,
+                        pool:
+                            ManaPool {
+                                unrestricted: available,
+                            },
+                        ..
+                    },
+                reason: Reason::SpendMana { .. },
+                ..
             } => {
                 let mut rest = available.clone();
                 let mut spending = BTreeMap::<Color, Quantity>::new();
@@ -121,19 +165,26 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId) {
                     }
                 }
                 assert_eq!(generic, Quantity::zero());
-                Response::SpendMana { spending }
+                Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: spending,
+                    },
+                }
             }
-            Request::Priority { .. } => return,
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => return,
             other => panic!("untap payment {other:?}"),
         };
-        g.respond(r.player(), r.decision_id(), response).unwrap();
+        g.respond(r.player, r.id, response).unwrap();
     }
     panic!("untap payment bound");
 }
 fn cast(g: &mut Game, quantum: u64, card: u32, target: ObjectId) -> StackId {
     let seat = g.current(Driver::object(g, card)).unwrap().controller.0;
     priority(g, quantum, seat);
-    Driver::answer(g, quantum, Response::Cast { card: CardId(card) });
+    Driver::answer(g, quantum, g.next_test_decision().cast(CardId(card)));
     pay(g, quantum, target);
     g.state.rules.stack.last().unwrap().id
 }
@@ -180,19 +231,22 @@ fn permanent_untap_real_response_preserves_attacking_and_fizzles_swift() {
     let mode = TraceMode::Detailed;
     let mut g = Game::with_trace(p.clone(), mode);
     for _ in 0..100 {
-        if matches!(Driver::request(&mut g, quantum), Request::Attackers { .. }) {
+        if matches!(
+            Driver::request(&mut g, quantum),
+            Decision {
+                reason: Reason::Attackers,
+                ..
+            }
+        ) {
             break;
         }
         passive(&mut g, quantum);
     }
     let attacker = Driver::object(&g, 0);
-    Driver::answer(
-        &mut g,
-        quantum,
-        Response::Attackers {
-            attacks: vec![(attacker, PlayerId(1))],
-        },
-    );
+    {
+        let selected_answer = g.next_test_decision().attack(vec![(attacker, PlayerId(1))]);
+        Driver::answer(&mut g, quantum, selected_answer)
+    };
     // Responses enqueue input; advance to commit the declaration before
     // inspecting its attack tap.
     Driver::request(&mut g, quantum);
@@ -216,7 +270,15 @@ fn permanent_untap_real_response_preserves_attacking_and_fizzles_swift() {
     }
     for _ in 0..100 {
         let r = Driver::request(&mut g, quantum);
-        if g.turn().step == TurnStep::CombatDamage && matches!(r, Request::Priority { .. }) {
+        if g.turn().step == TurnStep::CombatDamage
+            && matches!(
+                r,
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                }
+            )
+        {
             break;
         }
         passive(&mut g, quantum);
@@ -313,34 +375,42 @@ fn permanent_untap_public_targets_include_untapped_permanents_and_reject_stack_h
         ("Plains", 0, false),
     ]));
     let target = Driver::object(&g, 0);
-    Driver::answer(&mut g, 1, Response::ActivateMana { object: target });
-    Driver::answer(&mut g, 1, Response::ManaColor { color: Color::G });
-    Driver::answer(&mut g, 1, Response::Cast { card: CardId(1) });
+    {
+        let selected_answer = g.next_test_decision().activate_mana(target);
+        Driver::answer(&mut g, 1, selected_answer)
+    };
+    {
+        let selected_answer = g
+            .next_test_decision()
+            .select(Candidate::Color { color: Color::G });
+        Driver::answer(&mut g, 1, selected_answer)
+    };
+    {
+        let selected_answer = g.next_test_decision().cast(CardId(1));
+        Driver::answer(&mut g, 1, selected_answer)
+    };
     let r = Driver::request(&mut g, 1);
     let source = Driver::object(&g, 1);
     assert!(
-        matches!(&r,Request::Targets {candidates,..} if candidates.contains(&target)
-        && candidates.contains(&Driver::object(&g,2)) && !candidates.contains(&source))
+        matches!(&r,found @ Decision {reason:Reason::Targets{..},..} if found.objects_offered().contains(&target)
+        && found.objects_offered().contains(&Driver::object(&g,2)) && !found.objects_offered().contains(&source))
     );
     let before = g.snapshot().unwrap();
     assert!(
-        g.respond(
-            r.player(),
-            r.decision_id(),
-            Response::Targets {
-                objects: vec![source]
-            }
-        )
-        .is_err()
+        g.respond(r.player, r.id, g.next_test_decision().targets(vec![source]))
+            .is_err()
     );
-    let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::Targets {
-        token,
-        candidates,
-        ..
-    }))) = g.player_decision_for(PlayerId(0), Budget::unlimited())
+    let QueryResult::Complete(QueryValue::Decision(Some(
+        found @ Decision {
+            reason: Reason::Targets { .. },
+            ..
+        },
+    ))) = g.player_decision_for(PlayerId(0), Budget::unlimited())
     else {
         panic!("untap public targets")
     };
+    let token = found.id.clone();
+    let candidates = found.objects_offered();
     assert_eq!(candidates.len(), 2);
     for (player, objects) in [
         (PlayerId(1), vec![candidates[0].clone()]),
@@ -350,7 +420,7 @@ fn permanent_untap_public_targets_include_untapped_permanents_and_reject_stack_h
             g.check_player_response(
                 player,
                 token.clone(),
-                PlayerResponse::Targets { objects },
+                g.next_test_viewer_decision().targets(objects),
                 Budget::unlimited()
             ),
             QueryResult::Rejected(QueryRejection::InvalidResponse)

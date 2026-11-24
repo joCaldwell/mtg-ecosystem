@@ -30,12 +30,6 @@ pub struct DecisionInstruction {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct DecisionMode {
-    pub mode: u32,
-    pub text: String,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct CandidateLabel {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

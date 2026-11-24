@@ -6,10 +6,15 @@ fn catalog() -> Catalog {
 fn game(config: ScenarioConfig) -> Game {
     Game::new(Prepared::admit(catalog(), config).unwrap())
 }
-fn answer(g: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn answer(g: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let r = Driver::request(g, u64::MAX);
-    g.respond(r.player(), r.decision_id(), response).unwrap();
+    g.respond(r.player, r.id, response).unwrap();
     if finish {
         g.complete_test_mana();
     }
@@ -17,44 +22,74 @@ fn answer(g: &mut Game, response: Response) {
 fn mana(g: &mut Game, card: u32) {
     answer(
         g,
-        Response::ActivateMana {
-            object: g.object_id(CardId(card)).unwrap(),
-        },
+        g.next_test_decision()
+            .activate_mana(g.object_id(CardId(card)).unwrap()),
     );
 }
 fn cast_commander(g: &mut Game, lands: &[u32]) {
-    answer(g, Response::Cast { card: CardId(0) });
+    answer(g, g.next_test_decision().cast(CardId(0)));
     for land in lands {
         mana(g, *land);
     }
-    answer(g, Response::FinishMana { undo_mana: true });
+    answer(
+        g,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
     Driver::request(g, u64::MAX);
 }
 fn resolve(g: &mut Game) {
     for _ in 0..4 {
-        answer(g, Response::Pass);
+        answer(
+            g,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     Driver::request(g, u64::MAX);
 }
 fn bounce(g: &mut Game) {
-    answer(g, Response::Pass); // P1 receives priority
-    answer(g, Response::Cast { card: CardId(7) });
     answer(
         g,
-        Response::Targets {
-            objects: vec![g.object_id(CardId(0)).unwrap()],
+        Answer::Pick {
+            picks: vec![vec![0]],
         },
+    ); // P1 receives priority
+    answer(g, g.next_test_decision().cast(CardId(7)));
+    answer(
+        g,
+        g.next_test_decision()
+            .targets(vec![g.object_id(CardId(0)).unwrap()]),
     );
     mana(g, 6);
-    answer(g, Response::FinishMana { undo_mana: true });
+    answer(
+        g,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
     for _ in 0..4 {
-        answer(g, Response::Pass);
+        answer(
+            g,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     assert!(matches!(
         Driver::request(g, u64::MAX),
-        Request::CommanderReturn {
+        Decision {
             player: PlayerId(0),
-            destination: Zone::Hand { owner: PlayerId(0) },
+            reason: Reason::CommanderReturn {
+                destination: Zone::Hand { owner: PlayerId(0) },
+                ..
+            },
             ..
         }
     ));
@@ -71,11 +106,21 @@ fn observation(g: &Game, player: u8) -> Observation {
 fn command_casts_charge_exact_tax_and_failed_cast_reverses_original_zone() {
     let mut g = game(ScenarioConfig::command_casting());
     let original = g.object_id(CardId(0)).unwrap();
-    answer(&mut g, Response::Cast { card: CardId(0) });
+    {
+        let selected_answer = g.next_test_decision().cast(CardId(0));
+        answer(&mut g, selected_answer)
+    };
     assert!(
-        matches!(Driver::request(&mut g, u64::MAX), Request::Mana {cost, ..} if cost.generic == Quantity::zero() && cost.colored == vec![Color::W])
+        matches!(Driver::request(&mut g, u64::MAX), Decision{shape:Shape::Pay{cost:cost,..},reason:Reason::Mana{..},..} if cost.generic == Quantity::zero() && cost.colored == vec![Color::W])
     );
-    answer(&mut g, Response::FinishMana { undo_mana: true });
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        };
+        answer(&mut g, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
     assert_eq!(g.object_id(CardId(0)), Some(original));
     assert_eq!(
@@ -93,15 +138,30 @@ fn command_casts_charge_exact_tax_and_failed_cast_reverses_original_zone() {
     );
     resolve(&mut g);
     bounce(&mut g);
-    answer(&mut g, Response::CommanderReturn { to_command: true });
+    {
+        let selected_answer = g.next_test_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        answer(&mut g, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
     let returned = g.object_id(CardId(0)).unwrap();
-    answer(&mut g, Response::Cast { card: CardId(0) });
+    {
+        let selected_answer = g.next_test_decision().cast(CardId(0));
+        answer(&mut g, selected_answer)
+    };
     assert!(
-        matches!(Driver::request(&mut g, u64::MAX), Request::Mana {cost, ..} if cost.generic == Quantity::from(2) && cost.colored == vec![Color::W])
+        matches!(Driver::request(&mut g, u64::MAX), Decision{shape:Shape::Pay{cost:cost,..},reason:Reason::Mana{..},..} if cost.generic == Quantity::from(2) && cost.colored == vec![Color::W])
     );
     mana(&mut g, 2);
-    answer(&mut g, Response::FinishMana { undo_mana: true });
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        };
+        answer(&mut g, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
     assert_eq!(g.object_id(CardId(0)), Some(returned));
     assert!(!g.state.rules.objects[&CardId(2)].tapped);
@@ -127,7 +187,12 @@ fn declined_hand_replacement_allows_untaxed_hand_cast_and_scoped_owner_choice() 
     resolve(&mut g);
     bounce(&mut g);
     let own = observation(&g, 0);
-    let Some(PlayerRequest::CommanderReturn { token, object, .. }) = own.decision else {
+    let Some(Decision {
+        id: token,
+        reason: Reason::CommanderReturn { object, .. },
+        ..
+    }) = own.decision
+    else {
         panic!("owner choice")
     };
     assert!(observation(&g, 1).decision.is_none());
@@ -136,7 +201,9 @@ fn declined_hand_replacement_allows_untaxed_hand_cast_and_scoped_owner_choice() 
         g.respond(
             PlayerId(1),
             g.state.rules.revision,
-            Response::CommanderReturn { to_command: true }
+            g.next_test_decision().select(Candidate::Flag {
+                flag: Flag::CommandZone
+            })
         )
         .is_err()
     );
@@ -144,21 +211,30 @@ fn declined_hand_replacement_allows_untaxed_hand_cast_and_scoped_owner_choice() 
     let QueryResult::Complete(QueryValue::Validated(receipt)) = g.check_player_response(
         PlayerId(0),
         token.clone(),
-        PlayerResponse::CommanderReturn { to_command: false },
+        g.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Destination,
+        }),
         Budget::unlimited(),
     ) else {
         panic!("validated")
     };
     let mut branch = g.fork();
     assert!(branch.submit(receipt).is_err());
-    answer(&mut g, Response::CommanderReturn { to_command: false });
+    {
+        let selected_answer = g.next_test_decision().select(Candidate::Flag {
+            flag: Flag::Destination,
+        });
+        answer(&mut g, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
     assert!(g.resolve_handle(PlayerId(0), &object.unwrap()).is_err());
     assert!(matches!(
         g.check_player_response(
             PlayerId(0),
             token,
-            PlayerResponse::CommanderReturn { to_command: true },
+            branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: Flag::CommandZone
+            }),
             Budget::unlimited()
         ),
         QueryResult::Rejected(_)
@@ -178,39 +254,67 @@ fn lethal_combat_enters_graveyard_then_fresh_sba_choice_is_consumed_once() {
     for to_command in [true, false] {
         let mut g = game(ScenarioConfig::commander_lifecycle());
         loop {
-            if matches!(Driver::request(&mut g, u64::MAX), Request::Attackers { .. }) {
-                break;
-            }
-            answer(&mut g, Response::Pass);
-        }
-        let commander = g.object_id(CardId(0)).unwrap();
-        answer(
-            &mut g,
-            Response::Attackers {
-                attacks: vec![(commander, PlayerId(1))],
-            },
-        );
-        loop {
-            if matches!(Driver::request(&mut g, u64::MAX), Request::Blockers { .. }) {
-                break;
-            }
-            answer(&mut g, Response::Pass);
-        }
-        let blocker = g.object_id(CardId(14)).unwrap();
-        answer(
-            &mut g,
-            Response::Blockers {
-                blocks: vec![(blocker, commander)],
-            },
-        );
-        loop {
             if matches!(
                 Driver::request(&mut g, u64::MAX),
-                Request::CommanderReturn { .. }
+                Decision {
+                    reason: Reason::Attackers,
+                    ..
+                }
             ) {
                 break;
             }
-            answer(&mut g, Response::Pass);
+            {
+                let selected_answer = Answer::Pick {
+                    picks: vec![vec![0]],
+                };
+                answer(&mut g, selected_answer)
+            };
+        }
+        let commander = g.object_id(CardId(0)).unwrap();
+        {
+            let selected_answer = g
+                .next_test_decision()
+                .attack(vec![(commander, PlayerId(1))]);
+            answer(&mut g, selected_answer)
+        };
+        loop {
+            if matches!(
+                Driver::request(&mut g, u64::MAX),
+                Decision {
+                    reason: Reason::Blockers,
+                    ..
+                }
+            ) {
+                break;
+            }
+            {
+                let selected_answer = Answer::Pick {
+                    picks: vec![vec![0]],
+                };
+                answer(&mut g, selected_answer)
+            };
+        }
+        let blocker = g.object_id(CardId(14)).unwrap();
+        {
+            let selected_answer = g.next_test_decision().block(vec![(blocker, commander)]);
+            answer(&mut g, selected_answer)
+        };
+        loop {
+            if matches!(
+                Driver::request(&mut g, u64::MAX),
+                Decision {
+                    reason: Reason::CommanderReturn { .. },
+                    ..
+                }
+            ) {
+                break;
+            }
+            {
+                let selected_answer = Answer::Pick {
+                    picks: vec![vec![0]],
+                };
+                answer(&mut g, selected_answer)
+            };
         }
         assert_eq!(
             g.state.rules.objects[&CardId(0)].zone,
@@ -221,10 +325,22 @@ fn lethal_combat_enters_graveyard_then_fresh_sba_choice_is_consumed_once() {
             Zone::Graveyard { owner: PlayerId(1) }
         );
         assert!(g.state.rules.commander_returns.is_empty());
-        answer(&mut g, Response::CommanderReturn { to_command });
+        {
+            let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            answer(&mut g, selected_answer)
+        };
         assert!(matches!(
             Driver::request(&mut g, u64::MAX),
-            Request::Priority { .. }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            }
         ));
         assert_eq!(
             g.state.rules.objects[&CardId(0)].zone,
@@ -234,10 +350,18 @@ fn lethal_combat_enters_graveyard_then_fresh_sba_choice_is_consumed_once() {
                 Zone::Graveyard { owner: PlayerId(0) }
             }
         );
-        answer(&mut g, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut g, selected_answer)
+        };
         assert!(matches!(
             Driver::request(&mut g, u64::MAX),
-            Request::Priority { .. }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            }
         ));
     }
 }
@@ -248,13 +372,25 @@ fn departure_exile_chooses_owner_and_owner_departure_never_resurrects_commander(
         g.concede(PlayerId(1)).unwrap();
         assert!(matches!(
             Driver::request(&mut g, u64::MAX),
-            Request::CommanderReturn {
+            Decision {
                 player: PlayerId(0),
-                destination: Zone::Exile,
+                reason: Reason::CommanderReturn {
+                    destination: Zone::Exile,
+                    ..
+                },
                 ..
             }
         ));
-        answer(&mut g, Response::CommanderReturn { to_command });
+        {
+            let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            answer(&mut g, selected_answer)
+        };
         Driver::request(&mut g, u64::MAX);
         assert_eq!(
             g.state.rules.objects[&CardId(0)].zone,
@@ -394,11 +530,13 @@ fn commander_choice_validation_sidecar_recovers_and_choice_invalidates_work() {
     cast_commander(&mut g, &[1]);
     resolve(&mut g);
     bounce(&mut g);
-    let token = observation(&g, 0).decision.unwrap().token().clone();
+    let token = observation(&g, 0).decision.unwrap().id.clone();
     let QueryResult::Incomplete { work, .. } = g.check_player_response(
         PlayerId(0),
         token,
-        PlayerResponse::CommanderReturn { to_command: true },
+        g.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        }),
         Budget::new(1),
     ) else {
         panic!("expected suspended owner validation")
@@ -420,7 +558,12 @@ fn commander_choice_validation_sidecar_recovers_and_choice_invalidates_work() {
     assert_eq!(g.snapshot().unwrap(), before);
     restored.submit(receipt).unwrap();
     Driver::request(&mut restored, u64::MAX);
-    answer(&mut g, Response::CommanderReturn { to_command: true });
+    {
+        let selected_answer = g.next_test_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        answer(&mut g, selected_answer)
+    };
     Driver::request(&mut g, u64::MAX);
     assert_eq!(restored.state, g.state);
     assert_eq!(restored.trace, g.trace);

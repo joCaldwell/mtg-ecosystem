@@ -291,18 +291,6 @@ impl Strategy<'_> {
         n.add(&1.into());
         n
     }
-    pub(super) fn best_permanent(
-        &self,
-        v: &PermittedView,
-        candidates: &[ObjectHandle],
-    ) -> Option<ObjectHandle> {
-        v.objects
-            .iter()
-            .filter(|o| candidates.contains(&o.handle))
-            .max_by_key(|o| (self.value(o), o.handle.0.as_str()))
-            .map(|o| o.handle.clone())
-            .or_else(|| candidates.first().cloned())
-    }
 
     fn harmful_attachment(&self, d: &Definition) -> bool {
         d.static_abilities.iter().any(|a| matches!(&a.effect,
@@ -1174,16 +1162,11 @@ impl Strategy<'_> {
             && d.spell
                 .as_ref()
                 .is_none_or(|p| p.additional_sacrifice.is_none());
-        let (choices, plan) = mana_policy::hybrid_plan_for(
+        let (choices, plan) = mana_policy::hybrid_plan(
             self.catalog,
             v,
             cost.clone(),
             &d.characteristics.hybrid_mana,
-            Some(mana_policy::ManaPurpose::Cast(
-                mtg_contracts::ManaSpellTraits::from_characteristics(
-                    o.characteristics.as_ref().unwrap_or(&d.characteristics),
-                ),
-            )),
         )?;
         self.payment.announced_cost = unchanged_cost.then_some(cost);
         self.hybrid_choices = choices;
@@ -1364,7 +1347,6 @@ impl Strategy<'_> {
             v,
             &cost,
             if tap || sac { Some(&o.handle) } else { None },
-            Some(mana_policy::ManaPurpose::activation(v, &o.handle)),
         )?;
         self.payment.exclude = (tap || sac).then(|| o.handle.clone());
         self.payment.announced_cost = Some(cost);

@@ -40,27 +40,6 @@ impl RulesTxn {
         self.rules_mut().frame = self.spell_announcement_frame(cast)?;
         Ok(())
     }
-    pub(super) fn public_additional_cost_choices(
-        &self,
-        viewer: PlayerId,
-    ) -> Result<Vec<visibility::AdditionalCostChoice>, String> {
-        let top = self.top()?;
-        if top.controller != viewer
-            || !matches!(self.state.rules.frame, Frame::AdditionalCosts { .. })
-        {
-            return Err("optional cost choices require current caster authority".into());
-        }
-        let handle = self.stack_handle_for(viewer, top.id)?;
-        Ok(self
-            .program()?
-            .optional_additional_costs
-            .iter()
-            .map(|c| visibility::AdditionalCostChoice {
-                id: format!("{}/cost/{}", handle.0, c.identity),
-                mana: c.mana.clone(),
-            })
-            .collect())
-    }
 
     pub(super) fn validate_additional_cost_entry(
         &self,

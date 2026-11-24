@@ -19,8 +19,9 @@ fn match_root() -> Game {
         };
         if matches!(
             request,
-            Request::Priority {
+            Decision {
                 player: PlayerId(0),
+                reason: Reason::Priority,
                 ..
             }
         ) && game.turn().step == TurnStep::PrecombatMain
@@ -28,12 +29,19 @@ fn match_root() -> Game {
             return game;
         }
         let response = match request {
-            Request::Mulligan { .. } => Response::Mulligan { take: false },
-            Request::Priority { .. } => Response::Pass,
+            Decision {
+                reason: Reason::Mulligan { .. },
+                ..
+            } => request.select(Candidate::Flag { flag: Flag::Keep }),
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
+            },
             _ => panic!("unexpected opening choice"),
         };
-        game.respond(request.player(), request.decision_id(), response)
-            .unwrap();
+        game.respond(request.player, request.id, response).unwrap();
     }
     panic!("opening did not finish")
 }

@@ -1,8 +1,9 @@
 //! Drive adversarial witnesses through public player projections and validated receipts.
 use mtg_contracts::{Catalog, Quantity};
 use mtg_core::{
-    Advance, Budget, DecisionToken, Game, Observation, PlayerId, PlayerRequest, PlayerResponse,
-    Prepared, QueryResult, QueryValue, ScenarioConfig, ValidatedResponse,
+    Advance, Answer, Budget, Decision, DecisionToken, Game, ManaPool, Observation, PayAnswer,
+    PlayerId, Prepared, QueryResult, QueryValue, Reason, ScenarioConfig, Shape,
+    ValidatedResponse, Viewer,
 };
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -19,12 +20,19 @@ pub fn complete_mana(game: &mut Game) {
     let Advance::AwaitingDecision(r) = game.advance(Budget::unlimited()) else {
         return;
     };
-    let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::SpendMana {
-        token,
-        cost,
-        available,
+    let QueryResult::Complete(QueryValue::Decision(Some(Decision {
+        id: token,
+        shape:
+            Shape::Pay {
+                cost,
+                pool: ManaPool {
+                    unrestricted: available,
+                },
+                ..
+            },
+        reason: Reason::SpendMana { .. },
         ..
-    }))) = game.player_decision_for(r.player(), Budget::unlimited())
+    }))) = game.player_decision_for(r.player, Budget::unlimited())
     else {
         return;
     };
@@ -44,9 +52,13 @@ pub fn complete_mana(game: &mut Game) {
     }
     assert_eq!(generic, Quantity::zero());
     let QueryResult::Complete(QueryValue::Validated(receipt)) = game.check_player_response(
-        r.player(),
+        r.player,
         token,
-        PlayerResponse::SpendMana { spending },
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: spending,
+            },
+        },
         Budget::unlimited(),
     ) else {
         panic!("explicit spending rejected")
@@ -64,7 +76,7 @@ pub fn complete(game: &Game, mut result: QueryResult) -> QueryValue {
     }
     panic!("query did not complete")
 }
-pub fn request(game: &Game) -> (PlayerId, PlayerRequest) {
+pub fn request(game: &Game) -> (PlayerId, Decision<Viewer>) {
     game.live_players()
         .into_iter()
         .find_map(
@@ -82,18 +94,18 @@ pub fn observe(game: &Game, player: PlayerId) -> Observation {
     };
     view
 }
-pub fn receipt(game: &Game, response: PlayerResponse) -> ValidatedResponse {
+pub fn receipt(game: &Game, response: Answer) -> ValidatedResponse {
     let (actor, req) = request(game);
     let QueryValue::Validated(receipt) = complete(
         game,
-        game.check_player_response(actor, req.token().clone(), response, Budget::new(0)),
+        game.check_player_response(actor, req.id.clone(), response, Budget::new(0)),
     ) else {
         panic!("validated")
     };
     receipt
 }
 
-pub fn submit(game: &mut Game, response: PlayerResponse) {
+pub fn submit(game: &mut Game, response: Answer) {
     let checked = receipt(game, response);
     game.submit(checked).unwrap();
 }
@@ -102,8 +114,13 @@ pub fn settle(game: &mut Game) -> Advance {
     game.advance(Budget::unlimited())
 }
 
-pub fn input(game: &mut Game, response: PlayerResponse) {
-    let finish = matches!(response, PlayerResponse::FinishMana { .. });
+pub fn input(game: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     submit(game, response);
     if finish {
         complete_mana(game);
@@ -116,7 +133,7 @@ pub fn replay_equal(game: &Game, prepared: &Prepared) {
     assert_eq!(replay.state_digest().unwrap(), game.state_digest().unwrap());
 }
 
-pub fn reject(game: &Game, actor: PlayerId, token: DecisionToken, response: PlayerResponse) {
+pub fn reject(game: &Game, actor: PlayerId, token: DecisionToken, response: Answer) {
     let before = game.snapshot().unwrap();
     let mut result = game.check_player_response(actor, token, response, Budget::new(0));
     for _ in 0..2000 {

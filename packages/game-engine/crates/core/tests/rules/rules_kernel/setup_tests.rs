@@ -6,14 +6,26 @@ fn prepared() -> Prepared {
     )
     .unwrap()
 }
-fn answer(g: &mut Game, r: Request, response: Response) {
-    g.respond(r.player(), r.decision_id(), response).unwrap();
+fn answer(g: &mut Game, r: Decision<Rules>, response: Answer) {
+    g.respond(r.player, r.id, response).unwrap();
 }
 fn take_round(g: &mut Game, take: bool) {
     for _ in 0..4 {
         let r = Driver::request(g, u64::MAX);
-        assert!(matches!(r, Request::Mulligan { .. }));
-        answer(g, r, Response::Mulligan { take });
+        assert!(matches!(
+            r,
+            Decision {
+                reason: Reason::Mulligan { .. },
+                ..
+            }
+        ));
+        answer(
+            g,
+            r,
+            g.next_test_decision().select(Candidate::Flag {
+                flag: if take { Flag::Mulligan } else { Flag::Keep },
+            }),
+        );
     }
 }
 fn hand(g: &Game, p: PlayerId) -> Vec<ObjectId> {
@@ -105,7 +117,7 @@ fn setup_is_budget_partition_invariant_and_automatic_queries_reveal_nothing() {
     assert!(steps >= 419);
     assert_eq!(a.state, b.state);
     assert_eq!(a.trace, b.trace);
-    assert_eq!(req.player(), PlayerId(2));
+    assert_eq!(req.player, PlayerId(2));
     for seat in 0..4 {
         assert_eq!(hand(&a, PlayerId(seat)).len(), 7);
         assert_eq!(a.state.rules.libraries[&PlayerId(seat)].len(), 92);
@@ -120,32 +132,60 @@ fn declarations_wait_for_all_free_paid_and_max_mulligans_use_ordered_bottoms() {
     let old = g.state.rules.libraries.clone();
     let random = g.state.rules.match_state.as_ref().unwrap().random.clone();
     let original = hand(&g, PlayerId(2));
-    answer(&mut g, first, Response::Mulligan { take: true });
+    {
+        let selected_answer = g.next_test_decision().select(Candidate::Flag {
+            flag: Flag::Mulligan,
+        });
+        answer(&mut g, first, selected_answer)
+    };
     let next = Driver::request(&mut g, u64::MAX);
     assert_eq!(g.state.rules.libraries, old);
     assert_eq!(g.state.rules.match_state.as_ref().unwrap().random, random);
     assert_eq!(hand(&g, PlayerId(2)), original);
-    assert_eq!(next.player(), PlayerId(3));
-    answer(&mut g, next, Response::Mulligan { take: true });
+    assert_eq!(next.player, PlayerId(3));
+    {
+        let selected_answer = g.next_test_decision().select(Candidate::Flag {
+            flag: Flag::Mulligan,
+        });
+        answer(&mut g, next, selected_answer)
+    };
     for _ in 0..2 {
         let r = Driver::request(&mut g, u64::MAX);
-        answer(&mut g, r, Response::Mulligan { take: true });
+        {
+            let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                flag: Flag::Mulligan,
+            });
+            answer(&mut g, r, selected_answer)
+        };
     }
     for taken in 1..=8 {
         let r = Driver::request(&mut g, u64::MAX);
         if taken == 1 {
             assert!(matches!(
                 r,
-                Request::Mulligan {
-                    mulligans_taken: 1,
-                    bottom_if_mulligan: 1,
+                Decision {
+                    reason: Reason::Mulligan {
+                        mulligans_taken: 1,
+                        bottom_if_mulligan: 1,
+                        ..
+                    },
                     ..
                 }
             ));
-            answer(&mut g, r, Response::Mulligan { take: true });
+            {
+                let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                    flag: Flag::Mulligan,
+                });
+                answer(&mut g, r, selected_answer)
+            };
             for _ in 0..3 {
                 let r = Driver::request(&mut g, u64::MAX);
-                answer(&mut g, r, Response::Mulligan { take: true });
+                {
+                    let selected_answer = g.next_test_decision().select(Candidate::Flag {
+                        flag: Flag::Mulligan,
+                    });
+                    answer(&mut g, r, selected_answer)
+                };
             }
         } else {
             for i in 0..4 {
@@ -154,12 +194,15 @@ fn declarations_wait_for_all_free_paid_and_max_mulligans_use_ordered_bottoms() {
                 } else {
                     Driver::request(&mut g, u64::MAX)
                 };
-                let Request::BottomOpening {
-                    count, candidates, ..
+                let found @ Decision {
+                    reason: Reason::BottomOpening,
+                    ..
                 } = &r
                 else {
                     panic!("{r:?}")
                 };
+                let count = &found.required_count();
+                let candidates = found.objects_offered();
                 assert_eq!(*count, (taken - 1) as usize);
                 let objects = candidates
                     .iter()
@@ -167,14 +210,11 @@ fn declarations_wait_for_all_free_paid_and_max_mulligans_use_ordered_bottoms() {
                     .take(*count)
                     .copied()
                     .collect::<Vec<_>>();
-                let player = r.player();
-                answer(
-                    &mut g,
-                    r,
-                    Response::BottomOpening {
-                        objects: objects.clone(),
-                    },
-                );
+                let player = r.player;
+                {
+                    let selected_answer = g.next_test_decision().order_objects(objects.clone());
+                    answer(&mut g, r, selected_answer)
+                };
                 let _ = g.advance(Budget::new(1));
                 let lib = &g.state.rules.libraries[&player];
                 assert_eq!(
@@ -193,7 +233,13 @@ fn declarations_wait_for_all_free_paid_and_max_mulligans_use_ordered_bottoms() {
         }
     }
     let r = Driver::request(&mut g, u64::MAX);
-    assert!(matches!(r, Request::Priority { .. }));
+    assert!(matches!(
+        r,
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
+    ));
     assert!(g.state.rules.match_state.as_ref().unwrap().setup.is_none());
     for seat in 0..4 {
         assert!(hand(&g, PlayerId(seat)).is_empty());
@@ -207,15 +253,21 @@ fn first_player_draws_and_seed_order_are_trusted_only() {
     let r = Driver::request(&mut g, u64::MAX);
     assert!(matches!(
         r,
-        Request::Priority {
+        Decision {
             player: PlayerId(2),
+            reason: Reason::Priority,
             ..
         }
     ));
     assert_eq!(g.turn().step, TurnStep::Upkeep);
     for _ in 0..4 {
         let r = Driver::request(&mut g, u64::MAX);
-        answer(&mut g, r, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            answer(&mut g, r, selected_answer)
+        };
     }
     let _ = Driver::request(&mut g, u64::MAX);
     assert_eq!(g.turn().step, TurnStep::Draw);
@@ -244,34 +296,43 @@ fn opening_bottom_validation_is_budgeted_recoverable_and_executor_scoped() {
     take_round(&mut g, true);
     take_round(&mut g, true);
     let r = Driver::request(&mut g, u64::MAX);
-    let Request::BottomOpening { player, count, .. } = r else {
+    let found @ Decision {
+        reason: Reason::BottomOpening,
+        ..
+    } = r
+    else {
         panic!("bottom")
     };
+    let player = found.player;
+    let count = found.required_count();
     assert_eq!(count, 1);
     let before = g.state_digest().unwrap();
-    let q = g.player_decision_for(player, Budget::new(5));
+    let q = g.player_decision_for(player, Budget::new(1));
     let QueryResult::Incomplete { work, .. } = q else {
         panic!("budgeted decision")
     };
     let saved = g.save_work(&work).unwrap();
     let restored = Game::restore(p, &g.snapshot().unwrap()).unwrap();
     let work = restored.restore_work(&saved).unwrap();
-    let QueryResult::Complete(QueryValue::Decision(Some(PlayerRequest::BottomOpening {
-        token,
-        candidates,
-        ..
-    }))) = restored.resume_work(work, Budget::unlimited())
+    let QueryResult::Complete(QueryValue::Decision(Some(
+        found @ Decision {
+            reason: Reason::BottomOpening,
+            ..
+        },
+    ))) = restored.resume_work(work, Budget::unlimited())
     else {
         panic!("restored bottom")
     };
+    let token = found.id.clone();
+    let candidates = found.objects_offered();
     assert_eq!(candidates.len(), 7);
-    let response = PlayerResponse::BottomOpening {
-        objects: vec![candidates[0].clone()],
-    };
+    let response = g
+        .next_test_viewer_decision()
+        .order_objects(vec![candidates[0].clone()]);
     let QueryResult::Incomplete { work, .. } =
-        restored.check_player_response(player, token, response, Budget::new(2))
+        restored.check_player_response(player, token, response, Budget::new(1))
     else {
-        panic!("entry conversion budget")
+        panic!("answer validation budget")
     };
     let saved = restored.save_work(&work).unwrap();
     let work = restored.restore_work(&saved).unwrap();
@@ -393,16 +454,26 @@ fn large_match_groups_and_multiple_fresh_commanders_remain_atomic() {
     assert!(g.offer_commander_sba(resume).unwrap());
     assert!(g.state.rules.commander_returns.is_empty());
     let r = Driver::request(&mut g, u64::MAX);
-    assert_eq!(r.player(), PlayerId(2));
-    answer(&mut g, r, Response::CommanderReturn { to_command: true });
+    assert_eq!(r.player, PlayerId(2));
+    {
+        let selected_answer = g.next_test_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        answer(&mut g, r, selected_answer)
+    };
     let r = Driver::request(&mut g, u64::MAX);
-    assert_eq!(r.player(), PlayerId(0));
+    assert_eq!(r.player, PlayerId(0));
     assert!(matches!(
         g.state.rules.objects[&CardId(200)].zone,
         Zone::Graveyard { .. }
     ));
-    let Request::CommanderReturn {
-        previous_choices, ..
+    let Decision {
+        reason:
+            Reason::CommanderReturn {
+                previous: previous_choices,
+                ..
+            },
+        ..
     } = &r
     else {
         panic!("return")
@@ -415,15 +486,25 @@ fn large_match_groups_and_multiple_fresh_commanders_remain_atomic() {
     else {
         panic!("choice observation")
     };
-    let Some(PlayerRequest::CommanderReturn {
-        previous_choices, ..
+    let Some(Decision {
+        reason:
+            Reason::CommanderReturn {
+                previous: previous_choices,
+                ..
+            },
+        ..
     }) = o.decision
     else {
         panic!("visible return")
     };
     assert_eq!(previous_choices[0].owner, PlayerId(2));
     assert!(previous_choices[0].to_command);
-    answer(&mut g, r, Response::CommanderReturn { to_command: true });
+    {
+        let selected_answer = g.next_test_decision().select(Candidate::Flag {
+            flag: Flag::CommandZone,
+        });
+        answer(&mut g, r, selected_answer)
+    };
     let _ = g.advance(Budget::new(1));
     assert_eq!(
         g.state.rules.objects[&CardId(0)].zone,

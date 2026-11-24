@@ -768,11 +768,15 @@ mod admission_and_host_tests {
         let Advance::AwaitingDecision(request) = game.advance(Budget::new(u64::MAX)) else {
             panic!("setup should request a mulligan")
         };
-        assert!(matches!(request, mtg_core::Request::Mulligan { .. }));
+        assert!(matches!(request.reason, mtg_core::Reason::Mulligan { .. }));
         game.respond(
             request.player,
             request.id,
-            mtg_core::Response::Mulligan { take: false },
+            request
+                .pick_one(&mtg_core::Candidate::Flag {
+                    flag: mtg_core::Flag::Keep,
+                })
+                .unwrap(),
         )
         .unwrap();
         let records = vec![

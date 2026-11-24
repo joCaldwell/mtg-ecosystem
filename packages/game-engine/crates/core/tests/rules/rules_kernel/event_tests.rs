@@ -256,8 +256,8 @@ fn run(mode: TraceMode, units: u64) -> Game {
             Advance::AwaitingDecision(_) if index == inputs.len() => break,
             Advance::AwaitingDecision(r) => {
                 let i = &inputs[index];
-                assert_eq!(r.decision_id(), i.decision_id);
-                game.respond(i.player, i.decision_id, i.response.clone())
+                assert_eq!(r.id, i.decision_id);
+                game.respond(i.player, i.decision_id, i.answer.clone())
                     .unwrap();
                 index += 1;
             }
@@ -450,9 +450,7 @@ fn mixed_input_trace_modes_restore_every_pending_and_suspended_departure_boundar
                 let Some(i) = journal.decisions.get(decision) else {
                     break;
                 };
-                current
-                    .respond(r.player(), r.decision_id(), i.response.clone())
-                    .unwrap();
+                current.respond(r.player, r.id, i.answer.clone()).unwrap();
                 decision += 1;
             }
             Advance::Suspended { .. } => (),

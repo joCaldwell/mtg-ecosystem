@@ -147,3 +147,56 @@ impl Decision<Rules> {
         }
     }
 }
+
+impl<S: Space> Decision<S> {
+    pub fn damage_to(&self, assignments: Vec<(S::Object, Quantity)>) -> Answer {
+        let Shape::Distribute { buckets, .. } = &self.shape else {
+            return Answer::Distribute { amounts: vec![] };
+        };
+        let mut amounts = vec![None; buckets.len()];
+        for (object, value) in assignments {
+            let i = self.test_index(Candidate::Object { object });
+            let Some(bucket) = buckets.iter().position(|b| b.candidate == i) else {
+                return Answer::Distribute { amounts: vec![] };
+            };
+            if amounts[bucket].replace(value).is_some() {
+                return Answer::Distribute { amounts: vec![] };
+            }
+        }
+        Answer::Distribute {
+            amounts: amounts.into_iter().flatten().collect(),
+        }
+    }
+}
+impl Decision<Rules> {
+    pub fn entity_targets(&self, targets: Vec<TargetEntity>) -> Answer {
+        Answer::Pick {
+            picks: targets
+                .into_iter()
+                .map(|e| {
+                    vec![self.test_index(match e {
+                        TargetEntity::Object { object } => Candidate::Object { object },
+                        TargetEntity::Player { player } => Candidate::Player { player },
+                    })]
+                })
+                .collect(),
+        }
+    }
+}
+
+impl<S: Space> Decision<S> {
+    pub fn allowed_objects(&self) -> Vec<S::Object> {
+        let Shape::Pick { slots, .. } = &self.shape else {
+            panic!("expected pick")
+        };
+        self.candidates
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| slots.iter().any(|s| s.allowed.contains(&(*i as u32))))
+            .filter_map(|(_, c)| match c {
+                Candidate::Object { object } => Some(object.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+}

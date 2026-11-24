@@ -5,6 +5,7 @@ mod commander_admission;
 mod commander_adversarial;
 mod commander_damage_library_adversarial;
 mod damage_library_admission;
+mod decision_mask;
 mod matches_adversarial;
 mod rules_kernel;
 #[path = "../support/mod.rs"]

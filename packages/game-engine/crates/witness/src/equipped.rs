@@ -9,29 +9,41 @@ pub fn exercise(p: Prepared, run: impl FnOnce(&mut Game, u64)) {
 }
 pub fn cast(g: &mut Game, q: u64, id: u32, targets: Vec<TargetEntity>) {
     let obj = Driver::object(g, id);
-    Driver::answer(g, q, Response::Cast { card: obj.card });
+    Driver::answer(g, q, g.next_test_decision().cast(obj.card));
     pay_and_resolve(g, q, targets);
 }
 pub fn pay_to_priority(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
     loop {
         let r = Driver::request(g, q);
         let response = match &r {
-            Request::EntityTargets { .. } => Response::EntityTargets {
-                entities: targets.clone(),
-            },
-            Request::Targets { .. } => Response::Targets {
-                objects: targets
+            Decision {
+                reason: Reason::Targets { .. },
+                ..
+            } => r.entity_targets(targets.clone()),
+            Decision {
+                reason: Reason::Targets { .. },
+                ..
+            } => r.targets(
+                targets
                     .iter()
                     .map(|t| match t {
                         TargetEntity::Object { object } => *object,
                         _ => panic!("object target"),
                     })
                     .collect(),
-            },
-            Request::Mana { cost, .. } => {
-                let enough = g.payment_pool(r.player(), cost).is_ok();
+            ),
+            Decision {
+                shape: Shape::Pay { cost: cost, .. },
+                reason: Reason::Mana { .. },
+                ..
+            } => {
+                let enough = g.payment_pool(r.player, cost).is_ok();
                 if enough {
-                    Response::FinishMana { undo_mana: false }
+                    Answer::Pay {
+                        pay: PayAnswer::Finish {
+                            undo_on_failure: false,
+                        },
+                    }
                 } else {
                     let land = g
                         .state
@@ -39,18 +51,28 @@ pub fn pay_to_priority(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
                         .objects
                         .values()
                         .find(|o| {
-                            o.controller == r.player()
+                            o.controller == r.player
                                 && o.zone == Zone::Battlefield
                                 && !o.tapped
                                 && g.definition(o.id.card).unwrap().characteristics.kind
                                     == CardKind::Land
                         })
                         .unwrap();
-                    Response::ActivateMana { object: land.id }
+                    r.activate_mana(land.id)
                 }
             }
-            Request::SpendMana {
-                cost, available, ..
+            Decision {
+                shape:
+                    Shape::Pay {
+                        cost: cost,
+                        pool:
+                            ManaPool {
+                                unrestricted: available,
+                            },
+                        ..
+                    },
+                reason: Reason::SpendMana { .. },
+                ..
             } => {
                 let mut rest = available.clone();
                 let mut spending = BTreeMap::<Color, Quantity>::new();
@@ -67,18 +89,31 @@ pub fn pay_to_priority(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
                     }
                 }
                 assert_eq!(generic, Quantity::zero());
-                Response::SpendMana { spending }
+                Answer::Pay {
+                    pay: PayAnswer::Spend {
+                        unrestricted: spending,
+                    },
+                }
             }
-            Request::Priority { .. } => break,
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => break,
             x => panic!("cast request {x:?}"),
         };
-        g.respond(r.player(), r.decision_id(), response).unwrap();
+        g.respond(r.player, r.id, response).unwrap();
     }
 }
 pub fn pay_and_resolve(g: &mut Game, q: u64, targets: Vec<TargetEntity>) {
     pay_to_priority(g, q, targets);
     while !g.state.rules.stack.is_empty() {
-        Driver::answer(g, q, Response::Pass);
+        Driver::answer(
+            g,
+            q,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
         Driver::request(g, q);
     }
 }

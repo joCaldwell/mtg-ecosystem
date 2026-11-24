@@ -388,11 +388,6 @@ pub trait GameTestkit {
         damage: &DamageHandle,
     ) -> Result<(EffectKey, DamageId), String>;
 
-    fn resolve_entity(
-        &self,
-        viewer: PlayerId,
-        target: &PlayerTargetEntity,
-    ) -> Result<TargetEntity, String>;
     fn resolve_handle(&self, viewer: PlayerId, handle: &ObjectHandle) -> Result<ObjectId, String>;
 
     fn resolve_trigger_handle(
@@ -1042,13 +1037,6 @@ impl GameTestkit for Game {
         RulesTxn::resolve_damage_effect_pair(self, viewer, effect, damage)
     }
 
-    fn resolve_entity(
-        &self,
-        viewer: PlayerId,
-        target: &PlayerTargetEntity,
-    ) -> Result<TargetEntity, String> {
-        RulesTxn::resolve_entity(self, viewer, target)
-    }
     fn resolve_handle(&self, viewer: PlayerId, handle: &ObjectHandle) -> Result<ObjectId, String> {
         RulesTxn::resolve_handle(self, viewer, handle)
     }

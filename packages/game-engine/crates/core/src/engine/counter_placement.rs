@@ -3,7 +3,6 @@
 //! Freeze instruction allocations, then place all surviving amounts in one
 //! batch. Costs and their reversal are separate.
 use super::*;
-use mtg_contracts::CounterPlacementModification;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,14 +31,6 @@ pub struct CounterPlacementTransaction {
 pub struct CounterPlacementEffectHandle {
     pub source: ObjectHandle,
     pub ability: u32,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct VisibleCounterPlacementCandidate {
-    pub effect: CounterPlacementEffectHandle,
-    pub modification: CounterPlacementModification,
-    pub amount_before: Quantity,
-    pub amount_after: Quantity,
 }
 impl RulesTxn {
     pub(super) fn begin_counter_placement(

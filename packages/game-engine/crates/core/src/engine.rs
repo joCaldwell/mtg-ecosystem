@@ -147,7 +147,7 @@ pub mod recovery;
 pub use recovery::SnapshotVerifier;
 pub mod actions;
 pub mod divided_counters;
-pub use divided_counters::CounterDivision;
+
 pub mod frame;
 pub use frame::*;
 pub mod casting;

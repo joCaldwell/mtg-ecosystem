@@ -10,56 +10,59 @@ fn land(player: u8) -> CardId {
 fn spell(player: u8) -> CardId {
     CardId(land(player).0 + 1)
 }
-fn input(game: &mut Game, player: u8, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn input(game: &mut Game, player: u8, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let Advance::AwaitingDecision(request) = Driver::settle(game, u64::MAX) else {
         panic!("missing decision")
     };
-    assert_eq!(request.player(), PlayerId(player));
-    game.respond(request.player(), request.decision_id(), response)
-        .unwrap();
+    assert_eq!(request.player, PlayerId(player));
+    game.respond(request.player, request.id, response).unwrap();
     if finish {
         game.complete_test_mana();
     }
 }
 fn announce(game: &mut Game, player: u8) {
+    input(game, player, game.next_test_decision().cast(spell(player)));
     input(
         game,
         player,
-        Response::Cast {
-            card: spell(player),
-        },
-    );
-    input(
-        game,
-        player,
-        Response::Targets {
-            objects: vec![ObjectId {
-                card: CardId(2),
-                incarnation: 0,
-            }],
-        },
+        game.next_test_decision().targets(vec![ObjectId {
+            card: CardId(2),
+            incarnation: 0,
+        }]),
     );
     assert!(
-        matches!(Driver::settle(game, u64::MAX), Advance::AwaitingDecision(Request::Mana { player: p, .. }) if p == PlayerId(player))
+        matches!(Driver::settle(game, u64::MAX), Advance::AwaitingDecision(Decision{player:p,reason:Reason::Mana{..},..}) if p == PlayerId(player))
     );
 }
 fn activate(game: &mut Game, player: u8, card: CardId) {
     input(
         game,
         player,
-        Response::ActivateMana {
-            object: game.object_id(card).unwrap(),
-        },
+        game.next_test_decision()
+            .activate_mana(game.object_id(card).unwrap()),
     );
     assert!(
-        matches!(Driver::settle(game, u64::MAX), Advance::AwaitingDecision(Request::Mana { player: p, .. }) if p == PlayerId(player))
+        matches!(Driver::settle(game, u64::MAX), Advance::AwaitingDecision(Decision{player:p,reason:Reason::Mana{..},..}) if p == PlayerId(player))
     );
 }
 fn finish(game: &mut Game, player: u8, undo_mana: bool) {
-    input(game, player, Response::FinishMana { undo_mana });
+    input(
+        game,
+        player,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: undo_mana,
+            },
+        },
+    );
     assert!(
-        matches!(Driver::settle(game, u64::MAX), Advance::AwaitingDecision(Request::Priority { player: p, .. }) if p == PlayerId(player))
+        matches!(Driver::settle(game, u64::MAX), Advance::AwaitingDecision(Decision{player:p,reason:Reason::Priority,..}) if p == PlayerId(player))
     );
 }
 fn paid_cast(game: &mut Game, player: u8) {
@@ -114,29 +117,38 @@ fn casting_mana_is_a_saved_decision_before_atomic_payment() {
     assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
     let r = game.decision_for(PlayerId(0)).unwrap().unwrap();
     game.respond(
-        r.player(),
-        r.decision_id(),
-        Response::FinishMana { undo_mana: true },
+        r.player,
+        r.id,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
     )
     .unwrap();
     assert!(matches!(
         game.advance(Budget::new(1)),
-        Advance::AwaitingDecision(Request::SpendMana { .. })
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::SpendMana { .. },
+            ..
+        })
     ));
 
     assert!(game.state.rules.stack[0].paid.is_none());
     assert_eq!(game.mana(PlayerId(0), Color::U), Some(Quantity::from(1)));
-    input(
-        &mut game,
-        0,
-        Response::SpendMana {
-            spending: BTreeMap::from([(Color::U, 1.into())]),
-        },
-    );
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([(Color::U, 1.into())]),
+            },
+        };
+        input(&mut game, 0, selected_answer)
+    };
     assert!(matches!(
         Driver::settle(&mut game, u64::MAX),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::Priority,
             ..
         })
     ));
@@ -159,7 +171,10 @@ fn affordable_spell_still_offers_mana_and_extra_mana_remains_after_payment() {
     let extra = extra_land(&mut p, 0, 0, ISLAND);
     let mut game = Game::new(p);
     let object = game.object_id(land(0)).unwrap();
-    input(&mut game, 0, Response::ActivateMana { object });
+    {
+        let selected_answer = game.next_test_decision().activate_mana(object);
+        input(&mut game, 0, selected_answer)
+    };
     announce(&mut game, 0);
     // CR 601.2g gives a chance to activate even when the initial pool suffices.
     activate(&mut game, 0, extra);
@@ -176,9 +191,17 @@ fn failed_payment_can_undo_or_keep_casting_mana_without_undoing_floated_mana() {
         let (p, extra) = wrong_color_prepared();
         let mut game = Game::new(p);
         paid_cast(&mut game, 0);
-        input(&mut game, 0, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, 0, selected_answer)
+        };
         let object = game.object_id(extra).unwrap();
-        input(&mut game, 1, Response::ActivateMana { object });
+        {
+            let selected_answer = game.next_test_decision().activate_mana(object);
+            input(&mut game, 1, selected_answer)
+        };
         let _ = Driver::settle(&mut game, u64::MAX);
         let before_pool = game.state.rules.players[1].mana.clone();
         announce(&mut game, 1);
@@ -206,7 +229,12 @@ fn only_undone_mana_activations_restore_the_prior_pass_round() {
         let (p, _) = wrong_color_prepared();
         let mut game = Game::new(p);
         paid_cast(&mut game, 0);
-        input(&mut game, 0, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, 0, selected_answer)
+        };
         announce(&mut game, 1);
         activate(&mut game, 1, land(1));
         finish(&mut game, 1, undo_mana);
@@ -228,42 +256,47 @@ fn mana_stage_rejects_opponents_pass_cast_and_stale_or_repeated_activations_atom
     let request = game.decision_for(PlayerId(0)).unwrap().unwrap();
     let before = game.snapshot().unwrap();
     for (player, response) in [
-        (PlayerId(1), Response::FinishMana { undo_mana: true }),
-        (PlayerId(0), Response::Pass),
-        (PlayerId(0), Response::Cast { card: spell(0) }),
         (
-            PlayerId(0),
-            Response::ActivateMana {
-                object: game.object_id(land(1)).unwrap(),
-            },
-        ),
-        (
-            PlayerId(0),
-            Response::ActivateMana {
-                object: ObjectId {
-                    card: land(0),
-                    incarnation: 1,
+            PlayerId(1),
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true,
                 },
             },
         ),
+        (
+            PlayerId(0),
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        ),
+        (PlayerId(0), game.next_test_decision().cast(spell(0))),
+        (
+            PlayerId(0),
+            game.next_test_decision()
+                .activate_mana(game.object_id(land(1)).unwrap()),
+        ),
+        (
+            PlayerId(0),
+            game.next_test_decision().activate_mana(ObjectId {
+                card: land(0),
+                incarnation: 1,
+            }),
+        ),
     ] {
-        assert!(
-            game.respond(player, request.decision_id(), response)
-                .is_err()
-        );
+        assert!(game.respond(player, request.id, response).is_err());
         assert_eq!(before, game.snapshot().unwrap());
     }
-    let original_id = request.decision_id();
+    let original_id = request.id;
     activate(&mut game, 0, land(0));
     let request = game.decision_for(PlayerId(0)).unwrap().unwrap();
     let before = game.snapshot().unwrap();
     assert!(
         game.respond(
             PlayerId(0),
-            request.decision_id(),
-            Response::ActivateMana {
-                object: game.object_id(land(0)).unwrap()
-            }
+            request.id,
+            game.next_test_decision()
+                .activate_mana(game.object_id(land(0)).unwrap())
         )
         .is_err()
     );
@@ -271,7 +304,11 @@ fn mana_stage_rejects_opponents_pass_cast_and_stale_or_repeated_activations_atom
         game.respond(
             PlayerId(0),
             original_id,
-            Response::FinishMana { undo_mana: true }
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true
+                }
+            }
         )
         .is_err()
     );
@@ -291,8 +328,9 @@ fn unrelated_and_target_departures_preserve_legal_casting_mana_until_payment() {
     assert!(game.decision_for(PlayerId(0)).unwrap().is_none());
     assert!(matches!(
         Driver::settle(&mut game, u64::MAX),
-        Advance::AwaitingDecision(Request::Mana {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::Mana { .. },
             ..
         })
     ));
@@ -303,8 +341,9 @@ fn unrelated_and_target_departures_preserve_legal_casting_mana_until_payment() {
     game.concede(PlayerId(1)).unwrap();
     assert!(matches!(
         Driver::settle(&mut game, u64::MAX),
-        Advance::AwaitingDecision(Request::Mana {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::Mana { .. },
             ..
         })
     ));
@@ -328,8 +367,9 @@ fn payer_departure_retains_last_known_mana_and_does_not_reverse_foreign_lands() 
     game.concede(PlayerId(0)).unwrap();
     assert!(matches!(
         Driver::settle(&mut game, u64::MAX),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(1),
+            reason: Reason::Priority,
             ..
         })
     ));
@@ -362,8 +402,9 @@ fn vanished_mana_source_is_not_resurrected_and_its_mana_still_pays_the_legal_cas
     game.concede(PlayerId(1)).unwrap();
     assert!(matches!(
         Driver::settle(&mut game, u64::MAX),
-        Advance::AwaitingDecision(Request::Mana {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::Mana { .. },
             ..
         })
     ));
@@ -393,35 +434,48 @@ fn complete_paid_cast_with_departed_target(game: &mut Game, announced: StackInst
             incarnation: 0,
         }]
     );
-    let Advance::AwaitingDecision(request @ Request::Mana { .. }) = Driver::settle(game, u64::MAX)
+    let Advance::AwaitingDecision(
+        request @ Decision {
+            reason: Reason::Mana { .. },
+            ..
+        },
+    ) = Driver::settle(game, u64::MAX)
     else {
         panic!("legal cast must retain its mana window")
     };
     game.respond(
         PlayerId(0),
-        request.decision_id(),
-        Response::FinishMana { undo_mana: true },
+        request.id,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
     )
     .unwrap();
 
     assert!(matches!(
         Driver::settle(game, u64::MAX),
-        Advance::AwaitingDecision(Request::SpendMana {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::SpendMana { .. },
             ..
         })
     ));
     input(
         game,
         0,
-        Response::SpendMana {
-            spending: BTreeMap::from([(Color::U, 1.into())]),
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([(Color::U, 1.into())]),
+            },
         },
     );
     assert!(matches!(
         Driver::settle(game, u64::MAX),
-        Advance::AwaitingDecision(Request::Priority {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::Priority,
             ..
         })
     ));
@@ -436,7 +490,13 @@ fn complete_paid_cast_with_departed_target(game: &mut Game, announced: StackInst
     );
     for player in 0..4 {
         if game.is_live(PlayerId(player)) {
-            input(game, player, Response::Pass);
+            input(
+                game,
+                player,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            );
         }
     }
     Driver::settle(game, u64::MAX);
@@ -467,13 +527,17 @@ fn accepted_activation_is_discarded_when_departure_removes_its_source_before_exe
     let mut game = Game::new(p);
     announce(&mut game, 0);
     let object = game.object_id(borrowed).unwrap();
-    input(&mut game, 0, Response::ActivateMana { object });
+    {
+        let selected_answer = game.next_test_decision().activate_mana(object);
+        input(&mut game, 0, selected_answer)
+    };
     assert!(game.state.rules.pending.is_some());
     game.concede(PlayerId(3)).unwrap();
     assert!(matches!(
         Driver::settle(&mut game, u64::MAX),
-        Advance::AwaitingDecision(Request::Mana {
+        Advance::AwaitingDecision(Decision {
             player: PlayerId(0),
+            reason: Reason::Mana { .. },
             ..
         })
     ));
@@ -526,15 +590,15 @@ fn reversal_preserves_a_preexisting_zero_mana_entry() {
         Some(&Quantity::from(0))
     );
     let before = game.state.rules.players[0].mana.clone();
-    input(&mut game, 0, Response::Cast { card: second_spell });
+    {
+        let selected_answer = game.next_test_decision().cast(second_spell);
+        input(&mut game, 0, selected_answer)
+    };
     let target = game.object_id(CardId(2)).unwrap();
-    input(
-        &mut game,
-        0,
-        Response::Targets {
-            objects: vec![target],
-        },
-    );
+    {
+        let selected_answer = game.next_test_decision().targets(vec![target]);
+        input(&mut game, 0, selected_answer)
+    };
     let _ = Driver::settle(&mut game, u64::MAX);
     activate(&mut game, 0, third_land);
     let Frame::Mana { cast } = &game.state.rules.frame else {
@@ -588,7 +652,12 @@ fn departing_caster_keeps_mana_action_and_requires_a_fresh_lower_spell_pass_roun
     announce(&mut game, 0);
     activate(&mut game, 0, land(0));
     finish(&mut game, 0, false);
-    input(&mut game, 0, Response::Pass);
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        input(&mut game, 0, selected_answer)
+    };
     let _ = Driver::settle(&mut game, u64::MAX);
     assert_eq!(game.state.rules.passes, vec![PlayerId(0)]);
     announce(&mut game, 1);
@@ -607,12 +676,22 @@ fn departing_caster_keeps_mana_action_and_requires_a_fresh_lower_spell_pass_roun
         Quantity::from(1)
     );
     for player in [2, 3] {
-        input(&mut game, player, Response::Pass);
+        {
+            let selected_answer = Answer::Pick {
+                picks: vec![vec![0]],
+            };
+            input(&mut game, player, selected_answer)
+        };
     }
     let _ = Driver::settle(&mut game, u64::MAX);
     assert_eq!(game.state.rules.stack.len(), 1);
     assert_eq!(game.state.rules.priority, PlayerId(0));
-    input(&mut game, 0, Response::Pass);
+    {
+        let selected_answer = Answer::Pick {
+            picks: vec![vec![0]],
+        };
+        input(&mut game, 0, selected_answer)
+    };
     let _ = Driver::settle(&mut game, u64::MAX);
     assert!(game.state.rules.stack.is_empty());
     assert!(game.object_id(CardId(2)).is_none());

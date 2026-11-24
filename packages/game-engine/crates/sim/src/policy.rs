@@ -195,27 +195,7 @@ impl Strategy<'_> {
                 },
             ) => {
                 let outer = mana_ability_source.is_none();
-                let purpose = if let Some(source) = mana_ability_source {
-                    Some(mana_policy::ManaPurpose::activation(v, source))
-                } else {
-                    match &self.payment.action {
-                        Some(PaymentAction::Activate(source, _)) => {
-                            Some(mana_policy::ManaPurpose::activation(v, source))
-                        }
-                        Some(PaymentAction::Cast(oracle_id, _)) => {
-                            definition(self.catalog, oracle_id).ok().map(|definition| {
-                                mana_policy::ManaPurpose::Cast(
-                                    mtg_contracts::ManaSpellTraits::from_characteristics(
-                                        &definition.characteristics,
-                                    ),
-                                )
-                            })
-                        }
-                        _ => None,
-                    }
-                };
-                let available =
-                    mana_policy::spendable_pool(v, purpose).ok_or("missing mana payer")?;
+                let available = mana_policy::spendable_pool(v).ok_or("missing mana payer")?;
                 let payable = payment(cost, &available).is_some();
                 if outer && self.payment.announced_cost.as_ref() != Some(cost) {
                     // Modes, X, tax and additional costs can change the final
@@ -226,7 +206,6 @@ impl Strategy<'_> {
                             v,
                             cost,
                             self.payment.exclude.as_ref(),
-                            purpose,
                         )
                         .unwrap_or_default();
                     }

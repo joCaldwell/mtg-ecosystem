@@ -20,20 +20,34 @@ fn damage_prepared(borrowed: bool) -> Prepared {
         ScenarioConfig::commander_damage()
     })
 }
-fn passive(req: PlayerRequest) -> PlayerResponse {
-    match req {
-        PlayerRequest::Priority { .. } => PlayerResponse::Pass,
-        PlayerRequest::Attackers { .. } => PlayerResponse::Attackers { attacks: vec![] },
-        PlayerRequest::Blockers { .. } => PlayerResponse::Blockers { blocks: vec![] },
-        PlayerRequest::Discard {
-            count, candidates, ..
-        } => PlayerResponse::Discard {
-            objects: candidates.into_iter().take(count).collect(),
+fn passive(req: Decision<Viewer>) -> Answer {
+    match req.clone() {
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => req.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => req.block(vec![]),
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let count = found.required_count();
+            let candidates = found.objects_offered();
+            req.pick_objects(candidates.into_iter().take(count).collect())
+        }
         _ => panic!("unexpected passive request"),
     }
 }
-fn until(game: &mut Game, wanted: impl Fn(&Game, &PlayerRequest) -> bool) {
+fn until(game: &mut Game, wanted: impl Fn(&Game, &Decision<Viewer>) -> bool) {
     for _ in 0..250 {
         let req = request(game).1;
         if wanted(game, &req) {
@@ -64,13 +78,17 @@ fn tuck(game: &mut Game, oracle: &str) -> ObjectHandle {
         .find(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
         .unwrap()
         .handle;
-    input(game, PlayerResponse::Cast { card });
+    input(
+        game,
+        game.next_test_viewer_decision().select(Candidate::Action {
+            action: Action::Cast { card },
+        }),
+    );
     let target = target_handle(game, PlayerId(0), oracle);
     input(
         game,
-        PlayerResponse::Targets {
-            objects: vec![target.clone()],
-        },
+        game.next_test_viewer_decision()
+            .targets(vec![target.clone()]),
     );
     for _ in 0..3 {
         let land = observe(game, PlayerId(0))
@@ -82,17 +100,34 @@ fn tuck(game: &mut Game, oracle: &str) -> ObjectHandle {
             })
             .unwrap()
             .handle;
-        input(game, PlayerResponse::ActivateMana { object: land });
+        input(game, game.next_test_viewer_decision().activate_mana(land));
     }
-    input(game, PlayerResponse::FinishMana { undo_mana: true });
+    input(
+        game,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+    );
     for _ in 0..4 {
-        input(game, PlayerResponse::Pass);
+        input(
+            game,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     target
 }
 fn declined_tuck_to_draw(game: &mut Game) {
     tuck(game, ISAMARU);
-    input(game, PlayerResponse::CommanderReturn { to_command: false });
+    input(
+        game,
+        game.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Destination,
+        }),
+    );
     assert_eq!(
         library_order(game, PlayerId(1)),
         vec![CardId(4), CardId(10), CardId(11)]
@@ -100,8 +135,11 @@ fn declined_tuck_to_draw(game: &mut Game) {
     until(game, |_, req| {
         matches!(
             req,
-            PlayerRequest::CommanderReturn {
-                destination: Zone::Hand { .. },
+            Decision {
+                reason: Reason::CommanderReturn {
+                    destination: Zone::Hand { .. },
+                    ..
+                },
                 ..
             }
         )
@@ -120,10 +158,14 @@ fn declined_tuck_has_hidden_draw_replacement_then_exactly_one_draw_and_recast() 
         .clone();
     declined_tuck_to_draw(&mut game);
     let (owner, req) = request(&game);
-    let PlayerRequest::CommanderReturn {
-        object,
-        designation: returned_designation,
-        token,
+    let Decision {
+        id: token,
+        reason:
+            Reason::CommanderReturn {
+                object,
+                designation: returned_designation,
+                ..
+            },
         ..
     } = req
     else {
@@ -147,13 +189,31 @@ fn declined_tuck_has_hidden_draw_replacement_then_exactly_one_draw_and_recast() 
             &game,
             other,
             token.clone(),
-            PlayerResponse::CommanderReturn { to_command: true },
+            game.next_test_viewer_decision().select(Candidate::Flag {
+                flag: Flag::CommandZone,
+            }),
         );
     }
-    reject(&game, owner, token.clone(), PlayerResponse::Pass);
+    reject(
+        &game,
+        owner,
+        token.clone(),
+        Answer::Pick {
+            picks: vec![vec![u32::MAX]],
+        },
+    );
     for to_command in [false, true] {
         let mut branch = game.fork();
-        input(&mut branch, PlayerResponse::CommanderReturn { to_command });
+        {
+            let selected_answer = branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            input(&mut branch, selected_answer)
+        };
         assert_eq!(library_order(&branch, owner), vec![CardId(10), CardId(11)]);
         assert_eq!(
             branch.zone(branch.object_id(CardId(4)).unwrap()),
@@ -176,14 +236,21 @@ fn declined_tuck_has_hidden_draw_replacement_then_exactly_one_draw_and_recast() 
             &branch,
             owner,
             token.clone(),
-            PlayerResponse::CommanderReturn { to_command },
+            branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            }),
         );
         until(&mut branch, |g, req| {
             g.turn().step == TurnStep::PrecombatMain
                 && matches!(
                     req,
-                    PlayerRequest::Priority {
+                    Decision {
                         player: PlayerId(1),
+                        reason: Reason::Priority,
                         ..
                     }
                 )
@@ -191,10 +258,14 @@ fn declined_tuck_has_hidden_draw_replacement_then_exactly_one_draw_and_recast() 
         reject(
             &branch,
             owner,
-            request(&branch).1.token().clone(),
-            PlayerResponse::Cast {
-                card: old_target.clone(),
-            },
+            request(&branch).1.id.clone(),
+            branch
+                .next_test_viewer_decision()
+                .select(Candidate::Action {
+                    action: Action::Cast {
+                        card: old_target.clone(),
+                    },
+                }),
         );
         let card = observe(&branch, owner)
             .view
@@ -203,8 +274,20 @@ fn declined_tuck_has_hidden_draw_replacement_then_exactly_one_draw_and_recast() 
             .find(|o| o.oracle_id == ISAMARU)
             .unwrap()
             .handle;
-        input(&mut branch, PlayerResponse::Cast { card });
-        let PlayerRequest::Mana { cost, .. } = request(&branch).1 else {
+        {
+            let selected_answer = branch
+                .next_test_viewer_decision()
+                .select(Candidate::Action {
+                    action: Action::Cast { card },
+                });
+            input(&mut branch, selected_answer)
+        };
+        let Decision {
+            shape: Shape::Pay { cost, .. },
+            reason: Reason::Mana { .. },
+            ..
+        } = request(&branch).1
+        else {
             panic!()
         };
         assert_eq!(cost.generic, Quantity::zero());
@@ -215,8 +298,18 @@ fn declined_tuck_has_hidden_draw_replacement_then_exactly_one_draw_and_recast() 
             .find(|o| o.owner == owner && o.zone == Zone::Battlefield)
             .unwrap()
             .handle;
-        input(&mut branch, PlayerResponse::ActivateMana { object: land });
-        input(&mut branch, PlayerResponse::FinishMana { undo_mana: true });
+        {
+            let selected_answer = branch.next_test_viewer_decision().activate_mana(land);
+            input(&mut branch, selected_answer)
+        };
+        {
+            let selected_answer = Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true,
+                },
+            };
+            input(&mut branch, selected_answer)
+        };
         assert_eq!(
             branch.commander_ledger().tax(CardId(4), owner).unwrap(),
             Quantity::from(if to_command { 2 } else { 0 })
@@ -245,7 +338,13 @@ fn ordinary_creature_top_placement_draws_actual_top_without_commander_choice() {
     until(&mut game, |g, req| {
         g.turn_owner() == PlayerId(2)
             && g.turn().step == TurnStep::Draw
-            && matches!(req, PlayerRequest::Priority { .. })
+            && matches!(
+                req,
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                }
+            )
     });
     assert_eq!(
         library_order(&game, PlayerId(2)),
@@ -275,9 +374,12 @@ fn library_move_choice_continues_once_after_its_sorcery_owner_departs() {
     tuck(&mut game, ISAMARU);
     assert!(matches!(
         request(&game).1,
-        PlayerRequest::CommanderReturn {
-            object: Some(_),
-            destination: Zone::Library { owner: PlayerId(1) },
+        Decision {
+            reason: Reason::CommanderReturn {
+                object: Some(_),
+                destination: Zone::Library { owner: PlayerId(1) },
+                ..
+            },
             ..
         }
     ));
@@ -285,12 +387,32 @@ fn library_move_choice_continues_once_after_its_sorcery_owner_departs() {
         for to_command in [false, true] {
             let mut branch = game.fork();
             if accepted {
-                submit(&mut branch, PlayerResponse::CommanderReturn { to_command });
+                {
+                    let selected_answer =
+                        branch.next_test_viewer_decision().select(Candidate::Flag {
+                            flag: if to_command {
+                                Flag::CommandZone
+                            } else {
+                                Flag::Destination
+                            },
+                        });
+                    submit(&mut branch, selected_answer)
+                };
             }
             branch.concede(PlayerId(0)).unwrap();
             assert!(matches!(settle(&mut branch), Advance::AwaitingDecision(_)));
             if !accepted {
-                input(&mut branch, PlayerResponse::CommanderReturn { to_command });
+                {
+                    let selected_answer =
+                        branch.next_test_viewer_decision().select(Candidate::Flag {
+                            flag: if to_command {
+                                Flag::CommandZone
+                            } else {
+                                Flag::Destination
+                            },
+                        });
+                    input(&mut branch, selected_answer)
+                };
             }
             assert_eq!(branch.object_id(CardId(4)).unwrap().incarnation, 1);
             assert_eq!(
@@ -315,14 +437,21 @@ fn hidden_draw_choice_receipts_and_accepted_inputs_revalidate_concessions() {
     declined_tuck_to_draw(&mut game);
     for departing in [PlayerId(0), PlayerId(1), PlayerId(2)] {
         let mut stale = game.fork();
-        let saved = receipt(&stale, PlayerResponse::CommanderReturn { to_command: true });
+        let saved = receipt(
+            &stale,
+            stale.next_test_viewer_decision().select(Candidate::Flag {
+                flag: Flag::CommandZone,
+            }),
+        );
         stale.concede(departing).unwrap();
         assert!(stale.submit(saved).is_err());
         let mut branch = game.fork();
-        submit(
-            &mut branch,
-            PlayerResponse::CommanderReturn { to_command: true },
-        );
+        {
+            let selected_answer = branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: Flag::CommandZone,
+            });
+            submit(&mut branch, selected_answer)
+        };
         branch.concede(departing).unwrap();
         assert!(matches!(settle(&mut branch), Advance::AwaitingDecision(_)));
         if departing == PlayerId(1) {
@@ -376,8 +505,10 @@ fn hidden_draw_validation_work_recovers_without_minting_library_handles() {
     let before = game.snapshot().unwrap();
     let QueryResult::Incomplete { work, .. } = game.check_player_response(
         owner,
-        req.token().clone(),
-        PlayerResponse::CommanderReturn { to_command: false },
+        req.id.clone(),
+        game.next_test_viewer_decision().select(Candidate::Flag {
+            flag: Flag::Destination,
+        }),
         Budget::new(0),
     ) else {
         panic!("suspended query")
@@ -428,15 +559,15 @@ fn actual_commander_threshold_preserves_physical_history_after_controller_depart
             break;
         }
         let req = request(&game).1;
-        let response = match req {
-            PlayerRequest::Attackers {
-                player: PlayerId(1),
-                candidates,
+        let response = match req.clone() {
+            found @ Decision {
+                reason: Reason::Attackers,
                 ..
-            } => {
-                hits += 1;
-                PlayerResponse::Attackers {
-                    attacks: vec![(candidates[0].clone(), PlayerId(2))],
+            } if (found.player) == PlayerId(1) => {
+                let candidates = found.subjects();
+                {
+                    hits += 1;
+                    req.attack(vec![(candidates[0].clone(), PlayerId(2))])
                 }
             }
             req => passive(req),
@@ -485,7 +616,16 @@ fn actual_commander_threshold_preserves_physical_history_after_controller_depart
     assert!(matches!(settle(&mut game), Advance::AwaitingDecision(_)));
     for to_command in [false, true] {
         let mut branch = game.fork();
-        input(&mut branch, PlayerResponse::CommanderReturn { to_command });
+        {
+            let selected_answer = branch.next_test_viewer_decision().select(Candidate::Flag {
+                flag: if to_command {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            });
+            input(&mut branch, selected_answer)
+        };
         assert_eq!(branch.commander_ledger().history(CardId(0)), Some(&history));
         assert_eq!(
             branch.zone(branch.object_id(CardId(0)).unwrap()),

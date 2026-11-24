@@ -163,3 +163,23 @@ pub fn assert_recoverable(case: JournalCase) {
         }
     }
 }
+
+impl Game {
+    /// Select an intent for a driver which first settles the current step.
+    pub fn next_test_decision(&self) -> Decision<Rules> {
+        self.pending_decision()
+            .unwrap()
+            .unwrap_or_else(|| Driver::request(&mut self.fork(), u64::MAX))
+    }
+    pub fn next_test_viewer_decision(&self) -> Decision<Viewer> {
+        let d = self.next_test_decision();
+        let mut game = self.fork();
+        Driver::request(&mut game, u64::MAX);
+        let QueryResult::Complete(QueryValue::Decision(Some(d))) =
+            game.player_decision_for(d.player, Budget::unlimited())
+        else {
+            panic!("missing viewer decision")
+        };
+        d
+    }
+}

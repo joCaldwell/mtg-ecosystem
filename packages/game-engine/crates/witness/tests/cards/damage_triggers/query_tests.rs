@@ -110,24 +110,36 @@ fn board() -> Board {
     to_step(&mut game, 1, TurnStep::DeclareAttackers);
     let attacker = game.object_id(card(0, DREADMAW)).unwrap();
     let blocker = game.object_id(card(1, BEARS)).unwrap();
-    answer(
-        &mut game,
-        Response::Attackers {
-            attacks: vec![(attacker, PlayerId(1))],
-        },
-    );
+    {
+        let selected_answer = game
+            .next_test_decision()
+            .attack(vec![(attacker, PlayerId(1))]);
+        answer(&mut game, selected_answer)
+    };
     loop {
         match settle(&mut game) {
-            Request::Blockers { .. } => answer(
-                &mut game,
-                Response::Blockers {
-                    blocks: vec![(blocker, attacker)],
-                },
-            ),
-            Request::Priority { .. } if game.state.rules.turn.step == TurnStep::DeclareBlockers => {
+            Decision {
+                reason: Reason::Blockers,
+                ..
+            } => {
+                let selected_answer = game.next_test_decision().block(vec![(blocker, attacker)]);
+                answer(&mut game, selected_answer)
+            }
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } if game.state.rules.turn.step == TurnStep::DeclareBlockers => {
                 break;
             }
-            Request::Priority { .. } => answer(&mut game, Response::Pass),
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => {
+                let selected_answer = Answer::Pick {
+                    picks: vec![vec![0]],
+                };
+                answer(&mut game, selected_answer)
+            }
             other => panic!("unexpected combat request {other:?}"),
         }
     }

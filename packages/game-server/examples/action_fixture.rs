@@ -1,6 +1,6 @@
 //! Frozen admitted-prefix producer: only committed permitted observations and
 //! core action outcomes leave the worker. Tokens/handles are local capture IDs.
-use mtg_core::{ActionScope, MatchConfig, PlayerId, PlayerRequest, PlayerResponse};
+use mtg_core::{Action, Answer, Candidate, Decision, Flag, MatchConfig, PlayerId, Reason};
 use mtg_server::{
     protocol::*,
     worker::{Worker, WorkerPhase},
@@ -25,18 +25,18 @@ fn offered(w: &Worker) -> Result<(u8, mtg_core::Observation), String> {
     }
     Err("no offered decision".into())
 }
-fn submit(w: &mut Worker, n: &mut u64, response: PlayerResponse) -> Result<(), String> {
+fn submit(w: &mut Worker, n: &mut u64, answer: Answer) -> Result<(), String> {
     let (seat, o) = offered(w)?;
     *n += 1;
     let r = w.submit(
         seat,
         CommandEnvelope {
-            protocol_version: 1,
+            protocol_version: 2,
             command_id: format!("{n:032x}"),
             expected_revision: Counter::new(w.host_state().viewer_cursors[usize::from(seat)]),
             command: CommandBody::Decision {
-                token: o.decision.unwrap().token().clone(),
-                response,
+                token: o.decision.unwrap().id.clone(),
+                answer,
             },
         },
         Instant::now(),
@@ -74,47 +74,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stages.push(serde_json::json!({"stage":"opening","observation":opening}));
         for _ in 0..4 {
             let (_, o) = offered(&w)?;
-            if !matches!(o.decision, Some(PlayerRequest::Mulligan { .. })) {
+            if !matches!(
+                o.decision,
+                Some(Decision {
+                    reason: Reason::Mulligan { .. },
+                    ..
+                })
+            ) {
                 return Err("unexpected opening request".into());
             }
-            submit(&mut w, &mut n, PlayerResponse::Mulligan { take: false })?;
+            submit(
+                &mut w,
+                &mut n,
+                o.decision
+                    .unwrap()
+                    .pick_one(&Candidate::Flag { flag: Flag::Keep })?,
+            )?;
         }
         let mut land = false;
         let mut cast = false;
         for _ in 0..128 {
-            let (seat, o) = offered(&w)?;
-            let token = o.decision.as_ref().unwrap().token().clone();
-            let query = w.query_actions(
-                seat,
-                ActionQueryRequest::Start {
-                    token,
-                    scope: ActionScope::Window,
-                    page_size: 32,
-                    work: 1000,
-                },
-                Instant::now(),
-            );
-            let ActionQueryStatus::Complete { ref page } = query.outcome else {
-                return Err("prefix query not complete within fixed allowance".into());
-            };
-            let response = if !land {
-                page.beginnings
-                    .iter()
-                    .find(|b| matches!(b.initiation, mtg_core::ActionInitiation::PlayLand { .. }))
-                    .map(|b| b.initiation.response())
-            } else {
-                page.beginnings
-                    .iter()
-                    .find(|b| matches!(b.initiation, mtg_core::ActionInitiation::Cast { .. }))
-                    .map(|b| b.initiation.response())
-            };
+            let (_, o) = offered(&w)?;
+            let d = o.decision.as_ref().ok_or("missing decision")?;
+            let response = d
+                .candidates
+                .iter()
+                .find(|c| {
+                    matches!(
+                        (land, c),
+                        (
+                            false,
+                            Candidate::Action {
+                                action: Action::PlayLand { .. }
+                            }
+                        ) | (
+                            true,
+                            Candidate::Action {
+                                action: Action::Cast { .. }
+                            }
+                        )
+                    )
+                })
+                .map(|c| d.pick_one(c))
+                .transpose()?;
             if let Some(response) = response {
                 let stage = if !land {
                     "main-priority-before-land"
                 } else {
                     "main-priority-before-cast"
                 };
-                stages.push(serde_json::json!({"stage":stage,"observation":o,"query":query}));
+                stages.push(serde_json::json!({"stage":stage,"observation":o}));
                 if !land {
                     land = true
                 } else {
@@ -122,27 +131,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 submit(&mut w, &mut n, response)?;
                 if cast {
-                    let (seat, o) = offered(&w)?;
-                    if !matches!(o.decision, Some(PlayerRequest::Mana { .. })) {
+                    let (_, o) = offered(&w)?;
+                    if !matches!(
+                        o.decision,
+                        Some(Decision {
+                            reason: Reason::Mana { .. },
+                            ..
+                        })
+                    ) {
                         return Err("cast did not reach mana".into());
                     }
-                    let query = w.query_actions(
-                        seat,
-                        ActionQueryRequest::Start {
-                            token: o.decision.as_ref().unwrap().token().clone(),
-                            scope: ActionScope::Window,
-                            page_size: 32,
-                            work: 1000,
-                        },
-                        Instant::now(),
-                    );
-                    stages.push(
-                        serde_json::json!({"stage":"cast-mana","observation":o,"query":query}),
-                    );
+                    stages.push(serde_json::json!({"stage":"cast-mana","observation":o}));
                     break;
                 }
             } else {
-                submit(&mut w, &mut n, PlayerResponse::Pass)?;
+                submit(
+                    &mut w,
+                    &mut n,
+                    d.pick_one(&Candidate::Action {
+                        action: Action::Pass,
+                    })?,
+                )?;
             }
         }
         if !cast {

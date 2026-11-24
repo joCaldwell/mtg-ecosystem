@@ -7,10 +7,10 @@
 use super::*;
 
 /// The player who owes the pending decision and the kind of its token key.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decider {
     pub player: PlayerId,
-    pub kind: u8,
+    pub reason: Reason<Rules>,
 }
 
 impl Frame {
@@ -25,12 +25,12 @@ impl Frame {
         if matches!(self, Frame::Priority) {
             return Ok(Some(Decider {
                 player: game.state.rules.priority,
-                kind: Reason::<Rules>::Priority.code(),
+                reason: Reason::Priority,
             }));
         }
         Ok(game.frame_decision()?.map(|decision| Decider {
             player: decision.player,
-            kind: decision.reason.code(),
+            reason: decision.reason,
         }))
     }
 }

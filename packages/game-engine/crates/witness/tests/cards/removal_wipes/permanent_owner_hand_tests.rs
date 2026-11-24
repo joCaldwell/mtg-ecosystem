@@ -46,27 +46,40 @@ fn prepared(rows: &[(&str, u8, u8, bool)], commander: bool) -> Prepared {
     }
     board.libraries("Forest", 4).prepare()
 }
-fn announce(g: &mut Game, quantum: u64, card: u32) -> Request {
-    Driver::answer(g, quantum, Response::Cast { card: CardId(card) });
+fn announce(g: &mut Game, quantum: u64, card: u32) -> Decision<Rules> {
+    Driver::answer(g, quantum, g.next_test_decision().cast(CardId(card)));
     let r = Driver::request(g, quantum);
-    assert!(matches!(r, Request::Targets { .. }));
+    assert!(matches!(
+        r,
+        Decision {
+            reason: Reason::Targets { .. },
+            ..
+        }
+    ));
     r
 }
 fn pay(g: &mut Game, quantum: u64, target: ObjectId, lands: &[u32]) -> StackId {
+    Driver::answer(g, quantum, g.next_test_decision().targets(vec![target]));
+    for land in lands {
+        let land = Driver::object(g, *land);
+        Driver::answer(g, quantum, g.next_test_decision().activate_mana(land));
+    }
     Driver::answer(
         g,
         quantum,
-        Response::Targets {
-            objects: vec![target],
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
         },
     );
-    for land in lands {
-        let land = Driver::object(g, *land);
-        Driver::answer(g, quantum, Response::ActivateMana { object: land });
-    }
-    Driver::answer(g, quantum, Response::FinishMana { undo_mana: false });
     let r = Driver::request(g, quantum);
-    let Request::SpendMana { cost, .. } = r else {
+    let Decision {
+        shape: Shape::Pay { cost: cost, .. },
+        reason: Reason::SpendMana { .. },
+        ..
+    } = r
+    else {
         panic!("spending request");
     };
     assert_eq!(cost.colored, vec![Color::U]);
@@ -74,13 +87,18 @@ fn pay(g: &mut Game, quantum: u64, target: ObjectId, lands: &[u32]) -> StackId {
     Driver::answer(
         g,
         quantum,
-        Response::SpendMana {
-            spending: BTreeMap::from([(Color::U, Quantity::from(lands.len() as i64))]),
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([(Color::U, Quantity::from(lands.len() as i64))]),
+            },
         },
     );
     assert!(matches!(
         Driver::request(g, quantum),
-        Request::Priority { .. }
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
     ));
     for land in lands {
         assert!(g.current(Driver::object(g, *land)).unwrap().tapped);
@@ -93,29 +111,32 @@ fn finish(g: &mut Game, quantum: u64, commander_choice: Option<bool>) {
         if g.state.rules.stack.is_empty() {
             return;
         }
-        let response = match r {
-            Request::Priority { .. } => Response::Pass,
-            Request::CommanderReturn { .. } => Response::CommanderReturn {
-                to_command: commander_choice.expect("explicit Commander choice"),
+        let response = match r.clone() {
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => Answer::Pick {
+                picks: vec![vec![0]],
             },
+            Decision {
+                reason: Reason::CommanderReturn { .. },
+                ..
+            } => r.select(Candidate::Flag {
+                flag: if commander_choice.expect("explicit Commander choice") {
+                    Flag::CommandZone
+                } else {
+                    Flag::Destination
+                },
+            }),
             other => panic!("unexpected owner-hand continuation {other:?}"),
         };
         Driver::answer(g, quantum, response);
     }
     panic!("owner-hand completion bound");
 }
-fn reject(g: &mut Game, r: &Request, target: ObjectId) {
+fn reject(g: &mut Game, r: &Decision<Rules>, target: ObjectId) {
     let before = g.snapshot().unwrap();
-    assert!(
-        g.respond(
-            r.player(),
-            r.decision_id(),
-            Response::Targets {
-                objects: vec![target]
-            }
-        )
-        .is_err()
-    );
+    assert!(g.respond(r.player, r.id, r.targets(vec![target])).is_err());
     assert_eq!(g.snapshot().unwrap(), before);
 }
 fn completed(g: &Game, stack: StackId, resolved: bool) {
@@ -143,7 +164,9 @@ fn permanent_owner_hand_regress_returns_land_and_borrowed_artifact_to_owner_with
         let mut g = Game::with_trace(p.clone(), mode);
         let target = Driver::object(&g, 0);
         let r = announce(&mut g, quantum, 1);
-        assert!(matches!(r,Request::Targets { candidates,.. } if candidates.contains(&target)));
+        assert!(
+            matches!(r,found @ Decision {reason:Reason::Targets{..},..} if found.objects_offered().contains(&target))
+        );
         let stack = pay(&mut g, quantum, target, &[2, 3, 4]);
 
         finish(&mut g, quantum, None);
@@ -186,7 +209,7 @@ fn permanent_owner_hand_disperse_rejects_land_atomically_and_returns_artifact_or
         let enchantment = Driver::object(&g, 5);
         let r = announce(&mut g, quantum, 1);
         assert!(
-            matches!(&r,Request::Targets { candidates,.. } if !candidates.contains(&land) && candidates.contains(&artifact) && candidates.contains(&enchantment))
+            matches!(&r,found @ Decision {reason:Reason::Targets{..},..} if !found.objects_offered().contains(&land) && found.objects_offered().contains(&artifact) && found.objects_offered().contains(&enchantment))
         );
         reject(&mut g, &r, land);
         let target = Driver::object(&g, selected);
@@ -219,16 +242,36 @@ fn permanent_owner_hand_commander_owner_chooses_hand_or_command_and_feature_guar
         let stack = pay(&mut g, 1, target, &[2, 3]);
         for _ in 0..10 {
             let r = Driver::request(&mut g, 1);
-            if matches!(r, Request::CommanderReturn { .. }) {
-                assert_eq!(r.player(), PlayerId(1));
+            if matches!(
+                r,
+                Decision {
+                    reason: Reason::CommanderReturn { .. },
+                    ..
+                }
+            ) {
+                assert_eq!(r.player, PlayerId(1));
                 break;
             }
-            assert!(matches!(r, Request::Priority { .. }));
-            Driver::answer(&mut g, 1, Response::Pass);
+            assert!(matches!(
+                r,
+                Decision {
+                    reason: Reason::Priority,
+                    ..
+                }
+            ));
+            {
+                let selected_answer = Answer::Pick {
+                    picks: vec![vec![0]],
+                };
+                Driver::answer(&mut g, 1, selected_answer)
+            };
         }
         assert!(matches!(
             Driver::request(&mut g, 1),
-            Request::CommanderReturn { .. }
+            Decision {
+                reason: Reason::CommanderReturn { .. },
+                ..
+            }
         ));
 
         finish(&mut g, 1, Some(to_command));
@@ -273,7 +316,10 @@ fn permanent_owner_hand_departed_target_fizzles_without_returning_or_rebinding()
     g.concede(PlayerId(1)).unwrap();
     assert!(matches!(
         Driver::request(&mut g, quantum),
-        Request::Priority { .. }
+        Decision {
+            reason: Reason::Priority,
+            ..
+        }
     ));
     assert!(g.current(target).is_err());
 

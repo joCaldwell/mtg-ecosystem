@@ -31,6 +31,7 @@ fn old_deep_owned_fork(game: &Game) -> Game {
             state: game.state.clone(),
             trace: game.trace.clone(),
             executor: Arc::new(()),
+            priority_cache: Default::default(),
             state_token: Arc::new(()),
             in_rule_step: false,
             // The deep fork owns nothing derived: its first publication is complete.
@@ -55,7 +56,7 @@ fn observation(game: &Game, viewer: PlayerId) -> Observation {
         _ => panic!("wrong query result"),
     }
 }
-fn ready(game: &mut Game, units: u64) -> Request {
+fn ready(game: &mut Game, units: u64) -> Decision<Rules> {
     for _ in 0..10_000 {
         match game.advance(Budget::new(units)) {
             Advance::AwaitingDecision(r) => return r,
@@ -86,8 +87,10 @@ fn checked_pass(game: &Game) -> ValidatedResponse {
         game,
         game.check_player_response(
             PlayerId(0),
-            o.decision.unwrap().token().clone(),
-            PlayerResponse::Pass,
+            o.decision.unwrap().id.clone(),
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
             Budget::new(1),
         ),
     ) else {
@@ -148,13 +151,13 @@ fn prepared_arc_frozen_payment_journal_matches_owned_oracle_at_every_budget_boun
             let b = ready(&mut reference, u64::MAX);
             assert_eq!(a, b);
             full_equal(&actual, &reference);
-            assert_eq!(a.player(), input.player);
-            assert_eq!(a.decision_id(), input.decision_id);
+            assert_eq!(a.player, input.player);
+            assert_eq!(a.id, input.decision_id);
             actual
-                .respond(input.player, input.decision_id, input.response.clone())
+                .respond(input.player, input.decision_id, input.answer.clone())
                 .unwrap();
             reference
-                .respond(input.player, input.decision_id, input.response.clone())
+                .respond(input.player, input.decision_id, input.answer.clone())
                 .unwrap();
             full_equal(&actual, &reference);
         }
@@ -171,29 +174,62 @@ fn prepared_arc_frozen_payment_journal_matches_owned_oracle_at_every_budget_boun
     }
 }
 
-fn setup_and_empty_combat_policy(r: &Request) -> Response {
-    match r {
-        Request::Mulligan {
-            player,
-            mulligans_taken,
-            can_mulligan,
+fn setup_and_empty_combat_policy(r: &Decision<Rules>) -> Answer {
+    match r.clone() {
+        found @ Decision {
+            reason: Reason::Mulligan { .. },
             ..
-        } => Response::Mulligan {
-            take: *can_mulligan && *mulligans_taken < player.0,
+        } => {
+            let player = found.player;
+            let mulligans_taken = match &found.reason {
+                Reason::Mulligan {
+                    mulligans_taken, ..
+                } => mulligans_taken,
+                _ => unreachable!(),
+            };
+            let can_mulligan = found
+                .index(&Candidate::Flag {
+                    flag: Flag::Mulligan,
+                })
+                .is_some();
+            r.select(Candidate::Flag {
+                flag: if can_mulligan && *mulligans_taken < player.0 {
+                    Flag::Mulligan
+                } else {
+                    Flag::Keep
+                },
+            })
+        }
+        found @ Decision {
+            reason: Reason::BottomOpening,
+            ..
+        } => {
+            let candidates = found.objects_offered();
+            let count = &found.required_count();
+            r.order_objects(candidates.iter().rev().take(*count).copied().collect())
+        }
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
-        Request::BottomOpening {
-            candidates, count, ..
-        } => Response::BottomOpening {
-            objects: candidates.iter().rev().take(*count).copied().collect(),
-        },
-        Request::Priority { .. } => Response::Pass,
-        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-        Request::Discard {
-            candidates, count, ..
-        } => Response::Discard {
-            objects: candidates.iter().rev().take(*count).copied().collect(),
-        },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => r.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => r.block(vec![]),
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let candidates = found.objects_offered();
+            let count = &found.required_count();
+            r.pick_objects(candidates.iter().rev().take(*count).copied().collect())
+        }
         other => panic!("undeclared fixture request: {other:?}"),
     }
 }
@@ -223,12 +259,8 @@ fn prepared_arc_real400_decks_setup_knowledge_and_departures_match_deep_owned_re
             );
         }
         let response = setup_and_empty_combat_policy(&a);
-        actual
-            .respond(a.player(), a.decision_id(), response.clone())
-            .unwrap();
-        reference
-            .respond(b.player(), b.decision_id(), response)
-            .unwrap();
+        actual.respond(a.player, a.id, response.clone()).unwrap();
+        reference.respond(b.player, b.id, response).unwrap();
         full_equal(&actual, &reference);
     }
     ready(&mut actual, 1);

@@ -45,17 +45,52 @@ fn prepared(sources: &[(&str, u8, u8, Zone)]) -> Prepared {
 }
 fn passive(g: &mut Game) {
     let r = Driver::request(g, u64::MAX);
-    let (player, decision_id) = (r.player(), r.decision_id());
-    let response = match r {
-        Request::Priority { .. } => Response::Pass,
-        Request::Attackers { .. } => Response::Attackers { attacks: vec![] },
-        Request::Blockers { .. } => Response::Blockers { blocks: vec![] },
-        Request::OrderTriggers { candidates, .. } => Response::OrderTriggers { order: candidates },
-        Request::Discard {
-            count, candidates, ..
-        } => Response::Discard {
-            objects: candidates.into_iter().take(count).collect(),
+    let (player, decision_id) = (r.player, r.id);
+    let response = match r.clone() {
+        Decision {
+            reason: Reason::Priority,
+            ..
+        } => Answer::Pick {
+            picks: vec![vec![0]],
         },
+        Decision {
+            reason: Reason::Attackers,
+            ..
+        } => r.attack(vec![]),
+        Decision {
+            reason: Reason::Blockers,
+            ..
+        } => r.block(vec![]),
+        found @ Decision {
+            reason: Reason::OrderTriggers,
+            ..
+        } => {
+            let candidates = found
+                .candidates
+                .iter()
+                .filter_map(|c| {
+                    if let Candidate::Trigger { trigger } = c {
+                        Some(trigger.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            Answer::Order {
+                order: (candidates)
+                    .into_iter()
+                    .map(|trigger| r.test_index(Candidate::Trigger { trigger }))
+                    .collect(),
+            }
+        }
+        found @ Decision {
+            reason: Reason::Discard,
+            ..
+        } => {
+            let count = found.required_count();
+            let candidates = found.objects_offered();
+            r.pick_objects(candidates.into_iter().take(count).collect())
+        }
         other => panic!("unexpected passive request {other:?}"),
     };
     g.respond(player, decision_id, response).unwrap();
@@ -73,9 +108,40 @@ fn to_step(g: &mut Game, number: u64, step: TurnStep) {
 fn placed(g: &mut Game) {
     loop {
         match Driver::request(g, u64::MAX) {
-            Request::Priority { .. } => return,
-            Request::OrderTriggers { candidates, .. } => {
-                Driver::answer(g, u64::MAX, Response::OrderTriggers { order: candidates })
+            Decision {
+                reason: Reason::Priority,
+                ..
+            } => return,
+            found @ Decision {
+                reason: Reason::OrderTriggers,
+                ..
+            } => {
+                let candidates = found
+                    .candidates
+                    .iter()
+                    .filter_map(|c| {
+                        if let Candidate::Trigger { trigger } = c {
+                            Some(trigger.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                {
+                    Driver::answer(
+                        g,
+                        u64::MAX,
+                        Answer::Order {
+                            order: (candidates)
+                                .into_iter()
+                                .map(|trigger| {
+                                    g.next_test_decision()
+                                        .test_index(Candidate::Trigger { trigger })
+                                })
+                                .collect(),
+                        },
+                    )
+                }
             }
             r => panic!("placement {r:?}"),
         }
@@ -83,7 +149,13 @@ fn placed(g: &mut Game) {
 }
 fn resolve(g: &mut Game) {
     for _ in 0..g.live_players().len() {
-        Driver::answer(g, u64::MAX, Response::Pass);
+        Driver::answer(
+            g,
+            u64::MAX,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        );
     }
     let _ = Driver::request(g, u64::MAX);
 }
@@ -132,13 +204,10 @@ fn compiled_otter_combat_trigger_round_trips() {
     let mut game = game(TraceMode::Off);
     to_step(&mut game, 1, TurnStep::DeclareAttackers);
     let otter = Driver::object(&game, 0);
-    Driver::answer(
-        &mut game,
-        u64::MAX,
-        Response::Attackers {
-            attacks: vec![(otter, PlayerId(1))],
-        },
-    );
+    {
+        let selected_answer = game.next_test_decision().attack(vec![(otter, PlayerId(1))]);
+        Driver::answer(&mut game, u64::MAX, selected_answer)
+    };
     pending(&mut game);
     let frozen = witness(&game);
     assert!(
@@ -159,13 +228,10 @@ fn opponent_damage_exact_source_combat_and_departures() {
         let mut g = game(mode);
         to_step(&mut g, 1, TurnStep::DeclareAttackers);
         let source = Driver::object(&g, 0);
-        Driver::answer(
-            &mut g,
-            u64::MAX,
-            Response::Attackers {
-                attacks: vec![(source, PlayerId(1))],
-            },
-        );
+        {
+            let selected_answer = g.next_test_decision().attack(vec![(source, PlayerId(1))]);
+            Driver::answer(&mut g, u64::MAX, selected_answer)
+        };
         pending(&mut g);
         let frozen = witness(&g);
         assert!(

@@ -71,7 +71,7 @@ fn snapshot_codec_payment_pending_and_each_rule_boundary_restore_and_replay_all_
         exact(&game);
         for input in &inputs {
             ready(&mut game);
-            game.respond(input.player, input.decision_id, input.response.clone())
+            game.respond(input.player, input.decision_id, input.answer.clone())
                 .unwrap();
             let json = exact(&game);
             let restored = Game::restore(historical(), &json).unwrap();
@@ -334,8 +334,14 @@ fn snapshot_codec_queued_departures_terminal_and_reachable_fault_keep_all_trace_
             let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
                 panic!("expected priority before reachable unsupported transition")
             };
-            game.respond(request.player(), request.decision_id(), Response::Pass)
-                .unwrap();
+            game.respond(
+                request.player,
+                request.id,
+                Answer::Pick {
+                    picks: vec![vec![0]],
+                },
+            )
+            .unwrap();
             verifier.verify(&exact(&game)).unwrap();
         }
         let boundary = game.rule_boundary();

@@ -193,13 +193,17 @@ fn commander_snapshot_versions_and_physical_designations_are_validated() {
     });
 }
 
-fn answer(game: &mut Game, response: Response) {
-    let finish = matches!(response, Response::FinishMana { .. });
+fn answer(game: &mut Game, response: Answer) {
+    let finish = matches!(
+        response,
+        Answer::Pay {
+            pay: PayAnswer::Finish { .. }
+        }
+    );
     let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
         panic!("expected a decision");
     };
-    game.respond(request.player(), request.decision_id(), response)
-        .unwrap();
+    game.respond(request.player, request.id, response).unwrap();
     if finish {
         support::complete_mana(game);
     }
@@ -210,8 +214,15 @@ fn command_tax_is_frozen_before_completed_cast_history_changes() {
     let prepared =
         Prepared::admit(support::action_catalog(), ScenarioConfig::command_casting()).unwrap();
     let mut game = Game::new(prepared.clone());
-    answer(&mut game, Response::Cast { card: CardId(0) });
-    let Advance::AwaitingDecision(Request::Mana { cost, .. }) = game.advance(Budget::unlimited())
+    {
+        let selected_answer = game.next_test_decision().cast(CardId(0));
+        answer(&mut game, selected_answer)
+    };
+    let Advance::AwaitingDecision(Decision {
+        shape: Shape::Pay { cost, .. },
+        reason: Reason::Mana { .. },
+        ..
+    }) = game.advance(Budget::unlimited())
     else {
         panic!("expected casting mana request");
     };
@@ -230,11 +241,24 @@ fn command_tax_is_frozen_before_completed_cast_history_changes() {
         v["state"]["stack"][0]["cast_from"] = serde_json::json!({"zone":"hand","owner":0});
     });
     let plains = game.object_id(CardId(1)).unwrap();
-    answer(&mut game, Response::ActivateMana { object: plains });
-    answer(&mut game, Response::FinishMana { undo_mana: false });
+    {
+        let selected_answer = game.next_test_decision().activate_mana(plains);
+        answer(&mut game, selected_answer)
+    };
+    {
+        let selected_answer = Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        };
+        answer(&mut game, selected_answer)
+    };
     assert!(matches!(
         game.advance(Budget::unlimited()),
-        Advance::AwaitingDecision(Request::Priority { .. })
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Priority,
+            ..
+        })
     ));
     assert_eq!(
         game.commander_ledger().tax(CardId(0), PlayerId(0)).unwrap(),
