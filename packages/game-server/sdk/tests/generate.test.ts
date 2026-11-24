@@ -24,15 +24,13 @@ test('generation is repeatable and rejects future, unconstrained and external-re
     const first = inventory();
     assert(first['resume.d.ts'].includes('export interface SeatResume'));
     assert(first['routes.ts'].includes('get_resume'));
-    assert(first['action_request.d.ts'].includes('ActionQueryRequest'));
-    assert(first['action_query.d.ts'].includes('ActionQueryResponse'));
-    const missingAction = structuredClone(source); delete missingAction.action_query;
-    const missingActionRoute = structuredClone(source); missingActionRoute.routes = missingActionRoute.routes.filter(row=>row.operation!=='query_actions');
+    assert(first['stream.d.ts'].includes('export interface Decision'));
+    assert(first['command.d.ts'].includes('export type Answer'));
     const missingResume = structuredClone(source); delete missingResume.resume;
     const externalResume = structuredClone(source); externalResume.resume.properties.observation = { $ref: 'https://untrusted.example/observation.json' };
     const missingResumeRoute = structuredClone(source); missingResumeRoute.routes = missingResumeRoute.routes.filter(row => row.operation !== 'get_resume');
     assert.equal(run(source).status, 0); assert.deepEqual(inventory(), first);
-    const future = structuredClone(source); future.protocol_version = 2;
+    const future = structuredClone(source); future.protocol_version = 3;
     const unknown = structuredClone(source); unknown.command.properties.command = {};
     const external = structuredClone(source); external.command.properties.command = { $ref: 'https://untrusted.example/receipt.json' };
     const tupleDialect = structuredClone(source); tupleDialect.command.prefixItems = [];
@@ -49,7 +47,7 @@ test('generation is repeatable and rejects future, unconstrained and external-re
     const unconstrainedManifest = structuredClone(source); unconstrainedManifest.manifest.properties.catalog = {};
     const externalExecution = structuredClone(source); externalExecution.execution.properties.status = { $ref: 'https://untrusted.example/status.json' };
     const unknownFormat = structuredClone(source); unknownFormat.command.properties.protocol_version.format = 'unreviewed_uint';
-    for (const invalid of [missingAction, missingActionRoute, missingResume, externalResume, missingResumeRoute, future, unknown, external, tupleDialect, unknownRoute, externalRoute, duplicateRoute, traversalRoute, extraRoute, changedMethod, wrongRouteType, missingCommandParameter, duplicateCommandParameter, unexpectedCommandParameter, externalExecution, unconstrainedManifest, unknownFormat]) {
+    for (const invalid of [missingResume, externalResume, missingResumeRoute, future, unknown, external, tupleDialect, unknownRoute, externalRoute, duplicateRoute, traversalRoute, extraRoute, changedMethod, wrongRouteType, missingCommandParameter, duplicateCommandParameter, unexpectedCommandParameter, externalExecution, unconstrainedManifest, unknownFormat]) {
       const result = run(invalid); assert.notEqual(result.status, 0);
       assert.deepEqual(inventory(), first, 'failed generation must preserve last complete declarations and remove temporary output');
     }

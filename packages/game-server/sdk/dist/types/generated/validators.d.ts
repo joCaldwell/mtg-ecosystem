@@ -1,5 +1,3 @@
-import type { ActionQueryRequest } from './action_request.js';
-import type { ActionQueryResponse } from './action_query.js';
 import type { CommandEnvelope } from './command.js';
 import type { StreamPage } from './stream.js';
 import type { SubmissionResult } from './submission.js';
@@ -10,8 +8,6 @@ import type { SeatBootstrap } from './bootstrap.js';
 import type { PresentationDescriptor } from './presentation_descriptor.js';
 import type { PresentationArtifact } from './presentation.js';
 import type { ClientConfig } from './client_config.js';
-export declare function action_requestValidator(value: unknown): value is ActionQueryRequest;
-export declare function action_queryValidator(value: unknown): value is ActionQueryResponse;
 export declare function commandValidator(value: unknown): value is CommandEnvelope;
 export declare function streamValidator(value: unknown): value is StreamPage;
 export declare function submissionValidator(value: unknown): value is SubmissionResult;

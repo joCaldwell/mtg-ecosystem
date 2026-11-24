@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { GameClient, ProtocolError, parseSeatBootstrap } from '../src/client.ts';
 import { resume } from '../src/validation.ts';
 
-const fixture = () => ({ protocol_version: 1, match_id: 'abc', viewer: 0, engine_build_id: 'e'.repeat(64), server_build_id: 'f'.repeat(64),
+const fixture = () => ({ protocol_version: 2, match_id: 'abc', viewer: 0, engine_build_id: 'e'.repeat(64), server_build_id: 'f'.repeat(64),
   catalog_sha256: 'd'.repeat(64), next: '18446744073709551615', state: { status: 'pending' }, lifecycle: null, outcome: null });
 const bootstrap = () => ({ ...Object.fromEntries(Object.entries(fixture()).filter(([key]) => !['next', 'state', 'lifecycle', 'outcome'].includes(key))),
   bootstrap_version: 1, server_origin: 'http://127.0.0.1:18741', capability: 'a'.repeat(64) });
@@ -35,7 +35,7 @@ test('resume reads once, correlates match, and preserves pending/lifecycle/outco
     return json(fixture());
   });
   assert.deepEqual(await sdk.resume(), fixture()); assert.equal(calls, 1);
-  for (const value of [{ ...fixture(), match_id: 'def' }, { ...fixture(), protocol_version: 2 }, { ...fixture(), hidden_state: {} }]) {
+  for (const value of [{ ...fixture(), match_id: 'def' }, { ...fixture(), protocol_version: 1 }, { ...fixture(), hidden_state: {} }]) {
     await assert.rejects(client(async () => json(value)).resume(), ProtocolError);
   }
   const terminal = { ...fixture(), lifecycle: { status: 'finished' }, outcome: { outcome: 'win', player: 0 } };
@@ -64,7 +64,7 @@ test('bootstrap validates Rust shape, bounded raw JSON and canonical numeric loo
     assert.equal(parseSeatBootstrap(JSON.stringify({ ...source, server_origin })).server_origin, server_origin);
   }
   for (const value of [{ ...source, capability: source.capability + '\n' }, { ...source, viewer: 4 }, { ...source, operator: 'secret' },
-    { ...source, bootstrap_version: 2 }, { ...source, protocol_version: 2 },
+    { ...source, bootstrap_version: 2 }, { ...source, protocol_version: 1 },
     ...['http://127.0.0.1:65536', 'http://127.0.0.1:0', 'http://127.0.0.1:018741', 'http://localhost:18741',
       'https://127.0.0.1:18741', 'http://127.0.0.1:18741\n', 'http://127.0.0.1:18741/'].map(server_origin => ({ ...source, server_origin })),
   ]) assert.throws(() => parseSeatBootstrap(JSON.stringify(value)), error => error instanceof ProtocolError && !String(error).includes(source.capability));

@@ -1,7 +1,7 @@
 /** A real seat consumer for the finite pass/draw policy; no trusted engine APIs. */
 import {
   GameClient, HttpError, ProtocolError, TransportError, PROTOCOL_VERSION,
-  type CommandEnvelope, type Observation, type PlayerResponse,
+  type CommandEnvelope, type Observation, type Answer,
   type PublicManifest, type RulesResult,
 } from '../client.ts';
 
@@ -58,7 +58,7 @@ export type ConsumerReport = Summary & (
 /** Test seams change transport/time, never supply an authoritative Game. */
 export interface ConsumerOptions {
   expectedProfile?: 'commander-foundations-v1';
-  policy?: (observation: Observation, viewer: number, manifest: PublicManifest) => PlayerResponse | null;
+  policy?: (observation: Observation, viewer: number, manifest: PublicManifest) => Answer | null;
   fetch?: typeof globalThis.fetch;
   now?: () => number;
   sleep?: (milliseconds: number) => Promise<void>;
@@ -87,23 +87,22 @@ export function parseBootstrap(value: unknown): ConsumerBootstrap {
 }
 
 /** Only offered handles and counts enter responses. No cast, land or concession policy. */
-export function foundationsPolicy(observation: Observation, viewer: number): PlayerResponse | null {
+export function foundationsPolicy(observation: Observation, viewer: number): Answer | null {
   if (observation.view.viewer !== viewer) throw new ConsumerFailure('foreign_observation');
   const request = observation.decision;
   if (request === null) return null;
   if (request.player !== viewer) throw new ConsumerFailure('foreign_observation');
-  switch (request.request) {
-    case 'mulligan': return { response: 'mulligan', take: false };
-    case 'priority': return { response: 'pass' };
-    case 'attackers': return { response: 'attackers', attacks: [] };
-    case 'blockers': return { response: 'blockers', blocks: [] };
-    case 'commander_return': return { response: 'commander_return', to_command: true };
-    case 'discard':
-      if (!Number.isSafeInteger(request.count) || request.count < 0 || request.count > request.candidates.length
-        || new Set(request.candidates).size !== request.candidates.length) throw new ConsumerFailure('invalid_candidates');
-      return { response: 'discard', objects: request.candidates.slice(0, request.count) };
-    default: throw new ConsumerFailure('unexpected_request');
+  const shape = request.shape;
+  if (shape.shape !== 'pick') throw new ConsumerFailure('unexpected_request');
+  if (['attackers', 'blockers', 'discard'].includes(request.reason.reason)) {
+    return {answer:'pick', picks:shape.slots.map(slot => slot.allowed.slice(0,slot.min))};
   }
+  const index = request.candidates.findIndex(candidate =>
+    (request.reason.reason === 'priority' && candidate.candidate === 'action' && candidate.action.action === 'pass')
+    || (candidate.candidate === 'flag' && ((request.reason.reason === 'commander_return' && candidate.flag === 'command_zone')
+      || (request.reason.reason === 'mulligan' && candidate.flag === 'keep'))));
+  if (index < 0 || !shape.slots[0]?.allowed.includes(index)) throw new ConsumerFailure('unexpected_request');
+  return {answer:'pick', picks:[[index]]};
 }
 
 function canonical(value: unknown): string {
@@ -253,7 +252,7 @@ export async function runFoundationsConsumer(input: ConsumerBootstrap, options: 
       counts.commands_created++;
       const envelope: CommandEnvelope = {
         protocol_version: PROTOCOL_VERSION, command_id: identifier(bootstrap.viewer, counts.commands_created),
-        expected_revision: cursor, command: { kind: 'decision', token, response },
+        expected_revision: cursor, command: { kind: 'decision', token, answer: response },
       };
       // This exact object/body/ID is retained across ambiguous retries; no poll,
       // token rebinding or new ID occurs until this submission has an outcome.
