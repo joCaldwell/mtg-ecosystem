@@ -5,8 +5,12 @@
 use super::*;
 use serde_json::json;
 
+/// The board set an archived `all`/`each` operand lowers to.
+fn board(what: &serde_json::Value, context: Context) -> Result<SetExpr, Failure> {
+    lower_board_set(&object(what)?, context)
+}
 fn set(filter: serde_json::Value) -> Result<Pred, Failure> {
-    match lower_board_set(&json!({"ref":"all","filter":filter}), Context::Spell)? {
+    match board(&json!({"ref":"all","filter":filter}), Context::Spell)? {
         SetExpr::Matching { filter, .. } => Ok(filter),
         other => panic!("{other:?}"),
     }
@@ -54,14 +58,17 @@ fn closed_legacy_filters_lower_to_the_same_sets_as_before() {
         ),
     ] {
         assert_eq!(
-            lower_object_set(&json!({"ref":"all","filter":filter})).ok(),
+            object(&json!({"ref":"all","filter":filter}))
+                .and_then(|what| lower_reviewed_set(&what, Context::Spell))
+                .ok(),
             {
-                // The closed table never named the opponents' nonland permanents.
-                (legacy != ObjectSet::OpponentNonlandPermanents).then(|| legacy.clone())
+                // The reviewed sets never named the opponents' nonland permanents.
+                (legacy != ObjectSet::OpponentNonlandPermanents)
+                    .then(|| legacy.kernel(Context::Spell))
             }
         );
         assert_eq!(
-            lower_board_set(&json!({"ref":"each","filter":filter}), Context::Spell).unwrap(),
+            board(&json!({"ref":"each","filter":filter}), Context::Spell).unwrap(),
             legacy.kernel(Context::Spell),
             "{legacy:?}"
         );
@@ -177,7 +184,7 @@ fn general_filter_terms_each_become_one_atom_in_fixed_order() {
     let yours = json!({"ref":"all","filter":{"types":["artifact"],"control":"you"}});
     for context in [Context::Spell, Context::Activated, Context::Triggered] {
         assert_eq!(
-            lower_board_set(&yours, context).unwrap(),
+            board(&yours, context).unwrap(),
             SetExpr::battlefield(Pred(vec![
                 kind(CardKind::Artifact),
                 Atom::ControlledBy {
@@ -228,6 +235,6 @@ fn unrepresented_filter_terms_reject_the_whole_set() {
         json!({"ref":"target","filter":{"types":["creature"]}}),
         json!({"ref":"all","filter":{"types":["creature"]},"count":{"amount":"fixed","value":1}}),
     ] {
-        assert!(lower_board_set(&what, Context::Spell).is_err(), "{what}");
+        assert!(board(&what, Context::Spell).is_err(), "{what}");
     }
 }

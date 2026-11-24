@@ -2,12 +2,12 @@
 use super::*;
 
 mod activations;
-mod effects;
 mod procedures;
 mod statics;
 mod triggers;
+mod verbs;
 pub(crate) use activations::*;
-pub(crate) use effects::*;
 pub(crate) use procedures::*;
 pub(crate) use statics::*;
 pub(crate) use triggers::*;
+pub(crate) use verbs::append_spell_effects;

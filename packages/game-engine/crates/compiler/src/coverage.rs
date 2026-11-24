@@ -117,6 +117,9 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
         }
     }
     if [
+        "operand:",
+        "step:",
+        "cell:",
         "subtype:",
         "multi_face_layout:",
         "keyword:",

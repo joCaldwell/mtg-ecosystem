@@ -508,7 +508,7 @@ pub(crate) struct SourceToken {
     pub(crate) toughness: Count,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(untagged)]
 pub(crate) enum SourceCounterRecipient {
     Target(Target),
@@ -578,7 +578,7 @@ pub(crate) enum DamageDestination {
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ThisObject {
     #[serde(rename = "ref")]
@@ -618,7 +618,7 @@ pub(crate) struct CardFilter {
     pub(crate) cls: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Target {
     #[serde(rename = "ref")]
@@ -658,13 +658,13 @@ pub(crate) struct AbilityKindFilter {
     pub(crate) ability_kind: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Filter {
     pub(crate) types: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Count {
     pub(crate) amount: String,
@@ -679,13 +679,13 @@ pub(crate) enum DrawAmount {
     ThatMuch {},
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SourceDuration {
     pub(crate) duration: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SignedAmount {
     pub(crate) sign: i8,

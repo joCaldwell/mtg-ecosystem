@@ -2,6 +2,7 @@
 use super::*;
 
 mod board_filter_tests;
+mod operand_tests;
 mod r4_binding_tests;
 
 #[test]
