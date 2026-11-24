@@ -326,6 +326,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::EventPlayerRecipientV1
         | C::UntapControllerLandsV1
         | C::StepBeginningTriggerV1
+        | C::ContinuousStaticsV1
+        | C::RuleStaticsV1
         | C::EntersTappedV1
         | C::TypedNonbasicIntrinsicManaV1
         | C::FlashV1

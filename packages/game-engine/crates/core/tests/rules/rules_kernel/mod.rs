@@ -18,3 +18,5 @@ mod setup_tests;
 mod spending_tests;
 mod stack_tests;
 mod turns_tests;
+
+mod static_tests;

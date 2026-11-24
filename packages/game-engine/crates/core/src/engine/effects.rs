@@ -7,6 +7,10 @@
 //! give <=6 live resolved effects (reviewed cap16). <=24 positive combat edges.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+use mtg_contracts::kir::{
+    Allowance, Amount, Atom, Change, Cmp, CombatRequirement, Cond, HandSizeChange, Layer,
+    PlayerExpr, Pred, Ref, Scope, SetExpr, SpellCostChange, StaticRule, ZoneExpr,
+};
 
 macro_rules! effect_id {
     ($name:ident,$ty:ty) => {
@@ -193,22 +197,514 @@ impl DamageRecipient {
         }
     }
 }
+fn static_compare(left: &Quantity, cmp: Cmp, right: &Quantity) -> bool {
+    match cmp {
+        Cmp::Exactly => left == right,
+        Cmp::AtMost => left <= right,
+        Cmp::AtLeast => left >= right,
+    }
+}
+
+// CR 613.7m: simultaneous entrants with a conflicting setter would
+// need a player's timestamp choice. Only ordered or commuting setters are
+// admitted at this boundary.
+fn latest_static_setter(changes: &[(u64, &Change)]) -> Result<Option<Change>, String> {
+    let Some(&(latest, change)) = changes.last() else {
+        return Ok(None);
+    };
+    if changes
+        .iter()
+        .rev()
+        .take_while(|(time, _)| *time == latest)
+        .any(|(_, other)| *other != change)
+    {
+        return Err("simultaneous continuous setters require timestamp order".into());
+    }
+    Ok(Some(change.clone()))
+}
+
+impl RulesTxn {
+    fn static_player(&self, expr: &PlayerExpr, controller: PlayerId, player: PlayerId) -> bool {
+        match expr {
+            PlayerExpr::EachPlayer => self.is_live(player),
+            PlayerExpr::EachOpponent => player != controller && self.is_live(player),
+            _ => *expr == PlayerExpr::static_controller() && player == controller,
+        }
+    }
+
+    fn static_predicate(
+        &self,
+        filter: &Pred,
+        source: &Object,
+        target: &Object,
+        characteristics: &Characteristics,
+        controller: PlayerId,
+    ) -> bool {
+        filter.0.iter().all(|atom| match atom {
+            Atom::Type { kind } => characteristics.has_type(*kind),
+            Atom::NotType { kind } => !characteristics.has_type(*kind),
+            Atom::AnyType { kinds } => kinds.iter().any(|k| characteristics.has_type(*k)),
+            Atom::Subtype { subtype } => characteristics.subtypes.contains(subtype),
+            Atom::NotSubtype { subtype } => !characteristics.subtypes.contains(subtype),
+            Atom::Basic => characteristics.basic,
+            Atom::NotBasic => !characteristics.basic,
+            Atom::Legendary => characteristics.legendary,
+            Atom::NotLegendary => !characteristics.legendary,
+            Atom::Color { color } => characteristics.colors.contains(color),
+            Atom::NotColor { color } => !characteristics.colors.contains(color),
+            Atom::ControlledBy { player } => {
+                self.static_player(player, source.controller, controller)
+            }
+            Atom::OwnedBy { player } => self
+                .state
+                .rules
+                .cards
+                .get(&target.id.card)
+                .is_some_and(|card| self.static_player(player, source.controller, card.owner)),
+            Atom::Token => self.state.rules.tokens.contains_key(&target.id.card),
+            Atom::NotToken => !self.state.rules.tokens.contains_key(&target.id.card),
+            Atom::Tapped => target.tapped,
+            Atom::Untapped => !target.tapped,
+            Atom::Attacking => self
+                .state
+                .rules
+                .combat
+                .iter()
+                .any(|attack| attack.attacker == target.id),
+            Atom::Blocking => self.state.rules.blocking_creatures.contains(&target.id),
+            Atom::ManaValue { cmp, value } => value.as_fixed().is_some_and(|bound| {
+                static_compare(&characteristics.printed_mana_value(), *cmp, bound)
+            }),
+            Atom::IsNot { object } => *object == Ref::Source && source.id != target.id,
+            Atom::AnyOf { alternatives } => alternatives
+                .iter()
+                .any(|p| self.static_predicate(p, source, target, characteristics, controller)),
+            Atom::Power { .. }
+            | Atom::Toughness { .. }
+            | Atom::Keyword { .. }
+            | Atom::NotKeyword { .. } => false,
+        })
+    }
+
+    fn static_matches(
+        &self,
+        scope: &Scope,
+        source: &Object,
+        target: &Object,
+        characteristics: &Characteristics,
+        controller: PlayerId,
+    ) -> bool {
+        match scope {
+            Scope::Source => source.id == target.id,
+            Scope::Matching { filter } => {
+                self.static_predicate(filter, source, target, characteristics, controller)
+            }
+            Scope::Attachment { filter, .. } => {
+                source.attached_to == Some(target.id)
+                    && self.static_predicate(filter, source, target, characteristics, controller)
+            }
+        }
+    }
+
+    fn static_count(&self, source: &Object, set: &SetExpr) -> usize {
+        match set {
+            SetExpr::One {
+                object: Ref::Source,
+            } => 1,
+            SetExpr::Matching { zone, filter } => self
+                .state
+                .rules
+                .objects
+                .values()
+                .filter(|target| {
+                    let present = match zone {
+                        ZoneExpr::Battlefield => target.present_on_battlefield(),
+                        ZoneExpr::Graveyards => matches!(target.zone, Zone::Graveyard { .. }),
+                        ZoneExpr::Graveyard { of } => {
+                            matches!(target.zone, Zone::Graveyard { owner }
+                        if self.static_player(of, source.controller, owner))
+                        }
+                        _ => false,
+                    };
+                    present
+                        && (!matches!(target.zone, Zone::Graveyard { .. })
+                            || !self.state.rules.tokens.contains_key(&target.id.card))
+                        && self
+                            .structural_characteristics(target.id)
+                            .is_ok_and(|characteristics| {
+                                self.static_predicate(
+                                    filter,
+                                    source,
+                                    target,
+                                    &characteristics,
+                                    target.controller,
+                                )
+                            })
+                })
+                .count(),
+            _ => 0,
+        }
+    }
+
+    fn static_amount(&self, source: &Object, amount: &Amount) -> Option<Quantity> {
+        match amount {
+            Amount::Fixed { value } => Some(value.clone()),
+            Amount::Count { set } => Some((self.static_count(source, set) as i64).into()),
+            Amount::Devotion { player, colors } => {
+                // CR 700.5, 700.5a: a hybrid symbol contributes at most one.
+                let mut count = Quantity::zero();
+                for permanent in self
+                    .battlefield_static_sources(None)
+                    .filter(|p| self.static_player(player, source.controller, p.controller))
+                {
+                    let c = &self.copiable_definition(permanent.id).ok()?.characteristics;
+                    let ordinary = c
+                        .mana_cost
+                        .colored
+                        .iter()
+                        .filter(|color| colors.contains(color))
+                        .count();
+                    let hybrid = c
+                        .hybrid_mana
+                        .iter()
+                        .filter(|symbol| {
+                            symbol
+                                .colors
+                                .iter()
+                                .filter_map(|payment| payment.color())
+                                .any(|c| colors.contains(&c))
+                        })
+                        .count();
+                    count.add(&((ordinary + hybrid) as i64).into());
+                }
+                Some(count)
+            }
+            _ => None,
+        }
+    }
+
+    fn static_condition(&self, source: &Object, condition: &Cond) -> bool {
+        match condition {
+            Cond::Compare { left, cmp, right } => self
+                .static_amount(source, left)
+                .zip(self.static_amount(source, right))
+                .is_some_and(|(left, right)| static_compare(&left, *cmp, &right)),
+            Cond::Exists { set } => self.static_count(source, set) > 0,
+            Cond::ActivePlayer { player } => self
+                .state
+                .rules
+                .active
+                .is_some_and(|active| self.static_player(player, source.controller, active)),
+            Cond::Not { condition } => !self.static_condition(source, condition),
+            Cond::All { conditions } => conditions.iter().all(|c| self.static_condition(source, c)),
+            Cond::CostPaid { .. } => false,
+        }
+    }
+
+    fn battlefield_statics<'a>(
+        &'a self,
+        sources: Option<&'a [CardId]>,
+    ) -> impl Iterator<Item = (&'a Object, &'a StaticEffect)> + 'a {
+        self.battlefield_static_sources(sources).flat_map(|source| {
+            self.static_abilities_in(source, FunctioningZone::Battlefield)
+                .map(move |effect| (source, effect))
+        })
+    }
+
+    fn static_abilities_in<'a>(
+        &'a self,
+        source: &'a Object,
+        zone: FunctioningZone,
+    ) -> impl Iterator<Item = &'a StaticEffect> + 'a {
+        self.copiable_definition(source.id)
+            .into_iter()
+            .flat_map(move |definition| {
+                definition
+                    .static_abilities
+                    .iter()
+                    .filter(move |ability| ability.functioning_zone == zone)
+                    .map(|ability| &ability.effect)
+            })
+    }
+
+    fn unpack_static_rule<'a>(
+        &self,
+        source: &Object,
+        effect: &'a StaticEffect,
+    ) -> Option<&'a StaticRule> {
+        match effect {
+            StaticEffect::Rule { rule, condition }
+                if condition
+                    .as_ref()
+                    .is_none_or(|c| self.static_condition(source, c)) =>
+            {
+                Some(rule)
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn static_changes<'a>(
+        &'a self,
+        target: ObjectId,
+        layer: Layer,
+        sources: Option<&'a [CardId]>,
+    ) -> Vec<(u64, &'a Change)> {
+        let Ok(target) = self.current(target) else {
+            return Vec::new();
+        };
+        if !target.present_on_battlefield() {
+            return Vec::new();
+        }
+        let mut matching = Vec::new();
+        for (source, effect) in self.battlefield_statics(sources) {
+            let StaticEffect::Continuous {
+                affects,
+                changes,
+                condition,
+            } = effect
+            else {
+                continue;
+            };
+            if !changes.iter().any(|c| c.layer() == layer) {
+                continue;
+            }
+            // CR 613.6: the first layer fixes membership across the effect.
+            let first = changes
+                .iter()
+                .map(Change::layer)
+                .min()
+                .expect("checked static changes");
+            let facts = match first {
+                Layer::Type => self
+                    .copiable_definition(target.id)
+                    .map(|d| std::borrow::Cow::Borrowed(&d.characteristics)),
+                Layer::Color => self.structural_characteristics(target.id),
+                _ => self.color_layer_with_sources(target.id, sources),
+            };
+            if facts
+                .is_ok_and(|c| self.static_matches(affects, source, target, &c, target.controller))
+                && condition
+                    .as_ref()
+                    .is_none_or(|c| self.static_condition(source, c))
+            {
+                matching.extend(
+                    changes
+                        .iter()
+                        .filter(|c| c.layer() == layer)
+                        .map(|change| (source.keyword_timestamp.unwrap_or(0), change)),
+                );
+            }
+        }
+        matching.sort_by_key(|(timestamp, _)| *timestamp);
+        matching
+    }
+
+    pub(super) fn combat_statics<'a>(
+        &'a self,
+        target: ObjectId,
+        sources: Option<&'a [CardId]>,
+    ) -> impl Iterator<Item = CombatRequirement> + 'a {
+        let target = self
+            .current(target)
+            .ok()
+            .filter(|o| o.present_on_battlefield());
+        self.battlefield_statics(sources)
+            .filter_map(move |(source, effect)| {
+                let target = target?;
+                let StaticRule::Combat {
+                    affects,
+                    requirement,
+                } = self.unpack_static_rule(source, effect)?
+                else {
+                    return None;
+                };
+                let facts = self.color_layer_with_sources(target.id, sources).ok()?;
+                self.static_matches(affects, source, target, &facts, target.controller)
+                    .then_some(*requirement)
+            })
+    }
+
+    pub(super) fn static_land_allowance(&self, player: PlayerId, total: &mut Quantity) -> bool {
+        for (source, effect) in self.battlefield_statics(None) {
+            if let Some(StaticRule::AdditionalLandPlays {
+                player: who,
+                allowance,
+            }) = self.unpack_static_rule(source, effect)
+                && self.static_player(who, source.controller, player)
+            {
+                match allowance {
+                    Allowance::Unlimited => return true,
+                    Allowance::Additional { count } => total.add(count),
+                }
+            }
+        }
+        false
+    }
+
+    pub(super) fn static_hand_size(&self, player: PlayerId) -> Result<Option<Quantity>, String> {
+        let mut changes: Vec<_> = self
+            .battlefield_statics(None)
+            .filter_map(|(source, effect)| {
+                let StaticRule::MaximumHandSize {
+                    player: who,
+                    change,
+                } = self.unpack_static_rule(source, effect)?
+                else {
+                    return None;
+                };
+                self.static_player(who, source.controller, player)
+                    .then_some((source.keyword_timestamp.unwrap_or(0), change))
+            })
+            .collect();
+        changes.sort_by_key(|(timestamp, _)| *timestamp);
+        let mut size = Some(Quantity::from(7));
+        for group in changes.chunk_by(|a, b| a.0 == b.0) {
+            if let Some((_, set)) = group
+                .iter()
+                .find(|(_, change)| matches!(change, HandSizeChange::Set { .. }))
+                && group.iter().any(|(_, other)| set != other)
+            {
+                return Err("simultaneous hand-size setters require timestamp order".into());
+            }
+        }
+        for (_, change) in changes {
+            match change {
+                HandSizeChange::Unlimited => size = None,
+                HandSizeChange::Set { size: new } => size = Some(new.clone()),
+                HandSizeChange::Adjust { delta } => {
+                    if let Some(size) = &mut size {
+                        size.add(delta);
+                    }
+                }
+            }
+        }
+        Ok(size.map(|size| size.max(Quantity::zero())))
+    }
+
+    fn spell_static_rules<'a>(
+        &'a self,
+        target: &'a Object,
+    ) -> impl Iterator<Item = (&'a Object, &'a StaticRule)> + 'a {
+        self.battlefield_statics(None)
+            .chain(
+                self.static_abilities_in(target, FunctioningZone::Stack)
+                    .map(move |e| (target, e)),
+            )
+            .filter_map(|(source, effect)| {
+                self.unpack_static_rule(source, effect)
+                    .map(|rule| (source, rule))
+            })
+    }
+
+    pub(super) fn has_uncounterable_static(
+        &self,
+        target: ObjectId,
+        caster: PlayerId,
+    ) -> Result<bool, String> {
+        let object = self.current(target)?;
+        let characteristics = &self.copiable_definition(target)?.characteristics;
+        Ok(self.spell_static_rules(object).any(|(source, rule)| {
+            matches!(rule, StaticRule::CantBeCountered { affects }
+                if self.static_matches(affects, source, object, characteristics, caster))
+        }))
+    }
+
+    pub(super) fn static_cost_changes(
+        &self,
+        card: CardId,
+        caster: PlayerId,
+    ) -> Result<Vec<SpellCostChange>, String> {
+        let object = self
+            .state
+            .rules
+            .objects
+            .get(&card)
+            .ok_or("missing spell object")?;
+        let characteristics = &self.copiable_definition(object.id)?.characteristics;
+        let mut changes = Vec::new();
+        for (source, rule) in self.spell_static_rules(object) {
+            let StaticRule::SpellCost {
+                affects,
+                caster: who,
+                change,
+                multiplier,
+            } = rule
+            else {
+                continue;
+            };
+            if self.static_player(who, source.controller, caster)
+                && self.static_matches(affects, source, object, characteristics, caster)
+            {
+                let mut change = change.clone();
+                if let Some(amount) = multiplier {
+                    let multiplier = self
+                        .static_amount(source, amount)
+                        .ok_or("invalid static cost multiplier")?;
+                    let (SpellCostChange::Increase { mana } | SpellCostChange::Reduce { mana }) =
+                        &mut change;
+                    mana.generic.multiply(&multiplier);
+                }
+                changes.push(change);
+            }
+        }
+        Ok(changes)
+    }
+
+    pub(super) fn has_flash_permission(
+        &self,
+        object: &Object,
+        caster: PlayerId,
+    ) -> Result<bool, String> {
+        let characteristics = &self.copiable_definition(object.id)?.characteristics;
+        Ok(self.spell_static_rules(object).any(|(source, rule)| {
+            matches!(rule, StaticRule::CastAsThoughFlash { affects, caster: who }
+                if self.static_player(who, source.controller, caster)
+                    && self.static_matches(affects, source, object, characteristics, caster))
+        }))
+    }
+}
+
 impl RulesTxn {
     pub(super) fn structural_characteristics(
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        Ok(std::borrow::Cow::Borrowed(
-            &self.copiable_definition(object)?.characteristics,
-        ))
+        let mut facts =
+            std::borrow::Cow::Borrowed(&self.copiable_definition(object)?.characteristics);
+        for (_, change) in self.static_changes(object, Layer::Type, None) {
+            if let Change::AddTypes { kinds } = change {
+                for kind in kinds {
+                    if !facts.has_type(*kind) {
+                        let additional = &mut facts.to_mut().additional_types;
+                        additional.push(*kind);
+                        additional.sort_unstable();
+                    }
+                }
+            }
+        }
+        Ok(facts)
     }
-    // CR 105.2, 611.3, 613.1b/e: battlefield membership and control
-    // have already been reconciled before the color layer is evaluated.
+
     pub(crate) fn color_layer(
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        self.structural_characteristics(object)
+        self.color_layer_with_sources(object, None)
+    }
+
+    fn color_layer_with_sources(
+        &self,
+        object: ObjectId,
+        sources: Option<&[CardId]>,
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        let mut facts = self.structural_characteristics(object)?;
+        if let Some(Change::SetColors { colors }) =
+            latest_static_setter(&self.static_changes(object, Layer::Color, sources))?
+        {
+            facts.to_mut().colors = colors;
+        }
+        Ok(facts)
     }
 
     #[cfg(feature = "testkit")]
@@ -224,7 +720,13 @@ impl RulesTxn {
         object: ObjectId,
         sources: Option<&[CardId]>,
     ) -> Result<Characteristics, String> {
-        let mut c = self.structural_characteristics(object)?.into_owned();
+        let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
+        if let Some(Change::SetPowerToughness { power, toughness }) =
+            latest_static_setter(&self.static_changes(object, Layer::PowerToughnessSet, sources))?
+        {
+            c.power = power.as_fixed().cloned();
+            c.toughness = toughness.as_fixed().cloned();
+        }
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
             if let Some(p) = c.power.as_mut() {
@@ -234,43 +736,16 @@ impl RulesTxn {
                 t.add(&o.plus_one_counters);
             }
         }
-        // CR 611.3a-c/613.4c: a static source continuously defines its affected
-        // set. Source/controller/zone changes therefore need no cached grants.
-        if c.kind == CardKind::Creature
-            && let Ok(o) = self.current(object)
-            && o.present_on_battlefield()
-        {
-            // The scoped modifiers below only consume earlier-layer types,
-            // subtypes and control. No recipient depends on another 7c bonus.
-            for source in self
-                .battlefield_static_sources(sources)
-                .filter(|s| s.controller == o.controller)
-            {
-                for a in &self.copiable_definition(source.id)?.static_abilities {
-                    let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect
-                    else {
-                        continue;
-                    };
-                    c.power.as_mut().ok_or("anthem creature power")?.add(power);
-                    c.toughness
-                        .as_mut()
-                        .ok_or("anthem creature toughness")?
-                        .add(toughness);
-                }
-            }
-        }
-        if self.target_is_creature(object) {
-            for a in self.static_modifications_with_sources(object, sources) {
-                if let StaticEffect::ModifyCreatures {
-                    power, toughness, ..
-                } = a
-                {
-                    c.power.as_mut().ok_or("attachment power")?.add(power);
-                    c.toughness
-                        .as_mut()
-                        .ok_or("attachment toughness")?
-                        .add(toughness);
-                }
+        for (_, change) in self.static_changes(object, Layer::PowerToughnessModify, sources) {
+            if let Change::PowerToughness { power, toughness } = change {
+                c.power
+                    .as_mut()
+                    .ok_or("static power")?
+                    .add(power.as_fixed().ok_or("static power operand")?);
+                c.toughness
+                    .as_mut()
+                    .ok_or("static toughness")?
+                    .add(toughness.as_fixed().ok_or("static toughness operand")?);
             }
         }
         for e in &self.state.rules.effects {
@@ -2024,8 +2499,8 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    // Copiable identity is immutable within each incarnation. Historical P/T is derived at its
-    // capture boundary; independent replay proves those past additive effects.
+    // Copiable identity is immutable within each incarnation. Independent
+    // replay proves the continuous changes present at the capture boundary.
     pub(crate) fn validate_characteristic_identity(
         &self,
         source: ObjectId,
@@ -2040,6 +2515,34 @@ impl RulesTxn {
         // Replay authenticates which provider existed at the original capture.
         base.power = c.power.clone();
         base.toughness = c.toughness.clone();
+        if base.additional_types != c.additional_types || base.colors != c.colors {
+            let vocabulary = || {
+                self.prepared
+                    .catalog
+                    .definitions
+                    .iter()
+                    .flat_map(|d| &d.static_abilities)
+                    .filter_map(|a| match &a.effect {
+                        StaticEffect::Continuous { changes, .. } => Some(changes),
+                        _ => None,
+                    })
+                    .flatten()
+            };
+            if base.additional_types.iter().any(|kind| !c.has_type(*kind))
+                || c.additional_types.contains(&c.kind)
+                || c.additional_types.windows(2).any(|kinds| kinds[0] >= kinds[1])
+                || c.additional_types.iter().any(|kind| {
+                    !base.has_type(*kind)
+                        && !vocabulary().any(|change| matches!(change, Change::AddTypes { kinds } if kinds.contains(kind)))
+                })
+                || (base.colors != c.colors
+                    && !vocabulary().any(|change| matches!(change, Change::SetColors { colors } if *colors == c.colors)))
+            {
+                return Err("historical type or color outside admitted static changes".into());
+            }
+        }
+        base.additional_types.clone_from(&c.additional_types);
+        base.colors.clone_from(&c.colors);
         if base != *c {
             return Err("modified source changed printed identity".into());
         }
@@ -2167,7 +2670,8 @@ impl RulesTxn {
                                 .any(|keywords| keywords.contains(keyword))
                                 || self.prepared.catalog.definitions.iter().any(|definition|
                                     definition.static_abilities.iter().any(|a| matches!(&a.effect,
-                                        StaticEffect::ModifyCreatures { keywords, .. } if keywords.contains(keyword)))))))
+                                        StaticEffect::Continuous { changes, .. } if changes.iter().any(|change|
+                                            matches!(change, Change::AddKeywords { keywords } if keywords.contains(keyword)))))))))
                 });
             if !keywords_valid {
                 return Err(

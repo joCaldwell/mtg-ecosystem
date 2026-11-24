@@ -23,9 +23,3 @@ pub fn color_name(color: Color) -> Option<&'static str> {
         .iter()
         .find_map(|(c, name, _)| (*c == color).then_some(*name))
 }
-
-pub(super) fn keyword_for_color(name: &str) -> Option<KeywordAbility> {
-    COLORS
-        .iter()
-        .find_map(|(_, color, keyword)| (*color == name).then_some(*keyword))
-}

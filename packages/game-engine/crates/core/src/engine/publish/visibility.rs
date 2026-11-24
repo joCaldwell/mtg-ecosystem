@@ -1588,6 +1588,7 @@ impl RulesTxn {
                     && Shared::same(&rules.effects, &old.rules.effects)
                     && Shared::same(&rules.stack, &old.rules.stack)
                     && rules.turn.number == old.rules.turn.number
+                    && rules.active == old.rules.active
                     && rules.mana_ability_uses == old.rules.mana_ability_uses
                     && rules.combat == old.rules.combat
                     && (dirty.as_ref().is_some_and(BTreeSet::is_empty)
