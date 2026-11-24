@@ -92,48 +92,63 @@ fn printed(text: &str, statics: bool) -> Counts {
     }
 }
 
+/// The carrier one AST member is: `key` holding `child` in an object whose
+/// `conditionKind` is `kind`. Then every carrier inside `child`.
+fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
+    match (key, child) {
+        ("optional", Value::Bool(true)) => found.may += 1,
+        ("effect" | "static", Value::String(tag)) => match tag.as_str() {
+            "optional-group" | "grant-play-permission" | "additional-land-plays" => found.may += 1,
+            "create-replacement" | "must-attack" | "must-block" => found.condition += 1,
+            _ => {}
+        },
+        ("allowRepeat" | "permission", _) => found.may += 1,
+        ("conditionalCount", _) => {
+            found.may += 1;
+            found.condition += 1;
+        }
+        ("conditionKind", Value::String(k)) => match k.as_str() {
+            "if" => found.condition += 1,
+            "unless" => found.unless += 1,
+            _ => {}
+        },
+        ("condition", Value::Object(_)) if kind.is_none() => found.condition += 1,
+        ("countered", _) => found.condition += 1,
+        ("rule", Value::String(rule)) if rule.ends_with("-requirement") => found.condition += 1,
+        ("upTo", Value::Bool(true)) => found.limit += 1,
+        ("minimum" | "min", Value::Number(n)) if n.as_u64() == Some(0) => found.limit += 1,
+        _ => {}
+    }
+    carriers(child, found);
+}
+
 /// The AST carriers of every printed word under `value`.
 fn carriers(value: &Value, found: &mut Counts) {
     match value {
         Value::Object(fields) => {
             let kind = fields.get("conditionKind").and_then(Value::as_str);
             for (key, child) in fields {
-                match (key.as_str(), child) {
-                    ("optional", Value::Bool(true)) => found.may += 1,
-                    ("effect" | "static", Value::String(tag)) => match tag.as_str() {
-                        "optional-group" | "grant-play-permission" | "additional-land-plays" => {
-                            found.may += 1
-                        }
-                        "create-replacement" | "must-attack" | "must-block" => found.condition += 1,
-                        _ => {}
-                    },
-                    ("allowRepeat" | "permission", _) => found.may += 1,
-                    ("conditionalCount", _) => {
-                        found.may += 1;
-                        found.condition += 1;
-                    }
-                    ("conditionKind", Value::String(k)) => match k.as_str() {
-                        "if" => found.condition += 1,
-                        "unless" => found.unless += 1,
-                        _ => {}
-                    },
-                    ("condition", Value::Object(_)) if kind.is_none() => found.condition += 1,
-                    ("countered", _) => found.condition += 1,
-                    ("rule", Value::String(rule)) if rule.ends_with("-requirement") => {
-                        found.condition += 1
-                    }
-                    ("upTo", Value::Bool(true)) => found.limit += 1,
-                    ("minimum" | "min", Value::Number(n)) if n.as_u64() == Some(0) => {
-                        found.limit += 1
-                    }
-                    _ => {}
-                }
-                carriers(child, found);
+                member(key, child, kind, found);
             }
         }
         Value::Array(items) => items.iter().for_each(|item| carriers(item, found)),
         _ => {}
     }
+}
+
+/// The carriers of the block field at JSON pointer `field`, the field's own
+/// member included (a certified `/condition` is itself an "if").
+fn field_carriers(ability: &Value, field: &str, found: &mut Counts) -> Result<(), Failure> {
+    let missing = || invalid("resolution.spans", "segment names a missing field");
+    let node = ability.pointer(field).ok_or_else(missing)?;
+    let (parent, key) = field.rsplit_once('/').ok_or_else(missing)?;
+    let key = key.replace("~1", "/").replace("~0", "~");
+    let kind = ability
+        .pointer(parent)
+        .and_then(|p| p.get("conditionKind"))
+        .and_then(Value::as_str);
+    member(&key, node, kind, found);
+    Ok(())
 }
 
 /// CR 118.12: an "if you do / don't" sentence prints the outcome its AST
@@ -189,11 +204,10 @@ pub(super) fn choices_printed(
         );
         let mut found = Counts::default();
         for field in fields {
-            let node = ability
-                .pointer(field)
-                .ok_or_else(|| invalid("resolution.spans", "segment names a missing field"))?;
-            carriers(node, &mut found);
-            outcome_printed(&text, node)?;
+            field_carriers(ability, field, &mut found)?;
+            if let Some(node) = ability.pointer(field) {
+                outcome_printed(&text, node)?;
+            }
         }
         if printed(&text, statics) != found {
             return Err(disagrees());
@@ -206,18 +220,30 @@ pub(super) fn choices_printed(
 /// an intervening-if clause, checked as the ability triggers and again on
 /// resolution. It must be the block's own trigger condition; a sentence
 /// condition would only be read on resolution (CR 608.2a). The clause is an
-/// "if" printed immediately after the certified trigger event span, however
-/// many commas that event contains.
+/// "if" printed immediately after the certified trigger header span,
+/// however many commas that event contains. The header names `/trigger` and
+/// may also certify the intervening condition, a trigger limit or other
+/// header fields; a header that certifies `/condition` printed the clause
+/// as the trigger's own condition.
 pub(super) fn intervening_if(
     line: &str,
     ability: &Value,
     segments: &[(Vec<String>, usize, usize)],
 ) -> Result<(), Failure> {
-    let after = segments
+    let (fields, _, end) = segments
         .iter()
-        .find(|(fields, ..)| fields.len() == 1 && fields[0] == "/trigger")
-        .and_then(|(_, _, end)| line.get(*end..))
+        .find(|(fields, ..)| fields.iter().any(|f| f == "/trigger"))
         .ok_or_else(|| unsupported("resolution.spans", "no certified trigger event span"))?;
+    if fields.iter().any(|f| f == "/condition") {
+        return if ability.get("condition").is_some() {
+            Ok(())
+        } else {
+            Err(invalid("resolution.spans", "segment names a missing field"))
+        };
+    }
+    let after = line
+        .get(*end..)
+        .ok_or_else(|| invalid("resolution.spans", "segment outside the block"))?;
     let after = after.trim_start().trim_start_matches(',').trim_start();
     if after.to_lowercase().starts_with("if ") && ability.get("condition").is_none() {
         return Err(unsupported(
@@ -292,6 +318,27 @@ mod tests {
         assert!(
             choices_printed("Flying", &ability, &[(vec!["/keywords".to_owned()], 0, 6)]).is_ok()
         );
+    }
+
+    #[test]
+    fn a_joint_trigger_header_counts_and_certifies_its_condition() {
+        let line = "When this creature enters, if you control an artifact, draw a card.";
+        let header = "When this creature enters, if you control an artifact,";
+        let segments = [
+            (
+                vec!["/trigger".to_owned(), "/condition".to_owned()],
+                0,
+                header.len(),
+            ),
+            span(line, "/effects/0", "draw a card."),
+        ];
+        let ability = json!({"kind": "triggered", "trigger": {"trigger": "enters"},
+            "condition": {"condition": "control"}, "effects": [{"steps": []}]});
+        assert!(intervening_if(line, &ability, &segments).is_ok());
+        assert!(choices_printed(line, &ability, &segments).is_ok());
+        let mut missing = ability.clone();
+        missing.as_object_mut().unwrap().remove("condition");
+        assert!(intervening_if(line, &missing, &segments).is_err());
     }
 
     #[test]

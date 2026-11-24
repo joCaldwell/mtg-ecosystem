@@ -458,8 +458,9 @@ block a kindless condition prints as "if", "as long as" or "during". A block
 whose counts differ, including an "if" read as "unless", rejects as
 `printed_choice_limit_or_condition_disagrees_with_the_ast`. So does a condition
 moved to another sentence, or an "If you do" sentence read as "if you don't"
-(CR 118.12). A trigger whose certified event span is followed by ", if" must
-carry that clause as its intervening condition (CR 603.4). Composition peels control off ordinary steps and lowers
+(CR 118.12). A trigger whose certified header span is followed by ", if" must
+carry that clause as its intervening condition (CR 603.4). A header that
+certifies `/trigger` with `/condition` already printed it as one. Composition peels control off ordinary steps and lowers
 the core through the verb lowerers. It then nests each wrapped step range
 under one kernel control node:
 
@@ -478,7 +479,10 @@ counter verb on a target or the source. The continuation offers no impossible
 choice (CR 608.2d):
 - no object that can still change (CR 701.26a) or move (CR 400.7)
 - no live player or a zero amount
-- a library smaller than the mill amount (CR 701.17b) Nested equal-range wrappers keep
+- a library smaller than the mill amount (CR 701.17b)
+
+A pending choice that becomes impossible while it waits is withdrawn (CR
+800.4a). Nested equal-range wrappers keep
 printed ancestry. `IfPays` performs its node only after payment. A payer who has
 left the game pays nothing. State validation checks a suspended chooser, payer, life
 amount and generic mana amount against the admitted node. A destroy step keeps its own optional

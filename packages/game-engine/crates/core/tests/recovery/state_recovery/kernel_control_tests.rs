@@ -783,11 +783,8 @@ fn an_optional_move_of_a_departed_target_offers_no_choice() {
     }
 }
 
-/// CR 608.2d, 800.4a: an optional life change of a player who has left the
-/// game, or of zero life, offers no choice; live players' iterations do.
-#[test]
-fn an_optional_life_change_needs_a_live_player_and_an_amount() {
-    let each = |amount: i64| Node::ForEach {
+fn each_opponent_gains(amount: i64) -> Node {
+    Node::ForEach {
         var: 5,
         over: Domain::Players {
             players: PlayerExpr::EachOpponent,
@@ -801,7 +798,14 @@ fn an_optional_life_change_needs_a_live_player_and_an_amount() {
                 Amount::fixed(amount),
             )),
         }),
-    };
+    }
+}
+
+/// CR 608.2d, 800.4a: an optional life change of a player who has left the
+/// game, or of zero life, offers no choice; live players' iterations do.
+#[test]
+fn an_optional_life_change_needs_a_live_player_and_an_amount() {
+    let each = each_opponent_gains;
     let mut game =
         super::formats_tests::cast_edict(edict_with_kernel(each(1), TargetDomain::OpponentPlayer));
     assert!(game.live_players().len() >= 4);
@@ -885,4 +889,47 @@ fn a_suspended_generic_payment_must_match_its_admitted_amount() {
             .unwrap_err()
             .contains("resolution payment binding invariant")
     );
+}
+
+/// CR 608.2d, 800.4a: a pending optional choice is withdrawn when it
+/// becomes impossible while it waits. Player 1 concedes while the offer to
+/// gain them life is pending; only players 2 and 3 are then offered.
+#[test]
+fn a_pending_optional_choice_is_withdrawn_once_it_is_impossible() {
+    let mut game = super::formats_tests::cast_edict(edict_with_kernel(
+        each_opponent_gains(1),
+        TargetDomain::OpponentPlayer,
+    ));
+    let before: Vec<_> = game
+        .state
+        .rules
+        .players
+        .iter()
+        .map(|p| p.life.clone())
+        .collect();
+    assert_eq!(next_reason(&mut game), Reason::OptionalEffect);
+    game.concede(PlayerId(1)).unwrap();
+    game.validate_state().unwrap();
+    let mut offered = 0;
+    loop {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+            panic!("expected a decision")
+        };
+        if request.reason != Reason::OptionalEffect {
+            break;
+        }
+        offered += 1;
+        let accept = request
+            .pick_one(&Candidate::Flag { flag: Flag::Accept })
+            .unwrap();
+        game.respond(request.player, request.id, accept).unwrap();
+        game.validate_state().unwrap();
+    }
+    assert_eq!(offered, 2);
+    assert_eq!(game.state.rules.players[1].life, before[1]);
+    for seat in [2usize, 3] {
+        let mut expected = before[seat].clone();
+        expected.add(&Quantity::from(1));
+        assert_eq!(game.state.rules.players[seat].life, expected);
+    }
 }

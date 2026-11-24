@@ -822,6 +822,8 @@ const ROADSIDE_RELIQUARY: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/2fb13687-0518-4ba0-a5ae-dd609464b026.json");
 const AESI: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/6511f317-bd38-46d0-b800-7125a3f420da.json");
+const SCHOLAR_OF_STARS: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/0753aee4-33db-48c5-9854-16a9d91535b2.json");
 const MIRE_KAVU: &str =
     include_str!("../../../../tests/fixtures/phase1-r4/0bc58096-7925-4870-bb95-58cce51ea8e7.json");
 const TEMPORAL_MACHINATIONS: &str =
@@ -1127,4 +1129,33 @@ fn payers_and_choosers_bind_exactly_the_printed_player() {
                          "ref": {"ref": "event-player", "role": "caster"}}));
     });
     assert_eq!(rejection(&other), "compose.control:optional_chooser");
+}
+
+/// CR 603.4: R4 certifies "When this creature enters, if you control an
+/// artifact," as one header span naming `/trigger` and `/condition`. The
+/// printed guards accept it, and the block reaches the trigger lowerer's own
+/// intervening-if decision instead of a resolution-only `If`.
+#[test]
+fn a_certified_trigger_header_with_its_condition_reaches_the_trigger_decision() {
+    assert_eq!(
+        rejection(SCHOLAR_OF_STARS),
+        "abilities.condition:unsupported_complete_intervening_if_condition"
+    );
+    // Without its block condition the same printed header is a spans defect,
+    // never a sentence condition.
+    let dropped = changed(SCHOLAR_OF_STARS, |row| {
+        let ability = &mut row["faces"][0]["result"]["abilities"][0];
+        let condition = ability
+            .as_object_mut()
+            .unwrap()
+            .remove("condition")
+            .unwrap();
+        ability["effects"][0]["condition"] = condition;
+        ability["effects"][0]["conditionKind"] = json!("if");
+        row["faces"][0]["result"]["lines"][0]["ability"] = ability.clone();
+    });
+    assert!(!matches!(
+        compile(R4, &dropped),
+        CompileResult::Lowered { .. }
+    ));
 }

@@ -338,10 +338,28 @@ impl RulesTxn {
         &self,
         task: &Task,
     ) -> Result<Option<Decision<Rules>>, String> {
-        Ok(task
-            .chooser()
-            .filter(|p| self.is_live(*p))
-            .map(|p| self.pick_flags(p, Reason::OptionalEffect, &[Flag::Accept, Flag::Decline])))
+        let Some(player) = task.chooser().filter(|p| self.is_live(*p)) else {
+            return Ok(None);
+        };
+        if !self.still_offered(task)? {
+            return Ok(None);
+        }
+        Ok(Some(self.pick_flags(
+            player,
+            Reason::OptionalEffect,
+            &[Flag::Accept, Flag::Decline],
+        )))
+    }
+
+    /// CR 608.2d, 800.4a: a suspended optional choice is offered only while
+    /// accepting it is still possible. A departure while it waits (the
+    /// affected player conceding, a target leaving) withdraws the offer, as
+    /// a departed chooser does; the continuation then skips the node.
+    fn still_offered(&self, task: &Task) -> Result<bool, String> {
+        match (&task.stage, self.node_at(task)?.0) {
+            (Stage::Optional { .. }, Node::Optional { node, .. }) => self.performable(task, node),
+            _ => Ok(true),
+        }
     }
 
     pub(in crate::engine) fn kernel_choice_context(
@@ -446,7 +464,7 @@ impl RulesTxn {
         let (node, block) = self.node_at(&task)?;
         let node = node.clone();
         if let Some(player) = task.chooser() {
-            let perform = if self.is_live(player) {
+            let perform = if self.is_live(player) && self.still_offered(&task)? {
                 let input = self
                     .rules_mut()
                     .pending
