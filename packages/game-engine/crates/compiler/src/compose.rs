@@ -14,9 +14,11 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
+mod control;
 mod costs;
 mod events;
 mod keywords;
+mod printed;
 mod steps;
 #[cfg(test)]
 mod tests;
@@ -358,43 +360,6 @@ fn trigger(
     })
 }
 
-/// A printed choice, limit or condition must be carried by the AST, and an
-/// AST choice must be printed. The parser spells "may" as `optional`, "up
-/// to" as `upTo` and "if"/"unless" as a condition; a block whose text and AST
-/// disagree would otherwise lower as mandatory, optional, exact or
-/// unconditional against its printed text. Reminder text and quoted
-/// abilities are not the block's own words. Which printed clause produced
-/// which AST sentence is the resolution's span certificate.
-fn choices_printed(line: &str, effects: &[serde_json::Value]) -> Result<(), Failure> {
-    let mut rules_text = String::new();
-    let (mut reminder, mut quoted) = (0usize, false);
-    for c in line.chars() {
-        match c {
-            '(' if !quoted => reminder += 1,
-            ')' if !quoted => reminder = reminder.saturating_sub(1),
-            '"' if reminder == 0 => quoted = !quoted,
-            _ if reminder == 0 && !quoted => rules_text.extend(c.to_lowercase()),
-            _ => {}
-        }
-    }
-    let words: Vec<&str> = rules_text
-        .split(|c: char| !c.is_alphabetic())
-        .filter(|w| !w.is_empty())
-        .collect();
-    let ast = serde_json::to_string(effects).unwrap_or_default();
-    let has = |word: &str| words.contains(&word);
-    if (has("may") != ast.contains("\"optional\":true"))
-        || (words.windows(2).any(|w| w == ["up", "to"]) && !ast.contains("\"upTo\":true"))
-        || ((has("if") || has("unless")) && !ast.contains("\"condition"))
-    {
-        return Err(unsupported(
-            "compose.effects",
-            "printed choice, limit or condition disagrees with the AST",
-        ));
-    }
-    Ok(())
-}
-
 /// Every number printed in a block, outside mana symbols, reminder text and
 /// quoted abilities, must occur in that block's AST. A changed amount whose
 /// printed number the AST no longer carries is rejected rather than lowered
@@ -432,6 +397,21 @@ fn numbers_printed(line: &str, ast: &str) -> Result<(), Failure> {
         ));
     }
     Ok(())
+}
+
+/// The kernel scope a block's control nodes are attributed under. X is
+/// admitted here; definition admission decides it (CR 107.3).
+fn control_env<'a>(
+    context: Context,
+    targets: &'a [TargetSpec],
+    event: Option<&'a TriggerCondition>,
+) -> kir::Env<'a> {
+    kir::Env {
+        context,
+        targets,
+        event,
+        announced_x: true,
+    }
 }
 
 /// What keeps one record out of composition, for the gap report.
@@ -621,15 +601,40 @@ fn compose(
                     effects,
                 } if spell_kind => {
                     ability_word(&word, &result.lines[block].text)?;
-                    choices_printed(&result.lines[block].text, &effects)?;
                     slots.clear();
-                    append_effects(
-                        definition.spell.as_mut().expect("spell program"),
-                        parts(&effects)?,
-                        block,
-                        &mut slots,
-                        Context::Spell,
-                        |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
+                    let peeled = control::peel(&effects)?;
+                    let program = definition.spell.as_mut().expect("spell program");
+                    let (before, before_slots) = (program.clone(), slots.clone());
+                    let lower = |program: &mut SpellProgram,
+                                 slots: &mut BTreeMap<String, u32>,
+                                 sentences: &[serde_json::Value]| {
+                        append_effects(
+                            program,
+                            parts(sentences)?,
+                            block,
+                            slots,
+                            Context::Spell,
+                            |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
+                        )
+                    };
+                    lower(program, &mut slots, &peeled.sentences)?;
+                    let site = control::Site {
+                        resolution: &resolution,
+                        index: block,
+                        printed: &printed[block],
+                        context: Context::Spell,
+                    };
+                    let base = before.instructions.len();
+                    control::apply(&peeled, &site, &mut program.instructions, base, |prefix| {
+                        let (mut scratch, mut scratch_slots) =
+                            (before.clone(), before_slots.clone());
+                        lower(&mut scratch, &mut scratch_slots, prefix)?;
+                        Ok(scratch.instructions.len() - base)
+                    })?;
+                    control::admitted(
+                        &peeled,
+                        &program.instructions[base..],
+                        &control_env(Context::Spell, &program.targets, None),
                     )?;
                 }
                 Block::Activated {
@@ -639,9 +644,10 @@ fn compose(
                     effects,
                 } if !spell_kind => {
                     ability_word(&word, &result.lines[block].text)?;
-                    choices_printed(&result.lines[block].text, &effects)?;
                     let (timing, restriction) = timing(restriction)?;
-                    let parts = parts(&effects)?;
+                    let peeled = control::peel(&effects)?;
+                    let core = parts(&peeled.sentences)?;
+                    let parts = core;
                     // CR 605.1a: a mana ability is recognised from its complete
                     // typed cost, production and restriction, never a table row.
                     let typed: Option<Vec<Sentence>> = parts
@@ -651,7 +657,9 @@ fn compose(
                             Part::Table(_) => None,
                         })
                         .collect();
+                    // A mana ability has no resolution-time control (CR 605.3b).
                     let mana = match &typed {
+                        Some(_) if !peeled.is_plain() => None,
                         Some(typed) => lower_mana_ability(
                             &costs,
                             typed,
@@ -677,15 +685,37 @@ fn compose(
                             "activation restriction outside the block tables",
                         ));
                     } else {
+                        let lower = |parts| {
+                            activation(
+                                &card,
+                                &costs,
+                                parts,
+                                timing,
+                                block,
+                                &result.lines[block].text,
+                            )
+                        };
+                        let mut ability = lower(parts)?;
+                        let site = control::Site {
+                            resolution: &resolution,
+                            index: block,
+                            printed: &printed[block],
+                            context: Context::Activated,
+                        };
+                        control::apply(
+                            &peeled,
+                            &site,
+                            &mut ability.program.instructions,
+                            0,
+                            |prefix| Ok(lower(self::parts(prefix)?)?.program.instructions.len()),
+                        )?;
+                        control::admitted(
+                            &peeled,
+                            &ability.program.instructions,
+                            &control_env(Context::Activated, &ability.program.targets, None),
+                        )?;
                         labels.activated.push(label);
-                        definition.activated.push(activation(
-                            &card,
-                            &costs,
-                            parts,
-                            timing,
-                            block,
-                            &result.lines[block].text,
-                        )?);
+                        definition.activated.push(ability);
                     }
                 }
                 Block::Triggered {
@@ -695,15 +725,40 @@ fn compose(
                     effects,
                 } if !spell_kind => {
                     ability_word(&word, &result.lines[block].text)?;
-                    choices_printed(&result.lines[block].text, &effects)?;
+                    printed::intervening_if(
+                        &result.lines[block].text,
+                        &printed[block],
+                        &resolution.segments(block)?,
+                    )?;
+                    let peeled = control::peel(&effects)?;
+                    let lower = |sentences: &[serde_json::Value]| {
+                        trigger(&card, &event, parts(sentences)?, condition.as_ref(), block)
+                    };
+                    let mut ability = lower(&peeled.sentences)?;
+                    let site = control::Site {
+                        resolution: &resolution,
+                        index: block,
+                        printed: &printed[block],
+                        context: Context::Triggered,
+                    };
+                    control::apply(
+                        &peeled,
+                        &site,
+                        &mut ability.program.instructions,
+                        0,
+                        |prefix| Ok(lower(prefix)?.program.instructions.len()),
+                    )?;
+                    control::admitted(
+                        &peeled,
+                        &ability.program.instructions,
+                        &control_env(
+                            Context::Triggered,
+                            &ability.program.targets,
+                            Some(&ability.condition),
+                        ),
+                    )?;
                     labels.triggered.push(label);
-                    definition.triggered.push(trigger(
-                        &card,
-                        &event,
-                        parts(&effects)?,
-                        condition.as_ref(),
-                        block,
-                    )?);
+                    definition.triggered.push(ability);
                 }
                 _ => {
                     return Err(unsupported(
@@ -712,6 +767,15 @@ fn compose(
                     ));
                 }
             }
+            // Every block that lowered, keyword blocks included, must also
+            // print exactly the choices, limits and conditions its AST
+            // carries, sentence by sentence (`printed`). Checked once lowering
+            // succeeded, so a block a table cannot lower keeps that blocker.
+            printed::choices_printed(
+                &result.lines[block].text,
+                &printed[block],
+                &resolution.segments(block)?,
+            )?;
             // CR 601.2c: the block's announced targets are the resolution's
             // block-relative slots.
             {

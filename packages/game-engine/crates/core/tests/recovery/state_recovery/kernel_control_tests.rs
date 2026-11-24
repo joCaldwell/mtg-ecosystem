@@ -489,3 +489,447 @@ fn missing_kernel_parent_rejects_the_step() {
         matches!(game.advance(Budget::new(1)), Advance::Fault(reason) if reason.contains("invalid continuation stack link"))
     );
 }
+
+/// CR 118.12, 608.2c: "you may pay N life. If you do, ..." and "you may pay
+/// {0}. If you do, ...": the node runs only after the payer has paid.
+fn if_pays_scenario() -> Prepared {
+    let mut prepared = super::formats_tests::actions_scenario();
+    let catalog = Arc::make_mut(&mut prepared.catalog);
+    let program = catalog
+        .definitions
+        .iter_mut()
+        .find(|def| def.name == "Cruel Edict")
+        .unwrap()
+        .spell
+        .as_mut()
+        .unwrap();
+    let if_pays = |payment, amount| Node::IfPays {
+        payer: controller(),
+        payment,
+        node: Box::new(gain(controller(), Amount::fixed(amount))),
+    };
+    let node = Node::Seq(vec![
+        if_pays(
+            Payment::Life {
+                amount: Amount::fixed(3),
+            },
+            10,
+        ),
+        if_pays(
+            Payment::Generic {
+                amount: Amount::fixed(0),
+            },
+            5,
+        ),
+    ]);
+    let derived = mtg_contracts::kir::check(
+        &node,
+        &mtg_contracts::kir::Env {
+            context: Context::Spell,
+            targets: &program.targets,
+            event: None,
+            announced_x: false,
+        },
+    )
+    .unwrap();
+    // A payment node is control: it earns no tier above Executes.
+    assert!(derived.cells.contains(&mtg_contracts::kir::Cell::Control));
+    program.instructions = vec![Instruction::Kernel {
+        node,
+        source_block: 0,
+    }];
+    prepared.catalog_digest = mtg_contracts::digest(catalog).unwrap();
+    prepared
+}
+
+fn pay_generic_zero(game: &mut Game) {
+    answer(
+        game,
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: false,
+            },
+        },
+    );
+    answer(
+        game,
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::new(),
+            },
+        },
+    );
+}
+
+#[test]
+fn if_pays_performs_only_once_paid_and_restores_at_the_offer() {
+    let mut original = super::formats_tests::cast_edict(if_pays_scenario());
+    assert!(matches!(
+        original.advance(Budget::unlimited()),
+        Advance::AwaitingDecision(Decision {
+            player: PlayerId(0),
+            reason: Reason::OptionalEffect,
+            ..
+        })
+    ));
+    original.validate_state().unwrap();
+    let before = original.state.rules.players[0].life.clone();
+    let prepared = original.prepared.as_ref().clone();
+    let mut restored = Game::restore(prepared.clone(), &original.snapshot().unwrap()).unwrap();
+    for game in [&mut original, &mut restored] {
+        // Pay 3 life, then {0}: both nodes run.
+        for _ in 0..2 {
+            let accept = game
+                .next_test_decision()
+                .select(Candidate::Flag { flag: Flag::Accept });
+            answer(game, accept);
+            game.validate_state().unwrap();
+        }
+        pay_generic_zero(game);
+        assert!(matches!(
+            game.advance(Budget::unlimited()),
+            Advance::AwaitingDecision(Decision {
+                reason: Reason::Priority,
+                ..
+            })
+        ));
+        game.validate_state().unwrap();
+        let mut expected = before.clone();
+        expected.add(&Quantity::from(-3 + 10 + 5));
+        assert_eq!(game.state.rules.players[0].life, expected);
+        assert!(game.state.rules.frames.is_empty());
+    }
+    assert_eq!(original.snapshot().unwrap(), restored.snapshot().unwrap());
+    let mut replay = Game::replay(prepared, &original.replay_journal()).unwrap();
+    replay.advance(Budget::unlimited());
+    assert_eq!(
+        original.state_digest().unwrap(),
+        replay.state_digest().unwrap()
+    );
+}
+
+#[test]
+fn declining_an_if_pays_offer_skips_its_node() {
+    let mut game = super::formats_tests::cast_edict(if_pays_scenario());
+    let before = game.state.rules.players[0].life.clone();
+    for _ in 0..2 {
+        let decline = game.next_test_decision().select(Candidate::Flag {
+            flag: Flag::Decline,
+        });
+        answer(&mut game, decline);
+        game.validate_state().unwrap();
+    }
+    assert!(matches!(
+        game.advance(Budget::unlimited()),
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::Priority,
+            ..
+        })
+    ));
+    assert_eq!(game.state.rules.players[0].life, before);
+    game.validate_state().unwrap();
+}
+
+/// CR 118.12: a suspended life payment is exactly its admitted terms. A
+/// snapshot whose saved amount or payer differs from the node's is rejected.
+#[test]
+fn a_suspended_life_payment_must_match_its_admitted_terms() {
+    let mut game = super::formats_tests::cast_edict(if_pays_scenario());
+    assert!(matches!(
+        game.advance(Budget::unlimited()),
+        Advance::AwaitingDecision(Decision {
+            reason: Reason::OptionalEffect,
+            ..
+        })
+    ));
+    game.validate_state().unwrap();
+    // The suspended stage lives in the current frame; edit it in place.
+    let frame = serde_json::to_value(&game.state.rules.frame).unwrap();
+    fn stages(value: &mut serde_json::Value, edit: &dyn Fn(&mut serde_json::Value)) -> usize {
+        match value {
+            serde_json::Value::Object(fields) => {
+                if fields.get("stage") == Some(&serde_json::json!("life")) {
+                    edit(value);
+                    return 1;
+                }
+                fields.values_mut().map(|child| stages(child, edit)).sum()
+            }
+            serde_json::Value::Array(items) => {
+                items.iter_mut().map(|item| stages(item, edit)).sum()
+            }
+            _ => 0,
+        }
+    }
+    let original = game.state.rules.frame.clone();
+    let mut with = |edit: &dyn Fn(&mut serde_json::Value)| {
+        let mut changed = frame.clone();
+        assert_eq!(stages(&mut changed, edit), 1);
+        game.state.rules.frame = serde_json::from_value(changed).unwrap();
+        let result = game.validate_state();
+        game.state.rules.frame = original.clone();
+        result
+    };
+    // The same terms validate.
+    with(&|_| {}).unwrap();
+    // A different amount or payer than the admitted node's does not.
+    let amount = with(&|stage| {
+        stage["amount"] = match &stage["amount"] {
+            serde_json::Value::String(_) => serde_json::json!("4"),
+            _ => serde_json::json!(4),
+        }
+    });
+    assert!(amount.unwrap_err().contains("life payment differs"));
+    let payer = with(&|stage| stage["payer"] = serde_json::json!(1));
+    assert!(payer.unwrap_err().contains("payer differs"));
+}
+
+/// The Actions edict, cast with `target` and resolved to its first boundary.
+fn cast_edict_at(prepared: Prepared, target: TargetEntity) -> Game {
+    let mut game = Game::new(prepared);
+    let mut answer = |response: &dyn Fn(&Decision<Rules>) -> Answer| {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+            panic!("expected a decision")
+        };
+        game.respond(request.player, request.id, response(&request))
+            .unwrap();
+    };
+    answer(&|d| d.cast(CardId(4)));
+    answer(&|d| d.entity_targets(vec![target]));
+    let lands = [2, 3].map(|land| Driver::object(&game, land));
+    for land in lands {
+        let mut answer = |response: &dyn Fn(&Decision<Rules>) -> Answer| {
+            let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+                panic!("expected a decision")
+            };
+            game.respond(request.player, request.id, response(&request))
+                .unwrap();
+        };
+        answer(&|d| d.activate_mana(land));
+    }
+    for response in [
+        Answer::Pay {
+            pay: PayAnswer::Finish {
+                undo_on_failure: true,
+            },
+        },
+        Answer::Pay {
+            pay: PayAnswer::Spend {
+                unrestricted: BTreeMap::from([
+                    (Color::B, Quantity::from(1)),
+                    (Color::G, Quantity::from(1)),
+                ]),
+            },
+        },
+    ] {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+            panic!("expected a payment decision")
+        };
+        game.respond(request.player, request.id, response).unwrap();
+    }
+    for _ in 0..game.live_players().len() {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+            panic!("expected priority")
+        };
+        game.respond(
+            request.player,
+            request.id,
+            Answer::Pick {
+                picks: vec![vec![0]],
+            },
+        )
+        .unwrap();
+    }
+    game
+}
+
+fn next_reason(game: &mut Game) -> Reason<Rules> {
+    let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+        panic!("expected a decision")
+    };
+    request.reason
+}
+
+/// CR 400.7, 608.2d: once its target has changed zones, an optional move
+/// of that target is impossible, so no choice is offered.
+#[test]
+fn an_optional_move_of_a_departed_target_offers_no_choice() {
+    let target = SetExpr::One {
+        object: Ref::Target { slot: 0 },
+    };
+    let bounce = Node::Do(Verb::Move {
+        what: target.clone(),
+        to: mtg_contracts::kir::Destination::OwnerHand,
+    });
+    let optional = Node::Optional {
+        chooser: controller(),
+        node: Box::new(bounce.clone()),
+    };
+    for departed in [false, true] {
+        let node = if departed {
+            Node::Seq(vec![bounce.clone(), optional.clone()])
+        } else {
+            optional.clone()
+        };
+        let prepared = edict_with_kernel(node, TargetDomain::BattlefieldCreature);
+        let creature = Game::new(prepared.clone()).object_id(CardId(1)).unwrap();
+        let mut game = cast_edict_at(prepared, TargetEntity::Object { object: creature });
+        game.validate_state().unwrap();
+        let reason = next_reason(&mut game);
+        if departed {
+            assert_eq!(reason, Reason::Priority);
+        } else {
+            assert_eq!(reason, Reason::OptionalEffect);
+        }
+    }
+}
+
+fn each_opponent_gains(amount: i64) -> Node {
+    Node::ForEach {
+        var: 5,
+        over: Domain::Players {
+            players: PlayerExpr::EachOpponent,
+        },
+        body: Box::new(Node::Optional {
+            chooser: controller(),
+            node: Box::new(gain(
+                PlayerExpr::Is {
+                    who: Ref::BoundVar { id: 5 },
+                },
+                Amount::fixed(amount),
+            )),
+        }),
+    }
+}
+
+/// CR 608.2d, 800.4a: an optional life change of a player who has left the
+/// game, or of zero life, offers no choice; live players' iterations do.
+#[test]
+fn an_optional_life_change_needs_a_live_player_and_an_amount() {
+    let each = each_opponent_gains;
+    let mut game =
+        super::formats_tests::cast_edict(edict_with_kernel(each(1), TargetDomain::OpponentPlayer));
+    assert!(game.live_players().len() >= 4);
+    let before: Vec<_> = game
+        .state
+        .rules
+        .players
+        .iter()
+        .map(|p| p.life.clone())
+        .collect();
+    // Player 1's iteration is offered; player 2 concedes meanwhile.
+    assert_eq!(next_reason(&mut game), Reason::OptionalEffect);
+    game.concede(PlayerId(2)).unwrap();
+    let mut accepted = 0;
+    loop {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+            panic!("expected a decision")
+        };
+        if request.reason != Reason::OptionalEffect {
+            break;
+        }
+        accepted += 1;
+        let accept = request
+            .pick_one(&Candidate::Flag { flag: Flag::Accept })
+            .unwrap();
+        game.respond(request.player, request.id, accept).unwrap();
+        game.validate_state().unwrap();
+    }
+    // Players 1 and 3 only.
+    assert_eq!(accepted, 2);
+    for seat in [1usize, 3] {
+        let mut expected = before[seat].clone();
+        expected.add(&Quantity::from(1));
+        assert_eq!(game.state.rules.players[seat].life, expected);
+    }
+    // Gaining zero life is no choice at all.
+    let mut zero =
+        super::formats_tests::cast_edict(edict_with_kernel(each(0), TargetDomain::OpponentPlayer));
+    assert_eq!(next_reason(&mut zero), Reason::Priority);
+}
+
+/// CR 118.12: a suspended generic payment is exactly its admitted amount.
+#[test]
+fn a_suspended_generic_payment_must_match_its_admitted_amount() {
+    let mut game = super::formats_tests::cast_edict(if_pays_scenario());
+    // Pay the 3 life; the {0} payment is then offered.
+    let accept = game
+        .next_test_decision()
+        .select(Candidate::Flag { flag: Flag::Accept });
+    answer(&mut game, accept);
+    assert_eq!(next_reason(&mut game), Reason::OptionalEffect);
+    assert!(matches!(
+        game.state.rules.frame,
+        Frame::ResolutionPayment { .. }
+    ));
+    game.validate_state().unwrap();
+    let frame = serde_json::to_value(&game.state.rules.frame).unwrap();
+    fn generic(value: &mut serde_json::Value) -> usize {
+        match value {
+            serde_json::Value::Object(fields) => {
+                if let Some(cost) = fields.get_mut("cost")
+                    && cost.get("generic").is_some()
+                {
+                    cost["generic"] = match &cost["generic"] {
+                        serde_json::Value::String(_) => serde_json::json!("9"),
+                        _ => serde_json::json!(9),
+                    };
+                    return 1;
+                }
+                fields.values_mut().map(generic).sum()
+            }
+            serde_json::Value::Array(items) => items.iter_mut().map(generic).sum(),
+            _ => 0,
+        }
+    }
+    let mut changed = frame;
+    assert_eq!(generic(&mut changed), 1);
+    game.state.rules.frame = serde_json::from_value(changed).unwrap();
+    assert!(
+        game.validate_state()
+            .unwrap_err()
+            .contains("resolution payment binding invariant")
+    );
+}
+
+/// CR 608.2d, 800.4a: a pending optional choice is withdrawn when it
+/// becomes impossible while it waits. Player 1 concedes while the offer to
+/// gain them life is pending; only players 2 and 3 are then offered.
+#[test]
+fn a_pending_optional_choice_is_withdrawn_once_it_is_impossible() {
+    let mut game = super::formats_tests::cast_edict(edict_with_kernel(
+        each_opponent_gains(1),
+        TargetDomain::OpponentPlayer,
+    ));
+    let before: Vec<_> = game
+        .state
+        .rules
+        .players
+        .iter()
+        .map(|p| p.life.clone())
+        .collect();
+    assert_eq!(next_reason(&mut game), Reason::OptionalEffect);
+    game.concede(PlayerId(1)).unwrap();
+    game.validate_state().unwrap();
+    let mut offered = 0;
+    loop {
+        let Advance::AwaitingDecision(request) = game.advance(Budget::unlimited()) else {
+            panic!("expected a decision")
+        };
+        if request.reason != Reason::OptionalEffect {
+            break;
+        }
+        offered += 1;
+        let accept = request
+            .pick_one(&Candidate::Flag { flag: Flag::Accept })
+            .unwrap();
+        game.respond(request.player, request.id, accept).unwrap();
+        game.validate_state().unwrap();
+    }
+    assert_eq!(offered, 2);
+    assert_eq!(game.state.rules.players[1].life, before[1]);
+    for seat in [2usize, 3] {
+        let mut expected = before[seat].clone();
+        expected.add(&Quantity::from(1));
+        assert_eq!(game.state.rules.players[seat].life, expected);
+    }
+}

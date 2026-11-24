@@ -49,7 +49,7 @@ FAMILIES = (
                                r'compose\.block\.look-permission')),
     ('W5 step results, may, if, up to, for each', (r'ref:(step-result|bound-var|linked-pool|derived|evaluated)',
                                                    r'compose\.step\.(optional|forEach|for-each|condition|pay-cost|upTo)',
-                                                   r'compose\.effects:', r'effects\.condition', r'compose\.block\.condition',
+                                                   r'compose\.effects:', r'compose\.control:', r'effects\.condition', r'compose\.block\.condition',
                                                    r'^bindings', r'operand:bindings', r'operand:target:up_to',
                                                    r'^verb:[^:]+:optional$')),
     ('W7 trigger events', (r'ref:event-(object|player)', r'ref:source:', r'ref:target:', r'ref:controller:',

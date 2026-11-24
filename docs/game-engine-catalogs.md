@@ -131,7 +131,7 @@ of an instruction for the resolving stack object.
 | `Ref` | The closed reference vocabulary: source, controller (with its role), target slot, attached-to, event object/player, entering object, step result, bound variable, linked pool, announced X |
 | `PlayerExpr`, `SetExpr`, `Amount` | Players, object sets (`Matching { zone, filter: Pred }`) and quantities built from references and predicate atoms |
 | `Verb` | One game action over those operands |
-| `Node` | `Do`, `Seq`, `If`, `Optional`, `ForEach`, `Choose`, `UnlessPays`, `Delayed`, `Reflexive` |
+| `Node` | `Do`, `Seq`, `If`, `Optional`, `ForEach`, `Choose`, `UnlessPays`, `IfPays`, `Delayed`, `Reflexive` |
 
 `kir::check(node, env)` is the one admission decision. It proves each reference
 is in scope and of the right kind for the context, targets and event; rejects a
@@ -162,9 +162,10 @@ Board-wide sets evaluate through the battlefield and graveyard queries.
 
 `Seq` follows written order. `If` supports `Compare`, `Exists`, `CostPaid`,
 `Not` and `All`. `ForEach` binds a player or a singleton object.
-`Optional` and `UnlessPays` take a singleton player expression, and
-`UnlessPays` supports life and generic mana. The continuation skips an optional
-effect with no live chooser and takes the unpaid branch with no live payer.
+`Optional`, `UnlessPays` and `IfPays` take a singleton player expression, and
+both payment nodes support life and generic mana. The continuation skips an
+optional effect with no live chooser and takes the unpaid branch with no live
+payer: `UnlessPays` performs its node, `IfPays` does not (CR 118.12).
 `Choose` binds a pool from a matching public set when both bounds force zero
 or the size of that set. Interactive object choice remains unaudited because
 the saved candidates and chooser are not refreshed on departure (CR 800.4a/g).

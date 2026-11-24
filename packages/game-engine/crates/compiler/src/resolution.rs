@@ -252,6 +252,73 @@ impl Resolution {
         Ok(format!("[{}]", out.join(",")))
     }
 
+    /// The certified segments of block `index`: the AST fields each printed
+    /// byte range produced, in printed order. Trivia (a modal bullet) names
+    /// no field. [`Resolution::spans`] has checked the tiling.
+    pub(super) fn segments(
+        &self,
+        index: usize,
+    ) -> Result<Vec<(Vec<String>, usize, usize)>, Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        let BlockResolutionSpans::Certificate(c) = &*block.spans else {
+            return Err(unsupported("resolution", "spans:uncertified"));
+        };
+        let offset = |n: i64| usize::try_from(n).map_err(|_| invalid("resolution.spans", "offset"));
+        c.certificate
+            .segments
+            .iter()
+            .filter_map(|segment| match segment {
+                SpanSegment::Fields(f) => Some((f.fields.clone(), f.start, f.end)),
+                SpanSegment::Trivia(_) => None,
+            })
+            .map(|(fields, start, end)| Ok((fields, offset(start)?, offset(end)?)))
+            .collect()
+    }
+
+    /// Whether block `index` records any reference entry at `path`.
+    pub(super) fn binds(&self, index: usize, path: &str) -> Result<bool, Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        Ok(block.refs.iter().any(|entry| entry_path(entry) == path))
+    }
+
+    /// CR 109.5, 603.2, 608.2d: the kernel player a printed player operand
+    /// of block `index` at `path` resolves to: the block's own controller
+    /// ("you") or a kernel event player of its own trigger. Any other
+    /// resolution, or none, is no control chooser or payer.
+    pub(super) fn control_player(
+        &self,
+        index: usize,
+        ability: &Value,
+        path: &str,
+        context: kir::Context,
+    ) -> Result<Option<kir::PlayerExpr>, Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        let kind = BlockKind::of(ability);
+        Ok(block.refs.iter().find_map(|entry| match entry {
+            RefEntry::Ref(r) if r.path == path && r.scope.is_none() => match &*r.r#ref {
+                ResolvedRef::Controller(c) if Some(c.role) == kind.controller() => {
+                    Some(kir::PlayerExpr::you(context))
+                }
+                ResolvedRef::EventPlayer(e) if kind == BlockKind::Triggered => {
+                    kernel_event_player(&e.role)
+                        .filter(|(_, trigger)| ability["trigger"]["trigger"] == *trigger)
+                        .map(|(role, _)| kir::PlayerExpr::event(role))
+                }
+                _ => None,
+            },
+            _ => None,
+        }))
+    }
+
     /// The span certificate tiles the normalized block text: segments are
     /// sorted, disjoint UTF-8 ranges on character boundaries, separated only
     /// by whitespace; every field they name exists in the block AST; every

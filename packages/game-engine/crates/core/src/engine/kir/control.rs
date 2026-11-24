@@ -137,6 +137,7 @@ impl RulesTxn {
                 | Node::Choose { body, .. }
                 | Node::Optional { node: body, .. }
                 | Node::UnlessPays { node: body, .. }
+                | Node::IfPays { node: body, .. }
                     if *index == 0 =>
                 {
                     Some(body.as_ref())
@@ -337,10 +338,28 @@ impl RulesTxn {
         &self,
         task: &Task,
     ) -> Result<Option<Decision<Rules>>, String> {
-        Ok(task
-            .chooser()
-            .filter(|p| self.is_live(*p))
-            .map(|p| self.pick_flags(p, Reason::OptionalEffect, &[Flag::Accept, Flag::Decline])))
+        let Some(player) = task.chooser().filter(|p| self.is_live(*p)) else {
+            return Ok(None);
+        };
+        if !self.still_offered(task)? {
+            return Ok(None);
+        }
+        Ok(Some(self.pick_flags(
+            player,
+            Reason::OptionalEffect,
+            &[Flag::Accept, Flag::Decline],
+        )))
+    }
+
+    /// CR 608.2d, 800.4a: a suspended optional choice is offered only while
+    /// accepting it is still possible. A departure while it waits (the
+    /// affected player conceding, a target leaving) withdraws the offer, as
+    /// a departed chooser does; the continuation then skips the node.
+    fn still_offered(&self, task: &Task) -> Result<bool, String> {
+        match (&task.stage, self.node_at(task)?.0) {
+            (Stage::Optional { .. }, Node::Optional { node, .. }) => self.performable(task, node),
+            _ => Ok(true),
+        }
     }
 
     pub(in crate::engine) fn kernel_choice_context(
@@ -389,16 +408,38 @@ impl RulesTxn {
             {
                 Ok(())
             }
-            (Stage::Leaf, Node::Do(_))
-            | (Stage::Run, _)
-            | (Stage::Optional { .. }, Node::Optional { .. })
-            | (
-                Stage::Life { .. },
+            (Stage::Leaf, Node::Do(_)) | (Stage::Run, _) => Ok(()),
+            // The saved chooser is the one the admitted node names.
+            (Stage::Optional { chooser }, Node::Optional { chooser: named, .. }) => {
+                if self.control_players(task, named)? != [*chooser] {
+                    return Err("kernel chooser differs from its node".into());
+                }
+                Ok(())
+            }
+            // CR 118.12: the saved payer and amount are the admitted terms.
+            (
+                Stage::Life { payer, amount },
                 Node::UnlessPays {
-                    payment: Payment::Life { .. },
+                    payer: named,
+                    payment: Payment::Life { amount: admitted },
+                    ..
+                }
+                | Node::IfPays {
+                    payer: named,
+                    payment: Payment::Life { amount: admitted },
                     ..
                 },
-            ) => Ok(()),
+            ) => {
+                if self.control_players(task, named)? != [*payer] {
+                    return Err("kernel payer differs from its node".into());
+                }
+                if self.control_amount(task, admitted)? != *amount
+                    || !self.state.rules.players[payer.0 as usize].can_pay_life(amount)
+                {
+                    return Err("kernel life payment differs from its node".into());
+                }
+                Ok(())
+            }
             (
                 Stage::Choose {
                     remaining,
@@ -423,7 +464,7 @@ impl RulesTxn {
         let (node, block) = self.node_at(&task)?;
         let node = node.clone();
         if let Some(player) = task.chooser() {
-            let perform = if self.is_live(player) {
+            let perform = if self.is_live(player) && self.still_offered(&task)? {
                 let input = self
                     .rules_mut()
                     .pending
@@ -437,6 +478,8 @@ impl RulesTxn {
             match std::mem::take(&mut task.stage) {
                 Stage::Optional { .. } if perform => self.install_kernel(task.child(0)),
                 Stage::Optional { .. } => return self.return_kernel(task.resume),
+                // CR 118.12: "unless" performs the node when the payer
+                // declines; "if they do" performs it once they have paid.
                 Stage::Life { amount, .. } if perform => {
                     if !self.state.rules.players[player.0 as usize].can_pay_life(&amount) {
                         return Err("unpayable kernel life payment".into());
@@ -447,9 +490,9 @@ impl RulesTxn {
                             self.instruction_cause(self.kernel_root()?, block)?,
                         )?;
                     }
-                    return self.return_kernel(task.resume);
+                    return self.paid(task, &node, true);
                 }
-                Stage::Life { .. } => self.install_kernel(task.child(0)),
+                Stage::Life { .. } => return self.paid(task, &node, false),
                 Stage::Choose {
                     mut remaining,
                     mut selected,
@@ -489,10 +532,18 @@ impl RulesTxn {
                     self.return_kernel(task.resume)?;
                 }
             }
-            Node::Optional { chooser, .. } => {
+            Node::Optional {
+                chooser,
+                node: child,
+            } => {
                 let Some(chooser) = self.chooser(&task, chooser)? else {
                     return self.return_kernel(task.resume);
                 };
+                // CR 608.2d, 701.26a: no choice is offered to perform an
+                // action that cannot be performed.
+                if !self.performable(&task, child)? {
+                    return self.return_kernel(task.resume);
+                }
                 task.stage = Stage::Optional { chooser };
                 self.install_kernel(task);
             }
@@ -544,10 +595,10 @@ impl RulesTxn {
                 objects.reverse();
                 self.choose_next(task, *var, player, objects, vec![], min, max)?;
             }
-            Node::UnlessPays { payer, payment, .. } => {
+            Node::UnlessPays { payer, payment, .. } | Node::IfPays { payer, payment, .. } => {
+                // CR 800.4a: a payer who has left the game pays nothing.
                 let Some(player) = self.chooser(&task, payer)? else {
-                    self.install_kernel(task.child(0));
-                    return Ok(());
+                    return self.paid(task, &node, false);
                 };
                 match payment {
                     Payment::Life { amount } => {
@@ -555,6 +606,7 @@ impl RulesTxn {
                         if amount.is_negative() {
                             return Err("negative kernel life payment".into());
                         }
+                        // CR 119.4: a player can't pay more life than they have.
                         if self.state.rules.players[player.0 as usize].can_pay_life(&amount) {
                             task.stage = Stage::Life {
                                 payer: player,
@@ -562,7 +614,7 @@ impl RulesTxn {
                             };
                             self.install_kernel(task);
                         } else {
-                            self.install_kernel(task.child(0));
+                            self.paid(task, &node, false)?;
                         }
                     }
                     Payment::Generic { amount } => {
@@ -615,17 +667,87 @@ impl RulesTxn {
         Ok(())
     }
 
+    /// CR 608.2d: whether an optional body can be performed now, so that
+    /// accepting it is a legal choice. A sequence is performable when any of
+    /// its verbs is.
+    /// * Tap, untap, counters: an object the verb names is on the
+    ///   battlefield in a state it can change (CR 701.26a-b, 122.1).
+    /// * Move: the object's incarnation still exists; a zone change makes a
+    ///   new one (CR 400.7).
+    /// * Draw, life: a live player and a positive amount. An empty library
+    ///   does not make a draw impossible (CR 121.3, 608.2d).
+    /// * Mill: a live player whose library holds the whole amount (CR 701.17b).
+    fn performable(&self, task: &Task, node: &Node) -> Result<bool, String> {
+        let present = |set: &SetExpr, wanted: &dyn Fn(&Object) -> bool| -> Result<bool, String> {
+            Ok(self.control_objects(task, set)?.into_iter().any(|id| {
+                self.current(id)
+                    .is_ok_and(|object| object.present_on_battlefield() && wanted(object))
+            }))
+        };
+        Ok(match node {
+            Node::Seq(nodes) => {
+                for node in nodes {
+                    if self.performable(task, node)? {
+                        return Ok(true);
+                    }
+                }
+                false
+            }
+            Node::Do(Verb::Tap { what }) => present(what, &|o| !o.tapped)?,
+            Node::Do(Verb::Untap { what }) => present(what, &|o| o.tapped)?,
+            Node::Do(Verb::PutCounters { on, .. }) => present(on, &|_| true)?,
+            Node::Do(Verb::Move { what, .. }) => self
+                .control_objects(task, what)?
+                .into_iter()
+                .any(|id| self.current(id).is_ok()),
+            Node::Do(
+                Verb::Draw { player, amount }
+                | Verb::GainLife { player, amount }
+                | Verb::LoseLife { player, amount },
+            ) => {
+                self.control_amount(task, amount)? > Quantity::zero()
+                    && self
+                        .control_players(task, player)?
+                        .into_iter()
+                        .any(|p| self.is_live(p))
+            }
+            Node::Do(Verb::Mill { player, amount }) => {
+                let amount = self.control_amount(task, amount)?;
+                amount > Quantity::zero()
+                    && self.control_players(task, player)?.into_iter().any(|p| {
+                        let library = self
+                            .state
+                            .rules
+                            .objects
+                            .values()
+                            .filter(|o| o.zone == Zone::Library { owner: p })
+                            .count();
+                        self.is_live(p) && Quantity::from(library as i64) >= amount
+                    })
+            }
+            // Composition admits optional bodies of the verbs above only
+            // (`compose::control::decided`); nested control decides its own
+            // choices when it runs.
+            _ => true,
+        })
+    }
+
     pub(in crate::engine) fn kernel_payment_terms(
         &self,
         resume: FrameLink,
-    ) -> Result<(PlayerId, u32), String> {
+    ) -> Result<(PlayerId, u32, Quantity), String> {
         let Frame::Kernel { task } = self.saved_frame(resume)? else {
             return Err("missing kernel payment parent".into());
         };
         let (
             Node::UnlessPays {
                 payer,
-                payment: Payment::Generic { .. },
+                payment: Payment::Generic { amount },
+                ..
+            }
+            | Node::IfPays {
+                payer,
+                payment: Payment::Generic { amount },
                 ..
             },
             block,
@@ -637,7 +759,8 @@ impl RulesTxn {
         let [player] = players.as_slice() else {
             return Err("invalid kernel payer".into());
         };
-        Ok((*player, block))
+        // CR 118.12: the generic amount the admitted node names.
+        Ok((*player, block, self.control_amount(task, amount)?))
     }
 
     pub(in crate::engine) fn finish_kernel_payment(
@@ -645,14 +768,27 @@ impl RulesTxn {
         resume: FrameLink,
         paid: bool,
     ) -> Result<(), String> {
-        let Frame::Kernel { task } = self.saved_frame(resume)? else {
+        let Frame::Kernel { task } = self.saved_frame(resume)?.clone() else {
             return Err("invalid kernel payment parent".into());
         };
-        if paid {
-            return self.return_kernel(task.resume);
+        let node = self.node_at(&task)?.0.clone();
+        self.paid(*task, &node, paid)
+    }
+
+    /// CR 118.12, 118.12a: continue a payment node once the payer has paid
+    /// or not: `UnlessPays` performs its node when unpaid, `IfPays` when paid.
+    fn paid(&mut self, task: Task, node: &Node, paid: bool) -> Result<(), String> {
+        let perform = match node {
+            Node::UnlessPays { .. } => !paid,
+            Node::IfPays { .. } => paid,
+            _ => return Err("invalid kernel payment node".into()),
+        };
+        if perform {
+            self.install_kernel(task.child(0));
+            Ok(())
+        } else {
+            self.return_kernel(task.resume)
         }
-        self.install_kernel(task.child(0));
-        Ok(())
     }
 
     fn choose_next(

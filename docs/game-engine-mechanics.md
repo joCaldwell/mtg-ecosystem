@@ -467,6 +467,53 @@ incarnation, including when the source also has supported intrinsic keywords
 (CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
 counters.
 
+### Printed choices, payments and conditions
+
+Each printed "may", "if", "unless" and "up to" of a block must match its AST
+carriers in number and kind. The check covers every certified sentence span of
+the R4 resolution and the whole block. Carriers are: an optional step or group, a
+permission, a modal repeat, a condition of that kind, a countered or created
+replacement, an "if able" requirement, or a zero-minimum count. In a static
+block a kindless condition prints as "if", "as long as" or "during". A block
+whose counts differ, including an "if" read as "unless", rejects as
+`printed_choice_limit_or_condition_disagrees_with_the_ast`. So does a condition
+moved to another sentence, or an "If you do" sentence read as "if you don't"
+(CR 118.12). A trigger whose certified header span is followed by ", if" must
+carry that clause as its intervening condition (CR 603.4). A header that
+certifies `/trigger` with `/condition` already printed it as one. Composition peels control off ordinary steps and lowers
+the core through the verb lowerers. It then nests each wrapped step range
+under one kernel control node:
+
+| Printed | Kernel IR |
+| --- | --- |
+| "you may [step]", "you may [steps]" | `Optional` (CR 608.2d) |
+| "[step] unless [player] pays {N} / N life" | `UnlessPays` (CR 118.12a) |
+| "[player] may pay [cost]. If they do / don't, [steps]" | `IfPays` / `UnlessPays` (CR 118.12) |
+| "if/unless you control a [filter]", "N or more [filter]", not/all of these | `If` over a battlefield count read on resolution (CR 608.2c) |
+
+An optional chooser is the controller; a chooser named by `decidedBy` would
+need CR 800.4g reassignment and rejects. A payer binds to the controller or the
+trigger's kernel event player, and a cost's implicit payer must be the same
+player. An optional body is a draw, life change, mill, or a tap, untap, move or
+counter verb on a target or the source. The continuation offers no impossible
+choice (CR 608.2d):
+- no object that can still change (CR 701.26a) or move (CR 400.7)
+- no live player or a zero amount
+- a library smaller than the mill amount (CR 701.17b)
+
+A pending choice that becomes impossible while it waits is withdrawn (CR
+800.4a). Nested equal-range wrappers keep
+printed ancestry. `IfPays` performs its node only after payment. A payer who has
+left the game pays nothing. State validation checks a suspended chooser, payer, life
+amount and generic mana amount against the admitted node. A destroy step keeps its own optional
+row. These cards earn `Executes` only (`Cell::Control`, `kernel_control_v1`).
+Everything else rejects under `compose.control:<detail>`:
+- "if you do" after an action other than a payment
+- another condition, a nested leaf that needs persistent provenance
+- `forEach` amounts (CR 121.2a: a counted draw is one replaceable event)
+
+Modal steps (W14) and "up to N" targets also reject.
+
 ## Derived capability tiers
 
 Every compiled card is lowered one printed block at a time. Its definition

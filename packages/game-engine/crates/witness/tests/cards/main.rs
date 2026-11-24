@@ -1,3 +1,4 @@
+mod control;
 mod damage_triggers;
 mod keywords;
 mod permanents_mana;
