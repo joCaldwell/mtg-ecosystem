@@ -80,7 +80,7 @@ impl TargetSpec {
 
 impl SpellProgram {
     /// CR 608.2: a spell that resolves by following its instructions, cast
-    /// from and functioning on the stack, with no costs, targets or modes yet.
+    /// from and functioning on the stack, with no costs or targets yet.
     pub fn instructions(timing: SpellTiming) -> Self {
         Self {
             optional_additional_costs: vec![],
@@ -90,7 +90,6 @@ impl SpellProgram {
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
             instructions: vec![],
-            modes: vec![],
         }
     }
     /// CR 302.1, 608.3: a permanent spell resolves onto the battlefield.
@@ -210,7 +209,6 @@ mod tests {
             functioning_zone: FunctioningZone::Stack,
             targets: vec![],
             instructions: vec![],
-            modes: vec![],
         };
         same(
             SpellProgram::instructions(SpellTiming::Instant),

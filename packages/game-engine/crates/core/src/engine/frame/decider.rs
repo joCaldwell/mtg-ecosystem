@@ -34,9 +34,7 @@ impl Frame {
         let top = || -> Result<PlayerId, RuleError> { Ok(game.top()?.controller) };
         Ok(match self {
             Frame::Kernel { task } => Decider::requested(game.kernel_request(task)?, 47),
-            Frame::GraveyardReplacement { transaction: _ } | Frame::GraveyardGroup { tx: _ } => {
-                Decider::requested(game.replacement_request(), 4)
-            }
+            Frame::GraveyardGroup { tx: _ } => Decider::requested(game.replacement_request(), 4),
 
             Frame::SacrificeCost { cast: _ }
             | Frame::ForcedSacrifice {
@@ -46,10 +44,6 @@ impl Frame {
                 source_block: _,
             } => Decider::requested(game.sacrifice_request()?, 17),
 
-            Frame::Modes { cast: _ } => Decider::requested(game.modes_request()?, 13),
-            Frame::CounterPlacement { transaction: _ } => {
-                Decider::requested(game.counter_placement_request()?, 22)
-            }
             Frame::DamageEffects { transaction: _ } => {
                 Decider::requested(game.damage_effect_request()?, 12)
             }
@@ -106,13 +100,6 @@ impl Frame {
             }
             Frame::StackTargets { cast: _ } => Decider::of(top()?, 9),
             Frame::PlayerTargets { cast: _ } => Decider::of(top()?, 7),
-            Frame::LandEntry {
-                origin: _,
-                objects: _,
-                choices: _,
-            } => game
-                .land_entry_offer()?
-                .and_then(|(player, _, _)| Decider::of(player, 20)),
             Frame::ResolutionPayment { frame: _, payment } => Decider::of(payment.payer, 20),
             Frame::ManaSourceChoice {
                 player,
@@ -145,6 +132,7 @@ impl Frame {
             | Frame::Transition
             | Frame::EnterStep
             | Frame::Payment { cast: _ }
+            | Frame::CounterPlacement { transaction: _ }
             | Frame::Resolve { frame: _ }
             | Frame::Fault { reason: _ }
             | Frame::Finished { winner: _ } => None,

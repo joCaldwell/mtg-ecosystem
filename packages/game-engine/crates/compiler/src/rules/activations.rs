@@ -140,7 +140,6 @@ pub(crate) fn lower_mana_ability(
         return Err(unsupported("mana", "unsupported mana cost/restriction"));
     }
     Ok(Some(ManaAbility {
-        self_damage: None,
         restriction: restriction.map(|_| ManaActivationRestriction::OnceEachTurn),
         costs,
         production,

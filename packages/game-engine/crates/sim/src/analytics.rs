@@ -1,7 +1,7 @@
 //! Trusted post-game analysis of verified, terminal bench journals. This module
 //! does not provide any inputs to live play or persist private replay material.
 use crate::policy::can_fund;
-use mtg_contracts::{CardKind, Catalog, Quantity, StaticEffect, digest};
+use mtg_contracts::{CardKind, Catalog, Quantity, digest};
 use mtg_core::{
     Advance, BatchCause, Budget, CardId, DeckRole, Decklist, DynamicDeckEntry, Event, EventGroup,
     EventOutcome, EvidenceRecord, Game, MoveOutcome, PlayerId, Prepared, QueryResult, QueryValue,
@@ -366,12 +366,11 @@ fn collect(
                                                 .get(&stack_id)
                                                 .copied()
                                                 .unwrap_or(source.card);
-                                            match cards.get(&id).and_then(|card| catalog.definition_by_oracle_id(&card.oracle_id)) {
-                                                // Entry copies can change triggered text while retaining
-                                                // the original physical Oracle identity.
-                                                Some(d) if !d.static_abilities.iter().any(|a|
-                                                    a.effect == StaticEffect::EnterAsCopyOfPermanentEnteredThisTurn) => DrawKind::Draw,
-                                                _ => DrawKind::Unresolved,
+                                            match cards.get(&id).and_then(|card| {
+                                                catalog.definition_by_oracle_id(&card.oracle_id)
+                                            }) {
+                                                Some(_) => DrawKind::Draw,
+                                                None => DrawKind::Unresolved,
                                             }
                                         }
                                         BatchCause::Instruction { .. }

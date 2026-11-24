@@ -699,7 +699,6 @@ fn compose(
                 .map(|p| {
                     p.targets
                         .iter()
-                        .chain(p.modes.iter().flat_map(|m| &m.program.targets))
                         .filter(|t| t.slot >= first)
                         .map(|t| TargetSpec {
                             slot: t.slot - first,

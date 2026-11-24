@@ -18,11 +18,6 @@ pub enum ProposedEvent {
     PhaseOutTarget {
         object: ObjectId,
     },
-    RevealHandCardForEntry {
-        player: PlayerId,
-        card: ObjectId,
-    },
-
     Mill {
         player: PlayerId,
         count: Quantity,
@@ -67,10 +62,6 @@ pub enum ProposedEvent {
         count: u32,
         token: Box<mtg_contracts::CreatureToken>,
     },
-    ApplyCounterPlacementEffect {
-        effect: CounterPlacementEffectKey,
-    },
-
     PutPlusOneCounters {
         object: ObjectId,
         amount: Quantity,
@@ -176,8 +167,6 @@ pub enum ProposedEvent {
         amount: Quantity,
         source: Option<ObjectId>,
         remove_zero: bool,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        tap_triggers: Vec<TriggerId>,
     },
     Tap {
         object: ObjectId,
@@ -228,15 +217,6 @@ pub enum EventOutcome {
         controller: PlayerId,
         members: Vec<(ObjectId, PhaseReturn)>,
     },
-    CounterPlacementModified {
-        application: CounterPlacementApplication,
-    },
-
-    HandCardRevealedForEntry {
-        player: PlayerId,
-        card: ObjectId,
-    },
-
     Milled {
         player: PlayerId,
         movements: Vec<MoveOutcome>,
@@ -408,8 +388,6 @@ pub enum EventOutcome {
         previous: BTreeMap<Color, Quantity>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         previous_restricted: Vec<RestrictedMana>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        retained_as: Option<Color>,
     },
     LandPlayCounted {
         player: PlayerId,
@@ -417,8 +395,6 @@ pub enum EventOutcome {
         current: u32,
     },
     TurnTransitioned {
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        lore: Vec<LoreChange>,
         phased_in: Vec<ObjectId>,
         previous: TurnState,
         current: TurnState,
@@ -459,10 +435,6 @@ pub enum EventOutcome {
 pub enum InstructionOutcome {
     Kernel {
         outcomes: Vec<InstructionOutcome>,
-    },
-
-    DelayedChapterRegistered {
-        issuer: StackId,
     },
 
     CounterPlacements {

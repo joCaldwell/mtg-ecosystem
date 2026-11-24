@@ -102,11 +102,7 @@ fn embedded_profiles_fit_shared_stack_and_trigger_capacities() {
                 .definitions
                 .iter()
                 .filter(|d| d.characteristics.basic)
-                .all(|d| d.triggered.is_empty()
-                    && !d.static_abilities.iter().any(|a| matches!(
-                        a.effect,
-                        mtg_contracts::StaticEffect::GrantSpellCascade { .. }
-                    ))),
+                .all(|d| d.triggered.is_empty()),
             "{}: basic triggered sources invalidate singleton sizing",
             profile.name
         );

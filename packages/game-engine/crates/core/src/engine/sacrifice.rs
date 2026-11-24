@@ -378,7 +378,7 @@ impl RulesTxn {
                 {
                     return Err("snapshot sacrificed cost facts invariant".into());
                 }
-                self.validate_characteristic_identity(f.object, f.zone, &f.characteristics)?;
+                self.validate_characteristic_identity(f.object, &f.characteristics)?;
             }
             let count = self.invocation_sacrifice(e).map_or(0, |(_, count)| count);
             if self.stack_entry_complete(e) && count == 1 && e.sacrificed.is_none() {

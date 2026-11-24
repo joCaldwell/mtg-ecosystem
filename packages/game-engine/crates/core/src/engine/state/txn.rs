@@ -190,10 +190,6 @@ impl RulesTxn {
     pub(in crate::engine) fn pre_event(&self) -> PreEvent {
         PreEvent(RulesTxn {
             opening_library_sizes: self.opening_library_sizes,
-            catalog_has_land_type_grant: self.catalog_has_land_type_grant,
-            catalog_has_land_reclamation: self.catalog_has_land_reclamation,
-            catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
-            catalog_has_mana_tap_observer: self.catalog_has_mana_tap_observer,
             prepared: self.prepared.clone(),
             definition_index: self.definition_index.clone(),
             state: State {

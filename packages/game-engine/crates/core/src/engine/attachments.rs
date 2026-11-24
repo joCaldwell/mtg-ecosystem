@@ -54,20 +54,10 @@ impl RulesTxn {
         let definition = self.copiable_definition(source)?;
         let target_characteristics = self.structural_characteristics(target)?;
         if definition
-            .static_abilities
+            .characteristics
+            .subtypes
             .iter()
-            .any(|ability| ability.effect == StaticEffect::ControlEnchantedPermanent)
-        {
-            // Validate the whole narrow source: a malformed control Aura must
-            // not fall back to the legacy creature-only attachment family.
-            Ok(mtg_contracts::aura_control_domain(definition)
-                .is_some_and(|domain| domain.accepts(&target_characteristics)))
-        } else if mtg_contracts::bestow_alternative(definition).is_some()
-            || definition
-                .characteristics
-                .subtypes
-                .iter()
-                .any(|s| s == "Equipment" || s == "Aura")
+            .any(|s| s == "Equipment" || s == "Aura")
         {
             Ok(target_characteristics.has_type(CardKind::Creature))
         } else {
@@ -114,9 +104,6 @@ impl RulesTxn {
                     .subtypes
                     .iter()
                     .any(|s| s == "Equipment" || s == "Aura")
-                || (o.present_on_battlefield()
-                    && mtg_contracts::bestow_alternative(self.definition(o.id.card)?).is_some()
-                    && self.zone(target) != Some(Zone::Battlefield))
                 || !known_target
                 || !self.attachment_target_type_valid(o.id, target)?
             {
@@ -198,13 +185,6 @@ impl RulesTxn {
                         d.static_abilities
                             .iter()
                             .filter_map(move |a| match &a.effect {
-                                StaticEffect::GrantOtherControlledPermanentsIndestructible
-                                    if a.functioning_zone == FunctioningZone::Battlefield
-                                        && o.id != target
-                                        && o.controller == permanent.controller =>
-                                {
-                                    Some((&a.effect, o.keyword_timestamp))
-                                }
                                 StaticEffect::ModifyCreatures {
                                     scope:
                                         CreatureScope::ControlledSubtype {
@@ -297,14 +277,11 @@ impl RulesTxn {
             keywords.retain(|keyword| *keyword != KeywordAbility::Indestructible);
         }
         for (effect, timestamp) in self.timestamped_static_modifications(object, sources) {
-            let grants: &[KeywordAbility] = match effect {
-                StaticEffect::ModifyCreatures {
-                    keywords: grants, ..
-                } => grants,
-                StaticEffect::GrantOtherControlledPermanentsIndestructible => {
-                    &[KeywordAbility::Indestructible]
-                }
-                _ => continue,
+            let StaticEffect::ModifyCreatures {
+                keywords: grants, ..
+            } = effect
+            else {
+                continue;
             };
             for keyword in grants {
                 if *keyword == KeywordAbility::Indestructible
@@ -405,33 +382,6 @@ impl RulesTxn {
                 }
             }
     }
-    // CR 701.3d/702.103f: host departure ends bestow in the movement
-    // itself. A phased-out Aura instead checks its host on phase-in (702.103g).
-    pub(super) fn detach_bestowed_from(&mut self, host: ObjectId) -> Result<(), String> {
-        let mut detached = Vec::new();
-        for o in self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| o.present_on_battlefield() && o.attached_to == Some(host))
-        {
-            if mtg_contracts::bestow_alternative(self.definition(o.id.card)?).is_some() {
-                detached.push(o.id.card);
-            }
-        }
-        for card in detached {
-            let o = self
-                .rules_mut()
-                .objects
-                .get_mut(&card)
-                .ok_or("missing bestowed permanent")?;
-            o.attached_to = None;
-            o.attachment_timestamp = None;
-        }
-        Ok(())
-    }
-
     pub(crate) fn attachment_sbas(
         &self,
         occurrences: &mut Vec<ProposedEvent>,
@@ -459,14 +409,7 @@ impl RulesTxn {
             if legal {
                 continue;
             }
-            if o.attached_to.is_some()
-                && mtg_contracts::bestow_alternative(self.definition(o.id.card)?).is_some()
-            {
-                occurrences.push(ProposedEvent::Attach {
-                    object: o.id,
-                    target: None,
-                });
-            } else if subtypes == &["Aura"] {
+            if subtypes == &["Aura"] {
                 occurrences.push(ProposedEvent::Move {
                     object: o.id,
                     destination: Zone::Graveyard {

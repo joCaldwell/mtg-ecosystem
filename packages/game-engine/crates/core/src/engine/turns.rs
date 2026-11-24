@@ -94,9 +94,6 @@ impl RulesTxn {
                 allowance.add(count);
             }
         }
-        for _ in self.persistent_land_allowances(player) {
-            allowance.add(&1.into());
-        }
         allowance > Quantity::from(i64::from(turn.lands_played))
     }
 
@@ -104,14 +101,6 @@ impl RulesTxn {
     // player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(crate) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
-        self.validate_land_face(player, card, false)
-    }
-    pub(super) fn validate_land_face(
-        &self,
-        player: PlayerId,
-        card: CardId,
-        back: bool,
-    ) -> Result<(), String> {
         if !self.main_phase_action(player) {
             return Err(
                 "land play requires unused active-player main-phase land play and empty stack"
@@ -125,17 +114,10 @@ impl RulesTxn {
             .get(&card)
             .ok_or("invalid land source")?;
         let definition = self.definition(card)?;
-        let definition = if back {
-            definition
-                .modal_land_back()
-                .ok_or("card has no playable back land")?
-        } else {
-            definition
-        };
         if definition.characteristics.kind != CardKind::Land
             || !definition.capabilities.contains(&Capability::LandPlayV1)
             || self.state.rules.cards[&card].owner != player
-            || !(self.can_play_from_land_zone(player, object.zone))
+            || object.zone != (Zone::Hand { owner: player })
             || !self.has_land_play_allowance(player)
         {
             return Err("invalid or unsupported land play".into());
@@ -147,20 +129,9 @@ impl RulesTxn {
         player: PlayerId,
         decision_id: u64,
         card: CardId,
-        back_face: bool,
     ) -> Result<(), String> {
-        self.validate_land_face(player, card, back_face)?;
+        self.validate_land_play(player, card)?;
         let object = self.object_id(card).ok_or("missing land source")?;
-        if self.begin_land_entry(
-            EntryOrigin::LandPlay {
-                player,
-                decision_id,
-                back_face,
-            },
-            vec![object],
-        )? {
-            return Ok(());
-        }
         self.commit_batch(
             BatchCause::LandPlay {
                 player,
@@ -248,53 +219,8 @@ impl RulesTxn {
             .values()
             .filter(|o| o.zone == (Zone::Hand { owner: player }))
             .count();
-        if hand_size == 0 {
-            return Ok(0);
-        }
-        // CR 107.1b/109.5/402.2/514.1/611.3a-b/613.11: derive the limit
-        // from current battlefield control at the start of cleanup. The
-        // supported increases and reductions commute. Keep intermediate values
-        // signed, floor the final limit at zero, and let an unlimited source
-        // absorb all finite changes.
-        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        let mut limit = Quantity::from(7);
-        for source in self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| o.present_on_battlefield() && self.is_live(o.controller))
-        {
-            let controlled = source.controller == player;
-            for ability in &self.copiable_definition(source.id)?.static_abilities {
-                if ability.functioning_zone != FunctioningZone::Battlefield {
-                    continue;
-                }
-                match &ability.effect {
-                    StaticEffect::UnlimitedControllerHandSize if controlled => return Ok(0),
-                    StaticEffect::IncreaseMaximumHandSize { amount } if controlled => {
-                        limit.add(amount);
-                    }
-                    StaticEffect::ReduceMaximumHandSize { scope, amount }
-                        if match scope {
-                            HandSizeScope::Controller => controlled,
-                            HandSizeScope::Opponents => !controlled,
-                        } =>
-                    {
-                        limit.subtract(amount);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        if limit <= Quantity::zero() {
-            return Ok(hand_size);
-        }
-        // A positive exact limit outside usize exceeds any realizable hand.
-        let Ok(limit) = limit.to_string().parse::<usize>() else {
-            return Ok(0);
-        };
-        Ok(hand_size.saturating_sub(limit))
+        // CR 402.2/514.1: the maximum hand size is seven.
+        Ok(hand_size.saturating_sub(7))
     }
 
     pub(crate) fn enter_turn_step(&mut self) -> Result<(), String> {

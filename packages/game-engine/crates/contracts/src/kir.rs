@@ -2783,8 +2783,6 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
         TriggerCondition::SpellCast { .. } => &[EventPlayerRole::Caster],
         // CR 500: the player whose step began.
         TriggerCondition::StepBegan { .. } => &[EventPlayerRole::ActivePlayer],
-        // CR 605.1a, 106.12: the player who activated the mana ability.
-        TriggerCondition::ManaTapped { .. } => &[EventPlayerRole::ActivatingPlayer],
         _ => &[],
     }
 }
@@ -2795,10 +2793,7 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
 fn event_supplies(event: &TriggerCondition, role: EventPlayerRole) -> bool {
     event_player_roles(event).contains(&role)
         || (role == EventPlayerRole::DamagedPlayer
-            && matches!(
-                event,
-                TriggerCondition::DamageDealt { .. } | TriggerCondition::EquippedCombatDamage
-            ))
+            && matches!(event, TriggerCondition::DamageDealt { .. }))
 }
 
 /// The event-player role an event supplies, for lowerers of "that player".

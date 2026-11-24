@@ -11,7 +11,7 @@ use mtg_core::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const CANDIDATE_POLICY: &str = "foundations-public-plans-v1";
+pub const CANDIDATE_POLICY: &str = "foundations-public-plans-v2";
 pub const MAX_CANDIDATES: usize = 32;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "targets", rename_all = "snake_case", deny_unknown_fields)]
@@ -59,7 +59,6 @@ pub enum ActionPlan {
     },
     Cast {
         card: ObjectHandle,
-        mode: Option<u32>,
         targets: TargetPlan,
         mana_sources: Vec<ObjectHandle>,
         spending: BTreeMap<Color, Quantity>,
@@ -363,7 +362,7 @@ fn push(set: &mut CandidateSet, plan: ActionPlan) -> Result<bool, String> {
     Ok(true)
 }
 /// Selects Pass, one representative per identical basic hand definition, funded
-/// spells (all selected modes/target tuples up to the cap), and funded nonmana
+/// spells (all target tuples up to the cap), and funded nonmana
 /// activations. Standalone mana-floating actions are an explicit policy exclusion.
 pub fn generate(
     catalog: &Catalog,
@@ -448,35 +447,17 @@ pub fn generate(
         else {
             continue;
         };
-        let programs = if program.modes.is_empty() {
-            vec![(None, program)]
-        } else {
-            program
-                .modes
-                .iter()
-                .enumerate()
-                .map(|(i, m)| {
-                    Ok((
-                        Some(u32::try_from(i).map_err(|_| "mode index overflow")?),
-                        &m.program,
-                    ))
-                })
-                .collect::<Result<Vec<_>, String>>()?
-        };
-        for (mode, selected) in programs {
-            for targets in target_plans(selected, observation, check)? {
-                if !push(
-                    &mut set,
-                    ActionPlan::Cast {
-                        card: object.handle.clone(),
-                        mode,
-                        targets,
-                        mana_sources: mana_sources.clone(),
-                        spending: spending.clone(),
-                    },
-                )? {
-                    return Ok(set);
-                }
+        for targets in target_plans(program, observation, check)? {
+            if !push(
+                &mut set,
+                ActionPlan::Cast {
+                    card: object.handle.clone(),
+                    targets,
+                    mana_sources: mana_sources.clone(),
+                    spending: spending.clone(),
+                },
+            )? {
+                return Ok(set);
             }
         }
     }

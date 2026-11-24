@@ -19,7 +19,6 @@ pub fn activated_artifact_draw_ability(ability: &ActivatedAbility) -> bool {
         && p.additional_sacrifice.is_none()
         && p.optional_additional_costs.is_empty()
         && p.targets.is_empty()
-        && p.modes.is_empty()
         && match p.instructions.split_last() {
             Some((last, [])) => draw_one(last),
             Some((

@@ -43,12 +43,6 @@ impl Frame {
                 }
                 Frame::Kernel { task: _ }
                 | Frame::GraveyardGroup { tx: _ }
-                | Frame::GraveyardReplacement { transaction: _ }
-                | Frame::LandEntry {
-                    origin: _,
-                    objects: _,
-                    choices: _,
-                }
                 | Frame::ManaSourceChoice {
                     player: _,
                     source: _,
@@ -76,7 +70,6 @@ impl Frame {
                 }
                 | Frame::ManaAbility { activation: _ }
                 | Frame::Setup
-                | Frame::Modes { cast: _ }
                 | Frame::CounterPlacement { transaction: _ }
                 | Frame::DamageEffects { transaction: _ }
                 | Frame::TriggerOrder { placement: _ }
@@ -131,13 +124,10 @@ impl Published {
         let RulesTables {
             mana_ability_uses,
             tokens,
-            entry_copies,
-            back_face_objects,
             retained_auxiliary_charge: _,
             typed_fault: _,
             match_state,
             effects,
-            delayed_chapters,
             next_effect_id,
             next_damage_transaction_id,
             pending_triggers,
@@ -207,9 +197,6 @@ impl Published {
             && *commander_returns == was.commander_returns
             && *match_state == was.match_state
             && *mana_ability_uses == was.mana_ability_uses
-            && *entry_copies == was.entry_copies
-            && *back_face_objects == was.back_face_objects
-            && *delayed_chapters == was.delayed_chapters
             && *damage_choices == was.damage_choices
             && *player_damage_choices == was.player_damage_choices
             && *first_strike_participants == was.first_strike_participants

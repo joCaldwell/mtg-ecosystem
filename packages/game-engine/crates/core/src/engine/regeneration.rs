@@ -80,12 +80,6 @@ impl RulesTxn {
                 GroupFinish::StateBased { .. } => false,
                 _ => return Err("unsupported regeneration producer".into()),
             };
-            // The only shield producer is a self activation. No admitted
-            // copiable definition combines it with the printed shuffle, and
-            // copying on entry creates a new incarnation.
-            if !forbidden && self.has_self_graveyard_replacement(object)? {
-                return Err("unsupported printed shuffle with self regeneration".into());
-            }
             let owner = self.state.rules.cards[&object.card].owner;
             let anger = self.anger_replaces_death(object, Zone::Graveyard { owner });
             members.push(ShieldMember {

@@ -37,19 +37,14 @@ impl RulesTxn {
         }
 
         match frame {
-            Frame::LandEntry {
-                origin: EntryOrigin::Copy { frame, .. },
-                ..
-            }
-            | Frame::Resolve { frame }
+            Frame::Resolve { frame }
             | Frame::ResolutionChoice { frame, .. }
             | Frame::ForcedSacrifice { frame, .. } => Some(frame),
             Frame::GraveyardGroup { tx } => tx.finish.frame_mut(),
-            Frame::GraveyardReplacement { transaction } => Some(&mut transaction.frame),
             Frame::CounterPlacement { transaction } => Some(&mut transaction.frame),
             Frame::DamageEffects { transaction } => match &mut transaction.continuation {
                 DamageContinuation::Instruction { frame } => Some(frame),
-                DamageContinuation::Combat | DamageContinuation::Mana { .. } => None,
+                DamageContinuation::Combat => None,
             },
             Frame::CommanderReturn { continuation, .. } => match continuation {
                 CommanderContinuation::BoardReturn { frame, .. }
@@ -171,9 +166,6 @@ impl RulesTxn {
             })
             .collect()
     }
-    fn needs_target_facts(entry: &StackInstance, target: &TargetSpec, legal: bool) -> bool {
-        legal && (entry.mode_subset.is_none() || target.filter.is_some())
-    }
 
     pub(super) fn capture_target_facts(
         &self,
@@ -188,7 +180,7 @@ impl RulesTxn {
             .iter()
             .enumerate()
             .map(|(slot, t)| {
-                if !Self::needs_target_facts(entry, t, legal.get(slot) == Some(&true)) {
+                if legal.get(slot) != Some(&true) {
                     return Ok(None);
                 }
                 let (controller, c) = if t.domain == TargetDomain::StackSpell {
@@ -222,11 +214,6 @@ impl RulesTxn {
                         .find(|e| Some(&e.id) == self.bound_stack_target(entry, slot))
                         .ok_or("missing stack mana value")?;
                     mana_value = self.stack_mana_value(entry)?;
-                } else if let Some(value) = self
-                    .bound_object_target(entry, slot)
-                    .and_then(|object| self.physical_transform_mana_value(*object))
-                {
-                    mana_value = value;
                 }
                 Ok(Some(TargetFacts {
                     controller,
@@ -243,18 +230,13 @@ impl RulesTxn {
         if (!expected && !frame.target_facts.is_empty())
             || (expected
                 && (frame.target_facts.len() != program.targets.len()
-                    || program
-                        .targets
-                        .iter()
-                        .zip(&frame.target_facts)
-                        .enumerate()
-                        .any(|(slot, (target, fact))| {
-                            let legal = frame.legal_targets.get(slot) == Some(&true);
-                            fact.is_some() != Self::needs_target_facts(entry, target, legal)
-                                || fact.as_ref().is_some_and(|f| {
-                                    f.controller.0 >= 4 || f.mana_value.is_negative()
-                                })
-                        })))
+                    || frame.target_facts.iter().enumerate().any(|(slot, fact)| {
+                        let legal = frame.legal_targets.get(slot) == Some(&true);
+                        fact.is_some() != legal
+                            || fact
+                                .as_ref()
+                                .is_some_and(|f| f.controller.0 >= 4 || f.mana_value.is_negative())
+                    })))
         {
             return Err("snapshot removal target facts invariant".into());
         }

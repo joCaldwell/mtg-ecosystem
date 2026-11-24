@@ -22,7 +22,6 @@ effect_id!(DamageId, u32);
 #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EffectKey {
     Resolved { id: EffectId },
-    Static { source: ObjectId, ability: u32 },
     IntrinsicProtectionFromEverything { source: ObjectId },
     IntrinsicProtectionFromColor { source: ObjectId, color: Color },
 }
@@ -37,8 +36,6 @@ pub enum DamageKind {
 pub struct EffectOrigin {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activated_ability: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<u32>,
     pub stack_id: StackId,
     pub source: ObjectId,
     pub controller: PlayerId,
@@ -179,13 +176,7 @@ pub struct DamageTransaction {
 #[serde(tag = "continuation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DamageContinuation {
     Combat,
-    Instruction {
-        frame: Box<Resolving>,
-    },
-    Mana {
-        activation: Box<ManaActivation>,
-        departed: bool,
-    },
+    Instruction { frame: Box<Resolving> },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -203,75 +194,13 @@ impl DamageRecipient {
     }
 }
 impl RulesTxn {
-    // CR 205.3i, 305.6–7, 611.3 and 613.1d. Preserve printed order and add
-    // missing basic subtypes once, independent of the number of granting sources.
-    fn add_basic_land_types(c: &mut Characteristics) {
-        for subtype in ["Plains", "Island", "Swamp", "Mountain", "Forest"] {
-            if !c.subtypes.iter().any(|s| s == subtype) {
-                c.subtypes.push(subtype.into());
-            }
-        }
-    }
-
-    pub(super) fn apply_land_subtype_grants(
-        &self,
-        object: ObjectId,
-        c: &mut Characteristics,
-    ) -> Result<(), String> {
-        self.apply_land_subtype_grants_with_sources(object, c, None)
-    }
-
-    fn apply_land_subtype_grants_with_sources(
-        &self,
-        object: ObjectId,
-        c: &mut Characteristics,
-        sources: Option<&[CardId]>,
-    ) -> Result<(), String> {
-        if !self.catalog_has_land_type_grant || !c.has_type(CardKind::Land) {
-            return Ok(());
-        }
-        let land = self.current(object)?;
-        if !land.present_on_battlefield() {
-            return Ok(());
-        }
-        for provider in self
-            .battlefield_static_sources(sources)
-            .filter(|o| o.controller == land.controller)
-        {
-            if self
-                .copiable_definition(provider.id)?
-                .static_abilities
-                .iter()
-                .any(|a| {
-                    a.functioning_zone == FunctioningZone::Battlefield
-                        && a.effect == StaticEffect::GrantControllerLandsAllBasicTypes
-                })
-            {
-                Self::add_basic_land_types(c);
-                break;
-            }
-        }
-        Ok(())
-    }
     pub(super) fn structural_characteristics(
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        let definition = self.copiable_definition(object)?;
-        let bestowed = self.current(object).is_ok_and(|o| match o.zone {
-            Zone::Battlefield => {
-                o.attached_to.is_some() && mtg_contracts::bestow_alternative(definition).is_some()
-            }
-            Zone::Stack => self.is_bestowed_spell(object),
-            _ => false,
-        });
-        if bestowed {
-            Ok(std::borrow::Cow::Owned(
-                self.proposed_cast_characteristics(object.card, true)?,
-            ))
-        } else {
-            Ok(std::borrow::Cow::Borrowed(&definition.characteristics))
-        }
+        Ok(std::borrow::Cow::Borrowed(
+            &self.copiable_definition(object)?.characteristics,
+        ))
     }
     // CR 105.2, 611.3, 613.1b/e: battlefield membership and control
     // have already been reconciled before the color layer is evaluated.
@@ -279,93 +208,7 @@ impl RulesTxn {
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        self.color_layer_with_sources(object, None)
-    }
-
-    fn color_layer_with_sources(
-        &self,
-        object: ObjectId,
-        sources: Option<&[CardId]>,
-    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
-        let base = self.structural_characteristics(object)?;
-        let target = self.current(object)?;
-        if !target.present_on_battlefield() {
-            return Ok(base);
-        }
-        let all_colors = self.static_all_colors_timestamp(&base, target.controller, sources)?;
-        let mut base = base;
-        if all_colors.is_some() {
-            base.to_mut().colors = MANA_COMBINATION_COLORS.to_vec();
-        }
-        Ok(base)
-    }
-
-    pub(super) fn battlefield_color_layer<'a>(
-        &self,
-        mut base: std::borrow::Cow<'a, Characteristics>,
-        controller: PlayerId,
-    ) -> Result<std::borrow::Cow<'a, Characteristics>, String> {
-        if self
-            .static_all_colors_timestamp(&base, controller, None)?
-            .is_some()
-        {
-            base.to_mut().colors = MANA_COMBINATION_COLORS.to_vec();
-        }
-        Ok(base)
-    }
-
-    fn static_all_colors_timestamp(
-        &self,
-        base: &Characteristics,
-        controller: PlayerId,
-        sources: Option<&[CardId]>,
-    ) -> Result<Option<u64>, String> {
-        let mut latest = None;
-        if self.catalog_has_nonland_color_grant && !base.has_type(CardKind::Land) {
-            for source in self
-                .battlefield_static_sources(sources)
-                .filter(|s| s.controller == controller)
-            {
-                if self
-                    .copiable_definition(source.id)?
-                    .static_abilities
-                    .iter()
-                    .any(|a| {
-                        a.effect == StaticEffect::ControllerNonlandsAllColors
-                            && a.functioning_zone == FunctioningZone::Battlefield
-                    })
-                {
-                    let timestamp = source.keyword_timestamp.unwrap_or(0);
-                    latest = latest.max(Some(timestamp));
-                }
-            }
-        }
-        Ok(latest)
-    }
-
-    pub(crate) fn permanent_colors(
-        &self,
-        scope: PermanentColorScope,
-        controller: PlayerId,
-    ) -> Result<BTreeSet<Color>, String> {
-        // CR 105.1–2/110.1: multicolored permanents contribute each color.
-        // Neither color identity nor the mana a permanent can produce is a color.
-        let mut colors = BTreeSet::new();
-        for permanent in self.state.rules.objects.values().filter(|object| {
-            object.present_on_battlefield()
-                && match scope {
-                    PermanentColorScope::Controller => object.controller == controller,
-                }
-        }) {
-            colors.extend(
-                self.color_layer(permanent.id)?
-                    .colors
-                    .iter()
-                    .copied()
-                    .filter(|color| *color != Color::C),
-            );
-        }
-        Ok(colors)
+        self.structural_characteristics(object)
     }
 
     #[cfg(feature = "testkit")]
@@ -381,8 +224,7 @@ impl RulesTxn {
         object: ObjectId,
         sources: Option<&[CardId]>,
     ) -> Result<Characteristics, String> {
-        let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
-        self.apply_land_subtype_grants_with_sources(object, &mut c, sources)?;
+        let mut c = self.structural_characteristics(object)?.into_owned();
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
             if let Some(p) = c.power.as_mut() {
@@ -398,27 +240,6 @@ impl RulesTxn {
             && let Ok(o) = self.current(object)
             && o.present_on_battlefield()
         {
-            for ability in &self.copiable_definition(object)?.static_abilities {
-                if let StaticEffect::ModifySourceByDistinctPermanentColors {
-                    scope,
-                    power_per_color,
-                    toughness_per_color,
-                } = &ability.effect
-                {
-                    let colors = self.permanent_colors(*scope, o.controller)?;
-                    let count = Quantity::from(colors.len() as i64);
-                    for (stat, per_color) in [
-                        (&mut c.power, power_per_color),
-                        (&mut c.toughness, toughness_per_color),
-                    ] {
-                        let mut bonus = per_color.clone();
-                        bonus.multiply(&count);
-                        stat.as_mut()
-                            .ok_or("missing source power or toughness")?
-                            .add(&bonus);
-                    }
-                }
-            }
             // The scoped modifiers below only consume earlier-layer types,
             // subtypes and control. No recipient depends on another 7c bonus.
             for source in self
@@ -426,30 +247,9 @@ impl RulesTxn {
                 .filter(|s| s.controller == o.controller)
             {
                 for a in &self.copiable_definition(source.id)?.static_abilities {
-                    let (power, toughness) = match &a.effect {
-                        StaticEffect::ControllerCreatureAnthem { power, toughness } => {
-                            (power, toughness)
-                        }
-                        StaticEffect::ControllerScopedCreatureStats {
-                            filter,
-                            other,
-                            power,
-                            toughness,
-                        } if a.functioning_zone == FunctioningZone::Battlefield
-                            && (!*other || source.id != object)
-                            && match filter {
-                                ControllerCreatureStatFilter::Any => true,
-                                ControllerCreatureStatFilter::Artifact => {
-                                    c.has_type(CardKind::Artifact)
-                                }
-                                ControllerCreatureStatFilter::Subtypes { subtypes } => {
-                                    subtypes.iter().all(|subtype| c.subtypes.contains(subtype))
-                                }
-                            } =>
-                        {
-                            (power, toughness)
-                        }
-                        _ => continue,
+                    let StaticEffect::ControllerCreatureAnthem { power, toughness } = &a.effect
+                    else {
+                        continue;
                     };
                     c.power.as_mut().ok_or("anthem creature power")?.add(power);
                     c.toughness
@@ -515,39 +315,12 @@ impl RulesTxn {
         }
         Ok(c)
     }
-    pub(crate) fn static_damage_effects(&self) -> Vec<EffectKey> {
-        self.state
-            .rules
-            .objects
-            .values()
-            .filter(|o| o.present_on_battlefield())
-            .flat_map(|o| {
-                self.copiable_definition(o.id)
-                    .into_iter()
-                    .flat_map(move |d| {
-                        d.static_abilities
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, a)| {
-                                matches!(a.effect,
-                            StaticEffect::DoubleDamageToPermanentOrPlayer
-                            | StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer)
-                            })
-                            .map(move |(i, _)| EffectKey::Static {
-                                source: o.id,
-                                ability: i as u32,
-                            })
-                    })
-            })
-            .collect()
-    }
     pub(crate) fn live_effect_keys(&self) -> Vec<EffectKey> {
         self.state
             .rules
             .effects
             .iter()
             .map(|e| EffectKey::Resolved { id: e.id })
-            .chain(self.static_damage_effects())
             .collect()
     }
     pub(crate) fn execute_effect_instruction(
@@ -646,7 +419,6 @@ impl RulesTxn {
             id: EffectId(self.state.rules.next_effect_id),
             origin: EffectOrigin {
                 activated_ability: self.entry(frame.stack_id)?.kind.activated_index(),
-                mode: self.entry(frame.stack_id)?.mode,
                 stack_id: frame.stack_id,
                 source: self.entry(frame.stack_id)?.source,
                 controller: self.entry(frame.stack_id)?.controller,
@@ -827,7 +599,7 @@ impl RulesTxn {
     pub(super) fn begin_damage(
         &mut self,
         kind: DamageKind,
-        mut entries: Vec<PreparedDamage>,
+        entries: Vec<PreparedDamage>,
         cause: BatchCause,
         continuation: DamageContinuation,
     ) -> Result<(), String> {
@@ -842,23 +614,6 @@ impl RulesTxn {
             || entries.iter().any(|e| e.amount <= Quantity::zero())
         {
             return Err("invalid prepared damage group".into());
-        }
-        // CR 609.7c/614.4: scoped static damage replacements need bounded
-        // source-property LKI. No supported transformation creates battlefield
-        // permanents during this transaction, so an absent scoped provider
-        // cannot appear later. Furnace-only transactions retain their bytes.
-        if self.static_damage_effects().iter().any(|key| {
-            let EffectKey::Static { source, ability } = key else {
-                return false;
-            };
-            self.copiable_definition(source).is_ok_and(|d| {
-                d.static_abilities[*ability as usize].effect
-                    == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
-            })
-        }) {
-            for entry in &mut entries {
-                entry.source_appearance = Some(Box::new(entry.source.clone()));
-            }
         }
         let id = DamageTransactionId(self.state.rules.next_damage_transaction_id);
         self.rules_mut().next_damage_transaction_id = self
@@ -1020,39 +775,6 @@ impl RulesTxn {
                     damage_source,
                 }));
                 (Quantity::zero(), d.amount.clone())
-            }
-            EffectKey::Static { source, ability } => {
-                let o = self.current(*source)?;
-                let a = self
-                    .copiable_definition(source)?
-                    .static_abilities
-                    .get(*ability as usize)
-                    .ok_or("missing static effect")?;
-                if !o.present_on_battlefield() || a.functioning_zone != FunctioningZone::Battlefield
-                {
-                    return Err("inactive static damage effect".into());
-                }
-                match a.effect {
-                    StaticEffect::DoubleDamageToPermanentOrPlayer => {}
-                    StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer => {
-                        let damage_source = self.damage_source_appearance(d)?;
-                        if !damage_source.characteristics.has_type(CardKind::Creature)
-                            || damage_source.controller != o.controller
-                        {
-                            return Err(
-                                "damage source outside controlled creature replacement".into()
-                            );
-                        }
-                        qualification = Some(Box::new(DamageReplacementQualification {
-                            effect_source: self.object_before(*source)?,
-                            damage_source,
-                        }));
-                    }
-                    _ => return Err("unsupported static damage effect".into()),
-                }
-                let mut after = d.amount.clone();
-                after.add(&d.amount);
-                (after, Quantity::zero())
             }
             EffectKey::Resolved { id } => {
                 let effect = self
@@ -1218,15 +940,10 @@ impl RulesTxn {
             )?;
         } else {
             let tx = self.damage_transaction()?.clone();
-            let first_trigger = self.state.rules.next_trigger_id;
             let actual =
                 self.commit(ProposedEvent::CommitDamage { transaction: tx.id }, tx.cause)?;
             match tx.continuation {
                 DamageContinuation::Combat => self.grant_turn_priority()?,
-                DamageContinuation::Mana {
-                    activation,
-                    departed,
-                } => self.finish_mana_damage(*activation, actual, first_trigger, departed)?,
                 DamageContinuation::Instruction { frame } => self.finish_instruction(
                     *frame,
                     InstructionOutcome::Damage {
@@ -1253,6 +970,17 @@ impl RulesTxn {
         }
         Ok(())
     }
+    fn reserve_effect_slot(&mut self) -> Result<(), String> {
+        let requested = self.state.rules.effects.len() + 1;
+        let capacity = self.effect_limit();
+        if requested > capacity {
+            return Err(self.capacity_error(RuleFault::EffectCapacityExceeded {
+                capacity,
+                requested,
+            }));
+        }
+        Ok(())
+    }
     pub(super) fn apply_effect_event(
         &mut self,
         event: &ProposedEvent,
@@ -1271,9 +999,8 @@ impl RulesTxn {
                     (Frame::Resolve { frame }, _) => frame,
                     _ => return Err("effect outside resolving instruction".into()),
                 };
-                if self.entry(frame.stack_id)?.mode != effect.origin.mode
-                    || self.entry(frame.stack_id)?.kind.activated_index()
-                        != effect.origin.activated_ability
+                if self.entry(frame.stack_id)?.kind.activated_index()
+                    != effect.origin.activated_ability
                     || self.entry(frame.stack_id)?.source != effect.origin.source
                     || frame.stack_id != effect.origin.stack_id
                     || self.entry(frame.stack_id)?.controller != effect.origin.controller
@@ -1332,7 +1059,6 @@ impl RulesTxn {
                         },
                     ) => {
                         effect.origin.activated_ability.is_some()
-                            && effect.origin.mode.is_none()
                             && *target == self.entry(frame.stack_id)?.source
                             && self.target_is_creature(*target)
                             && keywords == grants
@@ -1450,7 +1176,6 @@ impl RulesTxn {
 
             ProposedEvent::CommitDamage { transaction } => self.commit_actual_damage(*transaction),
             ProposedEvent::CleanupEffects => {
-                self.rules_mut().delayed_chapters.clear();
                 let turn = self.state.rules.turn.number;
                 let owner = self.state.rules.turn_owner;
                 let expired = self
@@ -1669,7 +1394,6 @@ impl RulesTxn {
                         // Origin resolution uses the historical incarnation's immutable
                         // copiable definition. Replay proves capture and its handles.
                         e.origin.activated_ability.is_some()
-                            && e.origin.mode.is_none()
                             && *target == e.origin.source
                             && keywords == grants
                             && supported_temporary_keywords(grants)
@@ -1994,8 +1718,7 @@ impl RulesTxn {
         key: &EffectKey,
     ) -> Result<VisibleEffectSource<O>, String> {
         let (source, controller, announced) = match key {
-            EffectKey::Static { source, .. }
-            | EffectKey::IntrinsicProtectionFromEverything { source }
+            EffectKey::IntrinsicProtectionFromEverything { source }
             | EffectKey::IntrinsicProtectionFromColor { source, .. } => (
                 *source,
                 self.current(*source)?.controller,
@@ -2058,27 +1781,7 @@ impl RulesTxn {
         let handle = H::from(self.effect_handle_id(viewer, key)?);
         let origin = self.effect_origin_view(viewer, key)?;
         let EffectKey::Resolved { id } = key else {
-            let EffectKey::Static { source, ability } = key else {
-                return Err("intrinsic prevention is visible on the damage occurrence".into());
-            };
-            return match self
-                .copiable_definition(source)?
-                .static_abilities
-                .get(*ability as usize)
-                .ok_or("missing visible static effect")?
-                .effect
-            {
-                StaticEffect::DoubleDamageToPermanentOrPlayer => {
-                    Ok(VisibleEffect::DoubleDamageToPermanentOrPlayer { handle, origin })
-                }
-                StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer => Ok(
-                    VisibleEffect::DoubleControllerCreatureDamageToPermanentOrPlayer {
-                        handle,
-                        origin,
-                    },
-                ),
-                _ => Err("unsupported visible static damage effect".into()),
-            };
+            return Err("intrinsic prevention is visible on the damage occurrence".into());
         };
         let e = self
             .state
@@ -2213,38 +1916,9 @@ impl RulesTxn {
         viewer: PlayerId,
         keys: &[EffectKey],
     ) -> Result<Vec<VisibleEffect<H, O>>, String> {
-        let mut effects = keys
-            .iter()
+        keys.iter()
             .map(|key| self.project_effect(viewer, key))
-            .collect::<Result<Vec<_>, _>>()?;
-        for row in &self.state.rules.delayed_chapters {
-            effects.push(self.visible_delayed_chapter(viewer, row)?);
-        }
-        Ok(effects)
-    }
-    pub(super) fn visible_delayed_chapter<H, O: for<'a> From<&'a publish::StoredObjectHandle>>(
-        &self,
-        viewer: PlayerId,
-        row: &DelayedChapterRegistration,
-    ) -> Result<VisibleEffect<H, O>, String> {
-        let source = row.source;
-        let announced = row
-            .source_handles()?
-            .get(viewer.0 as usize)
-            .ok_or("missing delayed source reference")?
-            .into();
-        Ok(VisibleEffect::DelayedChapter {
-            origin: VisibleEffectSource {
-                source: VisibleTarget {
-                    announced,
-                    current: self.object_handle_id(viewer, source).map(O::from).ok(),
-                },
-                oracle_id: self.visible_ability_oracle_id(source)?.into(),
-                controller: row.controller,
-            },
-            chapter: row.chapter()?,
-            expires_in_cleanup_of_turn: row.turn,
-        })
+            .collect()
     }
     pub(crate) fn visible_damage_effect_candidate(
         &self,
@@ -2263,7 +1937,6 @@ impl RulesTxn {
                 DamageEffectKind::ProtectionFromEverything
             }
             EffectKey::IntrinsicProtectionFromColor { .. } => DamageEffectKind::ProtectionFromColor,
-            EffectKey::Static { .. } => DamageEffectKind::DoubleDamage,
             EffectKey::Resolved { id } => match self
                 .state
                 .rules
@@ -2388,50 +2061,13 @@ impl RulesTxn {
     pub(crate) fn validate_characteristic_identity(
         &self,
         source: ObjectId,
-        zone: Zone,
         c: &Characteristics,
     ) -> Result<(), String> {
-        // A frozen battlefield appearance can precede this incarnation's
-        // transform. Replay proves whether it was captured on the old face.
-        if zone == Zone::Battlefield
-            && self.back_face_sequence(source).is_some()
-            && let Some(front_value) = self.physical_transform_mana_value(source)
-            && front_value == c.printed_mana_value()
-        {
-            let mut front = self.definition(source.card)?.characteristics.clone();
-            if front.power.is_some() == c.power.is_some()
-                && front.toughness.is_some() == c.toughness.is_some()
-            {
-                front.power = c.power.clone();
-                front.toughness = c.toughness.clone();
-                if self.catalog_has_nonland_color_grant && front.colors != c.colors {
-                    front.colors = vec![Color::W, Color::U, Color::B, Color::R, Color::G];
-                }
-                if front == *c {
-                    return Ok(());
-                }
-            }
-        }
-        // Historical appearances may precede detachment of this same incarnation.
-        let mut base = if matches!(zone, Zone::Stack | Zone::Battlefield)
-            && c.subtypes == ["Aura"]
-            && mtg_contracts::bestow_alternative(self.copiable_definition(source)?).is_some()
-        {
-            self.proposed_cast_characteristics(source.card, true)?
-        } else {
-            self.copiable_definition(source)?.characteristics.clone()
-        };
+        let mut base = self.copiable_definition(source)?.characteristics.clone();
         if base.power.is_some() != c.power.is_some()
             || base.toughness.is_some() != c.toughness.is_some()
         {
             return Err("modified source lost printed stat shape".into());
-        }
-        if base.subtypes != c.subtypes
-            && zone == Zone::Battlefield
-            && base.has_type(CardKind::Land)
-            && self.catalog_has_land_type_grant
-        {
-            Self::add_basic_land_types(&mut base);
         }
         // Replay authenticates which provider existed at the original capture.
         base.power = c.power.clone();
@@ -2461,7 +2097,7 @@ impl RulesTxn {
         damage: &PreparedDamage,
         fact: &ObjectBefore,
     ) -> Result<(), String> {
-        self.validate_characteristic_identity(fact.object, fact.zone, &fact.characteristics)?;
+        self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
         if fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
             || fact.marked_damage.is_negative()
@@ -2524,15 +2160,6 @@ impl RulesTxn {
             )?;
         }
         let mut powers: BTreeMap<ObjectId, Quantity> = BTreeMap::new();
-        let scoped_live = self.static_damage_effects().iter().any(|key| {
-            let EffectKey::Static { source, ability } = key else {
-                return false;
-            };
-            self.copiable_definition(source).is_ok_and(|d| {
-                d.static_abilities[*ability as usize].effect
-                    == StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer
-            })
-        });
         for (i, d) in tx.entries.iter().enumerate() {
             let physical = self
                 .state
@@ -2551,15 +2178,9 @@ impl RulesTxn {
             {
                 return Err("damage source identity/quantity invariant".into());
             }
-            self.validate_characteristic_identity(
-                d.source.object,
-                d.source.zone,
-                &d.source.characteristics,
-            )?;
+            self.validate_characteristic_identity(d.source.object, &d.source.characteristics)?;
             if let Some(fact) = &d.source_appearance {
                 self.validate_source_appearance(d, fact)?;
-            } else if scoped_live {
-                return Err("scoped replacement missing bounded source facts".into());
             }
             let source_definition = self.copiable_definition(d.source.object)?;
             let expected_keywords = source_definition.keywords.as_slice();
@@ -2625,13 +2246,6 @@ impl RulesTxn {
                     }
                 }
             }
-            (
-                DamageKind::Noncombat,
-                DamageContinuation::Mana {
-                    activation,
-                    departed,
-                },
-            ) => self.validate_mana_damage(tx, activation, *departed)?,
             (DamageKind::Noncombat, DamageContinuation::Instruction { frame }) => {
                 self.validate_resolving(frame)?;
                 let instruction = self
@@ -2664,16 +2278,6 @@ impl RulesTxn {
                             (Some(slot), amount, block, target)
                         }
 
-                        kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::EventPlayer { role: mtg_contracts::kir::EventPlayerRole::ActivatingPlayer } }, amount: fixed!(amount), .. } @ source_block) => {
-                            (
-                                None,
-                                amount,
-                                *source_block,
-                                TargetEntity::Player {
-                                    player: Self::mana_tap_activator(self.entry(frame.stack_id)?)?,
-                                },
-                            )
-                        }
                         kernel!(Damage { to: mtg_contracts::kir::DamageTo::Ref { who: mtg_contracts::kir::Ref::Controller { .. } }, amount: fixed!(amount), .. } @ source_block) => {
                             (
                                 None,
@@ -2753,7 +2357,6 @@ impl RulesTxn {
                     let protector = &qualification.effect_source;
                     self.validate_characteristic_identity(
                         protector.object,
-                        protector.zone,
                         &protector.characteristics,
                     )?;
                     self.validate_source_appearance(d, &qualification.damage_source)?;
@@ -2786,56 +2389,10 @@ impl RulesTxn {
                     }
                     (Quantity::zero(), a.before.clone())
                 }
-                EffectKey::Static { source, ability } => {
-                    let effect = self
-                        .copiable_definition(source)?
-                        .static_abilities
-                        .get(*ability as usize)
-                        .ok_or("unknown applied static effect")?;
-                    match (&effect.effect, &a.qualification) {
-                        (StaticEffect::DoubleDamageToPermanentOrPlayer, None) => {}
-                        (
-                            StaticEffect::DoubleControllerCreatureDamageToPermanentOrPlayer,
-                            Some(qualification),
-                        ) => {
-                            let provider = &qualification.effect_source;
-                            self.validate_characteristic_identity(
-                                provider.object,
-                                provider.zone,
-                                &provider.characteristics,
-                            )?;
-                            self.validate_source_appearance(d, &qualification.damage_source)?;
-                            if d.source_appearance.is_none()
-                                || provider.object != *source
-                                || provider.zone != Zone::Battlefield
-                                || provider.controller.0 >= 4
-                                || provider.default_controller.0 >= 4
-                                || provider.marked_damage.is_negative()
-                                || self
-                                    .state
-                                    .rules
-                                    .cards
-                                    .get(&source.card)
-                                    .is_none_or(|c| c.owner != provider.owner)
-                                || !qualification
-                                    .damage_source
-                                    .characteristics
-                                    .has_type(CardKind::Creature)
-                                || qualification.damage_source.controller != provider.controller
-                            {
-                                return Err("invalid scoped doubling qualification".into());
-                            }
-                        }
-                        _ => return Err("invalid static doubling qualification shape".into()),
-                    }
-                    let mut after = a.before.clone();
-                    after.add(&a.before);
-                    (after, Quantity::zero())
-                }
                 EffectKey::Resolved { id } => {
                     if a.qualification.is_some() {
                         return Err(
-                            "resolved damage effect cannot carry static qualification".into()
+                            "resolved damage effect cannot carry protection qualification".into(),
                         );
                     }
                     let e = self

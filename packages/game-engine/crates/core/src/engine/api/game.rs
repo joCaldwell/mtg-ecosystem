@@ -12,10 +12,6 @@ pub struct SnapshotWriteInfo {
 testkit_fields! {
     pub struct RulesTxn {
         pub(in crate::engine) opening_library_sizes: [u32; 4],
-        pub(in crate::engine) catalog_has_land_type_grant: bool,
-        pub(in crate::engine) catalog_has_land_reclamation: bool,
-        pub(in crate::engine) catalog_has_nonland_color_grant: bool,
-        pub(in crate::engine) catalog_has_mana_tap_observer: bool,
         // Admitted metadata is immutable for this executor and all staged forks.
         pub(in crate::engine) prepared: Arc<Prepared>,
         // Derived accelerator only, never state: catalog row for each physical
@@ -103,7 +99,6 @@ impl RulesTxn {
                         battlefield_entry_turn: None,
                         keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
-                        lore_counters: Quantity::zero(),
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
                         attack_ready: c.zone == Zone::Battlefield,
@@ -124,8 +119,6 @@ impl RulesTxn {
             rules: RulesState::new(RulesTables {
                 mana_ability_uses: BTreeSet::new(),
                 tokens: Arc::default(),
-                entry_copies: BTreeMap::new(),
-                back_face_objects: BTreeMap::new(),
                 retained_auxiliary_charge: 0,
                 typed_fault: None,
                 match_state: prepared.match_config.as_ref().map(|config| {
@@ -135,7 +128,6 @@ impl RulesTxn {
                     )
                 }),
                 effects: vec![].into(),
-                delayed_chapters: vec![],
                 next_effect_id: 0,
                 next_damage_transaction_id: 0,
                 pending_triggers: vec![],
@@ -202,14 +194,6 @@ impl RulesTxn {
         };
         let mut game = Self {
             opening_library_sizes,
-            catalog_has_land_type_grant: prepared.has_land_type_grant(),
-            catalog_has_land_reclamation: prepared
-                .catalog
-                .definitions
-                .iter()
-                .any(|d| d.capabilities.contains(&Capability::LandReclamationV1)),
-            catalog_has_nonland_color_grant: prepared.has_nonland_color_grant(),
-            catalog_has_mana_tap_observer: prepared.has_mana_tap_observer(),
             definition_index: Self::definition_index(&prepared.catalog, &state.rules.cards),
             prepared: Arc::new(prepared),
             state,
@@ -241,10 +225,6 @@ impl RulesTxn {
     pub(in crate::engine) fn fork(&self) -> Self {
         Self {
             opening_library_sizes: self.opening_library_sizes,
-            catalog_has_land_type_grant: self.catalog_has_land_type_grant,
-            catalog_has_land_reclamation: self.catalog_has_land_reclamation,
-            catalog_has_nonland_color_grant: self.catalog_has_nonland_color_grant,
-            catalog_has_mana_tap_observer: self.catalog_has_mana_tap_observer,
             prepared: self.prepared.clone(),
             definition_index: self.definition_index.clone(),
             state: self.state.clone(),
@@ -320,13 +300,6 @@ impl RulesTxn {
                     if !mixed || !colors.contains(&color) {
                         colors.push(color);
                     }
-                }
-            }
-        }
-        if self.has_granted_land_mana(object)? {
-            for color in Self::granted_land_mana_colors() {
-                if !colors.contains(&color) {
-                    colors.push(color);
                 }
             }
         }

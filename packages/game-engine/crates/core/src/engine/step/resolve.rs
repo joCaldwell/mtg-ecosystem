@@ -8,14 +8,6 @@ impl RulesTxn {
         id: StackId,
         resolved: bool,
     ) -> Result<(), RuleError> {
-        self.complete_spell(id, resolved, false)
-    }
-    pub(in crate::engine) fn complete_spell(
-        &mut self,
-        id: StackId,
-        resolved: bool,
-        bestow_fallback: bool,
-    ) -> Result<(), RuleError> {
         let stack = self.entry(id)?;
         if !stack.kind.is_spell() {
             return Ok(self.finish_ability(id, resolved)?);
@@ -36,9 +28,7 @@ impl RulesTxn {
                 Zone::Graveyard { owner }
             };
             if destination == Zone::Battlefield
-                && !bestow_fallback
-                && (stack.alternative_cost == Some(AlternativeCost::Bestow)
-                    || self.copiable_definition(source)?.characteristics.subtypes == ["Aura"])
+                && self.copiable_definition(source)?.characteristics.subtypes == ["Aura"]
             {
                 let target = stack
                     .targets

@@ -67,10 +67,6 @@ macro_rules! frame_walk {
                     hold,
                     id: frame.stack_id,
                 }),
-                DamageContinuation::Mana {
-                    activation: _,
-                    departed: _,
-                } => {},
             }
         }
 
@@ -94,28 +90,6 @@ macro_rules! frame_walk {
                         kept: _,
                     } => {},
                 },
-                Frame::GraveyardReplacement { transaction } => visit($Held::Invocation {
-                    hold,
-                    id: transaction.frame.stack_id,
-                }),
-                Frame::LandEntry {
-                    origin,
-                    objects: _,
-                    choices: _,
-                } => match origin {
-                    EntryOrigin::Copy {
-                        frame,
-                        selection: _,
-                    } => visit($Held::Invocation {
-                        hold,
-                        id: frame.stack_id,
-                    }),
-                    EntryOrigin::LandPlay {
-                        player: _,
-                        decision_id: _,
-                        back_face: _,
-                    } => {}
-                    },
                 Frame::ManaSourceChoice {
                     player: _,
                     source: _,
@@ -131,7 +105,6 @@ macro_rules! frame_walk {
                 | Frame::AnnounceX { cast: _ }
                 | Frame::HybridCost { cast: _ }
                 | Frame::SacrificeCost { cast: _ }
-                | Frame::Modes { cast: _ }
                 | Frame::EntityTargets { cast: _ }
                 | Frame::StackTargets { cast: _ }
                 | Frame::PlayerTargets { cast: _ }
@@ -266,9 +239,6 @@ macro_rules! frame_parent {
             }
             Self::DamageEffects { transaction } => {
                 match &$($mutable)? transaction.continuation {
-                    DamageContinuation::Mana { activation, .. } => {
-                        Some((&$($mutable)? activation.resume, Hold::Suspended))
-                    }
                     DamageContinuation::Combat | DamageContinuation::Instruction { .. } => None,
                 }
             }
@@ -276,9 +246,7 @@ macro_rules! frame_parent {
                 | CommanderContinuation::SpellMove { .. }
                 | CommanderContinuation::ResolutionDraw { .. }
                 | CommanderContinuation::Draw { .. }, .. }
-            | Self::GraveyardReplacement { .. }
 
-            | Self::LandEntry { .. }
 
 
 
@@ -288,7 +256,6 @@ macro_rules! frame_parent {
             | Self::SacrificeCost { .. }
             | Self::ForcedSacrifice { .. }
             | Self::Setup
-            | Self::Modes { .. }
             | Self::CounterPlacement { .. }
             | Self::EntityTargets { .. }
             | Self::StackTargets { .. }
@@ -380,7 +347,6 @@ impl Frame {
             | Frame::AnnounceX { cast }
             | Frame::HybridCost { cast }
             | Frame::SacrificeCost { cast }
-            | Frame::Modes { cast }
             | Frame::EntityTargets { cast }
             | Frame::StackTargets { cast }
             | Frame::PlayerTargets { cast }
@@ -389,12 +355,6 @@ impl Frame {
             | Frame::Mana { cast }
             | Frame::Payment { cast } => Some(cast),
             Frame::GraveyardGroup { tx: _ }
-            | Frame::GraveyardReplacement { transaction: _ }
-            | Frame::LandEntry {
-                origin: _,
-                objects: _,
-                choices: _,
-            }
             | Frame::ManaSourceChoice {
                 player: _,
                 source: _,
@@ -607,10 +567,6 @@ pub fn retained_effect_frame<'a>(frames: &'a [Frame], mut frame: &'a Frame) -> &
     loop {
         frame = match frame {
             Frame::ManaAbility { activation } => &frames[activation.resume.0],
-            Frame::DamageEffects { transaction } => match &transaction.continuation {
-                DamageContinuation::Mana { activation, .. } => &frames[activation.resume.0],
-                _ => return frame,
-            },
             Frame::ManaSourceChoice { resume, .. }
             | Frame::Stabilize { resume, .. }
             | Frame::LegendRule { resume, .. } => &frames[resume.0],

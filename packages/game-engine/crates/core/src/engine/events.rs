@@ -141,23 +141,6 @@ testkit_fields! {
         /// CR 406.3a: these exile objects have no characteristics to capture.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub face_down_exile: Vec<(ObjectId, PlayerId)>,
-        /// Exact common-prior controller counts; narrow consumed entry authority.
-        #[serde(
-            default,
-            skip_serializing_if = "BTreeMap::is_empty",
-            deserialize_with = "multiplayer::player_quantity_map"
-        )]
-        pub entry_basic_lands: BTreeMap<PlayerId, Quantity>,
-        #[serde(
-            default,
-            skip_serializing_if = "BTreeMap::is_empty",
-            deserialize_with = "multiplayer::player_quantity_map"
-        )]
-        pub entry_other_lands: BTreeMap<PlayerId, Quantity>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub entry_live_seats: Vec<PlayerId>,
-        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
-        pub entry_land_types: BTreeSet<(PlayerId, BasicLandType)>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub(super) control: Option<Box<ControlBefore>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -183,22 +166,6 @@ testkit_fields! {
         pub players: Vec<PlayerBefore>,
     }
 }
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum EntryLandCount {
-    Basic,
-    Other,
-    Opponents,
-    LandTypes,
-}
-
-#[derive(Default)]
-struct EntryLandCounts {
-    basic: BTreeMap<PlayerId, Quantity>,
-    other: BTreeMap<PlayerId, Quantity>,
-    live_seats: Vec<PlayerId>,
-    land_types: BTreeSet<(PlayerId, BasicLandType)>,
-}
-
 /// Consumed layer-2 authority, separate from the leaf's ordinary object facts
 /// (whose narrow shape is part of destruction and damage validation).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -296,23 +263,12 @@ enum FactKey {
 enum BatchAuthority<'a> {
     Ordinary,
     SpellToStack(PlayerId),
-    LandEntry(&'a PreparedEntryAuthority),
     Graveyard(
         &'a BTreeMap<ObjectId, Zone>,
         &'a [regeneration::ShieldMember],
     ),
     CreateRegenerationShield,
-
-    CounterReplacement,
     PlaceCounters,
-}
-impl<'a> BatchAuthority<'a> {
-    fn entry(self) -> Option<&'a PreparedEntryAuthority> {
-        match self {
-            Self::LandEntry(proof) => Some(proof),
-            _ => None,
-        }
-    }
 }
 fn independent_footprints(
     footprints: impl IntoIterator<Item = (BTreeSet<FactKey>, BTreeSet<FactKey>)>,
@@ -361,10 +317,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
             (read, BTreeSet::from([FactKey::Libraries]))
         }
-        ProposedEvent::RevealHandCardForEntry { player, card } => (
-            BTreeSet::from([FactKey::Object(card.card), FactKey::Life(*player)]),
-            BTreeSet::new(),
-        ),
 
         ProposedEvent::CreateCreatureTokens { .. }
         | ProposedEvent::CreatePredefinedTokens { .. } => {
@@ -394,8 +346,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
             (keys.clone(), keys)
         }
-        ProposedEvent::ApplyCounterPlacementEffect { .. }
-        | ProposedEvent::CreateEffect { .. }
+        ProposedEvent::CreateEffect { .. }
         | ProposedEvent::ApplyDamageEffect { .. }
         | ProposedEvent::CommitDamage { .. }
         | ProposedEvent::CleanupEffects => {
@@ -562,11 +513,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
         ),
         ProposedEvent::ClearMana { player } => {
             let keys = BTreeSet::from([FactKey::Mana(*player)]);
-            let mut reads = keys.clone();
-            if game.has_unspent_mana_converter() {
-                reads.extend(game.state.rules.objects.keys().map(FactKey::Object));
-            }
-            (reads, keys)
+            (keys.clone(), keys)
         }
         ProposedEvent::PayMana { player, .. } | ProposedEvent::PayManaSelected { player, .. } => {
             let writes = BTreeSet::from([FactKey::Mana(*player)]);
@@ -579,30 +526,12 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             }
             (reads, writes)
         }
-        ProposedEvent::LandPlayed { player } => {
-            let mut reads = BTreeSet::from([FactKey::Turn, FactKey::Effects]);
-            reads.extend(
-                game.persistent_land_allowances(*player)
-                    .map(|id| FactKey::Object(id.card)),
-            );
-            (reads, BTreeSet::from([FactKey::Turn]))
-        }
-        ProposedEvent::TurnTransition { next, owner } => {
-            let mut keys = BTreeSet::from([FactKey::Turn]);
-            if next.step == TurnStep::PrecombatMain {
-                keys.extend(
-                    game.state
-                        .rules
-                        .objects
-                        .values()
-                        .filter(|o| {
-                            o.zone == Zone::Battlefield
-                                && o.controller == *owner
-                                && game.saga_final_chapter(o.id).is_ok_and(|n| n.is_some())
-                        })
-                        .map(|o| FactKey::Object(o.id.card)),
-                );
-            }
+        ProposedEvent::LandPlayed { .. } => (
+            BTreeSet::from([FactKey::Turn, FactKey::Effects]),
+            BTreeSet::from([FactKey::Turn]),
+        ),
+        ProposedEvent::TurnTransition { .. } => {
+            let keys = BTreeSet::from([FactKey::Turn]);
             (keys.clone(), keys)
         }
         ProposedEvent::ReversePermanentMana { receipt } => {
@@ -610,12 +539,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
                 FactKey::Mana(receipt.player),
                 FactKey::Object(receipt.source.object.card),
             ]);
-            if receipt.life_gain.is_some() {
-                keys.insert(FactKey::Life(receipt.player));
-            }
-            if let Some(damage) = &receipt.damage {
-                keys.extend(damage.life.iter().map(|entry| FactKey::Life(entry.player)));
-            }
             keys.insert(FactKey::PendingTriggers);
             (keys.clone(), keys)
         }
@@ -645,21 +568,6 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             .collect(),
         _ => vec![],
     };
-    if matches!(
-        game.conditional_entry(event),
-        Some(EntryLandCount::Basic | EntryLandCount::Other | EntryLandCount::LandTypes)
-    ) {
-        // Only prior battlefield objects are dependencies. A simultaneously
-        // entering sibling is deliberately absent (CR614.12).
-        reads.extend(
-            game.state
-                .rules
-                .objects
-                .values()
-                .filter(|o| o.zone == Zone::Battlefield)
-                .map(|o| FactKey::Object(o.id.card)),
-        );
-    }
     reads.extend(keys.iter().copied());
     writes.extend(keys);
     (reads, writes)
@@ -701,19 +609,10 @@ fn collect<'a>(
                 return Err("unsupported simultaneous departure/control dependency".into());
             }
             if occurrences.len() > 1
-                && occurrences.iter().any(|event| {
-                    matches!(event, ProposedEvent::Attach { object, .. }
-                        if game.copiable_definition(object).is_ok_and(mtg_contracts::aura_control_source))
-                })
-            {
-                return Err("unsupported simultaneous Aura control attachment dependency".into());
-            }
-            if occurrences.len() > 1
                 && occurrences.iter().any(|e| {
                     matches!(
                         e,
                         ProposedEvent::Setup { .. }
-                            | ProposedEvent::ApplyCounterPlacementEffect { .. }
                             | ProposedEvent::EnterAttached { .. }
                             | ProposedEvent::CreateEffect { .. }
                             | ProposedEvent::ApplyDamageEffect { .. }
@@ -770,14 +669,9 @@ impl RulesTxn {
             .filter(|object| object.zone == Zone::Battlefield)
             .collect::<Vec<_>>();
         if self.state.rules.control_effects.is_empty()
-            && !objects.iter().any(|object| {
-                !self.is_live(object.default_controller)
-                    || self.copiable_definition(object.id).is_ok_and(|definition| {
-                        definition.static_abilities.iter().any(|ability| {
-                            ability.effect == StaticEffect::ControlEnchantedPermanent
-                        })
-                    })
-            })
+            && objects
+                .iter()
+                .all(|object| self.is_live(object.default_controller))
         {
             return Ok(None);
         }
@@ -843,14 +737,6 @@ impl RulesTxn {
     }
 
     fn facts(&self, events: &[&ProposedEvent]) -> Result<PreEventFacts, String> {
-        let counts = self.entry_land_counts(events)?;
-        self.facts_with_entry_counts(events, &counts)
-    }
-    fn facts_with_entry_counts(
-        &self,
-        events: &[&ProposedEvent],
-        counts: &EntryLandCounts,
-    ) -> Result<PreEventFacts, String> {
         let mut damage_sources = vec![];
         let effects_event = events.iter().any(|e| {
             matches!(
@@ -911,11 +797,6 @@ impl RulesTxn {
         let mut stack = BTreeSet::new();
         for event in events {
             match event {
-                ProposedEvent::RevealHandCardForEntry { player, card } => {
-                    objects.insert(*card);
-                    players.insert(*player);
-                }
-
                 ProposedEvent::Mill {
                     player,
                     cards: looked,
@@ -930,9 +811,6 @@ impl RulesTxn {
                     // CR608.2m: the invocation owns its fixed token definition.
                     // It reads no current source incarnation after departure.
                     players.insert(*controller);
-                }
-                ProposedEvent::ApplyCounterPlacementEffect { effect } => {
-                    objects.insert(effect.source);
                 }
                 ProposedEvent::PutPlusOneCounters { object, .. } => {
                     objects.insert(*object);
@@ -992,9 +870,7 @@ impl RulesTxn {
                             libraries.insert(*player);
                             objects.extend(bottom);
                         }
-                        SetupAction::PassOpeningActions { .. }
-                        | SetupAction::Declare { .. }
-                        | SetupAction::Finish => {}
+                        SetupAction::Declare { .. } | SetupAction::Finish => {}
                     }
                 }
                 ProposedEvent::CreateEffect { effect } => {
@@ -1235,16 +1111,12 @@ impl RulesTxn {
                 }
                 ProposedEvent::ClearMana { player } => {
                     players.insert(*player);
-                    objects.extend(self.unspent_mana_converters(*player));
                 }
                 ProposedEvent::PayMana { player, .. }
                 | ProposedEvent::PayManaSelected { player, .. } => {
                     players.insert(*player);
                 }
                 ProposedEvent::LandPlayed { .. } | ProposedEvent::TurnTransition { .. } => {
-                    if let ProposedEvent::LandPlayed { player } = event {
-                        objects.extend(self.persistent_land_allowances(*player));
-                    }
                     if let ProposedEvent::TurnTransition { next, owner } = event
                         && next.number != self.state.rules.turn.number
                     {
@@ -1273,9 +1145,6 @@ impl RulesTxn {
                 }
                 ProposedEvent::ReversePermanentMana { receipt } => {
                     players.insert(receipt.player);
-                    if let Some(damage) = &receipt.damage {
-                        players.extend(damage.life.iter().map(|entry| entry.player));
-                    }
                     if let Some(o) = self.state.rules.objects.get(&receipt.source.object.card) {
                         objects.insert(o.id);
                     }
@@ -1286,17 +1155,6 @@ impl RulesTxn {
                         objects.insert(*object);
                     }
                 }
-            }
-        }
-        for event in events {
-            if let ProposedEvent::Move {
-                object,
-                destination: Zone::Battlefield,
-            }
-            | ProposedEvent::EnterAttached { object, .. } = event
-                && let Some(model) = self.entry_copy_model(*object)
-            {
-                objects.insert(model);
             }
         }
         let explicit_attachments = events
@@ -1398,40 +1256,6 @@ impl RulesTxn {
             .collect::<Result<Vec<_>, String>>()?;
         Ok(PreEventFacts {
             face_down_exile,
-            entry_basic_lands: if !counts.basic.is_empty()
-                && events
-                    .iter()
-                    .any(|e| self.conditional_entry(e) == Some(EntryLandCount::Basic))
-            {
-                counts.basic.clone()
-            } else {
-                BTreeMap::new()
-            },
-            entry_other_lands: if !counts.other.is_empty()
-                && events
-                    .iter()
-                    .any(|e| self.conditional_entry(e) == Some(EntryLandCount::Other))
-            {
-                counts.other.clone()
-            } else {
-                BTreeMap::new()
-            },
-            entry_live_seats: if events
-                .iter()
-                .any(|event| self.conditional_entry(event) == Some(EntryLandCount::Opponents))
-            {
-                counts.live_seats.clone()
-            } else {
-                vec![]
-            },
-            entry_land_types: if events
-                .iter()
-                .any(|event| self.conditional_entry(event) == Some(EntryLandCount::LandTypes))
-            {
-                counts.land_types.clone()
-            } else {
-                BTreeSet::new()
-            },
             control: if events.iter().any(|event| changes_control_inputs(event)) {
                 self.control_before()?
             } else {
@@ -1488,34 +1312,6 @@ impl RulesTxn {
         group: EventGroup,
         library_append: bool,
     ) -> Result<CommittedBatch, String> {
-        if cause == BatchCause::Setup
-            && let EventGroup::Occurrence {
-                proposed:
-                    ProposedEvent::Move {
-                        object,
-                        destination,
-                    },
-            } = &group
-        {
-            let input = self
-                .state
-                .rules
-                .pending
-                .as_ref()
-                .ok_or("missing opening placement authority")?;
-            if *destination != Zone::Battlefield
-                || input.response
-                    != (Response::OpeningPlacement {
-                        object: Some(*object),
-                    })
-            {
-                return Err(
-                    "opening placement move does not match selected hand incarnation".into(),
-                );
-            }
-            self.validate_setup_response(input.player, &input.response)?;
-        }
-        let entry = self.prepare_entry_batch(&cause, &group)?;
         let replacement = self.prepare_graveyard_batch(&cause, &group)?;
         let mut events = vec![];
         {
@@ -1591,24 +1387,12 @@ impl RulesTxn {
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
         let authority = if placing
-            || events.iter().any(|e| {
-                matches!(
-                    e,
-                    ProposedEvent::PutPlusOneCounters { .. }
-                        | ProposedEvent::ApplyCounterPlacementEffect { .. }
-                )
-            }) {
+            || events
+                .iter()
+                .any(|e| matches!(e, ProposedEvent::PutPlusOneCounters { .. }))
+        {
             self.authorize_counter_batch(&cause, &group)?;
-            if matches!(
-                &group,
-                EventGroup::Occurrence {
-                    proposed: ProposedEvent::ApplyCounterPlacementEffect { .. }
-                }
-            ) {
-                BatchAuthority::CounterReplacement
-            } else {
-                BatchAuthority::PlaceCounters
-            }
+            BatchAuthority::PlaceCounters
         } else if events
             .iter()
             .any(|event| regeneration::creates_shield(event))
@@ -1649,15 +1433,9 @@ impl RulesTxn {
         {
             BatchAuthority::SpellToStack(*player)
         } else {
-            entry
-                .as_ref()
-                .map_or(BatchAuthority::Ordinary, BatchAuthority::LandEntry)
+            BatchAuthority::Ordinary
         };
-        let before = if matches!(&group, EventGroup::Ordered { .. }) {
-            self.facts_with_entry_counts(&events, &EntryLandCounts::default())?
-        } else {
-            self.facts(&events)?
-        };
+        let before = self.facts(&events)?;
         let batch_id = self.state.rules.next_batch_id;
         let next_batch = batch_id.checked_add(1).ok_or("batch ID resource limit")?;
         if self.in_rule_step {
@@ -1753,19 +1531,8 @@ impl RulesTxn {
                 let common = self.fork();
                 let offset = out.len();
                 let mut facts = vec![];
-                // One prior scan per complete simultaneous occurrence. Only
-                // bounded controller counts are copied into charged leaf facts.
-                let entry_counts = match prepared {
-                    Some(before) => EntryLandCounts {
-                        basic: before.entry_basic_lands.clone(),
-                        other: before.entry_other_lands.clone(),
-                        live_seats: before.entry_live_seats.clone(),
-                        land_types: before.entry_land_types.clone(),
-                    },
-                    None => common.entry_land_counts(&occurrences.iter().collect::<Vec<_>>())?,
-                };
                 for event in occurrences {
-                    let before = common.facts_with_entry_counts(&[event], &entry_counts)?;
+                    let before = common.facts(&[event])?;
                     let mut validation = common.fork();
                     if let Err(error) =
                         validation.apply_prepared_occurrence(event, Some(&before), authority)
@@ -1894,189 +1661,12 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    fn conditional_entry(&self, event: &ProposedEvent) -> Option<EntryLandCount> {
-        let object = match event {
-            ProposedEvent::Move {
-                object,
-                destination: Zone::Battlefield,
-            } => object,
-            _ => return None,
-        };
-        let model = self.entry_copy_model(*object).unwrap_or(*object);
-        self.copiable_definition(model)
-            .ok()?
+    fn entry_tapped(&self, object: ObjectId) -> Result<bool, String> {
+        Ok(self
+            .copiable_definition(object)?
             .static_abilities
             .iter()
-            .find_map(|a| match a.effect {
-                StaticEffect::EntersTappedUnlessControllerBasicLands { .. } => {
-                    Some(EntryLandCount::Basic)
-                }
-                StaticEffect::EntersTappedUnlessControllerOtherLands { .. } => {
-                    Some(EntryLandCount::Other)
-                }
-                StaticEffect::EntersTappedUnlessOpponentCount { .. } => {
-                    Some(EntryLandCount::Opponents)
-                }
-                StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
-                | StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
-                    Some(EntryLandCount::LandTypes)
-                }
-                _ => None,
-            })
-    }
-
-    fn entry_land_counts(&self, events: &[&ProposedEvent]) -> Result<EntryLandCounts, String> {
-        let mut basic = false;
-        let mut other = false;
-        let mut opponents = false;
-        let mut land_types = false;
-        for event in events {
-            match self.conditional_entry(event) {
-                Some(EntryLandCount::Basic) => basic = true,
-                Some(EntryLandCount::Other) => other = true,
-                Some(EntryLandCount::Opponents) => opponents = true,
-                Some(EntryLandCount::LandTypes) => land_types = true,
-                None => {}
-            }
-        }
-        let mut counts = EntryLandCounts::default();
-        if opponents {
-            counts.live_seats = self.live_players();
-        }
-        if !basic && !other && !land_types {
-            return Ok(counts);
-        }
-        for player in self.live_players() {
-            if basic {
-                counts.basic.insert(player, Quantity::zero());
-            }
-            if other {
-                counts.other.insert(player, Quantity::zero());
-            }
-        }
-        let one = Quantity::from(1);
-        for object in self
-            .state
-            .rules
-            .objects
-            .values()
-            .filter(|o| o.present_on_battlefield())
-        {
-            let characteristics = self.characteristics(object.id)?;
-            if characteristics.has_type(CardKind::Land) {
-                if basic && characteristics.basic {
-                    counts.basic.entry(object.controller).or_default().add(&one);
-                }
-                if other {
-                    counts.other.entry(object.controller).or_default().add(&one);
-                }
-                if land_types {
-                    checkland_entry::record_land_types(
-                        &mut counts.land_types,
-                        object.controller,
-                        &characteristics,
-                    );
-                }
-            }
-        }
-        Ok(counts)
-    }
-
-    fn entry_tapped(
-        &self,
-        object: ObjectId,
-        controller: PlayerId,
-        before: Option<&PreEventFacts>,
-    ) -> Result<bool, String> {
-        let model = self.entry_copy_model(object).unwrap_or(object);
-        for ability in &self.copiable_definition(model)?.static_abilities {
-            let (kind, comparison, threshold) = match &ability.effect {
-                StaticEffect::EntersTapped => return Ok(true),
-                StaticEffect::EntersTappedUnlessControllerBasicLands { minimum } => {
-                    (EntryLandCount::Basic, LandCountComparison::AtLeast, minimum)
-                }
-                StaticEffect::EntersTappedUnlessControllerOtherLands {
-                    comparison,
-                    threshold,
-                } => {
-                    // Every actual entrant starts outside the common-prior
-                    // battlefield. A same-zone movement cannot supply that entry.
-                    if self.current(object)?.zone == Zone::Battlefield {
-                        return Err(
-                            "other-land count requires an entrant from outside the battlefield"
-                                .into(),
-                        );
-                    }
-                    (EntryLandCount::Other, *comparison, threshold)
-                }
-                StaticEffect::EntersTappedUnlessOpponentCount { minimum } => {
-                    let count = opponent_count_entry::count(self, before, controller)?;
-                    if &count < minimum {
-                        return Ok(true);
-                    }
-                    continue;
-                }
-                StaticEffect::EntersTappedUnlessControllerLandTypes { .. }
-                | StaticEffect::EntersTappedUnlessControllerLandType { .. } => {
-                    let subtypes: &[BasicLandType] = match &ability.effect {
-                        StaticEffect::EntersTappedUnlessControllerLandTypes { subtypes } => {
-                            subtypes
-                        }
-                        StaticEffect::EntersTappedUnlessControllerLandType { subtype } => {
-                            std::slice::from_ref(subtype)
-                        }
-                        _ => unreachable!(),
-                    };
-                    if self.current(object)?.zone == Zone::Battlefield {
-                        return Err("checkland replacement requires an entrant from outside the battlefield".into());
-                    }
-                    let current;
-                    let land_types = if let Some(before) = before {
-                        &before.entry_land_types
-                    } else {
-                        current = self.entry_land_counts(&[&ProposedEvent::Move {
-                            object,
-                            destination: Zone::Battlefield,
-                        }])?;
-                        &current.land_types
-                    };
-                    if !checkland_entry::controls_land_type(land_types, controller, subtypes) {
-                        return Ok(true);
-                    }
-                    continue;
-                }
-                _ => continue,
-            };
-            let current;
-            let counts = match (before, kind) {
-                (Some(before), EntryLandCount::Basic) => &before.entry_basic_lands,
-                (Some(before), EntryLandCount::Other) => &before.entry_other_lands,
-                (Some(_), EntryLandCount::Opponents) => unreachable!("seat count handled above"),
-                (Some(_), EntryLandCount::LandTypes) => unreachable!("not a land count"),
-                (None, kind) => {
-                    current = self.entry_land_counts(&[&ProposedEvent::Move {
-                        object,
-                        destination: Zone::Battlefield,
-                    }])?;
-                    match kind {
-                        EntryLandCount::Basic => &current.basic,
-                        EntryLandCount::Other => &current.other,
-                        EntryLandCount::Opponents => unreachable!("seat count handled above"),
-                        EntryLandCount::LandTypes => unreachable!("not a land count"),
-                    }
-                }
-            };
-            let count = counts
-                .get(&controller)
-                .ok_or("missing common-prior entry controller count")?;
-            if match comparison {
-                LandCountComparison::AtLeast => count < threshold,
-                LandCountComparison::AtMost => count > threshold,
-            } {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+            .any(|ability| ability.effect == StaticEffect::EntersTapped))
     }
     fn apply_move(
         &mut self,
@@ -2084,42 +1674,13 @@ impl RulesTxn {
         destination: Zone,
         intended_controller: Option<PlayerId>,
         force_tapped: bool,
-        before: Option<&PreEventFacts>,
-        authority: BatchAuthority<'_>,
     ) -> Result<EventOutcome, String> {
-        let entry = authority.entry();
-        // Consume immutable pre-debit authority BEFORE every movement write;
-        // forced tapping must not short-circuit this check. Non-BF movement
-        // never participates in entry-choice preparation.
-        let mut optional_declined = false;
-        let mut intended_controller = intended_controller;
-        if destination == Zone::Battlefield {
-            if let Some(entry) = entry {
-                let (controller, declined) =
-                    entry.movement(object, intended_controller, force_tapped)?;
-                intended_controller = Some(controller);
-                optional_declined = declined;
-            } else if self.has_entry_copy(object)? {
-                return Err("copy entry requires prepared transaction authority".into());
-            } else if self.optional_entry_cost(object)?.is_some() {
-                return Err("optional-life entry requires prepared transaction authority".into());
-            }
-        }
         let object = &object;
         let destination = &destination;
 
         // Pinned CR 614.1a/6: replace every would-die cause, including
         // costs and SBAs, before any graveyard move or dies observer.
-        let replaced = if matches!(destination, Zone::Graveyard { .. })
-            && self.has_self_graveyard_replacement(*object)?
-        {
-            let BatchAuthority::Graveyard(proof, _) = authority else {
-                return Err(
-                    "printed graveyard replacement requires a prepared movement producer".into(),
-                );
-            };
-            *proof.get(object).ok_or("missing replacement member")?
-        } else if self.anger_replaces_death(*object, *destination) {
+        let replaced = if self.anger_replaces_death(*object, *destination) {
             Zone::Exile
         } else {
             *destination
@@ -2192,9 +1753,6 @@ impl RulesTxn {
         } else {
             owner
         };
-        if o.zone == Zone::Battlefield {
-            self.detach_bestowed_from(*object)?;
-        }
         self.remove_from_combat(*object);
         for library in self.rules_mut().libraries.values_mut() {
             library.retain(|c| *c != object.card);
@@ -2209,31 +1767,8 @@ impl RulesTxn {
         // CR 614.1c/614.12: this source replacement modifies entry,
         // rather than tapping the permanent in a subsequent event.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        if *destination == Zone::Battlefield
-            && let Some(donor) = entry.and_then(|proof| proof.donor(*object))
-        {
-            self.record_entry_copy(successor, donor)?;
-        }
-        let enters_tapped = if *destination == Zone::Battlefield
-            && entry.is_some_and(|entry| entry.back_face(*object))
-        {
-            self.record_back_face(successor)?;
-            self.copiable_definition(successor)?
-                .static_abilities
-                .iter()
-                .any(|ability| ability.effect == StaticEffect::EntersTapped)
-        } else {
-            *destination == Zone::Battlefield
-                && (force_tapped
-                    || optional_declined
-                    || self.entry_tapped(*object, controller, before)?)
-        };
-        let entry_lore =
-            if *destination == Zone::Battlefield && self.saga_final_chapter(successor)?.is_some() {
-                Quantity::from(1)
-            } else {
-                Quantity::zero()
-            };
+        let enters_tapped =
+            *destination == Zone::Battlefield && (force_tapped || self.entry_tapped(*object)?);
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
         self.rules_mut().objects.insert(
             object.card,
@@ -2245,7 +1780,6 @@ impl RulesTxn {
                 battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
                 plus_one_counters: Quantity::zero(),
-                lore_counters: entry_lore,
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
                 deathtouch_damage: false,
@@ -2340,12 +1874,7 @@ impl RulesTxn {
             return Err("regeneration shield requires authenticated creation".into());
         }
 
-        let entry = authority.entry();
         let actual = match proposed {
-            ProposedEvent::RevealHandCardForEntry { player, card } => {
-                self.apply_entry_hand_reveal(*player, *card, entry)?
-            }
-
             ProposedEvent::Mill {
                 player,
                 count,
@@ -2355,10 +1884,7 @@ impl RulesTxn {
             ProposedEvent::FinishLibraryShuffle { player } => {
                 let group_shuffle =
                     replacement.is_some() && self.publish_group_permutation(*player)?;
-                if !group_shuffle
-                    && (replacement.is_none()
-                        || self.replacement_shuffle_offset(*player, 0).is_none())
-                {
+                if !group_shuffle {
                     return Err("invalid shuffle completion".into());
                 }
                 let count = self
@@ -2382,16 +1908,7 @@ impl RulesTxn {
                 // attached when entry observers and ETB hooks see it.
                 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
                 let source = self.current(*object)?;
-                if let Some(donor) = entry.and_then(|proof| proof.donor(*object)) {
-                    // CR 303.4f: non-target legality and the exact attachment
-                    // were proved by prepare_entry_batch before any mutation.
-                    if !self
-                        .entry_aura_targets(donor, source.controller)?
-                        .is_some_and(|targets| targets.contains(target))
-                    {
-                        return Err("invalid copied Aura entry".into());
-                    }
-                } else {
+                {
                     let characteristics = self.structural_characteristics(*object)?;
                     if source.zone != Zone::Stack
                         || characteristics.kind != CardKind::Enchantment
@@ -2411,7 +1928,7 @@ impl RulesTxn {
                 // private application; the batch/rule-step owns full rollback.
                 let (attachment_timestamp, next) = self.next_attachment_allocation()?;
                 let EventOutcome::Moved { movement } =
-                    self.apply_move(*object, Zone::Battlefield, None, false, before, authority)?
+                    self.apply_move(*object, Zone::Battlefield, None, false)?
                 else {
                     return Err("attached entry movement invariant".into());
                 };
@@ -2535,16 +2052,8 @@ impl RulesTxn {
                 )?
             }
 
-            ProposedEvent::ShuffleLibraryWord { player, index } => self.apply_search_shuffle_word(
-                *player,
-                *index,
-                replacement.and_then(|_| self.replacement_shuffle_offset(*player, *index)),
-            )?,
-            ProposedEvent::ApplyCounterPlacementEffect { effect } => {
-                if !matches!(authority, BatchAuthority::CounterReplacement) {
-                    return Err("counter replacement requires transaction authority".into());
-                }
-                self.apply_counter_placement_effect(effect)?
+            ProposedEvent::ShuffleLibraryWord { player, index } => {
+                self.apply_search_shuffle_word(*player, *index, None)?
             }
 
             ProposedEvent::PutPlusOneCounters { object, amount } => {
@@ -2996,44 +2505,17 @@ impl RulesTxn {
                 if !self.is_live(*player) {
                     return Err("invalid mana clearing player".into());
                 }
-                let retain = !self.unspent_mana_converters(*player).is_empty();
                 let p = &mut self.rules_mut().players[player.0 as usize];
-                let pool = &mut p.mana;
-                let previous = std::mem::take(pool);
+                let previous = std::mem::take(&mut p.mana);
                 let previous_restricted = std::mem::take(&mut p.restricted_mana);
-                let retained_as = if retain {
-                    let mut retained = Quantity::zero();
-                    for amount in previous.values() {
-                        retained.add(amount);
-                    }
-                    if retained > Quantity::zero() {
-                        pool.insert(Color::B, retained);
-                    }
-                    for unit in &previous_restricted {
-                        restricted_mana::credit(
-                            &mut p.restricted_mana,
-                            &RestrictedMana {
-                                color: Color::B,
-                                ..unit.clone()
-                            },
-                        );
-                    }
-                    (!pool.is_empty() || !p.restricted_mana.is_empty()).then_some(Color::B)
-                } else {
-                    None
-                };
                 EventOutcome::ManaCleared {
                     player: *player,
                     previous,
                     previous_restricted,
-                    retained_as,
                 }
             }
             ProposedEvent::LandPlayed { player } => {
-                if (!self.main_phase_action(*player)
-                    && !entry.is_some_and(|proof| proof.land_play(*player)))
-                    || !self.has_land_play_allowance(*player)
-                {
+                if !self.main_phase_action(*player) || !self.has_land_play_allowance(*player) {
                     return Err("invalid land-play counting event".into());
                 }
                 let previous = self.state.rules.turn.lands_played;
@@ -3077,18 +2559,12 @@ impl RulesTxn {
                         }
                     }
                 }
-                let lore = if next.step == TurnStep::PrecombatMain {
-                    self.advance_saga_lore(*owner)?
-                } else {
-                    vec![]
-                };
                 let phased_in = if next.step == TurnStep::Untap {
                     self.phase_in_for_next_untap(previous_owner)?
                 } else {
                     vec![]
                 };
                 EventOutcome::TurnTransitioned {
-                    lore,
                     phased_in,
                     previous,
                     current: next.clone(),
@@ -3182,7 +2658,6 @@ impl RulesTxn {
                 amount,
                 source,
                 remove_zero,
-                tap_triggers,
             } => {
                 // CR 733.1/733.2: undo only recorded casting-stage mana. A
                 // departed source stays absent; a surviving source may have a
@@ -3222,7 +2697,6 @@ impl RulesTxn {
                         .ok_or("missing mana reversal source")?
                         .tapped = false;
                 }
-                self.cancel_reversed_tap_triggers(*source, *player, tap_triggers)?;
                 EventOutcome::ManaReversed {
                     player: *player,
                     color: *color,
@@ -3252,7 +2726,6 @@ impl RulesTxn {
                 self.rules_mut()
                     .mana_ability_uses
                     .retain(|k| k.source != *object);
-                self.detach_bestowed_from(*object)?;
                 self.rules_mut().objects.remove(&object.card);
                 EventOutcome::LeftGame {
                     object: *object,
@@ -3267,7 +2740,7 @@ impl RulesTxn {
                     BatchAuthority::SpellToStack(player) => Some(player),
                     _ => None,
                 };
-                self.apply_move(*object, *destination, caster, false, before, authority)?
+                self.apply_move(*object, *destination, caster, false)?
             }
         };
         self.update_library_position_memory(proposed, &actual);
