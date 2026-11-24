@@ -50,7 +50,6 @@ const page = await client.poll({ after: '0', limit: 32, waitMs: 20_000 });
 | Configuration | `parseSeatBootstrap`, `readClientConfig`, `parseClientConfig` |
 | Reads | `manifest`, `resume`, `poll`, `events`, `presentation` |
 | Commands | `prepareCommand`, `parsePreparedCommand`, `submitExact`, `submit`, `execution`, `cancel` |
-| Discovery | `queryActions` |
 
 Capabilities stay in private fields and Authorization headers, never errors, URLs
 or logs. Responses are bounded strict JSON validated without coercion; protocol
@@ -58,7 +57,7 @@ validation is not gameplay legality or seat authorization. The SDK has no
 persistence, journal or retry policy. [Server routes](../../../docs/game-engine-server.md)
 own limits and cursor semantics; [the client contract](../../../docs/game-client.md)
 owns [journaling](../../../docs/game-client.md#durable-command-journal),
-presentation and [action discovery](../../../docs/game-client.md#core-action-discovery).
+presentation and [inline decision candidates](../../../docs/game-client.md#core-action-discovery).
 The Node-only `./presentation-producer` export checks pinned source identities via
 [`presentation.schema.json`](../tools/presentation.schema.json).
 

@@ -305,7 +305,7 @@
       "signal": null
     }
   ],
-  "log_sha256": "96642aa4280b37202a906837f15d82143c2c3769788136b68500d988d8ec43d8",
+  "log_sha256": "1086a6351d39ba3703c5b9aea2448f63a882d9ed6563f52249cec6a0d8436b3a",
   "source_files": [
     {
       "path": ".gitignore",
@@ -319,8 +319,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 6198,
-      "sha256": "e13c186b93d47b4ca6ceb5761b107db1f4242686d2ce61eb43a0801482b0a061"
+      "bytes": 6177,
+      "sha256": "856c9882a081f17836e2aef2432af6f7b78cd75ec851f0dc809e621585a16ca6"
     },
     {
       "path": "browser/index.html",
@@ -339,8 +339,8 @@
     },
     {
       "path": "browser/proof.mjs",
-      "bytes": 9943,
-      "sha256": "d1969e90a48fb736891867e0ee4ad9a8525aad001fb488506734695949369600"
+      "bytes": 9191,
+      "sha256": "1413a3554b4626b5ae3ff7907f681d632a8c3f4200755b8679761169e51765a2"
     },
     {
       "path": "package-lock.json",
