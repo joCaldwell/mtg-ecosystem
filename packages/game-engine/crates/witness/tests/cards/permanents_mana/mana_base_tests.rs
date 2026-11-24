@@ -105,7 +105,7 @@ fn activate(g: &mut Game, card: u32) {
 }
 
 /// The pending decision offers exactly `expected`, then picks `choice`.
-fn pick<T: PartialEq + std::fmt::Debug>(
+fn pick(
     g: &mut Game,
     reason: impl Fn(&Reason<Rules>) -> bool,
     expected: &[Candidate<Rules>],
@@ -223,7 +223,7 @@ fn w3_sources_lower_to_exact_productions_costs_and_riders() {
 fn pain_source(name: &str) {
     let mut g = Game::new(prepared(&[(name, 0, false)]));
     activate(&mut g, 0);
-    pick::<()>(
+    pick(
         &mut g,
         |r| matches!(r, Reason::ManaAbility { .. }),
         &[printed(0), printed(1)],
@@ -233,7 +233,7 @@ fn pain_source(name: &str) {
         "Talisman of Creativity" => (Color::U, Color::R),
         _ => (Color::G, Color::U),
     };
-    pick::<()>(
+    pick(
         &mut g,
         |r| matches!(r, Reason::ManaColor { .. }),
         &colors(&[a, b]),
@@ -247,7 +247,7 @@ fn pain_source(name: &str) {
 
     let mut g = Game::new(prepared(&[(name, 0, false)]));
     activate(&mut g, 0);
-    pick::<()>(
+    pick(
         &mut g,
         |r| matches!(r, Reason::ManaAbility { .. }),
         &[printed(0), printed(1)],
@@ -274,7 +274,7 @@ fn pain_land_selects_its_colored_ability_and_damages_its_controller() {
 fn tri_land_offers_exactly_its_three_colors() {
     let mut g = Game::new(prepared(&[("Crumbling Necropolis", 0, false)]));
     activate(&mut g, 0);
-    pick::<()>(
+    pick(
         &mut g,
         |r| matches!(r, Reason::ManaColor { .. }),
         &colors(&[Color::U, Color::B, Color::R]),
@@ -290,7 +290,7 @@ fn tri_land_offers_exactly_its_three_colors() {
 fn gilded_lotus_adds_three_mana_of_one_chosen_color() {
     let mut g = Game::new(prepared(&[("Gilded Lotus", 0, false)]));
     activate(&mut g, 0);
-    pick::<()>(
+    pick(
         &mut g,
         |r| matches!(r, Reason::ManaColor { .. }),
         &colors(&[Color::W, Color::U, Color::B, Color::R, Color::G]),
@@ -314,7 +314,7 @@ fn exotic_orchard_offers_colors_opponents_lands_could_produce() {
         ("Exotic Orchard", 1, false),
     ]));
     activate(&mut g, 0);
-    pick::<()>(
+    pick(
         &mut g,
         |r| matches!(r, Reason::ManaColor { .. }),
         &colors(&[Color::B, Color::R, Color::G]),
@@ -348,7 +348,7 @@ fn reflecting_pool_offers_every_type_its_controllers_lands_could_produce() {
         ("Mountain", 1, false),
     ]));
     activate(&mut g, 0);
-    pick::<()>(
+    pick(
         &mut g,
         |r| matches!(r, Reason::ManaColor { .. }),
         &colors(&[Color::U, Color::G, Color::C]),
@@ -428,7 +428,7 @@ fn unpaid_signet_activation_is_cancelled_without_paying_its_tap_cost() {
 fn mana_confluence_pays_one_life_for_any_color() {
     let mut g = Game::new(prepared(&[("Mana Confluence", 0, false)]));
     activate(&mut g, 0);
-    pick::<()>(
+    pick(
         &mut g,
         |r| matches!(r, Reason::ManaColor { .. }),
         &colors(&[Color::W, Color::U, Color::B, Color::R, Color::G]),
@@ -482,13 +482,13 @@ fn reversal_keeps_a_damaging_activation_and_undoes_a_plain_one() {
         activate(&mut g, 1);
         if kept {
             activate(&mut g, 2);
-            pick::<()>(
+            pick(
                 &mut g,
                 |r| matches!(r, Reason::ManaAbility { .. }),
                 &[printed(0), printed(1)],
                 printed(1),
             );
-            pick::<()>(
+            pick(
                 &mut g,
                 |r| matches!(r, Reason::ManaColor { .. }),
                 &colors(&[Color::G, Color::U]),
