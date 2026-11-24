@@ -1,5 +1,5 @@
 //! Trusted match driver. Only an acting player's Observation crosses into the encoder.
-use mtg_contracts::{ActivationCost, Catalog, bulk_catalog::BulkArtifact};
+use mtg_contracts::{Catalog, bulk_catalog::BulkArtifact};
 use mtg_core::*;
 use mtg_observe::{
     Row,
@@ -124,64 +124,6 @@ pub struct Lane {
     reversals: i32,
     pub illegal: i32,
 }
-pub fn funding(c: &Catalog, o: &Observation) -> Vec<u8> {
-    let v = &o.view;
-    let d = o.decision.as_ref().expect("published decision");
-    d.candidates
-        .iter()
-        .map(|candidate| {
-            let Candidate::Action { action } = candidate else {
-                return 2;
-            };
-            let h = match action {
-                Action::Cast { card } => card,
-                Action::ActivateAbility { object, .. } => object,
-                _ => return 1,
-            };
-            let Some(obj) = v.objects.iter().find(|obj| &obj.handle == h) else {
-                return 2;
-            };
-            let Some(def) = c.definition_by_oracle_id(&obj.oracle_id) else {
-                return 2;
-            };
-            let (cost, hybrid) = match action {
-                Action::Cast { .. } => {
-                    let mut cost = def.characteristics.mana_cost.clone();
-                    if matches!(obj.zone, Zone::Command { .. })
-                        && let Some(n) = v
-                            .commanders
-                            .iter()
-                            .find(|r| r.history.owner == v.viewer && r.oracle_id == obj.oracle_id)
-                            .and_then(|r| r.history.command_casts.get(&v.viewer))
-                    {
-                        cost.generic.add(n);
-                        cost.generic.add(n);
-                    }
-                    (cost, def.characteristics.hybrid_mana.as_slice())
-                }
-                Action::ActivateAbility { ability, .. } => {
-                    let Some(a) = def.activated.get(*ability as usize) else {
-                        return 2;
-                    };
-                    let mana = match &a.cost {
-                        ActivationCost::Mana { cost }
-                        | ActivationCost::DiscardSource { mana: cost } => Some(cost),
-                        ActivationCost::SacrificePermanent { mana, .. } => mana.as_ref(),
-                        ActivationCost::Composite { costs } if costs.tap || costs.sacrifice => {
-                            return 2;
-                        }
-                        ActivationCost::Composite { costs } => costs.mana.as_ref(),
-                        _ => None,
-                    };
-                    let Some(cost) = mana else { return 1 };
-                    (cost.clone(), &[][..])
-                }
-                _ => unreachable!(),
-            };
-            u8::from(mtg_sim::policy::can_fund(c, v, cost, hybrid))
-        })
-        .collect()
-}
 impl Lane {
     pub fn new(source: &Source, seed: u64, index: usize, episode: u64) -> Result<Self, String> {
         let game = Game::with_trace(source.prepare(seed, index, episode)?, TraceMode::Stream);
@@ -288,7 +230,6 @@ impl Lane {
                                 &o,
                                 self.prefix.len(),
                                 &choices,
-                                &funding(c, &o),
                                 config.mask_unfundable,
                             )?;
                             row.info[..4].copy_from_slice(&[

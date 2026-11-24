@@ -232,7 +232,9 @@ at the previous decision.
 
 `payment` accepts `auto` (default) or `manual`. Spend always uses the exact solver.
 `opponents` accepts `self_play` (default) or `baseline` (seat zero acts, the other
-seats use Develop). `mask_unfundable` defaults to true. `head` selects pointer (0) or
+seats use Develop). `mask_unfundable` defaults to true. The encoder proves fixed costs
+from the visible pool and intrinsic single-color lands. Uncertain sources or payments
+retain a candidate with funding code 2. `head` selects pointer (0) or
 number (1). Pointers 0–127 address ordered candidates, 128 ends a slot or ordering,
 129 and 130 finish production with undo or keep. Numbers 0–62 are literal and 63
 selects the largest feasible value.

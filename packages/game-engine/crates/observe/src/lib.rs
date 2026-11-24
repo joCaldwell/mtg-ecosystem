@@ -3,6 +3,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub mod action;
 pub mod catalog;
+mod funding;
 use mtg_contracts::{Catalog, Color, HybridPayment, ManaProduction, Quantity};
 use mtg_view::*;
 use std::collections::HashMap;
@@ -128,7 +129,6 @@ pub fn encode(
     o: &Observation,
     micro: usize,
     choices: &action::Choices,
-    funding: &[u8],
     mask_unfundable: bool,
 ) -> Result<Row, String> {
     let v = &o.view;
@@ -137,9 +137,7 @@ pub fn encode(
     if !fits_layout(v, d) {
         return Err("permitted view exceeds tensor capacity".into());
     }
-    if funding.len() != d.candidates.len() {
-        return Err("funding table length mismatch".into());
-    }
+    let funding = funding::funding(c, o, d);
     let mut r = Row {
         head: choices.numeric as u8,
         seat: v.viewer.0,

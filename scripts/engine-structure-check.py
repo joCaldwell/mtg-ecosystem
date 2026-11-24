@@ -31,6 +31,7 @@ def dependency_errors(root):
         path = root / CRATES / crate.removeprefix('mtg-') / 'Cargo.toml'
         manifest = tomllib.loads(path.read_text())
         tables = [('all targets', manifest), *manifest.get('target', {}).items()]
+        runtime = set()
         for target, table in tables:
             for kind in ('dependencies', 'build-dependencies', 'dev-dependencies'):
                 permit = allowed | ({'sha2'} if kind == 'build-dependencies' and crate in {'mtg-core', 'mtg-compiler'} else set())
@@ -45,8 +46,13 @@ def dependency_errors(root):
                         parent = root if spec.get('workspace') else path.parent
                         dep_manifest = parent / base['path'] / 'Cargo.toml'
                         name = tomllib.loads(dep_manifest.read_text())['package']['name']
+                    if target == 'all targets' and kind == 'dependencies':
+                        runtime.add(name)
                     if name not in permit:
                         errors.append(f'{path.relative_to(root)}: {target} {kind} {alias} ({name}) crosses the reviewed dependency boundary; keep host/parser/compiler I/O outside deterministic layers or explicitly review this allowlist')
+        if crate == 'mtg-observe' and allowed - runtime:
+            missing = ', '.join(sorted(allowed - runtime))
+            errors.append(f'{path.relative_to(root)}: missing reviewed runtime dependencies: {missing}')
     return errors
 
 

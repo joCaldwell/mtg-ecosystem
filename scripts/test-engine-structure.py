@@ -88,6 +88,9 @@ class StructureTests(unittest.TestCase):
                 path = root / structure.CRATES / name
                 path.mkdir(parents=True)
                 (path / 'Cargo.toml').write_text(f'[package]\nname="mtg-{name}"\n')
+            observer = root / structure.CRATES / 'observe/Cargo.toml'
+            with observer.open('a') as f:
+                f.write('[dependencies]\n' + ''.join(f'{dep}="1"\n' for dep in structure.ALLOWED['mtg-observe']))
             path = root / structure.CRATES / 'core/Cargo.toml'
             path.write_text(path.read_text() + '\n[target.\'cfg(unix)\'.dependencies]\nconcealed = { package="mtg-compiler", path="../compiler" }\n')
             self.assertIn('mtg-compiler', structure.dependency_errors(root)[0])
@@ -117,6 +120,7 @@ class StructureTests(unittest.TestCase):
                 path.mkdir(parents=True)
                 (path / 'Cargo.toml').write_text(f'[package]\nname="{name}"\n')
             observer = root / structure.CRATES / 'observe/Cargo.toml'
+            self.assertIn('missing reviewed runtime dependencies', structure.dependency_errors(root)[0])
             with observer.open('a') as f:
                 f.write('[dev-dependencies]\nbackdoor = {package="mtg-core", path="../core"}\n')
             self.assertIn('mtg-core', structure.dependency_errors(root)[0])

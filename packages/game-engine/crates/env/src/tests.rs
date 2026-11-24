@@ -110,10 +110,7 @@ fn equal_permitted_history_in_distinct_sampled_worlds() {
                     .unwrap() else {
                         return None;
                     };
-                    Some(
-                        mtg_observe::encode(catalog, o, 0, &mask, &game::funding(catalog, o), true)
-                            .unwrap(),
-                    )
+                    Some(mtg_observe::encode(catalog, o, 0, &mask, true).unwrap())
                 });
                 assert!(
                     rows[0] == rows[1],
@@ -181,7 +178,6 @@ fn baseline_game(seed: u64) -> Result<i32, String> {
         let d = o.decision.as_ref().unwrap();
         let target = policy.choose(catalog, Policy::Develop, &o)?;
         let bound = mtg_observe::number_bound(catalog, &o.view);
-        let funding = game::funding(catalog, &o);
         let mut prefix = vec![];
         let mut last_slot = None;
         let mut count = 0;
@@ -226,8 +222,7 @@ fn baseline_game(seed: u64) -> Result<i32, String> {
                         }
                         _ => return Err("unexpected manual spend prefix".into()),
                     };
-                    let row =
-                        mtg_observe::encode(catalog, &o, prefix.len(), &mask, &funding, true)?;
+                    let row = mtg_observe::encode(catalog, &o, prefix.len(), &mask, true)?;
                     let allowed = if mask.numeric {
                         row.num_mask.get(a)
                     } else {
@@ -436,4 +431,53 @@ fn tensor_capacity_resets_with_zero_reward_and_no_rejected_answer() {
         lane.run(&source, Config::default(), Some(a)).unwrap().info[0],
         0
     );
+}
+
+#[test]
+fn unmodeled_mana_sources_leave_casts_unmasked() {
+    let source = Source::load(PROFILE, &[], None).unwrap();
+    let mut lane = Lane::new(&source, 57, 0, 0).unwrap();
+    lane.run(&source, Config::default(), None).unwrap();
+    let o = lane.observation.as_mut().unwrap();
+    let commander = o
+        .view
+        .objects
+        .iter()
+        .find(|obj| matches!(obj.zone, Zone::Command { .. }) && obj.owner == o.view.viewer)
+        .unwrap()
+        .clone();
+    let decision = o.decision.as_mut().unwrap();
+    decision.candidates = vec![Candidate::Action {
+        action: Action::Cast {
+            card: commander.handle.clone(),
+        },
+    }];
+    decision.shape = Shape::Pick {
+        slots: vec![Slot {
+            role: SlotRole::Choice,
+            subject: None,
+            allowed: vec![0],
+            min: 1,
+            max: 1,
+            repeat: false,
+        }],
+        rules: vec![],
+    };
+    let Step::Choose(mask) = Composer::compose(decision, &[], 0).unwrap() else {
+        panic!("missing cast pointer")
+    };
+    let encoded = mtg_observe::encode(source.catalog(), o, 0, &mask, true).unwrap();
+    assert_eq!((encoded.cand[0][5], encoded.ptr_mask[0]), (0, 0));
+    let mut token = commander;
+    token.handle = ObjectHandle("new-token".into());
+    token.zone = Zone::Battlefield;
+    token.controller = o.view.viewer;
+    token.oracle_id.clear();
+    token.token = Some(VisibleToken {
+        name: String::new(),
+        keywords: vec![],
+    });
+    o.view.objects.push(token);
+    let encoded = mtg_observe::encode(source.catalog(), o, 0, &mask, true).unwrap();
+    assert_eq!((encoded.cand[0][5], encoded.ptr_mask[0]), (2, 1));
 }
