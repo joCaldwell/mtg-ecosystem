@@ -10,7 +10,7 @@ import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
 import type { GameIdentity, GameRecord, GameDiagnosticEvent, GameDiagnosticSink } from "../../shared/contracts.ts";
 
-export const OBSERVATION_VERSION = 21;
+export { OBSERVATION_VERSION } from '../../web/src/session/read-state.ts';
 const frozen16 = "565a1204d6e4b14443b9f49dda2ecbc6b46ee85a";
 export const repository = fileURLToPath(new URL("../../../../", import.meta.url));
 export const sha256 = (bytes: string | Uint8Array) => createHash("sha256").update(bytes).digest("hex");

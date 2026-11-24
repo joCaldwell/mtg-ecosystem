@@ -46,7 +46,7 @@ async function nativeCase(name, work) {
   const log = fs.openSync(path.join(dir, 'host.log'), 'wx', 0o600);
   const host = spawn(binary, ['serve-client', registry, `127.0.0.1:${nativePort}`, bundle, bundleHash, presentation, presentationHash], { stdio: ['ignore', log, log] });
   try {
-    await waitFor(async () => { assert(host.exitCode === null, 'Host exited'); try { const r = await clients[0].resume(); return r.state.status === 'available' && r.state.observation.decision?.request === 'mulligan'; } catch { return false; } }, 'Native opening not ready');
+    await waitFor(async () => { assert(host.exitCode === null, 'Host exited'); try { const r = await clients[0].resume(); return r.state.status === 'available' && r.state.observation.decision?.reason.reason === 'mulligan'; } catch { return false; } }, 'Native opening not ready');
     await work({ origin, files, seats, clients, dir });
     results.push({ case: name, status: 'passed', port: nativePort });
     console.log(JSON.stringify({ case: name, status: 'passed' }));
@@ -80,14 +80,14 @@ async function records(page) {
 async function countRecords(page, count) { await waitFor(async () => (await records(page)).length === count, 'Unexpected durable slot count'); }
 async function freshDecision(client, oldToken, kind) {
   let read;
-  await waitFor(async () => { read = await client.resume(); return read.state.status === 'available' && read.state.observation.decision?.token !== oldToken && (!kind || read.state.observation.decision?.request === kind); }, 'Decision did not progress');
+  await waitFor(async () => { read = await client.resume(); return read.state.status === 'available' && read.state.observation.decision?.token !== oldToken && (!kind || read.state.observation.decision?.reason.reason === kind); }, 'Decision did not progress');
   return read;
 }
 async function explicitSDKChoice(client, take) {
   const read = await client.resume();
-  assert(read.state.status === 'available' && read.state.observation.decision?.request === 'mulligan', 'SDK test seat must have a mulligan request');
+  assert(read.state.status === 'available' && read.state.observation.decision?.reason.reason === 'mulligan', 'SDK test seat must have a mulligan request');
   const token = read.state.observation.decision.token;
-  await client.submit({ protocol_version: 1, command_id: crypto.randomUUID().replaceAll('-', ''), expected_revision: read.next, command: { kind: 'decision', token, response: { response: 'mulligan', take } } });
+  await client.submit({ protocol_version: 2, command_id: crypto.randomUUID().replaceAll('-', ''), expected_revision: read.next, command: { kind: 'decision', token, answer: { answer:'pick', picks:[[read.state.observation.decision.candidates.findIndex(c=>c.candidate==='flag' && c.flag===(take?'mulligan':'keep'))]] } } });
   return freshDecision(client, token);
 }
 function watchPrivacy(page, seats) {
@@ -144,7 +144,7 @@ for (const [browserName, launcher] of Object.entries({ chromium, firefox })) {
         for (let n = 1; n < 3; n++) {
           await expect(pages[0].getByText(`Mulligans taken: ${n}`, { exact: true })).toBeVisible();
           await choose(pages[0], 'Take mulligan');
-          await waitFor(async () => { read = await clients[0].resume(); return read.state.status === 'available' && read.state.observation.decision?.request === 'bottom_opening'; }, 'Expected supplied native bottom request');
+          await waitFor(async () => { read = await clients[0].resume(); return read.state.status === 'available' && read.state.observation.decision?.reason.reason === 'bottom_opening'; }, 'Expected supplied native bottom request');
           const bottom = read.state.observation.decision;
           assert(bottom.count === n && bottom.candidates.length >= bottom.count, 'Unexpected supplied bottom count');
           const boxes = pages[0].getByRole('group', { name: 'Opening hand actions', exact: true }).getByRole('checkbox');
@@ -171,14 +171,14 @@ for (const [browserName, launcher] of Object.entries({ chromium, firefox })) {
         // Finish any supplied zero-count bottom decisions through actual UI.
         for (let n = 0; n < 20; n++) {
           const reads = await Promise.all(clients.map(client => client.resume()));
-          const index = reads.findIndex(r => r.state.status === 'available' && r.state.observation.decision?.request === 'bottom_opening');
+          const index = reads.findIndex(r => r.state.status === 'available' && r.state.observation.decision?.reason.reason === 'bottom_opening');
           if (index < 0) break;
           assert(reads[index].state.observation.decision.count === 0, 'Unscripted opening count');
           await expect(confirm(pages[index])).toBeEnabled(); await confirm(pages[index]).click(); await countRecords(pages[index], 0);
         }
         await waitFor(async () => (await clients[0].resume()).state.observation.view.setup == null, 'Opening prefix did not complete');
         let active = -1;
-        await waitFor(async () => { const reads = await Promise.all(clients.map(client => client.resume())); active = reads.findIndex(r => r.state.status === 'available' && r.state.observation.decision?.request === 'priority'); return active >= 0; }, 'Expected unsupported post-opening priority');
+        await waitFor(async () => { const reads = await Promise.all(clients.map(client => client.resume())); active = reads.findIndex(r => r.state.status === 'available' && r.state.observation.decision?.reason.reason === 'priority'); return active >= 0; }, 'Expected unsupported post-opening priority');
         await expect(pages[active].getByText('Opening actions complete or unavailable', { exact: true })).toBeVisible();
         await expect(confirm(pages[active])).toHaveCount(0);
         const before = audits.reduce((n, a) => n + a.posts(), 0); await delay(400); assert(before === audits.reduce((n, a) => n + a.posts(), 0), 'Unsupported decision sent automatically');

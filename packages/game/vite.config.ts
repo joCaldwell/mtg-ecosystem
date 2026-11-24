@@ -71,7 +71,7 @@ export default defineConfig({
           || local === '../game-server/sdk/dist/browser.js'
           || local.startsWith('../game-ui/src/')
           || local === 'generated/sdk-identity.ts'
-          || /^fixtures\/foundations-opening\/(opening-seat0-http|presentation)\.json$/.test(local))) {
+          || /^fixtures\/foundations-opening\/(opening-seat0|presentation)\.json$/.test(local))) {
           throw new Error(`Unreviewed browser runtime module: ${local}`);
         }
         report.push(local);

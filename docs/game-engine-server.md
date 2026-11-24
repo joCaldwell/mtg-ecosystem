@@ -79,11 +79,13 @@ owns Actor authorization, scoped proxy and remaining browser gates.
 
 ## Protocol authority and private streams
 
-Rust DTOs embed the actual public core Observation, PlayerRequest and
-PlayerResponse types. Draft7 schemas use deserialize settings for commands and
-serialize settings for responses. Shared Rust constants define routes. The
-isolated TypeScript SDK generates declarations from those schemas, including
-all variants and tuples; there is no separate handwritten rules protocol.
+Protocol 2 exports eight routes. The acting seat receives a
+`Decision<Viewer>` inside observation 57, including its ordered candidates
+and all legal selection constraints. The decision command supplies the token
+and a core `Answer`. Indices refer to the candidate table at that token.
+A validated input retains its original selections across queued departures.
+Priority and payment need one authenticated observation read. The host exports
+Draft7 schemas from Rust for the SDK’s declarations and standalone validators.
 
 Transport counters are canonical bounded u64 decimal strings. Core quantities
 remain exact signed decimal strings, and numeric core fields are restricted to

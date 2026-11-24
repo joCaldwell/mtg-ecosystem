@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import type { SeatResume, PlayerRequest } from '@multiverse/game-server-sdk';
+import type { SeatResume, Decision } from '@multiverse/game-server-sdk';
 import type { PresentationArtifact } from '../generated/presentation.d.ts';
-import opening from '../fixtures/foundations-opening/opening-seat0-http.json' with { type: 'json' };
+import opening from '../fixtures/foundations-opening/opening-seat0.json' with { type: 'json' };
 import presentation from '../fixtures/foundations-opening/presentation.json' with { type: 'json' };
 import pins from '../fixtures/foundations-opening/provenance.json' with { type: 'json' };
 import { inspectDecision, openingFixtureTable } from '../web/src/presentation/opening-fixture.ts';
@@ -69,7 +69,7 @@ test('opening and priority headings describe the current supplied request', () =
   if (resume.state.status !== 'available') assert.fail('expected fixture');
   assert.equal(inspectDecision(resume.state.observation.decision)?.title, 'Opening hand');
   assert.equal(inspectDecision(null), null);
-  const priority: PlayerRequest = { request: 'priority', player: 0, token: 'synthetic-test-token' };
+  const priority: Decision = { reason: {reason:'priority'},candidates:[{candidate:'action',action:{action:'pass'}}],shape:{shape:'pick',slots:[{role:{role:'choice'},subject:null,allowed:[0],min:1,max:1,repeat:false}],rules:[]}, player: 0, token: 'synthetic-test-token' };
   assert.equal(inspectDecision(priority)?.title, 'Priority');
 });
 

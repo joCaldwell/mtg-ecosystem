@@ -15,13 +15,13 @@ import { createNativeLifecycle } from "../server/native-lifecycle.ts";
 
 const identity = { catalog_sha256: "d".repeat(64), profile: "fixture", engine_build_id: "e".repeat(64), server_build_id: "f".repeat(64) };
 const game: GameRecord = { id: "a".repeat(32), identity, deck: { deck_id: 1, revision: 1, cards: [], sha256: "b".repeat(64) }, state: "active", pause: null, outcome: null, created_at: 1, updated_at: 1, human_waiting_since: null, consumers_stopped: false };
-const resume = () => ({ protocol_version: 1, match_id: game.id, viewer: 0, engine_build_id: identity.engine_build_id,
+const resume = () => ({ protocol_version: 2, match_id: game.id, viewer: 0, engine_build_id: identity.engine_build_id,
   server_build_id: identity.server_build_id, catalog_sha256: identity.catalog_sha256, next: "0", state: { status: "pending" }, lifecycle: null, outcome: null });
 const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { "content-type": "application/json" } });
 function fixture(sink?: GameDiagnosticSink) {
   const directory = mkdtempSync(join(tmpdir(), "native-status-diagnostics-"));
   const seat = join(directory, "seat.json"), status = join(directory, "status.json");
-  writeFileSync(seat, JSON.stringify({ protocol_version: 1, bootstrap_version: 1, match_id: game.id, viewer: 0,
+  writeFileSync(seat, JSON.stringify({ protocol_version: 2, bootstrap_version: 1, match_id: game.id, viewer: 0,
     engine_build_id: identity.engine_build_id, server_build_id: identity.server_build_id, catalog_sha256: identity.catalog_sha256,
     server_origin: "http://127.0.0.1:18741", capability: "c".repeat(64) }), { mode: 0o600 });
   const setStatus = (human_decision_token: string | null) => writeFileSync(status, JSON.stringify({ version: 1, human_waiting_since: null, human_decision_token }), { mode: 0o600 });

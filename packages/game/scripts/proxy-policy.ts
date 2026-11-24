@@ -23,7 +23,6 @@ export function readRouteAllowed(method: string | undefined, target: string): bo
 export function apiRouteAllowed(method: string | undefined, target: string): boolean {
   return readRouteAllowed(method, target)
     || (method === 'POST' && /^\/v1\/matches\/[0-9a-f]{1,64}\/commands$/.test(target))
-    || (method === 'POST' && /^\/v1\/matches\/[0-9a-f]{1,64}\/actions\/query$/.test(target))
     || (method === 'POST' && /^\/v1\/matches\/[0-9a-f]{1,64}\/commands\/[0-9a-f]{32}\/cancel$/.test(target))
     || (method === 'GET' && /^\/v1\/matches\/[0-9a-f]{1,64}\/commands\/[0-9a-f]{32}$/.test(target));
 }

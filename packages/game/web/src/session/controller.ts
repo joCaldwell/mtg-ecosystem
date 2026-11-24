@@ -1,7 +1,5 @@
-import type { ActionScope, PublicManifest, SeatResume, StreamPage } from '@multiverse/game-server-sdk';
+import type { PublicManifest, SeatResume, StreamPage } from '@multiverse/game-server-sdk';
 import type { PresentationArtifact } from '../../../generated/presentation.d.ts';
-import { ACTION_QUERY_LIMITS, ActionQueryController, type ActionQueryContext, type ActionQueryEffects, type ActionQuerySnapshot, type ActionQueryTransport } from './action-query.ts';
-import { actionResponse, type LiveActionDraft } from './live-action.ts';
 import type { ExternalStore } from './contracts.ts';
 import { CommandLifecycle, disabledCommand, journalBinding, type CommandContext, type CommandEffects, type CommandSnapshot, type DecisionIntent } from './command.ts';
 import { checkManifest, immutable, resumeRead, streamRead, SessionFailure, type FailureKind, type ReadBinding } from './read-state.ts';
@@ -16,8 +14,7 @@ export interface ReadTransport {
   /** Null means an explicit missing metadata response, never failed validation. */
   presentation(signal: AbortSignal): Promise<PresentationArtifact | null>;
 }
-export interface ActionAuthorization extends Pick<ActionQueryEffects, 'operation' | 'now' | 'classify'> { readonly protocolSchema: string; readonly query: ActionQueryTransport }
-export interface Authorization { readonly actions?: ActionAuthorization; readonly binding: ReadBinding; readonly transport: ReadTransport; readonly commands?: CommandEffects }
+export interface Authorization { readonly binding: ReadBinding; readonly transport: ReadTransport; readonly commands?: CommandEffects }
 export interface SessionEffects<Input> {
   authorize(input: Input, signal: AbortSignal): Promise<Authorization>;
   cancellation(): { readonly signal: AbortSignal; abort(): void };
@@ -27,7 +24,6 @@ export interface SessionEffects<Input> {
 }
 export type Connection = 'idle' | 'importing' | 'owning' | 'blocked' | 'authenticating' | 'pending' | 'ready' | 'retrying' | 'ended' | FailureKind;
 export interface ReadSnapshot {
-  readonly actions: ActionQuerySnapshot | null;
   readonly command: CommandSnapshot;
   readonly connection: Connection;
   readonly binding: ReadBinding | null;
@@ -37,7 +33,7 @@ export interface ReadSnapshot {
   readonly retry: number;
   readonly failure: FailureKind | null;
 }
-const empty = (): ReadSnapshot => immutable({ actions: null, command: disabledCommand(), connection: 'idle', binding: null, read: null, metadata: null, metadataMissing: false, retry: 0, failure: null });
+const empty = (): ReadSnapshot => immutable({ command: disabledCommand(), connection: 'idle', binding: null, read: null, metadata: null, metadataMissing: false, retry: 0, failure: null });
 let nextIncarnation = 0;
 interface VerifiedReads { readonly manifest: PublicManifest; readonly metadata: PresentationArtifact | null }
 interface Run {
@@ -46,13 +42,6 @@ interface Run {
   release: (() => void) | null;
   commands: CommandLifecycle | null;
   commandsBinding?: import('./contracts.ts').JournalBinding;
-  queries: Set<Promise<unknown>>;
-  actionAuthorization?: ActionAuthorization;
-  authorization: object;
-  actions: ActionQueryController | null;
-  queryContext: ActionQueryContext | null;
-  queryCommand: CommandContext | null;
-  draft: LiveActionDraft | null;
   finishing: boolean;
   refresh: boolean;
   incarnation: number;
@@ -65,73 +54,21 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
   #snapshot = empty();
   #listeners = new Set<() => void>();
   #run: Run | null = null;
-  #cleanup: Promise<void> = Promise.resolve();
   #joinIntent = 0;
   constructor(effects: SessionEffects<Input>) { this.#effects = effects; }
   getSnapshot = (): ReadSnapshot => this.#snapshot;
   subscribe = (listener: () => void): (() => void) => { this.#listeners.add(listener); return () => this.#listeners.delete(listener); };
-  #publish(snapshot: ReadSnapshot): void { this.#snapshot = immutable(snapshot); if (this.#run) this.#synchronizeActions(this.#run); for (const listener of this.#listeners) listener(); }
+  #publish(snapshot: ReadSnapshot): void { this.#snapshot = immutable(snapshot); for (const listener of this.#listeners) listener(); }
   #update(patch: Partial<ReadSnapshot>): void { this.#publish({ ...this.#snapshot, ...patch }); }
   #current(run: Run): boolean { return this.#run === run && !run.cancel.signal.aborted; }
-  #synchronizeActions(run: Run): void {
-    const command = this.commandContext();
-    if (JSON.stringify(command) !== JSON.stringify(run.queryCommand)) {
-      run.queryCommand = command;
-      run.queryContext = command && run.actionAuthorization && this.#snapshot.binding ? Object.freeze({ authorization: run.authorization, generation: Object.freeze({}), binding: this.#snapshot.binding, protocolSchema: run.actionAuthorization.protocolSchema, token: command.token }) : null;
-      run.draft = null;
-    }
-    run.actions?.synchronize();
-  }
   #finish(run: Run): void {
     if (run.finishing) return;
     run.finishing = true;
     if (this.#run === run) this.#run = null;
     run.pollCancel?.abort();
-    run.queryContext = null; run.draft = null;
-    const release = () => { run.cancel.abort(); run.release?.(); run.release = null; };
-    // Keep the exclusive lock until captured-SDK cursor cleanup settles. No new
-    // authorization can race a prior owner's cancellation request.
-    if (run.actions) {
-      run.actions.synchronize();
-      this.#cleanup = (async () => {
-        // An older retired generation can reveal its cursor while these
-        // requests settle, registering another cleanup request. Drain the live
-        // set rather than one snapshot before releasing exclusive ownership.
-        for (;;) {
-          await run.actions!.stop();
-          const pending = [...run.queries];
-          if (!pending.length) break;
-          await Promise.allSettled(pending);
-        }
-      })().finally(release);
-    } else release();
-  }
-  startActions = async (scope: ActionScope = { scope: 'window' }): Promise<LiveActionDraft | null> => {
-    const run = this.#run, context = this.commandContext(), query = run?.queryContext;
-    if (!run?.actions || !context || !query || !this.#current(run)) return null;
-    const captured = immutable({ command: context, query, scope: JSON.parse(JSON.stringify(scope)) as ActionScope });
-    const generation = await run.actions.start(query, captured.scope);
-    if (!this.#current(run) || run.queryContext !== query || generation === null || run.actions.getSnapshot().generation !== generation) return null;
-    const draft: LiveActionDraft = Object.freeze({ ...captured, generation });
-    run.draft = draft;
-    return draft;
-  };
-  cancelActions = async (generation: number): Promise<void> => {
-    const run = this.#run;
-    if (!run?.actions || run.actions.getSnapshot().generation !== generation) return;
-    run.draft = null;
-    await run.actions.cancel(generation);
-  };
-  submitAction = async (draft: LiveActionDraft, index: number): Promise<void> => {
-    const run = this.#run, actions = run?.actions?.getSnapshot();
-    if (!run || run.draft !== draft || run.queryContext !== draft.query || !actions || actions.generation !== draft.generation
-      || actions.phase !== 'complete' || JSON.stringify(actions.scope) !== JSON.stringify(draft.scope)) return;
-    const beginning = actions.beginnings[index];
-    const response = beginning && actionResponse(beginning, actions.context, draft.scope);
-    if (!response) return;
-    // The normal gate revalidates ORIGINAL command context, persists exact SDK
-    // bytes and only then submits. No callback may obtain a replacement context.
-    await this.submitIntent({ kind: 'decision', source: 'human', context: draft.command, response });
+    run.cancel.abort();
+    run.release?.();
+    run.release = null;
   };
   commandContext = (): CommandContext | null => {
     const run = this.#run, snapshot = this.#snapshot;
@@ -150,57 +87,19 @@ export class ReadSession<Input> implements ExternalStore<ReadSnapshot> {
   join = async (input: Input): Promise<void> => {
     this.stop();
     const intent = this.#joinIntent;
-    await this.#cleanup;
     if (intent !== this.#joinIntent) return;
-    const run: Run = { cancel: this.#effects.cancellation(), pollCancel: null, release: null, commands: null, queries: new Set(), actions: null, authorization: Object.freeze({}), queryContext: null, queryCommand: null, draft: null, finishing: false, refresh: false, incarnation: ++nextIncarnation };
+    const run: Run = { cancel: this.#effects.cancellation(), pollCancel: null, release: null, commands: null, finishing: false, refresh: false, incarnation: ++nextIncarnation };
     this.#run = run;
     this.#update({ connection: 'importing' });
     const signal = run.cancel.signal;
     try {
-      const { binding, transport, commands, actions } = await this.#effects.authorize(input, signal);
+      const { binding, transport, commands } = await this.#effects.authorize(input, signal);
       if (!this.#current(run)) return;
       this.#update({ connection: 'owning', binding });
       const release = await this.#effects.acquire(binding, signal);
       if (!this.#current(run)) { release?.(); return; }
       if (!release) { this.#update({ connection: 'blocked' }); return; }
       run.release = release;
-      if (actions && commands && actions.protocolSchema === commands.protocol) {
-        run.actionAuthorization = actions;
-        run.actions = new ActionQueryController({ ...actions, wait: this.#effects.wait,
-          current: () => this.#current(run) ? run.queryContext : null,
-          authorize: context => context.authorization === run.authorization ? (request, querySignal) => {
-            if (!run.release) return Promise.reject(new SessionFailure('disconnected'));
-            const operation = actions.operation(ACTION_QUERY_LIMITS.requestMs), cancel = this.#effects.cancellation();
-            const abort = () => cancel.abort();
-            for (const signal of [querySignal, operation.signal]) {
-              if (signal.aborted) abort();
-              signal.addEventListener('abort', abort, { once: true });
-            }
-            // Register before calling injected transport, which can synchronously
-            // stop/replace its owner. Cleanup alone may use a retired owner.
-            const response = Promise.resolve().then(async () => {
-              // Keep the single cleanup request inside both existing deadlines
-              // and track its wait before the old seat can release ownership.
-              const cooldown = request.operation === 'cancel' ? Math.ceil(transport.retryAfter?.() ?? 0) : 0;
-              if (Number.isFinite(cooldown) && cooldown > 0) {
-                if (cooldown >= ACTION_QUERY_LIMITS.requestMs) throw new SessionFailure('rate-limited');
-                await this.#effects.wait(cooldown, cancel.signal);
-              }
-              if (!run.release || cancel.signal.aborted || (request.operation !== 'cancel'
-                && (!this.#current(run) || run.queryContext?.generation !== context.generation))) throw new SessionFailure('disconnected');
-              return actions.query(request, cancel.signal);
-            });
-            const pending = Promise.race([response, operation.expired.then(() => { cancel.abort(); throw new SessionFailure('disconnected'); })]);
-            run.queries.add(pending);
-            void pending.finally(() => {
-              operation.dispose();
-              querySignal.removeEventListener('abort', abort); operation.signal.removeEventListener('abort', abort);
-              run.queries.delete(pending);
-            }).catch(() => {});
-            return pending;
-          } : null });
-        run.actions.subscribe(() => { if (this.#current(run)) this.#update({ actions: run.actions!.getSnapshot() }); });
-      }
       let initialized = false;
       // Only a command refresh in this original authorization may reuse these
       // verified immutable reads. Reconnects invalidate them before retrying.

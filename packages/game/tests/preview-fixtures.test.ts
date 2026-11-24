@@ -14,7 +14,7 @@ test('public preview gate verifies the unchanged qualified capture without SDK g
 test('public preview gate rejects altered capture and presentation bytes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multiverse-preview-fixtures-'));
   try {
-    for (const name of ['opening-seat0-http.json', 'presentation.json']) {
+    for (const name of ['opening-seat0.json', 'presentation.json']) {
       const fixture = join(root, name.replace('.json', ''));
       await cp(source, fixture, { recursive: true });
       await writeFile(join(fixture, name), `${await readFile(join(fixture, name), 'utf8')} `);

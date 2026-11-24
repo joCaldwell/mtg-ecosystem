@@ -9,5 +9,5 @@ test('decision inventory matches qualified wire schemas, web request switches an
   assert.equal(OBSERVATION_VERSION, pins.observation_version);
   // Read-only public-artifact verification. No generator, installs or Cargo.
   const output = execFileSync(process.execPath, [new URL('../scripts/decision-inventory.mjs', import.meta.url).pathname], { encoding: 'utf8' });
-  assert.match(output, /Qualified inventory: 35 requests, 43 responses; 23 local adapters/);
+  assert.match(output, /Qualified inventory: 5 shapes, 5 answers/);
 });

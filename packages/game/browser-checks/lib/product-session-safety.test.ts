@@ -33,9 +33,9 @@ test("query429 exception cannot swallow native unsupported, auth, other HTTP fai
 });
 
 test("observed submit429/execution404 permits only the saved SDK bytes and resolves once after consumed", () => {
-  const command = prepareCommand({ protocol_version: 1, command_id: "a".repeat(32), expected_revision: "7",
-    command: { kind: "decision", token: "v0-d0", response: { response: "finish_mana", undo_mana: true } } });
-  const original = { revision: "7", token: "v0-d0", binding: { match: "private-fixture", seat: "0" }, response: { response: "finish_mana", undo_mana: true } };
+  const command = prepareCommand({ protocol_version: 2, command_id: "a".repeat(32), expected_revision: "7",
+    command: { kind: "decision", token:"v0-d0",answer:{answer:"pay",pay:{step:"finish",undo_on_failure:true}} } });
+  const original = { revision: "7", token: "v0-d0", binding: { match: "private-fixture", seat: "0" }, response: {answer:"pay",pay:{step:"finish",undo_on_failure:true}} };
   const ledger = new SubmissionAudit<typeof original>();
   const id = command.envelope.command_id;
   assert.equal(ledger.attempt(id, command.exactBody, original).replay, false);
@@ -47,7 +47,7 @@ test("observed submit429/execution404 permits only the saved SDK bytes and resol
   const replay = ledger.attempt(id, command.exactBody);
   assert.equal(replay.replay, true); assert.equal(replay.original.token, "v0-d0");
   assert.equal(parsePreparedCommand(command.exactBody).envelope.expected_revision, replay.original.revision);
-  assert.deepEqual(replay.original.response, { response: "finish_mana", undo_mana: true });
+  assert.deepEqual(replay.original.response, {answer:"pay",pay:{step:"finish",undo_on_failure:true}});
   assert.deepEqual(replay.original.binding, { match: "private-fixture", seat: "0" });
   ledger.accepted(id); assert.throws(() => ledger.resolve(id), /unproven_command_resolution/);
   ledger.consumed(id); ledger.consumed(id); ledger.resolve(id);

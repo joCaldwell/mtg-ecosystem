@@ -5,7 +5,7 @@ import { decodeRecord, storedRecord, JournalFailure } from '../web/src/session/j
 import { IndexedDBCommandJournal } from '../web/src/session/effects/command-journal.ts';
 const codec = { prepare: prepareCommand, parse: parsePreparedCommand };
 const binding = { origin: 'http://127.0.0.1:80', match: 'a1', seat: '0', engineBuild: '1'.repeat(64), serverBuild: '2'.repeat(64), catalog: '3'.repeat(64), protocol: '4'.repeat(64) };
-const prepared = prepareCommand({ protocol_version: 1, command_id: 'a'.repeat(32), expected_revision: '1', command: { kind: 'decision', token: 'v0-d0', response: { response: 'mulligan', take: false } } });
+const prepared = prepareCommand({ protocol_version: 2, command_id: 'a'.repeat(32), expected_revision: '1', command: { kind: 'decision', token: 'v0-d0', answer: { answer: 'pick', picks: [[0]] } } });
 const stored = { version: 1, binding, exactBody: prepared.exactBody };
 const corrupt = (value: unknown) => assert.throws(() => decodeRecord(value, codec), (error: unknown) => error instanceof JournalFailure && error.kind === 'corrupt');
 

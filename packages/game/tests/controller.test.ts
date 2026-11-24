@@ -8,7 +8,7 @@ import { ReadSession, type Authorization, type SessionEffects, type ReadTranspor
 import { checkManifest, resumeRead, streamRead, SessionFailure, type ReadBinding } from '../web/src/session/read-state.ts';
 
 const original = opening.resume as SeatResume;
-const binding: ReadBinding = { protocol_version: 1, server_origin: 'http://127.0.0.1:18741', match_id: original.match_id, viewer: 0, engine_build_id: original.engine_build_id, server_build_id: original.server_build_id, catalog_sha256: original.catalog_sha256 };
+const binding: ReadBinding = { protocol_version: 2, server_origin: 'http://127.0.0.1:18741', match_id: original.match_id, viewer: 0, engine_build_id: original.engine_build_id, server_build_id: original.server_build_id, catalog_sha256: original.catalog_sha256 };
 // Only identity is consumed from the manifest by the session. SDK schema validation
 // owns the actual wire catalog. This is explicitly an injected controller double.
 const manifest = { ...binding, profile: opening.profile } as unknown as PublicManifest;
@@ -47,7 +47,7 @@ test('one lock precedes all reads, stable immutable snapshots, one bounded polli
   assert.equal(r.stats().polls, 0);
   r.sleeps[0]!.done.resolve(); await flush();
   assert.equal(r.stats().polls, 1);
-  r.pollResults[0]!.resolve({ protocol_version: 1, entries: [], next: '1', has_more: false }); await flush();
+  r.pollResults[0]!.resolve({ protocol_version: 2, entries: [], next: '1', has_more: false }); await flush();
   assert.equal(r.stats().polls, 1, 'even an immediate empty response must wait');
   r.controller.stop(); r.controller.stop();
   r.sleeps[1]!.done.resolve(); await running;
@@ -82,7 +82,7 @@ test('seat switch fences late authorization, resume, polling and old cleanup', a
     if (stage === 'poll') { r.sleeps[0]!.done.resolve(); await flush(); }
     r.effects.authorize = async () => { throw new SessionFailure('invalid-file'); };
     await r.controller.join('new-seat');
-    late.resolve(stage === 'authorize' ? { binding, transport: r.transport } : stage === 'resume' ? original : { protocol_version: 1, entries: [], next: '1', has_more: false });
+    late.resolve(stage === 'authorize' ? { binding, transport: r.transport } : stage === 'resume' ? original : { protocol_version: 2, entries: [], next: '1', has_more: false });
     await old;
     assert.equal(r.controller.getSnapshot().connection, 'invalid-file', stage);
     assert.equal(r.controller.getSnapshot().read, null, stage);
@@ -96,7 +96,7 @@ test('StrictMode-like cleanup and restart do not leave two active loops', async 
   assert.equal(r.controller.getSnapshot().connection, 'ready');
   assert.equal(r.stats().releases, 1); assert.equal(r.stats().polls, 0);
   r.sleeps[1]!.done.resolve(); await flush();
-  r.controller.stop(); r.pollResults[0]!.resolve({ protocol_version: 1, entries: [], next: '1', has_more: false }); await second;
+  r.controller.stop(); r.pollResults[0]!.resolve({ protocol_version: 2, entries: [], next: '1', has_more: false }); await second;
   assert.equal(r.stats().releases, 2); assert.equal(r.stats().polls, 1);
 });
 
@@ -105,7 +105,7 @@ test('every identity field, profile, viewer and observation version fail closed'
     assert.throws(() => checkManifest(binding, { ...manifest, [key]: 'different' }), SessionFailure);
     assert.throws(() => resumeRead(binding, null, { ...original, [key]: 'different' }), SessionFailure);
   }
-  assert.throws(() => checkManifest(binding, { ...manifest, protocol_version: 2 }), SessionFailure);
+  assert.throws(() => checkManifest(binding, { ...manifest, protocol_version: 1 }), SessionFailure);
   assert.throws(() => checkManifest(binding, { ...manifest, profile: 'unreviewed' }), SessionFailure);
   assert.throws(() => resumeRead(binding, null, { ...original, viewer: 1 }), SessionFailure);
   for (const patch of [{ observation_version: 99 }, { view: { ...(original.state.status === 'available' ? original.state.observation.view : {}), viewer: 1 } }]) {
@@ -119,10 +119,10 @@ test('pending and lifecycle-only resume preserve observations; entire stream pag
   const current = resumeRead(binding, null, structuredClone(original));
   const paused = resumeRead(binding, current, { ...current, next: '2', state: { status: 'pending' }, lifecycle: { status: 'resource_paused' } });
   assert.equal(paused.state, current.state); assert.equal(paused.next, '2');
-  const ended = streamRead(binding, paused, { protocol_version: 1, entries: [{ cursor: '3', publication: { kind: 'lifecycle', status: { status: 'faulted' } } }, { cursor: '4', publication: { kind: 'outcome', result: { outcome: 'win', player: 2 } } }], next: '4', has_more: false });
+  const ended = streamRead(binding, paused, { protocol_version: 2, entries: [{ cursor: '3', publication: { kind: 'lifecycle', status: { status: 'faulted' } } }, { cursor: '4', publication: { kind: 'outcome', result: { outcome: 'win', player: 2 } } }], next: '4', has_more: false });
   assert.equal(ended.state, current.state); assert.equal(ended.outcome?.outcome, 'win');
   assert.equal(paused.next, '2'); assert.equal(paused.outcome, null);
-  assert.throws(() => streamRead(binding, paused, { protocol_version: 1, entries: [{ cursor: '3', publication: { kind: 'lifecycle', status: { status: 'faulted' } } }], next: '4', has_more: false }), SessionFailure);
+  assert.throws(() => streamRead(binding, paused, { protocol_version: 2, entries: [{ cursor: '3', publication: { kind: 'lifecycle', status: { status: 'faulted' } } }], next: '4', has_more: false }), SessionFailure);
   assert.throws(() => resumeRead(binding, paused, original), SessionFailure);
 });
 
@@ -133,7 +133,7 @@ test('pending, missing metadata, host pause/fault and rules outcome have distinc
   assert.equal(r.controller.getSnapshot().metadataMissing, true);
   assert.equal(r.controller.getSnapshot().read?.outcome, null);
   r.sleeps[0]!.done.resolve(); await flush();
-  r.pollResults[0]!.resolve({ protocol_version: 1, entries: [{ cursor: '2', publication: { kind: 'outcome', result: { outcome: 'draw' } } }], next: '2', has_more: false }); await running;
+  r.pollResults[0]!.resolve({ protocol_version: 2, entries: [{ cursor: '2', publication: { kind: 'outcome', result: { outcome: 'draw' } } }], next: '2', has_more: false }); await running;
   assert.equal(r.controller.getSnapshot().connection, 'ended'); assert.equal(r.stats().releases, 1);
 });
 
@@ -177,7 +177,7 @@ test('hinted 429s preserve newly verified recovery stages without renewing the r
   const r = rig({ retryAfter: () => cooldown });
   const running = r.controller.join('seat0'); await flush();
   const initial = r.controller.getSnapshot();
-  const emptyPage: StreamPage = { protocol_version: 1, entries: [], next: original.next, has_more: false };
+  const emptyPage: StreamPage = { protocol_version: 2, entries: [], next: original.next, has_more: false };
   let sleep = 0;
   const wake = async (milliseconds: number) => {
     const wait = r.sleeps[sleep++]!;
@@ -265,7 +265,7 @@ test('only successful polling after an explicit cooldown renews the rate-limit r
       assert.equal(r.sleeps[sleep]!.milliseconds, hinted ? 35_000 : 500 * 2 ** cycle);
       r.sleeps[sleep++]!.done.resolve(); await flush();
       r.sleeps[sleep++]!.done.resolve(); await flush();
-      r.pollResults[poll++]!.resolve({ protocol_version: 1, entries: [], next: original.next, has_more: false }); await flush();
+      r.pollResults[poll++]!.resolve({ protocol_version: 2, entries: [], next: original.next, has_more: false }); await flush();
       assert.equal(r.controller.getSnapshot().connection, 'ready');
     }
     if (hinted) { r.controller.stop(); r.sleeps[sleep]!.done.resolve(); }
@@ -384,7 +384,7 @@ test('a foreign-view replacement rejects the whole page after earlier valid life
   const observation = view.state.observation;
   const current = resumeRead(binding, null, structuredClone(original));
   assert.throws(() => streamRead(binding, current, {
-    protocol_version: 1, entries: [
+    protocol_version: 2, entries: [
       { cursor: '2', publication: { kind: 'lifecycle', status: { status: 'resource_paused' } } },
       { cursor: '3', publication: { kind: 'view_replaced', observation } },
     ], next: '3', has_more: false,

@@ -9,7 +9,7 @@ import { browserCommandSession } from '../web/src/session/effects/browser.ts';
 // options, rather than calling a cookie wrapper in isolation.
 const catalog = JSON.parse(readFileSync(new URL('../../game-engine/tests/fixtures/expected-match-ir.json', import.meta.url), 'utf8'));
 const deck = { commander: catalog.definitions[0].oracle_id, cards: [{ oracle_id: catalog.definitions[0].oracle_id, count: 99 }] };
-const identity = { protocol_version: 1, match_id: opening.resume.match_id,
+const identity = { protocol_version: 2, match_id: opening.resume.match_id,
   engine_build_id: opening.resume.engine_build_id, server_build_id: opening.resume.server_build_id,
   catalog_sha256: opening.resume.catalog_sha256 };
 const origin = 'http://127.0.0.1:18741';
@@ -55,7 +55,7 @@ test('account-scoped config and SDK reads use host transport if supplied; standa
       if (url.pathname.endsWith('/resume')) return json(opening.resume);
       if (url.pathname.endsWith('/events')) {
         queueMicrotask(() => session.stop());
-        return json({ protocol_version: 1, next: opening.resume.next, entries: [], has_more: false });
+        return json({ protocol_version: 2, next: opening.resume.next, entries: [], has_more: false });
       }
       throw new Error('Unexpected SDK route');
     };
@@ -105,7 +105,7 @@ test('actual SDK read 429 supplies an authorization-local Retry-After cooldown w
       if (url.pathname.endsWith('/events')) {
         if (++polls === 1) return json({}, 429, { 'Retry-After': '35' });
         queueMicrotask(() => session.stop());
-        return json({ protocol_version: 1, next: opening.resume.next, entries: [], has_more: false });
+        return json({ protocol_version: 2, next: opening.resume.next, entries: [], has_more: false });
       }
       throw new Error('Unexpected SDK route');
     });

@@ -6,7 +6,7 @@ import ts from 'typescript';
 const root = fileURLToPath(new URL('../web/src/', import.meta.url));
 const seen = new Set<string>();
 const allowedSource = /^(?:preview\/|presentation\/opening-fixture\.ts$|features\/decisions\/(?:DecisionPanel|LocalControls)\.tsx$|decisions\/)/;
-const permittedFixtures = new Set(['../../fixtures/foundations-opening/opening-seat0-http.json', '../../fixtures/foundations-opening/presentation.json']);
+const permittedFixtures = new Set(['../../fixtures/foundations-opening/opening-seat0.json', '../../fixtures/foundations-opening/presentation.json']);
 async function visit(file: string): Promise<void> {
   if (seen.has(file)) return;
   seen.add(file);

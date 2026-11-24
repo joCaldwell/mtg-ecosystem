@@ -1,4 +1,4 @@
-import type { CommandEnvelope, CommandExecution, PlayerResponse, RejectionReason, SubmissionResult } from '@multiverse/game-server-sdk';
+import type { CommandEnvelope, CommandExecution, Answer, RejectionReason, SubmissionResult } from '@multiverse/game-server-sdk';
 import type { CommandJournal, DefinitiveDisposition, JournalBinding, JournalRecord } from './contracts.ts';
 import { JournalFailure, sameBinding, type CommandCodec, type JournalFailureKind } from './journal.ts';
 import { immutable } from './read-state.ts';
@@ -15,7 +15,7 @@ export interface DecisionIntent {
   readonly kind: 'decision';
   readonly source: 'human';
   readonly context: CommandContext;
-  readonly response: PlayerResponse;
+  readonly response: Answer;
 }
 export interface CommandTransport {
   submitExact(exactBody: string, signal: AbortSignal): Promise<SubmissionResult>;
@@ -116,7 +116,7 @@ export class CommandLifecycle {
     try {
       if (!this.#active()) return;
       const prepared = this.#effects.codec.prepare({ protocol_version: this.#effects.protocolVersion, command_id: this.#effects.newId(), expected_revision: intent.context.revision,
-        command: { kind: 'decision', token: intent.context.token, response: intent.response } });
+        command: { kind: 'decision', token: intent.context.token, answer: intent.response } });
       const record: JournalRecord<CommandEnvelope> = immutable({ version: 1, binding: this.#binding, ...prepared });
       if (!this.#active()) return;
       await this.#effects.journal.persist(record);
