@@ -331,15 +331,14 @@ impl Strategy<'_> {
                 let legal_attackers = slots
                     .iter()
                     .map(|slot| {
-                        Ok(mtg_core::LegalBlockers {
-                            blocker: object(slot.subject.ok_or("missing blocker")?)?,
-                            attackers: slot
-                                .allowed
+                        Ok((
+                            object(slot.subject.ok_or("missing blocker")?)?,
+                            slot.allowed
                                 .iter()
                                 .copied()
                                 .map(object)
-                                .collect::<Result<_, _>>()?,
-                        })
+                                .collect::<Result<Vec<_>, _>>()?,
+                        ))
                     })
                     .collect::<Result<Vec<_>, String>>()?;
                 let menace_attackers = rules
@@ -358,15 +357,14 @@ impl Strategy<'_> {
                 let mut blocks = vec![];
                 let mut blocked = Vec::new();
                 if self.policy == Policy::Develop {
-                    for hint in &legal_attackers {
+                    for (blocker_handle, attackers) in &legal_attackers {
                         let blocker = v
                             .objects
                             .iter()
-                            .find(|o| o.handle == hint.blocker)
+                            .find(|o| &o.handle == blocker_handle)
                             .ok_or("missing public blocker")?;
                         let bd = definition(self.catalog, &blocker.oracle_id).ok();
-                        let bd_keywords = { Some(blocker.keywords.as_slice()) }
-                            .ok_or("missing public blocker keywords")?;
+                        let bd_keywords = blocker.keywords.as_slice();
                         let toughness = blocker
                             .characteristics
                             .as_ref()
@@ -375,7 +373,7 @@ impl Strategy<'_> {
                             .toughness
                             .as_ref()
                             .ok_or("missing blocker toughness")?;
-                        for attacker in &hint.attackers {
+                        for attacker in attackers {
                             if blocked.contains(attacker) {
                                 continue;
                             }
@@ -385,8 +383,7 @@ impl Strategy<'_> {
                                 .find(|o| &o.handle == attacker)
                                 .ok_or("missing public attacker")?;
                             let ad = definition(self.catalog, &a.oracle_id).ok();
-                            let ad_keywords = { Some(a.keywords.as_slice()) }
-                                .ok_or("missing public attacker keywords")?;
+                            let ad_keywords = a.keywords.as_slice();
                             let power = a
                                 .characteristics
                                 .as_ref()
@@ -405,7 +402,7 @@ impl Strategy<'_> {
                             if survives
                                 || bd_keywords.contains(&mtg_contracts::KeywordAbility::Deathtouch)
                             {
-                                blocks.push((hint.blocker.clone(), attacker.clone()));
+                                blocks.push((blocker_handle.clone(), attacker.clone()));
                                 blocked.push(attacker.clone());
                                 break;
                             }
@@ -416,11 +413,13 @@ impl Strategy<'_> {
                 // blocker, or withdraw the singleton. Observation/catalog only.
                 for attacker in &menace_attackers {
                     if blocks.iter().filter(|(_, a)| a == attacker).count() == 1 {
-                        if let Some(hint) = legal_attackers.iter().find(|h| {
-                            h.attackers.contains(attacker)
-                                && !blocks.iter().any(|(b, _)| b == &h.blocker)
-                        }) {
-                            blocks.push((hint.blocker.clone(), attacker.clone()));
+                        if let Some((blocker_handle, _)) =
+                            legal_attackers.iter().find(|(blocker, allowed)| {
+                                allowed.contains(attacker)
+                                    && !blocks.iter().any(|(b, _)| b == blocker)
+                            })
+                        {
+                            blocks.push((blocker_handle.clone(), attacker.clone()));
                         } else {
                             blocks.retain(|(_, a)| a != attacker);
                         }
@@ -430,10 +429,10 @@ impl Strategy<'_> {
                 Answer::Pick {
                     picks: legal_attackers
                         .iter()
-                        .map(|hint| {
+                        .map(|(blocker_handle, _)| {
                             blocks
                                 .iter()
-                                .find(|(b, _)| *b == hint.blocker)
+                                .find(|(b, _)| b == blocker_handle)
                                 .and_then(|(_, a)| {
                                     d.index(&Candidate::Object { object: a.clone() })
                                 })

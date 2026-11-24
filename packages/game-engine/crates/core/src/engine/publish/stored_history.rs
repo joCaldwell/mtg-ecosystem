@@ -95,8 +95,7 @@ pub struct StoredStack {
     tail: Option<Arc<StackNode>>,
     len: usize,
 }
-type StackRow =
-    VisibleStackEntry<super::HandleId<b's'>, super::StoredObjectHandle, super::HandleId<b'e'>>;
+type StackRow = VisibleStackEntry<super::HandleId<b's'>, super::StoredObjectHandle>;
 struct StackNode {
     value: StackRow,
     previous: StoredStack,

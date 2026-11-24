@@ -11,13 +11,6 @@ use super::{HandleId, stored_history::StoredPermittedView};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct ObjectHandle(pub String);
-/// Public declaration hints, scoped to current attacker/blocker handles.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct LegalBlockers {
-    pub blocker: ObjectHandle,
-    pub attackers: Vec<ObjectHandle>,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct StackHandle(pub String);
@@ -52,73 +45,29 @@ pub struct TriggerHandle(pub String);
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 #[schemars(rename = "VisibleTriggerAbility")]
-#[serde(bound(deserialize = "O: Deserialize<'de>, E: Deserialize<'de>"))]
-pub enum VisibleTriggerAbility<O = ObjectHandle, E = EffectHandle> {
-    Intrinsic {
-        index: u32,
-    },
-    Granted {
-        source: VisibleTarget<O>,
-        oracle_id: String,
-        static_ability_index: u32,
-    },
-    TemporaryGrant {
-        source: VisibleTarget<O>,
-        oracle_id: String,
-        triggered_ability_index: u32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        effect: Option<E>,
-    },
-}
-impl<O, E> VisibleTriggerAbility<O, E> {
-    fn convert<T: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
-        self,
-    ) -> VisibleTriggerAbility<T, F> {
-        match self {
-            Self::Intrinsic { index } => VisibleTriggerAbility::Intrinsic { index },
-            Self::Granted {
-                source,
-                oracle_id,
-                static_ability_index,
-            } => VisibleTriggerAbility::Granted {
-                source: source.convert(),
-                oracle_id,
-                static_ability_index,
-            },
-            Self::TemporaryGrant {
-                source,
-                oracle_id,
-                triggered_ability_index,
-                effect,
-            } => VisibleTriggerAbility::TemporaryGrant {
-                source: source.convert(),
-                oracle_id,
-                triggered_ability_index,
-                effect: effect.as_ref().map(F::from),
-            },
-        }
-    }
+pub enum VisibleTriggerAbility {
+    Intrinsic { index: u32 },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "VisibleTriggered")]
-#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>, E: Deserialize<'de>"))]
-pub struct VisibleTriggered<H = StackHandle, O = ObjectHandle, E = EffectHandle> {
+#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>"))]
+pub struct VisibleTriggered<H = StackHandle, O = ObjectHandle> {
     pub handle: H,
     pub source: VisibleTarget<O>,
     pub oracle_id: String,
-    pub ability: VisibleTriggerAbility<O, E>,
+    pub ability: VisibleTriggerAbility,
 }
-impl<H, O, E> VisibleTriggered<H, O, E> {
-    pub(super) fn map_handles<T, P: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
+impl<H, O> VisibleTriggered<H, O> {
+    pub(super) fn map_handles<T, P: for<'a> From<&'a O>>(
         self,
         mut convert: impl FnMut(H) -> T,
-    ) -> VisibleTriggered<T, P, F> {
+    ) -> VisibleTriggered<T, P> {
         VisibleTriggered {
             handle: convert(self.handle),
             source: self.source.convert(),
             oracle_id: self.oracle_id,
-            ability: self.ability.convert(),
+            ability: self.ability,
         }
     }
 }
@@ -305,8 +254,8 @@ impl<O> VisibleEntityTarget<O> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "VisibleStackEntry")]
-#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>, E: Deserialize<'de>"))]
-pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle> {
+#[serde(bound(deserialize = "H: Deserialize<'de>, O: Deserialize<'de>"))]
+pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_additional_costs: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -316,7 +265,7 @@ pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_value: Option<Quantity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub triggered: Option<VisibleTriggered<H, O, E>>,
+    pub triggered: Option<VisibleTriggered<H, O>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entity_targets: Vec<VisibleEntityTarget<O>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -334,11 +283,11 @@ pub struct VisibleStackEntry<H = StackHandle, O = ObjectHandle, E = EffectHandle
     pub spell_copy: bool,
     pub targets: Vec<VisibleTarget<O>>,
 }
-impl<H, O, E> VisibleStackEntry<H, O, E> {
-    pub(super) fn map_handles<T, P: for<'a> From<&'a O>, F: for<'a> From<&'a E>>(
+impl<H, O> VisibleStackEntry<H, O> {
+    pub(super) fn map_handles<T, P: for<'a> From<&'a O>>(
         self,
         mut convert: impl FnMut(H) -> T,
-    ) -> VisibleStackEntry<T, P, F> {
+    ) -> VisibleStackEntry<T, P> {
         VisibleStackEntry {
             selected_additional_costs: self.selected_additional_costs,
             x: self.x,
@@ -838,9 +787,7 @@ impl RulesTxn {
         })
     }
 
-    fn visible_trigger_ability<O, E>(
-        ability: EffectiveTriggerAbility,
-    ) -> VisibleTriggerAbility<O, E> {
+    fn visible_trigger_ability(ability: EffectiveTriggerAbility) -> VisibleTriggerAbility {
         match ability {
             EffectiveTriggerAbility::Intrinsic { index } => {
                 VisibleTriggerAbility::Intrinsic { index }
@@ -1228,12 +1175,11 @@ impl RulesTxn {
     fn project_stack_entry<
         H: for<'a> From<&'a HandleId<b's'>>,
         O: for<'a> From<&'a HandleId<b'o'>>,
-        E: for<'a> From<&'a HandleId<b'e'>>,
     >(
         &self,
         viewer: PlayerId,
         index: usize,
-    ) -> Result<VisibleStackEntry<H, O, E>, String> {
+    ) -> Result<VisibleStackEntry<H, O>, String> {
         let instance = self
             .state
             .rules

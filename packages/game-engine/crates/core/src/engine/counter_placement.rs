@@ -4,12 +4,6 @@
 //! batch. Costs and their reversal are separate.
 use super::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CounterPlacementEffectKey {
-    pub source: ObjectId,
-    pub ability: u32,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CounterPlacementMember {
@@ -23,14 +17,6 @@ pub struct CounterPlacementTransaction {
     pub members: Vec<CounterPlacementMember>,
     pub cause: BatchCause,
     pub frame: Box<Resolving>,
-}
-/// A viewer's public provider reference plus the definition's ability index.
-/// Decision tokens bind it to one exact instruction and applied prefix.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct CounterPlacementEffectHandle {
-    pub source: ObjectHandle,
-    pub ability: u32,
 }
 impl RulesTxn {
     pub(super) fn begin_counter_placement(
