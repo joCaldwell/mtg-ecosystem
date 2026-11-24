@@ -7,6 +7,16 @@ use mtg_contracts::{Catalog, Color, HybridPayment, ManaProduction, Quantity};
 use mtg_view::*;
 use std::collections::HashMap;
 
+/// Fixed number of object, stack and remembered-library rows in each observation.
+pub const MAX_ENTITIES: usize = 256;
+
+/// A frame can only be exposed if every entity and every candidate has a row.
+pub fn fits_layout(view: &PermittedView, decision: &Decision<Viewer>) -> bool {
+    view.objects.len() + view.stack.len() + view.known_library_positions.len() <= MAX_ENTITIES
+        && decision.candidates.len() <= action::STOP
+        && view.players.len() <= 4
+}
+
 pub fn int(q: &Quantity) -> i32 {
     if let Some(n) = q.to_u32() {
         return i32::try_from(n).unwrap_or(i32::MAX);
@@ -71,9 +81,9 @@ pub fn number_bound(c: &Catalog, v: &PermittedView) -> i32 {
 pub struct Row {
     pub globals: [i32; 48],
     pub players: [[i32; 24]; 4],
-    pub ent_int: [[i32; 10]; 256],
-    pub ent_num: [[i32; 24]; 256],
-    pub ent_mask: [u8; 256],
+    pub ent_int: [[i32; 10]; MAX_ENTITIES],
+    pub ent_num: [[i32; 24]; MAX_ENTITIES],
+    pub ent_mask: [u8; MAX_ENTITIES],
     pub cand: [[i32; 6]; 128],
     pub ptr_mask: [u8; 131],
     pub num_mask: [u8; 64],
@@ -88,9 +98,9 @@ impl Default for Row {
         Self {
             globals: [0; 48],
             players: [[0; 24]; 4],
-            ent_int: [[-1; 10]; 256],
-            ent_num: [[0; 24]; 256],
-            ent_mask: [0; 256],
+            ent_int: [[-1; 10]; MAX_ENTITIES],
+            ent_num: [[0; 24]; MAX_ENTITIES],
+            ent_mask: [0; MAX_ENTITIES],
             cand: [[-1; 6]; 128],
             ptr_mask: [0; 131],
             num_mask: [0; 64],
@@ -124,12 +134,11 @@ pub fn encode(
     let v = &o.view;
     let d = o.decision.as_ref().ok_or("expected viewer decision")?;
     let relative = |p: PlayerId| i32::from((p.0 + 4 - v.viewer.0) % 4);
-    if d.candidates.len() > 128
-        || funding.len() != d.candidates.len()
-        || v.players.len() > 4
-        || v.objects.len() + v.stack.len() + v.known_library_positions.len() > 256
-    {
-        return Err("observation exceeds tensor capacity or funding length mismatch".into());
+    if !fits_layout(v, d) {
+        return Err("permitted view exceeds tensor capacity".into());
+    }
+    if funding.len() != d.candidates.len() {
+        return Err("funding table length mismatch".into());
     }
     let mut r = Row {
         head: choices.numeric as u8,

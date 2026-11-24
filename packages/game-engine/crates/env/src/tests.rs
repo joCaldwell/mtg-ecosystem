@@ -370,18 +370,33 @@ fn random_mask_soundness() {
         let mut rng = seed ^ 0x9c46bb824fecab71;
         let mut action = None;
         let mut steps = 0;
+        let mut episode = 0;
         loop {
             let row = lane
                 .run(&source, Config::default(), action)
                 .unwrap_or_else(|e| panic!("seed {seed} step {steps}: {e}"));
             assert_eq!(row.info[0], 0);
             if row.done != 0 {
-                assert_eq!(row.info[2], 0, "seed {seed}: censored at step {steps}");
-                println!(
-                    "random seed={seed} decisions={} microsteps={steps} illegal=0",
-                    row.info[3]
-                );
-                break;
+                if row.info[2] != game::CensorClass::None as i32 {
+                    assert_eq!(
+                        row.info[2],
+                        game::CensorClass::TensorCapacity as i32,
+                        "seed {seed} episode {episode}: unexpected censor"
+                    );
+                    assert_eq!(row.reward, [0; 4]);
+                    println!(
+                        "censored seed={seed} episode={episode} decisions={} microsteps={steps} class={} illegal=0",
+                        row.info[3], row.info[2]
+                    );
+                    episode += 1;
+                    steps = 0;
+                } else {
+                    println!(
+                        "random seed={seed} episode={episode} decisions={} microsteps={steps} illegal=0",
+                        row.info[3]
+                    );
+                    break;
+                }
             }
             let mask = if row.head == 0 {
                 row.ptr_mask.as_slice()
@@ -392,4 +407,33 @@ fn random_mask_soundness() {
             steps += 1;
         }
     }
+}
+
+#[test]
+fn tensor_capacity_resets_with_zero_reward_and_no_rejected_answer() {
+    let source = Source::load(PROFILE, &[], None).unwrap();
+    let mut lane = Lane::new(&source, 57, 0, 0).unwrap();
+    let initial = lane.run(&source, Config::default(), None).unwrap();
+    assert_eq!(initial.done, 0);
+    let view = &mut lane.observation.as_mut().unwrap().view;
+    view.objects
+        .resize(mtg_observe::MAX_ENTITIES + 1, view.objects[0].clone());
+    let reset = lane.run(&source, Config::default(), None).unwrap();
+    assert_eq!(
+        (reset.info[2], reset.done, reset.reward, reset.info[0]),
+        (3, 1, [0; 4], 0)
+    );
+    let mut fresh = Lane::new(&source, 57, 0, 1).unwrap();
+    let next = fresh.run(&source, Config::default(), None).unwrap();
+    assert_eq!(reset.globals, next.globals);
+    assert_eq!(reset.ptr_mask, next.ptr_mask);
+    assert_eq!(
+        lane.game.state_digest().unwrap(),
+        fresh.game.state_digest().unwrap()
+    );
+    let a = reset.ptr_mask.iter().position(|x| *x == 1).unwrap();
+    assert_eq!(
+        lane.run(&source, Config::default(), Some(a)).unwrap().info[0],
+        0
+    );
 }

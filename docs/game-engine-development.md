@@ -243,8 +243,9 @@ and seat references are -1. Card zero represents absent identity. Player feature
 entity seat references rotate around the viewer. `seat` and terminal rewards use
 absolute seat order. A terminal step returns the next opening observation alongside
 the previous episode's reward, done and counters. Info columns 0–3 count illegal
-actions, cast reversals, censor class (0 outcome, 1 workload limit, 2 engine capacity),
-and completed rules decisions. Numeric features saturate at the signed 32-bit limits.
+actions, cast reversals, censor class (0 outcome, 1 workload limit, 2 engine capacity, 3 tensor capacity),
+and completed rules decisions. Tensor overflow ends the episode with zero reward and a fresh opening observation.
+Numeric features saturate at the signed 32-bit limits.
 The observation wire supplies no lore-counter or selected-mode field.
 
 `catalog()` exposes padded 192-token rows, lengths, sixteen numeric features and the

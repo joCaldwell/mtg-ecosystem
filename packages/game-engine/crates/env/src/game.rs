@@ -89,6 +89,27 @@ impl Default for Config {
     }
 }
 
+/// Episode outcome classification published in info column 2.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CensorClass {
+    /// Natural win/draw, or a still-live episode.
+    None = 0,
+    /// Pod host work, turn or decision limit.
+    WorkLimit = 1,
+    /// A typed resource fault from the rules engine.
+    EngineCapacity = 2,
+    /// A permitted frame cannot fit every row in the tensor layout.
+    TensorCapacity = 3,
+}
+enum Boundary {
+    Decision(Box<Row>),
+    Terminal {
+        reward: [i32; 4],
+        censor: CensorClass,
+    },
+}
+
 pub struct Lane {
     pub game: Game,
     pub observation: Option<Observation>,
@@ -208,14 +229,46 @@ impl Lane {
         config: Config,
         action: Option<usize>,
     ) -> Result<Row, String> {
-        let c = source.catalog();
         if let Some(a) = action {
             self.prefix.push(a);
         }
-        let mut terminal = None;
+        match self.until_decision(source.catalog(), config)? {
+            Boundary::Decision(row) => Ok(*row),
+            Boundary::Terminal { reward, censor } => {
+                let mut info = [0; 8];
+                info[..4].copy_from_slice(&[
+                    self.illegal,
+                    self.reversals,
+                    censor as i32,
+                    self.decisions,
+                ]);
+                *self = Self::new(
+                    source,
+                    self.seed,
+                    self.index,
+                    self.episode.checked_add(1).ok_or("episode overflow")?,
+                )?;
+                let Boundary::Decision(mut row) = self.until_decision(source.catalog(), config)?
+                else {
+                    return Err("reset terminated before yielding a decision".into());
+                };
+                row.done = 1;
+                row.reward = reward;
+                row.info = info;
+                Ok(*row)
+            }
+        }
+    }
+    fn until_decision(&mut self, c: &Catalog, config: Config) -> Result<Boundary, String> {
         loop {
             if let Some(o) = self.observation.take() {
                 let d = o.decision.as_ref().ok_or("missing decision")?;
+                if !mtg_observe::fits_layout(&o.view, d) {
+                    return Ok(Boundary::Terminal {
+                        reward: [0; 4],
+                        censor: CensorClass::TensorCapacity,
+                    });
+                }
                 let auto = (config.baseline && d.player.0 != 0)
                     || (config.auto_pay && matches!(d.shape, Shape::Pay { .. }))
                     || (config.auto_pay
@@ -244,13 +297,8 @@ impl Lane {
                                 0,
                                 self.decisions,
                             ]);
-                            if let Some((reward, info)) = terminal {
-                                row.done = 1;
-                                row.reward = reward;
-                                row.info = info;
-                            }
                             self.observation = Some(o);
-                            return Ok(row);
+                            return Ok(Boundary::Decision(Box::new(row)));
                         }
                         Step::Answer(a) => a,
                     }
@@ -263,7 +311,13 @@ impl Lane {
             }
             self.work += 1;
             let next = self.game.advance(Budget::new(QUANTUM));
-            self.game.drain_trace(&mut |r|{if matches!(&r.record,EvidenceRecord::Event{event} if matches!(event.as_ref(),Event::CastReversed{..})){self.reversals+=1;}});
+            self.game.drain_trace(&mut |record| {
+                if let EvidenceRecord::Event { event } = &record.record
+                    && matches!(event.as_ref(), Event::CastReversed { .. })
+                {
+                    self.reversals += 1;
+                }
+            });
             let mut reward = [0; 4];
             let censor = match next {
                 Advance::AwaitingDecision(ref d)
@@ -280,30 +334,21 @@ impl Lane {
                     )?);
                     continue;
                 }
-                Advance::AwaitingDecision(_) => 1,
+                Advance::AwaitingDecision(_) => CensorClass::WorkLimit,
                 Advance::Suspended { .. } if self.work < play::WORK_LIMIT => continue,
-                Advance::Suspended { .. } => 1,
+                Advance::Suspended { .. } => CensorClass::WorkLimit,
                 Advance::Finished { winner } => {
                     reward.fill(-1);
                     reward[winner.0 as usize] = 1;
-                    0
+                    CensorClass::None
                 }
-                Advance::Draw => 0,
-                Advance::Fault(_) if self.game.typed_fault().is_some() => 2,
+                Advance::Draw => CensorClass::None,
+                Advance::Fault(_) if self.game.typed_fault().is_some() => {
+                    CensorClass::EngineCapacity
+                }
                 Advance::Fault(e) => return Err(e),
             };
-            if terminal.is_some() {
-                return Err("reset terminated before yielding a decision".into());
-            }
-            let mut info = [0; 8];
-            info[..4].copy_from_slice(&[self.illegal, self.reversals, censor, self.decisions]);
-            terminal = Some((reward, info));
-            *self = Self::new(
-                source,
-                self.seed,
-                self.index,
-                self.episode.checked_add(1).ok_or("episode overflow")?,
-            )?;
+            return Ok(Boundary::Terminal { reward, censor });
         }
     }
 }

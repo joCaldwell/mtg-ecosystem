@@ -1,7 +1,7 @@
 //! Python owns a lease for every exported ndarray (including sliced views).
 //! Workers can borrow the Rust allocations mutably only after the last owner drops.
 use super::*;
-use mtg_observe::catalog::CardTable;
+use mtg_observe::{MAX_ENTITIES, catalog::CardTable};
 use numpy::{
     IntoPyArray, PyArray, PyArrayMethods, PyReadonlyArray1,
     ndarray::{ArrayViewD, IxDyn},
@@ -182,12 +182,19 @@ impl VecEnv {
             },
         )?;
         let arrays = PyDict::new(py);
-        macro_rules! give{($name:ident $(,$dim:literal)*)=>{arrays.set_item(stringify!($name),export(|s| &s.$name,&[buf.len$(,$dim)*],&owner)?)?};}
+        macro_rules! give {
+            ($name:ident $(,$dim:expr)*) => {
+                arrays.set_item(
+                    stringify!($name),
+                    export(|s| &s.$name, &[buf.len $(,$dim)*], &owner)?,
+                )?
+            };
+        }
         give!(globals, 48);
         give!(players, 4, 24);
-        give!(ent_int, 256, 10);
-        give!(ent_num, 256, 24);
-        give!(ent_mask, 256);
+        give!(ent_int, MAX_ENTITIES, 10);
+        give!(ent_num, MAX_ENTITIES, 24);
+        give!(ent_mask, MAX_ENTITIES);
         give!(cand, 128, 6);
         give!(ptr_mask, 131);
         give!(num_mask, 64);

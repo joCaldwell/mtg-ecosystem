@@ -373,4 +373,67 @@ mod tests {
             matches!(Composer::compose(&d,&[63],100).unwrap(), Step::Answer(Answer::Distribute{amounts}) if amounts==vec![100.into(),0.into()])
         );
     }
+    #[test]
+    fn picks_offer_only_prefixes_extending_to_a_joint_solution() {
+        let slot = |allowed: Vec<u32>| Slot {
+            role: SlotRole::Choice,
+            subject: None,
+            allowed,
+            min: 0,
+            max: 1,
+            repeat: false,
+        };
+        let mut d = Decision {
+            id: DecisionToken("slots".into()),
+            player: PlayerId(0),
+            reason: Reason::Blockers,
+            candidates: vec![
+                Candidate::Player {
+                    player: PlayerId(1),
+                },
+                Candidate::Player {
+                    player: PlayerId(2),
+                },
+            ],
+            shape: Shape::Pick {
+                slots: vec![slot(vec![0, 1]), slot(vec![0, 1])],
+                rules: vec![
+                    JointRule::PickedAtLeast {
+                        candidates: vec![0],
+                        count: 2,
+                    },
+                    JointRule::Total { min: 1, max: 2 },
+                ],
+            },
+        };
+        let allowed = |d: &Decision<Viewer>, prefix: &[usize]| {
+            let Step::Choose(c) = Composer::compose(d, prefix, 0).unwrap() else {
+                panic!("expected mask")
+            };
+            c.pointer
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| **v != 0)
+                .map(|(i, _)| i)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(allowed(&d, &[0]), vec![0]);
+        assert_eq!(allowed(&d, &[STOP]), vec![1]);
+        if let Shape::Pick { rules, .. } = &mut d.shape {
+            rules.push(JointRule::Distinct { slots: vec![0, 1] });
+        }
+        assert_eq!(allowed(&d, &[]), vec![1, STOP]);
+        let Shape::Pick { slots, rules } = &mut d.shape else {
+            unreachable!()
+        };
+        slots.truncate(1);
+        slots[0].repeat = true;
+        slots[0].max = 2;
+        rules.pop();
+        assert_eq!(allowed(&d, &[0]), vec![0]);
+        assert!(matches!(
+            Composer::compose(&d, &[0, 0], 0).unwrap(),
+            Step::Answer(_)
+        ));
+    }
 }

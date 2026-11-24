@@ -1,7 +1,7 @@
 //! One contiguous Rust allocation per NumPy tensor, reused across episodes.
-use mtg_observe::Row;
+use mtg_observe::{MAX_ENTITIES, Row};
 macro_rules! tensors {
-    ($($name:ident: $ty:ty [$($dim:literal),*]),*) => {
+    ($($name:ident: $ty:ty [$($dim:tt),*]),*) => {
         #[derive(PartialEq, Eq)]
         pub struct Storage {
             pub len: usize,
@@ -40,19 +40,19 @@ macro_rules! flat {
     ($x:expr) => {
         std::slice::from_ref($x)
     };
-    ($x:expr,$a:literal) => {
+    ($x:expr,$a:tt) => {
         $x
     };
-    ($x:expr,$a:literal,$b:literal) => {
+    ($x:expr,$a:tt,$b:tt) => {
         $x.as_flattened()
     };
 }
 tensors! {
     globals: i32 [48],
     players: i32 [4, 24],
-    ent_int: i32 [256, 10],
-    ent_num: i32 [256, 24],
-    ent_mask: u8 [256],
+    ent_int: i32 [MAX_ENTITIES, 10],
+    ent_num: i32 [MAX_ENTITIES, 24],
+    ent_mask: u8 [MAX_ENTITIES],
     cand: i32 [128, 6],
     ptr_mask: u8 [131],
     num_mask: u8 [64],
