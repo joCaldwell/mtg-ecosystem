@@ -141,102 +141,6 @@ impl RulesTxn {
             .filter(|object| object.present_on_battlefield())
     }
 
-    #[cfg(feature = "testkit")]
-    pub(crate) fn static_modifications(&self, target: ObjectId) -> Vec<&StaticEffect> {
-        self.static_modifications_with_sources(target, None)
-    }
-
-    pub(super) fn static_modifications_with_sources<'a>(
-        &'a self,
-        target: ObjectId,
-        sources: Option<&'a [CardId]>,
-    ) -> Vec<&'a StaticEffect> {
-        self.timestamped_static_modifications(target, sources)
-            .into_iter()
-            .map(|(effect, _)| effect)
-            .collect()
-    }
-
-    fn timestamped_static_modifications<'a>(
-        &'a self,
-        target: ObjectId,
-        sources: Option<&'a [CardId]>,
-    ) -> Vec<(&'a StaticEffect, Option<u64>)> {
-        let Ok(permanent) = self.current(target) else {
-            return vec![];
-        };
-        if !permanent.present_on_battlefield() {
-            return vec![];
-        }
-        let characteristics = self.structural_characteristics(target).ok();
-        let creature = characteristics
-            .as_ref()
-            .is_some_and(|c| c.kind == CardKind::Creature);
-        let legendary = characteristics.as_ref().is_some_and(|c| c.legendary);
-        let subtypes = characteristics
-            .as_ref()
-            .map(|c| c.subtypes.as_slice())
-            .unwrap_or_default();
-        self.battlefield_static_sources(sources)
-            .flat_map(|o| {
-                self.copiable_definition(o.id)
-                    .into_iter()
-                    .flat_map(move |d| {
-                        d.static_abilities
-                            .iter()
-                            .filter_map(move |a| match &a.effect {
-                                StaticEffect::ModifyCreatures {
-                                    scope:
-                                        CreatureScope::ControlledSubtype {
-                                            subtype,
-                                            creatures_only,
-                                            other,
-                                        },
-                                    ..
-                                } if a.functioning_zone == FunctioningZone::Battlefield
-                                    && o.controller == permanent.controller
-                                    && (!other || o.id != target)
-                                    && (!creatures_only || creature)
-                                    && subtypes.iter().any(|s| s == subtype.name()) =>
-                                {
-                                    Some((&a.effect, o.keyword_timestamp))
-                                }
-                                StaticEffect::ModifyCreatures { scope, .. }
-                                    if creature
-                                        && match scope {
-                                            CreatureScope::ControlledSubtype { .. } => false,
-                                            CreatureScope::Source => o.id == target,
-                                            CreatureScope::Controller => {
-                                                o.controller == permanent.controller
-                                            }
-                                            CreatureScope::AttackingController => {
-                                                // CR 508.1k/506.4/611.3a: attacking is
-                                                // incarnation-bound combat membership,
-                                                // independent of tapping or readiness.
-                                                o.controller == permanent.controller
-                                                    && self
-                                                        .state
-                                                        .rules
-                                                        .combat
-                                                        .iter()
-                                                        .any(|attacker| attacker.attacker == target)
-                                            }
-                                            CreatureScope::EquippedLegendary => {
-                                                legendary && o.attached_to == Some(target)
-                                            }
-                                            CreatureScope::Equipped | CreatureScope::Enchanted => {
-                                                o.attached_to == Some(target)
-                                            }
-                                        } =>
-                                {
-                                    Some((&a.effect, o.keyword_timestamp))
-                                }
-                                _ => None,
-                            })
-                    })
-            })
-            .collect()
-    }
     pub(crate) fn current_keywords(&self, object: ObjectId) -> Vec<KeywordAbility> {
         self.current_keywords_with_sources(object, None)
     }
@@ -276,17 +180,15 @@ impl RulesTxn {
         if latest_removal.is_some() {
             keywords.retain(|keyword| *keyword != KeywordAbility::Indestructible);
         }
-        for (effect, timestamp) in self.timestamped_static_modifications(object, sources) {
-            let StaticEffect::ModifyCreatures {
-                keywords: grants, ..
-            } = effect
-            else {
+        for (timestamp, change) in
+            self.static_changes(object, mtg_contracts::kir::Layer::Ability, sources)
+        {
+            let mtg_contracts::kir::Change::AddKeywords { keywords: grants } = change else {
                 continue;
             };
             for keyword in grants {
                 if *keyword == KeywordAbility::Indestructible
-                    && latest_removal
-                        .is_some_and(|(_, removed_at)| timestamp.unwrap_or(0) <= removed_at)
+                    && latest_removal.is_some_and(|(_, removed_at)| timestamp <= removed_at)
                 {
                     continue;
                 }
@@ -348,14 +250,15 @@ impl RulesTxn {
         object: ObjectId,
         sources: Option<&'a [CardId]>,
     ) -> impl Iterator<Item = CreatureRestriction> + 'a {
-        self.static_modifications_with_sources(object, sources)
-            .into_iter()
-            .filter_map(|effect| match effect {
-                StaticEffect::ModifyCreatures { restrictions, .. } => Some(restrictions),
-                _ => None,
+        use mtg_contracts::kir::CombatRequirement as R;
+        self.combat_statics(object, sources)
+            .filter_map(|rule| match rule {
+                R::CantBlock => Some(CreatureRestriction::CantBlock),
+                R::CantAttackOrBlock => Some(CreatureRestriction::CantAttackOrBlock),
+                R::CantBeBlocked => Some(CreatureRestriction::CantBeBlocked),
+                R::CanBlockOnlyFlying => Some(CreatureRestriction::CanBlockOnlyFlying),
+                R::CantAttack | R::AttackEachCombat => None,
             })
-            .flatten()
-            .copied()
     }
 
     pub(crate) fn targetable_by(&self, object: ObjectId, controller: PlayerId) -> bool {

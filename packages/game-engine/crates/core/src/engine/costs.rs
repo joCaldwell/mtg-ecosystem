@@ -3,10 +3,13 @@
 //! Tax is a historical fact authenticated by accepted-input replay.
 //! Never validate a locked total by consulting the later battlefield.
 use super::*;
+use mtg_contracts::kir::SpellCostChange;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CostLock {
     increases: Quantity,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    static_changes: Vec<SpellCostChange>,
 }
 /// Pure construction: substitute only base, then X/additionals/increases.
 fn total_cost(
@@ -25,6 +28,42 @@ fn total_cost(
     base.generic.add(increases);
     base
 }
+// CR 601.2f, 118.7a-d. Generic reductions only subtract generic
+// mana. A colored or colorless reduction consumes its own requirement
+// first; any excess then reduces generic mana. For these fixed symbols
+// the reductions commute because both use the same zero floor.
+fn apply_static_cost_changes(
+    cost: &mut ManaCost,
+    changes: &[SpellCostChange],
+) -> Result<(), String> {
+    for change in changes {
+        if let SpellCostChange::Increase { mana } = change {
+            if mana.generic.is_negative() {
+                return Err("negative static cost increase".into());
+            }
+            cost.generic.add(&mana.generic);
+            cost.colored.extend_from_slice(&mana.colored);
+        }
+    }
+    for change in changes {
+        if let SpellCostChange::Reduce { mana } = change {
+            if mana.generic.is_negative() {
+                return Err("negative static cost reduction".into());
+            }
+            cost.generic.subtract(&mana.generic);
+            for color in &mana.colored {
+                if let Some(index) = cost.colored.iter().position(|c| c == color) {
+                    cost.colored.remove(index);
+                } else {
+                    cost.generic.subtract(&1.into());
+                }
+            }
+        }
+    }
+    cost.generic = std::mem::take(&mut cost.generic).max(Quantity::zero());
+    Ok(())
+}
+
 pub fn entry_cost_lock_charge(entry: &StackInstance) -> usize {
     entry
         .cost_lock
@@ -59,7 +98,11 @@ impl RulesTxn {
         } else {
             Quantity::zero()
         };
-        Ok(CostLock { increases })
+        let static_changes = self.static_cost_changes(card, caster)?;
+        Ok(CostLock {
+            increases,
+            static_changes,
+        })
     }
     pub(super) fn validate_hybrid_colors(
         &self,
@@ -109,7 +152,7 @@ impl RulesTxn {
                     .clone(),
             );
         }
-        Ok(total_cost(
+        let mut cost = total_cost(
             {
                 let mut cost = definition.characteristics.mana_cost.clone();
                 if let Some(colors) = hybrid {
@@ -122,7 +165,9 @@ impl RulesTxn {
             x,
             &additional,
             &lock.increases,
-        ))
+        );
+        apply_static_cost_changes(&mut cost, &lock.static_changes)?;
+        Ok(cost)
     }
     pub(super) fn lock_spell_cost(&mut self) -> Result<(), String> {
         let entry = self.top()?;

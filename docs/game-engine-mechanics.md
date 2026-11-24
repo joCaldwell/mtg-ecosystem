@@ -83,8 +83,8 @@ Priority, announcements, payment and resolving frames are separate states. No
 priority exists during announcement/resolution; retain the frozen invocation
 through supported source departure. Land plays and ordinary creature timing require
 active-player main priority and an empty stack; supported flash is explicit.
-Cleanup discards to the maximum hand size of seven (CR 402.2, 514.1), then
-clears temporary effects and marked damage atomically. Concessions are
+Cleanup discards to the active player’s current maximum hand size (CR 402.2,
+514.1), then clears temporary effects and marked damage atomically. Concessions are
 trusted recorded external inputs processed before work or queries. Land usage
 resets each turn.
 
@@ -295,11 +295,31 @@ simultaneously without reveal, then the library shuffles.
 
 ## Keywords, attachments and temporary effects
 
-Intrinsic/static grants, counters, admitted anthems, Equipment and Auras
-contribute to derived characteristics; scoped anthems check live control and
-derived types. Grants disappear with actual attachment loss; paid abilities and
-resolved spell effects keep independent lifetimes. Unimplemented
-CDA/setting/copying/swapping and general layer combinations reject.
+Battlefield static abilities use KIR scopes, predicates, conditions and
+characteristic changes. The first applicable layer selects recipients for all
+changes of that effect (CR 611.3, 613.6). Layer 4 adds artifact or enchantment
+types, layer 5 sets colors, layer 6 grants supported keywords, layer 7b sets
+base power and toughness, and layer 7c applies signed modifiers and counters.
+Earlier layers supply facts to later layers. Admission rejects scopes that
+could depend on another change in the same layer. Ordered setters apply by
+source timestamp (CR 613.7a,d–e). Simultaneous competing setters require a
+timestamp choice and reject explicitly (CR 613.7m).
+
+Static guards can read the active player, public battlefield or graveyard
+counts, and devotion (CR 102.1, 700.5). Live rules apply combat prohibitions and
+eligible attack requirements (CR 508.1c–d, 509.1b), countering prohibitions,
+and flash timing for otherwise playable spells. Spell cost increases precede
+reductions. Generic reductions preserve colored and colorless requirements,
+and excess colored or colorless reduction reduces generic mana (CR 118.7a–d,
+601.2f). The spell locks those inputs after announcement. Active static land
+allowances add to existing plays per turn (CR 305.2), and hand-size effects
+use source timestamps at cleanup (CR 514.1, 613.11).
+
+This surface admits the source’s unconditional tapped entry. Conditional
+entry and entry choices belong to W2. General attached-to references belong
+to W1. Static control changes, characteristic-defining abilities, ability
+removal, and permissions to cast from additional zones require further
+admission. Paid invocations and resolved effects keep independent lifetimes.
 
 ### Attachment entry and ordering
 
@@ -322,10 +342,6 @@ Predefined Treasure, Food and Clue use their standard artifact token templates.
 Creation stages the new objects together. The normal mana and activation paths
 pay the printed token costs. Restore reconstructs the template from its creating
 source and token identity, including after the token ceases to exist.
-
-Continuous subtype grants evaluate each permanent's current controller and
-structural subtypes. An explicit creature restriction limits eligibility to
-creatures. Additive Golem stats apply in the creature power/toughness layer.
 
 ### Continuous permanent control
 
@@ -430,7 +446,7 @@ the derived decisions equal the capability lists they replaced.
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
 | Cost × route | Tap, mana, source sacrifice, one sacrificed permanent of a type, type union or subtype, and tap/mana/sacrifice combinations, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | Self entry of any permanent type, self dies, becomes tapped, beginning steps, casts, attacks, damage to a player, other creature entries, creature deaths and controlled land entries, without intervening conditions. |
-| Static, mana, keyword | Own entry tapped, uncounterable spells, controller creature modifiers; tap-only fixed/any/commander-color mana; evergreen keywords without parameters. |
+| Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; tap-only fixed/any/commander-color mana; evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
 | Card shell | A single-face normal card with a fixed cost and complete bound source. Unsupported shells and keywords reject. |
 

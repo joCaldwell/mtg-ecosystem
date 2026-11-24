@@ -402,9 +402,9 @@ impl Walk<'_, '_> {
             Amount::StatOf { object, .. } => self
                 .expect(object, &[RefKind::Object], "measured object")
                 .map(drop),
-            Amount::LifeOf { player } | Amount::OtherCastsManaValue { caster: player } => {
-                self.player(player)
-            }
+            Amount::Devotion { player, .. }
+            | Amount::LifeOf { player }
+            | Amount::OtherCastsManaValue { caster: player } => self.player(player),
         }
     }
 
@@ -545,6 +545,7 @@ impl Walk<'_, '_> {
                 self.control_amount(right)
             }
             Cond::Exists { set } => self.control_set(set),
+            Cond::ActivePlayer { .. } => unaudited("active-player condition outside statics"),
             Cond::CostPaid { identity } => {
                 if identity.is_empty() {
                     return kind("empty cost identity");

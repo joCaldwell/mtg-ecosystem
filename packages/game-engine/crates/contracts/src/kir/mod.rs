@@ -50,6 +50,7 @@ mod check;
 mod nodes;
 mod pred;
 mod refs;
+mod statics;
 mod tiers;
 mod verbs;
 
@@ -58,6 +59,7 @@ pub use check::*;
 pub use nodes::*;
 pub use pred::*;
 pub use refs::*;
+pub use statics::*;
 pub(crate) use tiers::executes;
 pub use tiers::*;
 pub use verbs::*;

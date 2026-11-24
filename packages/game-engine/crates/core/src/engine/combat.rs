@@ -1,4 +1,5 @@
 use super::*;
+use mtg_contracts::kir::CombatRequirement;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -73,8 +74,12 @@ impl RulesTxn {
                 o.controller == player
                     && !o.tapped
                     && self.is_battlefield_creature(o.id)
-                    && !self.has_restriction(o.id, CreatureRestriction::CantAttackOrBlock)
-                    && (attacking || !self.has_restriction(o.id, CreatureRestriction::CantBlock))
+                    && !self.combat_statics(o.id, None).any(|rule| match rule {
+                        CombatRequirement::CantAttackOrBlock => true,
+                        CombatRequirement::CantAttack => attacking,
+                        CombatRequirement::CantBlock => !attacking,
+                        _ => false,
+                    })
                     && (!attacking
                         || ((o.attack_ready || self.has_keyword(o.id, KeywordAbility::Haste))
                             && !self.has_keyword(o.id, KeywordAbility::Defender)))
@@ -82,6 +87,11 @@ impl RulesTxn {
             .map(|o| o.id)
             .collect()
     }
+    fn must_attack(&self, object: ObjectId) -> bool {
+        self.combat_statics(object, None)
+            .any(|rule| rule == CombatRequirement::AttackEachCombat)
+    }
+
     fn hand(&self, player: PlayerId) -> Vec<ObjectId> {
         self.state
             .rules
@@ -123,7 +133,7 @@ impl RulesTxn {
                 for subject in subjects {
                     let subject_index =
                         candidate_index(&mut candidates, Candidate::Object { object: subject });
-                    let allowed = if attacking {
+                    let allowed: Vec<_> = if attacking {
                         self.live_players()
                             .into_iter()
                             .filter(|p| *p != player)
@@ -152,8 +162,10 @@ impl RulesTxn {
                             SlotRole::BlockWith
                         },
                         subject: Some(subject_index),
+                        min: u32::from(
+                            attacking && !allowed.is_empty() && self.must_attack(subject),
+                        ),
                         allowed,
-                        min: 0,
                         max: 1,
                         repeat: false,
                     });
@@ -258,6 +270,15 @@ impl RulesTxn {
             !seen.insert(*o) || !eligible.contains(o) || *p == player || !self.is_live(*p)
         }) {
             return Err("invalid complete attack declaration".into());
+        }
+        // CR 508.1d: each eligible required attacker can independently
+        // attack one of the living defenders in the admitted combat model.
+        if (0..4).map(PlayerId).any(|p| p != player && self.is_live(p))
+            && eligible
+                .iter()
+                .any(|&object| !seen.contains(&object) && self.must_attack(object))
+        {
+            return Err("attack declaration omits a creature that must attack".into());
         }
         Ok(())
     }
