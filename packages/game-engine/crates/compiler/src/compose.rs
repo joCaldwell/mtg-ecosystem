@@ -437,16 +437,26 @@ fn numbers_printed(line: &str, ast: &str) -> Result<(), Failure> {
 /// What keeps one record out of composition, for the gap report.
 #[derive(Default)]
 pub(super) struct Blockers {
-    /// The first card-wide reference-graph failure. `lower` reports it before
-    /// any block is inspected.
-    pub binding: Option<Failure>,
-    /// The first failure once those checks are deferred: an integrity check,
-    /// the first printed block that does not lower, or a card-wide step after
-    /// the blocks. `None` when every block lowers.
-    pub lowering: Option<Failure>,
-    /// The printed block `lowering` failed in, when it failed inside one.
-    pub block: Option<usize>,
+    /// Every card-wide reference-graph failure, in the order `lower`
+    /// enforces them before any block is inspected.
+    pub bindings: Vec<Failure>,
+    /// The first failure of every printed block that does not lower.
+    pub blocks: Vec<(usize, Failure)>,
+    /// A failure outside the blocks once binding checks are deferred: an
+    /// integrity check before them or a card-wide step after them.
+    pub card: Option<Failure>,
 }
+
+impl Blockers {
+    /// The failure `lower` would report once binding checks are deferred:
+    /// the first block blocker, else the card-wide one.
+    pub fn lowering(&self) -> Option<&Failure> {
+        self.blocks.first().map(|(_, f)| f).or(self.card.as_ref())
+    }
+}
+
+/// The sentinel a deferred composition returns once some block failed.
+const BLOCKS_FAILED: &str = "blocks failed";
 
 pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definition, Failure> {
     compose(archive, record, None)
@@ -458,20 +468,23 @@ pub(super) fn lower(archive: &AcceptedArchive, record: &str) -> Result<Definitio
 /// definition built under deferred checks is discarded; only `lower` admits.
 pub(super) fn blockers(archive: &AcceptedArchive, record: &str) -> Blockers {
     let mut found = Blockers::default();
-    let lowered = compose(archive, record, Some(&mut found));
-    found.lowering = lowered.err();
+    if let Err(failure) = compose(archive, record, Some(&mut found))
+        && !(failure.path == "compose" && failure.reason == BLOCKS_FAILED)
+    {
+        found.card = Some(failure);
+    }
     found
 }
 
-/// A card-wide reference-graph check: enforced by `lower`, recorded (first
-/// failure only, matching the enforced order) by `blockers`.
+/// A card-wide reference-graph check: enforced by `lower`, recorded (every
+/// failure, in the enforced order) by `blockers`.
 fn binding_gate(
     check: Result<(), Failure>,
     deferred: &mut Option<&mut Blockers>,
 ) -> Result<(), Failure> {
     match (check, deferred) {
         (Err(failure), Some(found)) => {
-            found.binding.get_or_insert(failure);
+            found.bindings.push(failure);
             Ok(())
         }
         (check, _) => check,
@@ -559,159 +572,170 @@ fn compose(
     // CR 115.3: each printed block announces its own target occurrences.
     let mut slots = BTreeMap::new();
     for (block, raw) in blocks.iter().enumerate() {
-        if let Some(found) = deferred.as_deref_mut() {
-            found.block = Some(block);
-        }
-        let ability: Block =
-            serde_json::from_str(raw.get()).map_err(|e| block_mirror_gap(raw.get(), &e))?;
-        let label = source_block(block)?;
-        {
-            resolution.spans(block, &result.lines[block].text, &printed[block])?;
-        }
-        numbers_printed(&result.lines[block].text, raw.get())?;
-        let (activated, triggered) = (definition.activated.len(), definition.triggered.len());
-        // A spell's printed blocks share one program; each announces its own
-        // targets after the earlier blocks' (CR 601.2c).
-        let spell_targets = definition.spell.as_ref().map_or(0, |p| p.targets.len());
-        match ability {
-            Block::Keywords {
-                ability_word: word,
-                keywords,
-            } => {
-                ability_word(&word, &result.lines[block].text)?;
-                definition
-                    .keywords
-                    .extend(keywords::lower(&card, &keywords)?);
+        // `lower` stops at the first failing block; `blockers` records the
+        // first failure of each block and goes on to the next.
+        let lowered = (|| -> Result<(), Failure> {
+            let ability: Block =
+                serde_json::from_str(raw.get()).map_err(|e| block_mirror_gap(raw.get(), &e))?;
+            let label = source_block(block)?;
+            {
+                resolution.spans(block, &result.lines[block].text, &printed[block])?;
             }
-            Block::Static {
-                ability_word: word,
-                effect,
-            } => {
-                ability_word(&word, &result.lines[block].text)?;
-                labels.statics.push(label);
-                definition.static_abilities.push(lower_static(&effect)?);
-            }
-            Block::Spell {
-                ability_word: word,
-                effects,
-            } if spell_kind => {
-                ability_word(&word, &result.lines[block].text)?;
-                choices_printed(&result.lines[block].text, &effects)?;
-                slots.clear();
-                append_effects(
-                    definition.spell.as_mut().expect("spell program"),
-                    parts(&effects)?,
-                    block,
-                    &mut slots,
-                    Context::Spell,
-                    |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
-                )?;
-            }
-            Block::Activated {
-                ability_word: word,
-                restriction,
-                costs,
-                effects,
-            } if !spell_kind => {
-                ability_word(&word, &result.lines[block].text)?;
-                choices_printed(&result.lines[block].text, &effects)?;
-                let (timing, restriction) = timing(restriction)?;
-                let parts = parts(&effects)?;
-                // CR 605.1a: a mana ability is recognised from its complete
-                // typed cost, production and restriction, never a table row.
-                let typed: Option<Vec<Sentence>> = parts
-                    .iter()
-                    .map(|p| match p {
-                        Part::Typed(s) => Some(s.clone()),
-                        Part::Table(_) => None,
-                    })
-                    .collect();
-                let mana = match &typed {
-                    Some(typed) => {
-                        lower_mana_ability(&costs, typed, restriction.as_ref(), block, kind)?
-                    }
-                    None => None,
-                };
-                if let Some(mana) = mana {
-                    if timing != SpellTiming::Instant {
+            numbers_printed(&result.lines[block].text, raw.get())?;
+            let (activated, triggered) = (definition.activated.len(), definition.triggered.len());
+            // A spell's printed blocks share one program; each announces its own
+            // targets after the earlier blocks' (CR 601.2c).
+            let spell_targets = definition.spell.as_ref().map_or(0, |p| p.targets.len());
+            match ability {
+                Block::Keywords {
+                    ability_word: word,
+                    keywords,
+                } => {
+                    ability_word(&word, &result.lines[block].text)?;
+                    definition
+                        .keywords
+                        .extend(keywords::lower(&card, &keywords)?);
+                }
+                Block::Static {
+                    ability_word: word,
+                    effect,
+                } => {
+                    ability_word(&word, &result.lines[block].text)?;
+                    labels.statics.push(label);
+                    definition.static_abilities.push(lower_static(&effect)?);
+                }
+                Block::Spell {
+                    ability_word: word,
+                    effects,
+                } if spell_kind => {
+                    ability_word(&word, &result.lines[block].text)?;
+                    choices_printed(&result.lines[block].text, &effects)?;
+                    slots.clear();
+                    append_effects(
+                        definition.spell.as_mut().expect("spell program"),
+                        parts(&effects)?,
+                        block,
+                        &mut slots,
+                        Context::Spell,
+                        |typed| validate_damage_sources(typed, DamageSourceBinding::Spell),
+                    )?;
+                }
+                Block::Activated {
+                    ability_word: word,
+                    restriction,
+                    costs,
+                    effects,
+                } if !spell_kind => {
+                    ability_word(&word, &result.lines[block].text)?;
+                    choices_printed(&result.lines[block].text, &effects)?;
+                    let (timing, restriction) = timing(restriction)?;
+                    let parts = parts(&effects)?;
+                    // CR 605.1a: a mana ability is recognised from its complete
+                    // typed cost, production and restriction, never a table row.
+                    let typed: Option<Vec<Sentence>> = parts
+                        .iter()
+                        .map(|p| match p {
+                            Part::Typed(s) => Some(s.clone()),
+                            Part::Table(_) => None,
+                        })
+                        .collect();
+                    let mana = match &typed {
+                        Some(typed) => {
+                            lower_mana_ability(&costs, typed, restriction.as_ref(), block, kind)?
+                        }
+                        None => None,
+                    };
+                    if let Some(mana) = mana {
+                        if timing != SpellTiming::Instant {
+                            return Err(unsupported(
+                                "restriction",
+                                "timing restriction on a mana ability",
+                            ));
+                        }
+                        labels.mana.push(label);
+                        definition.mana_abilities.push(mana);
+                    } else if restriction.is_some() {
                         return Err(unsupported(
                             "restriction",
-                            "timing restriction on a mana ability",
+                            "activation restriction outside the block tables",
                         ));
+                    } else {
+                        labels.activated.push(label);
+                        definition.activated.push(activation(
+                            &card,
+                            &costs,
+                            parts,
+                            timing,
+                            block,
+                            &result.lines[block].text,
+                        )?);
                     }
-                    labels.mana.push(label);
-                    definition.mana_abilities.push(mana);
-                } else if restriction.is_some() {
-                    return Err(unsupported(
-                        "restriction",
-                        "activation restriction outside the block tables",
-                    ));
-                } else {
-                    labels.activated.push(label);
-                    definition.activated.push(activation(
+                }
+                Block::Triggered {
+                    ability_word: word,
+                    condition,
+                    trigger: event,
+                    effects,
+                } if !spell_kind => {
+                    ability_word(&word, &result.lines[block].text)?;
+                    choices_printed(&result.lines[block].text, &effects)?;
+                    labels.triggered.push(label);
+                    definition.triggered.push(trigger(
                         &card,
-                        &costs,
-                        parts,
-                        timing,
+                        &event,
+                        parts(&effects)?,
+                        condition.as_ref(),
                         block,
-                        &result.lines[block].text,
                     )?);
                 }
+                _ => {
+                    return Err(unsupported(
+                        "compose.kind",
+                        "ability kind outside the block tables",
+                    ));
+                }
             }
-            Block::Triggered {
-                ability_word: word,
-                condition,
-                trigger: event,
-                effects,
-            } if !spell_kind => {
-                ability_word(&word, &result.lines[block].text)?;
-                choices_printed(&result.lines[block].text, &effects)?;
-                labels.triggered.push(label);
-                definition.triggered.push(trigger(
-                    &card,
-                    &event,
-                    parts(&effects)?,
-                    condition.as_ref(),
-                    block,
-                )?);
+            // CR 601.2c: the block's announced targets are the resolution's
+            // block-relative slots.
+            {
+                let (program, first) = if definition.activated.len() > activated {
+                    (definition.activated.last().map(|a| &a.program), 0)
+                } else if definition.triggered.len() > triggered {
+                    (definition.triggered.last().map(|t| &t.program), 0)
+                } else if spell_kind {
+                    (definition.spell.as_ref(), spell_targets)
+                } else {
+                    (None, 0)
+                };
+                let first = u32::try_from(first).map_err(|_| invalid("targets", "slot range"))?;
+                let targets: Vec<TargetSpec> = program
+                    .map(|p| {
+                        p.targets
+                            .iter()
+                            .filter(|t| t.slot >= first)
+                            .map(|t| TargetSpec {
+                                slot: t.slot - first,
+                                ..t.clone()
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                resolution.target_slots(block, &printed[block], &targets)?;
             }
-            _ => {
-                return Err(unsupported(
-                    "compose.kind",
-                    "ability kind outside the block tables",
-                ));
+            Ok(())
+        })();
+        if let Err(failure) = lowered {
+            match deferred.as_deref_mut() {
+                Some(found) => found.blocks.push((block, failure)),
+                None => return Err(failure),
             }
-        }
-        // CR 601.2c: the block's announced targets are the resolution's
-        // block-relative slots.
-        {
-            let (program, first) = if definition.activated.len() > activated {
-                (definition.activated.last().map(|a| &a.program), 0)
-            } else if definition.triggered.len() > triggered {
-                (definition.triggered.last().map(|t| &t.program), 0)
-            } else if spell_kind {
-                (definition.spell.as_ref(), spell_targets)
-            } else {
-                (None, 0)
-            };
-            let first = u32::try_from(first).map_err(|_| invalid("targets", "slot range"))?;
-            let targets: Vec<TargetSpec> = program
-                .map(|p| {
-                    p.targets
-                        .iter()
-                        .filter(|t| t.slot >= first)
-                        .map(|t| TargetSpec {
-                            slot: t.slot - first,
-                            ..t.clone()
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            resolution.target_slots(block, &printed[block], &targets)?;
         }
     }
-    if let Some(found) = deferred {
-        found.block = None;
+    if deferred
+        .as_ref()
+        .is_some_and(|found| !found.blocks.is_empty())
+    {
+        return Err(unsupported("compose", BLOCKS_FAILED));
     }
     keywords::printed(&shape, &definition.keywords)?;
     assemble::admit(definition, labels)

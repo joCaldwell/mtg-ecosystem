@@ -118,7 +118,7 @@ pub(crate) fn reason_code(path: &str, reason: &str, abilities: &Value) -> String
     }
     if [
         "operand:",
-        "step:",
+        "verb:",
         "cell:",
         "subtype:",
         "multi_face_layout:",
@@ -230,27 +230,79 @@ pub(crate) fn assess_record(
     }
 }
 
+/// Where a blocker stops a record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockerKind {
+    /// A card-wide reference-graph check `lower` enforces before any block.
+    Binding,
+    /// The first failure of one printed block.
+    Block,
+    /// An integrity check before the blocks or a card-wide step after them.
+    Card,
+}
+
+impl BlockerKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Binding => "binding",
+            Self::Block => "block",
+            Self::Card => "card",
+        }
+    }
+}
+
+/// One machine-coded blocker of one record.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Blocker {
+    pub kind: BlockerKind,
+    /// The printed block, for a block blocker.
+    pub block: Option<usize>,
+    pub code: String,
+}
+
+/// Every blocker composition names for one record: each card-wide binding
+/// failure, the first failure of each printed block, and any card-wide
+/// failure outside the blocks. Lowering still rejects at the first; this
+/// report defers the binding checks and goes on past a failed block, so no
+/// blocker is hidden behind another.
+pub(crate) fn record_blockers(accepted: &AcceptedArchive, raw: &str, row: &Value) -> Vec<Blocker> {
+    let found = crate::compose::blockers(accepted, raw);
+    let abilities = &row["faces"][0]["result"]["abilities"];
+    let mut out: Vec<Blocker> = found
+        .bindings
+        .iter()
+        .map(|f| Blocker {
+            kind: BlockerKind::Binding,
+            block: None,
+            code: reason_code(&f.path, &f.reason, abilities),
+        })
+        .collect();
+    out.extend(found.blocks.iter().map(|(block, f)| Blocker {
+        kind: BlockerKind::Block,
+        block: Some(*block),
+        code: reason_code(&f.path, &f.reason, &abilities[*block]),
+    }));
+    out.extend(found.card.iter().map(|f| Blocker {
+        kind: BlockerKind::Card,
+        block: None,
+        code: reason_code(&f.path, &f.reason, abilities),
+    }));
+    out
+}
+
 /// One record the compositional pipeline does not lower.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompositionGap {
     pub oracle_id: String,
     pub name: String,
     pub commander_legal: bool,
-    /// The first blocker once card-wide binding checks are deferred: the
-    /// block table row (cost, event, step, instruction or matrix cell) that is
-    /// missing, or the binding check itself when every block would lower.
-    pub reason: String,
-    /// The card-wide reference-graph rejection, when the archived binding
-    /// also fails. Lowering enforces it before any block.
-    pub binding: Option<String>,
-    /// The printed block `reason` names, when it is a per-block blocker.
-    pub block: Option<usize>,
+    /// Every blocker, binding checks first, then blocks in printed order.
+    pub blockers: Vec<Blocker>,
 }
 
 /// Diagnostic only: for every record the compositional pipeline does not
-/// lower, every blocker composition names. Lowering
-/// still rejects at the first card-wide binding failure; this report defers
-/// those checks so a downstream block blocker is not hidden behind them.
+/// lower, every blocker composition names ([`record_blockers`]).
 pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageError> {
     let bytes = fs::read(archive).map_err(io)?;
     let text = std::str::from_utf8(&bytes).map_err(|e| CoverageError::InvalidRecord {
@@ -277,18 +329,10 @@ pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageE
         if archive_exclusion(&row).is_some() || crate::compose::lower(accepted, raw).is_ok() {
             continue;
         }
-        let found = crate::compose::blockers(accepted, raw);
-        let abilities = &row["faces"][0]["result"]["abilities"];
-        let code = |f: &crate::Failure| reason_code(&f.path, &f.reason, abilities);
-        let binding = found.binding.as_ref().map(code);
-        let Some(reason) = found
-            .lowering
-            .as_ref()
-            .map(code)
-            .or_else(|| binding.clone())
-        else {
+        let blockers = record_blockers(accepted, raw, &row);
+        if blockers.is_empty() {
             continue;
-        };
+        }
         gaps.push(CompositionGap {
             oracle_id: row["oracleIdentity"]
                 .as_str()
@@ -299,9 +343,7 @@ pub fn composition_gaps(archive: &Path) -> Result<Vec<CompositionGap>, CoverageE
                 .unwrap_or_default()
                 .to_owned(),
             commander_legal: row["source"]["legalities"]["commander"] == "legal",
-            reason,
-            binding,
-            block: found.block,
+            blockers,
         });
     }
     Ok(gaps)
@@ -381,6 +423,7 @@ pub fn coverage_selected(
     let mut matched = BTreeSet::new();
     let mut reasons: BTreeMap<(String, String), (usize, Vec<String>)> = BTreeMap::new();
     let mut tsv = String::from("oracle_id\tname\tstatus\treason\n");
+    let mut blockers = String::from("oracle_id\tcommander_legal\tkind\tblock\tcode\n");
     for (i, raw) in text.lines().skip(1).enumerate() {
         let selected = match (only, row_identity(raw)) {
             (None, _) => None,
@@ -425,6 +468,23 @@ pub fn coverage_selected(
             })?
             == "legal";
         let result = assess_record(accepted, raw, &row);
+        if matches!(
+            result,
+            RecordAssessment::Gap {
+                status: BulkStatus::Unsupported,
+                ..
+            }
+        ) {
+            for blocker in record_blockers(accepted, raw, &row) {
+                blockers.push_str(&format!(
+                    "{}\t{legal}\t{}\t{}\t{}\n",
+                    escape_tsv(id),
+                    blocker.kind.as_str(),
+                    blocker.block.map_or("-".into(), |b| b.to_string()),
+                    escape_tsv(&blocker.code)
+                ));
+            }
+        }
         let (status, reason) = match result {
             RecordAssessment::Definition(_) => {
                 (BulkStatus::LoweredValidated.as_str(), String::new())
@@ -490,16 +550,25 @@ pub fn coverage_selected(
         "{}\n",
         serde_json::to_string_pretty(&summary).expect("serializable summary")
     );
-    publish_receipts(out, &tsv, &json).map_err(io)?;
+    publish_receipts(out, &tsv, &blockers, &json).map_err(io)?;
     Ok(summary)
 }
 
-fn publish_receipts(out: &Path, records: &str, summary: &str) -> std::io::Result<()> {
+fn publish_receipts(
+    out: &Path,
+    records: &str,
+    blockers: &str,
+    summary: &str,
+) -> std::io::Result<()> {
     use std::io::{Error, ErrorKind};
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
 
-    let files = [("records.tsv", records), ("summary.json", summary)];
+    let files = [
+        ("records.tsv", records),
+        ("blockers.tsv", blockers),
+        ("summary.json", summary),
+    ];
     match fs::symlink_metadata(out) {
         Ok(meta) if meta.is_dir() && fs::read_dir(out)?.next().is_none() => {}
         Ok(meta) => {
@@ -562,9 +631,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("coverage-publication-{}", std::process::id()));
         fs::create_dir(&dir).unwrap();
         let out = dir.join("output");
-        publish_receipts(&out, "first records", "first summary").unwrap();
-        publish_receipts(&out, "first records", "first summary").unwrap();
-        assert!(publish_receipts(&out, "second records", "second summary").is_err());
+        publish_receipts(&out, "first records", "first blockers", "first summary").unwrap();
+        publish_receipts(&out, "first records", "first blockers", "first summary").unwrap();
+        assert!(
+            publish_receipts(&out, "second records", "second blockers", "second summary").is_err()
+        );
         assert_eq!(
             fs::read_to_string(out.join("records.tsv")).unwrap(),
             "first records"
@@ -575,7 +646,9 @@ mod tests {
         );
         fs::remove_file(out.join("records.tsv")).unwrap();
         fs::write(out.join("notes"), "keep").unwrap();
-        assert!(publish_receipts(&out, "second records", "second summary").is_err());
+        assert!(
+            publish_receipts(&out, "second records", "second blockers", "second summary").is_err()
+        );
         assert!(!out.join("records.tsv").exists());
         assert_eq!(fs::read_to_string(out.join("notes")).unwrap(), "keep");
         fs::remove_dir_all(dir).unwrap();

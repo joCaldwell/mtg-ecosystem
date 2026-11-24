@@ -161,5 +161,5 @@ fn verbs_without_a_module_name_their_effect_tag() {
         Context::Spell,
     )
     .unwrap_err();
-    assert_eq!(code(failure), "step:scry:unlowered");
+    assert_eq!(code(failure), "verb:scry:unlowered");
 }

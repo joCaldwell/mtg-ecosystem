@@ -2,7 +2,7 @@
 //! programs. One module per verb lowers its AST step; [`lower_step`] is the
 //! dispatch table keyed by the step's AST `effect` tag. A step whose verb has
 //! no module, or whose operands a module does not represent, is rejected
-//! under its own code (`step:<effect>` or `operand:<kind>:<shape>`).
+//! under its own code (`verb:<effect>:<detail>` or `operand:<kind>:<shape>`).
 use super::*;
 
 mod counters;
@@ -38,9 +38,9 @@ impl StepCx<'_> {
     }
 }
 
-/// A step outside every verb module's rows: `step:<effect>:<detail>`.
+/// A step outside every verb module's rows: `verb:<effect>:<detail>`.
 pub(crate) fn step(effect: &str, detail: &str) -> Failure {
-    unsupported("effects.steps", format!("step:{effect}:{detail}"))
+    unsupported("effects.steps", format!("verb:{effect}:{detail}"))
 }
 
 pub(crate) fn append_spell_effects(

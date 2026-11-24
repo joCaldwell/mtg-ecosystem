@@ -209,9 +209,9 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     };
     let summary = |found: &Blockers| {
         (
-            found.binding.as_ref().map(|f| f.path.clone()),
-            found.lowering.as_ref().map(|f| f.path.clone()),
-            found.block,
+            found.bindings.first().map(|f| f.path.clone()),
+            found.lowering().map(|f| f.path.clone()),
+            found.blocks.first().map(|(block, _)| *block),
         )
     };
     let clean = blockers(archive, STRIP);
@@ -249,7 +249,26 @@ fn deferred_binding_checks_name_the_first_block_blocker_without_admitting() {
     let failure = lower(archive, &only_block).unwrap_err();
     let found = blockers(archive, &only_block);
     assert_eq!(summary(&found), (None, Some(failure.path), Some(1)));
-    assert_eq!(found.lowering.unwrap().reason, failure.reason);
+    assert_eq!(found.lowering().unwrap().reason, failure.reason);
+    assert_eq!(found.blocks.len(), 1);
+    // Every failing block is named, not only the first: lowering stops at
+    // block 0, the report goes on to block 1.
+    let two = changed(STRIP, |row| {
+        for block in [0, 1] {
+            row["faces"][0]["result"]["abilities"][block]["abilityWord"] = json!("Unprinted");
+        }
+    });
+    assert!(lower(archive, &two).is_err());
+    let found = blockers(archive, &two);
+    assert_eq!(
+        found
+            .blocks
+            .iter()
+            .map(|(block, f)| (*block, f.path.as_str()))
+            .collect::<Vec<_>>(),
+        [(0, "resolution.spans"), (1, "resolution.spans")]
+    );
+    assert!(found.card.is_none());
 }
 
 #[test]

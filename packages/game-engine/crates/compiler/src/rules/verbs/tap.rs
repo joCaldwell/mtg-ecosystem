@@ -20,10 +20,7 @@ pub(super) fn untap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Ins
     uncounted(cx)?;
     let what = object(what)?;
     if !is_creature_target(&what) && !is_any_permanent_target(&what) {
-        return Err(step(
-            "untap",
-            "requires an ordinary permanent or creature target",
-        ));
+        return Err(step("untap", "qualified_target"));
     }
     Ok(Instruction::untap_target(
         bind_permanent_target(cx.program, cx.slots, &what)?,

@@ -23,6 +23,10 @@ if args[:2] == ['catalog', 'coverage']:
     statuses = json.loads(os.environ['FAKE_STATUSES'])
     lines = ['oracle_id\tname\tstatus\treason'] + [f'{k}\tn\t{s}\t{r}' for k, (s, r) in sorted(statuses.items())]
     (out / 'records.tsv').write_text('\n'.join(lines) + '\n')
+    blockers = json.loads(os.environ.get('FAKE_BLOCKERS', '{}'))
+    rows = ['oracle_id\tcommander_legal\tkind\tblock\tcode'] + [
+        f'{k}\t{legal}\tblock\t0\t{code}' for k, (legal, codes) in sorted(blockers.items()) for code in codes]
+    (out / 'blockers.tsv').write_text('\n'.join(rows) + '\n')
     (out / 'summary.json').write_text(json.dumps({'archive_sha256': os.environ.get('FAKE_ARCHIVE', 'a' * 64),
         'total': len(statuses), 'lowered_validated': 0, 'lowered_validated_percent': 0.0, 'statuses': {}}))
     sys.exit(0)
@@ -78,6 +82,7 @@ class DeckHarnessTests(unittest.TestCase):
         report = json.loads((first / 'report.json').read_text())
         self.assertEqual((99, 100), (report['decks'][0]['compiled_slots'], report['decks'][0]['total_slots']))
         self.assertEqual([{'reason': 'effect: scry', 'cards': 1}], report['top_blockers'])
+        self.assertTrue(all(row['deck_slots_touched'] == 0 for row in report['families']))
         os.environ['FAKE_STATUSES'] = json.dumps({'leader': ['lowered_validated', ''], 'forest': ['lowered_validated', ''],
                                                   'spell': ['lowered_validated', '']})
         second = self.dir / 'second'
@@ -90,6 +95,34 @@ class DeckHarnessTests(unittest.TestCase):
         # Outputs are create-new: an existing directory is never reused.
         self.assertEqual(2, decks.main(['coverage', str(self.sim), '--out', str(second), '--decks', str(snapshot),
                                         '--archive', str(archive)]))
+
+    def test_family_scoreboard_counts_touching_and_sole_blockers(self):
+        snapshot = self.write('decks.json', {'deckCount': 1, 'decks': [{'id': 1, 'name': 'Test', 'cards': [
+            {'oracle_id': 'aura', 'quantity': 1}, {'oracle_id': 'dual', 'quantity': 2},
+            {'oracle_id': 'both', 'quantity': 1}]}]})
+        archive = self.write('archive.jsonl', {})
+        os.environ['FAKE_STATUSES'] = json.dumps({k: ['unsupported', 'x'] for k in ('aura', 'dual', 'both', 'other')})
+        os.environ['FAKE_BLOCKERS'] = json.dumps({
+            'aura': ['true', ['ref:attached-to:static', 'keyword:enchant:parameters']],
+            'dual': ['true', ['cell:mana:choice']],
+            'both': ['true', ['cell:mana:choice', 'operand:filter:chosen_color']],
+            'other': ['false', ['verb:scry:unlowered']]})
+        out = self.dir / 'families'
+        self.assertEqual(0, decks.main(['coverage', str(self.sim), '--out', str(out), '--decks', str(snapshot),
+                                        '--archive', str(archive), '--all']))
+        rows = {row['family']: row for row in json.loads((out / 'report.json').read_text())['families']}
+        self.assertEqual({'deck_slots_touched': 1, 'deck_cards_touched': 1, 'deck_slots_sole': 1, 'deck_cards_sole': 1,
+                          'archive_touched': 1, 'archive_sole': 1},
+                         {k: v for k, v in rows['W1 attachments'].items() if k != 'family'})
+        mana = rows['W3 mana base']
+        self.assertEqual((3, 2, 2, 1, 2, 1), (mana['deck_slots_touched'], mana['deck_cards_touched'],
+                                              mana['deck_slots_sole'], mana['deck_cards_sole'],
+                                              mana['archive_touched'], mana['archive_sole']))
+        # A Commander-illegal archive card is not counted.
+        self.assertEqual(0, rows['W6 operand totality for existing verbs']['archive_sole'])
+        self.assertEqual(1, rows['W6 operand totality for existing verbs']['deck_slots_touched'])
+        self.assertEqual('W1 attachments', decks.family('ref:attached-to:static'))
+        self.assertEqual('Parser residue', decks.family('resolution:diagnostic_unsupported_scope'))
 
     def bench(self, out, *extra):
         return decks.main(['bench', str(self.sim), '--bulk-artifact', str(self.dir), '--manifest-sha', 'f' * 64,
