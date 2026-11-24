@@ -17,6 +17,36 @@ class StructureTests(unittest.TestCase):
         self.assertIsNone(structure.artifact_reason('tests/fixtures/source.json', 2**25, b'{}'))
         self.assertIsNone(structure.artifact_reason('src/engine.rs', 2**22, b'// source'))
 
+    def test_qualified_sdk_deployment_outputs(self):
+        for path in ('packages/game-server/sdk/dist/browser.js',
+                     'packages/game-server/sdk/dist/types/generated/validators.d.ts',
+                     'packages/game-server/sdk/generated/validators.js',
+                     'packages/game/generated/sdk-identity.ts'):
+            with self.subTest(path=path):
+                self.assertIsNone(structure.artifact_reason(path, 10, b'export {};'))
+
+    def test_sdk_exception_preserves_directory_and_binary_guards(self):
+        for path in ('packages/game/generated/other.json',
+                     'packages/game/generated/sdk-identity.ts/other.json',
+                     'generated/foo.json', 'packages/multiverse/dist/app.js',
+                     'packages/game-server/sdk/dist-extra/generated/app.js'):
+            with self.subTest(path=path):
+                self.assertEqual('generated/cache directory', structure.artifact_reason(path, 2, b'{}'))
+
+        for directory in ('packages/game-server/sdk/dist', 'packages/game-server/sdk/generated'):
+            for nested in ('target', 'node_modules', '.scryfall-cache', '__pycache__'):
+                path = f'{directory}/{nested}/app.js'
+                with self.subTest(path=path):
+                    self.assertEqual('generated/cache directory', structure.artifact_reason(path, 2, b'{}'))
+
+        for path in ('packages/game-server/sdk/dist/browser.js',
+                     'packages/game-server/sdk/generated/validators.js',
+                     'packages/game/generated/sdk-identity.ts'):
+            for prefix in (b'\x7fELF', b'\x00asm', b'SQLite format 3\x00'):
+                with self.subTest(path=path, prefix=prefix):
+                    self.assertEqual('native/Wasm executable or SQLite database',
+                                     structure.artifact_reason(path, len(prefix), prefix))
+
     def test_index_reads_staged_bytes_not_worktree(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

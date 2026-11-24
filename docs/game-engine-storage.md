@@ -11,6 +11,12 @@ referenced by docs. Only per-worktree Cargo targets are caches.
 | Release evidence | External `engine-evidence`, selected reports/binaries | No age-based deletion; replacement/retirement requires reference review |
 | Toolchains | External `engine-toolchains` | Preserve while verification uses them |
 
+Git tracks qualified TypeScript SDK outputs for Railway builds under
+`packages/game-server/sdk/dist/` and `packages/game-server/sdk/generated/`, plus
+`packages/game/generated/sdk-identity.ts`. The structure guard still rejects
+`target`, `node_modules`, `.scryfall-cache` and `__pycache__` paths, as well as
+ELF, Wasm and SQLite payloads, within these outputs.
+
 ## Cache selection and lifecycle
 
 After pinned tool selection, `python3 scripts/engine-cache.py path` prints an
