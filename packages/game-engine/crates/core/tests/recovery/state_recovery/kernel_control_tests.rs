@@ -694,7 +694,7 @@ fn cast_edict_at(prepared: Prepared, target: TargetEntity) -> Game {
             .unwrap();
     };
     answer(&|d| d.cast(CardId(4)));
-    answer(&|d| d.entity_targets(vec![target.clone()]));
+    answer(&|d| d.entity_targets(vec![target]));
     let lands = [2, 3].map(|land| Driver::object(&game, land));
     for land in lands {
         let mut answer = |response: &dyn Fn(&Decision<Rules>) -> Answer| {
