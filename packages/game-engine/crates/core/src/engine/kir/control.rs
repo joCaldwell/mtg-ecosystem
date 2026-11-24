@@ -137,6 +137,7 @@ impl RulesTxn {
                 | Node::Choose { body, .. }
                 | Node::Optional { node: body, .. }
                 | Node::UnlessPays { node: body, .. }
+                | Node::IfPays { node: body, .. }
                     if *index == 0 =>
                 {
                     Some(body.as_ref())
@@ -397,6 +398,10 @@ impl RulesTxn {
                 Node::UnlessPays {
                     payment: Payment::Life { .. },
                     ..
+                }
+                | Node::IfPays {
+                    payment: Payment::Life { .. },
+                    ..
                 },
             ) => Ok(()),
             (
@@ -437,6 +442,8 @@ impl RulesTxn {
             match std::mem::take(&mut task.stage) {
                 Stage::Optional { .. } if perform => self.install_kernel(task.child(0)),
                 Stage::Optional { .. } => return self.return_kernel(task.resume),
+                // CR 118.12: "unless" performs the node when the payer
+                // declines; "if they do" performs it once they have paid.
                 Stage::Life { amount, .. } if perform => {
                     if !self.state.rules.players[player.0 as usize].can_pay_life(&amount) {
                         return Err("unpayable kernel life payment".into());
@@ -447,9 +454,9 @@ impl RulesTxn {
                             self.instruction_cause(self.kernel_root()?, block)?,
                         )?;
                     }
-                    return self.return_kernel(task.resume);
+                    return self.paid(task, &node, true);
                 }
-                Stage::Life { .. } => self.install_kernel(task.child(0)),
+                Stage::Life { .. } => return self.paid(task, &node, false),
                 Stage::Choose {
                     mut remaining,
                     mut selected,
@@ -544,10 +551,10 @@ impl RulesTxn {
                 objects.reverse();
                 self.choose_next(task, *var, player, objects, vec![], min, max)?;
             }
-            Node::UnlessPays { payer, payment, .. } => {
+            Node::UnlessPays { payer, payment, .. } | Node::IfPays { payer, payment, .. } => {
+                // CR 800.4a: a payer who has left the game pays nothing.
                 let Some(player) = self.chooser(&task, payer)? else {
-                    self.install_kernel(task.child(0));
-                    return Ok(());
+                    return self.paid(task, &node, false);
                 };
                 match payment {
                     Payment::Life { amount } => {
@@ -555,6 +562,7 @@ impl RulesTxn {
                         if amount.is_negative() {
                             return Err("negative kernel life payment".into());
                         }
+                        // CR 119.4: a player can't pay more life than they have.
                         if self.state.rules.players[player.0 as usize].can_pay_life(&amount) {
                             task.stage = Stage::Life {
                                 payer: player,
@@ -562,7 +570,7 @@ impl RulesTxn {
                             };
                             self.install_kernel(task);
                         } else {
-                            self.install_kernel(task.child(0));
+                            self.paid(task, &node, false)?;
                         }
                     }
                     Payment::Generic { amount } => {
@@ -627,6 +635,11 @@ impl RulesTxn {
                 payer,
                 payment: Payment::Generic { .. },
                 ..
+            }
+            | Node::IfPays {
+                payer,
+                payment: Payment::Generic { .. },
+                ..
             },
             block,
         ) = self.node_at(task)?
@@ -645,14 +658,27 @@ impl RulesTxn {
         resume: FrameLink,
         paid: bool,
     ) -> Result<(), String> {
-        let Frame::Kernel { task } = self.saved_frame(resume)? else {
+        let Frame::Kernel { task } = self.saved_frame(resume)?.clone() else {
             return Err("invalid kernel payment parent".into());
         };
-        if paid {
-            return self.return_kernel(task.resume);
+        let node = self.node_at(&task)?.0.clone();
+        self.paid(*task, &node, paid)
+    }
+
+    /// CR 118.12, 118.12a: continue a payment node once the payer has paid
+    /// or not: `UnlessPays` performs its node when unpaid, `IfPays` when paid.
+    fn paid(&mut self, task: Task, node: &Node, paid: bool) -> Result<(), String> {
+        let perform = match node {
+            Node::UnlessPays { .. } => !paid,
+            Node::IfPays { .. } => paid,
+            _ => return Err("invalid kernel payment node".into()),
+        };
+        if perform {
+            self.install_kernel(task.child(0));
+            Ok(())
+        } else {
+            self.return_kernel(task.resume)
         }
-        self.install_kernel(task.child(0));
-        Ok(())
     }
 
     fn choose_next(

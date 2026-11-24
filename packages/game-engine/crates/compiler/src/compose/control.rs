@@ -1,0 +1,632 @@
+//! Wave W5 control: printed choices and conditions over complete steps.
+//!
+//! A printed sentence may wrap ordinary steps in control: "you may"
+//! (an `optional` step or an `optional-group`), "unless [a player] pays"
+//! and an "if"/"unless" condition. Control is peeled off the AST sentence;
+//! the remaining core steps lower through the unchanged verb lowerers; the
+//! instructions each wrapped step range produced are then nested under one
+//! Kernel IR control node, in printed order:
+//!
+//! * CR 608.2d: "may" is [`Node::Optional`]; its chooser is the player the
+//!   step names (or "you" for an imperative step).
+//! * CR 118.12a: "unless [player] pays {N}" / "N life" is
+//!   [`Node::UnlessPays`].
+//! * CR 608.2c: "if"/"unless" is [`Node::If`] over a board condition the
+//!   continuation evaluates on resolution: a count of permanents a player
+//!   controls (CR 109.5).
+//!
+//! A wrapped step whose instruction range is empty, a wrap that overlaps
+//! another, a chooser or payer the resolution does not bind to a kernel
+//! player, and any condition outside these rows reject under
+//! `compose.control:<detail>`. "If you do" (CR 608.2c, 603.12) needs a
+//! performed-step condition no kernel cell admits yet and stays rejected
+//! under `compose.control:you_do`. A destroy step keeps its own optional row
+//! (`Cell::OptionalTargetDestroy`).
+//!
+//! Pinned Comprehensive Rules 2026-09-25:
+//! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use super::*;
+use kir::{Cmp, Cond, Node, Payment};
+use serde_json::{Map, Value};
+
+fn reject<T>(detail: &str) -> Result<T, Failure> {
+    Err(unsupported("compose.control", detail))
+}
+
+/// One printed control construct over core steps `[start, end)` of core
+/// sentence `sentence`. `depth` orders wraps over the same range: a
+/// sentence condition encloses a group, which encloses a step choice.
+#[derive(Clone, Debug)]
+struct Wrap {
+    sentence: usize,
+    start: usize,
+    end: usize,
+    depth: u8,
+    kind: Kind,
+}
+
+#[derive(Clone, Debug)]
+enum Kind {
+    /// The chooser's printed player path, or the imperative "you".
+    Optional { who: Option<String> },
+    /// `path` is the printed sentence; its condition is read on lowering.
+    Condition { path: String, unless: bool },
+    /// `path` is the printed optional `pay-cost` step a following "if you
+    /// do" (`unless` false) or "if you don't" (`unless` true) reads.
+    Pays { path: String, unless: bool },
+}
+
+/// A block's sentences with their control peeled off.
+pub(super) struct Peeled {
+    /// The core sentences: printed steps, groups flattened, without control.
+    pub sentences: Vec<Value>,
+    wraps: Vec<Wrap>,
+}
+
+impl Peeled {
+    pub(super) fn is_plain(&self) -> bool {
+        self.wraps.is_empty()
+    }
+}
+
+/// Peel every control construct off a block's printed sentences.
+pub(super) fn peel(effects: &[Value]) -> Result<Peeled, Failure> {
+    let mut sentences = Vec::with_capacity(effects.len());
+    let mut wraps = Vec::new();
+    // The printed optional payment an "if you do/don't" sentence reads.
+    let mut payment: Option<String> = None;
+    for (index, sentence) in effects.iter().enumerate() {
+        if let Some(path) = paid_sentence(sentence, effects.get(index + 1)) {
+            payment = Some(format!("/effects/{index}/{path}"));
+            continue;
+        }
+        let core_index = sentences.len();
+        let Some(fields) = sentence.as_object() else {
+            return Ok(Peeled {
+                sentences: effects.to_vec(),
+                wraps: vec![],
+            });
+        };
+        let mut core: Map<String, Value> = fields.clone();
+        let mut steps = Vec::new();
+        if let Some(printed) = fields.get("steps").and_then(Value::as_array) {
+            for (j, step) in printed.iter().enumerate() {
+                peel_step(
+                    step,
+                    &format!("/effects/{index}/steps/{j}"),
+                    core_index,
+                    &mut steps,
+                    &mut wraps,
+                )?;
+            }
+            core.insert("steps".into(), Value::Array(steps.clone()));
+        }
+        // CR 608.2c: where the condition is printed does not change it.
+        if let Some(path) = payment.take() {
+            let unless = fields["condition"]["condition"] == "you-dont";
+            for key in ["condition", "conditionKind"] {
+                core.remove(key);
+            }
+            wraps.push(Wrap {
+                sentence: core_index,
+                start: 0,
+                end: steps.len(),
+                depth: 0,
+                kind: Kind::Pays { path, unless },
+            });
+        } else if fields.contains_key("condition") {
+            let unless = match fields.get("conditionKind").and_then(Value::as_str) {
+                Some("if") => false,
+                Some("unless") => true,
+                _ => return reject("condition_kind"),
+            };
+            if !matches!(
+                fields.get("conditionPosition"),
+                None | Some(Value::String(_))
+            ) {
+                return reject("condition_position");
+            }
+            for key in ["condition", "conditionKind", "conditionPosition"] {
+                core.remove(key);
+            }
+            if steps.is_empty() {
+                return reject("empty_condition");
+            }
+            wraps.push(Wrap {
+                sentence: core_index,
+                start: 0,
+                end: steps.len(),
+                depth: 0,
+                kind: Kind::Condition {
+                    path: format!("/effects/{index}"),
+                    unless,
+                },
+            });
+        } else if fields.contains_key("conditionKind") || fields.contains_key("conditionPosition")
+        {
+            return reject("condition_kind");
+        }
+        sentences.push(Value::Object(core));
+    }
+    Ok(Peeled { sentences, wraps })
+}
+
+/// CR 118.12, 608.2c: a sentence that is only "[player] may pay [cost]",
+/// followed by an "If [they] do" or "If [they] don't" sentence, is the
+/// payment that sentence performs on. Returns the payment step's path within
+/// the sentence.
+fn paid_sentence(sentence: &Value, next: Option<&Value>) -> Option<&'static str> {
+    let fields = sentence.as_object()?;
+    let [step] = fields.get("steps")?.as_array()?.as_slice() else {
+        return None;
+    };
+    let step_fields = step.as_object()?;
+    let next = next?.as_object()?;
+    (fields.len() == 1
+        && step["effect"] == "pay-cost"
+        && step["optional"] == true
+        && step_fields
+            .keys()
+            .all(|k| matches!(k.as_str(), "effect" | "who" | "costs" | "optional" | "decidedBy"))
+        && step_fields.contains_key("who")
+        && next.get("conditionKind") == Some(&Value::from("if"))
+        && !next.contains_key("conditionPosition")
+        && matches!(
+            next.get("condition").and_then(Value::as_object),
+            Some(c) if c.len() == 1
+                && matches!(c.get("condition").and_then(Value::as_str), Some("you-do" | "you-dont"))
+        ))
+    .then_some("steps/0")
+}
+
+/// Append one printed step's core steps, recording its choice.
+fn peel_step(
+    step: &Value,
+    path: &str,
+    sentence: usize,
+    steps: &mut Vec<Value>,
+    wraps: &mut Vec<Wrap>,
+) -> Result<(), Failure> {
+    let start = steps.len();
+    match step["effect"].as_str() {
+        // CR 608.2d: "[player] may [steps]" as one choice.
+        Some("optional-group") => {
+            let fields = step.as_object().map(Map::len);
+            let (Some(inner), true) = (step["steps"].as_array(), fields == Some(3)) else {
+                return reject("optional_group_shape");
+            };
+            if step.get("who").is_none() || inner.is_empty() {
+                return reject("optional_group_shape");
+            }
+            for (k, child) in inner.iter().enumerate() {
+                peel_step(child, &format!("{path}/steps/{k}"), sentence, steps, wraps)?;
+            }
+            wraps.push(Wrap {
+                sentence,
+                start,
+                end: steps.len(),
+                depth: 1,
+                kind: Kind::Optional {
+                    who: Some(format!("{path}/who")),
+                },
+            });
+        }
+        // The destroy verb lowers its own audited optional row.
+        // The parser names a chooser other than "you" as `decidedBy`; "you
+        // may have [player] ..." keeps "you" as the chooser.
+        Some(effect) if effect != "destroy" && step.get("optional") == Some(&Value::Bool(true)) => {
+            let mut core = step.clone();
+            let fields = core.as_object_mut().expect("step object");
+            fields.remove("optional");
+            let who = fields
+                .remove("decidedBy")
+                .map(|_| format!("{path}/decidedBy"));
+            steps.push(core);
+            wraps.push(Wrap {
+                sentence,
+                start,
+                end: steps.len(),
+                depth: 2,
+                kind: Kind::Optional { who },
+            });
+        }
+        _ => steps.push(step.clone()),
+    }
+    Ok(())
+}
+
+/// What lowering a block's peeled control needs from its block.
+pub(super) struct Site<'a> {
+    pub resolution: &'a resolution::Resolution,
+    pub index: usize,
+    /// The printed (pre-canonical) block AST.
+    pub printed: &'a Value,
+    pub context: Context,
+}
+
+impl Site<'_> {
+    fn player(&self, path: &str) -> Result<PlayerExpr, Failure> {
+        self.resolution
+            .control_player(self.index, self.printed, path, self.context)?
+            .ok_or_else(|| unsupported("compose.control", "unbound_player"))
+    }
+
+    fn sentence(&self, path: &str) -> Result<&Value, Failure> {
+        self.printed
+            .pointer(path)
+            .ok_or_else(|| invalid("compose.control", "missing sentence"))
+    }
+
+    fn node(&self, kind: &Kind, body: Node) -> Result<Node, Failure> {
+        let node = Box::new(body);
+        Ok(match kind {
+            Kind::Optional { who } => Node::Optional {
+                chooser: match who {
+                    Some(path) => self.player(path)?,
+                    None => PlayerExpr::you(self.context),
+                },
+                node,
+            },
+            Kind::Pays { path, unless } => {
+                let step = self.sentence(path)?;
+                let payer = self.player(&format!("{path}/who"))?;
+                let chooser = match step.get("decidedBy") {
+                    Some(_) => self.player(&format!("{path}/decidedBy"))?,
+                    None => PlayerExpr::you(self.context),
+                };
+                let costs = &step["costs"];
+                if chooser != payer || costs.as_array().map(Vec::len) != Some(1) {
+                    return reject("payment_shape");
+                }
+                let payment = payment(costs)?;
+                if *unless {
+                    Node::UnlessPays {
+                        payer,
+                        payment,
+                        node,
+                    }
+                } else {
+                    Node::IfPays {
+                        payer,
+                        payment,
+                        node,
+                    }
+                }
+            }
+            Kind::Condition { path, unless } => {
+                let sentence = self.sentence(path)?;
+                let condition = &sentence["condition"];
+                // CR 118.12a: "unless [player] pays [cost]".
+                if *unless && condition["condition"] == "pays" {
+                    return Ok(Node::UnlessPays {
+                        payer: self.payer(path, condition)?,
+                        payment: payment(&condition["cost"])?,
+                        node,
+                    });
+                }
+                let condition = self.condition(&format!("{path}/condition"), condition)?;
+                Node::If {
+                    condition: if *unless {
+                        Cond::Not {
+                            condition: Box::new(condition),
+                        }
+                    } else {
+                        condition
+                    },
+                    then: node,
+                    otherwise: None,
+                }
+            }
+        })
+    }
+
+    /// The payer the condition names; the cost's implicit payer, when the
+    /// resolution records one, is the same player.
+    fn payer(&self, path: &str, condition: &Value) -> Result<PlayerExpr, Failure> {
+        let fields = condition.as_object().map(Map::len);
+        if fields != Some(3) || condition["cost"].as_array().map(Vec::len) != Some(1) {
+            return reject("payment_shape");
+        }
+        let payer = self.player(&format!("{path}/condition/who"))?;
+        let implicit = format!("{path}/condition/cost/0/payer");
+        if let Some(other) = self.resolution.control_player(
+            self.index,
+            self.printed,
+            &implicit,
+            self.context,
+        )? && other != payer
+        {
+            return reject("payer_disagrees");
+        }
+        Ok(payer)
+    }
+
+    /// CR 608.2c, 109.5: a board condition the continuation reads.
+    fn condition(&self, path: &str, condition: &Value) -> Result<Cond, Failure> {
+        let fields = condition.as_object().map(Map::len).unwrap_or(0);
+        match condition["condition"].as_str() {
+            Some("not") if fields == 2 => Ok(Cond::Not {
+                condition: Box::new(self.condition(&format!("{path}/of"), &condition["of"])?),
+            }),
+            Some("all-of") if fields == 2 => {
+                let parts = condition["conditions"]
+                    .as_array()
+                    .filter(|parts| parts.len() >= 2)
+                    .ok_or_else(|| unsupported("compose.control", "all_of_shape"))?;
+                Ok(Cond::All {
+                    conditions: parts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, part)| self.condition(&format!("{path}/conditions/{i}"), part))
+                        .collect::<Result<_, _>>()?,
+                })
+            }
+            // "If you control a [filter]": at least one such permanent.
+            Some("control") if fields == 3 => {
+                let what = &condition["what"];
+                if what.as_object().map(Map::len) != Some(3)
+                    || what["ref"] != "filter"
+                    || what["count"] != serde_json::json!({"amount": "fixed", "value": 1})
+                {
+                    return reject("control_shape");
+                }
+                Ok(Cond::Exists {
+                    set: self.controlled(&format!("{path}/who"), &what["filter"])?,
+                })
+            }
+            // "If you control N or more [filter]".
+            Some("control-count") if fields == 4 => {
+                let set = self.controlled(&format!("{path}/who"), &condition["of"])?;
+                let (cmp, value) = comparison(&condition["comparison"])?;
+                Ok(Cond::Compare {
+                    left: kir::Amount::Count { set },
+                    cmp,
+                    right: kir::Amount::Fixed { value },
+                })
+            }
+            Some("you-do" | "you-dont") => reject("you_do"),
+            Some(other) => Err(unsupported(
+                "compose.control",
+                format!("condition:{other}"),
+            )),
+            None => reject("condition_shape"),
+        }
+    }
+
+    /// The permanents the player at `who` controls matching `filter`.
+    fn controlled(&self, who: &str, filter: &Value) -> Result<SetExpr, Failure> {
+        let player = self.player(who)?;
+        if !player.is_you() {
+            return reject("controller");
+        }
+        if filter.get("control").is_some() || filter.get("zone").is_some() {
+            return reject("control_filter");
+        }
+        let filter: ast::ObjectFilter = typed(filter, "filter")?;
+        let mut pred = lower_filter(&filter, self.context)?;
+        pred.0.push(kir::Atom::ControlledBy { player });
+        Ok(SetExpr::battlefield(pred))
+    }
+}
+
+/// CR 118.12a: one generic mana or life payment.
+fn payment(cost: &Value) -> Result<Payment, Failure> {
+    let cost = &cost[0];
+    match cost["cost"].as_str() {
+        Some("mana") if cost.as_object().map(Map::len) == Some(2) => {
+            let symbols = cost["symbols"]
+                .as_array()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| unsupported("compose.control", "payment_shape"))?;
+            let mut total = 0i64;
+            for symbol in symbols {
+                let generic = symbol
+                    .as_str()
+                    .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .ok_or_else(|| unsupported("compose.control", "payment:mana_symbol"))?;
+                total = total
+                    .checked_add(generic)
+                    .ok_or_else(|| invalid("compose.control", "payment overflow"))?;
+            }
+            Ok(Payment::Generic {
+                amount: kir::Amount::Fixed {
+                    value: Quantity::from(total),
+                },
+            })
+        }
+        Some("pay-life") if cost.as_object().map(Map::len) == Some(2) => {
+            let amount: ast::Amount = typed(&cost["amount"], "amount")?;
+            Ok(Payment::Life {
+                amount: kir::Amount::Fixed {
+                    value: fixed_positive_amount(&amount)?,
+                },
+            })
+        }
+        Some(other) => Err(unsupported(
+            "compose.control",
+            format!("payment:{other}"),
+        )),
+        None => reject("payment_shape"),
+    }
+}
+
+/// A fixed comparison: `ge`, `le` and `eq` directly, `gt`/`lt` as their
+/// inclusive integer neighbour.
+fn comparison(comparison: &Value) -> Result<(Cmp, Quantity), Failure> {
+    let value = &comparison["value"];
+    let fixed = (comparison.as_object().map(Map::len) == Some(2)
+        && value.as_object().map(Map::len) == Some(2)
+        && value["amount"] == "fixed")
+        .then(|| value["value"].as_i64())
+        .flatten()
+        .filter(|n| *n >= 0)
+        .ok_or_else(|| unsupported("compose.control", "comparison_shape"))?;
+    let (cmp, n) = match comparison["op"].as_str() {
+        Some("ge") => (Cmp::AtLeast, fixed),
+        Some("gt") => (Cmp::AtLeast, fixed + 1),
+        Some("le") => (Cmp::AtMost, fixed),
+        Some("lt") if fixed > 0 => (Cmp::AtMost, fixed - 1),
+        Some("eq") => (Cmp::Exactly, fixed),
+        _ => return reject("comparison_op"),
+    };
+    Ok((cmp, Quantity::from(n)))
+}
+
+/// Attribute a wrapped node the kernel does not admit to this block
+/// (`compose.control:kir_<error>`); definition admission repeats the check.
+pub(super) fn admitted(
+    peeled: &Peeled,
+    instructions: &[Instruction],
+    env: &kir::Env<'_>,
+) -> Result<(), Failure> {
+    if peeled.is_plain() {
+        return Ok(());
+    }
+    for Instruction::Kernel { node, .. } in instructions {
+        if matches!(
+            node,
+            Node::Optional { .. }
+                | Node::UnlessPays { .. }
+                | Node::IfPays { .. }
+                | Node::If { .. }
+        ) {
+            kir::check(node, env)
+                .map_err(|e| unsupported("compose.control", format!("kir {e}")))?;
+        }
+    }
+    Ok(())
+}
+
+/// The core sentences before step `step` of sentence `sentence`.
+fn prefix(sentences: &[Value], sentence: usize, step: usize) -> Vec<Value> {
+    let mut out = sentences[..sentence].to_vec();
+    if step > 0 {
+        let mut partial = sentences[sentence].clone();
+        if let Some(steps) = partial.get_mut("steps").and_then(Value::as_array_mut) {
+            steps.truncate(step);
+        }
+        out.push(partial);
+    }
+    out
+}
+
+/// Nest the block's lowered instructions (`instructions[base..]`) under
+/// their control. `count` lowers a prefix of the core sentences and returns
+/// how many instructions it produced; each wrap's range is read from the
+/// prefixes ending at its first and after its last step.
+pub(super) fn apply(
+    peeled: &Peeled,
+    site: &Site<'_>,
+    instructions: &mut Vec<Instruction>,
+    base: usize,
+    count: impl Fn(&[Value]) -> Result<usize, Failure>,
+) -> Result<(), Failure> {
+    if peeled.is_plain() {
+        return Ok(());
+    }
+    let total = instructions.len() - base;
+    let mut positions = BTreeMap::new();
+    let mut position = |sentence: usize, step: usize| -> Result<usize, Failure> {
+        // A boundary after a sentence's last step is the next sentence's start.
+        let (sentence, step) = match peeled.sentences[sentence]["steps"].as_array() {
+            Some(steps) if step == steps.len() => (sentence + 1, 0),
+            _ => (sentence, step),
+        };
+        if let Some(found) = positions.get(&(sentence, step)) {
+            return Ok(*found);
+        }
+        let found = if sentence == 0 && step == 0 {
+            0
+        } else if sentence == peeled.sentences.len() && step == 0 {
+            total
+        } else {
+            count(&prefix(&peeled.sentences, sentence, step))?
+        };
+        positions.insert((sentence, step), found);
+        Ok(found)
+    };
+    // Absolute instruction ranges, outermost first.
+    let mut ranges = Vec::with_capacity(peeled.wraps.len());
+    for wrap in &peeled.wraps {
+        let (start, end) = (
+            position(wrap.sentence, wrap.start)?,
+            position(wrap.sentence, wrap.end)?,
+        );
+        if start >= end || end > total {
+            return reject("empty_wrapped_range");
+        }
+        ranges.push((start, end, wrap));
+    }
+    ranges.sort_by_key(|(start, end, wrap)| (*start, std::cmp::Reverse(*end), wrap.depth));
+    // A forest of properly nested ranges.
+    struct Tree<'w> {
+        start: usize,
+        end: usize,
+        kind: Option<&'w Kind>,
+        children: Vec<Tree<'w>>,
+    }
+    fn insert<'w>(tree: &mut Tree<'w>, start: usize, end: usize, kind: &'w Kind) -> Result<(), Failure> {
+        if let Some(last) = tree.children.last_mut()
+            && start < last.end
+        {
+            if end > last.end {
+                return reject("overlapping_control");
+            }
+            return insert(last, start, end, kind);
+        }
+        tree.children.push(Tree {
+            start,
+            end,
+            kind: Some(kind),
+            children: vec![],
+        });
+        Ok(())
+    }
+    let mut root = Tree {
+        start: 0,
+        end: total,
+        kind: None,
+        children: vec![],
+    };
+    for (start, end, wrap) in &ranges {
+        insert(&mut root, *start, *end, &wrap.kind)?;
+    }
+    let block: Vec<Instruction> = instructions.drain(base..).collect();
+    let source_block = match block.first() {
+        Some(Instruction::Kernel { source_block, .. }) => *source_block,
+        None => return reject("empty_wrapped_range"),
+    };
+    if block
+        .iter()
+        .any(|Instruction::Kernel { source_block: b, .. }| *b != source_block)
+    {
+        return reject("mixed_source_blocks");
+    }
+    fn render(tree: &Tree<'_>, block: &[Instruction], site: &Site<'_>) -> Result<Vec<Node>, Failure> {
+        let mut nodes = vec![];
+        let mut at = tree.start;
+        let mut children = tree.children.iter().peekable();
+        while at < tree.end {
+            if let Some(child) = children.next_if(|c| c.start == at) {
+                let mut body = render(child, block, site)?;
+                let body = if body.len() == 1 {
+                    body.remove(0)
+                } else {
+                    Node::Seq(body)
+                };
+                nodes.push(site.node(child.kind.expect("wrap"), body)?);
+                at = child.end;
+            } else {
+                let Instruction::Kernel { node, .. } = &block[at];
+                nodes.push(node.clone());
+                at += 1;
+            }
+        }
+        Ok(nodes)
+    }
+    for node in render(&root, &block, site)? {
+        instructions.push(Instruction::Kernel { node, source_block });
+    }
+    Ok(())
+}

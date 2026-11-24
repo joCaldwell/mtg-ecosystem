@@ -252,6 +252,38 @@ impl Resolution {
         Ok(format!("[{}]", out.join(",")))
     }
 
+    /// CR 109.5, 603.2, 608.2d: the kernel player a printed player operand
+    /// of block `index` at `path` resolves to: the block's own controller
+    /// ("you") or a kernel event player of its own trigger. Any other
+    /// resolution, or none, is no control chooser or payer.
+    pub(super) fn control_player(
+        &self,
+        index: usize,
+        ability: &Value,
+        path: &str,
+        context: kir::Context,
+    ) -> Result<Option<kir::PlayerExpr>, Failure> {
+        let block = self
+            .blocks()?
+            .get(index)
+            .ok_or_else(|| invalid("resolution", "missing block"))?;
+        let kind = BlockKind::of(ability);
+        Ok(block.refs.iter().find_map(|entry| match entry {
+            RefEntry::Ref(r) if r.path == path && r.scope.is_none() => match &*r.r#ref {
+                ResolvedRef::Controller(c) if Some(c.role) == kind.controller() => {
+                    Some(kir::PlayerExpr::you(context))
+                }
+                ResolvedRef::EventPlayer(e) if kind == BlockKind::Triggered => {
+                    kernel_event_player(&e.role)
+                        .filter(|(_, trigger)| ability["trigger"]["trigger"] == *trigger)
+                        .map(|(role, _)| kir::PlayerExpr::event(role))
+                }
+                _ => None,
+            },
+            _ => None,
+        }))
+    }
+
     /// The span certificate tiles the normalized block text: segments are
     /// sorted, disjoint UTF-8 ranges on character boundaries, separated only
     /// by whitespace; every field they name exists in the block AST; every

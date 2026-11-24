@@ -851,6 +851,11 @@ impl Walk<'_, '_> {
                 payer,
                 payment,
                 node,
+            }
+            | Node::IfPays {
+                payer,
+                payment,
+                node,
             } => {
                 self.control_player(payer, true)?;
                 match payment {
@@ -1194,6 +1199,7 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
         }
         Node::Optional { node, .. }
         | Node::UnlessPays { node, .. }
+        | Node::IfPays { node, .. }
         | Node::Delayed { node, .. } => visit_verbs(node, visit),
         Node::ForEach { body, .. } | Node::Choose { body, .. } => visit_verbs(body, visit),
         Node::Reflexive { first, then } => {

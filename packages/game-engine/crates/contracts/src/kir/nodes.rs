@@ -86,6 +86,13 @@ pub enum Node {
         payment: Payment,
         node: Box<Node>,
     },
+    /// CR 118.12, 608.2c: "[payer] may pay [cost]. If they do, [node]":
+    /// perform `node` only if `payer` pays.
+    IfPays {
+        payer: PlayerExpr,
+        payment: Payment,
+        node: Box<Node>,
+    },
     /// CR 603.7: perform `node` when the delayed event next occurs.
     Delayed {
         event: DelayedEvent,
@@ -148,7 +155,8 @@ impl Node {
             Self::If { .. }
             | Self::ForEach { .. }
             | Self::Choose { .. }
-            | Self::UnlessPays { .. } => true,
+            | Self::UnlessPays { .. }
+            | Self::IfPays { .. } => true,
             Self::Do(_) | Self::Delayed { .. } | Self::Reflexive { .. } => false,
         }
     }
