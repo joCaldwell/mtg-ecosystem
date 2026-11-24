@@ -1225,8 +1225,9 @@ impl RulesTxn {
                                 false
                             } else {
                                 self.rules_mut().pending = None;
-                                self.intrinsic_mana_colors(*source)?.is_empty()
-                                    || !self.is_permanent_mana(*source)
+                                // CR 605.3a: the choice stands while the source
+                                // still offers one and a payable ability remains.
+                                !self.mana_ability_selection(*source).unwrap_or(false)
                             }
                         }
                     }

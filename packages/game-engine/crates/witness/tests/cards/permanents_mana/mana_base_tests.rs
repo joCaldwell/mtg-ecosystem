@@ -706,3 +706,36 @@ fn suspended_mana_rider_damage_keeps_the_payment_valid_in_snapshots() {
     assert_eq!(pool(&g, 0), BTreeMap::from([(Color::G, 1.into())]));
     checked(&g);
 }
+
+/// Review P2: an unrelated player's concession revalidates the pending
+/// choice of which printed mana ability to activate; Yavimaya Coast still
+/// offers both, so the choice stands (CR 605.3a, 800.4a).
+#[test]
+fn unrelated_concession_keeps_the_mana_ability_choice() {
+    let mut g = Game::new(prepared_with(
+        3,
+        LIFE,
+        &[("Yavimaya Coast", 0, false), ("Mountain", 2, false)],
+    ));
+    activate(&mut g, 0);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::ManaAbility { .. }));
+    g.concede(PlayerId(2)).unwrap();
+    checked(&g);
+    pick(
+        &mut g,
+        |r| matches!(r, Reason::ManaAbility { .. }),
+        &[printed(0), printed(1)],
+        printed(1),
+    );
+    pick(
+        &mut g,
+        |r| matches!(r, Reason::ManaColor { .. }),
+        &colors(&[Color::G, Color::U]),
+        color(Color::U),
+    );
+    priority(&mut g);
+    assert_eq!(pool(&g, 0), BTreeMap::from([(Color::U, 1.into())]));
+    assert_eq!(life(&g, 0), Quantity::from(LIFE - 1));
+    checked(&g);
+}

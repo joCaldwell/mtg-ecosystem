@@ -395,8 +395,9 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
 }
 
 /// The audited kernel cells of every program of a definition. A node that
-/// does not check occupies no cell: its error is returned, so an invalid
-/// definition can never be read as one that earned a tier.
+/// does not check, or a surface the runtime cannot execute, occupies no
+/// cell: its error is returned, so an invalid definition can never be read
+/// as one that earned a tier.
 pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     let mut cells = BTreeSet::new();
     let mut add = |p: &SpellProgram,
@@ -426,6 +427,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);
     }
+    // A surface with no executor (for example a life payment on a stack
+    // activation's composite cost) earns no tier, so no cell qualifies it.
+    executes::surfaces(d).map_err(KirError::Unaudited)?;
     Ok(cells)
 }
 

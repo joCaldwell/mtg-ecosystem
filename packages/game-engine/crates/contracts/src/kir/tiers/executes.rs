@@ -516,6 +516,15 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
             return Err("invalid source label provenance".into());
         }
     }
+    surfaces(d)
+}
+
+/// The surface rows alone: card shell, keywords, statics, mana abilities,
+/// activated and triggered abilities and the spell program. The public tier
+/// queries run these, so a definition whose surface no runtime executes
+/// earns no tier, however its capabilities and cells are reviewed.
+pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
+    let c = &d.characteristics;
     // Whole-card characteristics the composition tables do not describe
     // reject: second faces, hybrid and X costs, snow, attachments and Sagas.
     // CR 205.4: the basic supertype is admitted only on a land, whose shell
@@ -717,6 +726,19 @@ mod tests {
                 .contains("cell:cost:composite")
         );
         assert!(validate(&forged).is_err());
+        // The public tier queries agree: the forged surface earns no tier
+        // and is never reported as having no Hosting blockers.
+        assert!(
+            kir::definition_tiers(&tap(None))
+                .unwrap()
+                .admits(kir::ExecutionTier::Hosting)
+        );
+        assert!(matches!(
+            kir::definition_tiers(&forged),
+            Err(kir::KirError::Unaudited(detail)) if detail.contains("cell:cost:composite")
+        ));
+        assert!(kir::unqualified(&forged, kir::ExecutionTier::Hosting).is_err());
+        assert!(kir::definition_cells(&forged).is_err());
     }
 
     /// The new mana shapes execute only: their cells start at Executes and
