@@ -76,113 +76,35 @@ impl Resolution {
         }
     }
 
-    /// The shared step lowerer reads references the ordinary way: "you" is
-    /// the block's controller (CR 109.5), "this" the source (CR 201.5), a
-    /// target one of the block's announced targets (CR 601.2c), and another
-    /// pronoun an announced target or a result of the block's own steps
-    /// (CR 608.2c, 608.2h). Sets, filters and the resolving object itself are
-    /// consumed operand by operand, and a damage source's pronoun is proven by
-    /// its operator. Any other resolved role is named and rejected here.
-    pub(super) fn ordinary_antecedents(&self, abilities: &Value) -> Result<(), Failure> {
+    /// Every resolved reference of every block, looked up in the reference
+    /// table ([`reference_row`]): its role, read where it is printed, either
+    /// has a lowering or is rejected under `ref:<role>:<block kind>`.
+    pub(super) fn references(&self, abilities: &Value) -> Result<(), Failure> {
         for (index, block) in self.blocks()?.iter().enumerate() {
             let ability = &abilities[index];
-            let controller = match ability["kind"].as_str() {
-                Some("spell") => Some(ControllerRole::SpellController),
-                Some("activated" | "triggered") => Some(ControllerRole::AbilityController),
-                Some("static") => Some(ControllerRole::StaticController),
-                _ => None,
-            };
+            let kind = BlockKind::of(ability);
             for entry in &block.refs {
-                let (path, scope, resolved) = match entry {
-                    RefEntry::Ref(r) => (&r.path, r.scope.as_deref(), Some(&*r.r#ref)),
-                    RefEntry::Derived(d) => (&d.path, d.scope.as_deref(), None),
-                    RefEntry::Evaluated(e) => (&e.path, e.scope.as_deref(), None),
+                let (path, scope, role) = match entry {
+                    RefEntry::Ref(r) => (&r.path, r.scope.as_deref(), Role::Resolved(&r.r#ref)),
+                    RefEntry::Derived(d) => (&d.path, d.scope.as_deref(), Role::Unbound),
+                    RefEntry::Evaluated(e) => (&e.path, e.scope.as_deref(), Role::Unbound),
                     RefEntry::Unresolved(u) => {
                         return Err(unsupported("resolution", format!("ref:{}", u.unresolved)));
                     }
                 };
-                let leaves = || {
-                    unsupported(
+                let site = Site {
+                    kind,
+                    ability,
+                    block,
+                    path,
+                    scope,
+                    operand: ability.pointer(path),
+                };
+                if !reference_row(role, &site) {
+                    return Err(unsupported(
                         "resolution",
-                        format!("ref {} outside the ordinary antecedents", describe(entry)),
-                    )
-                };
-                let expression = ability.pointer(path);
-                let effects_operand = path.starts_with("/effects/") && !path.ends_with("/of");
-                // CR 109.5: every player resolved as a controller of this block,
-                // printed "you" or an implicit payer, is the block's controller.
-                if let Some(ResolvedRef::Controller(c)) = resolved
-                    && scope.is_none()
-                    && controller.is_some()
-                    && Some(c.role) != controller
-                {
-                    return Err(leaves());
-                }
-                // CR 603.2: a kernel event player belongs to the block's own
-                // trigger, the one trigger that supplies it.
-                if let Some(ResolvedRef::EventPlayer(e)) = resolved
-                    && let Some((_, trigger)) = kernel_event_player(&e.role)
-                    && (scope.is_some()
-                        || ability["kind"] != "triggered"
-                        || ability["trigger"]["trigger"] != trigger)
-                {
-                    return Err(leaves());
-                }
-                // CR 601.2c: a printed target (object or player) carries its
-                // selection identity and resolves only to an announced target.
-                if expression.is_some_and(|e| e.get("selectionId").is_some())
-                    && !matches!(resolved, Some(ResolvedRef::Target(_)))
-                {
-                    return Err(leaves());
-                }
-                if expression == Some(&serde_json::json!({"player":"you"})) {
-                    match resolved {
-                        Some(ResolvedRef::Controller(c)) if Some(c.role) == controller => continue,
-                        _ => return Err(leaves()),
-                    }
-                }
-                let Some(kind) = expression.and_then(|e| e["ref"].as_str()) else {
-                    continue;
-                };
-                // CR 608.2c: a pronoun names a target or an earlier step's
-                // result; an evaluated or derived entry has no antecedent.
-                if PRONOUNS.contains(&kind)
-                    && !matches!(
-                        resolved,
-                        Some(ResolvedRef::Target(_) | ResolvedRef::StepResult(_))
-                    )
-                {
-                    return Err(leaves());
-                }
-                if let Some(ResolvedRef::StepResult(s)) = resolved
-                    && (kind == "rest") != (s.role.as_str() == "remainder")
-                {
-                    return Err(leaves());
-                }
-                let ordinary = match (kind, resolved) {
-                    ("this", Some(ResolvedRef::Source(_))) => scope.is_none(),
-                    ("this", _) => false,
-                    ("target", Some(ResolvedRef::Target(_))) => scope.is_none(),
-                    ("target", _) => false,
-                    ("self" | "filter" | "each" | "all", _) => true,
-                    _ if path.ends_with("/source") => true,
-                    (_, Some(ResolvedRef::Target(_))) => {
-                        scope.is_none_or(|s| s.starts_with("/effects/"))
-                    }
-                    (_, Some(ResolvedRef::StepResult(s))) => {
-                        effects_operand && step_producer(block, ability, path, s)
-                    }
-                    (_, Some(ResolvedRef::BoundVar(v))) => {
-                        effects_operand && v.id.starts_with("/effects/")
-                    }
-                    (_, Some(ResolvedRef::LinkedPool(p))) => {
-                        effects_operand && p.id.starts_with("/effects/")
-                    }
-                    (_, None) => effects_operand,
-                    _ => false,
-                };
-                if !ordinary {
-                    return Err(leaves());
+                        format!("ref:{}:{}", describe(entry), kind.name()),
+                    ));
                 }
             }
         }
@@ -451,6 +373,202 @@ pub(super) fn kernel_event_player(role: &str) -> Option<(kir::EventPlayerRole, &
         "caster" => Some((kir::EventPlayerRole::Caster, "cast")),
         "activating-player" => Some((kir::EventPlayerRole::ActivatingPlayer, "activate")),
         _ => None,
+    }
+}
+
+/// The printed block kind a reference sits in (CR 113.3).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BlockKind {
+    Spell,
+    Activated,
+    Triggered,
+    Static,
+    Other,
+}
+
+impl BlockKind {
+    fn of(ability: &Value) -> Self {
+        match ability["kind"].as_str() {
+            Some("spell") => Self::Spell,
+            Some("activated") => Self::Activated,
+            Some("triggered") => Self::Triggered,
+            Some("static") => Self::Static,
+            _ => Self::Other,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Spell => "spell",
+            Self::Activated => "activated",
+            Self::Triggered => "triggered",
+            Self::Static => "static",
+            Self::Other => "keywords",
+        }
+    }
+
+    /// CR 109.5: whose "you" a controller reference in this block means.
+    fn controller(self) -> Option<ControllerRole> {
+        match self {
+            Self::Spell => Some(ControllerRole::SpellController),
+            Self::Activated | Self::Triggered => Some(ControllerRole::AbilityController),
+            Self::Static => Some(ControllerRole::StaticController),
+            Self::Other => None,
+        }
+    }
+}
+
+/// A reference entry's role: resolved in the closed vocabulary, or a
+/// derived/evaluated entry with no antecedent object of its own.
+#[derive(Clone, Copy)]
+enum Role<'a> {
+    Resolved(&'a ResolvedRef),
+    Unbound,
+}
+
+/// Where one reference is printed.
+struct Site<'a> {
+    kind: BlockKind,
+    ability: &'a Value,
+    block: &'a BlockResolution,
+    path: &'a str,
+    scope: Option<&'a str>,
+    /// The AST operand at `path`, when it exists.
+    operand: Option<&'a Value>,
+}
+
+impl Site<'_> {
+    /// A resolving-effect operand, not the owner object of a relation.
+    fn effects_operand(&self) -> bool {
+        self.path.starts_with("/effects/") && !self.path.ends_with("/of")
+    }
+    /// The `ref` word the AST prints here.
+    fn word(&self) -> Option<&str> {
+        self.operand.and_then(|e| e["ref"].as_str())
+    }
+    /// A printed target carries its selection identity (CR 601.2c).
+    fn selection(&self) -> bool {
+        self.operand.is_some_and(|e| e.get("selectionId").is_some())
+    }
+    /// The bare printed player "you".
+    fn you(&self) -> bool {
+        self.operand.is_some_and(|e| {
+            e.as_object()
+                .is_some_and(|o| o.len() == 1 && o.get("player") == Some(&Value::from("you")))
+        })
+    }
+}
+
+/// The reference table: `(role, site) → lowering or rejection`. A row
+/// returning true means the shared operand lowerers read the reference at
+/// this site: "you" is the block's controller (CR 109.5), "this" the source
+/// (CR 201.5), a target one of the block's announced targets (CR 601.2c),
+/// another pronoun an announced target or a result of the block's own steps
+/// (CR 608.2c, 608.2h); sets, filters and the resolving object itself are
+/// consumed operand by operand and a damage source's pronoun is proven by
+/// its operator. A role a wave opens changes its own row only.
+fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
+    let resolved = match role {
+        Role::Resolved(r) => Some(r),
+        Role::Unbound => None,
+    };
+    // Rows every operand word shares: a printed selection is an announced
+    // target, a bare "you" the block's controller, and a pronoun an
+    // announced target or an earlier step's result (CR 601.2c, 608.2c).
+    if at.selection() && !matches!(resolved, Some(ResolvedRef::Target(_))) {
+        return false;
+    }
+    if at.you() {
+        return matches!(resolved, Some(ResolvedRef::Controller(c)) if Some(c.role) == at.kind.controller())
+            && controller_row(resolved, at);
+    }
+    let word = at.word();
+    if word.is_some_and(|w| PRONOUNS.contains(&w))
+        && !matches!(
+            resolved,
+            Some(ResolvedRef::Target(_) | ResolvedRef::StepResult(_))
+        )
+    {
+        return false;
+    }
+    match resolved {
+        None => word_row(word, at, |at| at.effects_operand()),
+        Some(ResolvedRef::Source(_)) => match word {
+            None => true,
+            Some("this") => at.scope.is_none(),
+            Some("target") => false,
+            _ => shared_word(word, at),
+        },
+        Some(ResolvedRef::Target(_)) => match word {
+            None => true,
+            Some("this") => false,
+            Some("target") => at.scope.is_none(),
+            _ if shared_word(word, at) => true,
+            _ => at.scope.is_none_or(|s| s.starts_with("/effects/")),
+        },
+        // CR 608.2c: "the rest" names exactly a remainder.
+        Some(ResolvedRef::StepResult(s)) => {
+            word.is_none_or(|w| (w == "rest") == (s.role.as_str() == "remainder"))
+                && word_row(word, at, |at| {
+                    at.effects_operand() && step_producer(at.block, at.ability, at.path, s)
+                })
+        }
+        Some(ResolvedRef::BoundVar(v)) => word_row(word, at, |at| {
+            at.effects_operand() && v.id.starts_with("/effects/")
+        }),
+        Some(ResolvedRef::LinkedPool(p)) => word_row(word, at, |at| {
+            at.effects_operand() && p.id.starts_with("/effects/")
+        }),
+        Some(ResolvedRef::Controller(_)) => {
+            controller_row(resolved, at) && word_row(word, at, |_| false)
+        }
+        Some(ResolvedRef::EventPlayer(e)) => {
+            // CR 603.2: a kernel event player belongs to the block's own
+            // trigger, the one trigger that supplies it.
+            kernel_event_player(&e.role).is_none_or(|(_, trigger)| {
+                at.scope.is_none()
+                    && at.kind == BlockKind::Triggered
+                    && at.ability["trigger"]["trigger"] == trigger
+            }) && word_row(word, at, |_| false)
+        }
+        // Opened by their waves: attachments (W1), as-enters (W2) and
+        // trigger event objects (W7) have no lowering yet; the announced X
+        // is read by its amount operand only.
+        Some(
+            ResolvedRef::AttachedTo(_)
+            | ResolvedRef::EventObject(_)
+            | ResolvedRef::EnteringObject(_)
+            | ResolvedRef::AnnouncedX(_),
+        ) => word_row(word, at, |_| false),
+    }
+}
+
+/// CR 109.5: a controller resolved with no scope in a block with a
+/// controller is that block's controller.
+fn controller_row(resolved: Option<&ResolvedRef>, at: &Site<'_>) -> bool {
+    match resolved {
+        Some(ResolvedRef::Controller(c)) if at.scope.is_none() => {
+            at.kind.controller().is_none_or(|own| c.role == own)
+        }
+        _ => true,
+    }
+}
+
+/// Words every role reads the same way: a set, filter or self operand, and
+/// the source operand of a damage step.
+fn shared_word(word: Option<&str>, at: &Site<'_>) -> bool {
+    matches!(word, Some("self" | "filter" | "each" | "all")) || at.path.ends_with("/source")
+}
+
+/// A role read through its operand word: no word, or a shared word, is
+/// read operand by operand; "this" and "target" name their own roles;
+/// any other word follows the role's own `rest` rule.
+fn word_row(word: Option<&str>, at: &Site<'_>, rest: impl Fn(&Site<'_>) -> bool) -> bool {
+    match word {
+        None => true,
+        Some("this" | "target") => false,
+        _ if shared_word(word, at) => true,
+        _ => rest(at),
     }
 }
 

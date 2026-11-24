@@ -501,7 +501,7 @@ fn compose(
     let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
     {
         binding_gate(resolution.complete(), &mut deferred)?;
-        binding_gate(resolution.ordinary_antecedents(&printed), &mut deferred)?;
+        binding_gate(resolution.references(&printed), &mut deferred)?;
         binding_gate(resolution.covers(&printed), &mut deferred)?;
         binding_gate(resolution.referenced(&printed), &mut deferred)?;
     }
