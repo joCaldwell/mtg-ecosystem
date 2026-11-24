@@ -1,10 +1,10 @@
 {
   "profile": "commander-foundations-v1",
   "catalog_sha256": "3e36982dc804bc7138c964ccd908ec3076e1a8d63c9c99705367d34f582644c5",
-  "engine_build_id": "86403290b4559c3030e4e8e7b8e97d82c25a2ed9cf5cf300471d9a2576bcf75a",
-  "server_build_id": "a228100966548355189c2ec8d2736d725613d54ee8d761d8163f63bfe074d6cf",
-  "protocol_schema_sha256": "544786c28d3897e7ec733f241a18244dc24859ad03ff5157e69eeb7c6d3c4069",
-  "public_prefixes_sha256": "e525a4dd868a1af6993bd6480448ec7f8f509c112836287489a0f8ad42c6e2d4",
+  "engine_build_id": "5de8b341f86989fcecd23132c3824655d83fdc0cf99953ceef586fb52bf2d822",
+  "server_build_id": "d72fbfb56a3139922b003823006bdc0b795fadd959008295879133fb62558247",
+  "protocol_schema_sha256": "ced861b47179f588f46311470225a9d41201d2ea44c8fce6d111f9ced0d362c6",
+  "public_prefixes_sha256": "aaf3fbaed2bdf568d876ed37189b2bcc257f3baafd10a10d9b0e55cd8aa1b4cc",
   "stages": [
     {
       "stage": "opening",

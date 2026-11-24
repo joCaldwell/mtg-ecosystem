@@ -1,6 +1,6 @@
 {
   "protocol_version": 2,
-  "protocol_schema_sha256": "544786c28d3897e7ec733f241a18244dc24859ad03ff5157e69eeb7c6d3c4069",
+  "protocol_schema_sha256": "ced861b47179f588f46311470225a9d41201d2ea44c8fce6d111f9ced0d362c6",
   "opening_provenance_sha256": "087bb24269b3da237a0d9fc089a0789f7d22543a5b70aab7951a9d3d6c5d2a35",
   "shapes": [
     "distribute",
