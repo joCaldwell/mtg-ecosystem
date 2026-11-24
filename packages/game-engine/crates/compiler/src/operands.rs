@@ -240,23 +240,31 @@ pub(crate) fn typed<T: serde::de::DeserializeOwned>(
 ) -> Result<T, Failure> {
     let value = serde_json::to_value(value)
         .map_err(|e| invalid("operand", format!("operand:{kind}: {e}")))?;
-    if let Some(field) = null_member(&value) {
+    if let Some(field) = null_field(&value, kind) {
         return Err(operand(kind, format!("null:{field}")));
     }
     serde_json::from_value(value).map_err(|e| invalid("operand", format!("operand:{kind}: {e}")))
 }
 
-/// The first object member, at any depth, whose value is `null`.
-fn null_member(value: &serde_json::Value) -> Option<String> {
+/// The field of the first `null` at any depth: an object member whose value
+/// is `null`, or a `null` element of an array, named by the array's field
+/// (`enclosing` for a top-level array).
+pub(crate) fn null_field(value: &serde_json::Value, enclosing: &str) -> Option<String> {
     match value {
         serde_json::Value::Object(members) => members.iter().find_map(|(key, member)| {
             if member.is_null() {
                 Some(key.clone())
             } else {
-                null_member(member)
+                null_field(member, key)
             }
         }),
-        serde_json::Value::Array(items) => items.iter().find_map(null_member),
+        serde_json::Value::Array(items) => items.iter().find_map(|item| {
+            if item.is_null() {
+                Some(enclosing.to_owned())
+            } else {
+                null_field(item, enclosing)
+            }
+        }),
         _ => None,
     }
 }

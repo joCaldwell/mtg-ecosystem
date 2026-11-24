@@ -500,10 +500,17 @@ fn compose(
     // every reference, step and printed token of each block is accounted for.
     let resolution =
         resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;
+    let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
+    // The generated AST and the lowering mirror both read an explicit `null`
+    // as an absent term; the archive never prints one, so a `null` anywhere
+    // (an object member or an array element) rejects under its field's name
+    // before either decoder can drop it.
+    if let Some(field) = null_field(&printed, "abilities") {
+        return Err(unsupported("operand", format!("operand:ast:null:{field}")));
+    }
     // The complete typed AST: an unknown shape is named, never an opaque
     // untagged-enum failure further down.
     decode::<Vec<ast::Ability>>(result.abilities.get(), "abilities")?;
-    let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
     {
         binding_gate(resolution.complete(), &mut deferred)?;
         binding_gate(resolution.references(&printed), &mut deferred)?;

@@ -767,3 +767,40 @@ fn contradictory_or_missing_r4_edges_reject() {
     });
     assert!(rejected(&slot));
 }
+
+#[test]
+fn explicit_nulls_reject_under_their_field_before_any_decoder() {
+    let code = |raw: &str| match compile(R4, raw) {
+        CompileResult::Unsupported { path, reason } => {
+            crate::coverage::reason_code(&path, &reason, &serde_json::Value::Null)
+        }
+        other => panic!("{other:?}"),
+    };
+    const UNSUMMON: &str = include_str!("../../../../tests/fixtures/phase1-r4/unsummon.json");
+    for witness in [MARSH, UNSUMMON] {
+        assert!(matches!(
+            compile(R4, witness),
+            CompileResult::Lowered { .. }
+        ));
+    }
+    // A null object member: the player mirror would drop the selection.
+    let marsh = changed(MARSH, |row| {
+        row["faces"][0]["result"]["abilities"][1]["effects"][0]["steps"][0]["who"]["selectionId"] =
+            serde_json::Value::Null;
+    });
+    assert_eq!(code(&marsh), "operand:ast:null:selectionId");
+    // A null array element, named by its array's field.
+    let unsummon = changed(UNSUMMON, |row| {
+        row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"]["types"] =
+            json!(["creature", null]);
+    });
+    assert_eq!(code(&unsummon), "operand:ast:null:types");
+    // Null target-filter qualifiers reject the same way.
+    for field in ["control", "other"] {
+        let qualified = changed(UNSUMMON, |row| {
+            row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["what"]["filter"]
+                [field] = serde_json::Value::Null;
+        });
+        assert_eq!(code(&qualified), format!("operand:ast:null:{field}"));
+    }
+}

@@ -195,3 +195,13 @@ fn counter_recipients_decode_as_generated_objects() {
     .unwrap_err();
     assert_eq!(code(failure), "operand:target:ref_it");
 }
+
+#[test]
+fn null_array_elements_name_their_array() {
+    let what = json!({"ref":"target","filter":{"types":["creature", null]},
+        "count":{"amount":"fixed","value":1},"selectionId":"line:0:1"});
+    assert_eq!(
+        code(object(&what).unwrap_err()),
+        "operand:object:null:types"
+    );
+}
