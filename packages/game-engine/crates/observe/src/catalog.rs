@@ -5,6 +5,61 @@ use mtg_contracts::Catalog;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
+/// Immutable card data and its precomputed observation-only indexes.
+pub struct ObservationCatalog {
+    definitions: std::sync::Arc<Catalog>,
+    spell_cost_reducers: BTreeSet<String>,
+}
+
+impl ObservationCatalog {
+    pub fn new(definitions: std::sync::Arc<Catalog>) -> Self {
+        use mtg_contracts::kir::{SpellCostChange, StaticEffect, StaticRule};
+        let spell_cost_reducers = definitions
+            .definitions
+            .iter()
+            .filter(|d| {
+                d.static_abilities.iter().any(|ability| {
+                    matches!(
+                        &ability.effect,
+                        StaticEffect::Rule {
+                            rule: StaticRule::SpellCost {
+                                change: SpellCostChange::Reduce { .. },
+                                ..
+                            },
+                            ..
+                        }
+                    )
+                })
+            })
+            .map(|d| d.oracle_id.clone())
+            .collect();
+        Self {
+            definitions,
+            spell_cost_reducers,
+        }
+    }
+
+    pub(crate) fn reduces_cost(&self, oracle_id: &str) -> bool {
+        self.spell_cost_reducers.contains(oracle_id)
+    }
+
+    pub(crate) fn has_visible_reducer(&self, view: &mtg_view::PermittedView) -> bool {
+        !self.spell_cost_reducers.is_empty()
+            && view.objects.iter().any(|o| {
+                o.zone == mtg_view::Zone::Battlefield
+                    && !o.phased_out
+                    && self.reduces_cost(&o.oracle_id)
+            })
+    }
+}
+
+impl std::ops::Deref for ObservationCatalog {
+    type Target = Catalog;
+    fn deref(&self) -> &Catalog {
+        &self.definitions
+    }
+}
+
 pub struct CardTable {
     pub vocabulary: Vec<String>,
     pub vocabulary_sha256: String,

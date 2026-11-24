@@ -225,19 +225,22 @@ env.step(actions)
 
 Arrays from `buffers()` borrow contiguous Rust storage. Batch exit or `release()` drops
 the batch's references. Slices and retained arrays continue to hold a lease, and the
-next step or reset waits for the caller to release them by raising a Python exception.
-Copy a tensor to retain its contents across steps. Workers release the GIL and write
-disjoint rows. An internal fault requires a reset. An invalid input leaves all games
+next step or reset immediately raises a Python exception while any lease is live.
+Copy a tensor to retain its contents across steps. Reset and step release the GIL. Each environment owns a persistent thread pool.
+Worker `w` writes rows whose batch index modulo the worker count is `w`. An internal fault requires a reset. An invalid input leaves all games
 at the previous decision.
 
 `payment` accepts `auto` (default) or `manual`. Spend always uses the exact solver.
 `opponents` accepts `self_play` (default) or `baseline` (seat zero acts, the other
 seats use Develop). `mask_unfundable` defaults to true. The encoder proves fixed costs
 from the visible pool and intrinsic single-color lands. Uncertain sources or payments
-retain a candidate with funding code 2. `head` selects pointer (0) or
+retain a candidate with funding code 2, as do visible spell-cost reducers. Filtering
+preserves the original pointers if it would otherwise empty the head. `head` selects pointer (0) or
 number (1). Pointers 0–127 address ordered candidates, 128 ends a slot or ordering,
 129 and 130 finish production with undo or keep. Numbers 0–62 are literal and 63
-selects the largest feasible value.
+selects the numeric upper bound. For AnnounceX, fully modeled resources can tighten
+this bound. With uncertain sources or reductions, the published maximum applies.
+An unbounded decision with unknown supply uses the signed 32-bit ceiling.
 
 Entity rows preserve object order, then stack order, then remembered library positions
 in published order. Remembered positions have no targetable handle. Missing entity

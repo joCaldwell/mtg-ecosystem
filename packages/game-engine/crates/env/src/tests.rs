@@ -105,12 +105,12 @@ fn equal_permitted_history_in_distinct_sampled_worlds() {
                     let Step::Choose(mask) = Composer::compose(
                         o.decision.as_ref().unwrap(),
                         &[],
-                        mtg_observe::number_bound(catalog, &o.view),
+                        mtg_observe::number_bound(&source.observer, o).as_ref(),
                     )
                     .unwrap() else {
                         return None;
                     };
-                    Some(mtg_observe::encode(catalog, o, 0, &mask, true).unwrap())
+                    Some(mtg_observe::encode(&source.observer, o, 0, &mask, true).unwrap())
                 });
                 assert!(
                     rows[0] == rows[1],
@@ -165,7 +165,6 @@ fn baseline_game(seed: u64) -> Result<i32, String> {
     let mut decisions = 0;
     loop {
         let next = lane.game.advance(Budget::new(mtg_sim::pods::QUANTUM));
-        lane.game.drain_trace(&mut |_| {});
         let request = match next {
             Advance::Suspended { .. } => continue,
             Advance::AwaitingDecision(d) => d,
@@ -177,12 +176,12 @@ fn baseline_game(seed: u64) -> Result<i32, String> {
             mtg_sim::play::observe(&lane.game, request.player, quantum, &mut work, &mut queries)?;
         let d = o.decision.as_ref().unwrap();
         let target = policy.choose(catalog, Policy::Develop, &o)?;
-        let bound = mtg_observe::number_bound(catalog, &o.view);
+        let bound = mtg_observe::number_bound(&source.observer, &o);
         let mut prefix = vec![];
         let mut last_slot = None;
         let mut count = 0;
         loop {
-            match Composer::compose(d, &prefix, bound)? {
+            match Composer::compose(d, &prefix, bound.as_ref())? {
                 Step::Answer(a) => {
                     if a != target {
                         return Err(format!(
@@ -222,7 +221,7 @@ fn baseline_game(seed: u64) -> Result<i32, String> {
                         }
                         _ => return Err("unexpected manual spend prefix".into()),
                     };
-                    let row = mtg_observe::encode(catalog, &o, prefix.len(), &mask, true)?;
+                    let row = mtg_observe::encode(&source.observer, &o, prefix.len(), &mask, true)?;
                     let allowed = if mask.numeric {
                         row.num_mask.get(a)
                     } else {
@@ -284,18 +283,20 @@ fn bounded_rollout_matches_across_worker_counts() {
             Source::load(PROFILE, &[], None).unwrap(),
             Config::default(),
             23,
-            4,
+            5,
             threads,
         )
         .unwrap()
     };
     let mut left = make(1);
-    let mut right = make(4);
+    let mut right = make(3);
+    let worker_ids = |g: &Gym| g.pool.broadcast(|_| std::thread::current().id());
+    let ids = worker_ids(&right);
     left.advance(None).unwrap();
     right.advance(None).unwrap();
     for tick in 0..64 {
         assert!(left.storage == right.storage);
-        let moves: Vec<_> = (0..4)
+        let moves: Vec<_> = (0..5)
             .map(|i| {
                 let mask = if left.storage.head[i] == 0 {
                     &left.storage.ptr_mask[i * 131..(i + 1) * 131]
@@ -315,12 +316,14 @@ fn bounded_rollout_matches_across_worker_counts() {
         right.advance(Some(&moves)).unwrap();
     }
     assert!(left.storage == right.storage);
-    for i in 0..4 {
+    for i in 0..5 {
         assert_eq!(
             left.lanes[0][i].game.state_digest().unwrap(),
-            right.lanes[i][0].game.state_digest().unwrap()
+            right.lanes[i % 3][i / 3].game.state_digest().unwrap()
         );
     }
+    right.advance(None).unwrap();
+    assert_eq!(worker_ids(&right), ids);
 }
 
 // SplitMix64 supplies an independent deterministic policy stream. Rejection
@@ -433,12 +436,10 @@ fn tensor_capacity_resets_with_zero_reward_and_no_rejected_answer() {
     );
 }
 
-#[test]
-fn unmodeled_mana_sources_leave_casts_unmasked() {
-    let source = Source::load(PROFILE, &[], None).unwrap();
-    let mut lane = Lane::new(&source, 57, 0, 0).unwrap();
-    lane.run(&source, Config::default(), None).unwrap();
-    let o = lane.observation.as_mut().unwrap();
+fn cast_frame(source: &Source) -> (Observation, VisibleObject) {
+    let mut lane = Lane::new(source, 57, 0, 0).unwrap();
+    lane.run(source, Config::default(), None).unwrap();
+    let mut o = lane.observation.take().unwrap();
     let commander = o
         .view
         .objects
@@ -447,37 +448,143 @@ fn unmodeled_mana_sources_leave_casts_unmasked() {
         .unwrap()
         .clone();
     let decision = o.decision.as_mut().unwrap();
-    decision.candidates = vec![Candidate::Action {
-        action: Action::Cast {
-            card: commander.handle.clone(),
+    decision.candidates = vec![
+        Candidate::Action {
+            action: Action::Cast {
+                card: commander.handle.clone(),
+            },
         },
-    }];
+        Candidate::Action {
+            action: Action::Pass,
+        },
+    ];
     decision.shape = Shape::Pick {
         slots: vec![Slot {
             role: SlotRole::Choice,
             subject: None,
-            allowed: vec![0],
+            allowed: vec![0, 1],
             min: 1,
             max: 1,
             repeat: false,
         }],
         rules: vec![],
     };
-    let Step::Choose(mask) = Composer::compose(decision, &[], 0).unwrap() else {
-        panic!("missing cast pointer")
+    (o, commander)
+}
+
+fn cast_mask(c: &mtg_observe::catalog::ObservationCatalog, o: &Observation) -> (i32, u8) {
+    let Step::Choose(mask) = Composer::compose(o.decision.as_ref().unwrap(), &[], None).unwrap()
+    else {
+        panic!("expected cast pointer")
     };
-    let encoded = mtg_observe::encode(source.catalog(), o, 0, &mask, true).unwrap();
-    assert_eq!((encoded.cand[0][5], encoded.ptr_mask[0]), (0, 0));
-    let mut token = commander;
-    token.handle = ObjectHandle("new-token".into());
-    token.zone = Zone::Battlefield;
-    token.controller = o.view.viewer;
-    token.oracle_id.clear();
-    token.token = Some(VisibleToken {
-        name: String::new(),
+    let row = mtg_observe::encode(c, o, 0, &mask, true).unwrap();
+    (row.cand[0][5], row.ptr_mask[0])
+}
+
+fn treasure(mut object: VisibleObject) -> VisibleObject {
+    object.handle = ObjectHandle("token".into());
+    object.zone = Zone::Battlefield;
+    object.tapped = false;
+    object.oracle_id.clear();
+    object.token = Some(VisibleToken {
+        name: "Treasure".into(),
         keywords: vec![],
     });
-    o.view.objects.push(token);
-    let encoded = mtg_observe::encode(source.catalog(), o, 0, &mask, true).unwrap();
-    assert_eq!((encoded.cand[0][5], encoded.ptr_mask[0]), (2, 1));
+    object
+}
+
+#[test]
+fn unmodeled_mana_sources_leave_casts_unmasked() {
+    let source = Source::load(PROFILE, &[], None).unwrap();
+    let (mut o, commander) = cast_frame(&source);
+    assert_eq!(cast_mask(&source.observer, &o), (0, 0));
+    o.view.objects.push(treasure(commander));
+    assert_eq!(cast_mask(&source.observer, &o), (2, 1));
+    o.view.objects.pop();
+    let Shape::Pick { slots, .. } = &mut o.decision.as_mut().unwrap().shape else {
+        unreachable!()
+    };
+    slots[0].allowed = vec![0];
+    assert_eq!(cast_mask(&source.observer, &o), (0, 1));
+}
+
+fn with_reducer(source: &Source, id: &str) -> mtg_observe::catalog::ObservationCatalog {
+    use mtg_contracts::kir::{PlayerExpr, Pred, Scope, SpellCostChange, StaticRule};
+    use mtg_contracts::{FunctioningZone, ManaCost, StaticAbility, StaticEffect};
+    let mut catalog = source.catalog().clone();
+    let d = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.oracle_id == id)
+        .unwrap();
+    d.static_abilities.push(StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::rule(StaticRule::SpellCost {
+            affects: Scope::Matching {
+                filter: Pred::creatures(),
+            },
+            caster: PlayerExpr::EachPlayer,
+            change: SpellCostChange::Reduce {
+                mana: ManaCost {
+                    generic: 3.into(),
+                    colored: vec![],
+                },
+            },
+            multiplier: None,
+        }),
+    });
+    mtg_observe::catalog::ObservationCatalog::new(catalog.into())
+}
+
+#[test]
+fn visible_and_self_cost_reductions_preserve_cast_pointers() {
+    let source = Source::load(PROFILE, &[], None).unwrap();
+    let (mut o, commander) = cast_frame(&source);
+    let self_reduces = with_reducer(&source, &commander.oracle_id);
+    assert_eq!(cast_mask(&self_reduces, &o), (2, 1));
+    let permanent = o
+        .view
+        .objects
+        .iter_mut()
+        .find(|x| x.oracle_id != commander.oracle_id)
+        .unwrap();
+    permanent.zone = Zone::Battlefield;
+    permanent.controller = PlayerId((o.view.viewer.0 + 1) % 4);
+    let reducer = with_reducer(&source, &permanent.oracle_id);
+    assert_eq!(cast_mask(&reducer, &o), (2, 1));
+}
+
+#[test]
+fn announce_x_retains_maximum_with_tokens_or_reductions() {
+    let source = Source::load(PROFILE, &[], None).unwrap();
+    let (mut o, mut card) = cast_frame(&source);
+    let decision = o.decision.as_mut().unwrap();
+    decision.reason = Reason::AnnounceX;
+    let maximum = mtg_contracts::Quantity::from(i64::from(i32::MAX) + 5);
+    decision.shape = Shape::Number {
+        min: 0.into(),
+        max: Some(maximum.clone()),
+    };
+    let check = |catalog, o: &Observation, expected: &mtg_contracts::Quantity| {
+        let bound = mtg_observe::number_bound(catalog, o);
+        let d = o.decision.as_ref().unwrap();
+        let Step::Choose(mask) = Composer::compose(d, &[], bound.as_ref()).unwrap() else {
+            panic!("missing number head")
+        };
+        assert_eq!(mask.number[1], u8::from(expected != &0.into()));
+        assert_eq!(mask.number[MAXIMUM], 1);
+        assert!(
+            matches!(Composer::compose(d, &[MAXIMUM], bound.as_ref()).unwrap(), Step::Answer(Answer::Number { value }) if &value == expected)
+        );
+    };
+    check(&source.observer, &o, &0.into());
+    o.view.objects.push(treasure(card.clone()));
+    check(&source.observer, &o, &maximum);
+    o.view.objects.pop();
+    let reducer = with_reducer(&source, &card.oracle_id);
+    card.zone = Zone::Battlefield;
+    o.view.objects.push(card.clone());
+    check(&reducer, &o, &maximum);
+    o.view.objects.last_mut().unwrap().zone = Zone::Stack;
+    check(&reducer, &o, &maximum);
 }

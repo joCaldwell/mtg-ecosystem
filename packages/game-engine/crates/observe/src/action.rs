@@ -35,7 +35,11 @@ pub enum Step {
 pub struct Composer;
 impl Composer {
     /// The bound comes exclusively from the acting player's view and catalog.
-    pub fn compose(d: &Decision<Viewer>, actions: &[usize], bound: i32) -> Result<Step, String> {
+    pub fn compose(
+        d: &Decision<Viewer>,
+        actions: &[usize],
+        bound: Option<&Quantity>,
+    ) -> Result<Step, String> {
         if d.candidates.len() > STOP {
             return Err("decision exceeds candidate capacity".into());
         }
@@ -110,10 +114,15 @@ impl Composer {
                 Answer::Order { order }
             }
             Shape::Number { min, max } => {
+                // An unbounded rules decision and unknown public supply have no
+                // finite rules maximum. Use the numeric tensor's representable ceiling.
                 let upper = max
-                    .clone()
-                    .unwrap_or_else(|| i64::from(bound).into())
-                    .min(i64::from(bound).into());
+                    .as_ref()
+                    .into_iter()
+                    .chain(bound)
+                    .min()
+                    .cloned()
+                    .unwrap_or_else(|| Quantity::from(i64::from(i32::MAX)).max(min.clone()));
                 let mut c = Choices::new(0, 0);
                 numbers(&mut c, min, &upper);
                 let action = select!(c);
@@ -365,12 +374,12 @@ mod tests {
                 }],
             },
         };
-        let Step::Choose(c) = Composer::compose(&d, &[], 100).unwrap() else {
+        let Step::Choose(c) = Composer::compose(&d, &[], None).unwrap() else {
             panic!()
         };
         assert_eq!(&c.number[..4], &[0, 0, 0, 1]);
         assert!(
-            matches!(Composer::compose(&d,&[63],100).unwrap(), Step::Answer(Answer::Distribute{amounts}) if amounts==vec![100.into(),0.into()])
+            matches!(Composer::compose(&d,&[63],None).unwrap(), Step::Answer(Answer::Distribute{amounts}) if amounts==vec![100.into(),0.into()])
         );
     }
     #[test]
@@ -407,7 +416,7 @@ mod tests {
             },
         };
         let allowed = |d: &Decision<Viewer>, prefix: &[usize]| {
-            let Step::Choose(c) = Composer::compose(d, prefix, 0).unwrap() else {
+            let Step::Choose(c) = Composer::compose(d, prefix, None).unwrap() else {
                 panic!("expected mask")
             };
             c.pointer
@@ -432,7 +441,7 @@ mod tests {
         rules.pop();
         assert_eq!(allowed(&d, &[0]), vec![0]);
         assert!(matches!(
-            Composer::compose(&d, &[0, 0], 0).unwrap(),
+            Composer::compose(&d, &[0, 0], None).unwrap(),
             Step::Answer(_)
         ));
     }

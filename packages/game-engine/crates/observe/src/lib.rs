@@ -4,7 +4,7 @@
 pub mod action;
 pub mod catalog;
 mod funding;
-use mtg_contracts::{Catalog, Color, HybridPayment, ManaProduction, Quantity};
+use mtg_contracts::{Catalog, Color, HybridPayment, Quantity};
 use mtg_view::*;
 use std::collections::HashMap;
 
@@ -47,36 +47,31 @@ fn card(c: &Catalog, id: &str) -> Result<i32, String> {
         .map(|i| i as i32 + 1)
         .map_err(|_| format!("missing visible catalog identity {id}"))
 }
-pub fn number_bound(c: &Catalog, v: &PermittedView) -> i32 {
-    let mut total = 0i32;
-    for p in &v.players {
-        if p.player == v.viewer {
-            for q in p.mana.values() {
-                total = total.saturating_add(int(q));
-            }
-        }
+/// A finite payment ceiling is justified only for a fully modeled AnnounceX.
+pub fn number_bound(c: &catalog::ObservationCatalog, o: &Observation) -> Option<Quantity> {
+    if !o
+        .decision
+        .as_ref()
+        .is_some_and(|d| matches!(d.reason, Reason::AnnounceX))
+    {
+        return None;
     }
-    for o in &v.objects {
-        if o.controller != v.viewer || o.zone != Zone::Battlefield || o.phased_out || o.tapped {
-            continue;
-        }
-        if let Some(d) = c.definition_by_oracle_id(&o.oracle_id) {
-            let amount = d
-                .mana_abilities
-                .iter()
-                .map(|a| match &a.production {
-                    ManaProduction::Fixed { symbols } => symbols.len() as i32,
-                    ManaProduction::Choose { amount, .. } => int(amount),
-                    _ => 1,
-                })
-                .max()
-                .unwrap_or(i32::from(
-                    d.characteristics.kind == mtg_contracts::CardKind::Land,
-                ));
-            total = total.saturating_add(amount);
-        }
+    let v = &o.view;
+    if c.has_visible_reducer(v)
+        || v.objects
+            .iter()
+            .any(|o| o.zone == Zone::Stack && c.reduces_cost(&o.oracle_id))
+    {
+        return None;
     }
-    total
+    let (pool, complete) = funding::intrinsic_supply(c, v);
+    complete.then(|| {
+        let mut total = Quantity::zero();
+        for amount in pool.values() {
+            total.add(amount);
+        }
+        total
+    })
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct Row {
@@ -125,7 +120,7 @@ fn zone(z: Zone) -> i32 {
     }
 }
 pub fn encode(
-    c: &Catalog,
+    c: &catalog::ObservationCatalog,
     o: &Observation,
     micro: usize,
     choices: &action::Choices,
@@ -359,6 +354,9 @@ pub fn encode(
         if mask_unfundable && funding[i] == 0 {
             r.ptr_mask[i] = 0;
         }
+    }
+    if mask_unfundable && !choices.numeric && !r.ptr_mask.contains(&1) {
+        r.ptr_mask = choices.pointer;
     }
     Ok(r)
 }

@@ -12,7 +12,11 @@ use mtg_sim::{
 };
 use std::path::Path;
 
-pub enum Source {
+pub struct Source {
+    pub observer: mtg_observe::catalog::ObservationCatalog,
+    decks: DeckSource,
+}
+enum DeckSource {
     Profile(&'static MatchProfile, Vec<[Decklist; 4]>),
     Bulk(Box<BulkArtifact>, Vec<[Vec<DynamicDeckEntry>; 4]>),
 }
@@ -26,7 +30,10 @@ impl Source {
                     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
                 })
                 .collect::<Result<_, _>>()?;
-            return Ok(Self::Profile(p, decks));
+            return Ok(Self {
+                observer: mtg_observe::catalog::ObservationCatalog::new(p.catalog().clone().into()),
+                decks: DeckSource::Profile(p, decks),
+            });
         }
         let artifact = bulk_input::load(
             *build_identity(),
@@ -40,19 +47,21 @@ impl Source {
             .iter()
             .map(|p| bulk_input::read_pod_decks(Path::new(p)))
             .collect::<Result<_, _>>()?;
-        Ok(Self::Bulk(Box::new(artifact), decks))
+        Ok(Self {
+            observer: mtg_observe::catalog::ObservationCatalog::new(
+                artifact.catalog().shared_catalog(),
+            ),
+            decks: DeckSource::Bulk(Box::new(artifact), decks),
+        })
     }
     pub fn catalog(&self) -> &Catalog {
-        match self {
-            Self::Profile(p, _) => p.catalog(),
-            Self::Bulk(a, _) => a.catalog().catalog(),
-        }
+        &self.observer
     }
     fn prepare(&self, seed: u64, index: usize, episode: u64) -> Result<Prepared, String> {
         let seed = play::seed_for(&format!("mtg-env-v1/{seed}/{index}/{episode}"), 0);
         let start = PlayerId(seed[0] % 4);
-        match self {
-            Self::Profile(p, pods) => {
+        match &self.decks {
+            DeckSource::Profile(p, pods) => {
                 let mut config =
                     MatchConfig::for_profile(&p.name, seed, start).map_err(|e| e.to_string())?;
                 if !pods.is_empty() {
@@ -60,7 +69,7 @@ impl Source {
                 }
                 Prepared::admit_pod(p.catalog().clone(), config).map_err(|e| e.to_string())
             }
-            Self::Bulk(a, pods) => admit_dynamic_pod(
+            DeckSource::Bulk(a, pods) => admit_dynamic_pod(
                 a,
                 &DynamicMatchConfig {
                     decks: pods[index % pods.len()].clone(),
@@ -121,12 +130,11 @@ pub struct Lane {
     work: usize,
     queries: usize,
     decisions: i32,
-    reversals: i32,
     pub illegal: i32,
 }
 impl Lane {
     pub fn new(source: &Source, seed: u64, index: usize, episode: u64) -> Result<Self, String> {
-        let game = Game::with_trace(source.prepare(seed, index, episode)?, TraceMode::Stream);
+        let game = Game::with_trace(source.prepare(seed, index, episode)?, TraceMode::Off);
         Ok(Self {
             game,
             seed,
@@ -138,7 +146,6 @@ impl Lane {
             work: 0,
             queries: 0,
             decisions: 0,
-            reversals: 0,
             illegal: 0,
         })
     }
@@ -174,13 +181,13 @@ impl Lane {
         if let Some(a) = action {
             self.prefix.push(a);
         }
-        match self.until_decision(source.catalog(), config)? {
+        match self.until_decision(&source.observer, config)? {
             Boundary::Decision(row) => Ok(*row),
             Boundary::Terminal { reward, censor } => {
                 let mut info = [0; 8];
                 info[..4].copy_from_slice(&[
                     self.illegal,
-                    self.reversals,
+                    self.game.cast_reversals().min(i32::MAX as u32) as i32,
                     censor as i32,
                     self.decisions,
                 ]);
@@ -190,7 +197,7 @@ impl Lane {
                     self.index,
                     self.episode.checked_add(1).ok_or("episode overflow")?,
                 )?;
-                let Boundary::Decision(mut row) = self.until_decision(source.catalog(), config)?
+                let Boundary::Decision(mut row) = self.until_decision(&source.observer, config)?
                 else {
                     return Err("reset terminated before yielding a decision".into());
                 };
@@ -201,7 +208,11 @@ impl Lane {
             }
         }
     }
-    fn until_decision(&mut self, c: &Catalog, config: Config) -> Result<Boundary, String> {
+    fn until_decision(
+        &mut self,
+        c: &mtg_observe::catalog::ObservationCatalog,
+        config: Config,
+    ) -> Result<Boundary, String> {
         loop {
             if let Some(o) = self.observation.take() {
                 let d = o.decision.as_ref().ok_or("missing decision")?;
@@ -222,8 +233,11 @@ impl Lane {
                 let answer = if auto {
                     self.memory.choose(c, Policy::Develop, &o)?
                 } else {
-                    match Composer::compose(d, &self.prefix, mtg_observe::number_bound(c, &o.view))?
-                    {
+                    match Composer::compose(
+                        d,
+                        &self.prefix,
+                        mtg_observe::number_bound(c, &o).as_ref(),
+                    )? {
                         Step::Choose(choices) => {
                             let mut row = mtg_observe::encode(
                                 c,
@@ -234,7 +248,7 @@ impl Lane {
                             )?;
                             row.info[..4].copy_from_slice(&[
                                 self.illegal,
-                                self.reversals,
+                                self.game.cast_reversals().min(i32::MAX as u32) as i32,
                                 0,
                                 self.decisions,
                             ]);
@@ -252,13 +266,6 @@ impl Lane {
             }
             self.work += 1;
             let next = self.game.advance(Budget::new(QUANTUM));
-            self.game.drain_trace(&mut |record| {
-                if let EvidenceRecord::Event { event } = &record.record
-                    && matches!(event.as_ref(), Event::CastReversed { .. })
-                {
-                    self.reversals += 1;
-                }
-            });
             let mut reward = [0; 4];
             let censor = match next {
                 Advance::AwaitingDecision(ref d)

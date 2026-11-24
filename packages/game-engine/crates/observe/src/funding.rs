@@ -9,7 +9,10 @@ use std::collections::BTreeMap;
 
 /// The pool is a lower bound. Ambiguous sources keep a failed payment unknown:
 /// printed mana can have costs/riders and tokens need not have catalog rows.
-fn intrinsic_supply(catalog: &Catalog, view: &PermittedView) -> (BTreeMap<Color, Quantity>, bool) {
+pub(super) fn intrinsic_supply(
+    catalog: &Catalog,
+    view: &PermittedView,
+) -> (BTreeMap<Color, Quantity>, bool) {
     let Some(payer) = view.players.iter().find(|p| p.player == view.viewer) else {
         return (BTreeMap::new(), false);
     };
@@ -50,8 +53,13 @@ fn intrinsic_supply(catalog: &Catalog, view: &PermittedView) -> (BTreeMap<Color,
     }
     (pool, complete)
 }
-pub(super) fn funding(c: &Catalog, o: &Observation, d: &Decision<Viewer>) -> Vec<u8> {
+pub(super) fn funding(
+    c: &crate::catalog::ObservationCatalog,
+    o: &Observation,
+    d: &Decision<Viewer>,
+) -> Vec<u8> {
     let v = &o.view;
+    let battlefield_reducer = std::cell::OnceCell::new();
     let supply = std::cell::OnceCell::new();
     d.candidates
         .iter()
@@ -72,6 +80,11 @@ pub(super) fn funding(c: &Catalog, o: &Observation, d: &Decision<Viewer>) -> Vec
             };
             let (cost, hybrid) = match action {
                 Action::Cast { .. } => {
+                    if c.reduces_cost(&obj.oracle_id)
+                        || *battlefield_reducer.get_or_init(|| c.has_visible_reducer(v))
+                    {
+                        return 2;
+                    }
                     let mut cost = def.characteristics.mana_cost.clone();
                     if matches!(obj.zone, Zone::Command { .. })
                         && let Some(n) = v
