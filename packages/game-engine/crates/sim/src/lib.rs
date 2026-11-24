@@ -16,6 +16,7 @@ pub mod search {
         TrialOutcome, TrialResult, TrialTimings, WorldSpec, WorldTimings, replay_report, run,
         run_cancellable,
     };
+    pub use crate::search_sampler::propose;
 }
 
 pub mod analytics;
@@ -28,6 +29,9 @@ pub mod pods;
 pub mod policy;
 #[cfg(test)]
 mod smoke;
+
+/// Build identity for native consumers using this simulation library.
+pub const SIM_BUILD: mtg_core::BuildIdentity = mtg_core::compiled_build_identity!();
 
 #[cfg(test)]
 const BUILD: mtg_core::BuildIdentity = mtg_core::compiled_build_identity!();

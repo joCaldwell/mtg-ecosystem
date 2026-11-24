@@ -964,6 +964,32 @@ impl Walk<'_, '_> {
             .transpose()
     }
 
+    /// Filtered battlefield targets save current or last-known facts.
+    fn target_has_facts(&self, slot: u32) -> bool {
+        self.env.targets.get(slot as usize).is_some_and(|target| {
+            target.domain == TargetDomain::BattlefieldPermanent && target.filter.is_some()
+        })
+    }
+
+    /// CR 608.2h: counts evaluated by the flat verb executor.
+    fn audit_verb_count(set: &SetExpr) -> Result<(), KirError> {
+        match set {
+            SetExpr::Matching {
+                zone: zone @ (ZoneExpr::Battlefield | ZoneExpr::Graveyards),
+                filter,
+            } => Self::audited_filter(zone, filter),
+            SetExpr::Matching {
+                zone: ZoneExpr::Graveyard { of },
+                filter,
+            } if of.is_you() => Self::audited_filter(&ZoneExpr::Graveyards, filter),
+            SetExpr::Matching {
+                zone: ZoneExpr::Hand { of },
+                filter,
+            } if of.is_you() && filter.0.is_empty() => Ok(()),
+            _ => unaudited("count set"),
+        }
+    }
+
     /// The audited cell a well-scoped verb occupies. A cell is opened only
     /// where the core interpreter executes exactly these operands in this
     /// context and recovery re-derives the same facts; each verb's cells live
@@ -998,7 +1024,7 @@ impl Walk<'_, '_> {
                 controller,
                 count,
                 token,
-            } => Self::audit_tokens(controller, count, token),
+            } => self.audit_tokens(controller, count, token),
             Verb::PutCounters {
                 on,
                 counter,

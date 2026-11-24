@@ -7,6 +7,11 @@ use super::*;
 pub(super) fn tap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     let what = object(what)?;
+    if is_set(&what) {
+        return Ok(cx.act(Verb::Tap {
+            what: lower_board_set(&what, cx.context)?,
+        }));
+    }
     let slot = if is_creature_target(&what) {
         bind_creature_target(cx.program, cx.slots, &what)?
     } else {
@@ -19,8 +24,10 @@ pub(super) fn tap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Instr
 pub(super) fn untap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     let what = object(what)?;
-    if !is_creature_target(&what) && !is_any_permanent_target(&what) {
-        return Err(step("untap", "qualified_target"));
+    if is_set(&what) {
+        return Ok(cx.act(Verb::Untap {
+            what: lower_board_set(&what, cx.context)?,
+        }));
     }
     Ok(Instruction::untap_target(
         bind_permanent_target(cx.program, cx.slots, &what)?,

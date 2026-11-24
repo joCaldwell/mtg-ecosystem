@@ -44,7 +44,7 @@ function executableIdentity(command: string, options: { cwd: string; env?: NodeJ
   throw new Error(`Executable not found: ${command}`);
 }
 
-const ordinaryHarnesses = ["cards", "host", "mtg_compiler", "mtg_contracts", "mtg_core", "mtg_server", "mtg_sim", "recovery", "rules"];
+const ordinaryHarnesses = ["cards", "host", "mtg_compiler", "mtg_contracts", "mtg_core", "mtg_env", "mtg_observe", "mtg_view", "mtg_server", "mtg_sim", "recovery", "rules"];
 const authorityExamples = ["engine::api::decision::model::Rules", "engine::player_session::PlayerSession"];
 
 class CargoTestSelection {

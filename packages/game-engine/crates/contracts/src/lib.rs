@@ -8,7 +8,7 @@ mod cycling;
 
 pub use cycling::hand_discard_draw_activation;
 
-mod mana_spend;
+pub mod mana_spend;
 
 pub use mana_spend::{ManaSpellSubtype, ManaSpellTraits, ManaSpendRestriction, RestrictedMana};
 
@@ -687,6 +687,7 @@ pub enum Instruction {
 pub struct SetDamage<'a> {
     pub sets: Vec<&'a SetExpr>,
     pub each_player: bool,
+    pub selective_players: Option<&'a kir::PlayerExpr>,
     pub amount: &'a kir::Amount,
     pub source_block: u32,
 }
@@ -1000,6 +1001,7 @@ impl Instruction {
         let mut damage = SetDamage {
             sets: vec![],
             each_player: false,
+            selective_players: None,
             amount,
             source_block: *source_block,
         };
@@ -1009,6 +1011,7 @@ impl Instruction {
                 kir::DamageTo::Players {
                     players: kir::PlayerExpr::EachPlayer,
                 } => damage.each_player = true,
+                kir::DamageTo::Players { players } => damage.selective_players = Some(players),
                 _ => return None,
             }
         }

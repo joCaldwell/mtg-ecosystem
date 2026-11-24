@@ -986,13 +986,6 @@ pub(crate) fn is_permanent_target(what: &ast::ObjectRef) -> bool {
         .is_ok_and(|(filter, _)| filter.cls == Some(ast::ObjectFilterCls::Permanent))
 }
 
-/// True when the target occurrence is exactly "target permanent".
-pub(crate) fn is_any_permanent_target(what: &ast::ObjectRef) -> bool {
-    target_occurrence(what).is_ok_and(|(filter, _)| {
-        present_fields(filter) == ["cls"] && filter.cls == Some(ast::ObjectFilterCls::Permanent)
-    })
-}
-
 pub(crate) fn bind_creature_target(
     program: &mut SpellProgram,
     slots: &mut BTreeMap<String, u32>,
@@ -1077,10 +1070,63 @@ pub(crate) fn lower_damage_amount(
             }
             _ => Err(operand("amount", "cast_mana_value_sum:scope")),
         },
+        ast::Amount::Count(count) => lower_count(count, context),
         other => Ok(kir::Amount::Fixed {
             value: fixed_positive_amount(other)?,
         }),
     }
+}
+
+/// CR 400.2, 402.3, 608.2h: count objects matching a public filter, or the
+/// size of your hand. The engine never counts filtered hidden cards.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(crate) fn lower_count(count: &ast::AmountCount, context: Context) -> Result<Amount, Failure> {
+    use ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner as Owner;
+    let mut filter = (*count.of).clone();
+    let zone = match filter.zone.take().as_deref() {
+        None
+        | Some(ast::ZoneRef {
+            zone: ast::Zone::Battlefield,
+            owner: None,
+            depth: None,
+            position: None,
+        }) => kir::ZoneExpr::Battlefield,
+        Some(ast::ZoneRef {
+            zone: ast::Zone::Graveyard,
+            owner,
+            depth: None,
+            position: None,
+        }) => match owner.as_deref() {
+            Some(Owner::Your) => kir::ZoneExpr::Graveyard {
+                of: PlayerExpr::you(context),
+            },
+            Some(Owner::Any | Owner::EachPlayer | Owner::AllPlayers) => kir::ZoneExpr::Graveyards,
+            _ => return Err(operand("amount", "count:graveyard_owner")),
+        },
+        Some(ast::ZoneRef {
+            zone: ast::Zone::Hand,
+            owner,
+            depth: None,
+            position: None,
+        }) if owner.as_deref() == Some(&Owner::Your) => kir::ZoneExpr::Hand {
+            of: PlayerExpr::you(context),
+        },
+        Some(other) => return Err(operand("amount", format!("count:{}", variant(&other.zone)))),
+    };
+    if zone != kir::ZoneExpr::Battlefield {
+        if filter.cls == Some(ast::ObjectFilterCls::Card) {
+            filter.cls = None;
+        }
+        if matches!(zone, kir::ZoneExpr::Hand { .. }) && !present_fields(&filter).is_empty() {
+            return Err(operand("amount", "count:filtered_hand"));
+        }
+    }
+    Ok(Amount::Count {
+        set: SetExpr::Matching {
+            zone,
+            filter: lower_filter(&filter, context)?,
+        },
+    })
 }
 
 /// CR 107.3, 608.2h: the sentence binding "where X is the number of
@@ -1121,7 +1167,17 @@ pub(crate) fn lower_player(
     context: Context,
     event_player: Option<kir::EventPlayerRole>,
 ) -> Result<PlayerExpr, Failure> {
-    match typed::<ast::PlayerRef>(who, "player")? {
+    lower_player_ref(program, slots, typed(who, "player")?, context, event_player)
+}
+
+pub(crate) fn lower_player_ref(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    who: ast::PlayerRef,
+    context: Context,
+    event_player: Option<kir::EventPlayerRole>,
+) -> Result<PlayerExpr, Failure> {
+    match who {
         ast::PlayerRef::You(_) => Ok(PlayerExpr::you(context)),
         ast::PlayerRef::ThatPlayer(_) => event_player
             .map(PlayerExpr::event)
@@ -1142,6 +1198,54 @@ pub(crate) fn lower_player(
             _ => Err(operand("player", "target_player:qualified")),
         },
         other => Err(operand("player", variant(&other))),
+    }
+}
+
+/// CR 608.2b-c, 608.2h: the preceding removal's sole announced target.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(crate) fn preceding_target(
+    program: &SpellProgram,
+    block: u32,
+    reference: &ast::ObjectRef,
+) -> Result<u32, Failure> {
+    let ([target], Some(previous)) = (program.targets.as_slice(), program.instructions.last())
+    else {
+        return Err(operand("player", "controller:missing_single_target"));
+    };
+    let pronoun = match reference {
+        ast::ObjectRef::It(_) => true,
+        ast::ObjectRef::That(that) => {
+            that.plural.is_none()
+                && present_fields(&that.filter) == ["types"]
+                && that
+                    .filter
+                    .types
+                    .as_deref()
+                    .is_some_and(|types| types == ["creature"])
+                && target
+                    .filter
+                    .as_ref()
+                    .is_some_and(|filter| filter.types == [CardKind::Creature])
+        }
+        other => return Err(operand("target", format!("ref_{}", variant(other)))),
+    };
+    let reads_target = match previous.verb() {
+        Some(
+            Verb::Destroy {
+                what: SetExpr::One { object },
+                ..
+            }
+            | Verb::Move {
+                what: SetExpr::One { object },
+                ..
+            },
+        ) => *object == (kir::Ref::Target { slot: target.slot }),
+        _ => false,
+    };
+    if pronoun && reads_target && previous.source_block() == block && target.filter.is_some() {
+        Ok(target.slot)
+    } else {
+        Err(operand("player", "controller:unbound_target"))
     }
 }
 

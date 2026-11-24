@@ -827,23 +827,6 @@ impl RulesTxn {
                     source_block,
                 )
             }
-            kernel!(ModifyUntil { what: source_object!(), change: mtg_contracts::kir::Change::AddKeywords { keywords }, .. } @ source_block) =>
-            {
-                let target = self.entry(frame.stack_id)?.source;
-                if !self.target_is_creature(target) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
-                }
-                (
-                    ResolvedEffectKind::GrantKeywords {
-                        target,
-                        modifier: None,
-                        keywords,
-                    },
-                    source_block,
-                )
-            }
-
             kernel!(ModifyUntil { what: target_object!(target_slot), change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block) =>
             {
                 let target = *self
@@ -1511,22 +1494,18 @@ impl RulesTxn {
                     }
                     (
                         kernel!(ModifyUntil {
-                            what: source_object!(),
-                            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+                            what,
+                            change: Change::AddKeywords { keywords },
+                            until: mtg_contracts::kir::Until::EndOfTurn,
                             ..
                         } @ source_block),
-                        ResolvedEffectKind::GrantKeywords {
-                            target,
-                            modifier: None,
-                            keywords: grants,
-                        },
+                        kind @ (ResolvedEffectKind::GrantKeywords { .. }
+                        | ResolvedEffectKind::GrantKeywordsSet { .. }),
                     ) => {
-                        effect.origin.activated_ability.is_some()
-                            && *target == self.entry(frame.stack_id)?.source
-                            && self.target_is_creature(*target)
-                            && keywords == grants
-                            && supported_temporary_keywords(grants)
-                            && *source_block == effect.origin.source_block
+                        *source_block == effect.origin.source_block
+                            && supported_temporary_keywords(keywords)
+                            && self.keyword_grant_kind(frame, what, keywords)?.as_ref()
+                                == Some(kind)
                     }
 
                     (
@@ -1844,8 +1823,9 @@ impl RulesTxn {
                     }
                     (
                         kernel!(ModifyUntil {
-                            what: source_object!(),
-                            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+                            what,
+                            change: Change::AddKeywords { keywords },
+                            until: mtg_contracts::kir::Until::EndOfTurn,
                             ..
                         } @ source_block),
                         ResolvedEffectKind::GrantKeywords {
@@ -1854,14 +1834,52 @@ impl RulesTxn {
                             keywords: grants,
                         },
                     ) => {
-                        // Origin resolution uses the historical incarnation's immutable
-                        // copiable definition. Replay proves capture and its handles.
-                        e.origin.activated_ability.is_some()
-                            && *target == e.origin.source
-                            && keywords == grants
+                        keywords == grants
                             && supported_temporary_keywords(grants)
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
+                            && self.state.rules.cards.contains_key(&target.card)
+                            && match what {
+                                SetExpr::One {
+                                    object: Ref::Source,
+                                } => {
+                                    e.origin.activated_ability.is_some()
+                                        && *target == e.origin.source
+                                }
+                                SetExpr::One {
+                                    object: Ref::Target { .. },
+                                } => {
+                                    self.copiable_definition(target)?.characteristics.kind
+                                        == CardKind::Creature
+                                }
+                                _ => false,
+                            }
+                    }
+
+                    (
+                        kernel!(ModifyUntil {
+                            what: SetExpr::Matching { zone: ZoneExpr::Battlefield, .. },
+                            change: Change::AddKeywords { keywords },
+                            until: mtg_contracts::kir::Until::EndOfTurn,
+                            ..
+                        } @ source_block),
+                        ResolvedEffectKind::GrantKeywordsSet {
+                            targets,
+                            modifier: None,
+                            keywords: grants,
+                        },
+                    ) => {
+                        keywords == grants
+                            && supported_temporary_keywords(grants)
+                            && *source_block == e.origin.source_block
+                            && !targets.is_empty()
+                            // This structural check uses only the permanent
+                            // kinds, while replay proves the captured filter.
+                            && self.valid_set_effect_targets(
+                                e,
+                                targets,
+                                Some(&mtg_contracts::ObjectSet::ControllerPermanents),
+                            )
                     }
 
                     (
@@ -1928,150 +1946,6 @@ impl From<&DamageTransaction> for DamageTransactionBefore {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(transparent)]
-pub struct EffectHandle(pub String);
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(transparent)]
-pub struct DamageHandle(pub String);
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DamageEffectKind {
-    DoubleDamage,
-    PreventCombatDamage,
-    ProtectionFromEachColor,
-    ProtectionFromEverything,
-    ProtectionFromColor,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct VisibleDamageEffectCandidate {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    pub effect: EffectHandle,
-    pub damage: DamageHandle,
-    pub kind: DamageEffectKind,
-    pub effect_source: VisibleTarget,
-    pub effect_oracle_id: String,
-    pub effect_controller: PlayerId,
-    pub damage_source: VisibleTarget,
-    pub damage_oracle_id: String,
-    pub amount_before: Quantity,
-    pub amount_after: Quantity,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[schemars(rename = "VisibleEffectSource")]
-#[serde(bound(deserialize = "O: Deserialize<'de>"))]
-pub struct VisibleEffectSource<O = ObjectHandle> {
-    pub source: VisibleTarget<O>,
-    pub oracle_id: String,
-    pub controller: PlayerId,
-}
-impl<O> VisibleEffectSource<O> {
-    fn convert<T: for<'a> From<&'a O>>(self) -> VisibleEffectSource<T> {
-        VisibleEffectSource {
-            source: self.source.convert(),
-            oracle_id: self.oracle_id,
-            controller: self.controller,
-        }
-    }
-}
-// Declare each effect once. Stored rows keep the issued integer while the
-// public projection exposes its viewer-scoped text.
-macro_rules! effect_field {
-    ($value:ident) => {
-        $value
-    };
-    ($value:ident, nested) => {
-        $value.convert()
-    };
-    ($value:ident, targets) => {
-        $value.into_iter().map(|row| row.convert()).collect()
-    };
-    ($value:ident, handles) => {
-        $value.iter().map(P::from).collect()
-    };
-}
-macro_rules! visible_effects {
-    ($( $variant:ident $(($handle:ident))? {
-        $( $(#[$attr:meta])* $field:ident: $ty:ty $(=> $conversion:ident)?, )*
-    }, )*) => {
-        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-        #[serde(tag = "effect", rename_all = "snake_case", deny_unknown_fields)]
-        #[schemars(rename = "VisibleEffect")]
-        pub enum VisibleEffect<H = EffectHandle, O = ObjectHandle> {
-            $( $variant { $( $handle: H, )? $( $(#[$attr])* $field: $ty, )* }, )*
-        }
-        impl<H,O> VisibleEffect<H,O> {
-            pub(in crate::engine) fn map_handle<T, P: for<'a> From<&'a O>>(self, convert: impl FnOnce(H) -> T) -> VisibleEffect<T,P> {
-                match self {
-                    $( Self::$variant { $( $handle, )? $( $field, )* } =>
-                        VisibleEffect::$variant { $( $handle: convert($handle), )? $( $field: effect_field!($field $(, $conversion)?), )* }, )*
-                }
-            }
-        }
-    }
-}
-
-visible_effects! {
-    RegenerationShield(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        expires_in_cleanup_of_turn: u64,
-    },
-    ProtectControllerUntilNextTurn(handle) {
-        origin: VisibleEffectSource<O> => nested,
-    },
-    RemoveIndestructibleSet(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        targets: Vec<VisibleTarget<O>> => targets,
-        expires_in_cleanup_of_turn: u64,
-    },
-    GrantKeywordsSet(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        targets: Vec<VisibleTarget<O>> => targets,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        modifier: Option<CreatureStatModifier>,
-        keywords: Vec<KeywordAbility>,
-        expires_in_cleanup_of_turn: u64,
-    },
-    PumpSet(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        targets: Vec<VisibleTarget<O>> => targets,
-        power: Quantity,
-        toughness: Quantity,
-        expires_in_cleanup_of_turn: u64,
-    },
-    ExileDamaged(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        targets: Vec<VisibleTarget<O>> => targets,
-        expires_in_cleanup_of_turn: u64,
-    },
-    GrantKeywords(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        target: VisibleTarget<O> => nested,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        modifier: Option<CreatureStatModifier>,
-        keywords: Vec<KeywordAbility>,
-        expires_in_cleanup_of_turn: u64,
-    },
-    ModifyPowerToughness(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        target: VisibleTarget<O> => nested,
-        power: Quantity,
-        toughness: Quantity,
-        expires_in_cleanup_of_turn: u64,
-    },
-    PreventCombatDamage(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        expires_in_cleanup_of_turn: u64,
-    },
-    AdditionalLandPlays(handle) {
-        origin: VisibleEffectSource<O> => nested,
-        count: Quantity,
-        expires_in_cleanup_of_turn: u64,
-    },
-}
 impl RulesTxn {
     /// Returns the live keys it published handles for. They depend on rules
     /// state alone, so one publication reuses them for every viewer.

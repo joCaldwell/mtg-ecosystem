@@ -57,12 +57,6 @@ pub enum RuleFault {
         requested: u32,
     },
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct VisibleToken {
-    pub name: String,
-    pub keywords: Vec<KeywordAbility>,
-}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenIdentity {
@@ -279,19 +273,23 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let (event, block) = match instruction {
             kernel!(CreateTokens {
+                controller: player,
                 count: fixed!(count),
                 token: mtg_contracts::kir::TokenSpec::Predefined { kind },
-                ..
             } @ source_block) => {
                 let count = count.to_u32().ok_or("token count overflow")?;
-                if !self.is_live(self.entry(frame.stack_id)?.controller) {
+                let kir::Players::One(controller) = self.kernel_players(&frame, &player)? else {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                };
+                if !self.is_live(controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 self.check_token_capacity(count)?;
                 (
                     ProposedEvent::CreatePredefinedTokens {
-                        controller: self.entry(frame.stack_id)?.controller,
+                        controller,
                         source: self.entry(frame.stack_id)?.source,
                         count,
                         kind,
@@ -300,19 +298,23 @@ impl RulesTxn {
                 )
             }
             kernel!(CreateTokens {
+                controller: player,
                 count: fixed!(count),
                 token: mtg_contracts::kir::TokenSpec::Creature { spec: token },
-                ..
             } @ source_block) => {
                 let count = count.to_u32().ok_or("token count overflow")?;
-                if !self.is_live(self.entry(frame.stack_id)?.controller) {
+                let kir::Players::One(controller) = self.kernel_players(&frame, &player)? else {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                };
+                if !self.is_live(controller) {
                     return self
                         .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
                 }
                 self.check_token_capacity(count)?;
                 (
                     ProposedEvent::CreateCreatureTokens {
-                        controller: self.entry(frame.stack_id)?.controller,
+                        controller,
                         source: self.entry(frame.stack_id)?.source,
                         count,
                         token: Box::new(token),

@@ -1,5 +1,16 @@
 [workspace]
-members = ["packages/game-engine/crates/contracts", "packages/game-engine/crates/oracle-ast", "packages/game-engine/crates/compiler", "packages/game-engine/crates/core", "packages/game-engine/crates/sim", "packages/game-engine/crates/witness", "packages/game-server"]
+members = [
+    "packages/game-engine/crates/compiler",
+    "packages/game-engine/crates/contracts",
+    "packages/game-engine/crates/core",
+    "packages/game-engine/crates/env",
+    "packages/game-engine/crates/observe",
+    "packages/game-engine/crates/oracle-ast",
+    "packages/game-engine/crates/sim",
+    "packages/game-engine/crates/view",
+    "packages/game-engine/crates/witness",
+    "packages/game-server",
+]
 resolver = "3"
 
 [workspace.package]
@@ -9,6 +20,10 @@ rust-version = "1.99"
 publish = false
 
 [workspace.dependencies]
+mtg-view = { path = "packages/game-engine/crates/view" }
+mtg-observe = { path = "packages/game-engine/crates/observe" }
+mtg-sim = { path = "packages/game-engine/crates/sim" }
+
 serde = { version = "1.0", features = ["derive"] }
 # float_roundtrip unifies serde_json with the host's jsonschema feature set, so
 # every selection (one crate or the workspace) shares one compiled copy.

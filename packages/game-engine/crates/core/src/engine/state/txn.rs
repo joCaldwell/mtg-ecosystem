@@ -48,6 +48,11 @@ impl Game {
     pub fn with_trace(prepared: Prepared, mode: TraceMode) -> Self {
         Self::from_initial(RulesTxn::with_trace(prepared, mode))
     }
+    /// Committed cast reversals since admission or snapshot restore. This
+    /// executor diagnostic is independent of the trace mode and rule state.
+    pub fn cast_reversals(&self) -> u32 {
+        self.committed.cast_reversals
+    }
     /// Deliver committed records once. Delivery is local to this executor.
     pub fn drain_trace(&mut self, visit: &mut impl FnMut(&TraceRecord)) {
         for record in self.committed.stream_buffer.drain(..) {
@@ -82,6 +87,7 @@ impl RulesTxn {
     pub(in crate::engine) fn commit_staged_state(&mut self, mut staged: Self) {
         self.state = staged.state;
         self.trace = staged.trace;
+        self.cast_reversals = staged.cast_reversals;
         self.stream_buffer.append(&mut staged.stream_buffer);
     }
 
@@ -215,6 +221,7 @@ impl RulesTxn {
                     journal: History::default(),
                 },
             },
+            cast_reversals: self.cast_reversals,
             stream_buffer: Vec::new(),
             trace: TraceEvidence::new(TraceMode::Off),
             // A capture answers queries only; it never issues a receipt.

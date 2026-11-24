@@ -3,7 +3,8 @@ use super::*;
 
 /// CR 120.2b: the resolving object's source deals noncombat damage to one
 /// announced "any target", or (CR 608.2h) to every creature of reviewed
-/// board sets and optionally each player.
+/// board sets and optionally players.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 pub(super) fn lower(
     cx: &mut StepCx<'_>,
     source: &DamageSource,
@@ -14,12 +15,27 @@ pub(super) fn lower(
     if optional.is_some() {
         return Err(step("damage", "optional"));
     }
-    if *source != (DamageSource::SelfReference {}) {
-        return Err(step("damage", "source"));
+    // The block validator has proved a first-step "it" refers to this
+    // invocation's source. Other pronouns and named objects stay rejected.
+    match source {
+        DamageSource::SelfReference {} => {}
+        DamageSource::It {} if cx.context != Context::Spell => {}
+        DamageSource::This { noun }
+            if cx.context != Context::Spell
+                && matches!(
+                    noun.as_str(),
+                    "creature" | "artifact" | "enchantment" | "land" | "permanent"
+                ) => {}
+        DamageSource::It {} | DamageSource::This { .. } => return Err(step("damage", "source")),
     }
     let amount: ast::Amount = typed(amount, "amount")?;
     let refs = match to {
         DamageDestination::AnyTarget { selection_id } => {
+            // Directed damage has previously reviewed tiers. The new source
+            // forms enter through the separately audited set/player cells.
+            if *source != (DamageSource::SelfReference {}) {
+                return Err(step("damage", "source:directed"));
+            }
             uncounted(cx)?;
             return Ok(Instruction::damage_target(
                 bind_target(
@@ -36,9 +52,25 @@ pub(super) fn lower(
         }
         DamageDestination::Object { reference } => std::slice::from_ref(reference),
         DamageDestination::Each { refs } => refs.as_slice(),
-        DamageDestination::Player { .. } => {
+        DamageDestination::Player { reference } => {
             uncounted(cx)?;
-            return Err(step("damage", "player_destination"));
+            let players = match typed::<ast::PlayerRef>(reference, "damage_recipient")? {
+                ast::PlayerRef::You(_) => PlayerExpr::you(cx.context),
+                ast::PlayerRef::EachPlayer(_) => PlayerExpr::EachPlayer,
+                ast::PlayerRef::EachOpponent(_) => PlayerExpr::EachOpponent,
+                ast::PlayerRef::ThatPlayer(_) => cx
+                    .player_binding
+                    .event_role()
+                    .map(PlayerExpr::event)
+                    .ok_or_else(|| operand("damage_recipient", "unbound_event_player"))?,
+                other => return Err(operand("damage_recipient", variant(&other))),
+            };
+            let amount = lower_damage_amount(&amount, false, cx.context)?;
+            return Ok(Instruction::damage(
+                kir::DamageTo::Players { players },
+                amount,
+                cx.source_block,
+            ));
         }
     };
     let recipients: Vec<ast::AmountCounterCountOn> = typed(&refs, "damage_recipient")?;
@@ -52,7 +84,7 @@ pub(super) fn lower(
                 each_player = true;
             }
             ast::AmountCounterCountOn::ObjectRef(set) => {
-                sets.push(lower_reviewed_set(set, cx.context)?);
+                sets.push(lower_board_set(set, cx.context)?);
             }
             ast::AmountCounterCountOn::PlayerRef(other) => {
                 return Err(operand("damage_recipient", variant(&**other)));

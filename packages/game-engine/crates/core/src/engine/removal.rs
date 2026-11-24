@@ -17,6 +17,15 @@ pub struct TargetFacts {
     power: Option<Quantity>,
     mana_value: Quantity,
 }
+impl TargetFacts {
+    pub(in crate::engine) fn controller(&self) -> PlayerId {
+        self.controller
+    }
+
+    pub(in crate::engine) fn power(&self) -> Option<&Quantity> {
+        self.power.as_ref()
+    }
+}
 impl RulesTxn {
     fn target_information_frame(&mut self) -> Option<&mut Resolving> {
         let rules = self.rules_mut();

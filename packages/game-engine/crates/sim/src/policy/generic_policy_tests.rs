@@ -134,6 +134,49 @@ fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
 }
 
 #[test]
+fn selective_set_damage_uses_the_stack_controller_and_scores_lethal_recipients() {
+    for (players, hits_controller, score) in [
+        (kir::PlayerExpr::EachOpponent, false, i64::MAX),
+        (kir::PlayerExpr::you(Context::Spell), true, i64::MIN),
+    ] {
+        let mut catalog = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        let card = catalog
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == "Lightning Bolt")
+            .unwrap();
+        let program = card.spell.as_mut().unwrap();
+        program.targets.clear();
+        program.instructions = vec![I::damage(
+            kir::DamageTo::Players { players },
+            kir::Amount::fixed(2),
+            0,
+        )];
+        let mut view = board::view();
+        for player in &mut view.players {
+            player.life = 2.into();
+        }
+        let controller = PlayerId(0);
+        stack_spell(&mut view, &catalog, "Lightning Bolt", controller.0);
+        let policy = strategy(&catalog);
+        let target = |player| PlayerTargetEntity::Player { player };
+        assert_eq!(
+            policy.incoming_damage(&view, &target(controller)),
+            Quantity::from(if hits_controller { 2 } else { 0 })
+        );
+        assert_eq!(
+            policy.incoming_damage(&view, &target(view.viewer)),
+            Quantity::from(if hits_controller { 0 } else { 2 })
+        );
+        let (_, program) = policy.top_program(&view).unwrap();
+        assert_eq!(
+            policy.wipe_score(&view, program, &0.into()),
+            Some(score.into())
+        );
+    }
+}
+
+#[test]
 fn tap_cantrip_policy_consumes_admitted_program_and_offered_candidates() {
     let c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
     let mut v = board::view();
@@ -613,9 +656,9 @@ mod activated_permanent_tap_policy_tests {
                 ability: 0
             }
         );
-        assert_eq!(s.mana_plan.len(), 1);
+        assert_eq!(s.memory.mana_plan.len(), 1);
         assert_eq!(
-            s.mana_plan[0].source,
+            s.memory.mana_plan[0].source,
             ObjectHandle("Plains".into()),
             "the printed generic1 plan excludes the tapped-as-cost source"
         );
@@ -769,7 +812,10 @@ mod activated_headless_policy_tests {
                 ability: 0
             }
         );
-        assert!(s.mana_plan.is_empty(), "source-tap has no mana payment");
+        assert!(
+            s.memory.mana_plan.is_empty(),
+            "source-tap has no mana payment"
+        );
         assert_eq!(
             s.object_target(&v, d, p, &p.targets[0], None),
             Some(ObjectHandle("enemy-tapped".into()))
@@ -912,6 +958,7 @@ mod temporal_adept_policy_tests {
                 }
             );
             let mut plan = s
+                .memory
                 .mana_plan
                 .iter()
                 .map(|p| p.source.0.clone())

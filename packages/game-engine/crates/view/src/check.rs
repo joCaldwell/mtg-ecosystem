@@ -1,7 +1,8 @@
 //! Structural validation is shared by the two identity spaces.
 use super::shape::*;
-use crate::engine::RulesTxn;
 use mtg_contracts::Quantity;
+use mtg_contracts::{Color, ManaCost};
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 impl Shape {
@@ -61,8 +62,8 @@ impl Shape {
                     pay: PayAnswer::Spend { unrestricted },
                 },
             ) => {
-                RulesTxn::subtract_selected_mana(pool.unrestricted.clone(), unrestricted)?;
-                RulesTxn::validate_selected_mana_cost(cost, unrestricted)
+                subtract_selected_mana(pool.unrestricted.clone(), unrestricted)?;
+                validate_selected_mana_cost(cost, unrestricted)
             }
             _ => Err("answer outside decision shape".into()),
         }
@@ -147,4 +148,59 @@ fn check_allocation(
         }
     }
     Ok(())
+}
+pub fn subtract_selected_mana(
+    mut remaining: BTreeMap<Color, Quantity>,
+    spending: &BTreeMap<Color, Quantity>,
+) -> Result<BTreeMap<Color, Quantity>, String> {
+    for (color, amount) in spending {
+        if *amount <= Quantity::zero() {
+            return Err("mana spending entries must be positive".into());
+        }
+        let available = remaining.get_mut(color).ok_or("unavailable mana color")?;
+        if *available < *amount {
+            return Err("selected mana exceeds available pool".into());
+        }
+        available.subtract(amount);
+    }
+    Ok(remaining)
+}
+
+pub fn validate_selected_mana_cost(
+    cost: &ManaCost,
+    spending: &BTreeMap<Color, Quantity>,
+) -> Result<(), String> {
+    let mut total = Quantity::zero();
+    for amount in spending.values() {
+        total.add(amount);
+    }
+    let mut required = BTreeMap::<Color, Quantity>::new();
+    let mut exact_total = cost.generic.clone();
+    for color in &cost.colored {
+        required.entry(*color).or_default().add(&Quantity::from(1));
+        exact_total.add(&Quantity::from(1));
+    }
+    if total != exact_total
+        || required
+            .iter()
+            .any(|(color, count)| spending.get(color).cloned().unwrap_or_default() < *count)
+    {
+        return Err("selected mana does not satisfy exact cost".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn exact_spending_rejects_overpayment() {
+        let cost = ManaCost {
+            generic: 1.into(),
+            colored: vec![],
+        };
+        assert!(
+            validate_selected_mana_cost(&cost, &BTreeMap::from([(Color::G, 2.into())])).is_err()
+        );
+    }
 }

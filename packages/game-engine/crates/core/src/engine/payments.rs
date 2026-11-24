@@ -117,50 +117,9 @@ impl RulesTxn {
             .ok_or("missing paying player")?
             .mana
             .clone();
-        let remaining = Self::subtract_selected_mana(pool, spending)?;
-        Self::validate_selected_mana_cost(cost, spending)?;
+        let remaining = mtg_view::subtract_selected_mana(pool, spending)?;
+        mtg_view::validate_selected_mana_cost(cost, spending)?;
         Ok(remaining)
-    }
-
-    pub(super) fn subtract_selected_mana(
-        mut remaining: BTreeMap<Color, Quantity>,
-        spending: &BTreeMap<Color, Quantity>,
-    ) -> Result<BTreeMap<Color, Quantity>, String> {
-        for (color, amount) in spending {
-            if *amount <= Quantity::zero() {
-                return Err("mana spending entries must be positive".into());
-            }
-            let available = remaining.get_mut(color).ok_or("unavailable mana color")?;
-            if *available < *amount {
-                return Err("selected mana exceeds available pool".into());
-            }
-            available.subtract(amount);
-        }
-        Ok(remaining)
-    }
-
-    pub(super) fn validate_selected_mana_cost(
-        cost: &ManaCost,
-        spending: &BTreeMap<Color, Quantity>,
-    ) -> Result<(), String> {
-        let mut total = Quantity::zero();
-        for amount in spending.values() {
-            total.add(amount);
-        }
-        let mut required = BTreeMap::<Color, Quantity>::new();
-        let mut exact_total = cost.generic.clone();
-        for color in &cost.colored {
-            required.entry(*color).or_default().add(&Quantity::from(1));
-            exact_total.add(&Quantity::from(1));
-        }
-        if total != exact_total
-            || required
-                .iter()
-                .any(|(color, count)| spending.get(color).cloned().unwrap_or_default() < *count)
-        {
-            return Err("selected mana does not satisfy exact cost".into());
-        }
-        Ok(())
     }
 
     pub(super) fn spend_mana_step(&mut self, mut cast: Casting) -> Result<(), String> {

@@ -24,7 +24,7 @@ mod exec;
 pub use control::{LeafProgram, Task};
 
 /// The players a player expression denotes for one resolving invocation.
-enum Players {
+pub(super) enum Players {
     One(PlayerId),
     /// The only denoted player is an illegal target or an absent event
     /// player: the verb is performed on no one (CR 608.2b).
@@ -85,10 +85,11 @@ impl RulesTxn {
                     } | Verb::Move {
                         what: SetExpr::One { .. },
                         to: Destination::Exile
-                    } | Verb::Tap { .. }
-                        | Verb::Untap {
-                            what: SetExpr::One { .. }
-                        }
+                    } | Verb::Tap {
+                        what: SetExpr::One { .. }
+                    } | Verb::Untap {
+                        what: SetExpr::One { .. }
+                    }
                 )
         );
         if one_target {
@@ -102,20 +103,16 @@ impl RulesTxn {
                 self.execute_removal_instruction(frame, instruction)
             };
         }
-        // CR 701.26b, 404.1: untap your lands, or exile one player's graveyard.
+        // CR 404.1: exile one player's graveyard.
         if matches!(
             node,
-            Node::Do(
-                Verb::Untap {
-                    what: SetExpr::Matching { .. }
-                } | Verb::Move {
-                    what: SetExpr::Matching {
-                        zone: ZoneExpr::Graveyard { .. },
-                        ..
-                    },
+            Node::Do(Verb::Move {
+                what: SetExpr::Matching {
+                    zone: ZoneExpr::Graveyard { .. },
                     ..
-                }
-            )
+                },
+                ..
+            })
         ) {
             return self
                 .execute_wipes_instruction(frame, Instruction::Kernel { node, source_block });
@@ -142,6 +139,14 @@ impl RulesTxn {
         // CR 611.2c, 613.4c, 613.1f: an end-of-turn change keeps the set,
         // source and target effect executors, whose captured members and
         // effect origins recovery re-derives.
+        if let Node::Do(Verb::ModifyUntil {
+            what,
+            change: mtg_contracts::kir::Change::AddKeywords { keywords },
+            ..
+        }) = &node
+        {
+            return self.kernel_grant_keywords(frame, what, keywords, source_block);
+        }
         if matches!(node, Node::Do(Verb::ModifyUntil { .. })) {
             let instruction = Instruction::Kernel { node, source_block };
             let (set, source) = match instruction.pumped() {
@@ -178,6 +183,12 @@ impl RulesTxn {
             Verb::Draw { player, amount } => {
                 self.kernel_draw(frame, &player, &amount, source_block)
             }
+            Verb::Tap {
+                what: SetExpr::Matching { zone, filter },
+            } => self.kernel_tap_set(frame, &zone, &filter, true, source_block),
+            Verb::Untap {
+                what: SetExpr::Matching { zone, filter },
+            } => self.kernel_tap_set(frame, &zone, &filter, false, source_block),
             Verb::Destroy {
                 what: SetExpr::Matching { zone, filter },
                 ..
@@ -218,7 +229,11 @@ impl RulesTxn {
         Ok((objects, graveyards))
     }
 
-    fn kernel_players(&self, frame: &Resolving, player: &PlayerExpr) -> Result<Players, String> {
+    pub(super) fn kernel_players(
+        &self,
+        frame: &Resolving,
+        player: &PlayerExpr,
+    ) -> Result<Players, String> {
         Ok(match player {
             PlayerExpr::Is {
                 who: Ref::Controller { .. },
@@ -247,8 +262,29 @@ impl RulesTxn {
                 }
             }
             PlayerExpr::EachOpponent => Players::EachOpponent,
+            PlayerExpr::ControllerOf {
+                object: Ref::Target { slot },
+            } => {
+                if frame.legal_targets.get(*slot as usize) != Some(&true) {
+                    Players::Nobody
+                } else {
+                    Players::One(self.kernel_target_facts(frame, *slot)?.controller())
+                }
+            }
             _ => return Err("kernel player expression has no audited evaluation".into()),
         })
+    }
+
+    fn kernel_target_facts<'a>(
+        &self,
+        frame: &'a Resolving,
+        slot: u32,
+    ) -> Result<&'a removal::TargetFacts, String> {
+        frame
+            .target_facts
+            .get(slot as usize)
+            .and_then(Option::as_ref)
+            .ok_or_else(|| "missing current or last-known target facts".into())
     }
 
     pub(super) fn kernel_amount(
@@ -268,12 +304,40 @@ impl RulesTxn {
             // CR 608.2h: the number of matching battlefield objects now.
             Amount::Count {
                 set: SetExpr::Matching { zone, filter },
-            } if *zone == ZoneExpr::Battlefield => Ok(Quantity::from(
-                self.kernel_set(frame, zone, filter)?.0.len() as i64,
-            )),
+            } => {
+                let count = match zone {
+                    ZoneExpr::Battlefield | ZoneExpr::Graveyards => {
+                        self.kernel_set(frame, zone, filter)?.0.len()
+                    }
+                    ZoneExpr::Graveyard { of } if of.is_you() => {
+                        let owner = self.entry(frame.stack_id)?.controller;
+                        self.kernel_set(frame, &ZoneExpr::Graveyards, filter)?
+                            .0
+                            .iter()
+                            .filter(|object| self.state.rules.cards[&object.card].owner == owner)
+                            .count()
+                    }
+                    ZoneExpr::Hand { of } if of.is_you() && filter.0.is_empty() => self
+                        .action_hand(self.entry(frame.stack_id)?.controller)
+                        .len(),
+                    _ => return Err("kernel count set has no audited evaluation".into()),
+                };
+                Ok(Quantity::from(
+                    i64::try_from(count).map_err(|_| "kernel count exceeds object limit")?,
+                ))
+            }
             Amount::OtherCastsManaValue { caster } if caster.is_you() => {
                 self.other_casts_mana_value(self.entry(frame.stack_id)?)
             }
+            Amount::StatOf {
+                object: Ref::Target { slot },
+                stat: mtg_contracts::kir::Stat::Power,
+            } => self
+                .kernel_target_facts(frame, *slot)?
+                .power()
+                .cloned()
+                .map(|power| power.max(Quantity::zero()))
+                .ok_or_else(|| "measured target has no power".into()),
             _ => Err("kernel amount has no audited evaluation".into()),
         }
     }

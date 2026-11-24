@@ -13,6 +13,10 @@ impl Walk<'_, '_> {
                 }
                 _ => unaudited("tap target domain"),
             },
+            SetExpr::Matching {
+                zone: ZoneExpr::Battlefield,
+                filter,
+            } => Self::audited_filter(&ZoneExpr::Battlefield, filter).map(|()| Cell::TapSet),
             _ => unaudited("verb"),
         }
     }
@@ -30,13 +34,17 @@ impl Walk<'_, '_> {
             what if *what == SetExpr::lands_you_control(self.env.context) => {
                 Ok(Cell::UntapControllerLands)
             }
+            SetExpr::Matching {
+                zone: ZoneExpr::Battlefield,
+                filter,
+            } => Self::audited_filter(&ZoneExpr::Battlefield, filter).map(|()| Cell::UntapSet),
             _ => unaudited("verb"),
         }
     }
 }
 
 pub(super) fn tap_capabilities(what: &SetExpr, out: &mut BTreeSet<Capability>) {
-    if let SetExpr::One { .. } = what {
+    if matches!(what, SetExpr::One { .. } | SetExpr::Matching { .. }) {
         out.insert(Capability::TapPermanentV1);
     }
 }
@@ -46,8 +54,15 @@ pub(super) fn untap_capabilities(what: &SetExpr, out: &mut BTreeSet<Capability>)
         SetExpr::One { .. } => {
             out.insert(Capability::UntapPermanentV1);
         }
-        SetExpr::Matching { .. } => {
+        SetExpr::Matching { .. }
+            if [Context::Spell, Context::Activated, Context::Triggered]
+                .into_iter()
+                .any(|context| *what == SetExpr::lands_you_control(context)) =>
+        {
             out.insert(Capability::UntapControllerLandsV1);
+        }
+        SetExpr::Matching { .. } => {
+            out.insert(Capability::UntapPermanentV1);
         }
         SetExpr::Pool { .. } => {}
     }

@@ -21,7 +21,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-const QUANTUM: u64 = 1024;
+pub const QUANTUM: u64 = 1024;
 pub const USAGE: &str = "usage: mtg-sim bench-pods PROFILE [OPTIONS]\n\
        mtg-sim bench-pods --bulk-artifact DIR --manifest-sha SHA --pod-decks JSON [OPTIONS]\n\
 OPTIONS: [--threads 1..32] [--games N] \
