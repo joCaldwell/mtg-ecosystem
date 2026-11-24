@@ -364,3 +364,34 @@ fn stream_delivery_belongs_to_one_executor_and_survives_undrained_snapshot() {
     );
     stream.drain_trace(&mut |_| panic!("fork leaked a record"));
 }
+
+#[test]
+fn stream_delivers_committed_non_step_batches_in_order() {
+    let p = historical();
+    let mut stream = Game::with_trace(p.clone(), TraceMode::Stream);
+    let mut detailed = Game::with_trace(p, TraceMode::Detailed);
+    for game in [&mut stream, &mut detailed] {
+        for card in [CardId(0), CardId(2)] {
+            let object = game.object_id(card).unwrap();
+            game.commit_batch(
+                BatchCause::Fixture,
+                EventGroup::Occurrence {
+                    proposed: ProposedEvent::Tap { object },
+                },
+            )
+            .unwrap();
+        }
+    }
+    assert_eq!(
+        detailed
+            .trace()
+            .records
+            .iter()
+            .filter(|r| matches!(r.record, EvidenceRecord::Batch { .. }))
+            .count(),
+        2
+    );
+    let mut records = vec![];
+    stream.drain_trace(&mut |r| records.push(r.clone()));
+    assert_eq!(records.as_slice(), detailed.trace().records.as_slice());
+}

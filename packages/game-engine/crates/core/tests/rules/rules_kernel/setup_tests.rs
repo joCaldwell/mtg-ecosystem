@@ -356,6 +356,18 @@ fn setup_atomic_events_reject_wrong_phase_and_rehashed_rng_queue_order_forgeries
     assert_eq!(g.trace, trace);
     let _ = g.advance(Budget::new(3));
     let json = g.snapshot().unwrap();
+    // Reject a well-formed stream from the wrong event at decode time, before replay.
+    for forged in [(1u64 << 56) | (2 << 48) | 1, (2u64 << 56) | (2 << 48)] {
+        let mut raw: serde_json::Value = serde_json::from_str(&json).unwrap();
+        raw["state"]["match_state"]["random"]["open"]["stream"] = forged.into();
+        raw["state_sha256"] = digest(&raw["state"]).unwrap().into();
+        assert_eq!(
+            Game::read_snapshot(p.clone(), &canonical(&raw).unwrap())
+                .err()
+                .as_deref(),
+            Some("snapshot random identity")
+        );
+    }
     for path in 0..6 {
         let mut raw: serde_json::Value = serde_json::from_str(&json).unwrap();
         match path {

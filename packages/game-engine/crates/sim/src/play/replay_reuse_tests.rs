@@ -68,3 +68,53 @@ fn verified_replay_rejects_forged_terminal_facts() {
         "match replay digest mismatch"
     );
 }
+
+#[test]
+fn foundations_stream_delivers_every_record_through_terminal_triggers() {
+    use crate::events::{EventSink, PodOutcome};
+    use mtg_core::{Answer, Event, TraceRecord};
+
+    #[derive(Default)]
+    struct Records(Vec<TraceRecord>);
+    impl EventSink for Records {
+        fn record(&mut self, record: &TraceRecord) -> Result<(), String> {
+            assert_eq!(record.sequence, self.0.len() as u64);
+            self.0.push(record.clone());
+            Ok(())
+        }
+        fn decision(&mut self, _: &Observation, _: &Answer) -> Result<(), String> {
+            Ok(())
+        }
+        fn finish(&mut self, outcome: &PodOutcome) -> Result<(), String> {
+            assert!(outcome.terminal);
+            Ok(())
+        }
+    }
+
+    let (catalog, config, prepared) = setup();
+    let mut sink = Records::default();
+    let evidence = run(
+        crate::BUILD,
+        &catalog,
+        config,
+        Policy::Develop,
+        [0; 4],
+        1024,
+        Some(&mut sink),
+        |_| Ok(()),
+    )
+    .unwrap();
+    let detailed =
+        Game::replay_with_trace(prepared, &evidence.journal, TraceMode::Detailed).unwrap();
+    assert_eq!(
+        evidence.final_state_sha256,
+        detailed.state_digest().unwrap()
+    );
+    assert!(
+        detailed
+            .events()
+            .iter()
+            .any(|e| matches!(e, Event::TriggerCollected { .. }))
+    );
+    assert_eq!(sink.0.as_slice(), detailed.trace().records.as_slice());
+}

@@ -144,6 +144,24 @@ fn first_shuffle_index(sizes: &[u32; 4], players: &[PlayerId]) -> u32 {
         .map_or(98, |size| size.saturating_sub(1))
 }
 impl MatchState {
+    fn valid_open_stream(&self, open: OpenStream) -> bool {
+        let domain = (open.stream >> 56) as u8;
+        let seat = PlayerId((open.stream >> 48) as u8);
+        let index = usize::from(seat.0);
+        // Shuffles increment on completion; seat effects reserve on entry.
+        // The table domain has no producer that can leave an open cursor.
+        let ordinal = match domain {
+            LIBRARY_SHUFFLE => self.library_shuffles.get(index).copied(),
+            SEAT_RANDOM => self
+                .random
+                .seat_random
+                .get(index)
+                .and_then(|n| n.checked_sub(1)),
+            _ => None,
+        };
+        open.word > 0 && ordinal.and_then(|n| stream_id(domain, seat, n).ok()) == Some(open.stream)
+    }
+
     pub(super) fn new(c: &MatchConfig, initial_library_size: u32) -> Self {
         Self {
             library_shuffles: [0; 4],
@@ -733,15 +751,7 @@ impl RulesTxn {
                         .iter()
                         .chain(&s.random.seat_random)
                         .any(|n| *n > ORDINAL_LIMIT)
-                    || s.random.open.is_some_and(|p| {
-                        p.word == 0
-                            || stream_id(
-                                (p.stream >> 56) as u8,
-                                PlayerId((p.stream >> 48) as u8),
-                                p.stream & (ORDINAL_LIMIT - 1),
-                            )
-                            .is_err()
-                    })
+                    || s.random.open.is_some_and(|p| !s.valid_open_stream(p))
                 {
                     return Err("snapshot random identity".into());
                 }

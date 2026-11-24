@@ -65,7 +65,12 @@ mod tests {
     }
     #[test]
     fn sequence_verification_matches_standalone_restore_through_pending_and_automatic_work() {
-        for mode in [TraceMode::Off, TraceMode::Compact, TraceMode::Detailed] {
+        for mode in [
+            TraceMode::Off,
+            TraceMode::Compact,
+            TraceMode::Stream,
+            TraceMode::Detailed,
+        ] {
             let p = prepared(ScenarioConfig::combat_interactions());
             let mut game = Game::with_trace(p.clone(), mode);
             let mut verifier = SnapshotVerifier::new(p.clone(), mode);
