@@ -795,6 +795,11 @@ fn explicit_nulls_reject_under_their_field_before_any_decoder() {
             json!(["creature", null]);
     });
     assert_eq!(code(&unsummon), "operand:ast:null:types");
+    // A null abilities list is named by its own field.
+    let empty = crate::tests::changed_source(UNSUMMON, |row| {
+        row["faces"][0]["result"]["abilities"] = serde_json::Value::Null;
+    });
+    assert_eq!(code(&empty), "operand:ast:null:abilities");
     // Null target-filter qualifiers reject the same way.
     for field in ["control", "other"] {
         let qualified = changed(UNSUMMON, |row| {

@@ -248,9 +248,10 @@ pub(crate) fn typed<T: serde::de::DeserializeOwned>(
 
 /// The field of the first `null` at any depth: an object member whose value
 /// is `null`, or a `null` element of an array, named by the array's field
-/// (`enclosing` for a top-level array).
+/// (`enclosing` for a top-level array, or for a root that is itself `null`).
 pub(crate) fn null_field(value: &serde_json::Value, enclosing: &str) -> Option<String> {
     match value {
+        serde_json::Value::Null => Some(enclosing.to_owned()),
         serde_json::Value::Object(members) => members.iter().find_map(|(key, member)| {
             if member.is_null() {
                 Some(key.clone())
