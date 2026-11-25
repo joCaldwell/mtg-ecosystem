@@ -841,19 +841,20 @@ fn lane_d_wellspring_uses_one_ability_for_entry_and_death() {
         } if movement.successor == source && movement.destination == Zone::Battlefield
     ));
     checked(&g);
-    settle(&mut g);
-    assert_eq!(hand(&g, 0), 2);
+    assert_eq!(hand(&g, 0), 1);
 
+    // The death and entry triggers for this incarnation can coexist.
     Driver::cast(&mut g, CardId(1));
     Driver::pick_object(&mut g, source);
     Driver::pay(&mut g, &[4, 5]);
-    drive(&mut g, &[], triggered);
-    assert_eq!(g.state.rules.stack.len(), 1);
+    drive(&mut g, &[], |g| {
+        triggered(g) && g.state.rules.stack.len() == 2
+    });
     let StackKind::Triggered {
         ability: EffectiveTriggerAbility::Intrinsic { index: 0 },
         witness: TriggerEventWitness::Moved { movement },
         ..
-    } = &g.state.rules.stack[0].kind
+    } = &g.state.rules.stack[1].kind
     else {
         panic!("same printed trigger on death");
     };
@@ -861,7 +862,7 @@ fn lane_d_wellspring_uses_one_ability_for_entry_and_death() {
     assert_eq!(movement.destination, Zone::Graveyard { owner: PlayerId(0) });
     checked(&g);
     let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
-    let StackKind::Triggered { witness, .. } = &mut forged.state.rules.stack[0].kind else {
+    let StackKind::Triggered { witness, .. } = &mut forged.state.rules.stack[1].kind else {
         unreachable!()
     };
     *witness = TriggerEventWitness::Tapped {
@@ -870,17 +871,31 @@ fn lane_d_wellspring_uses_one_ability_for_entry_and_death() {
     };
     assert_forgery_rejected(&g, forged, "no matching alternative");
 
-    let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
-    let mut duplicate = forged.state.rules.stack[0].clone();
-    let StackKind::Triggered { trigger_id, .. } = &mut duplicate.kind else {
-        unreachable!()
-    };
-    trigger_id.0 = forged.state.rules.next_trigger_id;
-    duplicate.id.0 = forged.state.rules.next_stack_id;
-    forged.state.rules.next_trigger_id += 1;
-    forged.state.rules.next_stack_id += 1;
-    forged.state.rules.stack.push(duplicate);
-    assert_forgery_rejected(&g, forged, "duplicate mixed trigger occurrence");
+    for (slot, different_path, error) in [
+        (1, false, "duplicate mixed trigger occurrence"),
+        (1, true, "duplicate mixed trigger death"),
+        (0, true, "duplicate mixed trigger entry"),
+    ] {
+        let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+        let mut duplicate = forged.state.rules.stack[slot].clone();
+        let StackKind::Triggered {
+            trigger_id,
+            event: TriggerOccurrenceId::Batch(occurrence),
+            ..
+        } = &mut duplicate.kind
+        else {
+            unreachable!()
+        };
+        trigger_id.0 = forged.state.rules.next_trigger_id;
+        duplicate.id.0 = forged.state.rules.next_stack_id;
+        forged.state.rules.next_trigger_id += 1;
+        forged.state.rules.next_stack_id += 1;
+        if different_path {
+            occurrence.path.push(0);
+        }
+        forged.state.rules.stack.push(duplicate);
+        assert_forgery_rejected(&g, forged, error);
+    }
 
     settle(&mut g);
     assert_eq!(hand(&g, 0), 2);
@@ -909,6 +924,9 @@ fn lane_d_grave_titan_matches_its_own_attack_once() {
         } if attacker.object == attackers[0]
     ));
     checked(&g);
+    let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+    forged.state.rules.stack[0].controller = PlayerId(1);
+    assert_forgery_rejected(&g, forged, "invalid self-attack trigger controller");
     settle(&mut g);
     assert_eq!(g.state.rules.tokens.len(), 2);
     assert_recoverable((&g).into());
@@ -1002,6 +1020,7 @@ fn lane_d_skullflayer_checks_only_creature_cards_in_its_controllers_graveyard() 
             checked(&g);
             for (observed, passed) in [
                 (ControllerMeasurement::GraveyardCount(2), true),
+                (ControllerMeasurement::GraveyardCount(5), true),
                 (ControllerMeasurement::GraveyardCount(100), true),
                 (ControllerMeasurement::HandCount(3), true),
                 (ControllerMeasurement::GraveyardCount(2), false),
@@ -1032,7 +1051,7 @@ fn lane_d_skullflayer_checks_only_creature_cards_in_its_controllers_graveyard() 
 
 fn assert_forgery_rejected(g: &Game, mut forged: Snapshot, expected: &str) {
     forged.state_sha256 = digest(&forged.state).unwrap();
-    let error = Game::restore(g.prepared.as_ref().clone(), &canonical(&forged).unwrap())
+    let error = Game::read_snapshot(g.prepared.as_ref().clone(), &canonical(&forged).unwrap())
         .err()
         .expect("forged snapshot rejected");
     assert!(error.contains(expected), "{error}");

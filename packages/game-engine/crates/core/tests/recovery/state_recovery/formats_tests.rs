@@ -24,7 +24,7 @@ const OBSERVATION_PIN: (u32, &str) = (
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     93,
-    "74cf7a9b7f752397fd526b0bbdf4b1b0cfb2d09db69b01a2b59291dc21088c64",
+    "37d24f98a2a0d9c80fc03176fd7304964410de630a91ecd94604ddfe0528ce70",
 );
 const WORK_PIN: (u32, &str) = (
     54,
@@ -359,6 +359,28 @@ fn library_entry_shapes() -> Vec<String> {
         .collect()
 }
 
+/// Intervening comparisons carry one of three measured values in the saved
+/// resolution check. Substitute each variant to fingerprint its wire shape.
+fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
+    let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+    [
+        ControllerMeasurement::Life(5.into()),
+        ControllerMeasurement::HandCount(7),
+        ControllerMeasurement::GraveyardCount(3),
+    ]
+    .into_iter()
+    .map(move |observed| {
+        sample["state"]["rules"]["frame"]["frame"]["condition_check"] =
+            serde_json::to_value(InterveningCheck::ControllerComparison {
+                controller: PlayerId(0),
+                observed,
+                passed: true,
+            })
+            .unwrap();
+        serde_json::to_string(&sample).unwrap()
+    })
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -371,6 +393,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .chain(mana_riders())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
+        .chain(intervening_comparison_shapes())
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

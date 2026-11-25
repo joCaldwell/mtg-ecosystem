@@ -49,6 +49,19 @@ pub enum TriggerOccurrenceId {
 pub struct CastOccurrenceId {
     pub cast: StackId,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum MixedMovement {
+    Entry,
+    Death,
+}
+
+#[derive(Default)]
+struct MixedTriggerOccurrences<'a> {
+    batches: BTreeSet<(ObjectId, EffectiveTriggerAbility, u64, &'a [u32])>,
+    movements: BTreeSet<(ObjectId, EffectiveTriggerAbility, MixedMovement)>,
+}
+
 /// Semantic successful-cast ledger, independent of observers and tracing.
 /// Original physical seats never compact on departure (CR 601.2i/800.4).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1533,6 +1546,13 @@ impl RulesTxn {
                 attacker,
                 defender_player_id,
             } => {
+                // CR 603.3a: the controller of the attacking source at the
+                // event controls its own attack trigger.
+                if matches!(definition.condition.pattern(), EventPattern::AnyOf { .. })
+                    && attacker.controller != controller
+                {
+                    return Err("snapshot invalid self-attack trigger controller".into());
+                }
                 self.validate_characteristic_identity(attacker.object, &attacker.characteristics)?;
                 attacker.zone == Zone::Battlefield
                     && !attacker.tapped
@@ -1672,7 +1692,8 @@ impl RulesTxn {
         source: ObjectId,
         ability: EffectiveTriggerAbility,
         event: &'a TriggerOccurrenceId,
-        seen: &mut BTreeSet<(ObjectId, EffectiveTriggerAbility, u64, &'a [u32])>,
+        witness: &TriggerEventWitness,
+        seen: &mut MixedTriggerOccurrences<'a>,
     ) -> Result<(), String> {
         if matches!(
             self.effective_trigger(source, ability)?.condition.pattern(),
@@ -1681,8 +1702,29 @@ impl RulesTxn {
             let TriggerOccurrenceId::Batch(occurrence) = event else {
                 return Err("snapshot mixed trigger has no batch occurrence".into());
             };
-            if !seen.insert((source, ability, occurrence.batch, &occurrence.path)) {
+            if !seen
+                .batches
+                .insert((source, ability, occurrence.batch, &occurrence.path))
+            {
                 return Err("snapshot duplicate mixed trigger occurrence".into());
+            }
+            // CR 400.7, 603.2c: this incarnation can enter once and die once,
+            // regardless of the recorded occurrence IDs.
+            let movement = if witness.enters() {
+                Some(MixedMovement::Entry)
+            } else if witness.dies() {
+                Some(MixedMovement::Death)
+            } else {
+                None
+            };
+            if let Some(movement) = movement
+                && !seen.movements.insert((source, ability, movement))
+            {
+                return Err(match movement {
+                    MixedMovement::Entry => "snapshot duplicate mixed trigger entry",
+                    MixedMovement::Death => "snapshot duplicate mixed trigger death",
+                }
+                .into());
             }
         }
         Ok(())
@@ -1758,7 +1800,7 @@ impl RulesTxn {
             return Err("snapshot trigger/stack resource bound".into());
         }
         let mut ids = BTreeSet::new();
-        let mut alternatives = BTreeSet::new();
+        let mut alternatives = MixedTriggerOccurrences::default();
         for trigger in &self.state.rules.pending_triggers {
             self.validate_trigger_source(
                 trigger.source,
@@ -1792,6 +1834,7 @@ impl RulesTxn {
                 trigger.source,
                 trigger.ability,
                 &trigger.event,
+                &trigger.witness,
                 &mut alternatives,
             )?;
         }
@@ -1801,11 +1844,18 @@ impl RulesTxn {
             {
                 return Err("snapshot duplicate trigger identity".into());
             }
-            if let StackKind::Triggered { ability, event, .. } = &entry.kind {
+            if let StackKind::Triggered {
+                ability,
+                event,
+                witness,
+                ..
+            } = &entry.kind
+            {
                 self.validate_alternative_occurrence(
                     entry.source,
                     *ability,
                     event,
+                    witness,
                     &mut alternatives,
                 )?;
             }

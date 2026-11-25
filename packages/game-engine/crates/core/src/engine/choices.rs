@@ -2,7 +2,7 @@
 //! CR 601.2b-c, 603.3d/603.4/603.10a and 608.2a-b, pinned official rules:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
-use mtg_contracts::kir::{Cmp, ControllerMeasure, Intervening, ZoneExpr};
+use mtg_contracts::kir::{Atom, Cmp, ControllerMeasure, Intervening, Pred};
 #[cfg(feature = "testkit")]
 pub const SEEDS: &str = "dd3d4d96-1e88-49e1-8276-7f62c22ad91a";
 
@@ -120,7 +120,7 @@ impl InterveningCheck {
         condition: &Intervening,
         controller: PlayerId,
         source: ObjectId,
-        hand_limit: u32,
+        card_bound: u32,
     ) -> bool {
         match (condition, self) {
             (
@@ -146,7 +146,7 @@ impl InterveningCheck {
                     hand_count,
                     passed,
                 },
-            ) => *c == controller && *hand_count <= hand_limit && *passed == (*hand_count == 0),
+            ) => *c == controller && *hand_count <= card_bound && *passed == (*hand_count == 0),
             (
                 Intervening::ControllerComparison {
                     measure,
@@ -160,7 +160,7 @@ impl InterveningCheck {
                 },
             ) => {
                 *checked == controller
-                    && observed.validates(measure, hand_limit)
+                    && observed.validates(measure, card_bound)
                     && *passed == compare(&observed.quantity(), *cmp, value)
             }
             (
@@ -357,15 +357,7 @@ impl RulesTxn {
                             .objects
                             .values()
                             .filter(|o| o.zone == Zone::Graveyard { owner: controller })
-                            .filter(|o| {
-                                crate::query::matches_zone_pred(
-                                    &self.object_facts(o),
-                                    controller,
-                                    &ZoneExpr::Graveyards,
-                                    filter,
-                                )
-                                .is_yes()
-                            })
+                            .filter(|o| self.intervening_card_matches(o.id.card, filter))
                             .count();
                         ControllerMeasurement::GraveyardCount(
                             u32::try_from(count).map_err(|_| "graveyard count limit")?,
@@ -513,9 +505,10 @@ impl RulesTxn {
         Ok(())
     }
     pub(crate) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
-        let definition = match self.entry(frame.stack_id)?.kind {
+        let entry = self.entry(frame.stack_id)?;
+        let definition = match entry.kind {
             StackKind::Triggered { ability, .. } => {
-                Some(self.effective_trigger(self.entry(frame.stack_id)?.source, ability)?)
+                Some(self.effective_trigger(entry.source, ability)?)
             }
             _ => None,
         };
@@ -524,7 +517,7 @@ impl RulesTxn {
             _ => None,
         };
         if expected == Some(Intervening::SourceCastByController)
-            && !matches!(&self.entry(frame.stack_id)?.kind, StackKind::Triggered { match_condition, .. }
+            && !matches!(&entry.kind, StackKind::Triggered { match_condition, .. }
                 if match_condition == &frame.condition_check)
         {
             return Err("cast-entry resolution lost its match evidence".into());
@@ -545,9 +538,9 @@ impl RulesTxn {
             (Some(condition), Some(check))
                 if check.validates(
                     &condition,
-                    self.entry(frame.stack_id)?.controller,
-                    self.entry(frame.stack_id)?.source,
-                    self.intervening_card_bound(self.entry(frame.stack_id)?.controller),
+                    entry.controller,
+                    entry.source,
+                    self.intervening_card_bound(entry.controller, &condition),
                 ) =>
             {
                 Ok(())
@@ -556,14 +549,42 @@ impl RulesTxn {
         }
     }
 
-    fn intervening_card_bound(&self, controller: PlayerId) -> u32 {
+    /// CR 400.7, 404: in the graveyard, owned physical cards have their printed
+    /// types. Use the same filter for the live count and its historical bound.
+    fn intervening_card_matches(&self, card: CardId, filter: &Pred) -> bool {
+        !self.state.rules.tokens.contains_key(&card)
+            && (filter.0.is_empty()
+                || self.definition(card).is_ok_and(|definition| {
+                    let printed = &definition.characteristics;
+                    filter.0.iter().all(|atom| match atom {
+                        Atom::Type { kind } => printed.has_type(*kind),
+                        Atom::AnyType { kinds } => kinds.iter().any(|kind| printed.has_type(*kind)),
+                        _ => false,
+                    })
+                }))
+    }
+
+    fn intervening_card_bound(&self, controller: PlayerId, condition: &Intervening) -> u32 {
+        let all_cards = Pred::default();
+        let filter = match condition {
+            Intervening::ControllerComparison {
+                measure: ControllerMeasure::GraveyardCount(filter),
+                ..
+            } => filter,
+            Intervening::ControllerHandEmpty
+            | Intervening::ControllerComparison {
+                measure: ControllerMeasure::HandCount,
+                ..
+            } => &all_cards,
+            _ => return 0,
+        };
         let count = self
             .state
             .rules
             .cards
             .iter()
             .filter(|(id, card)| {
-                card.owner == controller && !self.state.rules.tokens.contains_key(id)
+                card.owner == controller && self.intervening_card_matches(**id, filter)
             })
             .count();
         count.min(self.prepared.config.owned_limit()) as u32
@@ -600,7 +621,7 @@ impl RulesTxn {
                     &condition,
                     controller,
                     source,
-                    self.intervening_card_bound(controller),
+                    self.intervening_card_bound(controller, &condition),
                 ) && check.passed()
                     && !matches!(
                         check,
