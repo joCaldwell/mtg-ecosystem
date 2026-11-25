@@ -870,10 +870,10 @@ fn beast_attack_flashback_is_public_on_the_stack_and_its_origin_is_validated() {
         };
         assert_eq!(zone(&g, 0), Some(expected));
     }
-    for seat in 0..2 {
+    for (seat, (hand, flashback)) in observed[0].iter().zip(&observed[1]).enumerate() {
         assert_ne!(
-            serde_json::to_string(&observed[0][seat]).unwrap(),
-            serde_json::to_string(&observed[1][seat]).unwrap(),
+            serde_json::to_string(hand).unwrap(),
+            serde_json::to_string(flashback).unwrap(),
             "seat {seat}"
         );
     }
