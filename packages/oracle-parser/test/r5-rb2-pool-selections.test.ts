@@ -86,6 +86,37 @@ describe("library dig picks and the rest (B01)", () => {
     assert.ok(!binding.nodes.some(node => node.node === "remainder"));
   });
 
+  it("counts every pick on every path, including the same-sentence \"one of them\" form", () => {
+    const look = "Look at the top five cards of your library. ";
+    const twoPicks = "Put one of them into your hand, put a land card from among those cards onto the battlefield, then put the rest into your graveyard.";
+    const { blocks: [plain] } = card(look + twoPicks, "Sorcery");
+    assert.deepEqual(refs(plain)["/effects/1/steps/2/what"], { unresolved: "unsupported-reference" });
+    const { blocks: [modal] } = card(`Choose one —\n• ${look}${twoPicks}\n• You gain 3 life.`, "Sorcery");
+    assert.deepEqual(refs(modal)["/effects/0/steps/0/options/0/effects/1/steps/2/what"], { unresolved: "unsupported-reference" });
+    const { blocks: [three] } = card(look + "Put one of them into your hand, put a land card from among those cards onto the battlefield, put a card from among them with the chosen name into your graveyard, then put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(three)["/effects/1/steps/3/what"], { unresolved: "unsupported-reference" });
+    // One pick in the same sentence still binds (Impulse).
+    const { blocks: [impulse] } = card("Look at the top four cards of your library. Put one of them into your hand and the rest on the bottom of your library in any order.", "Sorcery", "{1}{U}", "Impulse");
+    assert.deepEqual(impulse.residuals, []);
+    assert.deepEqual(refs(impulse)["/effects/1/steps/0/steps/1/what"], remainder("/effects/1/steps/0/steps/1"));
+  });
+
+  it("counts a reveal-until scan in another branch as a competing pool", () => {
+    const { binding, blocks: [block] } = card("Look at the top five cards of your library. If you control a creature, reveal cards from the top of your library until you reveal a creature card. Otherwise, put a card from among them into your hand. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(block)["/effects/2/steps/0/what"], { unresolved: "unsupported-reference" });
+    assert.ok(!binding.nodes.some(node => node.node === "remainder"));
+  });
+
+  it("does not count a single revealed card or a re-reveal of the same cards as a pool", () => {
+    const look = "Look at the top five cards of your library. ";
+    const { blocks: [hand] } = card(look + "Put a creature card from among them into your hand. Reveal a card from your hand. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(hand.residuals, []);
+    assert.deepEqual(refs(hand)["/effects/3/steps/0/what"], remainder("/effects/3/steps/0"));
+    const { blocks: [again] } = card(look + "Reveal those cards. Put a creature card from among them into your hand. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(again.residuals, []);
+    assert.deepEqual(refs(again)["/effects/3/steps/0/what"], remainder("/effects/3/steps/0"));
+  });
+
   it("keeps a plural pronoun after an any-number pick from a plural pool unresolved", () => {
     const { blocks: [block] } = card("Choose one —\n• Form a Party — Look at the top five cards of your library. You may reveal any number of creature cards from among them and put them into your hand. Put the rest on the bottom of your library in a random order.\n• Start a Brawl — Creatures you control get +2/+2 until end of turn.", "Sorcery", "{3}{G}", "You Meet in a Tavern");
     assert.deepEqual(refs(block)["/effects/0/steps/0/options/0/effects/1/steps/0/steps/1/what"], { unresolved: "ambiguous-antecedent" });

@@ -339,18 +339,19 @@ export function object(this: Analyzer, expression: ObjectRef, path: string, cont
         return this.bound(expression, path, id, rules);
       }
 
-      // "Put one of them into your hand and the rest into your graveyard":
-      // the pool the same sentence's selection chose from, less that choice.
+      // A special recognizer's pick (no printed selection) from the same
+      // sentence's pool. A printed pick goes through pickRemainder below.
       const sentence = /^(.*\/effects\/\d+)\//.exec(path)?.[1];
       const chosen = this.poolSelections.get(context.ability);
       const pool = expression.of ? this.at(child(path, "of")) : chosen?.pool;
-      if (chosen && pool && sentence && chosen.path.startsWith(`${sentence}/`) && chosen.pool.id === pool.id) {
+      if (chosen && pool && sentence && chosen.path.startsWith(`${sentence}/`) && chosen.pool.id === pool.id &&
+          !this.result.nodes.some(node => node.node === "selection" && node.path === chosen.path)) {
         const id = this.node({ id: this.id(path, "remainder"), path, node: "remainder", scope: context.ability, pool: pool.id,
           excluding: chosen.selected.id, rules: ["608.2c"] });
         return this.bound(expression, path, id, ["608.2c"]);
       }
-      const dug = this.libraryDigRemainder(expression, path, context);
-      if (dug) return dug;
+      const remainder = this.pickRemainder(expression, path, context);
+      if (remainder) return remainder;
       this.unresolved(expression, path, "unsupported-reference", "This relation needs an attachment, event, pool, or linked-ability binding.", ["303.4", "301.5", "607"]);
       return undefined;
     }
@@ -459,42 +460,58 @@ export function revealedHand(this: Analyzer, expression: ObjectRef, path: string
   if (event.operation === "reveal" ? this.at(`${step}/who`)?.id !== owner.id : event.operation !== "look-at") return;
   return hand;
 }
-/** "Put the rest on the bottom of your library": the cards the ability's
- * controller looked at, revealed or milled from their own library, less the
- * one pick this ability made from among them (CR 608.2c). Bound only when
- * that pool is the only group still established, no other look, reveal,
- * mill or exile of the ability (in any branch) could be meant, and the
- * ability attempted exactly one pick, bound to that pool; another player's
- * cards, two pools or two picks (even an unresolved one) stay unresolved. */
-export function libraryDigRemainder(this: Analyzer, expression: Extract<ObjectRef, { ref: "rest" }>, path: string, context: Context): Candidate | undefined {
-  const groups = context.objects.filter(candidate => candidate.cardinality !== "one");
-  const picks = this.poolPicks(context.ability);
+/** "The rest" (CR 608.2c): the one pool that can reach this reference, less
+ * every pick made from it. Bound only when all of these hold:
+ * - the ability attempted exactly one pick from among any pool on any path,
+ *   bound or not, and that pick is bound to this pool;
+ * - the pool is still established here and is the only multi-object set
+ *   that can be meant on any path, apart from what that pick produced: a set
+ *   still established here, or one made under a condition (a branch's scan
+ *   or second look) competes; a single card, a re-reveal of the same cards,
+ *   cards already moved away or another mode's set does not;
+ * - "Put one of them … and the rest …" in one sentence, or a pool the
+ *   ability's controller looked at, revealed or milled from their own library.
+ * Another player's cards (Lonis), a second pool or a second pick stay
+ * unresolved. An optional or conditional pick leaves the whole pool when it
+ * is not made. */
+export function pickRemainder(this: Analyzer, expression: Extract<ObjectRef, { ref: "rest" }>, path: string, context: Context): Candidate | undefined {
   const attempted = attemptedPicks(this, path);
-  if (groups.length !== 1 || picks.length !== 1 || picks[0].pool !== groups[0].id || this.invalidNodes.has(groups[0].id) ||
-      attempted.length !== 1 || !attempted[0].startsWith(`${picks[0].path}/`)) return;
-  const [pool] = groups;
+  const picks = this.poolPicks(context.ability);
+  if (expression.exclude || attempted.length !== 1 || picks.length !== 1 || !attempted[0].startsWith(`${picks[0].path}/`)) return;
   const [pick] = picks;
-  if (pool.domain !== "object" || expression.exclude || (expression.of && this.at(child(path, "of"))?.id !== pool.id)) return;
-  const node = this.result.nodes.find(entry => entry.id === pool.id);
-  const origin = node?.node === "event-result" && node.result === "objects" ? node.path
-    : node?.node === "selection" && "ref" in node.expression && node.expression.ref === "library-cards" ? pickStep(node.path) : undefined;
+  const pool = context.objects.find(candidate => candidate.id === pick.pool);
+  if (!pool || pool.domain !== "object" || pool.cardinality === "one" || this.invalidNodes.has(pool.id) ||
+      (expression.of && this.at(child(path, "of"))?.id !== pool.id)) return;
+  // Every multi-object set the ability's instructions established so far.
+  const step = pickStep(pick.path);
+  const root = /^(.*\/abilities\/\d+)\//.exec(path)?.[1];
+  if (!step || !root) return;
+  // A set competes when it still reaches this reference, or when an
+  // instruction made it under a condition (on some path it is the pool
+  // meant). A set already moved away, or another mode's, cannot be meant.
+  const reaching = new Set(context.objects.map(candidate => candidate.id));
+  const conditional = (eventId: string) => this.result.nodes.some(entry => entry.id === eventId && entry.node === "event" && entry.conditional);
+  const sets = this.result.nodes.filter(node => node.path.startsWith(`${root}/`) &&
+    (node.node === "event-result" ? node.result === "objects" && node.path !== step && !node.path.startsWith(`${step}/`) &&
+        (reaching.has(node.id) || conditional(node.event))
+      : node.node === "selection" && node.path !== pick.path && /\/steps\/\d+\/(?:what|for)(?:\/\d+)?$/.test(node.path) &&
+        (reaching.has(node.id) || conditional(this.id(node.path.replace(/\/(?:what|for)(?:\/\d+)?$/, ""), "event")))) &&
+    "cardinality" in node && node.cardinality !== "one");
+  if (sets.length !== 1 || sets[0].id !== pool.id) return;
+  const node = sets[0];
+  const sameSentence = /\/pool$/.test(attempted[0]) && path.startsWith(`${/^(.*\/effects\/\d+)\//.exec(pick.path)?.[1]}/`);
+  const origin = node.node === "event-result" ? node.path
+    : node.node === "selection" && "ref" in node.expression && node.expression.ref === "library-cards" ? pickStep(node.path) : undefined;
   const event = origin ? stepEvent(this, origin) : undefined;
-  if (!origin || !event || !["look-at", "reveal", "mill"].includes(event.operation) || event.repeated) return;
-  // The only pool on any path: no other look, reveal, mill or exile of this
-  // ability (in any branch) other than the pick's own instruction.
-  const pickSteps = new Set(attempted.map(at => pickStep(at.replace(/\/(?:filter\/fromAmong|pool)$/, ""))));
-  const pools = this.result.nodes.filter(entry => entry.node === "event" && entry.scope === context.ability &&
-    ["look-at", "reveal", "mill", "exile"].includes(entry.operation) && !pickSteps.has(entry.path));
-  if (pools.length !== 1 || pools[0].id !== event.id) return;
-  const owner = this.at(`${origin}/what/of/owner`);
-  if (this.at(`${origin}/who`)?.id !== context.you || (owner && owner.id !== context.you) ||
-      (event.operation !== "mill" && !owner)) return;
-  const rules = ["608.2c", ...(event.operation === "reveal" ? ["701.20a"] : [])];
+  const owner = origin ? this.at(`${origin}/what/of/owner`) : undefined;
+  const ownLibrary = !!origin && !!event && ["look-at", "reveal", "mill"].includes(event.operation) && !event.repeated &&
+    this.at(`${origin}/who`)?.id === context.you && (owner ? owner.id === context.you : event.operation === "mill");
+  if (!sameSentence && !ownLibrary) return;
+  const rules = ["608.2c", ...(event?.operation === "reveal" ? ["701.20a"] : [])];
   const id = this.node({ id: this.id(path, "remainder"), path, node: "remainder", scope: context.ability,
     pool: pool.id, excluding: pick.id, rules });
-  const step = pickStep(pick.path);
-  const pickEvent = step ? stepEvent(this, step) : undefined;
-  if (pickEvent?.optional || pickEvent?.conditional)
+  const pickEvent = stepEvent(this, step);
+  if (ownLibrary && (pickEvent?.optional || pickEvent?.conditional))
     this.engineFeature("optional-look-remainder", path, "Use all remaining looked-at cards. When the choice was declined, use the full pool.", rules);
   return this.bound(expression, path, id, rules);
 }
