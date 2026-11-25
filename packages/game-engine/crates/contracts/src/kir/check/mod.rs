@@ -8,6 +8,7 @@ mod damage;
 mod destroy;
 mod discard;
 mod draw;
+mod keyword_actions;
 mod library;
 mod life;
 mod mana;
@@ -105,6 +106,23 @@ pub fn check(node: &Node, env: &Env<'_>) -> Result<DerivedRequirements, KirError
         walk.out.cells.insert(Cell::Control);
     }
     Ok(walk.out)
+}
+
+pub(super) fn audit_target_predicate(filter: &Pred, graveyard: bool) -> Result<(), KirError> {
+    if filter.0.is_empty() {
+        return unaudited("empty target predicate");
+    }
+    if !graveyard
+        && !filter.0.iter().all(|atom| {
+            matches!(
+                atom,
+                Atom::Power { .. } | Atom::Toughness { .. } | Atom::ManaValue { .. }
+            )
+        })
+    {
+        return unaudited("battlefield characteristic predicate");
+    }
+    Walk::library_card_filter(filter)
 }
 
 /// The target occurrences a node names, without judging the node. Program
@@ -609,6 +627,7 @@ impl Walk<'_, '_> {
             Verb::ReturnCapturedExile {} => Ok(()),
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
+            | Verb::GiveCounters { player, amount, .. }
             | Verb::LoseLife { player, amount }
             | Verb::Mill { player, amount }
             | Verb::Discard { player, amount, .. }
@@ -618,6 +637,12 @@ impl Walk<'_, '_> {
                 self.player(player)?;
                 self.amount(amount)
             }
+            Verb::Fight { first, second } => {
+                self.expect(first, &[RefKind::Object], "first fighter")?;
+                self.expect(second, &[RefKind::Object], "second fighter")
+                    .map(|_| ())
+            }
+            Verb::Populate { player } | Verb::Proliferate { player } => self.player(player),
             Verb::Damage { source, to, amount } => {
                 // CR 120.1: a spell can deal damage as its own source. This
                 // attribution does not select the spell as a permanent.
@@ -906,6 +931,53 @@ impl Walk<'_, '_> {
                 self.bound.pop();
                 result
             }
+            Node::TapTargets { count, .. } => {
+                // CR 115.3, 601.2c, 608.2b: one occurrence, at most N distinct
+                // objects. The program admits these slots only as one group.
+                if !(2..=7).contains(count) {
+                    return unaudited("tap target group bounds");
+                }
+                self.out.target_slots.extend(0..*count);
+                if !self.scan {
+                    if in_control
+                        || self.env.targets.len() != *count as usize
+                        || self.env.targets.iter().any(|t| {
+                            !matches!(
+                                t.domain,
+                                TargetDomain::BattlefieldCreature
+                                    | TargetDomain::BattlefieldPermanent
+                                    | TargetDomain::ControlledBattlefieldPermanent
+                            )
+                        })
+                    {
+                        return unaudited("tap target group");
+                    }
+                    self.out.cells.insert(Cell::TapTargetGroup);
+                    self.out
+                        .capabilities
+                        .insert(Capability::OptionalTargetGroupV1);
+                }
+                Ok(())
+            }
+            Node::ChooseObject { from, action } => {
+                self.control_set(from)?;
+                if !self.scan {
+                    if in_control
+                        || !matches!(from, SetExpr::Matching { zone: ZoneExpr::Battlefield, filter }
+                        if filter.0.contains(&Atom::ControlledBy {
+                            player: PlayerExpr::you(self.env.context),
+                        }))
+                        || *action != ObjectChoiceAction::ReturnToOwnerHand
+                    {
+                        return unaudited("resolution object choice");
+                    }
+                    self.out.cells.insert(Cell::ChooseObjectOwnerHand);
+                    self.out
+                        .capabilities
+                        .insert(Capability::ResolutionObjectChoiceV1);
+                }
+                Ok(())
+            }
             Node::UnlessPays {
                 payer,
                 payment,
@@ -1079,6 +1151,12 @@ impl Walk<'_, '_> {
             | Verb::SetCharacteristics { .. } => {
                 unaudited("nested leaf needs persistent provenance")
             }
+            Verb::Fight { .. }
+            | Verb::Populate { .. }
+            | Verb::Proliferate { .. }
+            | Verb::GiveCounters { .. } => {
+                unaudited("keyword action needs a top-level instruction")
+            }
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
                 unaudited("nested set damage leaves top-level cursor facts")
             }
@@ -1170,6 +1248,10 @@ impl Walk<'_, '_> {
                 self.audit_life(player, amount)
             }
             Verb::Draw { player, amount } => self.audit_draw(player, amount),
+            Verb::GiveCounters { player, amount, .. } => self.audit_player_counters(player, amount),
+            Verb::Fight { first, second } => self.audit_fight(first, second),
+            Verb::Populate { player } => Self::audit_keyword_player(player, Cell::Populate),
+            Verb::Proliferate { player } => Self::audit_keyword_player(player, Cell::Proliferate),
             Verb::Damage { source, to, amount } => self.audit_damage(source, to, amount),
             Verb::Destroy {
                 what,
@@ -1316,6 +1398,18 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
             life::capabilities(matches!(verb, Verb::GainLife { .. }), player, out)
         }
         Verb::Draw { player, amount } => draw::capabilities(player, amount, out),
+        Verb::GiveCounters { .. } => {
+            out.insert(Capability::PlayerCountersV1);
+        }
+        Verb::Fight { .. } => {
+            out.extend([Capability::FightV1, Capability::NoncombatDamageV1]);
+        }
+        Verb::Populate { .. } => {
+            out.insert(Capability::PopulateV1);
+        }
+        Verb::Proliferate { .. } => {
+            out.insert(Capability::ProliferateV1);
+        }
         Verb::Damage { to, amount, .. } => damage::capabilities(to, amount, out),
         Verb::Destroy { what, .. } => destroy::capabilities(what, out),
         Verb::Move { what, to } => move_zone::capabilities(what, to, out),
@@ -1375,6 +1469,12 @@ pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
         visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
         if matches!(node, Node::Delayed { .. } | Node::Reflexive { .. }) {
             out.insert(Capability::ResolutionTriggerV1);
+        }
+        if matches!(node, Node::TapTargets { .. }) {
+            out.insert(Capability::OptionalTargetGroupV1);
+        }
+        if matches!(node, Node::ChooseObject { .. }) {
+            out.insert(Capability::ResolutionObjectChoiceV1);
         }
         if node.uses_continuation() {
             out.insert(Capability::KernelControlV1);
@@ -1442,7 +1542,10 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
             visit_verbs(node, visit)
         }
         Node::ForEach { body, .. } | Node::Choose { body, .. } => visit_verbs(body, visit),
-        Node::Delayed { .. } | Node::Reflexive { .. } => {}
+        Node::Delayed { .. }
+        | Node::Reflexive { .. }
+        | Node::ChooseObject { .. }
+        | Node::TapTargets { .. } => {}
     }
 }
 

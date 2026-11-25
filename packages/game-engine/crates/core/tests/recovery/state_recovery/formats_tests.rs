@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    66,
-    "898f4bbf73209833472873d07dee2c6b3c6875656f05ae1bd0c3dd3dae6557e2",
+    68,
+    "6f3c99f1cffb0c62216551ce4985e87b56b4fa6f2c1dbfa25dc7083bca6dd101",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    100,
-    "891984490002da86fad78b12acdd4e4a7fe0ee7298aceef37205ff2156c2446f",
+    101,
+    "a2ca5fafcb3f74dbbc3958bbb304e77c46c1ba50cc01c36903913ad505037e94",
 );
 const WORK_PIN: (u32, &str) = (
     56,
@@ -381,6 +381,14 @@ fn library_entry_shapes() -> Vec<String> {
         .collect()
 }
 
+/// CR 608.2d: the open object choice carries only the resolving frame and a tag.
+fn object_choice_shape() -> String {
+    let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+    sample["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::Object {}).unwrap();
+    serde_json::to_string(&sample).unwrap()
+}
+
 fn chosen_cost_shapes() -> Vec<Game> {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     let forest = catalog
@@ -391,6 +399,7 @@ fn chosen_cost_shapes() -> Vec<Game> {
     forest.source_labels = None;
     for action in [ChosenCostAction::Discard, ChosenCostAction::Tap] {
         forest.activated.push(ActivatedAbility {
+            modal: None,
             cost: ActivationCost::ChooseObjects(ChosenObjectCost {
                 action,
                 filter: ChosenCostFilter::Any,
@@ -544,6 +553,51 @@ fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
     })
 }
 
+/// A paused keyword choice with real player counters from its preceding leaf.
+fn suspended_proliferate() -> Game {
+    use mtg_contracts::kir::{Amount, Context, PlayerCounterKind, PlayerExpr, Verb};
+
+    let mut catalog = FixtureCatalog::Base.get().clone();
+    let spell = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Unsummon")
+        .unwrap();
+    spell.source_labels = None;
+    let program = spell.spell.as_mut().unwrap();
+    program.targets.clear();
+    let player = PlayerExpr::you(Context::Spell);
+    program.instructions = vec![
+        Instruction::act(
+            Verb::GiveCounters {
+                player: player.clone(),
+                counter: PlayerCounterKind::Energy,
+                amount: Amount::fixed(2),
+            },
+            0,
+        ),
+        Instruction::act(Verb::Proliferate { player }, 0),
+    ];
+    spell.capabilities = spell.requirements();
+    let mut game = Game::new(
+        Board::new(catalog, "snapshot-proliferate")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    for _ in 0..game.live_players().len() {
+        Driver::pass(&mut game);
+    }
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::Proliferate
+    );
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -551,6 +605,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .chain([
             mid_resolution(),
             suspended_battlefield_entry(),
+            suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
         ])
         .chain(mana_riders())
@@ -559,6 +614,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .chain(intervening_comparison_shapes())
+        .chain([object_choice_shape()])
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

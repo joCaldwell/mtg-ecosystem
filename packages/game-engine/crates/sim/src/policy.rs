@@ -281,6 +281,10 @@ impl Strategy<'_> {
                 for (ordinal, (slot, spec)) in slots.iter().zip(specs).enumerate() {
                     let allowed:Vec<_>=slot.allowed.iter().copied().filter(|i|!rules.iter().any(|rule|
                         matches!(rule, JointRule::Distinct{slots} if slots.contains(&(ordinal as u32)) && slots.iter().any(|s|picks.get(*s as usize).is_some_and(|p|p.contains(i)))))).collect();
+                    if allowed.is_empty() && slot.min == 0 {
+                        picks.push(vec![]);
+                        continue;
+                    }
                     let entities: Vec<_> = allowed
                         .iter()
                         .map(|i| match d.candidate(*i)? {
@@ -545,12 +549,14 @@ impl Strategy<'_> {
                 picks: vec![vec![*slots[0].allowed.last().ok_or("empty legend slot")?]],
             },
             // CR 303.4f: enchant the first offered host.
-            (Reason::EntryAttachment, Shape::Pick { slots, .. }) => Answer::Pick {
-                picks: slots
-                    .iter()
-                    .map(|s| s.allowed.iter().take(1).copied().collect())
-                    .collect(),
-            },
+            (Reason::EntryAttachment | Reason::ResolveObjectChoice, Shape::Pick { slots, .. }) => {
+                Answer::Pick {
+                    picks: slots
+                        .iter()
+                        .map(|s| s.allowed.iter().take(1).copied().collect())
+                        .collect(),
+                }
+            }
             // CR 701.23a: find as many of the offered library cards as
             // allowed, in the offered order.
             (Reason::SearchLibrary, Shape::Pick { slots, .. }) => Answer::Pick {
@@ -568,6 +574,8 @@ impl Strategy<'_> {
                 | Reason::AdditionalCosts
                 | Reason::ChooseModes
                 | Reason::ScryBottom
+                | Reason::Populate
+                | Reason::Proliferate
                 | Reason::SurveilGraveyard,
                 Shape::Pick { slots, .. },
             ) => Answer::Pick {

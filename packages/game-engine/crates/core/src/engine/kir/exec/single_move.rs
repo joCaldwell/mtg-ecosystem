@@ -42,6 +42,16 @@ impl RulesTxn {
             return self
                 .finish_instruction(frame, InstructionOutcome::ObjectNoLongerPresent { target });
         }
+        self.kernel_move_present(frame, target, to, source_block)
+    }
+
+    pub(in crate::engine) fn kernel_move_present(
+        &mut self,
+        frame: Resolving,
+        target: ObjectId,
+        to: Destination,
+        source_block: u32,
+    ) -> Result<(), String> {
         let owner = self.state.rules.cards[&target.card].owner;
         let destination = match to {
             Destination::OwnerHand => Zone::Hand { owner },

@@ -61,7 +61,7 @@ impl RulesTxn {
                 TargetDomain::OwnGraveyardCard => true,
                 TargetDomain::OwnGraveyardCreatureCard => self
                     .definition(object.id.card)
-                    .is_ok_and(|d| d.characteristics.kind == CardKind::Creature),
+                    .is_ok_and(|d| d.characteristics.has_type(CardKind::Creature)),
                 _ => false,
             }
     }
@@ -75,12 +75,17 @@ impl RulesTxn {
     ) -> bool {
         self.graveyard_target_legal(object, player, spec.domain)
             && spec.filter.as_ref().is_none_or(|filter| {
-                self.copiable_definition(object.id).is_ok_and(|definition| {
-                    filter
-                        .types
-                        .iter()
-                        .any(|kind| definition.characteristics.has_type(*kind))
-                })
+                (filter.types.is_empty()
+                    || self.copiable_definition(object.id).is_ok_and(|definition| {
+                        filter
+                            .types
+                            .iter()
+                            .any(|kind| definition.characteristics.has_type(*kind))
+                    }))
+                    && filter.predicate.as_ref().is_none_or(|predicate| {
+                        crate::query::matches_pred(&self.object_facts(object), player, predicate)
+                            .is_yes()
+                    })
             })
     }
 
@@ -90,22 +95,25 @@ impl RulesTxn {
                 .characteristics(id)
                 .is_ok_and(|c| c.has_type(CardKind::Creature))
     }
-    pub(crate) fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
-        let announced = matches!(self.state.rules.frame, Frame::Targets { .. })
-            && self.top().is_ok_and(|top| top.id == entry.id);
-        let program = if announced {
-            self.program()
-        } else {
-            self.program_for(entry)
-        };
-        let spec = program.ok().and_then(|p| p.targets.first());
-        self.object_target_legal_for(entry, object, spec)
+    pub(crate) fn object_target_legal(
+        &self,
+        entry: &StackInstance,
+        slot: usize,
+        object: ObjectId,
+    ) -> bool {
+        self.program_for(entry).is_ok_and(|program| {
+            program
+                .targets
+                .get(slot)
+                .is_some_and(|spec| self.object_target_legal_for(entry, object, spec))
+        })
     }
+
     pub(super) fn object_target_legal_for(
         &self,
         entry: &StackInstance,
         object: ObjectId,
-        spec: Option<&mtg_contracts::TargetSpec>,
+        spec: &mtg_contracts::TargetSpec,
     ) -> bool {
         if !self
             .targeting_characteristics(entry)
@@ -113,27 +121,25 @@ impl RulesTxn {
         {
             return false;
         }
-        match spec.map(|t| t.domain) {
-            Some(
-                TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
-            ) => spec.is_some_and(|t| self.permanent_target_legal(object, entry.controller, t)),
-            Some(TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard) => spec
-                .is_some_and(|spec| {
-                    self.current(object)
-                        .is_ok_and(|o| self.graveyard_target_legal_for(o, entry.controller, spec))
-                }),
-            Some(TargetDomain::CreatureOrPlaneswalker) => {
+        match spec.domain {
+            TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
+                self.permanent_target_legal(object, entry.controller, spec)
+            }
+            TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
+                .current(object)
+                .is_ok_and(|o| self.graveyard_target_legal_for(o, entry.controller, spec)),
+            TargetDomain::CreatureOrPlaneswalker => {
                 self.creature_or_planeswalker(object)
                     && self.targetable_by(object, entry.controller)
             }
-            Some(TargetDomain::ControlledBattlefieldCreature) => {
+            TargetDomain::ControlledBattlefieldCreature => {
                 self.is_battlefield_creature(object)
                     && self.targetable_by(object, entry.controller)
                     && self
                         .current(object)
                         .is_ok_and(|o| o.controller == entry.controller && o.id != entry.source)
             }
-            Some(TargetDomain::BlockingBattlefieldCreature) => {
+            TargetDomain::BlockingBattlefieldCreature => {
                 self.is_blocking_creature(object) && self.targetable_by(object, entry.controller)
             }
             _ => {

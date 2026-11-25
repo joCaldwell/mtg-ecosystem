@@ -54,6 +54,11 @@ impl RulesTxn {
         }) {
             return Err("life freeze requires a live player and a supporting catalog".into());
         }
+        if rules.players.iter().any(|player| {
+            player.poison_counters.is_negative() || player.energy_counters.is_negative()
+        }) {
+            return Err("snapshot player counter quantity invariant".into());
+        }
         let s = &self.state;
         // An invocation has one owner: its stack entry, or the detached entry
         // of an invocation the frame still resumes (CR 608.2m).

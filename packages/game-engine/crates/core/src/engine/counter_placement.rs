@@ -1,8 +1,9 @@
-//! Prospective +1/+1 placements. CR 101.4, 122.6, 601.2d, 608.2b, 704.4.
+//! Prospective permanent and player counter placements. CR 101.4, 122.6, 601.2d, 608.2b, 704.4.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 //! Freeze instruction allocations, then place all surviving amounts in one
 //! batch. Costs and their reversal are separate.
 use super::*;
+use mtg_contracts::kir::{PlayerCounterKind, PlayerExpr};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -13,8 +14,18 @@ pub struct CounterPlacementMember {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PlayerCounterPlacement {
+    player: PlayerId,
+    poison: Quantity,
+    energy: Quantity,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CounterPlacementTransaction {
     pub members: Vec<CounterPlacementMember>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    players: Vec<PlayerCounterPlacement>,
     pub cause: BatchCause,
     pub frame: Box<Resolving>,
 }
@@ -40,34 +51,136 @@ impl RulesTxn {
         allocations: Vec<(ObjectId, Quantity)>,
         cause: BatchCause,
     ) -> Result<(), String> {
-        self.validate_counter_allocations(&frame, &allocations, &cause)?;
         let members = allocations
             .into_iter()
             .map(|(object, amount)| CounterPlacementMember { object, amount })
             .collect();
-        self.begin_counter_transaction(frame, members, cause)
+        self.begin_counter_transaction(frame, members, vec![], cause)
     }
 
-    pub(super) fn begin_counter_transaction(
+    fn begin_counter_transaction(
         &mut self,
         frame: Resolving,
         members: Vec<CounterPlacementMember>,
+        players: Vec<PlayerCounterPlacement>,
         cause: BatchCause,
     ) -> Result<(), String> {
-        if members.is_empty() {
+        let transaction = CounterPlacementTransaction {
+            members,
+            players,
+            cause,
+            frame: Box::new(frame),
+        };
+        self.validate_counter_allocations(&transaction)?;
+        if transaction.members.is_empty() && transaction.players.is_empty() {
             return self.finish_instruction(
-                frame,
+                *transaction.frame,
                 InstructionOutcome::CounterPlacements { actual: vec![] },
             );
         }
-        self.rules_mut().frame = Frame::CounterPlacement {
-            transaction: CounterPlacementTransaction {
-                members,
-                cause,
-                frame: Box::new(frame),
-            },
-        };
+        self.rules_mut().frame = Frame::CounterPlacement { transaction };
         self.counter_placement_step()
+    }
+
+    pub(super) fn can_proliferate_permanent(&self, object: ObjectId) -> bool {
+        self.current(object)
+            .is_ok_and(|o| o.present_on_battlefield() && o.plus_one_counters > Quantity::zero())
+    }
+
+    pub(super) fn can_proliferate_player(&self, player: PlayerId) -> bool {
+        self.proliferate_player(player).is_some()
+    }
+
+    fn proliferate_player(&self, player: PlayerId) -> Option<PlayerCounterPlacement> {
+        if !self.is_live(player) {
+            return None;
+        }
+        let row = &self.state.rules.players[player.0 as usize];
+        let poison = row.poison_counters > Quantity::zero();
+        let energy = row.energy_counters > Quantity::zero();
+        (poison || energy).then(|| PlayerCounterPlacement {
+            player,
+            poison: Quantity::from(i64::from(poison)),
+            energy: Quantity::from(i64::from(energy)),
+        })
+    }
+
+    pub(super) fn proliferate(
+        &mut self,
+        frame: Resolving,
+        mut entities: Vec<TargetEntity>,
+        cause: BatchCause,
+    ) -> Result<(), String> {
+        // The rules place all counter kinds simultaneously (CR 701.34a).
+        entities.sort_unstable();
+        let mut members = vec![];
+        let mut players = vec![];
+        for recipient in entities {
+            match recipient {
+                TargetEntity::Object { object } => members.push(CounterPlacementMember {
+                    object,
+                    amount: Quantity::from(1),
+                }),
+                TargetEntity::Player { player } => players.push(
+                    self.proliferate_player(player)
+                        .ok_or("proliferate selected a player without counters")?,
+                ),
+            }
+        }
+        self.begin_counter_transaction(frame, members, players, cause)
+    }
+
+    pub(super) fn give_counters(
+        &mut self,
+        frame: Resolving,
+        player: &PlayerExpr,
+        counter: PlayerCounterKind,
+        amount: &mtg_contracts::kir::Amount,
+        source_block: u32,
+    ) -> Result<(), String> {
+        let players = self.player_counter_recipients(
+            &frame,
+            player,
+            counter,
+            amount.as_fixed().ok_or("missing fixed player counters")?,
+        )?;
+        let cause = self.instruction_cause(&frame, source_block)?;
+        self.begin_counter_transaction(frame, vec![], players, cause)
+    }
+
+    fn player_counter_recipients(
+        &self,
+        frame: &Resolving,
+        player: &PlayerExpr,
+        counter: PlayerCounterKind,
+        amount: &Quantity,
+    ) -> Result<Vec<PlayerCounterPlacement>, String> {
+        let controller = self.entry(frame.stack_id)?.controller;
+        let players = match self.kernel_players(frame, player)? {
+            kir::Players::One(player) => {
+                self.is_live(player).then_some(player).into_iter().collect()
+            }
+            kir::Players::EachOpponent => self
+                .live_players()
+                .into_iter()
+                .filter(|p| *p != controller)
+                .collect(),
+            kir::Players::Nobody => vec![],
+        };
+        Ok(players
+            .into_iter()
+            .map(|player| {
+                let (poison, energy) = match counter {
+                    PlayerCounterKind::Poison => (amount.clone(), Quantity::zero()),
+                    PlayerCounterKind::Energy => (Quantity::zero(), amount.clone()),
+                };
+                PlayerCounterPlacement {
+                    player,
+                    poison,
+                    energy,
+                }
+            })
+            .collect())
     }
 
     fn counter_instruction<'a>(&'a self, frame: &'a Resolving) -> Result<&'a Instruction, String> {
@@ -77,13 +190,15 @@ impl RulesTxn {
             .ok_or_else(|| "missing counter placement instruction".into())
     }
 
-    fn validate_counter_allocations(
-        &self,
-        frame: &Resolving,
-        allocations: &[(ObjectId, Quantity)],
-        cause: &BatchCause,
-    ) -> Result<(), String> {
-        if allocations.iter().any(|(_, n)| *n <= Quantity::zero()) {
+    fn validate_counter_allocations(&self, tx: &CounterPlacementTransaction) -> Result<(), String> {
+        let frame = &tx.frame;
+        let CounterPlacementTransaction {
+            members,
+            players,
+            cause,
+            ..
+        } = tx;
+        if members.iter().any(|m| m.amount <= Quantity::zero()) {
             return Err("invalid counter placement members".into());
         }
         let block = match self.counter_instruction(frame)? {
@@ -95,27 +210,54 @@ impl RulesTxn {
                 let matches = match on {
                     mtg_contracts::kir::SetExpr::Matching { zone, filter } => {
                         let expected = self.kernel_set(frame, zone, filter)?.0;
-                        expected.len() == allocations.len()
+                        expected.len() == members.len()
                             && expected
                                 .iter()
-                                .zip(allocations)
-                                .all(|(id, (object, n))| id == object && n == amount)
+                                .zip(members)
+                                .all(|(id, m)| *id == m.object && &m.amount == amount)
                     }
                     source_object!() => {
-                        matches!(allocations, [(id, n)] if *id == self.entry(frame.stack_id)?.source && n == amount)
+                        matches!(members.as_slice(), [m] if m.object == self.entry(frame.stack_id)?.source && &m.amount == amount)
                     }
                     target_object!(slot) => {
                         frame.legal_targets.get(*slot as usize) == Some(&true)
-                            && matches!(allocations, [(id, n)] if Some(id) == self.bound_object_target(self.entry(frame.stack_id)?, *slot as usize) && n == amount)
+                            && matches!(members.as_slice(), [m] if Some(&m.object) == self.bound_object_target(self.entry(frame.stack_id)?, *slot as usize) && &m.amount == amount)
                     }
                     _ => false,
                 };
-                if !matches {
+                if !matches || !players.is_empty() {
                     return Err("fixed counter allocation mismatch".into());
                 }
                 source_block
             }
-
+            kernel!(GiveCounters { player, counter, amount: fixed!(amount) } @ source_block) => {
+                if !members.is_empty()
+                    || *players
+                        != self.player_counter_recipients(frame, player, *counter, amount)?
+                {
+                    return Err("fixed player counter allocation mismatch".into());
+                }
+                source_block
+            }
+            kernel!(Proliferate { .. } @ source_block) => {
+                if !self.is_live(self.entry(frame.stack_id)?.controller)
+                    || members
+                        .windows(2)
+                        .any(|pair| pair[0].object >= pair[1].object)
+                    || players
+                        .windows(2)
+                        .any(|pair| pair[0].player >= pair[1].player)
+                    || members.iter().any(|m| {
+                        m.amount != Quantity::from(1) || !self.can_proliferate_permanent(m.object)
+                    })
+                    || players
+                        .iter()
+                        .any(|m| self.proliferate_player(m.player).as_ref() != Some(m))
+                {
+                    return Err("invalid proliferate counter selection".into());
+                }
+                source_block
+            }
             _ => return Err("counter placement instruction origin".into()),
         };
         if *cause != self.instruction_cause(frame, *block)? {
@@ -134,15 +276,34 @@ impl RulesTxn {
         &self,
         tx: &CounterPlacementTransaction,
     ) -> Result<Option<EventGroup>, String> {
+        let proliferating = matches!(
+            self.counter_instruction(&tx.frame)?,
+            kernel!(Proliferate { .. })
+        );
         let mut leaves: Vec<_> = tx
             .members
             .iter()
-            .filter(|m| self.is_battlefield_creature(m.object))
+            .filter(|m| {
+                if proliferating {
+                    self.can_proliferate_permanent(m.object)
+                } else {
+                    self.is_battlefield_creature(m.object)
+                }
+            })
             .map(|m| ProposedEvent::PutPlusOneCounters {
                 object: m.object,
                 amount: m.amount.clone(),
             })
             .collect();
+        leaves.extend(
+            tx.players
+                .iter()
+                .map(|m| ProposedEvent::GivePlayerCounters {
+                    player: m.player,
+                    poison: m.poison.clone(),
+                    energy: m.energy.clone(),
+                }),
+        );
         Ok(match leaves.len() {
             0 => None,
             1 => Some(EventGroup::Occurrence {
@@ -214,15 +375,10 @@ impl RulesTxn {
     }
 
     fn validate_counter_transaction(&self, tx: &CounterPlacementTransaction) -> Result<(), String> {
-        if tx.members.is_empty() {
+        if tx.members.is_empty() && tx.players.is_empty() {
             return Err("counter placement transaction size".into());
         }
-        let allocations = tx
-            .members
-            .iter()
-            .map(|m| (m.object, m.amount.clone()))
-            .collect::<Vec<_>>();
-        self.validate_counter_allocations(&tx.frame, &allocations, &tx.cause)
+        self.validate_counter_allocations(tx)
     }
 
     pub(super) fn counter_placement_charge(&self) -> usize {

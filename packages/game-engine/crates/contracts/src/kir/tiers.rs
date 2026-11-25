@@ -115,6 +115,8 @@ pub enum Cell {
     // CR 121: draw.
     DrawController,
     DrawControllerCounted,
+    /// CR 121.2, 608.2h: "draw a card for each [filter]", counted once.
+    DrawControllerPerObject,
     DrawAnnouncedX,
     DrawEachPlayer,
     DrawEventPlayer,
@@ -138,6 +140,7 @@ pub enum Cell {
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
     MoveSourceOwnerZone,
+    ChooseObjectOwnerHand,
     MoveOwnGraveyardTargetToHand,
     MoveOwnGraveyardCreatureToBattlefield,
     ExileTargetGraveyard,
@@ -147,6 +150,7 @@ pub enum Cell {
     Attachment,
     // CR 701.26: tap and untap.
     TapTarget,
+    TapTargetGroup,
     TapStatusSource,
     TapSet,
     UntapTarget,
@@ -169,6 +173,10 @@ pub enum Cell {
     SacrificeTargetOpponent,
     // CR 111: tokens.
     PredefinedTokens,
+    Fight,
+    Populate,
+    PlayerCounters,
+    Proliferate,
     CreatureTokens,
     MultiTypeCreatureTokens,
     TokensForTargetController,
@@ -291,6 +299,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::LifeCounted
         | C::Drain
         | C::DrawControllerCounted
+        | C::DrawControllerPerObject
         | C::DrawAnnouncedX
         | C::DrawEachPlayer
         | C::DrawEventPlayer
@@ -303,6 +312,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveTargetExile
         | C::MovePermanentOwnerHand
         | C::MoveSourceOwnerZone
+        | C::ChooseObjectOwnerHand
         | C::MoveOwnGraveyardTargetToHand
         | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
@@ -310,6 +320,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveSet
         | C::Attachment
         | C::TapTarget
+        | C::TapTargetGroup
         | C::TapStatusSource
         | C::TapSet
         | C::UntapTarget
@@ -326,6 +337,10 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeEachPlayer
         | C::SacrificeEachOpponent
         | C::PredefinedTokens
+        | C::Fight
+        | C::Populate
+        | C::PlayerCounters
+        | C::Proliferate
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::PlusOneCountersSet
@@ -498,11 +513,18 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::PlayerOrPlaneswalkerTargetV1
         | C::OpponentLifeDrainV1
         | C::KernelControlV1
+        | C::ResolutionObjectChoiceV1
+        | C::TargetCharacteristicsV1
+        | C::OptionalTargetGroupV1
         | C::EntryGraveyardExileV1
         | C::ControlledLandEntryV1
         | C::CreatureOrPlaneswalkerTargetV1
         | C::IndestructibleV1
         | C::ActivatedSourceKeywordGrantV1
+        | C::FightV1
+        | C::PopulateV1
+        | C::PlayerCountersV1
+        | C::ProliferateV1
         | C::MultiTypeCreatureTokensV1
         | C::OwnGraveyardCardReturnV1
         | C::PrivateLibraryReorderV1
@@ -551,10 +573,14 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         add(p, Context::Spell, None)?;
     }
     for a in &d.activated {
-        add(&a.program, Context::Activated, None)?;
+        for p in a.programs() {
+            add(p, Context::Activated, None)?;
+        }
     }
     for a in &d.triggered {
-        add(&a.program, Context::Triggered, Some(&a.condition))?;
+        for p in a.programs() {
+            add(p, Context::Triggered, Some(&a.condition))?;
+        }
     }
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);

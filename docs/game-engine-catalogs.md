@@ -131,7 +131,7 @@ of an instruction for the resolving stack object.
 | `Ref` | The closed reference vocabulary: source, controller (with its role), target slot, attached-to, event object/player, entering object, step result, bound variable, linked pool, announced X |
 | `PlayerExpr`, `SetExpr`, `Amount` | Players, object sets (`Matching { zone, filter: Pred }`) and quantities built from references and predicate atoms |
 | `Verb` | One game action over those operands |
-| `Node` | `Do`, `Seq`, `If`, `Optional`, `ForEach`, `Choose`, `UnlessPays`, `IfPays`, `Delayed`, `Reflexive` |
+| `Node` | `Do`, `Seq`, `If`, `Optional`, `ForEach`, `Choose`, `ChooseObject`, `TapTargets`, `UnlessPays`, `IfPays`, `Delayed`, `Reflexive` |
 
 `kir::check(node, env)` is the one admission decision. It proves each reference
 is in scope and of the right kind for the context, targets and event; rejects a
@@ -154,7 +154,8 @@ Every flat effect is a kernel verb; the audited cells are:
 | `damage` | From the source: one announced target (fixed or X for any target or creature), the controller, a mana ability's activator, or creature sets plus optionally each player (fixed, X, creature count or other casts' mana value) |
 | `destroy`, `move`, `tap`, `untap` | One announced target by domain (destroy; exile, owner's hand, top of owner's library; tap; untap), an optional target destroy, matching battlefield sets, your lands (untap), one player's graveyard or every graveyard (exile), one card from your graveyard (hand), or one creature card from your graveyard (battlefield) |
 | `mill`, `discard`, `sacrifice` | Controller or one announced player (mill; X for the player); controller, damaged player, announced player (random or X), each player or each opponent (discard); damaged player, target opponent, each player or each opponent sacrifices one creature |
-| `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source or one announced creature |
+| `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source, one announced creature, or a matching battlefield creature set |
+| `give_counters`, `proliferate`, `populate`, `fight` | Fixed poison or energy for the controller or each opponent; the controller's current public choice of counter-bearing recipients or a controlled creature token; two announced creatures or a source-relative fight |
 | `modify_until` | End-of-turn fixed P/T change or keyword grant on the audited source, target and set operands; signed announced-X P/T change on one announced creature or activated source |
 | `gain_control`, `set_characteristics` | The [captured battlefield recipients, durations and layers](game-engine-mechanics.md#continuous-permanent-control) |
 | `search`, `shuffle` | The controller's own library, or that of a filtered target's captured controller: up to a fixed number of cards with printed type, supertype, subtype, color or fixed stat qualities, optionally revealed, onto the searcher's battlefield (optionally tapped) or into the owner's hand or graveyard; the shuffle of that library, or a singleton to the top after shuffling the remainder |
@@ -170,8 +171,13 @@ both payment nodes support life and generic mana. The continuation skips an
 optional effect with no live chooser and takes the unpaid branch with no live
 payer: `UnlessPays` performs its node, `IfPays` does not (CR 118.12).
 `Choose` binds a pool from a matching public set when both bounds force zero
-or the size of that set. Interactive object choice remains unaudited because
-the saved candidates and chooser are not refreshed on departure (CR 800.4a/g).
+or the size of that set. `ChooseObject` offers one mandatory public object choice
+from a current controller-relative battlefield set. Its audited action returns
+that permanent to its owner's hand. The saved frame derives candidate identities
+from the current state and requires a matching offer when consuming an answer
+(CR 608.2d, 800.4a). `TapTargets` consumes one grouped, optional announcement
+and changes the status of its legal surviving targets simultaneously (CR 115.3,
+608.2b, 701.26).
 
 Controls read fixed amounts, announced X and counts of audited sets. Life
 changes, payments and choice bounds require nonnegative amounts. Object sets

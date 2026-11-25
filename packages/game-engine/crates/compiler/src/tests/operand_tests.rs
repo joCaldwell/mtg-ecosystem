@@ -40,6 +40,46 @@ fn unrepresented_filter_terms_name_their_field() {
     }
 }
 
+/// CR 110.4: a permanent-card target covers every admitted permanent type.
+#[test]
+fn own_graveyard_permanent_target_covers_all_permanent_card_kinds() {
+    use std::collections::BTreeSet;
+
+    let what = object(&json!({
+        "ref": "target",
+        "filter": {"cls": "card", "permanent": true, "zone": {"zone": "graveyard", "owner": "your"}},
+        "count": {"amount": "fixed", "value": 1},
+        "selectionId": "line:0:1",
+    })).unwrap();
+    let mut program = program();
+    bind_own_graveyard_target(&mut program, &mut BTreeMap::new(), &what, false).unwrap();
+    let predicate = program.targets[0]
+        .filter
+        .as_ref()
+        .unwrap()
+        .predicate
+        .as_ref()
+        .unwrap();
+    let [mtg_contracts::kir::Atom::AnyType { kinds }] = predicate.0.as_slice() else {
+        panic!("unexpected permanent-card predicate {predicate:?}");
+    };
+
+    let schema = mtg_contracts::catalog_schema();
+    let all: Vec<CardKind> =
+        serde_json::from_value(schema["$defs"]["CardKind"]["enum"].clone()).unwrap();
+    let expected = all
+        .into_iter()
+        .filter(|kind| match kind {
+            CardKind::Instant | CardKind::Sorcery => false,
+            CardKind::Artifact | CardKind::Creature | CardKind::Enchantment | CardKind::Land => {
+                true
+            }
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(kinds.len(), expected.len());
+    assert_eq!(kinds.iter().copied().collect::<BTreeSet<_>>(), expected);
+}
+
 #[test]
 fn target_occurrences_name_their_qualifier() {
     let target = |extra: serde_json::Value| {
