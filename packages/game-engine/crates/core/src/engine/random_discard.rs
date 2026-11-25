@@ -18,32 +18,33 @@ impl RulesTxn {
         if self.state.rules.match_state.is_none() {
             return Err("random discard requires a seeded match".into());
         }
-        let program = self.program_for(self.entry(frame.stack_id)?)?;
-        let Some(
-            kernel!(Discard { player: target_player!(target_slot), amount: count, random: true } @ source_block),
-        ) = program.instructions.get(frame.cursor as usize)
+        let entry = self.entry(frame.stack_id)?;
+        let program = self.program_for(entry)?;
+        let Some(kernel!(Discard { player, amount: count, random: true } @ source_block)) =
+            program.instructions.get(frame.cursor as usize)
         else {
             return Err("missing random discard instruction".into());
         };
-        let slot = *target_slot as usize;
-        if !self.entry(frame.stack_id)?.kind.is_spell()
-            || self.entry(frame.stack_id)?.paid.as_ref()
-                != Some(&self.entry(frame.stack_id)?.total_cost)
-            || frame.legal_targets.get(slot) != Some(&true)
-            || !program.targets.get(slot).is_some_and(|spec| {
-                matches!(
-                    spec.domain,
-                    TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer
-                )
-            })
-        {
-            return Err("random discard requires a paid spell with a legal player target".into());
+        if entry.paid.as_ref() != Some(&entry.total_cost) {
+            return Err("random discard requires a paid invocation".into());
         }
-        let player = *self
-            .entry(frame.stack_id)?
-            .player_targets
-            .get(slot)
-            .ok_or("missing random discard target")?;
+        let player = match player {
+            target_player!(target_slot) if entry.kind.is_spell() => {
+                let slot = *target_slot as usize;
+                if frame.legal_targets.get(slot) != Some(&true)
+                    || !program.targets.get(slot).is_some_and(|spec| {
+                        matches!(spec.domain, TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)
+                    })
+                {
+                    return Err("random discard requires a legal player target".into());
+                }
+                *entry.player_targets.get(slot).ok_or("missing random discard target")?
+            }
+            you!() if matches!(entry.kind, StackKind::Triggered {
+                ability: EffectiveTriggerAbility::Followup { .. }, ..
+            }) => entry.controller,
+            _ => return Err("random discard recipient invariant".into()),
+        };
         let count = match count {
             fixed!(value) => value,
             announced_x!() => self

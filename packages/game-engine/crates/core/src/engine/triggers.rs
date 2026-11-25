@@ -1697,6 +1697,9 @@ impl RulesTxn {
         witness: &TriggerEventWitness,
         seen: &mut MixedTriggerOccurrences<'a>,
     ) -> Result<(), String> {
+        if matches!(ability, EffectiveTriggerAbility::Followup { .. }) {
+            return Ok(());
+        }
         if matches!(
             self.effective_trigger(source, ability)?.condition.pattern(),
             EventPattern::AnyOf { .. }

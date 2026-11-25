@@ -75,12 +75,23 @@ pub(super) fn delayed(
             node: Node::Do(Verb::ReturnCapturedExile {}),
             source_block,
         });
+    } else if let Some(count) = controller_random_discard(child) {
+        program.instructions.push(Instruction::discard(
+            kir::PlayerExpr::you(Context::Triggered), kir::Amount::fixed(count), true, source_block,
+        ));
     } else {
         lower_body(&mut program, sentence, source_block, |typed| {
             validate_damage_sources(typed, DamageSourceBinding::Invocation { first_it_is_self: false })
         })?;
     }
     Ok(Instruction::Kernel { node: Node::Delayed { event, program: Box::new(program) }, source_block })
+}
+
+fn controller_random_discard(step: &Value) -> Option<i64> {
+    let count = step.pointer("/what/count/value")?.as_i64()?;
+    (*step == json!({"effect":"discard", "who":{"player":"you"}, "random":true,
+        "what":{"ref":"filter","filter":{"cls":"card"},"count":{"amount":"fixed","value":count}}})
+        && count > 0 && u32::try_from(count).is_ok()).then_some(count)
 }
 
 pub(crate) fn is_owner_return(step: &Value) -> bool {
@@ -148,7 +159,19 @@ pub(super) fn lower_reflexive(
     source_block: u32,
 ) -> Result<Instruction, Failure> {
     let mut program = SpellProgram::instructions(SpellTiming::Instant);
-    lower_body(&mut program, sentence, source_block, |typed| validate_trigger_damage_sources(condition, typed))?;
+    let mut sentence = sentence.clone();
+    if let Some(step) = sentence.pointer_mut("/steps/0")
+        && step["effect"] == "damage" && (step["source"] == json!({"ref":"it"})
+            || step["source"]["ref"] == "this")
+    {
+        let original = parts(std::slice::from_ref(&sentence))?;
+        let [Part::Typed(typed)] = original.as_slice() else { return Err(reject("reflexive")); };
+        validate_trigger_damage_sources(condition, std::slice::from_ref(typed))?;
+        // The exact source reference was checked by resolution and the
+        // parent event above. Reuse the ordinary directed damage cell.
+        sentence["steps"][0]["source"] = json!({"ref":"self"});
+    }
+    lower_body(&mut program, &sentence, source_block, |typed| validate_trigger_damage_sources(condition, typed))?;
     Ok(Instruction::Kernel {
         node: Node::Reflexive { payment, program: Box::new(program) },
         source_block,

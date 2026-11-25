@@ -1,6 +1,7 @@
 //! One-shot triggered abilities owned by a resolving invocation.
 //! CR 400.7j, 513.2, 603.7a–e, 603.12, 800.4a.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use super::tokens::TokenTemplate;
 use super::*;
 use mtg_contracts::kir::{DelayedEvent, Node};
 
@@ -36,6 +37,7 @@ pub struct ResolutionTrigger {
     cursor: u32,
     first_batch: u64,
     turn: u64,
+    step: TurnStep,
     source_facts: ObjectBefore,
     capture: Option<Capture>,
     watched: Option<ObjectId>,
@@ -82,9 +84,12 @@ impl CreatorProgram {
 impl ResolutionTrigger {
     fn due(&self, event: &DelayedEvent, step: TurnStep, owner: PlayerId, turn: u64) -> bool {
         match event {
-            DelayedEvent::NextEndStep | DelayedEvent::NextEndStepAfterExile { .. } => step == TurnStep::End,
-            DelayedEvent::NextTurnUpkeep => step == TurnStep::Upkeep && turn > self.turn,
-            DelayedEvent::NextUpkeep { .. } => step == TurnStep::Upkeep && owner == self.controller,
+            DelayedEvent::NextEndStep | DelayedEvent::NextEndStepAfterExile { .. } => {
+                let offset = u64::from(matches!(self.step, TurnStep::End | TurnStep::Cleanup));
+                step == TurnStep::End && self.turn.checked_add(offset) == Some(turn)
+            }
+            DelayedEvent::NextTurnUpkeep => step == TurnStep::Upkeep && self.turn.checked_add(1) == Some(turn),
+            DelayedEvent::NextUpkeep { .. } => step == TurnStep::Upkeep && turn > self.turn && owner == self.controller,
             _ => false,
         }
     }
@@ -132,6 +137,7 @@ impl RulesTxn {
             cursor: frame.cursor,
             first_batch: self.state.rules.next_batch_id,
             turn: self.state.rules.turn.number,
+            step: self.state.rules.turn.step,
             source_facts,
             capture,
             watched,
@@ -208,6 +214,9 @@ impl RulesTxn {
             .filter_map(|(&creator, row)| (row.watched == Some(object) && !row.retired
                 && row.firing.is_none() && self.is_live(row.controller)).then_some(creator))
             .collect();
+        if ready.is_empty() {
+            return Ok(());
+        }
         self.preflight_trigger_emission(ready.len())?;
         for creator in ready {
             self.fire_resolution_trigger(creator, TriggerOccurrenceId::Batch(event.id.clone()), witness.clone())?;
@@ -270,6 +279,9 @@ impl RulesTxn {
                 ready.push(creator);
             }
         }
+        if ready.is_empty() {
+            return Ok(());
+        }
         self.preflight_trigger_emission(ready.len())?;
         for creator in ready {
             self.fire_resolution_trigger(creator, TriggerOccurrenceId::Batch(event.clone()), witness.clone())?;
@@ -295,6 +307,29 @@ impl RulesTxn {
             Some(Firing { trigger: id, occurrence, witness });
         self.check_history_capacity()?;
         Ok(())
+    }
+
+    pub(super) fn resolution_trigger_created_token(
+        &self, source: ObjectId, needle: &TokenTemplate,
+    ) -> Result<bool, String> {
+        for (&creator, row) in self.state.rules.resolution_triggers.iter() {
+            if row.source != source || row.firing.is_none() {
+                continue;
+            }
+            let program = self.resolution_trigger_program(creator)?;
+            if program.instructions.iter().any(|instruction| {
+                match (instruction, needle) {
+                    (kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Creature { spec }, .. }),
+                        TokenTemplate::Created(wanted)) => spec == wanted,
+                    (kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Predefined { kind }, .. }),
+                        TokenTemplate::Predefined { kind: wanted }) => kind == wanted,
+                    _ => false,
+                }
+            }) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub(super) fn execute_captured_return(&mut self, frame: Resolving, block: u32) -> Result<(), String> {
@@ -338,7 +373,7 @@ impl RulesTxn {
         let in_flight = self.resolution_triggers_in_flight();
         let retired: Vec<_> = self.state.rules.resolution_triggers.iter()
             .filter_map(|(&id, row)| {
-                (!row.retired && (row.firing.is_some() || !self.is_live(row.controller))
+                (!row.retired && (row.firing.is_some() || !self.is_live(row.controller) || self.watch_removed_with_owner(row))
                     && !in_flight.contains(&id)).then_some(id)
             }).collect();
         if !retired.is_empty() {
@@ -347,6 +382,15 @@ impl RulesTxn {
                 rows.get_mut(&id).expect("collected from the same table").retired = true;
             }
         }
+    }
+
+    // A phased-out permanent that leaves with its owner does not trigger a
+    // leaves-the-battlefield ability (CR 603.6c). Its incarnation is gone.
+    fn watch_removed_with_owner(&self, row: &ResolutionTrigger) -> bool {
+        row.watched.is_some_and(|watched| {
+            self.current(watched).is_err()
+                && self.state.rules.cards.get(&watched.card).is_some_and(|card| !self.is_live(card.owner))
+        })
     }
 
     pub(super) fn resolution_trigger_history_charge(&self) -> usize {
@@ -382,14 +426,15 @@ impl RulesTxn {
         for (&creator, row) in &rules.resolution_triggers {
             if creator.0 >= rules.next_stack_id
                 || row.first_batch > rules.next_batch_id
-                || row.turn > rules.turn.number
+                || row.turn == 0 || row.turn > rules.turn.number
                 || !seated(row.controller)
                 || row.source != row.source_facts.object
                 || rules.cards.get(&row.source.card).is_none_or(|card| card.owner != row.source_facts.owner)
                 || !seated(row.source_facts.controller)
                 || !seated(row.source_facts.default_controller)
                 || (!row.retired && row.firing.is_none() && !self.is_live(row.controller))
-                || (row.retired && row.firing.is_none() && self.is_live(row.controller))
+                || (row.retired && row.firing.is_none() && self.is_live(row.controller)
+                    && !self.watch_removed_with_owner(row))
                 || in_flight.contains(&creator) != (row.firing.is_some() && !row.retired)
             {
                 return Err("resolution trigger origin invariant".into());

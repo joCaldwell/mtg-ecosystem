@@ -931,12 +931,17 @@ impl Walk<'_, '_> {
                         if self.creature_target(*slot)? && program.targets.is_empty() => {}
                     (DelayedEvent::TargetLeavesAfterExilingSource { slot }, Node::Do(Verb::ReturnCapturedExile {}))
                         if self.env.context == Context::Triggered
-                            && self.env.event.is_some_and(|event| *event.pattern() == EventPattern::self_dies())
+                            && self.env.event.is_some_and(|event| matches!(event.pattern(), EventPattern::Dies { object }
+                                if *object == Pred::source() || *event.pattern() == EventPattern::self_dies()))
                             && self.creature_target(*slot)?
                             && program.targets.is_empty() => {}
-                    (DelayedEvent::NextUpkeep { of }, Node::Do(Verb::Discard { player, random: true, .. }))
-                        if *of == PlayerExpr::you(self.env.context) && player.is_you()
-                            && program.targets.is_empty() => self.resolution_trigger_child(program, child)?,
+                    (DelayedEvent::NextUpkeep { of }, Node::Do(Verb::Discard { player, amount, random: true }))
+                        if *of == PlayerExpr::you(self.env.context) && *player == PlayerExpr::you(Context::Triggered)
+                            && amount.as_fixed().is_some_and(|n| *n > Quantity::zero())
+                            && program.targets.is_empty() => {
+                        self.out.cells.insert(Cell::DiscardTargetRandom);
+                        self.out.capabilities.insert(Capability::RandomPlayerDiscardV1);
+                    }
                     (DelayedEvent::NextEndStep | DelayedEvent::NextTurnUpkeep | DelayedEvent::NextUpkeep { .. },
                         Node::Do(Verb::Draw { player, amount }))
                         if player.is_you() && amount.as_fixed().is_some_and(|n| *n > Quantity::zero())
