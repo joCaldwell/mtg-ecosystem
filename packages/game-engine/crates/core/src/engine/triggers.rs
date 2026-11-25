@@ -559,6 +559,9 @@ impl RulesTxn {
                     tapped: true,
                     ..
                 } => self.source_tap_witness(*object)?.into_iter().collect(),
+                EventOutcome::TokenCopied { object, .. } => {
+                    vec![TriggerEventWitness::TokenEntered { object: *object }]
+                }
                 EventOutcome::TokensCreated { objects, .. }
                 | EventOutcome::PredefinedTokensCreated { objects, .. } => objects
                     .iter()

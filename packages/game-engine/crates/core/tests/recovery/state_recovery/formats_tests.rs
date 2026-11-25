@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    66,
-    "898f4bbf73209833472873d07dee2c6b3c6875656f05ae1bd0c3dd3dae6557e2",
+    67,
+    "3a36c2efa2daf299b68ec2c802ae7ad0acc68efdda4af09cdf0549fd1bae401a",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    99,
-    "a6e3c3f9387128b8f3a075aeaba1471faeef479fdcdfdaf2a62224896bf630b8",
+    100,
+    "564aa8cc9222e0727648dbd1376dc842012d0b85f610d42ddc0ef04dd113d01e",
 );
 const WORK_PIN: (u32, &str) = (
     56,
@@ -461,6 +461,51 @@ fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
     })
 }
 
+/// A paused keyword choice with real player counters from its preceding leaf.
+fn suspended_proliferate() -> Game {
+    use mtg_contracts::kir::{Amount, Context, PlayerCounterKind, PlayerExpr, Verb};
+
+    let mut catalog = FixtureCatalog::Base.get().clone();
+    let spell = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Unsummon")
+        .unwrap();
+    spell.source_labels = None;
+    let program = spell.spell.as_mut().unwrap();
+    program.targets.clear();
+    let player = PlayerExpr::you(Context::Spell);
+    program.instructions = vec![
+        Instruction::act(
+            Verb::GiveCounters {
+                player: player.clone(),
+                counter: PlayerCounterKind::Energy,
+                amount: Amount::fixed(2),
+            },
+            0,
+        ),
+        Instruction::act(Verb::Proliferate { player }, 0),
+    ];
+    spell.capabilities = spell.requirements();
+    let mut game = Game::new(
+        Board::new(catalog, "snapshot-proliferate")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    for _ in 0..game.live_players().len() {
+        Driver::pass(&mut game);
+    }
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::Proliferate
+    );
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -468,6 +513,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .chain([
             mid_resolution(),
             suspended_battlefield_entry(),
+            suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
         ])
         .chain(mana_riders())

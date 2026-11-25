@@ -120,6 +120,8 @@ impl RulesTxn {
             Reason::SurveilGraveyard => Reason::SurveilGraveyard,
             Reason::OrderLibraryTop => Reason::OrderLibraryTop,
             Reason::OrderLibraryBottom => Reason::OrderLibraryBottom,
+            Reason::Populate => Reason::Populate,
+            Reason::Proliferate => Reason::Proliferate,
             Reason::EntryAttachment => Reason::EntryAttachment,
         })
     }

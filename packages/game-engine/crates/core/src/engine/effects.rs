@@ -3106,7 +3106,11 @@ impl RulesTxn {
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
-                if instruction.set_damage().is_some() {
+                if let kernel!(Fight { first, second } @ source_block) = instruction {
+                    self.validate_fight_damage(tx, frame, first, second, *source_block)?;
+                } else if frame.fight.is_some() {
+                    return Err("fight facts outside a fight transaction".into());
+                } else if instruction.set_damage().is_some() {
                     self.validate_wipe_damage_transaction(tx, frame)?;
                 } else {
                     let (target_slot, amount, source_block, recipient) = match instruction {

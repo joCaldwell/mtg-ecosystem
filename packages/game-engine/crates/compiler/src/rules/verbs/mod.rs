@@ -14,6 +14,7 @@ mod discard;
 mod draw;
 mod exile;
 mod gain_abilities;
+mod keyword_actions;
 mod library;
 mod life;
 mod mill;
@@ -149,6 +150,15 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             regeneration_forbidden,
         } => destroy::lower(cx, what, *optional, *regeneration_forbidden),
         Step::CreateToken { who, count, token } => tokens::lower(cx, who.as_ref(), count, token),
+        Step::KeywordAction { action, who, times } => {
+            keyword_actions::lower(cx, action, who, times.as_ref())
+        }
+        Step::Fight { a, b } => keyword_actions::fight(cx, a, b),
+        Step::GetCounters {
+            who,
+            counter,
+            count,
+        } => counters::player(cx, who, counter, count),
         Step::PutCounters { on, counter, count } => counters::lower(cx, on, counter, count),
         Step::Pump {
             what,

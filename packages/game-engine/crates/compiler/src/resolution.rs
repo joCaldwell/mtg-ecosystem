@@ -246,10 +246,20 @@ impl Resolution {
                 _ => targets,
             };
             let expression = ability.pointer(&r.path);
+            let fight_antecedent = r.path.rsplit_once('/').is_some_and(|(parent, field)| {
+                field == "a"
+                    && ability.pointer(parent).is_some_and(|step| {
+                        step["effect"] == "fight"
+                            && matches!(step["a"]["ref"].as_str(), Some("it" | "that"))
+                    })
+            });
             let announced = match expression.and_then(|e| e["selectionId"].as_str()) {
                 Some(selection) => targets.iter().find(|s| s.selection_id == selection),
                 None => match targets {
                     [sole] => Some(sole),
+                    // The fight lowerer bound the preceding creature effect's
+                    // sole occurrence before it introduced the second fighter.
+                    [first, _] if fight_antecedent => Some(first),
                     _ => None,
                 },
             };

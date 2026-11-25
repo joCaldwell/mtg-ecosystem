@@ -281,7 +281,7 @@ impl RulesTxn {
                     .rules
                     .objects
                     .values()
-                    .filter(|o| self.object_target_legal_for(entry, o.id, Some(spec)))
+                    .filter(|o| self.object_target_legal_for(entry, o.id, spec))
                     .map(|o| candidate_index(&mut candidates, Candidate::Object { object: o.id }))
                     .collect(),
                 _ => return Err("target domain outside the admitted decision algebra".into()),

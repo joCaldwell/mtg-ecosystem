@@ -627,6 +627,20 @@ Creation stages the new objects together. The normal mana and activation paths
 pay the printed token costs. Restore reconstructs the template from its creating
 source and token identity, including after the token ceases to exist.
 
+### Keyword actions and counters
+
+- Investigate creates a Clue with its two-mana sacrifice-and-draw ability
+  (CR 701.16a, 111.10f).
+- Populate copies a controlled creature token's copiable values. Animation
+  can qualify the original. Restore reconstructs the copy from retained token
+  data (CR 701.36, 707.2).
+- Proliferate chooses any number of permanents and players with counters,
+  adding one per existing kind simultaneously. Supported kinds are permanent
+  +1/+1 and player poison and energy. At least ten poison counters cause
+  a loss (CR 701.34a, 704.5c).
+- Fight uses current power for simultaneous noncombat damage. Both participants
+  must be legal battlefield creatures. Self-fight deals double power (CR 701.14).
+
 ### Continuous permanent control
 
 The `GainControl` cell captures one battlefield target, the exact source, or a
