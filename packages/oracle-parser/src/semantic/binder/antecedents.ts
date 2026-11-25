@@ -1,11 +1,11 @@
 // Antecedent and pronoun resolution for object references.
 import { isDeepStrictEqual } from "node:util";
-import type { ObjectFilter, ObjectRef, PlayerRef } from "../../ast.ts";
+import type { Ability, ObjectFilter, ObjectRef, PlayerRef } from "../../ast.ts";
 import { isPluralPlayerRef } from "../../parser/refs.ts";
 import type { BindingCardinality, BindingNode, ReferenceBinding, ReferenceExpression } from "../types.ts";
 import type { Analyzer } from "./analyzer.ts";
 import type { ChoiceReference } from "./choices.ts";
-import { ENTRY_CHOICE_RULES, child, combine, describes, description, domain, objectCardinality, referenceCardinality, type Candidate, type Context } from "./context.ts";
+import { ENTRY_CHOICE_RULES, child, combine, describes, description, domain, impliesPermanent, objectCardinality, referenceCardinality, type Candidate, type Context } from "./context.ts";
 import { isRecord } from "./predicates.ts";
 
 export function antecedent(this: Analyzer, expression: ReferenceExpression, path: string, candidates: Candidate[], desired: BindingCardinality,
@@ -206,6 +206,8 @@ export function object(this: Analyzer, expression: ObjectRef, path: string, cont
       }
       return this.bound(expression, path, context.source, ["201.5"]);
     case "it": case "them": case "that": {
+      const printed = printedPronoun(this, expression, path, context);
+      if (printed) return this.antecedent(expression, path, [printed.candidate], "one", printed.rules);
       const role = this.roleAntecedents.get(path);
       if (role) return this.antecedent(expression, path, [role], objectCardinality(expression), ["614.15", "608.2c"]);
       // Older templating says "it" for the permanent with the ability ("{T}:
@@ -373,6 +375,167 @@ export function object(this: Analyzer, expression: ObjectRef, path: string, cont
     }
   }
 }
+// CR 303.4b, 301.5, 611.3a and 613.6: these modifiers read the one permanent
+// the Aura or Equipment is attached to. A set of affected permanents, or a
+// pronoun printed in a granted ability, needs a different scope.
+function attachedModifier(analyzer: Analyzer, ability: Extract<Ability, { kind: "static" }>, suffix: string,
+  context: Context): Candidate | undefined {
+  const { effect } = ability;
+  if (effect.static !== "modify" || effect.condition || effect.duration ||
+      !(isDeepStrictEqual(effect.what, { ref: "enchanted", noun: "creature" }) ||
+        isDeepStrictEqual(effect.what, { ref: "equipped", noun: "creature" }))) return;
+  const at = /^\/effect\/modifiers\/(\d+)\/(multiplier\/among|forEach\/attachedTo)$/.exec(suffix);
+  if (!at) return;
+  const modifier = effect.modifiers[Number(at[1])];
+  if (modifier?.modifier !== "pt") return;
+  const { power, toughness } = modifier;
+  const attachmentCount = {
+    allOf: [{ anyOf: [{ subtypes: ["Aura"] }, { subtypes: ["Equipment"] }] }], attachedTo: { ref: "it" },
+  };
+  const shape = at[2] === "multiplier/among"
+    ? { modifier: "pt", power, toughness, multiplier: { amount: "distinct-count", characteristic: "color", among: { ref: "it" } },
+        valueScope: "each-affected-object" }
+    : { modifier: "pt", power, toughness, forEach: attachmentCount };
+  if (!isDeepStrictEqual(modifier, shape)) return;
+  const recipient = analyzer.at(`${context.lexicalAbilityPath}/effect/what`);
+  if (recipient?.domain === "object" && recipient.cardinality === "one" && !context.objects.length) return recipient;
+}
+
+// CR 601.2c and 608.2b-c: "target creature and all other creatures with the
+// same name as that creature" uses the announced target, not a result of
+// resolving the simultaneous instruction.
+function simultaneousNameTarget(analyzer: Analyzer, ability: Extract<Ability, { kind: "spell" }>,
+  suffix: string, context: Context): Candidate | undefined {
+  const at = "/effects/0/steps/0";
+  if (suffix !== `${at}/steps/1/what/filter/characteristicRelations/0/with/what` || context.objects.length) return;
+  const group = ability.effects[0]?.steps[0];
+  if (group?.effect !== "simultaneous" || group.steps.length !== 2) return;
+  const [first, second] = group.steps;
+  if (first.effect !== "pump" || second.effect !== "pump" || first.what.ref !== "target" ||
+      typeof first.what.selectionId !== "string") return;
+  const { selectionId } = first.what;
+  const creature = { types: ["creature"] };
+  const { power, toughness, duration } = first;
+  if (!isDeepStrictEqual(ability.effects[0], { steps: [{
+    effect: "simultaneous", steps: [
+      { effect: "pump", what: { ref: "target", filter: creature, count: { amount: "fixed", value: 1 }, selectionId },
+        power, toughness, duration },
+      { effect: "pump", what: { ref: "all", filter: { ...creature, other: true, characteristicRelations: [
+        { relation: "shared-value", characteristic: "name", with: { operand: "object", what: { ref: "that", filter: creature } } },
+      ] } }, power, toughness, duration },
+    ],
+  }] })) return;
+  const target = analyzer.at(`${context.lexicalAbilityPath}${at}/steps/0/what`);
+  if (target?.domain === "object" && target.cardinality === "one" && analyzer.announced(target)) return target;
+}
+
+// CR 608.2h: the decision maker and the player who searches, moves and
+// shuffles are all the destroyed target's controller. The nested steps
+// repeat the group header's subject. Their land-card result is the separate
+// object that the move acts on.
+function controllerSearchTarget(analyzer: Analyzer, ability: Extract<Ability, { kind: "spell" }>,
+  suffix: string, context: Context): { candidate: Candidate; rules: string[] } | undefined {
+  const groupPath = "/effects/1/steps/0";
+  const isLand = suffix === `${groupPath}/steps/1/what`;
+  if (!isLand && (!context.lastKnown || !["/steps/1/who/of", "/steps/2/who/of", "/steps/2/library/owner/of"]
+    .some(operand => suffix === groupPath + operand))) return;
+  const destroy = ability.effects[0]?.steps[0];
+  const group = ability.effects[1]?.steps[0];
+  if (ability.effects.length !== 2 || destroy?.effect !== "destroy" || destroy.what.ref !== "target" ||
+      objectCardinality(destroy.what) !== "one" || !impliesPermanent(destroy.what.filter) ||
+      !isDeepStrictEqual(ability.effects[0], { steps: [{ effect: "destroy", what: destroy.what }] }) ||
+      group?.effect !== "optional-group") return;
+  const who = { player: "controller", of: { ref: "it" } };
+  const move = group.steps[1];
+  if (move?.effect !== "move-zone" || !isDeepStrictEqual(ability.effects[1], { steps: [{
+    effect: "optional-group", who, steps: [
+      { effect: "search", who, zones: { selection: "all", of: [{ zone: "library", owner: "their" }] },
+        for: { ref: "filter", filter: { supertypes: ["basic"], types: ["land"], cls: "card" },
+          count: { amount: "fixed", value: 1 } } },
+      { effect: "move-zone", what: { ref: "it" }, to: { zone: "battlefield" }, who, ...(move.tapped === true ? { tapped: true } : {}) },
+      { effect: "shuffle", who, library: { zone: "library", owner: who } },
+    ],
+  }] })) return;
+  const target = analyzer.at(`${context.lexicalAbilityPath}/effects/0/steps/0/what`);
+  const header = `${context.lexicalAbilityPath}${groupPath}/who`;
+  if (target?.domain !== "object" || target.cardinality !== "one" || !analyzer.announced(target) ||
+      analyzer.at(`${header}/of`)?.id !== target.id || analyzer.at(header)?.id !== context.decider) return;
+  if (!isLand) return { candidate: target, rules: ["110.2a", "608.2c", "608.2d", "608.2h"] };
+  const search = `${context.lexicalAbilityPath}${groupPath}/steps/0`;
+  const found = analyzer.at(`${search}/for`);
+  const cards = context.objects.filter(candidate => candidate.id !== target.id);
+  if (found && cards.length === 1 && cards[0].id === found.id)
+    return { candidate: cards[0], rules: ["608.2c", "608.2d", "701.23b"] };
+}
+
+// CR 108.3, 400.7j, 608.2c and 712.14a: the two steps exile this transforming
+// permanent and return the card it became. A previously drawn card or the
+// land that triggered the ability supplies neither the return nor its owner.
+function returningTransformedSource(analyzer: Analyzer, ability: Extract<Ability, { kind: "triggered" | "activated" }>,
+  suffix: string, context: Context): Candidate | undefined {
+  const at = /^\/effects\/(\d+)\/steps\/1\/what$/.exec(suffix);
+  if (!at || !context.sourceMoved || !context.permanentSource || context.objects.length < 2) return;
+  const sentence = ability.effects[Number(at[1])];
+  if (!sentence || !isDeepStrictEqual(sentence.steps, [
+    { effect: "exile", what: { ref: "self" } },
+    { effect: "move-zone", what: { ref: "it" }, to: { zone: "battlefield" }, controller: "owner",
+      entry: { face: "transformed" } },
+  ])) return;
+  const exile = `${context.lexicalAbilityPath}/effects/${at[1]}/steps/0`;
+  const successors = context.objects.filter(candidate => candidate.successorOf === context.source);
+  if (successors.length === 1 && successors[0].id === analyzer.id(exile, "objects") &&
+      analyzer.at(`${exile}/what`)?.id === context.source) return successors[0];
+}
+
+// The Aura deals the damage, while the tapped creature supplies its controller
+// as the recipient (CR 108.4, 603.2c, 608.2h).
+function tappedAttachment(analyzer: Analyzer, ability: Extract<Ability, { kind: "triggered" }>,
+  suffix: string, context: Context): Candidate | undefined {
+  if (suffix !== "/effects/0/steps/0/to/ref/of" || !context.lastKnown) return;
+  const damage = ability.effects[0]?.steps[0];
+  if (damage?.effect !== "damage" || !isDeepStrictEqual(ability.trigger,
+    { trigger: "becomes-tapped", what: { ref: "enchanted", noun: "creature" } }) ||
+      !isDeepStrictEqual(ability.effects[0], { steps: [{
+        effect: "damage", source: { ref: "this", noun: "aura" }, amount: damage.amount,
+        to: { to: "player", ref: { player: "controller", of: { ref: "that", filter: { types: ["creature"] } } } },
+      }] })) return;
+  const candidates = context.objects.filter(candidate => candidate.id !== context.source);
+  if (candidates.length === 1 && candidates[0].id === analyzer.id(`${context.lexicalAbilityPath}/trigger`, "objects"))
+    return candidates[0];
+}
+
+function printedPronoun(analyzer: Analyzer, expression: Extract<ObjectRef, { ref: "it" | "that" | "them" }>,
+  path: string, context: Context): { candidate: Candidate; rules: string[] } | undefined {
+  const root = context.lexicalAbilityPath;
+  if (!root || context.ability !== analyzer.id(root, "ability") || !path.startsWith(`${root}/`) ||
+      context.announcementOperand || context.targetLegalityQuery) return;
+  // Only face-level abilities are stored under their own path in this map.
+  const ability = analyzer.abilityAsts.get(root) as Ability | undefined;
+  const suffix = path.slice(root.length);
+  let candidate: Candidate | undefined;
+  if (isDeepStrictEqual(expression, { ref: "it" })) {
+    if (ability?.kind === "static" && context.phase === "continuous") {
+      candidate = attachedModifier(analyzer, ability, suffix, context);
+      if (candidate) return { candidate, rules: ["301.5", "303.4b", "611.3a", "613.6"] };
+    } else if (ability?.kind === "spell" && context.phase === "resolution") {
+      return controllerSearchTarget(analyzer, ability, suffix, context);
+    } else if ((ability?.kind === "activated" || ability?.kind === "triggered") && context.phase === "resolution") {
+      candidate = returningTransformedSource(analyzer, ability, suffix, context);
+      if (candidate) return { candidate, rules: ["108.3", "400.7j", "608.2c", "712.14a"] };
+    }
+  } else if (context.phase === "resolution") {
+    if (isDeepStrictEqual(expression, { ref: "that", filter: { types: ["creature"] } })) {
+      if (ability?.kind === "spell") {
+        candidate = simultaneousNameTarget(analyzer, ability, suffix, context);
+        if (candidate) return { candidate, rules: ["201.2a", "601.2c", "608.2b"] };
+      } else if (ability?.kind === "triggered") {
+        candidate = tappedAttachment(analyzer, ability, suffix, context);
+        if (candidate) return { candidate, rules: ["108.4", "603.2c", "608.2h"] };
+      }
+    }
+  }
+}
+
 /** The step at `path` whose `what` this selection is ("reveal a card from
  * among them", "you choose a card from it", "put one of them …"). */
 function pickStep(selectionPath: string): string | undefined {
