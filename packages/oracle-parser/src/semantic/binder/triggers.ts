@@ -1,6 +1,6 @@
 // Trigger conditions and event patterns.
 import { isDeepStrictEqual } from "node:util";
-import type { Condition, Effect, ObjectFilter, Trigger } from "../../ast.ts";
+import type { Ability, Condition, Effect, ObjectFilter, Trigger } from "../../ast.ts";
 import { uniqueStackTriggerEvent } from "../../parser/stack-copy.ts";
 import type { Analyzer } from "./analyzer.ts";
 import { child, combine, type Candidate, type Context } from "./context.ts";
@@ -122,7 +122,68 @@ export function counterChange(this: Analyzer, trigger: Extract<Trigger, { trigge
   }
   return true;
 }
+
+function printedTrigger(analyzer: Analyzer, path: string, context: Context): Extract<Ability, { kind: "triggered" }> | undefined {
+  const root = context.lexicalAbilityPath;
+  if (context.barrier || !root || path !== `${root}/trigger` || context.ability !== analyzer.id(root, "ability")) return;
+  const ability = analyzer.abilityAsts.get(root) as Ability | undefined;
+  if (ability?.kind === "triggered") return ability;
+}
+
+// CR 603.2, 603.2c and 603.6a: both alternatives provide the same singular
+// entrant role. The entrant deals the damage even if it later leaves.
+// https://magic.wizards.com/en/news/feature/iconic-masters-release-notes-2017-09-11
+function enteringDamageSource(analyzer: Analyzer, trigger: Extract<Trigger, { trigger: "any-of" }>,
+  path: string, context: Context, branches: Context[]): Candidate | undefined {
+  const ability = printedTrigger(analyzer, path, context);
+  const damage = ability?.effects[0]?.steps[0];
+  const second = trigger.events[1];
+  if (damage?.effect !== "damage" || second?.trigger !== "enters" || second.what.ref !== "filter" ||
+      second.what.filter.subtypes?.length !== 1) return;
+  const { subtypes } = second.what.filter;
+  if (!isDeepStrictEqual(trigger, { trigger: "any-of", events: [
+    { trigger: "enters", what: { ref: "this", noun: "creature" } },
+    { trigger: "enters", what: { ref: "filter", filter: { other: true, subtypes, control: "you" },
+      count: { amount: "fixed", value: 1 } } },
+  ] }) || !isDeepStrictEqual(ability?.effects, [{
+    steps: [{ effect: "damage", source: { ref: "it" }, amount: { amount: "x" }, to: damage.to }],
+    bindings: [{ variable: "x", value: { amount: "count", of: { subtypes, control: "you" } } }],
+  }]) || damage.to.to !== "any-target" || !context.permanentSource ||
+      !branches.every(branch => branch.objects.length === 1 && branch.objects[0].domain === "object" &&
+        branch.objects[0].cardinality === "one" && branch.players.length === 0)) return;
+  const id = analyzer.node({ id: analyzer.id(path, "entering-damage-source"), path, node: "alternatives",
+    scope: context.ability, of: branches.map(branch => branch.objects[0].id), rules: ["603.2", "603.2c", "603.6a"] });
+  return { id, cardinality: "one", domain: "object" };
+}
+
+// CR 508.3d and 603.2c: count the qualifying attackers in the one
+// declaration, even if some are gone by the time the ability resolves.
+function qualifyingAttackCount(analyzer: Analyzer, trigger: Extract<Trigger, { trigger: "player-attacks" }>,
+  path: string, context: Context): boolean {
+  const { with: filter } = trigger;
+  const ability = printedTrigger(analyzer, path, context);
+  const first = ability?.effects[0]?.steps[0];
+  const among = first?.effect === "mill" || first?.effect === "draw" || first?.effect === "gain-life" ? first.amount
+    : first?.effect === "create-token" ? first.count : undefined;
+  if (!filter || !isDeepStrictEqual(among, { amount: "that-much" }) ||
+      !(isDeepStrictEqual(filter, { types: ["creature"] }) ||
+        isDeepStrictEqual(filter, { types: ["creature"], supertypes: ["legendary"] }) ||
+        (filter.subtypes?.length === 1 && isDeepStrictEqual(filter, { subtypes: filter.subtypes }))) ||
+      !isDeepStrictEqual(trigger, { trigger: "player-attacks", who: { player: "you" }, per: "declaration",
+        with: filter, count: { op: "ge", value: { amount: "fixed", value: 1 } } })) return false;
+  const actor = analyzer.player(trigger.who, child(path, "who"), { ...context, phase: "trigger-match" });
+  if (!actor) return false;
+  const rules = ["508.1", "508.3d", "603.2c"];
+  const event = analyzer.event(path, context, "trigger:player-attacks", [actor]);
+  analyzer.node({ id: analyzer.id(path, "attack-declaration"), path, node: "attack-declaration", scope: context.ability,
+    event, actor: actor.id, filter, count: trigger.count, rules });
+  context.quantities = [analyzer.eventResult(child(path, "count"), event, "quantity", "one", "measured-quantity")];
+  analyzer.engineFeature("attack-declaration", path, "Count the matching attackers in the declaration that triggered this ability.", rules);
+  return true;
+}
+
 export function triggerPattern(this: Analyzer, trigger: Trigger, path: string, context: Context): void {
+  if (trigger.trigger === "player-attacks" && qualifyingAttackCount(this, trigger, path, context)) return;
   if (trigger.trigger === "phase" && trigger.firstEachTurn && !context.barrier) {
     const rules = ["303.4b", "500.11", "503.1", "603.2c", "614.10a"];
     const enchanted = this.player(trigger.whose, child(path, "whose"), { ...context, phase: "trigger-match" });
@@ -277,6 +338,11 @@ export function triggerPattern(this: Analyzer, trigger: Trigger, path: string, c
       context.objects = [first.subject];
     if (first.who && branches.every(({ who }) => who?.id === first.who!.id) && first.who.id !== context.you)
       context.players = [first.who];
+    const entrant = enteringDamageSource(this, trigger, path, context, branches.map(({ branch }) => branch));
+    if (entrant) {
+      context.objects = [entrant];
+      context.mentionedObject = true;
+    }
     return;
   }
   if (trigger.trigger === "phase-in-turn" && context.delayedSchedule && !context.barrier &&

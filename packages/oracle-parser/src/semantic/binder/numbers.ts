@@ -1,11 +1,124 @@
 // Number bindings: target counts, damage amounts and dynamic values.
 import { isDeepStrictEqual } from "node:util";
-import type { Amount, CharacteristicRelation, Condition, Effect, ObjectRef, PlayerRef } from "../../ast.ts";
+import type { Ability, Amount, CharacteristicRelation, Condition, Effect, ObjectRef, PlayerRef } from "../../ast.ts";
 import type { BindingNode } from "../types.ts";
 import type { Analyzer } from "./analyzer.ts";
 import { chosenRange } from "./choices.ts";
 import { child, type Candidate, type Context } from "./context.ts";
-import { isRecord } from "./predicates.ts";
+import { costHasX, definesX, isRecord } from "./predicates.ts";
+
+/** Only a printed face ability can establish these quantities (CR 113.10). */
+function printedNumberScope(analyzer: Analyzer, path: string, context: Context) {
+  const root = context.lexicalAbilityPath;
+  const face = root && /^(\/faces\/\d+)\/abilities\/\d+$/.exec(root)?.[1];
+  if (!root || !face || !path.startsWith(`${root}/`) || context.barrier ||
+      context.ability !== analyzer.id(root, "ability") || context.face !== analyzer.id(face, "face") ||
+      context.source !== analyzer.id("/source", "object")) return;
+  const ability = analyzer.abilityAsts.get(root) as Ability | undefined;
+  if (ability) return { root, face, ability };
+}
+
+function faceAbilities(analyzer: Analyzer, face: string) {
+  return [...analyzer.abilityAsts].flatMap(([path, ability]) =>
+    path.startsWith(`${face}/abilities/`) ? [{ path, ability: ability as Ability }] : []);
+}
+
+/** CR 107.3a, 601.2b, 702.180a: Harmonize's alternative cost uses the
+ * spell's announced X. This covers a single printed X alternative to a
+ * spell whose mana cost already establishes X. */
+function harmonizeX(analyzer: Analyzer, path: string, context: Context): boolean {
+  if (context.phase !== "payment") return false;
+  const scope = printedNumberScope(analyzer, path, context);
+  if (scope?.ability.kind !== "keywords") return false;
+  const index = /^\/keywords\/(\d+)\/cost\/0\/symbols\/0$/.exec(path.slice(scope.root.length))?.[1];
+  if (index === undefined) return false;
+  const keyword = scope.ability.keywords[Number(index)];
+  if (keyword?.keyword !== "harmonize" || !("cost" in keyword) || keyword.cost?.length !== 1) return false;
+  const [cost] = keyword.cost;
+  if (cost.cost !== "mana" || cost.symbols[0] !== "X" ||
+      !cost.symbols.slice(1).every(symbol => /^(?:\d+|[WUBRGC])$/.test(symbol)) ||
+      !isDeepStrictEqual(keyword, { keyword: "harmonize", cost: [{ cost: "mana", symbols: cost.symbols }] })) return false;
+  const face = analyzer.result.nodes.find(node => node.id === context.face);
+  if (face?.node !== "face" || !face.manaCost?.includes("{X}")) return false;
+  const abilities = faceAbilities(analyzer, scope.face);
+  const spells = abilities.filter(({ ability }) => ability.kind === "spell");
+  if (spells.length !== 1 || definesX(spells[0].ability) ||
+      abilities.flatMap(({ ability }) => ability.kind === "keywords" ? ability.keywords : [])
+        .filter(candidate => candidate.keyword === "harmonize" || costHasX(candidate)).length !== 1 ||
+      abilities.some(({ ability }) => ability.kind === "additional-cost" && costHasX(ability.costs))) return false;
+  const rules = ["107.3a", "601.2b", "702.180a"];
+  // The printed spell block owns this node even when it follows the keyword.
+  analyzer.bound({ amount: "x" }, path, analyzer.id(spells[0].path, "announced-x"), rules);
+  return true;
+}
+
+/** CR 601.2f–i, 608.2c: actual mana paid for this casting is available
+ * during resolution. Allow only a definition used by direct resolution
+ * amounts; a target or other announcement operand cannot depend on it. */
+function ownCastColors(analyzer: Analyzer, quantity: Extract<Amount, { amount: "mana-spent" }>,
+  path: string, context: Context): boolean {
+  const what = { ref: "this", noun: "spell" } as const;
+  if (context.phase !== "resolution" || context.announcementOperand || context.sourceMoved ||
+      !isDeepStrictEqual(quantity, { amount: "mana-spent", what, quantity: "distinct-colors" })) return false;
+  const scope = printedNumberScope(analyzer, path, context);
+  if (scope?.ability.kind !== "spell" || scope.ability.effects.length !== 1 || analyzer.xFaces.has(context.face)) return false;
+  const abilities = faceAbilities(analyzer, scope.face);
+  if (abilities.filter(({ ability }) => ability.kind === "spell").length !== 1 ||
+      abilities.some(({ ability }) => {
+        if (ability.kind === "keywords") return costHasX(ability.keywords);
+        return ability.kind === "static" && (ability.effect.static === "alternative-cost" || ability.effect.static === "play-permission") &&
+          costHasX(ability.effect);
+      })) return false;
+  const [sentence] = scope.ability.effects;
+  const definition = `${scope.root}/effects/0/bindings/0`;
+  if (path !== child(definition, "value") || context.x !== analyzer.id(definition, "number") ||
+      !sentence.steps.length || !sentence.steps.every(step =>
+        (step.effect === "draw" || step.effect === "lose-life" || step.effect === "gain-life" || step.effect === "scry") &&
+        isDeepStrictEqual(step, { effect: step.effect, who: { player: "you" }, amount: { amount: "x" } })) ||
+      !isDeepStrictEqual(sentence, { steps: sentence.steps, bindings: [{ variable: "x", value: quantity }] })) return false;
+  const rules = ["105.1", "601.2f", "601.2h", "601.2i", "608.2c", "707.10"];
+  analyzer.bound(what, child(path, "what"), context.source, rules);
+  analyzer.engineFeature("event-history", path,
+    "Count the distinct colors among mana actually spent on this cast, including additional costs; a stack copy has no cast payment.", rules);
+  return true;
+}
+
+/** CR 400.7d, 614.12, 702.33c–e: this entry replacement reads the
+ * originating spell's payment count for its one printed multikicker. */
+function entryKickerCount(analyzer: Analyzer, quantity: Extract<Amount, { amount: "kicker-count" }>,
+  path: string, context: Context): boolean {
+  if (context.phase !== "continuous" || context.announcementOperand || context.sourceMoved || !context.permanentSource) return false;
+  const scope = printedNumberScope(analyzer, path, context);
+  if (scope?.ability.kind !== "static" || scope.ability.effect.static !== "enters-with-counters" ||
+      path !== `${scope.root}/effect/multiplier`) return false;
+  const entry = scope.ability.effect;
+  const what = entry.what;
+  const types = analyzer.faceTypes.get(context.face)?.types;
+  const self = what.ref === "self" && isDeepStrictEqual(what, { ref: "self" });
+  const thisPermanent = what.ref === "this" && (what.noun === "permanent" ||
+    types?.some(type => type === what.noun)) && isDeepStrictEqual(what, { ref: "this", noun: what.noun });
+  if ((!self && !thisPermanent) ||
+      !isDeepStrictEqual(quantity, { amount: "kicker-count", of: what }) ||
+      !isDeepStrictEqual(entry, { static: "enters-with-counters", what, counter: entry.counter,
+        count: { amount: "fixed", value: 1 }, multiplier: quantity })) return false;
+  const kickers = faceAbilities(analyzer, scope.face).flatMap(({ ability }) => ability.kind === "keywords" ? ability.keywords : [])
+    .filter(keyword => keyword.keyword === "kicker" || keyword.keyword === "multikicker");
+  if (kickers.length !== 1 || kickers[0].keyword !== "multikicker") return false;
+  const rules = ["400.7d", "614.12", "702.33c", "702.33d", "702.33e"];
+  analyzer.bound(quantity.of, child(path, "of"), context.source, rules);
+  analyzer.engineFeature("event-history", path,
+    "Read the count of that permanent's one printed multikicker from the spell that resolved into it.", rules);
+  return true;
+}
+
+export function bindPrintedQuantity(this: Analyzer,
+  quantity: Extract<Amount, { amount: "x" | "mana-spent" | "kicker-count" }>, path: string, context: Context): boolean {
+  switch (quantity.amount) {
+    case "x": return harmonizeX(this, path, context);
+    case "mana-spent": return ownCastColors(this, quantity, path, context);
+    case "kicker-count": return entryKickerCount(this, quantity, path, context);
+  }
+}
 
 /** CR 601.2b-c and 603.3d: only quantities from the matching trigger
  * exist when its modes and targets are announced. */
@@ -94,8 +207,54 @@ export function dynamicStaticValue(this: Analyzer, value: Record<string, unknown
   return true;
 }
 
+const divisionTarget = Symbol("fixed divided damage target");
+
+function countDamageDivisions(value: unknown): number {
+  if (Array.isArray(value)) return value.reduce<number>((count, child) => count + countDamageDivisions(child), 0);
+  if (!isRecord(value)) return 0;
+  if (value.effect === "damage" && isRecord(value.to) && value.to.to === "divided") return 1;
+  return Object.values(value).reduce<number>((count, child) => count + countDamageDivisions(child), 0);
+}
+
+/** CR 601.2c–d, 603.3d: the ability announces one bounded target group and
+ * divides the fixed total at the same announcement. */
+function bindDamageDivision(analyzer: Analyzer, effect: Extract<Effect, { effect: "damage" }>,
+  path: string, context: Context): boolean {
+  if (context.phase !== "resolution" || context.announcementOperand || context.targetScope || context.decider ||
+      context.conditional || effect.to.to !== "divided" || effect.amount.amount !== "fixed" ||
+      !Number.isSafeInteger(effect.amount.value)) return false;
+  const { among } = effect.to;
+  if (among.ref !== "any-target" || !among.selectionId ||
+      !isDeepStrictEqual(effect.to, { to: "divided", among }) ||
+      !isDeepStrictEqual(among, { ref: "any-target", selectionId: among.selectionId, count: among.count })) return false;
+  const range = chosenRange(among.count);
+  if (!range || range.minimum !== 1 || range.maximum === undefined || range.maximum > effect.amount.value) return false;
+  const scope = printedNumberScope(analyzer, path, context);
+  if (scope?.ability.kind !== "spell" && scope?.ability.kind !== "triggered" && scope?.ability.kind !== "activated") return false;
+  const direct = /^\/effects\/(\d+)\/steps\/(\d+)$/.exec(path.slice(scope.root.length));
+  if (!direct) return false;
+  const sentence = scope.ability.effects[Number(direct[1])];
+  if (sentence?.steps[Number(direct[2])] !== effect || !isDeepStrictEqual(sentence, { steps: sentence.steps }) ||
+      !isDeepStrictEqual(effect, { effect: "damage", source: effect.source, amount: effect.amount, to: effect.to })) return false;
+  const producers = scope.ability.kind === "spell"
+    ? faceAbilities(analyzer, scope.face).flatMap(({ ability }) => ability.kind === "spell" ? [ability] : []) : scope.ability;
+  if (countDamageDivisions(producers) !== 1) return false;
+  const at = child(path, "to");
+  const scoped = { ...context, [divisionTarget]: among };
+  analyzer.walk(effect.to, at, scoped);
+  analyzer.walk(effect.amount, child(path, "amount"), context);
+  const targets = analyzer.at(child(at, "among"));
+  if (targets) {
+    const rules = ["601.2c", "601.2d", "602.2b", "603.3d"];
+    analyzer.node({ id: analyzer.id(path, "target-division"), path, node: "target-division", scope: context.ability,
+      chooser: context.you, event: analyzer.id(path, "event"), targets: targets.id, total: effect.amount.value, minimumEach: 1, rules });
+  }
+  return true;
+}
+
 export function walkDamageAmount(this: Analyzer, effect: Extract<Effect, { effect: "damage" }>, path: string, context: Context): boolean {
   if (context.barrier) return false;
+  if (effect.to.to === "divided") return bindDamageDivision(this, effect, path, context);
   if (effect.to.to === "each" && effect.to.refs.length === 2) {
     const [players, creatures] = effect.to.refs;
     const groupType = "ref" in creatures && creatures.ref === "each" && creatures.filter.types?.[0];
@@ -149,9 +308,11 @@ export function walkDamageAmount(this: Analyzer, effect: Extract<Effect, { effec
   return true;
 }
 
-export function boundTargetCount(this: Analyzer, expression: ObjectRef | PlayerRef, context: Context):
+export function boundTargetCount(this: Analyzer, expression: ObjectRef | PlayerRef, context: Context & { [divisionTarget]?: ObjectRef }):
   { minimum: number; maximum?: number; maximumNumber?: string } | undefined {
   if (context.barrier || context.unannouncedDivision || context.phase !== "resolution") return;
+  if ("ref" in expression && expression.ref === "any-target" && expression === context[divisionTarget])
+    return chosenRange(expression.count);
   if ("ref" in expression && expression.ref === "target" && expression.selectionId &&
       !expression.chosenBy && !expression.random) {
     if (expression.count.amount === "x" && expression.upTo && context.announcedX)
