@@ -22,8 +22,13 @@ impl RulesTxn {
             // targetless spells do not fail the targeted-spell legality test.
             // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
             let program = self.program_for(stack)?;
+            // CR 715.3d: a resolving Adventure is exiled instead of going to
+            // its owner's graveyard; a countered or fizzled one is not.
+            let adventure = resolved && self.cast_as_adventure(stack)?;
             let destination = if resolved && program.resolution == SpellResolution::Permanent {
                 Zone::Battlefield
+            } else if adventure {
+                Zone::Exile
             } else {
                 self.stack_departure(stack, Zone::Graveyard { owner })
             };
@@ -37,7 +42,7 @@ impl RulesTxn {
                     .ok_or("missing Aura target")?;
                 self.finish_spell_aura_entry(source, controller, target, id)?;
             } else {
-                self.move_object_for(
+                let movement = self.move_object_for(
                     source,
                     destination,
                     BatchCause::SpellCompletion {
@@ -46,6 +51,15 @@ impl RulesTxn {
                         source,
                     },
                 )?;
+                // CR 715.3d: for as long as it remains exiled, its controller
+                // may play it, though not as an Adventure.
+                if adventure && movement.destination == Zone::Exile {
+                    self.rules_mut()
+                        .objects
+                        .get_mut(&movement.successor.card)
+                        .ok_or("missing exiled adventurer")?
+                        .adventure_player = Some(controller);
+                }
             }
             self.unstack(index)?;
         } else if self.invocation_lives(stack) || self.state.rules.stack.iter().any(|s| s.id == id)

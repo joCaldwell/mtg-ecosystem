@@ -19,7 +19,7 @@ impl RulesTxn {
 
     pub(super) fn mode_decision(&self) -> Result<Option<Decision<Rules>>, String> {
         let entry = self.top()?;
-        let definition = self.copiable_definition(entry.source)?;
+        let definition = self.stack_definition(entry)?;
         let modal = definition
             .modal_spell
             .as_ref()
@@ -66,7 +66,7 @@ impl RulesTxn {
     }
 
     pub(super) fn validate_modes(&self, entry: &StackInstance) -> Result<(), String> {
-        let definition = self.copiable_definition(entry.source)?;
+        let definition = self.stack_definition(entry)?;
         let modal = definition
             .modal_spell
             .as_ref()

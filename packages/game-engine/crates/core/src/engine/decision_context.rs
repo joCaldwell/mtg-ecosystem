@@ -206,11 +206,7 @@ impl RulesTxn {
         if let Frame::Kernel { task } = &self.state.rules.frame {
             let entry = self.entry(self.kernel_root().ok()?.stack_id).ok()?;
             let (source_block, candidate) = self.kernel_choice_context(task).ok()?;
-            let labels = self
-                .copiable_definition(entry.source)
-                .ok()?
-                .source_labels
-                .as_ref();
+            let labels = self.stack_definition(entry).ok()?.source_labels.as_ref();
             let instruction = if let Some(object) = candidate {
                 let handle = self.handle_for(viewer, object).ok()?;
                 Some(DecisionInstruction {
@@ -287,11 +283,7 @@ impl RulesTxn {
             source: self.stack_description(viewer, entry),
             ..Default::default()
         };
-        let labels = self
-            .copiable_definition(entry.source)
-            .ok()?
-            .source_labels
-            .as_ref()?;
+        let labels = self.stack_definition(entry).ok()?.source_labels.as_ref()?;
         let block = match &self.state.rules.frame {
             Frame::ResolutionPayment { frame, .. } | Frame::ResolutionChoice { frame, .. } => {
                 // source_block is a typed instruction provenance index, not text parsing.

@@ -104,7 +104,8 @@ impl TokenIdentity {
 
 fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> Definition {
     let mut d = source.clone();
-    d.modal_back = None;
+    d.back_face = None;
+    d.layout = FaceLayout::Single;
     d.oracle_id = format!("token:{}", id.0);
     d.name = format!("{} Token", token.subtypes.join(" "));
     d.characteristics = token.characteristics();
@@ -244,6 +245,8 @@ impl RulesTxn {
                 battlefield_entry_turn: (zone == Zone::Battlefield).then_some(turn),
                 keyword_timestamp: (zone == Zone::Battlefield).then_some(batch),
                 plus_one_counters: Quantity::zero(),
+                transforms: 0,
+                adventure_player: None,
                 marked_damage: Quantity::zero(),
                 deathtouch_damage: false,
                 attack_ready: false,

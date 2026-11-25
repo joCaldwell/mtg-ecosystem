@@ -128,9 +128,12 @@ impl RulesTxn {
             // CR 712.11b-c, 712.12: evaluate each candidate using its chosen
             // face, including when the front and back have different types.
             let graveyard = obj.zone == (Zone::Graveyard { owner: player });
-            if priority && (hand || command || graveyard) {
+            // CR 715.3d: an exiled Adventure its card's controller may play.
+            let adventure = obj.zone == Zone::Exile && obj.adventure_player == Some(player);
+            if priority && (hand || command || graveyard || adventure) {
                 for face in self.definition(id.card)?.faces() {
-                    if hand && self.validate_land_face(player, id.card, face).is_ok() {
+                    if (hand || adventure) && self.validate_land_face(player, id.card, face).is_ok()
+                    {
                         actions.push(match face {
                             CardFace::Front => Action::PlayLand { object: id },
                             CardFace::Back => Action::PlayLandBackFace { object: id },
@@ -212,7 +215,7 @@ impl RulesTxn {
         let mut candidates = vec![];
         let mut slots = vec![];
         for (index, symbol) in self
-            .copiable_definition(entry.source)?
+            .stack_definition(entry)?
             .characteristics
             .hybrid_mana
             .iter()

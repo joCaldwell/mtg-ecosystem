@@ -19,7 +19,7 @@ pub(crate) enum SetMove {
 impl RulesTxn {
     pub(crate) fn stack_mana_value(&self, entry: &StackInstance) -> Result<Quantity, String> {
         let mut q = self
-            .copiable_definition(entry.source)?
+            .stack_definition(entry)?
             .characteristics
             .printed_mana_value();
         if let Some(x) = &entry.x {

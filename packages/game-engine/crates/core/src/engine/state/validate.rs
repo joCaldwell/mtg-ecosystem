@@ -90,8 +90,16 @@ impl RulesTxn {
             .values()
             .filter(|o| o.id.face == CardFace::Back)
         {
+            let layout = self.definition(object.id.card)?.layout;
             let card = self.copiable_definition(object.id)?;
+            // CR 712.11-712.14, 715.3: only a modal face or an Adventure is
+            // chosen as the card moves; a transforming card is never cast or
+            // put onto the battlefield transformed here.
             if object.hideaway.is_some()
+                || !matches!(
+                    layout,
+                    FaceLayout::ModalDoubleFaced | FaceLayout::Adventurer
+                )
                 || match object.zone {
                     Zone::Stack => card.spell.is_none(),
                     Zone::Battlefield => matches!(
@@ -102,6 +110,55 @@ impl RulesTxn {
                 }
             {
                 return Err("snapshot has an impossible back face for its zone".into());
+            }
+        }
+        // CR 701.27a, 712.9-712.10, 712.18: only a transforming card's
+        // permanent has transformed, and the face it shows is a permanent.
+        for object in s.rules.objects.values().filter(|o| o.transforms > 0) {
+            let definition = self.definition(object.id.card)?;
+            if object.zone != Zone::Battlefield
+                || object.hideaway.is_some()
+                || object.id.face != CardFace::Front
+                || !definition.transforms()
+                || definition.face(object.face()).is_none_or(|face| {
+                    matches!(
+                        face.characteristics.kind,
+                        CardKind::Instant | CardKind::Sorcery
+                    )
+                })
+            {
+                return Err("snapshot has an impossible transformed object".into());
+            }
+        }
+        // CR 715.3d: only an adventurer card exiled as a resolving Adventure
+        // carries its controller's permission to play it.
+        for object in s.rules.objects.values() {
+            if let Some(player) = object.adventure_player
+                && (object.zone != Zone::Exile
+                    || object.hideaway.is_some()
+                    || object.id.face != CardFace::Front
+                    || player.0 as usize >= s.rules.players.len()
+                    || self.definition(object.id.card)?.layout != FaceLayout::Adventurer)
+            {
+                return Err("snapshot has an impossible adventure permission".into());
+            }
+        }
+        // CR 113.7a, 701.27f: an ability's face and transform baseline name
+        // a face its source card has; a spell has neither.
+        for entry in s.rules.stack.iter().chain(s.rules.detached.values()) {
+            let definition = self.definition(entry.source.card)?;
+            let invalid = if entry.kind.is_spell() {
+                entry.source_face != CardFace::Front || entry.source_transforms != 0
+            } else if definition.transforms() {
+                entry.source.face != CardFace::Front
+                    || self
+                        .current(entry.source)
+                        .is_ok_and(|live| live.transforms < entry.source_transforms)
+            } else {
+                entry.source_face != entry.source.face || entry.source_transforms != 0
+            };
+            if invalid || definition.face(entry.source_face).is_none() {
+                return Err("snapshot has an impossible ability face".into());
             }
         }
         // Cleanup can remove land allowances before the next turn resets usage.

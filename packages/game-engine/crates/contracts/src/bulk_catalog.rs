@@ -140,9 +140,13 @@ impl BulkCardFacts {
         let conspiracy = type_line
             .split_whitespace()
             .any(|term| term == "Conspiracy");
-        // CR 712.8a and 903.3: a modal card's front determines command eligibility.
+        // CR 712.8a, 715.4 and 903.3: a double-faced card's front face, or an
+        // adventurer's normal characteristics, determine command eligibility.
         let front = &source["card_faces"][0];
-        let modal_front = source["layout"] == "modal_dfc" && front.is_object();
+        let modal_front = matches!(
+            source["layout"].as_str(),
+            Some("modal_dfc" | "transform" | "adventure")
+        ) && front.is_object();
         let (face_name, oracle_text, type_line) = if modal_front {
             (
                 front["name"].as_str().ok_or("missing modal front name")?,
@@ -356,7 +360,7 @@ fn validate_definition(
     let source: Value = strict_read(&p.source_json)?;
     if row.oracle_id != d.oracle_id
         || source["oracle_id"] != d.oracle_id
-        || if let Some(back) = &d.modal_back {
+        || if let Some(back) = &d.back_face {
             row.facts.name != format!("{} // {}", d.name, back.name)
         } else {
             row.facts.name != d.name

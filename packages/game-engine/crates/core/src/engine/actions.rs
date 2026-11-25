@@ -123,7 +123,7 @@ impl RulesTxn {
         let source = self.targeting_characteristics(top)?;
         if top.kind.is_spell()
             && top.mode_mask.is_none()
-            && let Some(modal) = &self.copiable_definition(top.source)?.modal_spell
+            && let Some(modal) = &self.stack_definition(top)?.modal_spell
         {
             return Ok(self.modal_has_selection(modal, top.controller, &source));
         }

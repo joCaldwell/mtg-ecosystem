@@ -103,6 +103,8 @@ impl RulesTxn {
                         battlefield_entry_turn: None,
                         keyword_timestamp: None,
                         plus_one_counters: Quantity::zero(),
+                        transforms: 0,
+                        adventure_player: None,
                         marked_damage: Quantity::zero(),
                         deathtouch_damage: false,
                         attack_ready: c.zone == Zone::Battlefield,

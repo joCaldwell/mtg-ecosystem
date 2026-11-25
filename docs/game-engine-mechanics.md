@@ -121,39 +121,54 @@ later submissions. Public revisions change only with permitted information.
 Real restore rejects sampled origins. [Search](game-engine-search.md) separately
 proves hypothetical origin and reconstruction.
 
-## Modal double-faced cards
+<a id="modal-double-faced-cards"></a>
 
-The layout allowlist admits Scryfall `normal` and `modal_dfc`. For an MDFC, Archive
-R4 must supply two ordered source faces with matching parses and complete
-resolution. Each face passes the ordinary shell and block checks independently
-and the compiled card requires every capability of both faces. The card keeps
-one physical identity and the frozen color identity across both faces
-(CR 903.4d). Deck construction and commander eligibility use the front face's
-characteristics (CR 712.8a, 903.3).
+## Double-faced cards and adventurers
 
-Each legal face is a separate priority action. Casting checks timing, targets
-and costs for the selected spell face from hand or the command zone
-(CR 712.11b–c, 903.8). A land selection uses the normal land-play allowance and
-the chosen face's entry rules (CR 712.12). On the stack and battlefield the
-selected face supplies all characteristics and abilities, including mana value
-from that face's cost (CR 202.3, 712.8f). A resolving permanent spell keeps its
-cast face (CR 712.13). A card otherwise entering the battlefield uses its front
-face, and cards in hand, library, graveyard, exile or command use front
-characteristics (CR 712.8a, 712.14). Zone changes still create fresh
-incarnations. A stale ability source retains the face its incarnation had.
+The layout allowlist admits Scryfall `normal`, `modal_dfc`, `transform` and
+`adventure`. Archive R4 must supply two ordered parts with matching parses and
+complete resolution. Each part passes the ordinary shell and block checks,
+and the card requires every capability of both. One physical identity keeps
+the frozen color identity (CR 903.4d). Deck construction and commander
+eligibility use the front or normal characteristics (CR 712.8a, 715.4, 903.3).
+Other zones show those characteristics, and every zone change creates a fresh
+front-face incarnation (CR 400.7, 712.14).
 
-A viewer with permission to identify the card can see both face names and the
-active face. Hidden hands and libraries expose neither face without existing
-look or reveal permission (CR 712.6–7). A pending land-entry payment names the
-chosen face and its life cost in the acting player's decision context, including
-after restore. The card in hand keeps its front characteristics. Back-face
-state is invalid for single-faced cards, outside stack or battlefield, on a
-land spell, or on an instant or sorcery permanent.
+A modal card offers each legal face as a separate priority action. Timing,
+targets and costs come from the chosen face, cast from hand or the command
+zone (CR 712.11b–c, 903.8). A land face uses the normal land play and that
+face's entry rules (CR 712.12). The face cast stays up on the battlefield
+(CR 712.13). Mana value comes from the face that is up (CR 202.3, 712.8f).
 
-Modal double-faced support is provisional at the `Executes` tier. Transform
-and convert abilities, flashback on an MDFC, and other layouts including
-transforming cards, Adventures, split cards, flip, meld and prototype remain
-outside admission. The layout rejection identifies the archived layout.
+A transforming card is cast and enters front face up (CR 712.11, 712.14). Its
+own activated or triggered ability may transform it, optionally or under a
+condition. The permanent stays the same object, keeps effects, counters,
+damage and status, and shows the other face (CR 701.27a, 712.18). It
+transforms only if it has not transformed since the ability was put on the
+stack (CR 701.27f). An ability keeps the face it was activated or triggered
+from (CR 113.7a). The back face has no mana cost, but its mana value uses the
+front face's cost (CR 202.3b). Admission requires both faces to be permanents,
+either both creatures or neither, with no "transforms into" trigger.
+
+An adventurer may be cast as its Adventure, a spell with only the inset
+instant or sorcery characteristics (CR 715.3a–b). A resolving Adventure is
+exiled instead of going to the graveyard. Its controller may then cast the
+card normally, or play its land, from exile until it leaves (CR 715.3d). A
+countered or fizzled Adventure goes to the graveyard.
+
+Viewers who can identify the card see the layout, both part names, the face
+that is up and whether it is on an adventure. Hidden hands and libraries
+expose neither part without look or reveal permission (CR 712.6–7). Decision
+context names the chosen part, including after restore. Snapshots reject a
+back face or transform count on the wrong card or zone, an adventure
+permission outside exile, and an ability face or transform baseline the
+source cannot have.
+
+Support is provisional at the `Executes` tier. Split cards, flip, meld,
+prototype, Omen, Room, battles and planeswalker faces still reject by layout
+or face shell. Daybound, disturb, craft, casting or entering transformed,
+transform-event triggers, and flashback on a two-part card stay outside
+admission.
 
 <a id="commander-movement-and-hidden-libraries"></a>
 
@@ -915,7 +930,7 @@ the derived decisions equal the capability lists they replaced.
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
-| Card shell | Normal cards and [modal double-faced cards](#modal-double-faced-cards) whose faces have complete bound source and supported spell costs and keywords. |
+| Card shell | Normal cards and [double-faced or adventurer cards](#double-faced-cards-and-adventurers) whose parts have complete bound source and supported spell costs and keywords. |
 
 Sentences resolve in printed order (CR 608.2c). A pronoun must be bound by the
 archive to a target of its own block or to an earlier step of that block;

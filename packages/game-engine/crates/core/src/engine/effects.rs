@@ -2853,14 +2853,31 @@ impl RulesTxn {
                     .any(|values| values.animation.is_some()))
     }
 
-    // Copiable identity is immutable within each incarnation. Independent
-    // replay proves the continuous changes present at the capture boundary.
+    /// `validate_characteristic_identity` for captured facts, whose transform
+    /// count names the face they were captured with (CR 712.18).
+    pub(crate) fn validate_fact_identity(&self, fact: &ObjectBefore) -> Result<(), String> {
+        self.validate_characteristic_identity(fact.object, fact.transforms, &fact.characteristics)
+    }
+
+    // Copiable identity is immutable within each incarnation except for the
+    // face a transforming permanent has up, which `transforms` records.
+    // Independent replay proves the continuous changes present at the
+    // capture boundary.
     pub(crate) fn validate_characteristic_identity(
         &self,
         source: ObjectId,
+        transforms: u32,
         c: &Characteristics,
     ) -> Result<(), String> {
-        let mut base = self.copiable_definition(source)?.characteristics.clone();
+        let definition = self.definition(source.card)?;
+        if transforms > 0 && !definition.transforms() {
+            return Err("captured facts transformed a card that does not transform".into());
+        }
+        let mut base = definition
+            .face(face_after(source.face, transforms))
+            .ok_or("card has no selected face")?
+            .characteristics
+            .clone();
         if c.has_type(CardKind::Creature) != c.power.is_some()
             || c.power.is_some() != c.toughness.is_some()
         {
@@ -2942,6 +2959,7 @@ impl RulesTxn {
         current: ObjectBefore,
     ) -> bool {
         ObjectBefore {
+            transforms: frozen.transforms,
             characteristics: frozen.characteristics.clone(),
             keywords: frozen.keywords.clone(),
             ..current
@@ -2952,7 +2970,7 @@ impl RulesTxn {
         damage: &PreparedDamage,
         fact: &ObjectBefore,
     ) -> Result<(), String> {
-        self.validate_characteristic_identity(fact.object, &fact.characteristics)?;
+        self.validate_fact_identity(fact)?;
         if fact.controller.0 >= 4
             || fact.default_controller.0 >= 4
             || fact.marked_damage.is_negative()
@@ -2965,6 +2983,7 @@ impl RulesTxn {
             || (fact.attack_ready && !damage.source.attack_ready)
             || (fact.controller != damage.source.controller && fact.zone != Zone::Battlefield)
             || (ObjectBefore {
+                transforms: fact.transforms,
                 controller: fact.controller,
                 attack_ready: fact.attack_ready,
                 characteristics: fact.characteristics.clone(),
@@ -3033,7 +3052,7 @@ impl RulesTxn {
             {
                 return Err("damage source identity/quantity invariant".into());
             }
-            self.validate_characteristic_identity(d.source.object, &d.source.characteristics)?;
+            self.validate_fact_identity(&d.source)?;
             if let Some(fact) = &d.source_appearance {
                 self.validate_source_appearance(d, fact)?;
             }
@@ -3208,10 +3227,7 @@ impl RulesTxn {
                         .as_deref()
                         .ok_or("missing consumed fixed-color protection facts")?;
                     let protector = &qualification.effect_source;
-                    self.validate_characteristic_identity(
-                        protector.object,
-                        &protector.characteristics,
-                    )?;
+                    self.validate_fact_identity(protector)?;
                     self.validate_source_appearance(d, &qualification.damage_source)?;
                     // Replay proves the already-consumed recipient and damage-time
                     // colors even when either object or its color provider left.

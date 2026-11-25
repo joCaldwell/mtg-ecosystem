@@ -131,7 +131,7 @@ impl RulesTxn {
         &self,
         stack: &StackInstance,
     ) -> Result<&SpellProgram, RuleError> {
-        let definition = self.copiable_definition(stack.source)?;
+        let definition = self.stack_definition(stack)?;
         match &stack.kind {
             StackKind::Spell => {
                 if let Some(mask) = stack.mode_mask {
@@ -151,7 +151,7 @@ impl RulesTxn {
                     .ok_or_else(|| "missing triggered program".to_string())?),
             },
             StackKind::Activated { ability, .. } => Ok(self
-                .copiable_definition(stack.source)?
+                .stack_definition(stack)?
                 .activated
                 .get(*ability as usize)
                 .map(|ability| &ability.program)

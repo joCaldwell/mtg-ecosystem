@@ -431,7 +431,7 @@ mod tests {
     fn land(c: &Catalog, name: &str, controller: u8) -> mtg_core::VisibleObject {
         let d = c.definitions.iter().find(|d| d.name == name).unwrap();
         mtg_core::VisibleObject {
-            modal_faces: None,
+            faces: None,
             face_down: false,
             exiled_by: None,
             phased_out: false,

@@ -470,7 +470,7 @@ impl RulesTxn {
         else {
             return Ok(None);
         };
-        let definition = self.effective_trigger(stack.source, *ability)?;
+        let definition = self.effective_trigger(stack.source, stack.source_face, *ability)?;
         let Some(condition) = intervening(&definition)? else {
             return Ok(None);
         };
@@ -508,7 +508,7 @@ impl RulesTxn {
         let entry = self.entry(frame.stack_id)?;
         let definition = match entry.kind {
             StackKind::Triggered { ability, .. } => {
-                Some(self.effective_trigger(entry.source, ability)?)
+                Some(self.effective_trigger(entry.source, entry.source_face, ability)?)
             }
             _ => None,
         };
@@ -594,6 +594,7 @@ impl RulesTxn {
     pub(super) fn validate_match_condition(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
         controller: PlayerId,
         check: Option<&InterveningCheck>,
@@ -612,7 +613,7 @@ impl RulesTxn {
         {
             return Err("cast-entry condition does not identify its completed movement".into());
         }
-        let definition = self.effective_trigger(source, ability)?;
+        let definition = self.effective_trigger(source, face, ability)?;
         let expected = intervening(&definition)?;
         match (expected, check) {
             (None, None) => Ok(()),
