@@ -1465,9 +1465,13 @@ impl RulesTxn {
                     && damage.amount > Quantity::zero()
                     // CR 120.2, 510.1: combat damage comes from battlefield
                     // creatures; noncombat damage may also come from a
-                    // resolving spell on the stack.
+                    // resolving instant or sorcery on the stack. A permanent
+                    // spell deals no damage there (CR 608.3).
                     && (fact.zone == Zone::Battlefield
-                        || (*kind != DamageKind::Combat && fact.zone == Zone::Stack))
+                        || (*kind != DamageKind::Combat
+                            && fact.zone == Zone::Stack
+                            && (fact.characteristics.has_type(CardKind::Instant)
+                                || fact.characteristics.has_type(CardKind::Sorcery))))
                     // CR 510.1: only creatures deal combat damage.
                     && (*kind != DamageKind::Combat
                         || fact.characteristics.has_type(CardKind::Creature))

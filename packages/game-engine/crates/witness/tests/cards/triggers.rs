@@ -730,6 +730,25 @@ fn a_departed_sources_damage_triggers_an_identity_observer() {
         "the observer did not trigger"
     );
     checked(&g);
+    // That Tremors never occupied the stack: a frozen Stack source for its
+    // damage is impossible (CR 608.3).
+    let mut forged = g.fork();
+    let StackKind::Triggered {
+        witness: TriggerEventWitness::DamageDealt { damage, .. },
+        ..
+    } = &mut forged
+        .state
+        .rules
+        .stack
+        .iter_mut()
+        .find(|s| s.source.card == CardId(1))
+        .unwrap()
+        .kind
+    else {
+        panic!("expected a damage witness");
+    };
+    damage.source.zone = Zone::Stack;
+    assert!(forged.validate_state().is_err());
     settle(&mut g);
     assert_eq!(plus(&life(&g, 1), 1), opponent);
     // The returned Impact Tremors and one draw per damaged opponent.
