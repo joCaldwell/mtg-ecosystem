@@ -330,7 +330,7 @@ impl RulesTxn {
 
     /// CR 303.4f, 119.4, 614.1c, 614.12: ask the next entry question of a
     /// battlefield search, or enter every entrant once all were asked.
-    fn continue_search_entry(
+    pub(in crate::engine) fn continue_search_entry(
         &mut self,
         frame: Resolving,
         player: PlayerId,
@@ -392,6 +392,25 @@ impl RulesTxn {
         Ok(Some(hosts))
     }
 
+    /// CR 303.4a: by printed types, `aura` could have enchanted `host`, a
+    /// card that has since left the game.
+    fn printed_host_compatible(&self, aura: ObjectId, host: CardId) -> Result<bool, String> {
+        let printed = &self.definition(host)?.characteristics;
+        Ok(self
+            .copiable_definition(aura)?
+            .spell
+            .as_ref()
+            .and_then(|spell| spell.targets.first())
+            .is_some_and(|spec| match spec.domain {
+                TargetDomain::BattlefieldCreature => printed.has_type(CardKind::Creature),
+                TargetDomain::BattlefieldPermanent => spec.filter.as_ref().is_some_and(|filter| {
+                    filter.types.is_empty()
+                        || filter.types.iter().any(|kind| printed.has_type(*kind))
+                }),
+                _ => false,
+            }))
+    }
+
     /// CR 303.4f-g, 304.4, 307.4: the found cards that enter, each Aura on
     /// its chosen host; the others stay in the library.
     fn search_entrants(
@@ -442,9 +461,24 @@ impl RulesTxn {
                 continue;
             };
             // An answered Aura stays answered, even if its host has left
-            // since (it then stays in the library at entry, CR 303.4g).
-            if attached.peek().is_some_and(|(aura, _)| aura == object) {
-                attached.next();
+            // since (it then stays in the library at entry, CR 303.4g). A
+            // host still here is exactly the legal incarnation chosen; one
+            // gone left with its departed owner and could have been chosen.
+            if let Some((_, host)) = attached.next_if(|(aura, _)| aura == object) {
+                let chosen = match self.state.rules.objects.get(&host.card) {
+                    Some(current) => current.id == *host && legal.contains(host),
+                    None => {
+                        self.state
+                            .rules
+                            .cards
+                            .get(&host.card)
+                            .is_some_and(|card| !self.is_live(card.owner))
+                            && self.printed_host_compatible(*object, host.card)?
+                    }
+                };
+                if !chosen {
+                    return Err("search entry host invariant".into());
+                }
                 continue;
             }
             // CR 303.4g: no legal host, so nothing to ask; this includes
@@ -1249,24 +1283,9 @@ impl RulesTxn {
                 let bounds = self.search_bounds(player, search)?;
                 Self::subset(&bounds.candidates, found)
                     && (bounds.minimum..=bounds.maximum).contains(&found.len())
-                    && match self.next_entry_question(player, found, hosts, paid) {
-                        Ok(Some(_)) => true,
-                        // The one valid pause without a question: an open
-                        // host choice lost its last host (CR 303.4g), so
-                        // the next step commits the entry. Nothing else
-                        // can remove a question while it waits.
-                        Ok(None) => {
-                            paid.is_empty()
-                                && found.iter().try_fold(false, |lost, o| {
-                                    Ok::<_, String>(
-                                        lost || (self.may_enter_battlefield(o.card)?
-                                            && self.entry_hosts(*o)?.is_some()
-                                            && !hosts.iter().any(|(aura, _)| aura == o)),
-                                    )
-                                })?
-                        }
-                        Err(_) => false,
-                    }
+                    && self
+                        .next_entry_question(player, found, hosts, paid)
+                        .is_ok_and(|next| next.is_some())
             }
             (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })
             | (ResolutionChoice::Surveil { looked, .. }, Verb::Surveil { amount, .. }) => {

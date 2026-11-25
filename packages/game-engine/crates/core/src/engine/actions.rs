@@ -1175,6 +1175,37 @@ impl RulesTxn {
         {
             self.rules_mut().pending = None;
         }
+        // CR 303.4g, 800.4a: a departure can remove the last host an open
+        // Aura host choice offered. With no question left, the entry
+        // commits now, leaving that Aura in the library, so a search entry
+        // never waits without a question.
+        if let Frame::ResolutionChoice {
+            frame,
+            choice:
+                ResolutionChoice::SearchEntry {
+                    player,
+                    found,
+                    hosts,
+                    paid,
+                    source_block,
+                },
+        } = &self.state.rules.frame
+            && self.is_live(*player)
+            && self
+                .next_entry_question(*player, found, hosts, paid)?
+                .is_none()
+        {
+            let (frame, player, found, hosts, paid, source_block) = (
+                frame.clone(),
+                *player,
+                found.clone(),
+                hosts.clone(),
+                paid.clone(),
+                *source_block,
+            );
+            self.rules_mut().pending = None;
+            self.continue_search_entry(frame, player, found, hosts, paid, source_block)?;
+        }
         Ok(())
     }
     pub(crate) fn validate_actions_state(&self) -> Result<(), String> {

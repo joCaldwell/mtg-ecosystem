@@ -1935,43 +1935,7 @@ fn zur_leaves_pacifism_in_the_library_without_a_creature_to_enchant() {
 /// never validates.
 #[test]
 fn a_battlefield_search_leaves_a_found_sorcery_in_the_library() {
-    let mut catalog = catalog(&[
-        (
-            RAMPANT_GROWTH,
-            &[Cell::SearchController, Cell::ShuffleController],
-        ),
-        (HALLOWED_FOUNTAIN, &[]),
-    ]);
-    let growth = identity_in(&catalog, "Rampant Growth");
-    let definition = catalog
-        .definitions
-        .iter_mut()
-        .find(|d| d.oracle_id == growth)
-        .unwrap();
-    let mut value = serde_json::to_value(&*definition).unwrap();
-    fn unrestrict(value: &mut serde_json::Value) -> usize {
-        match value {
-            serde_json::Value::Object(fields) => {
-                let here = match fields.get_mut("search") {
-                    Some(serde_json::Value::Object(search)) if search.contains_key("to") => {
-                        search.insert("filter".into(), serde_json::json!([]));
-                        search.insert(
-                            "maximum".into(),
-                            serde_json::json!({"amount": "fixed", "value": "2"}),
-                        );
-                        search["to"].as_object_mut().unwrap().remove("tapped");
-                        1
-                    }
-                    _ => 0,
-                };
-                here + fields.values_mut().map(unrestrict).sum::<usize>()
-            }
-            serde_json::Value::Array(items) => items.iter_mut().map(unrestrict).sum(),
-            _ => 0,
-        }
-    }
-    assert_eq!(unrestrict(&mut value), 1);
-    *definition = serde_json::from_value(value).unwrap();
+    let catalog = unrestricted_growth(&[(HALLOWED_FOUNTAIN, &[])]);
     let prepared = Board::new(catalog, "r4-library-witness")
         .step(TurnStep::PrecombatMain)
         .seats(2)
@@ -2084,4 +2048,140 @@ fn search_entry_answers_name_only_auras_and_affordable_payments() {
         through_departure(&mut g, 0);
         forged_choice_rejected(&mut g, &forged, what);
     }
+}
+
+/// The witness catalog with `cards` and Rampant Growth's IR edited to an
+/// unrestricted "two cards, untapped" search onto the battlefield, which no
+/// printed card has; it reaches entry paths printed cards cannot combine.
+fn unrestricted_growth(cards: &[(&str, &[Cell])]) -> Catalog {
+    let mut all = vec![(
+        RAMPANT_GROWTH,
+        &[Cell::SearchController, Cell::ShuffleController][..],
+    )];
+    all.extend_from_slice(cards);
+    let mut catalog = catalog(&all);
+    let growth = identity_in(&catalog, "Rampant Growth");
+    let definition = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.oracle_id == growth)
+        .unwrap();
+    let mut value = serde_json::to_value(&*definition).unwrap();
+    fn unrestrict(value: &mut serde_json::Value) -> usize {
+        match value {
+            serde_json::Value::Object(fields) => {
+                let here = match fields.get_mut("search") {
+                    Some(serde_json::Value::Object(search)) if search.contains_key("to") => {
+                        search.insert("filter".into(), serde_json::json!([]));
+                        search.insert(
+                            "maximum".into(),
+                            serde_json::json!({"amount": "fixed", "value": "2"}),
+                        );
+                        search["to"].as_object_mut().unwrap().remove("tapped");
+                        1
+                    }
+                    _ => 0,
+                };
+                here + fields.values_mut().map(unrestrict).sum::<usize>()
+            }
+            serde_json::Value::Array(items) => items.iter_mut().map(unrestrict).sum(),
+            _ => 0,
+        }
+    }
+    assert_eq!(unrestrict(&mut value), 1);
+    *definition = serde_json::from_value(value).unwrap();
+    catalog
+}
+
+/// CR 303.4f-g: a saved host is the exact legal object chosen. With
+/// Pacifism on seat 1's Bears and Hallowed Fountain's payment still open,
+/// a Forest substituted for the Bears never validates; the Bears leaving
+/// with its conceding owner does, and Pacifism then stays in the library
+/// while the Fountain enters.
+#[test]
+fn a_saved_aura_host_is_the_chosen_legal_object_or_departed() {
+    let prepared = Board::new(
+        unrestricted_growth(&[(HALLOWED_FOUNTAIN, &[]), (PACIFISM, &[])]),
+        "r4-library-witness",
+    )
+    .step(TurnStep::PrecombatMain)
+    .seats(3)
+    .seed(SEED)
+    .permanent_or_hand("Rampant Growth", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .library_card("Pacifism", 0)
+    .library_card("Hallowed Fountain", 0)
+    .library_card("Grizzly Bears", 0)
+    .library_card("Forest", 1)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let before = life(&g, 0);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let [forest, bears, pacifism, fountain] = [1, 3, 4, 5].map(|id| Driver::object(&g, id));
+    answer(&mut g, 0, Reason::SearchLibrary, &[pacifism, fountain]);
+    let d = next_choice(&mut g);
+    assert_eq!(d.reason, Reason::EntryAttachment);
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Object { object: bears }).unwrap(),
+    )
+    .unwrap();
+    let d = next_choice(&mut g);
+    assert_eq!(offered_entrant(&d), fountain);
+    let Frame::ResolutionChoice {
+        choice: ResolutionChoice::SearchEntry { source_block, .. },
+        ..
+    } = g.state.rules.frame.clone()
+    else {
+        panic!()
+    };
+    let swapped = ResolutionChoice::SearchEntry {
+        player: PlayerId(0),
+        found: vec![pacifism, fountain],
+        hosts: vec![(pacifism, forest)],
+        paid: vec![],
+        source_block,
+    };
+    forged_choice_rejected(&mut g, &swapped, "a Forest substituted for the Bears");
+    g.concede(PlayerId(1)).unwrap();
+    through_departure(&mut g, 1);
+    g.validate_state().unwrap();
+    entry_payment(&mut g, true);
+    settle(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 4)),
+        Some(Zone::Library { owner: PlayerId(0) })
+    );
+    let fountain = g.current(Driver::object(&g, 5)).unwrap().clone();
+    assert_eq!((fountain.zone, fountain.tapped), (Zone::Battlefield, false));
+    assert_eq!(life(&g, 0), minus(before, 2));
+    assert_eq!(shuffles(&g, 0), 1);
+}
+
+/// A search entry never waits without a question: with Zur Murdered and no
+/// creature left, and no player departed, an unanswered Pacifism entry is
+/// a forged state.
+#[test]
+fn a_search_entry_without_a_question_never_validates() {
+    let mut g = zur(true);
+    let pacifism = Driver::object(&g, 5);
+    let Frame::ResolutionChoice {
+        choice: ResolutionChoice::Search { source_block, .. },
+        ..
+    } = g.state.rules.frame.clone()
+    else {
+        panic!("{:?}", g.state.rules.frame)
+    };
+    let pause = ResolutionChoice::SearchEntry {
+        player: PlayerId(0),
+        found: vec![pacifism],
+        hosts: vec![],
+        paid: vec![],
+        source_block,
+    };
+    forged_choice_rejected(&mut g, &pause, "question-less search entry");
 }
