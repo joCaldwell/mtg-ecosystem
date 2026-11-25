@@ -1,6 +1,6 @@
 // Instruction-level binding: effects, sentences and their structured forms.
 import { isDeepStrictEqual } from "node:util";
-import type { Effect, ObjectFilter, Sentence } from "../../ast.ts";
+import type { Cost, Effect, ObjectFilter, Sentence } from "../../ast.ts";
 import { stepEventOperation } from "../step-vocabulary.ts";
 import type { BindingCardinality, BindingNode } from "../types.ts";
 import type { Analyzer } from "./analyzer.ts";
@@ -246,6 +246,190 @@ export function definitions(this: Analyzer, bindings: Sentence["bindings"], path
       definition: binding.value, rules: ["107.3c"] });
   }
 }
+const ONE = { amount: "fixed", value: 1 } as const;
+const YOU = { player: "you" } as const;
+const OPPONENTS = { player: "each-opponent" } as const;
+
+function printedResolution(path: string, context: Context): boolean {
+  return !context.barrier && !context.decider && !context.conditional && !context.previousEffect && context.phase === "resolution" &&
+    /^\/faces\/\d+\/abilities\/\d+\/effects$/.test(path) && path === `${context.lexicalAbilityPath}/effects`;
+}
+
+function actionEvent(analyzer: Analyzer, path: string, operation: string, context: Context) {
+  const event = analyzer.result.nodes.find(node => node.id === analyzer.id(path, "event"));
+  if (event?.node === "event" && event.operation === operation && event.scope === context.ability &&
+      !event.conditional && !event.repeated && !analyzer.invalidNodes.has(event.id) &&
+      !analyzer.result.diagnostics.some(diagnostic => diagnostic.path === path || diagnostic.path.startsWith(`${path}/`))) return event;
+}
+
+function singleTarget(what: unknown, filter: ObjectFilter): boolean {
+  if (!isRecord(what) || typeof what.selectionId !== "string") return false;
+  return isDeepStrictEqual(what, { ref: "target", filter, count: ONE, selectionId: what.selectionId });
+}
+
+/** CR 118.12 and 701.26a: the controller starts the printed tap cost.
+ * The continuation measures that same creature's mana value. */
+function tapCostCondition(analyzer: Analyzer, prior: Effect, sentence: Sentence, at: string, previous: string, context: Context): boolean {
+  const conditionPath = child(at, "condition");
+  const [mana] = sentence.steps;
+  if (prior.effect !== "tap" || Object.keys(prior).length !== 2 ||
+      !singleTarget(prior.what, { status: ["untapped"], types: ["creature"], control: "you" }) ||
+      !isDeepStrictEqual(sentence.condition, { condition: "you-do" }) || sentence.conditionKind !== "if" ||
+      Object.keys(sentence).length !== 3 || sentence.steps.length !== 1 ||
+      !isDeepStrictEqual(mana, { effect: "add-mana", who: YOU, mana: { mana: "scaled-symbol", symbol: "C",
+        amount: { amount: "attribute", of: { ref: "that", filter: { types: ["creature"] } }, attribute: "mana-value" } } })) return false;
+  const event = actionEvent(analyzer, previous, "tap", context);
+  const target = analyzer.at(child(previous, "what"));
+  if (!event || event.optional || !target || !analyzer.announced(target) || !isDeepStrictEqual(event.inputs, [target.id])) return false;
+  const rules = ["118.11", "118.12", "608.2c", "701.26a"];
+  analyzer.node({ id: analyzer.id(conditionPath, "event-link"), path: conditionPath, node: "event-link",
+    scope: context.ability, event: event.id, action: "tap", rules });
+  analyzer.engineFeature("action-cost-condition", conditionPath, "Check whether the controller started the mandatory tap cost.", rules);
+  return true;
+}
+
+/** CR 118.12 and 603.2c: the player who drew is the payer and the
+ * decider of the single mana-payment offer. */
+function drawOpponentPayment(analyzer: Analyzer, prior: Effect, sentence: Sentence, at: string, previous: string, context: Context): boolean {
+  const payerRef = { player: "that-player" } as const;
+  const condition = sentence.condition;
+  if (condition?.condition !== "preceding-action" ||
+      !isDeepStrictEqual(condition, { condition: "preceding-action", who: { player: "the-player" }, outcome: "not-performed" }) ||
+      sentence.conditionKind !== "if" || Object.keys(sentence).length !== 3 ||
+      prior.effect !== "pay-cost" || !plainMana(prior.costs) ||
+      !isDeepStrictEqual(prior, { effect: "pay-cost", who: payerRef, decidedBy: payerRef, optional: true, costs: prior.costs })) return false;
+  const event = actionEvent(analyzer, previous, "pay-cost", context);
+  const payer = analyzer.at(child(previous, "who"));
+  const triggerPath = `${context.lexicalAbilityPath}/trigger`;
+  const trigger = actionEvent(analyzer, triggerPath, "trigger:draws", context);
+  const actor = analyzer.result.nodes.find(node => node.id === payer?.id);
+  if (!event?.optional || !payer || payer.domain !== "player" || payer.cardinality !== "one" || payer.id !== event.decider ||
+      !isDeepStrictEqual(event.inputs, [payer.id]) || !trigger ||
+      !analyzer.result.references.some(ref => ref.path === `${triggerPath}/who` &&
+        "player" in ref.expression && ref.expression.player === "an-opponent" && ref.binding === "bound") ||
+      actor?.node !== "event-result" || actor.result !== "player" || actor.event !== trigger.id) return false;
+  analyzer.bound(condition.who, `${at}/condition/who`, payer.id, ["118.12", "603.2c", "608.2c", "608.2d"]);
+  return true;
+}
+
+function plainMana(costs: Cost[]): boolean {
+  const [cost] = costs;
+  return costs.length === 1 && cost.cost === "mana" && Object.keys(cost).length === 2 &&
+    cost.symbols.length === 1 && /^[1-9]\d*$/.test(cost.symbols[0]);
+}
+
+/** CR 101.4, 118.12a, and 608.2e–f: a payment and the conditional
+ * sacrifice belong to the same opponent in the iteration. */
+function opponentManaOrSacrifice(analyzer: Analyzer, sentence: Sentence, path: string, context: Context): boolean {
+  const [sacrifice] = sentence.steps;
+  const condition = sentence.condition;
+  if (Object.keys(sentence).length !== 3 || sentence.conditionKind !== "unless" || sentence.steps.length !== 1 ||
+      sacrifice.effect !== "sacrifice" || !sacrifice.chosenBy || !isDeepStrictEqual(sacrifice, {
+        effect: "sacrifice", who: OPPONENTS, chosenBy: OPPONENTS, what: { ref: "filter", filter: { cls: "permanent" }, count: ONE },
+      }) || condition?.condition !== "pays" || !plainMana(condition.cost) ||
+      !isDeepStrictEqual(condition, { condition: "pays", who: { player: "they" }, cost: condition.cost })) return false;
+  const entry = actionEvent(analyzer, `${context.lexicalAbilityPath}/trigger`, "trigger:enters", context);
+  if (!entry || !isDeepStrictEqual(entry.inputs, [context.source])) return false;
+
+  const step = `${path}/steps/0`;
+  const group = analyzer.player(sacrifice.who, child(step, "who"), context);
+  if (!group) return false;
+  const at = child(path, "condition");
+  const rules = ["101.4", "118.12a", "608.2e", "608.2f", "701.21a"];
+  const id = analyzer.node({ id: analyzer.id(at, "paying-opponent"), path: at, node: "instruction-member",
+    scope: context.ability, group: group.id, domain: "player", rules });
+  const member: Candidate = { id, cardinality: "one", domain: "player" };
+  analyzer.walk(condition, at, { ...context, actor: member });
+
+  analyzer.event(at, context, "pay-cost", [member], { optional: true, decider: id });
+  const decline = analyzer.node({ id: analyzer.id(at, "decision-link"), path: at, node: "decision-link",
+    scope: context.ability, condition: "you-dont", decision: at, rules });
+  analyzer.bound(sacrifice.chosenBy, child(step, "chosenBy"), id, rules);
+  const objectPath = child(step, "what");
+  const permanent = analyzer.node({ id: analyzer.id(objectPath, "query"), path: objectPath, node: "selection",
+    scope: context.ability, expression: sacrifice.what, cardinality: "one", chooser: id, perMember: id,
+    timing: "resolution", selection: "evaluate-reference", rules });
+  const choice = analyzer.bound(sacrifice.what, objectPath, permanent, rules);
+  analyzer.event(step, context, "sacrifice", [member, choice], { conditional: true, condition: decline });
+  analyzer.engineFeature("multiplayer-choice", at,
+    "Offer the printed payment in APNAP order and have each nonpayer choose and sacrifice one permanent they control.", rules);
+  return true;
+}
+
+/** CR 601.2c and 608.2c: the fight refers to the already announced target.
+ * The legendary check governs only the counter (Dominaria release notes).
+ * https://magic.wizards.com/en/news/feature/dominaria-release-notes */
+function independentFight(analyzer: Analyzer, sentence: Sentence, prior: Sentence, previous: string, context: Context): boolean {
+  const [counter] = prior.steps;
+  const [fight] = sentence.steps;
+  if (!context.spellAbility || Object.keys(prior).length !== 4 || prior.conditionKind !== "if" || prior.conditionPosition !== "after" ||
+      !isDeepStrictEqual(prior.condition, { condition: "is-filter", what: { ref: "it" }, filter: { supertypes: ["legendary"] } }) ||
+      prior.steps.length !== 1 || counter.effect !== "put-counters" ||
+      !singleTarget(counter.on, { types: ["creature"], control: "you" }) ||
+      !isDeepStrictEqual(counter, { effect: "put-counters", on: counter.on, counter: { type: "+1/+1" }, count: ONE }) ||
+      Object.keys(sentence).length !== 2 || sentence.steps.length !== 1 || fight.effect !== "fight" ||
+      !singleTarget(fight.b, { types: ["creature"], control: "opponent" }) ||
+      !isDeepStrictEqual(fight, { effect: "fight", a: { ref: "it" }, b: fight.b })) return false;
+  const subject = analyzer.at(`${previous}/steps/0/on`);
+  return !!subject && analyzer.announced(subject) && analyzer.at(`${previous}/condition/what`)?.id === subject.id;
+}
+
+/** CR 608.2c and 701.23: the searched library and the destination
+ * graveyard identify the target player who performs the shuffle. */
+function bindSearchShuffle(analyzer: Analyzer, sentence: Sentence, at: string, prior: Sentence, previous: string, context: Context): boolean {
+  const [search, move] = prior.steps;
+  const player = { player: "the-player" } as const;
+  if (!context.spellAbility || Object.keys(prior).length !== 1 || prior.steps.length !== 2 ||
+      search.effect !== "search" || move.effect !== "move-zone" || Object.keys(sentence).length !== 1 ||
+      !isDeepStrictEqual(sentence.steps, [{ effect: "shuffle", who: player, library: { zone: "library", owner: player } }]) ||
+      !isDeepStrictEqual(move, { effect: "move-zone", what: { ref: "them" }, to: { zone: "graveyard", owner: "that-player" } })) return false;
+  const owner = search.zones.of[0]?.owner;
+  if (typeof owner !== "object" || owner.player !== "target-player" || typeof owner.selectionId !== "string" ||
+      !isDeepStrictEqual(search, { effect: "search", who: YOU,
+        zones: { selection: "all", of: [{ zone: "library", owner: { player: "target-player", selectionId: owner.selectionId } }] },
+        for: { ref: "filter", filter: { cls: "card", withAbility: ["flashback"] },
+          count: { amount: "fixed", value: 3 }, upTo: true } })) return false;
+  const candidate = analyzer.at(`${previous}/steps/0/zones/of/0/owner`);
+  if (candidate?.cardinality !== "one" || !analyzer.announced(candidate) ||
+      analyzer.at(`${previous}/steps/1/to/owner`)?.id !== candidate.id ||
+      !actionEvent(analyzer, `${previous}/steps/0`, "search", context) ||
+      !actionEvent(analyzer, `${previous}/steps/1`, "move-zone", context)) return false;
+  const shuffle = `${at}/steps/0`;
+  const rules = ["601.2c", "608.2c", "701.23"];
+  analyzer.bound(player, child(shuffle, "who"), candidate.id, rules);
+  analyzer.bound(player, `${shuffle}/library/owner`, candidate.id, rules);
+  analyzer.event(shuffle, context, "shuffle", [candidate]);
+  context.previousEffect = shuffle;
+  return true;
+}
+
+/** CR 603.12: a reflexive ability watches the actual sacrifice by the
+ * controller of the entry trigger, in the resolution that created it. */
+function reflexiveSacrifice(analyzer: Analyzer, prior: Effect, sentence: Sentence, at: string, previous: string, context: Context): boolean {
+  const [trigger] = sentence.steps;
+  if (!isDeepStrictEqual(prior, { effect: "sacrifice", who: YOU, what: { ref: "it" } }) ||
+      Object.keys(sentence).length !== 1 || sentence.steps.length !== 1 || trigger.effect !== "create-reflexive-trigger" ||
+      Object.keys(trigger).length !== 3 || trigger.event.event !== "preceding-action" ||
+      !isDeepStrictEqual(trigger.event, { event: "preceding-action", who: YOU, performed: true })) return false;
+  const entry = actionEvent(analyzer, `${context.lexicalAbilityPath}/trigger`, "trigger:enters", context);
+  const action = actionEvent(analyzer, previous, "sacrifice", context);
+  const subject = analyzer.at(child(previous, "what"));
+  if (!entry || !isDeepStrictEqual(entry.inputs, [context.source]) || !action || action.optional || !subject ||
+      !analyzer.sourceAliases.has(subject.id) || !isDeepStrictEqual(action.inputs, [subject.id, context.you])) return false;
+  const entered = analyzer.result.nodes.find(node => node.id === subject.id);
+  if (entered?.node !== "event-result" || entered.event !== entry.id || entered.result !== "objects") return false;
+
+  const path = `${at}/steps/0`;
+  const event = child(path, "event");
+  const rules = ["603.12", "608.2c", "701.21a"];
+  analyzer.walk(trigger.event.who, child(event, "who"), context);
+  analyzer.node({ id: analyzer.id(event, "event-link"), path: event, node: "event-link",
+    scope: context.ability, event: action.id, action: "sacrifice", rules });
+  const reflexive = analyzer.nestedAbility(path, context, "reflexive-triggered", ["603.12"]);
+  analyzer.sentences(trigger.effects, child(path, "effects"), reflexive);
+  return true;
+}
+
 export function sentences(this: Analyzer, sentences: Sentence[], path: string, context: Context): void {
   if (!context.barrier && !context.previousEffect && !context.decider && !context.conditional && context.phase === "resolution" &&
       (this.copyThenReturnOriginal(sentences, path, context) || this.copyAndReselect(sentences, path, context) ||
@@ -254,6 +438,7 @@ export function sentences(this: Analyzer, sentences: Sentence[], path: string, c
         this.pairedHandExiles(sentences, path, context) || this.matchingSacrifice(sentences, path, context) ||
         this.fightCreatedTokens(sentences, path, context) || this.searchesForExiledCreatures(sentences, path, context) ||
         this.searchesForOpponentOffers(sentences, path, context) || this.scansWithOneExcludedCard(sentences, path, context))) return;
+  const topLevel = printedResolution(path, context);
   let previousDecisions: string[] = [];
   let precedingAction: { event: string; action: "sacrifice" | "discard" } | undefined;
   let precedingSentence: Context["precedingSentence"];
@@ -265,6 +450,13 @@ export function sentences(this: Analyzer, sentences: Sentence[], path: string, c
     context.decisions = decisions;
     context.previousDecisions = previousDecisions;
     this.definitions(sentence.bindings, child(at, "bindings"), context);
+    const pair = topLevel && index === 1 && sentences.length === 2;
+    const prior = pair ? sentences[0] : undefined;
+    const priorPath = child(path, 0);
+    const priorActionPath = `${priorPath}/steps/0`;
+    const priorAction = prior?.steps.length === 1 && Object.keys(prior).length === 1 ? prior.steps[0] : undefined;
+    if ((topLevel && sentences.length === 1 && opponentManaOrSacrifice(this, sentence, at, context)) ||
+        (priorAction && reflexiveSacrifice(this, priorAction, sentence, at, priorActionPath, context))) return;
     if (this.opponentDiscardOrLife(sentence, at, context) || this.replacedSearchPartition(sentence, at, context)) {
       context.previousEffect = undefined;
       previousDecisions = [];
@@ -279,14 +471,16 @@ export function sentences(this: Analyzer, sentences: Sentence[], path: string, c
     const decisionEvent = decisionPath ? this.result.nodes.find(node => node.id === this.id(decisionPath, "event")) : undefined;
     const previousPayment = condition?.condition === "preceding-action" && condition.outcome === "not-performed" &&
       condition.who.player === "they" ? decisionEvent : undefined;
-    const paymentCondition = previousPayment?.node === "event" && previousPayment.operation === "pay-cost" &&
+    const paymentCondition = (previousPayment?.node === "event" && previousPayment.operation === "pay-cost" &&
       previousPayment.optional && previousPayment.scope === context.ability && previousPayment.decider &&
-      this.player({ player: "they" }, `${at}/condition/who`, context)?.id === previousPayment.decider;
+      this.player({ player: "they" }, `${at}/condition/who`, context)?.id === previousPayment.decider) ||
+      (priorAction && decisionPath === priorActionPath && drawOpponentPayment(this, priorAction, sentence, at, priorActionPath, context));
     const yourDecision = decisionEvent?.node !== "event" || decisionEvent.decider === context.you;
     const linked = condition && (paymentCondition ||
       (yourDecision && (condition.condition === "you-do" || condition.condition === "you-dont"))) ? decisionPath : undefined;
     const declines = condition?.condition === "you-dont" || paymentCondition;
     const paid = !linked && condition?.condition === "you-do" ? precedingAction : undefined;
+    const tapCost = !linked && priorAction && tapCostCondition(this, priorAction, sentence, at, priorActionPath, context);
     if (paid) {
       const atCondition = child(at, "condition");
       const rules = ["118.11", "118.12", "608.2c", paid.action === "sacrifice" ? "701.21a" : "701.9a"];
@@ -309,8 +503,8 @@ export function sentences(this: Analyzer, sentences: Sentence[], path: string, c
       ? context.explicitExiledCast : undefined;
     if (!trailing && !paymentCondition) this.walk(condition, child(at, "condition"), suspended
       ? { ...context, boundOperand: { path: `${at}/condition/of/what`, candidate: suspended.result, rules: ["400.7j", "608.2c", "702.62"] } }
-      : linked || paid ? { ...context, linkedDecision: true } : context);
-    if (sentence.afterConditional &&
+      : linked || paid || tapCost ? { ...context, linkedDecision: true } : context);
+    if (sentence.afterConditional && !(prior && independentFight(this, sentence, prior, priorPath, context)) &&
         !this.independentRevealRemainder(sentence, sentences[index - 1], child(path, index - 1), context))
       this.diagnostic("unsupported-scope", at, "This sentence refers back to a conditional sentence; whether that condition governs it is not decided.", ["608.2c"]);
     if (condition || sentence.otherwise || sentence.afterConditional) {
@@ -386,7 +580,7 @@ export function sentences(this: Analyzer, sentences: Sentence[], path: string, c
       this.blockBranchCaptures(context, branches);
       context.sourceMoved = context.sourceMoved || branches.some(branch => branch.sourceMoved);
       context.mentionedObject = context.mentionedObject || branches.some(branch => branch.mentionedObject);
-    } else {
+    } else if (!prior || !bindSearchShuffle(this, sentence, at, prior, priorPath, context)) {
       for (const [stepIndex, effect] of sentence.steps.entries())
         this.effect(effect, child(child(at, "steps"), stepIndex), context);
     }
