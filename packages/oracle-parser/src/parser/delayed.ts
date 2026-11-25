@@ -124,8 +124,13 @@ function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: b
   // "exiled this way" / "the exiled cards" an exile, "those cards" / "the
   // rest" a look, and a singular "that card" a chosen or found card.
   const exilers = bodyExilers(body);
-  const looked = hasOwnNode(body, node => node.effect === "look-at");
-  const chosen = hasOwnNode(body, node => node.effect === "scan-library" || (node.effect === "choose-object" && isCardRef(node.what)));
+  // Not accepted as producers: a look (its only witness, Devourer of
+  // Destiny, sits under a "your first upkeep" header that is tied to your
+  // first turn although CR 500.11 skips to the first upkeep that occurs),
+  // and the card a library scan finds (Codie, Vociferous Codex: the exported
+  // resolution would name the whole exile pool for that one card).
+  const looked = false;
+  const chosen = hasOwnNode(body, node => node.effect === "choose-object" && isCardRef(node.what));
   const cardAnaphor = (node: Record<string, unknown>): boolean => {
     const kind = cardAnaphorKind(node);
     if (kind !== "exiled") return kind === "looked" ? looked : kind === "chosen" ? chosen : false;

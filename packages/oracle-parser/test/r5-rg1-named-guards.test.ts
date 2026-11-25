@@ -78,15 +78,13 @@ describe("GG-delay: a created ability owns sentences that name objects only its 
     assert.deepEqual(delayed.effects.map(sentence => sentence.steps[0].effect), ["exile", "play-card"]);
   });
 
-  it("keeps the remaining library cards inside the delayed body (Devourer of Destiny, Codie)", () => {
-    const devourer = card("You may reveal this card from your opening hand. If you do, at the beginning of your first upkeep, look at the top four cards of your library. You may put one of those cards back on top of your library. Exile the rest.\nWhen you cast this spell, exile target permanent that's one or more colors.", "Devourer of Destiny", "Creature — Eldrazi");
-    assert.ok(JSON.stringify(devourer[0]).includes('"steps":[{"effect":"exile","what":{"ref":"rest"}}]'));
-    const codie = card("You can't cast permanent spells.\n{4}, {T}: Add {W}{U}{B}{R}{G}. When you next cast a spell this turn, exile cards from the top of your library until you exile an instant or sorcery card with lesser mana value. Until end of turn, you may cast that card without paying its mana cost. Put each other card exiled this way on the bottom of your library in a random order.", "Codie, Vociferous Codex", "Legendary Artifact Creature — Book Construct");
-    const delayed = JSON.stringify(codie[1]);
-    assert.ok(delayed.includes('"create-delayed-trigger"'));
-    const body = (codie[1] as { effects?: Sentence[] }).effects?.flatMap(sentence => sentence.steps).find(step => step.effect === "create-delayed-trigger");
-    assert.ok(body?.effect === "create-delayed-trigger");
-    assert.deepEqual(body.effects.map(sentence => sentence.steps[0].effect), ["scan-library", "grant-play-permission", "move-zone"]);
+  it("keeps two delayed bodies unsupported whose meaning the archive cannot state (Devourer of Destiny, Codie)", () => {
+    // "your first upkeep" is the first upkeep that occurs (CR 500.11), not
+    // the upkeep of your first turn; the look/rest continuation stays rejected.
+    rejects("You may reveal this card from your opening hand. If you do, at the beginning of your first upkeep, look at the top four cards of your library. You may put one of those cards back on top of your library. Exile the rest.", "Creature — Eldrazi", "Devourer of Destiny");
+    // "that card" is the one card the scan found; the exported resolution
+    // would name the whole exile pool, so the continuation stays rejected.
+    rejects("{4}, {T}: Add {W}{U}{B}{R}{G}. When you next cast a spell this turn, exile cards from the top of your library until you exile an instant or sorcery card with lesser mana value. Until end of turn, you may cast that card without paying its mana cost. Put each other card exiled this way on the bottom of your library in a random order.", "Legendary Artifact Creature — Book Construct", "Codie, Vociferous Codex");
   });
 
   it("still rejects a fresh target, a following condition, or an intervening condition", () => {
