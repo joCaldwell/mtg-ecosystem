@@ -319,7 +319,7 @@ export function walk(this: Analyzer, value: unknown, path: string, context: Cont
   if ((value.condition === "you-do" || value.condition === "you-dont") && !context.linkedDecision) {
     this.diagnostic("unsupported-reference", path, "Payment/performance conditions need an explicit preceding-action link.", ["118.12"]);
   }
-  if (value.condition === "searched-zone")
+  if (value.condition === "searched-zone" && !this.searchedZoneLink(value, path, context))
     this.diagnostic("unsupported-reference", path, "This condition needs the specific search event, including a search that found no cards.", ["701.23b", "701.23d"]);
   if (value.condition === "put-action-history") {
     const barrier = "The named movement outcome needs its exact preceding instruction, actor, historical object incarnation, and actual destination; attempting an action or choosing to pay is insufficient.";
@@ -328,7 +328,7 @@ export function walk(this: Analyzer, value: unknown, path: string, context: Cont
     return;
   }
   if (value.effect === "search" && isRecord(value.zones) &&
-      (value.zones.selection !== "all" || Array.isArray(value.zones.of) && value.zones.of.length > 1))
+      (value.zones.selection !== "all" || Array.isArray(value.zones.of) && value.zones.of.length > 1) && !this.ownZonesSearch(value, context))
     this.diagnostic("unsupported-scope", path, "Zone choices and found-card selection across multiple searched zones need one search-event scope.", ["701.23"]);
   if (value.condition === "pays") {
     // CR 118.12a: "unless [player] pays": that player pays, not the

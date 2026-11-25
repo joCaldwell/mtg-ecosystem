@@ -95,12 +95,20 @@ describe('search scope and conditional search history', () => {
     for (const clause of ['you found a card this way', 'you searched your library last turn', 'you search the top of your library this way'])
       assert.equal(parseOracleText(`If ${clause}, shuffle.`).ok, false, clause);
   });
-  it('leaves the precise search-event and multi-zone binding obligations visible', () => {
-    const result = parseOracleText('Search your library and/or graveyard for a card. If you search your library this way, shuffle.', 'Search test');
-    assert.ok(result.ok);
-    const binding = analyzeCardBindings({ identity: 'search-test', source: { name: 'Search test', layout: 'normal', type_line: 'Sorcery', mana_cost: '{G}' }, faces: [{ sourceFaceIndex: 0, result }] });
-    assert.equal(binding.fullyBound, false);
-    assert.ok(binding.diagnostics.some(d => d.code === 'unsupported-scope'));
-    assert.ok(binding.diagnostics.some(d => d.code === 'unsupported-reference'));
+  it('binds one search of your own zones and links the searched-zone condition to that search event', () => {
+    const bind = (text: string) => {
+      const result = parseOracleText(text, 'Search test');
+      assert.ok(result.ok, text);
+      return analyzeCardBindings({ identity: 'search-test', source: { name: 'Search test', layout: 'normal', type_line: 'Sorcery', mana_cost: '{G}' }, faces: [{ sourceFaceIndex: 0, result }] });
+    };
+    const binding = bind('Search your library and/or graveyard for a card. If you search your library this way, shuffle.');
+    assert.deepEqual(binding.diagnostics, []);
+    assert.ok(binding.nodes.some(node => node.node === 'event-link' && node.action === 'search' && node.event.endsWith('/effects/0/steps/0#event')));
+    // Another player's zones keep the multi-zone search obligation visible.
+    const theirs = bind("Search target opponent's graveyard and library for a card and exile it.");
+    assert.ok(theirs.diagnostics.some(d => d.code === 'unsupported-scope' && d.path.endsWith('/effects/0/steps/0')));
+    // With no search in the preceding sentence the condition has no event.
+    const unlinked = bind('Draw a card. If you search your library this way, shuffle.');
+    assert.ok(unlinked.diagnostics.some(d => d.code === 'unsupported-reference' && d.path.endsWith('/effects/1/condition')));
   });
 });
