@@ -61,6 +61,9 @@ export class Analyzer {
     "copiedCards" | "linkedCopies" | "uncertainCardCopyOrigin" | "measuredEvents" | "uncertainMeasureOrigin" | "precedingSentence">>();
   /** Each face's card types, as the source's established description. */
   readonly faceTypes = new Map<string, ObjectFilter>();
+  /** Each face ability's printed AST by its path ("/faces/0/abilities/1"),
+   * for checks that walk printed instructions by path. */
+  readonly abilityAsts = new Map<string, unknown>();
   /** The latest choice from a pool in each ability, for "the rest". */
   readonly poolSelections = new Map<string, { pool: Candidate; selected: Candidate; path: string }>();
   /** Kicker abilities printed on each face, with their costs (CR 702.33e). */
@@ -135,6 +138,8 @@ export class Analyzer {
           : node.node === "eligible-target-group" ? this.invalidNodes.has(node.template)
           : node.node === "filtered-result-group" ? this.invalidNodes.has(node.pool)
           : node.node === "result-union" ? node.from.some(id => this.invalidNodes.has(id))
+          // "The rest" is no better established than its pool or the pick it excludes.
+          : node.node === "remainder" ? this.invalidNodes.has(node.pool) || this.invalidNodes.has(node.excluding)
           : node.node === "destroyed-permanents" ? this.invalidNodes.has(node.event)
           : node.node === "derived-player" ? this.invalidNodes.has(node.of)
           : node.node === "selection" || node.node === "defined-number"
@@ -145,6 +150,10 @@ export class Analyzer {
         if (dependent && !this.invalidNodes.has(node.id)) { this.invalidNodes.set(node.id, "unresolved-dependency"); changed = true; }
       }
     }
+    // A remainder that is not established needs no declined-choice handling.
+    const unestablished = new Set(this.result.nodes.flatMap(node => node.node === "remainder" && this.invalidNodes.has(node.id) ? [node.path] : []));
+    this.result.engineFeatures = this.result.engineFeatures.filter(need =>
+      !(need.feature === "optional-look-remainder" && (unestablished.has(need.path) || unestablished.has(`${need.path}/what`))));
     this.result.references = this.result.references.map((reference): ReferenceBinding => {
       if (reference.binding !== "bound" || !this.invalidNodes.has(reference.target)) return reference;
       const code = this.invalidNodes.get(reference.target) ?? "unresolved-dependency";

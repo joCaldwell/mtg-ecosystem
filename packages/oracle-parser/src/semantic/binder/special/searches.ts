@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { Effect, ObjectRef, Sentence } from "../../../ast.ts";
 import type { Analyzer } from "../analyzer.ts";
 import { child, combine, objectCardinality, type Candidate, type Context } from "../context.ts";
+import { isRecord } from "../predicates.ts";
 
 export function controllerSearch(this: Analyzer, effect: Extract<Effect, { effect: "optional-group" }>, path: string, context: Context,
   precedingEffect?: string): boolean {
@@ -339,4 +340,40 @@ export function graveyardReturnScope(this: Analyzer, effect: Effect, path: strin
   this.engineFeature("event-history", filterPath,
     "Exclude only the initial graveyard successor of the matched trigger event and use its departed permanent for any last-known comparison.", rules);
   return { ...context, graveyardExclusion: { filterPath, view } };
+}
+
+/** "Search your library and/or graveyard for …": one search instruction by
+ * the ability's controller over distinct zones they own. The zone choice and
+ * the single found-card selection belong to that one search event (CR
+ * 701.23a, 701.23b), as for a library-only search. Another player's zones,
+ * a repeated or delegated search and duplicated zones stay unsupported. */
+export function ownZonesSearch(this: Analyzer, effect: Record<string, unknown>, context: Context): boolean {
+  if (context.barrier || context.phase !== "resolution" || effect.decidedBy || effect.forEach || effect.forEachVote ||
+      !isDeepStrictEqual(effect.who, { player: "you" }) || !isRecord(effect.zones) || !Array.isArray(effect.zones.of)) return false;
+  const { selection, of } = effect.zones;
+  if (selection !== "one" && selection !== "one-or-more" && selection !== "all") return false;
+  const zones = of.map(zone => isRecord(zone) && Object.keys(zone).length === 2 && zone.owner === "your" ? zone.zone : undefined);
+  return zones.length > 1 && new Set(zones).size === zones.length &&
+    zones.every(zone => zone === "library" || zone === "graveyard" || zone === "hand");
+}
+
+/** "If you search your library this way": the one search instruction of the
+ * preceding sentence, the only search of this ability, made by the same
+ * player over a set of zones that includes the named one (CR 608.2c,
+ * 701.23). Whether that zone was searched is a fact of that event,
+ * including a search that found nothing. */
+export function searchedZoneLink(this: Analyzer, condition: Record<string, unknown>, path: string, context: Context): boolean {
+  const previous = context.precedingSentence;
+  if (context.barrier || condition.scope !== "this-way" || !previous || !isRecord(condition.zone)) return false;
+  const searches = previous.steps.flatMap((step, index) => step.effect === "search" ? [{ step, at: `${previous.path}/steps/${index}` }]
+    : step.effect === "optional-group" ? step.steps.flatMap((inner, nested) =>
+      inner.effect === "search" ? [{ step: inner, at: `${previous.path}/steps/${index}/steps/${nested}` }] : []) : []);
+  const events = this.result.nodes.filter(node => node.node === "event" && node.operation === "search" && node.scope === context.ability);
+  if (searches.length !== 1 || events.length !== 1 || events[0].path !== searches[0].at) return false;
+  const [{ step }] = searches;
+  if (step.effect !== "search" || !isDeepStrictEqual(condition.who, step.who) || !isDeepStrictEqual(condition.who, { player: "you" }) ||
+      !step.zones.of.some(zone => isDeepStrictEqual(zone, condition.zone))) return false;
+  const rules = ["608.2c", "701.23a"];
+  this.node({ id: this.id(path, "event-link"), path, node: "event-link", scope: context.ability, action: "search", event: events[0].id, rules });
+  return true;
 }
