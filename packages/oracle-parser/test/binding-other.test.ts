@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import { describe, it } from "node:test";
 import { parseOracleText } from "../src/index.ts";
 import { analyzeCardBindings } from "../src/semantic/bindings.ts";
@@ -43,7 +44,7 @@ describe("other/another exclusions", () => {
     assert.equal(resolution.complete, true);
   });
 
-  it("excludes Junk Diver's initial graveyard incarnation", () => {
+  it("binds Junk Diver's graveyard successor but exports it as a residual", () => {
     const { graph, resolution } = analyze("Flying\nWhen this creature dies, return another target artifact card from your graveyard to your hand.",
       "Artifact Creature — Bird", "Junk Diver");
     const exclusion = graph.references.find(ref => ref.path.endsWith("/other"));
@@ -51,10 +52,16 @@ describe("other/another exclusions", () => {
     const node = graph.nodes.find(node => node.id === exclusion.target);
     assert.ok(node?.node === "event-result" && node.identity === "zone-successors" && node.cardinality === "one");
     assert.equal(node.id, "card:fixture/faces/0/abilities/1/trigger#successor");
+    // The export has no reference for the successor distinct from the dying
+    // object (Goblin Arsonist's "it"), so the exclusion stays a residual.
     assert.deepEqual(resolution.faces[0].blocks?.[1].refs.find(ref => ref.path.endsWith("/other")), {
-      path: "/effects/0/steps/0/what/filter/other", ref: { ref: "event-object", role: "dies" },
+      path: "/effects/0/steps/0/what/filter/other", unresolved: "event-result:successor-exclusion",
     });
-    assert.equal(resolution.complete, true);
+    assert.ok(resolution.faces[0].blocks?.[1].residuals.includes("ref:event-result:successor-exclusion"));
+    assert.equal(resolution.complete, false);
+    const { resolution: arsonist } = analyze("When this creature dies, you may have it deal 1 damage to any target.",
+      "Creature — Goblin Shaman", "Goblin Arsonist");
+    assert.ok(arsonist.faces[0].blocks?.[0].refs.some(ref => "ref" in ref && isDeepStrictEqual(ref.ref, { ref: "event-object", role: "dies" })));
   });
 
   it("excludes Shadow Stinger from its tap payment", () => {
@@ -80,6 +87,24 @@ describe("other/another exclusions", () => {
       });
       assert.equal(resolution.complete, true, name);
     }
+  });
+
+  it("keeps Fate Transfer's exclusion unresolved for an untargeted or grouped counter source", () => {
+    for (const from of ["a creature you control", "two target creatures"])
+      assertUnresolved(`Move all counters from ${from} onto another target creature.`, "Instant",
+        "/faces/0/abilities/0/effects/0/steps/0/to/filter/other");
+  });
+
+  it("excludes Xavier Sal from its single-counter payment, but not after an earlier object payment", () => {
+    const { resolution } = analyze(
+      "{T}, Remove a counter from another permanent you control: Populate. Activate only as a sorcery. (Create a token that's a copy of a creature token you control.)\n{T}, Sacrifice another creature: Proliferate. Activate only as a sorcery. (Choose any number of permanents and/or players, then give each another counter of each kind already there.)",
+      "Legendary Creature — Human Fungus Pirate", "Xavier Sal, Infested Captain");
+    assert.deepEqual(resolution.faces[0].blocks?.[0].refs.find(ref => ref.path.endsWith("/other")), {
+      path: "/costs/1/from/filter/other", ref: { ref: "source" },
+    });
+    assert.equal(resolution.complete, true);
+    assertUnresolved("{T}, Sacrifice a creature, Remove a counter from another permanent you control: Populate. Activate only as a sorcery.",
+      "Legendary Creature — Human Fungus Pirate", "/faces/0/abilities/0/costs/2/from/filter/other");
   });
 
   it("excludes the source from graveyard exile and distributed counter payments", () => {

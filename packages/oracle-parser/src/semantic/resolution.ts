@@ -317,6 +317,12 @@ function resolveBlock(root: string, ability: unknown, line: ParsedLine | undefin
       }
       case "event-result": {
         const trigger = eventRole(node.event);
+        // CR 400.7, 603.6c: an other/another exclusion of the trigger's
+        // zone successor (Junk Diver's graveyard card) must not be confused
+        // with the event's original object, which `event-object` names. No
+        // ResolvedRef member names that successor, so it stays a residual.
+        if (trigger && node.identity === "zone-successors" && at.endsWith("/filter/other"))
+          return { unresolved: `${name}:successor-exclusion` };
         if (trigger && node.result === "objects") return { ref: { ref: "event-object", role: trigger.role } };
         if (trigger && node.result === "player")
           return { ref: { ref: "event-player", role: KERNEL_EVENT_PLAYERS.get(trigger.role) ?? trigger.role } };
