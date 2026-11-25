@@ -701,8 +701,8 @@ fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), Strin
     {
         return Err("invalid identity, characteristics, or capability closure".into());
     }
-    if let Some(labels) = &d.source_labels {
-        if source["oracle_text"].as_str() != Some(labels.text.as_str())
+    if let Some(labels) = &d.source_labels
+        && (source["oracle_text"].as_str() != Some(labels.text.as_str())
             || labels.blocks.iter().any(|s| s.is_empty())
             || labels
                 .activated
@@ -720,10 +720,9 @@ fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), Strin
                 .chain(d.triggered.iter().map(|a| &a.program))
                 .flat_map(|program| &program.instructions)
                 .any(|instruction| instruction.source_block() as usize >= labels.blocks.len())
-            || !labels.spell_modes.is_empty()
-        {
-            return Err("invalid source label provenance".into());
-        }
+            || !labels.spell_modes.is_empty())
+    {
+        return Err("invalid source label provenance".into());
     }
     surfaces(d)
 }
