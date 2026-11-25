@@ -445,4 +445,65 @@ mod tests {
             Step::Answer(_)
         ));
     }
+    /// CR 701.23b, 701.22a: a search with a stated quality may find nothing
+    /// (the stop pointer is offered first), and an order of the cards going
+    /// back on top must name each of them once before it stops.
+    #[test]
+    fn library_choices_offer_fail_to_find_and_complete_orders() {
+        let objects = |n: usize| {
+            (0..n)
+                .map(|i| Candidate::Object {
+                    object: ObjectHandle(format!("v0-o{i}")),
+                })
+                .collect::<Vec<_>>()
+        };
+        let search = Decision {
+            id: DecisionToken("search".into()),
+            player: PlayerId(0),
+            reason: Reason::SearchLibrary,
+            candidates: objects(2),
+            shape: Shape::Pick {
+                slots: vec![Slot {
+                    role: SlotRole::Choice,
+                    subject: None,
+                    allowed: vec![0, 1],
+                    min: 0,
+                    max: 1,
+                    repeat: false,
+                }],
+                rules: vec![],
+            },
+        };
+        let Step::Choose(c) = Composer::compose(&search, &[], None).unwrap() else {
+            panic!("expected mask")
+        };
+        assert_eq!((c.pointer[0], c.pointer[1], c.pointer[STOP]), (1, 1, 1));
+        assert!(matches!(
+            Composer::compose(&search, &[STOP], None).unwrap(),
+            Step::Answer(Answer::Pick { picks }) if picks == vec![Vec::<u32>::new()]
+        ));
+        assert!(matches!(
+            Composer::compose(&search, &[1], None).unwrap(),
+            Step::Answer(Answer::Pick { picks }) if picks == vec![vec![1]]
+        ));
+        let order = Decision {
+            id: DecisionToken("order".into()),
+            player: PlayerId(0),
+            reason: Reason::OrderLibraryTop,
+            candidates: objects(2),
+            shape: Shape::Order {
+                items: vec![0, 1],
+                min: 2,
+                max: 2,
+            },
+        };
+        let Step::Choose(c) = Composer::compose(&order, &[1], None).unwrap() else {
+            panic!("expected mask")
+        };
+        assert_eq!((c.pointer[0], c.pointer[1], c.pointer[STOP]), (1, 0, 0));
+        assert!(matches!(
+            Composer::compose(&order, &[1, 0], None).unwrap(),
+            Step::Answer(Answer::Order { order }) if order == vec![1, 0]
+        ));
+    }
 }

@@ -37,7 +37,9 @@ ChaCha20 stream keyed by the match seed. High bytes encode domain (1 library
 shuffle, 2 affected-seat effect, 3 reserved table) and owning seat (zero for
 table). The low 48 bits encode that domain and seat's event ordinal. Opening
 shuffles, mulligans and resolving shuffles use the same library counter.
-Rejection sampling consumes one word per rule step. A paired substitution
+Opening rejection sampling consumes one word per rule step; a resolving
+shuffle is one event drawing its Fisher-Yates words from its own stream. A
+private board shuffles only with a scenario seed; otherwise a shuffle faults. A paired substitution
 occupies the removed copy's physical slot while admission checks sorted rows.
 
 The v2 trace chain hashes compact typed JSON in deterministic field order.
@@ -139,10 +141,14 @@ commander completes once and preserves the next card. Commander-return decisions
 resumable continuations, never priority windows; drain concessions and
 revalidate owner choices before exposing queries.
 
-Library manipulation is private to its chooser and replay-proven. Scry, Surveil
-(CR 701.22, 701.25), mill (CR 701.17), library selection (not drawing, CR 121.5)
-and top-ordering partition the available prefix, clamp short libraries and emit
-nothing for zero. Optional shuffles consume no randomness when declined. Counted
+Library manipulation is private to its chooser and replay-proven. While a
+search, scry or surveil choice waits, only its chooser sees the offered library
+cards; no other seat learns an identity, count or order. Scry picks the bottom
+cards, then orders the top and bottom groups; surveil picks the graveyard cards,
+then orders the rest (CR 701.22a, 701.25a). Each asks only for orders of two or
+more cards and commits one atomic event; positions other seats remembered in
+that library are forgotten. Scry, surveil and mill (CR 701.17) clamp short
+libraries and emit nothing for zero. Optional shuffles consume no randomness when declined. Counted
 draws make sequential unclamped attempts; each-player draws finish each seat in
 turn order. Discards clamp to hand size, group choices stay private until one
 simultaneous discard, and random discard samples without replacement. Library-top
@@ -341,8 +347,13 @@ Forbidding regeneration stays limited to the nonland-permanent wave. Counts use 
 excluding prevented destruction. Turn-long exile replacement covers only
 creatures actually dealt its damage, so exile causes no death. Indestructible
 prevents destruction before replacement; generic departures never imply dies
-triggers. Typed land search may find zero (CR 701.23b); found lands enter
-simultaneously without reveal, then the library shuffles.
+triggers. A search offers the searcher's library cards with the printed
+qualities, sorted so no position leaks. With a quality it may find none (CR
+701.23b); "a card" must find as many as it can (CR 701.23d). Found cards move
+together, onto the battlefield (optionally tapped, CR 614.1c) under the
+searcher's control or into the owner's hand or graveyard. A revealed card in
+hand stays known to every seat while it remains there (CR 701.23e). A commander
+found into its owner's hand faults: CR 903.9b has no search continuation.
 
 ## Keywords, attachments and temporary effects
 
@@ -492,10 +503,12 @@ under one kernel control node:
 | "if/unless you control a [filter]", "N or more [filter]", not/all of these | `If` over a battlefield count read on resolution (CR 608.2c) |
 
 An optional chooser is the controller; a chooser named by `decidedBy` would
-need CR 800.4g reassignment and rejects. A payer binds to the controller or the
+need CR 800.4g reassignment and rejects. A filtered target's captured controller
+may choose to search and shuffle their own library: it leaves with them (CR
+800.4a), so a reassigned choice could act on nothing. A payer binds to the controller or the
 trigger's kernel event player, and a cost's implicit payer must be the same
-player. An optional body is a draw, life change, mill, or a tap, untap, move or
-counter verb on a target or the source. The continuation offers no impossible
+player. An optional body is a draw, life change, mill, search, shuffle, scry or
+surveil, or a tap, untap, move or counter verb on a target or the source. The continuation offers no impossible
 choice (CR 608.2d):
 - no object that can still change (CR 701.26a) or move (CR 400.7)
 - no live player or a zero amount
