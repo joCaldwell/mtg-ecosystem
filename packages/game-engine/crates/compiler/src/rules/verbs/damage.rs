@@ -55,7 +55,21 @@ pub(super) fn lower(
                 cx.source_block,
             ));
         }
-        DamageDestination::Object { reference } => std::slice::from_ref(reference),
+        DamageDestination::Object { reference } => {
+            if reference["ref"] == "target" {
+                let what = object(reference)?;
+                uncounted(cx)?;
+                let amount = match amount {
+                    ast::Amount::X(_) if cx.context == Context::Spell => kir::Amount::announced_x(),
+                    _ => kir::Amount::Fixed {
+                        value: fixed_positive_amount(&amount)?,
+                    },
+                };
+                let slot = bind_creature_target(cx.program, cx.slots, &what)?;
+                return Ok(Instruction::damage_target(slot, amount, cx.source_block));
+            }
+            std::slice::from_ref(reference)
+        }
         DamageDestination::Each { refs } => refs.as_slice(),
         DamageDestination::Player { reference } => {
             uncounted(cx)?;

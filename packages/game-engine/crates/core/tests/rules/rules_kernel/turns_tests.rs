@@ -1093,6 +1093,7 @@ fn flash_end_step_draw() {
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
+            optional_target: false,
             targets: vec![],
             instructions: vec![Instruction::draw(
                 PlayerExpr::you(Context::Triggered),

@@ -14,7 +14,9 @@ pub(super) fn lower(
         return Err(step("put-counters", "counter_kind"));
     }
     let on = object(on)?;
-    let on = if is_this_creature(&on) {
+    let on = if is_set(&on) {
+        lower_board_set(&on, cx.context)?
+    } else if is_this_creature(&on) {
         kir::SetExpr::source()
     } else {
         kir::SetExpr::target(bind_creature_target(cx.program, cx.slots, &on)?)

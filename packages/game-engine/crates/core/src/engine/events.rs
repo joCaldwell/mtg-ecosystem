@@ -244,6 +244,7 @@ impl CommittedBatch {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum FactKey {
     ManaAbilityUse(CardId),
+    ActivationUse(CardId),
     AttachmentAllocation,
     TokenAllocation,
     Stack(StackId),
@@ -586,7 +587,10 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
         ProposedEvent::Move { object, .. }
         | ProposedEvent::EnterTapped { object }
         | ProposedEvent::LeaveGame { object, .. } => {
-            vec![FactKey::ManaAbilityUse(object.card)]
+            vec![
+                FactKey::ManaAbilityUse(object.card),
+                FactKey::ActivationUse(object.card),
+            ]
         }
         ProposedEvent::ReversePermanentMana { receipt } => {
             vec![FactKey::ManaAbilityUse(receipt.source.object.card)]
@@ -597,6 +601,13 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             .mana_ability_uses
             .iter()
             .map(|k| FactKey::ManaAbilityUse(k.source.card))
+            .chain(
+                game.state
+                    .rules
+                    .activation_uses
+                    .iter()
+                    .map(|k| FactKey::ActivationUse(k.source.card)),
+            )
             .collect(),
         _ => vec![],
     };
@@ -939,7 +950,11 @@ impl RulesTxn {
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
-                        | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                        | ResolvedEffectKind::ModifyPowerToughness { target, .. }
+                        | ResolvedEffectKind::CombatProhibition {
+                            affects: mtg_contracts::kir::CombatProhibitionScope::Target { target },
+                            ..
+                        } => {
                             objects.insert(*target);
                         }
 
@@ -1812,6 +1827,9 @@ impl RulesTxn {
         }
         self.rules_mut()
             .mana_ability_uses
+            .retain(|k| k.source != *object);
+        self.rules_mut()
+            .activation_uses
             .retain(|k| k.source != *object);
         // CR 400.7: a zone move creates a new incarnation, and an actual
         // outcome explicitly provides its successor. No stale lookup.
@@ -2736,6 +2754,7 @@ impl RulesTxn {
                     self.expire_player_protection(*owner);
                     self.rules_mut().players[owner.0 as usize].life_frozen_until_next_turn = false;
                     self.rules_mut().mana_ability_uses.clear();
+                    self.rules_mut().activation_uses.clear();
                     self.rules_mut().cast_history =
                         std::array::from_fn(|_| triggers::TurnCastHistory::default());
                     let active = self.state.rules.active;
@@ -2911,6 +2930,9 @@ impl RulesTxn {
                 }
                 self.rules_mut()
                     .mana_ability_uses
+                    .retain(|k| k.source != *object);
+                self.rules_mut()
+                    .activation_uses
                     .retain(|k| k.source != *object);
                 self.rules_mut().objects.remove(&object.card);
                 EventOutcome::LeftGame {

@@ -6,7 +6,7 @@ mod color_hybrid_cost;
 pub use color_hybrid_cost::{ColorHybridSymbol, HybridPayment, color_hybrid_cost};
 mod cycling;
 
-pub use cycling::hand_discard_draw_activation;
+pub use cycling::hand_discard_activation;
 
 pub mod mana_spend;
 
@@ -225,6 +225,7 @@ pub enum Capability {
     CastEnchantmentV1,
 
     TemporaryPowerToughnessV1,
+    TemporaryCombatProhibitionV1,
 
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
@@ -243,6 +244,7 @@ pub enum Capability {
     TappedPermanentTargetV1,
     PowerFilteredRemovalV1,
     UntapPermanentV1,
+    OptionalObjectTargetV1,
     TapPermanentV1,
     ActivatedTapPermanentV1,
     ActivatedCreatureTapV1,
@@ -276,6 +278,7 @@ pub enum Capability {
     ManaActivationCostV1,
 
     DiscardSourceCostV1,
+    ExileSourceCostV1,
     AnyDamageTargetV1,
 
     PlayerOrPlaneswalkerTargetV1,
@@ -353,6 +356,7 @@ pub enum Capability {
 #[serde(rename_all = "snake_case")]
 pub enum FunctioningZone {
     Hand,
+    Graveyard,
     Battlefield,
     Stack,
     /// Reserved for the source card's own graveyard-move replacement.
@@ -1122,6 +1126,7 @@ pub struct StaticAbility {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CreatureRestriction {
+    CantAttack,
     CantBlock,
     CantBeBlocked,
     CantAttackOrBlock,
@@ -1160,6 +1165,9 @@ pub struct SpellProgram {
     pub timing: SpellTiming,
     pub resolution: SpellResolution,
     pub functioning_zone: FunctioningZone,
+    /// CR 115.1d, 601.2c: the sole announced battlefield occurrence may be omitted.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub optional_target: bool,
     pub targets: Vec<TargetSpec>,
     pub instructions: Vec<Instruction>,
 }
@@ -1201,6 +1209,10 @@ fn single_sacrifice_count(n: &u32) -> bool {
 pub enum ActivationCost {
     /// Fixed mana and this exact hand source, committed as one complete cost.
     DiscardSource {
+        mana: ManaCost,
+    },
+    /// The exact source card is exiled from its functioning zone after mana.
+    ExileSource {
         mana: ManaCost,
     },
     SacrificePermanent {
@@ -1302,10 +1314,30 @@ pub struct ManaAbility {
 pub enum ManaActivationRestriction {
     OnceEachTurn,
 }
+/// CR 602.5b-d (2026-09-25): restrictions on an individual printed stack
+/// activation. Sorcery timing uses the program's existing timing field.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActivationRestriction {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<ActivationWindow>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub once_each_turn: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivationWindow {
+    YourTurn,
+    YourUpkeep,
+    YourTurnBeforeAttackers,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActivatedAbility {
     pub functioning_zone: FunctioningZone,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restriction: Option<ActivationRestriction>,
     pub cost: ActivationCost,
     pub program: SpellProgram,
 }
@@ -1653,6 +1685,7 @@ impl Definition {
             }
             set.insert(match ability.cost {
                 ActivationCost::DiscardSource { .. } => Capability::DiscardSourceCostV1,
+                ActivationCost::ExileSource { .. } => Capability::ExileSourceCostV1,
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,
@@ -1923,6 +1956,9 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
 // One primitive mapping for targeted and set grants, including schema closure.
 
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    if program.optional_target {
+        set.insert(Capability::OptionalObjectTargetV1);
+    }
     for target in &program.targets {
         if target.filter.is_some() {
             set.insert(Capability::PermanentRemovalV1);

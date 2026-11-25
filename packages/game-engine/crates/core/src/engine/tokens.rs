@@ -329,6 +329,15 @@ impl RulesTxn {
                 counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
                 amount: fixed!(amount),
             } @ source_block) => {
+                if let mtg_contracts::kir::SetExpr::Matching { zone, filter } = on {
+                    let objects = self.kernel_set(&frame, &zone, &filter)?.0;
+                    let cause = self.instruction_cause(&frame, source_block)?;
+                    let allocations = objects
+                        .into_iter()
+                        .map(|object| (object, amount.clone()))
+                        .collect();
+                    return self.begin_counter_placements(frame, allocations, cause);
+                }
                 let target = match on {
                     source_object!() => self.entry(frame.stack_id)?.source,
                     target_object!(target_slot) => {

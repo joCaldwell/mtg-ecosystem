@@ -1,5 +1,5 @@
 use super::*;
-use mtg_contracts::kir::CombatRequirement;
+use mtg_contracts::kir::{CombatProhibitionScope, CombatRequirement};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,7 +74,7 @@ impl RulesTxn {
                 o.controller == player
                     && !o.tapped
                     && self.is_battlefield_creature(o.id)
-                    && !self.combat_statics(o.id, None).any(|rule| match rule {
+                    && !self.combat_requirements(o.id, None).any(|rule| match rule {
                         CombatRequirement::CantAttackOrBlock => true,
                         CombatRequirement::CantAttack => attacking,
                         CombatRequirement::CantBlock => !attacking,
@@ -86,6 +86,34 @@ impl RulesTxn {
             })
             .map(|o| o.id)
             .collect()
+    }
+    pub(super) fn combat_requirements<'a>(
+        &'a self,
+        object: ObjectId,
+        sources: Option<&'a [CardId]>,
+    ) -> impl Iterator<Item = CombatRequirement> + 'a {
+        use CombatProhibitionScope as S;
+        let resolved = self.state.rules.effects.iter().filter_map(move |effect| {
+            let ResolvedEffectKind::CombatProhibition {
+                affects,
+                restriction,
+            } = &effect.kind
+            else {
+                return None;
+            };
+            // CR 611.2c, 613.11: these change combat rules. Read characteristics
+            // after the layers, at declaration, including creatures that arrived later.
+            (self.is_battlefield_creature(object)
+                && match affects {
+                    S::Target { target } => *target == object,
+                    S::Creatures {} => true,
+                    S::CreaturesWithoutFlying {} => !self
+                        .current_keywords_with_sources(object, sources)
+                        .contains(&KeywordAbility::Flying),
+                })
+            .then_some(*restriction)
+        });
+        self.combat_statics(object, sources).chain(resolved)
     }
     fn must_attack(&self, object: ObjectId) -> bool {
         self.combat_statics(object, None)

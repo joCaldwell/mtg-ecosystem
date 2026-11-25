@@ -214,10 +214,7 @@ counts matching permanents once and credits its controller through a staged
 mana event. A zero count leaves the mana pool untouched.
 
 Cast observers can match a spell subtype or a disjunction of subtypes against
-its frozen paid cast event. A temporary creature combat restriction attaches to
-the resolved target incarnation, expires in cleanup, and applies when blockers
-are declared (CR 506.4a, 509.1b). Its paid source and ordered sibling instructions
-remain distinct.
+its frozen paid cast event.
 
 A library play window follows the face-up exile successors of one exact
 resolution. The beneficiary uses ordinary priority, timing, costs, and land
@@ -277,7 +274,10 @@ monocolored hybrid, colorless or hybrid Phyrexian symbols reject. Hybrid,
 Phyrexian, X and special symbols in activation costs also reject.
 
 Cycling is a hand activation on any card type: its fixed mana and the card's
-own discard, then one draw (CR 702.29a). Kicker on an instant or sorcery is an
+own discard, then one draw (CR 702.29a). Typecycling pays the same cost, then
+searches for one card of its type (basic land, or an allowlisted land or
+creature subtype), reveals it, puts it into hand and always shuffles
+(CR 702.29e-f). Kicker on an instant or sorcery is an
 optional additional mana cost declared while casting. "If this spell was kicked"
 is `Cond::CostPaid` on that declaration (CR 702.33a, d). Flashback on an instant
 or sorcery without X or hybrid symbols casts the card from its owner's
@@ -296,11 +296,26 @@ tap, mana and source sacrifice. A player who cannot pay is not offered the
 ability (CR 119.4, 122.1), and a cost without mana is paid as targets complete,
 with no mana window (CR 601.2g). A chosen sacrifice can count several permanents,
 any permanent, or "another" (never the source), and can also tap the source
-after mana (CR 109.1, 602.2b, 701.21a). Each of these surfaces is its own
-`Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Kicker`,
-`Flashback`, `SpellAdditionalSacrifice`, `ActivationPayLife`,
+after mana (CR 109.1, 602.2b, 701.21a). "[Mana], Exile this card from your
+graveyard" functions only in its owner's graveyard: only that owner activates
+it, targets precede mana, and the card is exiled after mana (CR 113.6j, 602.2a-b,
+701.13a). An unpaid entry keeps the card in that graveyard and a paid one does
+not. Exiling it from hand, and discard or tap-a-permanent costs, reject.
+
+Printed restrictions are permission gates. "As a sorcery" is the program's
+main-phase timing. "During your turn", "during your upkeep" and "during your
+turn, before attackers are declared" (upkeep through beginning of combat) are
+typed windows. "Only once each turn" records a use for the source incarnation
+and ability when the activation completes; a reversed announcement uses
+nothing. The record survives control changes and clears on a zone change or a
+new turn (CR 400.7, 602.5b-d). Validation rejects a use outside the
+battlefield, on an unlimited ability, or that disagrees with whether its stack
+entry is paid. A printed restriction the compiler cannot read rejects; mana
+abilities admit only once each turn. Each of these surfaces is its own
+`Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Typecycling`,
+`Kicker`, `Flashback`, `SpellAdditionalSacrifice`, `ActivationPayLife`,
 `ActivationRemoveCounters`, `SacrificeCostChoice`, `SacrificeCostTap`,
-`SacrificeCostAnother`).
+`SacrificeCostAnother`, `GraveyardExileSource`, `ActivationRestriction`).
 
 ### Target status and tap/untap
 
@@ -311,6 +326,29 @@ cast-entry land untap and owner-hand return each accept only their complete
 validated shape. Already-matching status emits no second event, combat membership
 is preserved and source tap is paid first. Paid activations survive source
 departure.
+
+### Target and selection operands
+
+A battlefield target may name its controller: "you control" announces and
+rechecks against the invocation's controller (CR 109.5, 601.2c, 608.2b); "an
+opponent controls" keeps the permanent filter. A creature filter with that
+qualifier counts as a creature target for pump, keyword, damage, counter and
+library-top cells. Damage to "target creature" binds that announced object.
+"Up to one target" lets the sole object occurrence of a program announce zero
+objects (CR 115.1d, `optional_object_target_v1`). Only destroy, tap, untap,
+move, counter and until-end-of-turn leaves may read it; with zero targets they
+do nothing and untargeted instructions still happen. Mixed optional and
+required occurrences, larger counts and permanent spells reject.
+
+"This [permanent]" in an ability names the source: tap, untap, return to its
+owner's hand or put on top of its owner's library (`Cell::TapStatusSource`,
+`Cell::MoveSourceOwnerZone`). Only its current battlefield incarnation moves
+(CR 400.7); a commander offers the command zone (CR 903.9b). "Put a +1/+1
+counter on each [creature filter]" is one simultaneous placement on the
+members read when it is performed (CR 122.6, 608.2h, `Cell::PlusOneCountersSet`).
+These cells earn `Executes` only. "Return a land you control" and "untap up to
+seven lands" choose during resolution and still reject as
+`operand:target:ref_filter`: they need an interactive resolution choice.
 
 <a id="combat-damage-and-state-based-actions"></a>
 
@@ -526,6 +564,24 @@ uses the same layer 6 rules. Grants follow their creation order, expire at
 cleanup, and affect only the selected incarnations (CR 400.7, 611.2c, 613.1f,
 613.7b). The newly admitted operand cells qualify for `Executes`.
 
+`RestrictCombat` is a rules effect, not a characteristic change (CR 611.2c,
+613.11). "Can't attack", "can't block", "can't attack or block" and "can't be
+blocked" this turn bind one announced creature's resolved incarnation. "Can't
+block" can also name all creatures, or creatures without flying. That class is
+read at each declaration, so a creature that later arrives or loses flying is
+covered. The effect expires in cleanup (CR 508.1c, 509.1b, 514.2). Other
+recipients, durations and "that creature" pronouns reject by name.
+
+Printed protection from one or two fixed colors, or from each color, lowers to
+separate per-color abilities on creatures (CR 702.16a, g, h). The printed
+keyword line must match those qualities exactly. Other qualities such as types,
+subtypes, players or everything reject by name. Static grants of hexproof,
+shroud or indestructible may name noncreature recipients (CR 702.11, 702.12,
+702.18). Other granted keywords still need a creature scope. Grant filters
+cannot test keywords and no ability removal is admitted. Layer 6 grants
+therefore have no dependencies and give the same result in any timestamp order
+(CR 613.7, 613.8).
+
 <a id="abilities-targets-and-triggers"></a>
 
 ## Trigger families and event witnesses
@@ -641,7 +697,8 @@ Everything else rejects under `compose.control:<detail>`:
 - another condition, a nested leaf that needs persistent provenance
 - `forEach` amounts (CR 121.2a: a counted draw is one replaceable event)
 
-"Up to N" targets also reject.
+Modal steps outside the modal spells below (W14) and "up to N" targets for N
+above one also reject.
 
 ### Modal spells
 
@@ -704,7 +761,7 @@ the derived decisions equal the capability lists they replaced.
 | --- | --- |
 | Instruction × stack object | A checked KIR node with operands bound in its spell, activated or triggered context. Unsupported operands and verbs reject. |
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
-| Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, and the cycling hand discard, only where that announcement route pays the complete cost (CR 602.2b). |
+| Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, the cycling and typecycling hand discard, and a graveyard source exiled after mana, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |

@@ -130,6 +130,9 @@ impl RulesTxn {
         player: PlayerId,
         source: &Characteristics,
     ) -> bool {
+        if program.optional_target {
+            return true;
+        }
         match program.targets.first().map(|target| target.domain) {
             Some(TargetDomain::PlayerGraveyardCards { .. }) => false,
             None => true,
@@ -324,6 +327,7 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let source = self.current(object)?;
         let definition = self.copiable_definition(object)?;
+        let index = ability;
         let ability = definition
             .activated
             .get(ability as usize)
@@ -334,13 +338,22 @@ impl RulesTxn {
                     !source.present_on_battlefield() || source.controller != player
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
+                FunctioningZone::Graveyard => {
+                    !self.graveyard_activation_source_payable(player, object)
+                }
                 FunctioningZone::Stack | FunctioningZone::Any => true,
             }
         {
             return Err("invalid activated ability source/permission".into());
         }
         if ability.program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
-            return Err("equip requires sorcery timing".into());
+            return Err("activation requires sorcery timing".into());
+        }
+        if ability
+            .restriction
+            .is_some_and(|r| !self.activation_restriction_allows(player, object, index, r))
+        {
+            return Err("activation restriction is not met".into());
         }
         if let ActivationCost::TapPayLifeSacrificeSource { life } = &ability.cost {
             self.validate_tap_life_sacrifice_source(player, object, life)?;

@@ -55,9 +55,9 @@ enum Route {
 /// (CR 115.1, 603.3d, 608.2b).
 fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
     Some(match domain {
-        TargetDomain::BattlefieldPermanent | TargetDomain::BattlefieldCreature => {
-            (Route::Object, ANY)
-        }
+        TargetDomain::BattlefieldPermanent
+        | TargetDomain::ControlledBattlefieldPermanent
+        | TargetDomain::BattlefieldCreature => (Route::Object, ANY),
         TargetDomain::AnyDamageTarget => (Route::Entity, ANY),
         TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
             (Route::Player, SPELL | TRIGGERED)
@@ -72,7 +72,6 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         TargetDomain::ControlledBattlefieldCreature => (Route::Object, ACTIVATED),
         TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
-        | TargetDomain::ControlledBattlefieldPermanent
         | TargetDomain::BlockingBattlefieldCreature
         | TargetDomain::ControlledCreatureSpell => return None,
     })
@@ -199,6 +198,29 @@ fn program(
 }
 
 fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
+    // CR 115.1d, 601.2c, 608.2b: zero targets is a legal announcement.
+    // A skipped occurrence can be read only by an independent leaf whose
+    // entire action applies to that one object.
+    if p.optional_target
+        && (!matches!(p.targets.as_slice(), [t] if matches!(t.domain,
+                TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
+                | TargetDomain::ControlledBattlefieldPermanent))
+            || p.instructions
+                .iter()
+                .any(|Instruction::Kernel { node, .. }| {
+                    !kir::target_slots(node).is_empty()
+                        && !matches!(node, kir::Node::Do(
+                        kir::Verb::Destroy { what, .. }
+                        | kir::Verb::Tap { what }
+                        | kir::Verb::Untap { what }
+                        | kir::Verb::Move { what, .. }
+                        | kir::Verb::PutCounters { on: what, .. }
+                        | kir::Verb::ModifyUntil { what, .. }
+                    ) if *what == kir::SetExpr::target(0))
+                }))
+    {
+        return cell("target", "up_to_one_requires_independent_object_leaves");
+    }
     let mut ids = BTreeSet::new();
     for (index, target) in p.targets.iter().enumerate() {
         if usize::try_from(target.slot).ok() != Some(index)
@@ -250,11 +272,16 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                     .iter()
                     .enumerate()
                     .any(|(i, k)| f.non_colors[..i].contains(k))
-                || (t.domain == TargetDomain::BattlefieldPermanent
-                    && f.types
-                        .iter()
-                        .chain(&f.non_types)
-                        .any(|k| matches!(k, CardKind::Instant | CardKind::Sorcery)))
+                || (t.domain == TargetDomain::ControlledBattlefieldPermanent && f.opponent)
+                || (matches!(
+                    t.domain,
+                    TargetDomain::BattlefieldPermanent
+                        | TargetDomain::ControlledBattlefieldPermanent
+                ) && f
+                    .types
+                    .iter()
+                    .chain(&f.non_types)
+                    .any(|k| matches!(k, CardKind::Instant | CardKind::Sorcery)))
             {
                 return Err("unsupported permanent/spell target filter".into());
             }
@@ -317,6 +344,14 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         },
         ActivationCost::Mana { cost } => {
             mana_ok(cost) && matches!(route, None | Some(Route::Object | Route::Stack))
+        }
+        ActivationCost::ExileSource { mana } => {
+            a.functioning_zone == FunctioningZone::Graveyard
+                && mana_ok(mana)
+                && matches!(
+                    route,
+                    None | Some(Route::Object | Route::Entity | Route::Stack)
+                )
         }
         // CR 701.21a: only the exact source permanent pays this cost.
         ActivationCost::SacrificeSource => {
@@ -386,10 +421,17 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
-    // CR 702.29a, 602.2a: cycling is the one hand activation, on any card
-    // type: its fixed mana and this exact hand card, then one draw.
+    if matches!(a.cost, ActivationCost::ExileSource { .. }) {
+        if a.restriction.is_some() {
+            return cell("activated", "off_battlefield_restriction");
+        }
+        cost(d, a)?;
+        return program(&a.program, Context::Activated, None, false);
+    }
+    // CR 702.29a/e, 602.2a: cycling and typecycling use fixed mana and the
+    // exact hand card, then draw one or search, reveal and shuffle.
     if a.functioning_zone == FunctioningZone::Hand {
-        if !hand_discard_draw_activation(a) {
+        if !hand_discard_activation(a) {
             return cell("activated", "hand");
         }
         return program(&a.program, Context::Activated, None, false);
@@ -401,6 +443,12 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         )
     {
         return cell("activated", "source");
+    }
+    if a.restriction.is_some_and(|r| {
+        r.window.is_none() && !r.once_each_turn
+            || r.window.is_some() && a.program.timing == SpellTiming::MainPhase
+    }) {
+        return cell("activated", "restriction");
     }
     if a.program
         .targets
@@ -543,6 +591,12 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
                 | K::Lifelink
                 | K::Deathtouch
                 | K::Indestructible
+                // CR 702.16a-f: printed protection from one fixed color.
+                | K::ProtectionFromWhite
+                | K::ProtectionFromBlue
+                | K::ProtectionFromBlack
+                | K::ProtectionFromRed
+                | K::ProtectionFromGreen
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,
@@ -662,6 +716,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
         p.functioning_zone == FunctioningZone::Stack
             && p.timing == cast_timing
             && p.resolution == SpellResolution::Permanent
+            && !p.optional_target
             && (if c.subtypes == ["Aura"] {
                 enchant_target(&p.targets)
             } else {
@@ -725,9 +780,12 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && c.power.is_none()
                 && c.toughness.is_none()
                 && d.intrinsic_zone.is_none()
-                && d.activated
-                    .iter()
-                    .all(|a| a.functioning_zone == FunctioningZone::Hand)
+                && d.activated.iter().all(|a| {
+                    matches!(
+                        a.functioning_zone,
+                        FunctioningZone::Hand | FunctioningZone::Graveyard
+                    )
+                })
                 && d.triggered.is_empty()
                 && d.mana_abilities.is_empty()
                 && d.spell.as_ref().is_some_and(|p| p.timing == cast_timing)
@@ -852,6 +910,7 @@ mod tests {
     fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
         ActivatedAbility {
             functioning_zone: FunctioningZone::Battlefield,
+            restriction: None,
             cost,
             program,
         }
@@ -1155,6 +1214,7 @@ mod tests {
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
+            optional_target: false,
             targets,
             instructions,
         }

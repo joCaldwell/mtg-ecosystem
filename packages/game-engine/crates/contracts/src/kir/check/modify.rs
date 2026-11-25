@@ -2,6 +2,34 @@
 use super::*;
 
 impl Walk<'_, '_> {
+    pub(super) fn audit_combat_prohibition(
+        &self,
+        affects: &CombatProhibitionScope<Ref>,
+        restriction: CombatRequirement,
+        until: Until,
+    ) -> Result<Cell, KirError> {
+        use CombatRequirement as R;
+        if until != Until::EndOfTurn {
+            return unaudited("combat prohibition duration");
+        }
+        match (affects, restriction) {
+            (
+                CombatProhibitionScope::Target {
+                    target: Ref::Target { slot },
+                },
+                R::CantAttack | R::CantBlock | R::CantAttackOrBlock | R::CantBeBlocked,
+            ) if self.domain(*slot)? == TargetDomain::BattlefieldCreature => {
+                Ok(Cell::CombatProhibitionUntilEndOfTurn)
+            }
+            (
+                CombatProhibitionScope::Creatures {}
+                | CombatProhibitionScope::CreaturesWithoutFlying {},
+                R::CantBlock,
+            ) => Ok(Cell::CombatProhibitionUntilEndOfTurn),
+            _ => unaudited("combat prohibition recipient or action"),
+        }
+    }
+
     pub(super) fn audit_modify(
         &self,
         what: &SetExpr,
@@ -24,9 +52,9 @@ impl Walk<'_, '_> {
                 SetExpr::One {
                     object: Ref::Target { slot },
                 } => match self.domain(*slot)? {
-                    TargetDomain::BattlefieldCreature
-                    | TargetDomain::BlockingBattlefieldCreature
+                    TargetDomain::BlockingBattlefieldCreature
                     | TargetDomain::ControlledBattlefieldCreature => Ok(Cell::PumpTarget),
+                    _ if self.creature_target(*slot)? => Ok(Cell::PumpTarget),
                     _ => unaudited("pump target domain"),
                 },
                 // CR 613.4c: a P/T change applies to creatures; the set is
@@ -58,9 +86,7 @@ impl Walk<'_, '_> {
                 match what {
                     SetExpr::One {
                         object: Ref::Target { slot },
-                    } if self.domain(*slot)? == TargetDomain::BattlefieldCreature => {
-                        Ok(Cell::TargetKeywordsUntilEndOfTurn)
-                    }
+                    } if self.creature_target(*slot)? => Ok(Cell::TargetKeywordsUntilEndOfTurn),
                     SetExpr::Matching {
                         zone: ZoneExpr::Battlefield,
                         filter,

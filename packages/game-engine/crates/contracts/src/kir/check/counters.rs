@@ -10,16 +10,32 @@ impl Walk<'_, '_> {
         counter: &CounterKind,
         amount: &Amount,
     ) -> Result<Cell, KirError> {
-        let (SetExpr::One { object }, CounterKind::PlusOnePlusOne) = (on, counter) else {
+        if *counter != CounterKind::PlusOnePlusOne {
             return unaudited("verb");
-        };
+        }
         Self::fixed_at_least(amount, 1, "counter amount")?;
+        // CR 122.6, 608.2h: a single simultaneous placement on the
+        // creatures matching a public predicate when this step is performed.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+        if let SetExpr::Matching {
+            zone: ZoneExpr::Battlefield,
+            filter,
+        } = on
+            && filter.0.contains(&Atom::Type {
+                kind: CardKind::Creature,
+            })
+        {
+            return Self::audited_filter(&ZoneExpr::Battlefield, filter)
+                .map(|()| Cell::PlusOneCountersSet);
+        }
+        let SetExpr::One { object } = on else {
+            return unaudited("counter recipient");
+        };
         match object {
             Ref::Source => Ok(Cell::PlusOneCountersSource),
             Ref::Target { slot } => match self.domain(*slot)? {
-                TargetDomain::BattlefieldCreature | TargetDomain::ControlledBattlefieldCreature => {
-                    Ok(Cell::PlusOneCountersTarget)
-                }
+                TargetDomain::ControlledBattlefieldCreature => Ok(Cell::PlusOneCountersTarget),
+                _ if self.creature_target(*slot)? => Ok(Cell::PlusOneCountersTarget),
                 _ => unaudited("counter target domain"),
             },
             _ => unaudited("counter recipient"),

@@ -88,6 +88,7 @@ impl SpellProgram {
             timing,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
+            optional_target: false,
             targets: vec![],
             instructions: vec![],
         }
@@ -207,6 +208,7 @@ mod tests {
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
+            optional_target: false,
             targets: vec![],
             instructions: vec![],
         };
