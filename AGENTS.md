@@ -14,6 +14,7 @@ ask only if it cannot be inferred. Read its manual before editing code.
 | oracle-parser | Supported TypeScript AST/archive subset; broader parsing paused | [manual](packages/oracle-parser/AGENTS.md) |
 | card-data | Generated compiled Card IR; no hand edits | [data contracts](docs/oracle_parser.md#data-contracts) |
 | game-engine | Rust compiler, deterministic rules, finite Commander simulation/search | [manual](packages/game-engine/AGENTS.md) |
+| pilot | Python Commander pilot training and evaluation | [training](packages/pilot/pilot/train.py), [environment](docs/game-engine-development.md#batched-numpy-environment) |
 | game-server | Finite local Rust host and generated TypeScript SDK | [manual](packages/game-server/AGENTS.md), [SDK manual](packages/game-server/sdk/AGENTS.md) |
 
 ## Shared constraints
