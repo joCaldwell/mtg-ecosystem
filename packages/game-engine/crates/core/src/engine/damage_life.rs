@@ -271,7 +271,11 @@ impl RulesTxn {
                     self.rules_mut().frame = Frame::SacrificeCost { cast };
                     return Ok(());
                 }
-                ActivationCost::SacrificePermanent { mana: Some(_), .. } => {
+                // CR 601.2g, 602.2b: only a cost with a mana component opens
+                // a mana window after targets.
+                ActivationCost::SacrificePermanent { mana: Some(_), .. }
+                | ActivationCost::Mana { .. }
+                | ActivationCost::DiscardSource { .. } => {
                     self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
@@ -279,7 +283,9 @@ impl RulesTxn {
                     self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
-                ActivationCost::SacrificeSource => {
+                // Life, counters, tap and source sacrifice with no mana are
+                // paid at once, as one complete cost (CR 118.3, 602.2b).
+                ActivationCost::Composite { .. } | ActivationCost::SacrificeSource => {
                     let mut cast = cast;
                     cast.spending = Some(BTreeMap::new());
                     return self.payment_step(cast);

@@ -15,20 +15,14 @@ pub(crate) fn shell(
     ast_sha256: String,
 ) -> Result<(Definition, SourceLabels), Failure> {
     let kind = types.kind;
-    // CR 118.6: an absent mana cost is not {0}. Hybrid and X costs have no
-    // block table row.
+    // CR 118.6: an absent mana cost is not {0}.
     if kind != CardKind::Land && source.mana_cost.is_empty() {
         return Err(unsupported(
             "source.mana_cost",
             "nonland without a mana cost requires an explicit absent-cost representation",
         ));
     }
-    if source.mana_cost.contains("{X}") || color_hybrid_cost(&source.mana_cost).is_some() {
-        return Err(unsupported(
-            "source.mana_cost",
-            "variable or hybrid costs outside the block tables",
-        ));
-    }
+    let printed_cost = spell_cost(&source.mana_cost)?;
     let power = source
         .power
         .map(|s| s.parse::<Quantity>())
@@ -47,7 +41,8 @@ pub(crate) fn shell(
     let definition = Definition {
         source_labels: None,
         composed: true,
-        x_mana_cost: false,
+        x_mana_cost: printed_cost.x,
+        flashback: None,
         oracle_id: r.oracle_identity,
         name: source.name,
         characteristics: Characteristics {
@@ -57,8 +52,8 @@ pub(crate) fn shell(
             legendary: types.legendary,
             snow: types.snow,
             subtypes: types.subtypes,
-            hybrid_mana: vec![],
-            mana_cost: mana_cost(&source.mana_cost)?,
+            hybrid_mana: printed_cost.hybrid,
+            mana_cost: printed_cost.base,
             colors: source.colors,
             color_identity: source.color_identity,
             power,
@@ -112,4 +107,41 @@ pub(crate) fn admit(
         .validate()
         .map_err(|e| unsupported("composition", e))?;
     Ok(definition)
+}
+
+/// A printed mana cost: its fixed symbols, its ordered two-color hybrid and
+/// single-color Phyrexian symbols, and whether it begins with one `{X}`.
+pub(crate) struct PrintedSpellCost {
+    pub(crate) base: ManaCost,
+    pub(crate) hybrid: Vec<ColorHybridSymbol>,
+    pub(crate) x: bool,
+}
+
+/// CR 107.3, 107.4e-f, 202.1 and 601.2b/f: X is announced once while casting
+/// and adds that much generic mana; each hybrid or Phyrexian symbol is paid
+/// with one of its listed alternatives. A cost with several X symbols, a
+/// monocolored or Phyrexian-hybrid symbol, or a colorless Phyrexian symbol
+/// has no runtime cost and rejects.
+pub(crate) fn spell_cost(text: &str) -> Result<PrintedSpellCost, Failure> {
+    let (x, rest) = match text.strip_prefix("{X}") {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    if rest.contains("{X}") {
+        return Err(unsupported("source.mana_cost", "repeated or trailing X"));
+    }
+    if rest.contains('/') {
+        return match color_hybrid_cost(rest) {
+            Some((base, hybrid)) => Ok(PrintedSpellCost { base, hybrid, x }),
+            None => Err(unsupported(
+                "source.mana_cost",
+                "variable/hybrid/Phyrexian/special mana is not supported",
+            )),
+        };
+    }
+    Ok(PrintedSpellCost {
+        base: mana_cost(rest)?,
+        hybrid: vec![],
+        x,
+    })
 }

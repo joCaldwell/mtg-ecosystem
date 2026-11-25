@@ -96,7 +96,13 @@ export function dieTable(this: Analyzer, effect: Extract<Effect, { effect: "roll
  * applied. Options bind like modes; shared references are the same nodes. */
 export function choice(this: Analyzer, effect: Extract<Effect, { effect: "choice" }>, path: string, context: Context): void {
   this.walk(effect.who, child(path, "who"), context);
-  const decider = this.at(child(path, "who"))?.id;
+  const chooser = this.at(child(path, "who"));
+  const decider = chooser?.id;
+  // The choice is the step's own event; an optional choice records its
+  // decision event before it branches (CR 608.2d).
+  if (!effect.optional) this.event(path, context, stepEventOperation(effect.effect), chooser ? [chooser] : [], {
+    ...(context.decider ? { optional: true as const, decider: context.decider } : {}),
+    ...(context.conditional ? { conditional: true as const } : {}) });
   let sourceMoved = context.sourceMoved;
   const branches: Context[] = [];
   effect.options.forEach((option, index) => {
@@ -629,8 +635,10 @@ export function stackInstruction(this: Analyzer, effect: StackInstruction, path:
         context.conditional || context.decider || !effect.optional || subject.ref !== "copy-result" ||
         copy.result.cardinality !== (subject.number === "singular" ? "one" : "many")) return false;
     const rules = ["115.7d", "115.7e", "115.7f", "707.10c"];
-    this.player(effect.who, whoPath, context);
+    const chooser = this.player(effect.who, whoPath, context);
     this.bound(subject, whatPath, copy.result.id, rules);
+    this.event(path, context, stepEventOperation(effect.effect), [copy.result, ...(chooser ? [chooser] : [])],
+      { optional: true, decider: copy.chooser });
     this.node({ id: this.id(path, "stack-instruction"), path, node: "stack-instruction", scope: context.ability,
       subject: copy.result.id, chooser: copy.chooser,
       action: { kind: "choose-new-targets", timing: "copy-creation", copyEvent: copy.event }, rules });
@@ -643,8 +651,10 @@ export function stackInstruction(this: Analyzer, effect: StackInstruction, path:
         !effect.replacements.length || effect.optional || context.decider) return false;
     const candidate = this.object(subject, whatPath, context);
     if (!candidate) return false;
-    this.player(effect.who, whoPath, context);
+    const chooser = this.player(effect.who, whoPath, context);
     const rules = ["608.2d", "611.2a", "612.1", "612.2", "613.1c"];
+    this.event(path, context, stepEventOperation(effect.effect), [candidate, ...(chooser ? [chooser] : [])],
+      context.conditional ? { conditional: true } : {});
     this.node({ id: this.id(path, "text-choice"), path, node: "text-choice", scope: context.ability,
       subject: candidate.id, chooser: context.you, replacements: effect.replacements, rules });
     this.engineFeature("text-change", path, "Choose the printed word replacement and apply it only where the word has the chosen rules meaning.", rules);
@@ -746,7 +756,7 @@ export function secretChoiceDamage(this: Analyzer, effect: Extract<Effect, { eff
   const sources = effect.outcomes.map((outcome, index) =>
     this.object(outcome.source, child(outcomePath(index), "source"), { ...this.branch(context), lastKnown: true }));
   if (!sources.every(source => source !== undefined)) return;
-  const event = this.event(path, context, "secret-choice-reveal", [choosers], context.conditional ? { conditional: true } : {});
+  const event = this.event(path, context, stepEventOperation(effect.effect), [choosers], context.conditional ? { conditional: true } : {});
   const revealed = this.node({ id: this.id(path, "secret-choice-reveal"), path, node: "secret-choice-reveal",
     scope: context.ability, event, choosers: choosers.id, controller: context.you, options: effect.choices,
     collection: "private-apnap", count: "one-per-chooser", reveal: "simultaneous", rules });
@@ -788,7 +798,13 @@ export function effect(this: Analyzer, effect: Effect, path: string, context: Co
   if (effect.effect === "choose-object") context.uncertainTargetOrigin = true;
   const graveyardReturn = this.graveyardReturnScope(effect, path, context);
   if (effect.effect === "reveal") context.uncertainRevealOrigin = true;
-  if (this.distinctAction(effect, path, context)) return;
+  if (this.distinctAction(effect, path, context)) {
+    // A targeting rule records its permission; the step is its event.
+    if (effect.effect === "targeting-as-though")
+      this.event(path, context, stepEventOperation(effect.effect), [{ id: context.you, domain: "player", cardinality: "one" }],
+        context.conditional ? { conditional: true } : {});
+    return;
+  }
   if (this.relativePlayerAction(effect, path, context)) return;
   if (this.afterMultiplayerChoices(effect, path, context, precedingEffect)) return;
   if (effect.effect === "choose-object" && this.multiplayerChoices(effect, path, context)) return;
@@ -796,7 +812,10 @@ export function effect(this: Analyzer, effect: Effect, path: string, context: Co
   if (effect.effect === "grant-look-permission" && this.lookAtFaceDownExile(effect, path, context)) return;
   if (effect.effect === "create-replacement" &&
       (this.delayedExileReturn(effect, path, context) || this.moveToExileRule(effect, path, context, precedingEffect))) return;
-  if (effect.effect === "repeat-process" && this.repeatHandPlacement(effect, path, context, precedingEffect)) return;
+  if (effect.effect === "repeat-process" && this.repeatHandPlacement(effect, path, context, precedingEffect)) {
+    this.event(path, context, stepEventOperation(effect.effect), [], context.conditional ? { conditional: true } : {});
+    return;
+  }
   if (effect.effect === "add-mana" && this.commanderManaRider(effect, path, context)) return;
   if (effect.effect === "roll-dice") {
     if (this.numericRoll(effect, path, context)) return;
@@ -830,6 +849,7 @@ export function effect(this: Analyzer, effect: Effect, path: string, context: Co
       grant, caster: caster.id, from: { zone: effect.from.zone, owner: owner.id }, timing: effect.timing,
       cardinality: "many", rules: ["601.2a", "601.2i", "611.2f"] });
     this.bound(effect.what, what, spells, ["601.2a", "611.2f", "702.85a"]);
+    this.event(path, context, stepEventOperation(effect.effect), [caster], context.conditional ? { conditional: true } : {});
     this.engineFeature("cast-keyword-grant", path,
       "Keep one source-independent grant per resolution and expire it during cleanup. Apply each grant to that controller's later completed casts from hand before collecting cast triggers.",
       ["109.5", "113.7a", "514.2", "601.2i", "603.3a", "611.2a", "611.2f", "702.85a", "702.85c"]);
@@ -876,7 +896,15 @@ export function effect(this: Analyzer, effect: Effect, path: string, context: Co
     return;
   }
   const plain = !effect.optional && !effect.forEach && !effect.forEachVote;
-  if (plain && effect.effect === "look-top-may-reveal-for-mana") { this.libraryTopMana(effect, path, context); return; }
+  if (plain && effect.effect === "look-top-may-reveal-for-mana") {
+    this.libraryTopMana(effect, path, context);
+    // Its parts carry their own events; the step's event exists once
+    // they are all bound (the engine feature marks that).
+    const controller = this.at(child(path, "who"));
+    if (controller && this.result.engineFeatures.some(need => need.path === path && need.feature === effect.effect))
+      this.event(path, context, stepEventOperation(effect.effect), [controller], context.conditional ? { conditional: true } : {});
+    return;
+  }
   const weights = plain && effect.effect === "modal" && !context.barrier && !context.conditional && !context.decider &&
     context.spellAbility && "weightBudget" in effect.count && Number.isSafeInteger(effect.count.weightBudget) &&
     effect.count.weightBudget > 0 && !effect.conditionalCount && !effect.random && !effect.chooser && !effect.keyword &&

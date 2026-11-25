@@ -115,6 +115,7 @@ fn stack_spell(v: &mut PermittedView, c: &Catalog, name: &str, controller: u8) {
     let o = board::card(c, name, controller, Zone::Stack);
     v.stack.push(VisibleStackEntry {
         spell_copy: false,
+        flashback: false,
         hybrid_colors: vec![],
         selected_additional_costs: None,
         x: None,
@@ -680,6 +681,7 @@ mod activated_permanent_tap_policy_tests {
         assert_eq!(canonical(&v).unwrap(), before);
         v.stack.push(VisibleStackEntry {
             spell_copy: false,
+            flashback: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
@@ -752,6 +754,7 @@ mod activated_headless_policy_tests {
     fn proposed_activation(v: &mut PermittedView, d: &Definition, source: &str) {
         v.stack.push(VisibleStackEntry {
             spell_copy: false,
+            flashback: false,
             hybrid_colors: vec![],
             selected_additional_costs: None,
             x: None,
@@ -988,6 +991,7 @@ mod temporal_adept_policy_tests {
             assert_eq!(canonical(&v).unwrap(), before);
             v.stack.push(VisibleStackEntry {
                 spell_copy: false,
+                flashback: false,
                 hybrid_colors: vec![],
                 selected_additional_costs: None,
                 x: None,
@@ -1467,3 +1471,76 @@ mod shared_query_tests {
 }
 
 // Public payload policy probes, not accepted-input engine games or replay.
+
+/// CR 119.4, 119.8: a player whose life total cannot change cannot pay life,
+/// so core offers no life-paying activation and Develop never selects one;
+/// Develop also never selects an activation the decision does not offer.
+#[test]
+fn life_payment_activation_respects_frozen_life_and_offered_candidates() {
+    let mtg_compiler::CompileResult::Lowered { definition: greed } = mtg_compiler::compile(
+        include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+        include_str!(
+            "../../../../tests/fixtures/phase1-r4/1ff62220-be95-4901-b8d8-812b9a1a1b0a.json"
+        ),
+    ) else {
+        panic!("Greed lowers");
+    };
+    let mut c = mtg_compiler::catalog::embedded_catalog("witness-r4").unwrap();
+    c.definitions.push(*greed);
+    c.definitions.sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    let mut v = board::view();
+    v.active = Some(v.viewer);
+    v.turn.step = TurnStep::PrecombatMain;
+    v.turn.lands_played = 1;
+    let me = v.players.iter_mut().find(|p| p.player == v.viewer).unwrap();
+    me.mana.insert(Color::B, 1.into());
+    me.library_count = 10;
+    v.objects = vec![board::card(&c, "Greed", v.viewer.0, Zone::Battlefield)];
+    let activate = Action::ActivateAbility {
+        object: ObjectHandle("Greed".into()),
+        ability: 0,
+    };
+    let offered = |v: &PermittedView, actions: Vec<Action<Viewer>>| {
+        let mut o = observation(v.clone());
+        o.decision = Some(pick_fixture(
+            v.viewer,
+            Reason::Priority,
+            actions
+                .into_iter()
+                .map(|action| Candidate::Action { action })
+                .collect(),
+            vec![mtg_core::SlotRole::Choice],
+            vec![],
+        ));
+        o
+    };
+    assert_eq!(
+        strategy(&c)
+            .priority(&offered(&v, vec![Action::Pass, activate.clone()]))
+            .unwrap(),
+        activate
+    );
+    // Not offered: Develop passes instead of selecting it.
+    assert_eq!(
+        strategy(&c)
+            .priority(&offered(&v, vec![Action::Pass]))
+            .unwrap(),
+        Action::Pass
+    );
+    // Frozen life: no life payment even if a stale decision listed it.
+    v.players
+        .iter_mut()
+        .find(|p| p.player == v.viewer)
+        .unwrap()
+        .life_frozen_until_next_turn = true;
+    assert_eq!(
+        strategy(&c)
+            .priority(&offered(&v, vec![Action::Pass, activate.clone()]))
+            .unwrap(),
+        Action::Pass
+    );
+    assert_eq!(
+        strategy(&c).priority(&observation(v.clone())).unwrap(),
+        Action::Pass
+    );
+}

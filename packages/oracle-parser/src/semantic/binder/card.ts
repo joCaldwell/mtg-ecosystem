@@ -70,6 +70,7 @@ export function analyzeCardBindings(input: CardBindingInput): CardBindingAnalysi
       analyzer.diagnostic("face-mismatch", path, "The parsed face name does not match source metadata.", []);
       continue;
     }
+    result.abilities.forEach((ability, abilityIndex) => analyzer.abilityAsts.set(child(child(path, "abilities"), abilityIndex), ability));
     result.abilities.forEach((ability, abilityIndex) => analyzer.ability(ability,
       child(child(path, "abilities"), abilityIndex), face, source, faces.length === 1 ? result.abilities : undefined));
   }

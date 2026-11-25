@@ -204,6 +204,22 @@ impl RulesTxn {
         {
             return Ok(AnnouncementPayment::Unpayable);
         }
+        // CR 602.2b: a sacrifice cost that also taps its source needs that
+        // source untapped under its controller when the cost is paid.
+        let tap_with_sacrifice = match stack.kind {
+            StackKind::Activated { ability, .. } => matches!(
+                self.copiable_definition(stack.source)?.activated[ability as usize].cost,
+                ActivationCost::SacrificePermanent { tap: true, .. }
+            ),
+            _ => false,
+        };
+        if tap_with_sacrifice
+            && !self.current(stack.source).is_ok_and(|o| {
+                o.present_on_battlefield() && o.controller == stack.controller && !o.tapped
+            })
+        {
+            return Ok(AnnouncementPayment::Unpayable);
+        }
         let life = phyrexian_life(&stack.hybrid_colors);
         if !self.state.rules.players[stack.controller.0 as usize].can_pay_life(&life)
             || !self.can_pay_announced(&stack, &cost)?
@@ -278,6 +294,20 @@ impl RulesTxn {
                 stack.source,
                 stack.controller,
                 &costs,
+                BatchCause::AbilityActivation {
+                    stack_id: stack.id,
+                    player: stack.controller,
+                    source: stack.source,
+                    decision_id: self.state.rules.revision,
+                    ability,
+                },
+            )?;
+        }
+        if tap_with_sacrifice && let StackKind::Activated { ability, .. } = stack.kind {
+            self.commit(
+                ProposedEvent::Tap {
+                    object: stack.source,
+                },
                 BatchCause::AbilityActivation {
                     stack_id: stack.id,
                     player: stack.controller,

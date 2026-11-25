@@ -234,6 +234,11 @@ impl RulesTxn {
                     Frame::Finished { .. } | Frame::Fault { .. }
                 ) && stack.paid.is_none()
                     && !self.is_spell_copy(stack)));
+            // CR 601.2c, 601.2f: targets are bound before the cost locks, so
+            // a locked entry keeps them even when the game ends unpaid.
+            if stack.cost_lock.is_some() && !self.announced_target_count_valid(program, stack) {
+                return Err("snapshot locked spell target invariant".into());
+            }
             if !incomplete_top
                 && (!self.announced_target_count_valid(program, stack)
                     || !self.stack_entry_complete(stack))
