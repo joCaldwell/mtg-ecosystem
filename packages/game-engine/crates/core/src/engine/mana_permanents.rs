@@ -387,7 +387,8 @@ impl RulesTxn {
             && self.copiable_definition(source).is_ok_and(|d| {
                 d.activated.get(ability as usize).is_some_and(|a| {
                     matches!(&a.cost,
-                ActivationCost::Composite { costs } if costs.tap || costs.sacrifice)
+                        ActivationCost::Composite { costs } if costs.tap || costs.sacrifice)
+                        || matches!(&a.cost, ActivationCost::ChooseObjects(cost) if cost.tap_source)
                 })
             })
         {

@@ -96,6 +96,8 @@ pub struct StackInstance {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sacrificed_set: Vec<ObjectId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(in crate::engine) chosen_payment: Vec<chosen_cost::PaidObject>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effect_source_handles: Vec<publish::StoredObjectHandle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_facts: Option<ObjectBefore>,

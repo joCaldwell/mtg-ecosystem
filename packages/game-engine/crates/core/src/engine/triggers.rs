@@ -1117,6 +1117,7 @@ impl RulesTxn {
                         death_controller: trigger.death_controller,
                         sacrificed: None,
                         sacrificed_set: vec![],
+                        chosen_payment: vec![],
                         effect_source_handles: vec![],
                         source_facts: Some(trigger.source_facts.clone()),
                         entity_targets: vec![],

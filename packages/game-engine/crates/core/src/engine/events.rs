@@ -2720,6 +2720,7 @@ impl RulesTxn {
                     .get_mut(&object.card)
                     .ok_or("missing untap object")?
                     .tapped = false;
+                self.mark_chosen_cost_untapped(*object);
                 EventOutcome::Untapped { object: *object }
             }
             ProposedEvent::ClearMana { player } => {

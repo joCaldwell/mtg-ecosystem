@@ -110,6 +110,7 @@ pub(super) fn funding(
                         ActivationCost::Mana { cost }
                         | ActivationCost::DiscardSource { mana: cost } => Some(cost),
                         ActivationCost::SacrificePermanent { mana, .. } => mana.as_ref(),
+                        ActivationCost::ChooseObjects(cost) => cost.mana.as_ref(),
                         ActivationCost::Composite { costs } if costs.tap || costs.sacrifice => {
                             return 2;
                         }
