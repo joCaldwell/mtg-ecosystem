@@ -24,6 +24,7 @@ pub(super) fn intrinsic_supply(
         .filter(|o| o.controller == view.viewer && o.zone == Zone::Battlefield && !o.phased_out)
     {
         if object.token.is_some()
+            || !object.granted_mana.is_empty()
             || catalog
                 .definition_by_oracle_id(&object.oracle_id)
                 .is_none_or(|d| !d.mana_abilities.is_empty())

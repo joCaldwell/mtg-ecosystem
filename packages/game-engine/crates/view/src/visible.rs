@@ -164,6 +164,10 @@ pub struct VisibleObject<H = ObjectHandle> {
     pub attachments: Vec<H>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<KeywordAbility>,
+    /// CR 113.10a, 613.1f: mana abilities battlefield statics grant this
+    /// permanent now, in timestamp order; public like its keywords.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub granted_mana: Vec<mtg_contracts::ManaAbility>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub restrictions: Vec<CreatureRestriction>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -194,6 +198,7 @@ impl<H> VisibleObject<H> {
             attached_to: self.attached_to.map(&mut convert),
             attachments: self.attachments.into_iter().map(&mut convert).collect(),
             keywords: self.keywords,
+            granted_mana: self.granted_mana,
             restrictions: self.restrictions,
             token: self.token,
             plus_one_counters: self.plus_one_counters,
@@ -624,12 +629,15 @@ pub enum PlayerStatus {
 pub enum GraveyardOrderOption {
     Regenerate,
 }
-/// The intrinsic ability for a basic land type or an index into this source's printed mana abilities.
+/// The intrinsic ability for a basic land type, an index into this source's
+/// printed mana abilities, or an index into the mana abilities battlefield
+/// statics grant it now (`VisibleObject::granted_mana`, CR 113.10a).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "ability", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ManaAbilityIdentity {
     Intrinsic { color: Color },
     Printed { index: u32 },
+    Granted { index: u32 },
 }
 
 #[derive(

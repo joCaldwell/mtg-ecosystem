@@ -10,10 +10,27 @@ fn gap(code: &str) -> Failure {
     unsupported("static", format!("static:{code}"))
 }
 
-pub(crate) fn lower_static(value: &serde_json::Value) -> Result<Vec<StaticAbility>, Failure> {
+/// The printed ability a quoted grant adds to each recipient (CR 113.10a).
+pub(crate) enum QuotedAbility {
+    Mana(ManaAbility),
+}
+
+/// The block-level lowerers a static's leaves need. The shared static
+/// dispatcher calls these hooks for leaves whose source semantics belong
+/// to another lowerer; a new leaf (for example an entry choice) adds a hook
+/// here rather than a branch in the composer.
+pub(crate) struct StaticSite<'a> {
+    /// Lowers the raw quoted ability at a grant leaf.
+    pub quoted: &'a dyn Fn(&serde_json::Value) -> Result<QuotedAbility, Failure>,
+}
+
+pub(crate) fn lower_static(
+    value: &serde_json::Value,
+    site: &StaticSite<'_>,
+) -> Result<Vec<StaticAbility>, Failure> {
     let effect = typed::<ast::StaticEffect>(value, "static")
         .map_err(|error| gap(&format!("ast:{}", error.reason)))?;
-    lower(&effect)
+    lower(&effect, value, site)
 }
 
 fn ability(functioning_zone: FunctioningZone, effect: StaticEffect) -> StaticAbility {
@@ -31,7 +48,11 @@ fn rule(
     ability(functioning_zone, StaticEffect::Rule { rule, condition })
 }
 
-fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
+fn lower(
+    effect: &ast::StaticEffect,
+    raw: &serde_json::Value,
+    site: &StaticSite<'_>,
+) -> Result<Vec<StaticAbility>, Failure> {
     use FunctioningZone::{Battlefield, Stack};
     use ast::StaticEffect as S;
     let one = match effect {
@@ -53,13 +74,13 @@ fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
             };
             ability(Battlefield, effect)
         }
-        S::Modify(x) => return modify(x),
+        S::Modify(x) => return modify(x, raw, site),
         S::Conditional(x) => {
             if x.otherwise.is_some() {
                 return Err(gap("conditional:otherwise"));
             }
             let guard = condition(&x.condition)?;
-            let mut abilities = lower(&x.effect)?;
+            let mut abilities = lower(&x.effect, &raw["effect"], site)?;
             for a in &mut abilities {
                 let condition = match &mut a.effect {
                     StaticEffect::Continuous { condition, .. }
@@ -81,8 +102,11 @@ fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
         }
         S::Group(x) if !x.effects.is_empty() => {
             let mut abilities = Vec::new();
-            for effect in &x.effects {
-                abilities.extend(lower(effect)?);
+            if raw_items(raw, "effects").count() != x.effects.len() {
+                return Err(gap("group:raw-shape"));
+            }
+            for (effect, raw) in x.effects.iter().zip(raw_items(raw, "effects")) {
+                abilities.extend(lower(effect, raw, site)?);
             }
             return Ok(abilities);
         }
@@ -258,6 +282,15 @@ fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
         S::CrewContribution(_) => return Err(gap("crew-contribution")),
     };
     Ok(vec![one])
+}
+
+/// The raw JSON items beside a typed array, in order; a missing array
+/// yields none, so a zip with the typed items stops at once.
+fn raw_items<'a>(
+    raw: &'a serde_json::Value,
+    field: &str,
+) -> impl Iterator<Item = &'a serde_json::Value> {
+    raw[field].as_array().into_iter().flatten()
 }
 
 fn scope(what: &ast::ObjectRef, spell: bool) -> Result<Scope, Failure> {
@@ -795,7 +828,11 @@ fn keyword(grant: &ast::GainedAbility) -> Result<KeywordAbility, Failure> {
     .map_err(|_| gap(&format!("keyword:{keyword}")))
 }
 
-fn modify(x: &ast::StaticEffectModify) -> Result<Vec<StaticAbility>, Failure> {
+fn modify(
+    x: &ast::StaticEffectModify,
+    raw: &serde_json::Value,
+    site: &StaticSite<'_>,
+) -> Result<Vec<StaticAbility>, Failure> {
     if x.condition_scope.is_some()
         || x.duration.is_some()
         || x.bindings.is_some()
@@ -822,8 +859,12 @@ fn modify(x: &ast::StaticEffectModify) -> Result<Vec<StaticAbility>, Failure> {
         };
     }
     use ast::StaticModifier as M;
-    for modifier in &x.modifiers {
-        changes.push(match modifier {
+    let raw_modifiers: Vec<_> = raw_items(raw, "modifiers").collect();
+    if raw_modifiers.len() != x.modifiers.len() {
+        return Err(gap("modifier:raw-shape"));
+    }
+    for (modifier, raw_modifier) in x.modifiers.iter().zip(raw_modifiers) {
+        let change = match modifier {
             M::Pt(m) => {
                 plain!(m);
                 Change::PowerToughness {
@@ -843,7 +884,27 @@ fn modify(x: &ast::StaticEffectModify) -> Result<Vec<StaticAbility>, Failure> {
             }
             M::Abilities(m) => {
                 plain!(m);
-                let keywords = m.abilities.iter().map(keyword).collect::<Result<_, _>>()?;
+                // CR 113.10, 613.1f: one layer-6 effect may add keywords and
+                // quoted abilities; each kind is its own change.
+                let raw_abilities: Vec<_> = raw_items(raw_modifier, "abilities").collect();
+                if raw_abilities.len() != m.abilities.len() {
+                    return Err(gap("modifier:raw-shape"));
+                }
+                let (mut keywords, mut mana) = (Vec::new(), Vec::new());
+                for (grant, raw_grant) in m.abilities.iter().zip(raw_abilities) {
+                    match grant {
+                        ast::GainedAbility::Quoted(_) => match (site.quoted)(&raw_grant["ability"])? {
+                            QuotedAbility::Mana(ability) => mana.push(ability),
+                        },
+                        other => keywords.push(keyword(other)?),
+                    }
+                }
+                if !mana.is_empty() {
+                    changes.push(Change::AddManaAbilities { abilities: mana });
+                }
+                if keywords.is_empty() {
+                    continue;
+                }
                 Change::AddKeywords { keywords }
             }
             M::Colors(m) => {
@@ -905,7 +966,8 @@ fn modify(x: &ast::StaticEffectModify) -> Result<Vec<StaticAbility>, Failure> {
                 continue;
             }
             other => return Err(gap(&format!("modifier:{}", variant(other)))),
-        });
+        };
+        changes.push(change);
     }
     if !rules.is_empty() && changes.iter().any(|c| c.layer() <= kir::Layer::Color) {
         return Err(gap("modifier:mixed-selection-layer"));

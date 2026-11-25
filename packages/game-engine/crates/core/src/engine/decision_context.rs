@@ -53,10 +53,34 @@ impl RulesTxn {
             return None;
         }
         let definition = self.copiable_definition(object).ok()?;
+        let granted = self.granted_mana_abilities(object);
+        if kind == DecisionSourceKind::ManaAbility
+            && !granted.is_empty()
+            && (ability.is_none() || definition.mana_abilities.is_empty())
+        {
+            // CR 113.10a: a granted ability is described by the static line
+            // that grants it, after the source's own text.
+            let own = definition
+                .source_labels
+                .as_ref()
+                .map(|labels| labels.text.clone())
+                .filter(|text| !text.is_empty());
+            let lines = granted
+                .iter()
+                .map(|(grantor, a)| self.granted_mana_line(*grantor, a))
+                .collect::<Option<Vec<_>>>()?;
+            return Some(DecisionSource {
+                kind,
+                oracle_id: self.visible_ability_oracle_id(object).ok()?.into(),
+                object: Some(self.handle_for(viewer, object).ok()?),
+                ability: None,
+                text: own.into_iter().chain(lines).collect::<Vec<_>>().join("\n"),
+            });
+        }
         if kind == DecisionSourceKind::ManaAbility && definition.mana_abilities.is_empty() {
             // Use precisely the runtime's intrinsic CR 305.6 production query.
             // Never describe a permanent ability as intrinsic when its labels are missing.
-            let colors = self.mana_abilities(object).ok()?;
+            let colors = self.intrinsic_mana_colors(object).ok()?;
             if colors.is_empty() {
                 return None;
             }
@@ -98,6 +122,19 @@ impl RulesTxn {
             ability,
             text,
         })
+    }
+    /// The granting static's printed line, named by its source.
+    fn granted_mana_line(&self, grantor: ObjectId, ability: &ManaAbility) -> Option<String> {
+        let definition = self.copiable_definition(grantor).ok()?;
+        let labels = definition.source_labels.as_ref()?;
+        let index = definition.static_abilities.iter().position(|s| {
+            matches!(&s.effect, StaticEffect::Continuous { changes, .. }
+                if changes.iter().any(|c| matches!(c,
+                    mtg_contracts::kir::Change::AddManaAbilities { abilities }
+                        if abilities.iter().any(|a| std::ptr::eq(a, ability)))))
+        })?;
+        let line = labels.blocks.get(*labels.statics.get(index)? as usize)?;
+        Some(format!("Granted by {}: {line}", definition.name))
     }
     fn stack_description(&self, viewer: PlayerId, entry: &StackInstance) -> Option<DecisionSource> {
         let (kind, ability) = match entry.kind {
@@ -179,7 +216,15 @@ impl RulesTxn {
                     "Activate ability".into()
                 }
                 Action::ActivateMana { object } => {
-                    source = describe(object, DecisionSourceKind::ManaAbility, Some(0));
+                    // A source with granted abilities is described whole.
+                    let granted = self
+                        .resolve_handle(viewer, object)
+                        .is_ok_and(|id| !self.granted_mana_abilities(id).is_empty());
+                    source = describe(
+                        object,
+                        DecisionSourceKind::ManaAbility,
+                        (!granted).then_some(0),
+                    );
                     "Activate mana ability".into()
                 }
             },
@@ -207,6 +252,9 @@ impl RulesTxn {
             Candidate::ManaAbility { ability } => match ability {
                 ManaAbilityIdentity::Intrinsic { color } => format!("Add {{{color:?}}}"),
                 ManaAbilityIdentity::Printed { index } => format!("Mana ability {}", index + 1),
+                ManaAbilityIdentity::Granted { index } => {
+                    format!("Granted mana ability {}", index + 1)
+                }
             },
             Candidate::AdditionalCost { id, .. } => id.clone(),
             Candidate::Modes { labels, .. } => labels.join(" / "),
@@ -282,7 +330,7 @@ impl RulesTxn {
                         viewer,
                         activation.source,
                         DecisionSourceKind::ManaAbility,
-                        Some(0),
+                        activation.printed_index(),
                     )
                     .map(|source| DecisionContext {
                         source: Some(source),

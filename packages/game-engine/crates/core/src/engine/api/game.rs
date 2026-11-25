@@ -315,7 +315,7 @@ impl RulesTxn {
         let mut colors = self.intrinsic_mana_colors(object)?;
         let mixed = !colors.is_empty();
         if o.zone == Zone::Battlefield {
-            for ability in &self.copiable_definition(object)?.mana_abilities {
+            for (_, ability) in self.current_mana_abilities(object)? {
                 for color in self.mana_colors(o.controller, &ability.production)? {
                     if !mixed || !colors.contains(&color) {
                         colors.push(color);

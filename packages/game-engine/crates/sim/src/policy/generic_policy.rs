@@ -1041,6 +1041,7 @@ impl Strategy<'_> {
                     .map(|d| {
                         d.mana_abilities
                             .iter()
+                            .chain(&o.granted_mana)
                             .map(|a| match &a.production {
                                 mtg_contracts::ManaProduction::Fixed { symbols } => symbols.len(),
                                 mtg_contracts::ManaProduction::Choose { amount, .. } => {

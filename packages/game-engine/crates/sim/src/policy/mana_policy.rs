@@ -219,7 +219,8 @@ fn could_produce_table(
             .iter()
             .filter_map(|s| basic_land_color(s))
             .collect();
-        for ability in &d.mana_abilities {
+        // CR 106.7, 113.10a: granted abilities are abilities the land has.
+        for ability in d.mana_abilities.iter().chain(&o.granted_mana) {
             match &ability.production {
                 ManaProduction::LandsCouldProduce {
                     controller,
@@ -302,7 +303,13 @@ pub(super) fn plan_for(
             .find(|p| p.player == view.viewer)
             .map(|p| p.life.clone())
             .unwrap_or_default();
-        for (index, ability) in d.mana_abilities.iter().enumerate() {
+        let printed = d.mana_abilities.iter().enumerate().map(|(index, a)| {
+            (ManaAbilityIdentity::Printed { index: index as u32 }, a)
+        });
+        let granted = o.granted_mana.iter().enumerate().map(|(index, a)| {
+            (ManaAbilityIdentity::Granted { index: index as u32 }, a)
+        });
+        for (identity, ability) in printed.chain(granted) {
             if !usable_printed(ability, o, &life) {
                 continue;
             }
@@ -312,9 +319,7 @@ pub(super) fn plan_for(
             }
             sources.push(Source {
                 object_index,
-                ability: ManaAbilityIdentity::Printed {
-                    index: index as u32,
-                },
+                ability: identity,
                 handle: &o.handle,
                 amount: match &ability.production {
                     ManaProduction::Choose { amount, .. } => amount.clone(),
@@ -440,6 +445,7 @@ mod tests {
             attached_to: None,
             attachments: vec![],
             keywords: vec![],
+            granted_mana: vec![],
             restrictions: vec![],
             token: None,
             plus_one_counters: 0.into(),

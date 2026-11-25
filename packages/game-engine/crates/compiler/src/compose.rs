@@ -145,6 +145,45 @@ enum Part {
     Departure(SpellProgram),
 }
 
+/// CR 113.10a, 605.1a: a quoted ability a static grants. The admitted form
+/// is a complete mana ability with no activation instructions; its "you"
+/// and its tap cost name the recipient (the archive binds them to the
+/// quoted ability's own scope), so no card-specific source predicate
+/// applies. Any other quoted form rejects by name.
+fn quoted_ability(
+    raw: &serde_json::Value,
+    block: usize,
+    kind: CardKind,
+) -> Result<QuotedAbility, Failure> {
+    let quoted = || unsupported("static", "static:modifier:grant:quoted");
+    let Ok(Block::Activated {
+        restriction: None,
+        ability_word: None,
+        costs,
+        effects,
+    }) = serde_json::from_value::<Block>(raw.clone())
+    else {
+        return Err(quoted());
+    };
+    if modal::declared(&effects) {
+        return Err(quoted());
+    }
+    let peeled = control::peel(&effects)?;
+    if !peeled.is_plain() {
+        return Err(quoted());
+    }
+    let typed: Vec<Sentence> = parts(&peeled.sentences)?
+        .into_iter()
+        .map(|p| match p {
+            Part::Typed(s) => Ok(s),
+            Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => Err(quoted()),
+        })
+        .collect::<Result<_, _>>()?;
+    let mana = lower_mana_ability(&costs, &typed, None, block, kind, &|_| false)?
+        .ok_or_else(quoted)?;
+    Ok(QuotedAbility::Mana(mana))
+}
+
 fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
     effects
         .iter()
@@ -835,7 +874,8 @@ fn compose_face(
                     effect,
                 } => {
                     ability_word(&word, &result.lines[block].text)?;
-                    let abilities = lower_static(&effect)?;
+                    let quoted = |raw: &serde_json::Value| quoted_ability(raw, block, kind);
+                    let abilities = lower_static(&effect, &StaticSite { quoted: &quoted })?;
                     labels.statics.extend(abilities.iter().map(|_| label));
                     definition.static_abilities.extend(abilities);
                 }
