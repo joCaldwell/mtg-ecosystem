@@ -40,14 +40,20 @@ impl RulesTxn {
     // CR 305.1-3: playing a land is a special action during the active
     // player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    pub(crate) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
-        self.validate_land_play_in_frame(player, card, &self.state.rules.frame)
+    pub(crate) fn validate_land_face(
+        &self,
+        player: PlayerId,
+        card: CardId,
+        face: CardFace,
+    ) -> Result<(), String> {
+        self.validate_land_play_in_frame(player, card, face, &self.state.rules.frame)
     }
 
     pub(super) fn validate_land_play_in_frame(
         &self,
         player: PlayerId,
         card: CardId,
+        face: CardFace,
         frame: &Frame,
     ) -> Result<(), String> {
         if !self.main_phase_action_in_frame(player, frame) {
@@ -62,7 +68,7 @@ impl RulesTxn {
             .objects
             .get(&card)
             .ok_or("invalid land source")?;
-        let definition = self.definition(card)?;
+        let definition = self.face_definition(card, face)?;
         if definition.characteristics.kind != CardKind::Land
             || !definition.capabilities.contains(&Capability::LandPlayV1)
             || self.state.rules.cards[&card].owner != player
@@ -78,8 +84,9 @@ impl RulesTxn {
         player: PlayerId,
         decision_id: u64,
         card: CardId,
+        face: CardFace,
     ) -> Result<(), String> {
-        self.validate_land_play(player, card)?;
+        self.validate_land_face(player, card, face)?;
         let object = self.object_id(card).ok_or("missing land source")?;
         self.begin_battlefield_entry(
             object,
@@ -87,6 +94,7 @@ impl RulesTxn {
                 player,
                 decision_id,
                 source: object,
+                face,
             },
             Frame::Priority,
             false,

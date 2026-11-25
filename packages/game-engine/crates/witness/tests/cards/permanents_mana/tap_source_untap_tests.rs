@@ -212,6 +212,7 @@ fn announce(g: &mut Game, q: u64, target: ObjectId) {
         g,
         &r,
         g.next_test_decision().targets(vec![ObjectId {
+            face: Default::default(),
             card: CardId(999),
             incarnation: 0,
         }]),

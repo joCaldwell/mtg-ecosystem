@@ -121,6 +121,40 @@ later submissions. Public revisions change only with permitted information.
 Real restore rejects sampled origins. [Search](game-engine-search.md) separately
 proves hypothetical origin and reconstruction.
 
+## Modal double-faced cards
+
+The layout allowlist admits Scryfall `normal` and `modal_dfc`. For an MDFC, Archive
+R4 must supply two ordered source faces with matching parses and complete
+resolution. Each face passes the ordinary shell and block checks independently
+and the compiled card requires every capability of both faces. The card keeps
+one physical identity and the frozen color identity across both faces
+(CR 903.4d). Deck construction and commander eligibility use the front face's
+characteristics (CR 712.8a, 903.3).
+
+Each legal face is a separate priority action. Casting checks timing, targets
+and costs for the selected spell face from hand or the command zone
+(CR 712.11b–c, 903.8). A land selection uses the normal land-play allowance and
+the chosen face's entry rules (CR 712.12). On the stack and battlefield the
+selected face supplies all characteristics and abilities, including mana value
+from that face's cost (CR 202.3, 712.8f). A resolving permanent spell keeps its
+cast face (CR 712.13). A card otherwise entering the battlefield uses its front
+face, and cards in hand, library, graveyard, exile or command use front
+characteristics (CR 712.8a, 712.14). Zone changes still create fresh
+incarnations. A stale ability source retains the face its incarnation had.
+
+A viewer with permission to identify the card can see both face names and the
+active face. Hidden hands and libraries expose neither face without existing
+look or reveal permission (CR 712.6–7). A pending land-entry payment names the
+chosen face and its life cost in the acting player's decision context, including
+after restore. The card in hand keeps its front characteristics. Back-face
+state is invalid for single-faced cards, outside stack or battlefield, on a
+land spell, or on an instant or sorcery permanent.
+
+Modal double-faced support is provisional at the `Executes` tier. Transform
+and convert abilities, flashback on an MDFC, and other layouts including
+transforming cards, Adventures, split cards, flip, meld and prototype remain
+outside admission. The layout rejection identifies the archived layout.
+
 <a id="commander-movement-and-hidden-libraries"></a>
 
 ## Commander and hidden information
@@ -595,41 +629,35 @@ source and token identity, including after the token ceases to exist.
 
 ### Keyword actions and counters
 
-Investigate creates one predefined Clue through the ordinary token entry path
-(CR 701.16a, 111.10f). Its controller can activate the printed draw ability
-by paying two mana and sacrificing it.
+Investigate creates a predefined Clue (CR 701.16a, 111.10f). Paying two mana
+and sacrificing it activates its draw ability.
 
-Populate reads controlled creature tokens at resolution, including a token
-created by an earlier instruction of the same spell. It creates one token
-with the selected token's immutable copiable values (CR 701.36, 707.2).
-Counters, damage, status, and temporary characteristic changes stay on the
-original. The new token enters under the resolving controller and can cause
-entry triggers. Its saved identity binds the creating source and an earlier
-physical token. Restore reconstructs the copy from that token's definition,
-including after the original ceases to exist.
+Populate chooses a controlled creature token at resolution, including one
+created earlier in the same invocation (CR 701.36). The copy enters under
+the chooser's control with the original token's copiable values (CR 707.2).
+Counters, damage, status and temporary characteristics stay on the original.
+Restore authenticates the copy's definition against the earlier token's
+retained identity, including after that token ceases to exist.
 
-Proliferate offers any number of present permanents and living players with
-counters. The choice bypasses targeting restrictions. One simultaneous placement adds one of
-each kind already on each chosen recipient (CR 701.34a, 122.6). The audited
-inventory consists of +1/+1 counters on permanents and poison and energy on
-players. Fixed printed poison and energy awards to the controller or each
-opponent use the same placement transaction. Counts use exact nonnegative
-quantities, and a player with ten or more poison counters loses when
-state-based actions are checked (CR 704.5c). Resolution choices rederive
-eligible recipients and restore checks the accepted answer against them.
-Other counter kinds, counter movement, and costs paid with energy require
-their own audited cells.
+Proliferate chooses any number of present permanents and living players with
+counters, bypassing targeting restrictions (CR 701.34a). One placement adds
+one of each existing kind simultaneously. The audited kinds are +1/+1 on
+permanents and poison and energy on players. Fixed poison and energy awards
+to the controller or each opponent use the same placement. Counts are exact
+nonnegative quantities. A player with at least ten poison counters loses
+at the next state-based check (CR 704.5c). Restore checks each accepted choice
+against the eligible recipients. Counter movement and energy costs require
+further admission.
 
-Fight reads the exact two battlefield creatures and their current powers when
-performed. One noncombat damage transaction handles both directions, with one
-double-power occurrence for self-fight (CR 701.14). An absent, noncreature,
-or illegal targeted participant prevents the entire fight. Each target slot
-has its own announcement and resolution predicate. Source-relative fights and
-a preceding same-block creature pump or counter placement can supply a fighter.
-Dependent "another target" restrictions require further admission.
+Fight reads both exact battlefield creatures and their current powers.
+A single noncombat damage transaction handles both directions, including
+double power in self-fight (CR 701.14). An absent, noncreature or illegal
+targeted participant prevents the fight. Each target slot has its own
+predicate. A source or the target of an immediately preceding same-block
+creature pump or counter placement can supply a fighter. Dependent "another
+target" restrictions require further admission.
 
-The new fight, player counter, populate and proliferate cells earn
-`Executes`. Investigate earns the predefined artifact token tier.
+These cells earn `Executes`. Investigate uses the predefined token cell.
 
 ### Continuous permanent control
 
@@ -919,7 +947,7 @@ the derived decisions equal the capability lists they replaced.
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
-| Card shell | A single-face normal card with a fixed, X or hybrid/Phyrexian spell cost and complete bound source, with the [cost keywords](#cost-keywords-and-variable-costs) above. Unsupported shells and keywords reject. |
+| Card shell | Normal cards and [modal double-faced cards](#modal-double-faced-cards) whose faces have complete bound source and supported spell costs and keywords. |
 
 Sentences resolve in printed order (CR 608.2c). A pronoun must be bound by the
 archive to a target of its own block or to an earlier step of that block;

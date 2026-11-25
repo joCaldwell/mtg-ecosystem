@@ -191,6 +191,7 @@ pub(super) struct ProjectionCache {
 type ObjectCores = std::cell::RefCell<Arc<BTreeMap<ObjectId, Arc<ObjectCore>>>>;
 #[derive(Clone)]
 struct ObjectCore {
+    modal_faces: Option<VisibleModalFaces>,
     keywords: Vec<KeywordAbility>,
     restrictions: Vec<CreatureRestriction>,
     token: Option<VisibleToken>,
@@ -643,6 +644,11 @@ impl RulesTxn {
         if let Some(link) = &object.hideaway {
             return Ok(VisibleObject {
                 entered_this_turn: false,
+                modal_faces: if self.is_live(viewer) && link.may_look(viewer) {
+                    self.visible_modal_faces(object.id)?
+                } else {
+                    None
+                },
                 face_down: true,
                 exiled_by: Some(H::from(link.source_handle(viewer))),
                 oracle_id: if self.is_live(viewer) && link.may_look(viewer) {
@@ -693,6 +699,7 @@ impl RulesTxn {
         // Same position as the unshared projection: after this viewer's
         // attachment handles and before its own handle.
         let ObjectCore {
+            modal_faces,
             keywords,
             restrictions,
             token,
@@ -712,6 +719,7 @@ impl RulesTxn {
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
+            modal_faces,
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
@@ -746,6 +754,18 @@ impl RulesTxn {
             tapped: object.tapped,
         })
     }
+    fn visible_modal_faces(&self, object: ObjectId) -> Result<Option<VisibleModalFaces>, String> {
+        let definition = self.definition(object.card)?;
+        Ok(definition
+            .modal_back
+            .as_ref()
+            .map(|back| VisibleModalFaces {
+                front_name: definition.name.clone(),
+                back_name: back.name.clone(),
+                active_face: object.face,
+            }))
+    }
+
     // Rows of a visible, face-up object that no viewer's handles enter, in the
     // projection's evaluation order. Rules-only: publication changes player
     // knowledge between viewers, never an input of these derivations.
@@ -756,6 +776,7 @@ impl RulesTxn {
     ) -> Result<ObjectCore, String> {
         let static_sources = index.map(|index| index.static_sources.as_slice());
         Ok(ObjectCore {
+            modal_faces: self.visible_modal_faces(object.id)?,
             keywords: if object.zone == Zone::Battlefield {
                 let keywords = self.current_keywords_with_sources(object.id, static_sources);
                 if self.target_is_creature(object.id) {
@@ -948,11 +969,11 @@ impl RulesTxn {
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),
-            mana_value: instance
-                .x
-                .as_ref()
-                .map(|_| self.stack_mana_value(instance))
-                .transpose()?,
+            mana_value: (instance.kind.is_spell()
+                && (instance.x.is_some()
+                    || self.definition(instance.source.card)?.modal_back.is_some()))
+            .then(|| self.stack_mana_value(instance))
+            .transpose()?,
             triggered,
             entity_targets,
             handle: { Some(H::from(self.stack_handle_id(viewer, instance.id)?)) },

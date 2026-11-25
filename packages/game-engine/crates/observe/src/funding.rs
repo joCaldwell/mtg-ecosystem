@@ -68,7 +68,7 @@ pub(super) fn funding(
                 return 2;
             };
             let h = match action {
-                Action::Cast { card } => card,
+                Action::Cast { card } | Action::CastBackFace { card } => card,
                 Action::ActivateAbility { object, .. } => object,
                 _ => return 1,
             };
@@ -78,6 +78,11 @@ pub(super) fn funding(
             let Some(def) = c.definition_by_oracle_id(&obj.oracle_id) else {
                 return 2;
             };
+            // Alternate-face costs are handled by the exact rules decision.
+            // This advisory filter has no review for modal double-faced cards.
+            if def.modal_back.is_some() {
+                return 2;
+            }
             let (cost, hybrid) = match action {
                 Action::Cast { .. } => {
                     if c.reduces_cost(&obj.oracle_id)

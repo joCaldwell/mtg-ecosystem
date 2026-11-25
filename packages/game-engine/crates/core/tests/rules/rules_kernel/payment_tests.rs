@@ -32,6 +32,7 @@ fn announce(game: &mut Game, player: u8) {
         game,
         player,
         game.next_test_decision().targets(vec![ObjectId {
+            face: Default::default(),
             card: CardId(2),
             incarnation: 0,
         }]),
@@ -279,6 +280,7 @@ fn mana_stage_rejects_opponents_pass_cast_and_stale_or_repeated_activations_atom
         (
             PlayerId(0),
             game.next_test_decision().activate_mana(ObjectId {
+                face: Default::default(),
                 card: land(0),
                 incarnation: 1,
             }),
@@ -430,6 +432,7 @@ fn complete_paid_cast_with_departed_target(game: &mut Game, announced: StackInst
     assert_eq!(
         announced.targets,
         vec![ObjectId {
+            face: Default::default(),
             card: CardId(2),
             incarnation: 0,
         }]

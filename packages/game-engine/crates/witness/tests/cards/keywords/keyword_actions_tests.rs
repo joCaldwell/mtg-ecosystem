@@ -163,6 +163,7 @@ fn fight_game(spell: &str, record: &str, escape: bool) -> Game {
         (spell, 0, true),
         ("Forest", 0, false),
         ("Forest", 0, false),
+        ("Forest", 0, false),
         ("Grizzly Bears", 0, false),
         ("Grizzly Bears", 1, false),
     ] {
@@ -209,6 +210,25 @@ fn fight_both_creatures_deal_damage_and_both_die() {
     let mut game = fight_game("Prey Upon", PREY_UPON, false);
     let (mine, theirs) = announce_fight(&mut game, "Prey Upon");
     pay(&mut game, 0, &["Forest"]);
+    empty_stack(&mut game);
+    for object in [mine, theirs] {
+        assert!(matches!(
+            game.state.rules.objects[&object.card].zone,
+            Zone::Graveyard { .. }
+        ));
+    }
+    checked(&game);
+}
+
+#[test]
+fn fight_resolves_on_the_front_of_a_modal_double_faced_card() {
+    let mut game = fight_game(
+        "Khalni Ambush",
+        record!("37a55560-6e32-4f54-b9a8-fd157aea6eb5"),
+        false,
+    );
+    let (mine, theirs) = announce_fight(&mut game, "Khalni Ambush");
+    pay(&mut game, 0, &["Forest", "Forest", "Forest"]);
     empty_stack(&mut game);
     for object in [mine, theirs] {
         assert!(matches!(
@@ -381,6 +401,13 @@ fn populate_copies_the_chosen_token_including_flying_without_temporary_stats() {
         |state| {
             state["tokens"][copied.card.0.to_string()]["spec"]["original"]["card"] =
                 copied.card.0.into();
+        },
+        "token copy provenance",
+    );
+    reject(
+        &game,
+        |state| {
+            state["tokens"][copied.card.0.to_string()]["spec"]["original"]["face"] = "back".into();
         },
         "token copy provenance",
     );

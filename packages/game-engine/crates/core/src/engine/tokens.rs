@@ -115,6 +115,7 @@ fn token_copy_definition(original: &Definition, id: CardId) -> Definition {
 
 fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> Definition {
     let mut d = source.clone();
+    d.modal_back = None;
     d.oracle_id = format!("token:{}", id.0);
     d.name = format!("{} Token", token.subtypes.join(" "));
     d.characteristics = token.characteristics();
@@ -231,6 +232,7 @@ impl RulesTxn {
         identity: TokenIdentity,
     ) -> ObjectId {
         let id = ObjectId {
+            face: CardFace::Front,
             card,
             incarnation: 0,
         };
@@ -566,6 +568,7 @@ impl RulesTxn {
                         .get(&original.card)
                         .ok_or("snapshot copied token has no original")?;
                     if original.card.0 >= id.0
+                        || original.face != CardFace::Front
                         || original.incarnation != u32::from(prior.is_copy())
                         || !self.historical_creature_possible(&prior.definition.characteristics)
                         || self.state.rules.tokens.contains_key(&t.source.card)

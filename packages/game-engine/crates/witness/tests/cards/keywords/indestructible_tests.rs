@@ -334,6 +334,7 @@ fn indestructible_typed_nonlethal_deathtouch_lifelink_and_atomic_fault_control()
     let before = g.state.clone();
     let trace = g.trace().clone();
     let bad = ObjectId {
+        face: Default::default(),
         card: myr.card,
         incarnation: myr.incarnation + 1,
     };

@@ -97,12 +97,12 @@ impl RulesTxn {
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(crate) fn casting_cost(
         &self,
-        card: CardId,
+        source: ObjectId,
         caster: PlayerId,
         from: Zone,
     ) -> Result<ManaCost, String> {
-        let lock = self.cost_lock_inputs(card, caster, from)?;
-        self.construct_spell_cost(card, from, None, &[], None, &lock)
+        let lock = self.cost_lock_inputs(source, caster, from)?;
+        self.construct_spell_cost(source, from, None, &[], None, &lock)
     }
 
     // CR 903.9a / 704.3: consume a fresh graveyard/exile incarnation's next

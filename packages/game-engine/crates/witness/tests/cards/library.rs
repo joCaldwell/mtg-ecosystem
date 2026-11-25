@@ -1112,6 +1112,7 @@ fn departed_scry_two_rejects_two_incarnations_of_one_card() {
     let swamp = Driver::object(&g, 3);
     assert_eq!(looked, vec![swamp, Driver::object(&g, 4)]);
     let later = ObjectId {
+        face: Default::default(),
         card: swamp.card,
         incarnation: swamp.incarnation + 1,
     };

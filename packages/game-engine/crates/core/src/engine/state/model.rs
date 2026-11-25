@@ -7,6 +7,8 @@ use crate::engine::*;
 pub struct ObjectId {
     pub card: CardId,
     pub incarnation: u32,
+    #[serde(default, skip_serializing_if = "CardFace::is_front")]
+    pub face: CardFace,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

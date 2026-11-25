@@ -39,6 +39,7 @@ fn cast(game: &mut Game, player: u8, pay: bool) {
         game,
         player,
         game.next_test_decision().targets(vec![ObjectId {
+            face: Default::default(),
             card: CardId(2),
             incarnation: 0,
         }]),
@@ -256,6 +257,7 @@ fn lower_source_departure_preserves_top_announcement_payment_and_resolution() {
         };
         {
             let selected_answer = game.next_test_decision().activate_mana(ObjectId {
+                face: Default::default(),
                 card: land(1),
                 incarnation: 0,
             });
@@ -269,6 +271,7 @@ fn lower_source_departure_preserves_top_announcement_payment_and_resolution() {
         if boundary > 0 {
             {
                 let selected_answer = game.next_test_decision().targets(vec![ObjectId {
+                    face: Default::default(),
                     card: CardId(2),
                     incarnation: 0,
                 }]);
@@ -343,6 +346,7 @@ fn reversing_after_departure_filters_saved_passes_and_removes_only_its_source() 
     };
     {
         let selected_answer = game.next_test_decision().targets(vec![ObjectId {
+            face: Default::default(),
             card: CardId(2),
             incarnation: 0,
         }]);
@@ -599,6 +603,7 @@ fn each_lower_entry_is_validated_against_its_own_program() {
     };
     {
         let selected_answer = game.next_test_decision().activate_mana(ObjectId {
+            face: Default::default(),
             card: land(1),
             incarnation: 0,
         });
@@ -611,6 +616,7 @@ fn each_lower_entry_is_validated_against_its_own_program() {
     {
         let selected_answer = game.next_test_decision().targets(vec![
             ObjectId {
+                face: Default::default(),
                 card: CardId(2),
                 incarnation: 0
             };

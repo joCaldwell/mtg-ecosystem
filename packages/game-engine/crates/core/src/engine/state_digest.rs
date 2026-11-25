@@ -330,6 +330,7 @@ mod tests {
                 activated_ability: None,
                 stack_id: StackId(3),
                 source: ObjectId {
+                    face: Default::default(),
                     card: CardId(0),
                     incarnation: 0,
                 },

@@ -434,10 +434,10 @@ impl RulesTxn {
 
     /// CR 303.4a: check whether a departed host could have been legal.
     /// Replay authenticates the selected host and its layered types.
-    fn historical_host_compatible(&self, aura: CardId, host: CardId) -> Result<bool, String> {
-        let printed = &self.definition(host)?.characteristics;
+    fn historical_host_compatible(&self, aura: ObjectId, host: ObjectId) -> Result<bool, String> {
+        let printed = &self.copiable_definition(host)?.characteristics;
         Ok(self
-            .definition(aura)?
+            .copiable_definition(aura)?
             .spell
             .as_ref()
             .and_then(|spell| spell.targets.first())
@@ -513,7 +513,7 @@ impl RulesTxn {
                             .cards
                             .get(&host.card)
                             .is_some_and(|card| !self.is_live(card.owner))
-                            && self.historical_host_compatible(object.card, host.card)?
+                            && self.historical_host_compatible(*object, *host)?
                     }
                 };
                 if !chosen {
@@ -613,7 +613,7 @@ impl RulesTxn {
                         .cards
                         .get(&host.card)
                         .is_some_and(|card| !self.is_live(card.owner))
-                        && self.historical_host_compatible(aura.card, host.card)?
+                        && self.historical_host_compatible(*aura, *host)?
                 }
             };
             if !chosen {

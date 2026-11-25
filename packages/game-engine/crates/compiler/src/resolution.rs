@@ -14,9 +14,10 @@ use crate::ast::{
 };
 use serde_json::Value;
 
-/// The verified resolution of a single-face record's blocks.
+/// The verified resolution of a card, with a selected face's printed blocks.
 pub(super) struct Resolution {
     card: CardResolution,
+    face: usize,
 }
 
 impl Resolution {
@@ -45,18 +46,35 @@ impl Resolution {
                 "completeness disagrees with residuals",
             ));
         }
-        Ok(Self { card })
+        Ok(Self { card, face: 0 })
     }
 
-    /// The blocks of the one parsed face, in printed order.
+    pub(super) fn face_count(&self) -> usize {
+        self.card.faces.len()
+    }
+
+    pub(super) fn select_face(&mut self, index: usize) -> Result<(), Failure> {
+        self.face = index;
+        self.blocks().map(|_| ())
+    }
+
+    pub(super) fn block_offset(&self) -> usize {
+        self.card.faces[..self.face]
+            .iter()
+            .filter_map(|face| face.blocks.as_ref())
+            .map(Vec::len)
+            .sum()
+    }
+
     fn blocks(&self) -> Result<&[BlockResolution], Failure> {
-        match self.card.faces.as_slice() {
-            [face] if face.source_face_index == 0 => face
-                .blocks
-                .as_deref()
-                .ok_or_else(|| unsupported("resolution", "face:unparsed")),
-            _ => Err(invalid("resolution", "expected exactly one resolved face")),
-        }
+        self.card
+            .faces
+            .get(self.face)
+            .filter(|face| face.source_face_index as usize == self.face)
+            .ok_or_else(|| invalid("resolution", "missing or unordered resolved face"))?
+            .blocks
+            .as_deref()
+            .ok_or_else(|| unsupported("resolution", "face:unparsed"))
     }
 
     /// Every reference resolved in the closed vocabulary, every step

@@ -646,6 +646,55 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
 /// Complete admission of a composed definition. Nothing here defers to a
 /// whole-card family, so a rejected row can never be reached another way.
 pub(crate) fn validate(d: &Definition) -> Result<(), String> {
+    let p = &d.provenance;
+    let source: serde_json::Value = strict_read(&p.source_json)?;
+    let abilities_json = match &d.modal_back {
+        Some(back) => format!("[{},{}]", p.abilities_json, back.provenance.abilities_json),
+        None => format!("[{}]", p.abilities_json),
+    };
+    if !accepted_provenance(&p.archive_manifest_sha256, &p.parser_sha256)
+        || sha256(p.source_json.as_bytes()) != p.source_sha256
+        || sha256(abilities_json.as_bytes()) != p.ast_sha256
+    {
+        return Err("invalid source/AST provenance".into());
+    }
+    if let Some(back) = &d.modal_back {
+        let printed = source["card_faces"]
+            .as_array()
+            .filter(|faces| faces.len() == 2)
+            .ok_or("modal double-faced definition requires two printed faces")?;
+        if source["layout"] != "modal_dfc"
+            || !back.composed
+            || back.modal_back.is_some()
+            || back.oracle_id != d.oracle_id
+            || back.characteristics.color_identity != d.characteristics.color_identity
+            || source["color_identity"]
+                != serde_json::to_value(&d.characteristics.color_identity)
+                    .map_err(|e| e.to_string())?
+            || [d, back].into_iter().zip(printed).any(|(face, source)| {
+                source["name"] != face.name
+                    || face.source_labels.is_none()
+                    || face.flashback.is_some()
+            })
+        {
+            return Err("unsupported or inconsistent modal double-faced definition".into());
+        }
+        let mut back_provenance = back.provenance.clone();
+        back_provenance.abilities_json.clone_from(&p.abilities_json);
+        if &back_provenance != p {
+            return Err("modal double-faced source provenance differs by face".into());
+        }
+        validate_face(d, &printed[0])?;
+        validate_face(back, &printed[1])
+    } else {
+        if source["layout"] == "modal_dfc" {
+            return Err("modal double-faced definition requires its back face".into());
+        }
+        validate_face(d, &source)
+    }
+}
+
+fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), String> {
     let c = &d.characteristics;
     if d.oracle_id.is_empty()
         || d.name.is_empty()
@@ -656,18 +705,8 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
     {
         return Err("invalid identity, characteristics, or capability closure".into());
     }
-    if !accepted_provenance(
-        &d.provenance.archive_manifest_sha256,
-        &d.provenance.parser_sha256,
-    ) || sha256(d.provenance.source_json.as_bytes()) != d.provenance.source_sha256
-        || sha256(format!("[{}]", d.provenance.abilities_json).as_bytes())
-            != d.provenance.ast_sha256
-    {
-        return Err("invalid source/AST provenance".into());
-    }
-    if let Some(labels) = &d.source_labels {
-        let source: serde_json::Value = strict_read(&d.provenance.source_json)?;
-        if source["oracle_text"].as_str() != Some(labels.text.as_str())
+    if let Some(labels) = &d.source_labels
+        && (source["oracle_text"].as_str() != Some(labels.text.as_str())
             || labels.blocks.iter().any(|s| s.is_empty())
             || labels
                 .activated
@@ -685,10 +724,9 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
                 .chain(d.triggered.iter().map(|a| &a.program))
                 .flat_map(|program| &program.instructions)
                 .any(|instruction| instruction.source_block() as usize >= labels.blocks.len())
-            || !labels.spell_modes.is_empty()
-        {
-            return Err("invalid source label provenance".into());
-        }
+            || !labels.spell_modes.is_empty())
+    {
+        return Err("invalid source label provenance".into());
     }
     surfaces(d)
 }
@@ -700,7 +738,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     let c = &d.characteristics;
     // Whole-card characteristics the composition tables do not describe
-    // reject: second faces, snow and Sagas. A spell's X and hybrid or
+    // reject, including snow and Sagas. A spell's X and hybrid or
     // Phyrexian symbols are announced while casting (CR 107.3, 107.4e-f,
     // 601.2b/f); a land has no mana cost to announce (CR 305.1).
     // CR 205.4: the basic supertype is admitted only on a land, whose shell
