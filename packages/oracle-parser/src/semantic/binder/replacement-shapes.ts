@@ -50,6 +50,52 @@ export function seeksLinkedExile(value: unknown, imprint: boolean): boolean {
     (imprint && value.relation === "event-result" && value.event === "exile" && value.scope === "contextual") ||
     Object.values(value).some(entry => seeksLinkedExile(entry, imprint));
 }
+const SINGLE = { amount: "fixed", value: 1 } as const;
+const AFFECTED_MOVE = { ref: "replacement-event-object", role: "affected" } as const;
+
+export function simpleExileBody(replace: ReplacementInstruction["replace"]) {
+  if (replace.replacement !== "effects") return;
+  const exile = replace.effects[0]?.steps[0];
+  if (exile?.effect === "exile" && isDeepStrictEqual(replace, {
+    replacement: "effects", effects: [{ steps: [{ effect: "exile", what: AFFECTED_MOVE }] }],
+  })) return exile;
+}
+
+/** CR 400.6, 614.1a: each proposed move has one object. Category
+ * alternatives such as "a card or token" describe that same object. */
+export function singleGraveyardExile(replacement: ReplacementInstruction) {
+  const { event, replace } = replacement;
+  if (event.event !== "move-zone" || event.what.ref !== "filter" ||
+      !isDeepStrictEqual(replacement, { event, replace, occurrence: "each" })) return;
+  const { what, to } = event;
+  if (!isDeepStrictEqual(what, { ref: "filter", filter: what.filter, count: SINGLE })) return;
+
+  const card = { cls: "card" };
+  const cardOrToken = { allOf: [{ anyOf: [card, { cls: "token" }] }] };
+  const spellCard = { cls: "card", allOf: [{ anyOf: [{ types: ["instant"] }, { types: ["sorcery"] }] }] };
+  const battlefield = isDeepStrictEqual(event, { event: "move-zone", what, to: { zone: "graveyard", owner: "any" } }) &&
+    isDeepStrictEqual(what.filter, { cls: "permanent" });
+  const anywhere = isDeepStrictEqual(event, { event: "move-zone", what, from: "anywhere", to }) &&
+    ([
+      { owner: "any", filters: [card, cardOrToken, spellCard] },
+      { owner: "your", filters: [card, cardOrToken] },
+      { owner: "an-opponent", filters: [card] },
+    ].some(({ owner, filters }) => isDeepStrictEqual(to, { zone: "graveyard", owner }) &&
+      filters.some(filter => isDeepStrictEqual(what.filter, filter))));
+  if (!battlefield && !anywhere) return;
+  const from = battlefield ? "battlefield" : "anywhere";
+  const exile = simpleExileBody(replace);
+  if (exile) return { event, from, exile } as const;
+  // A fixed void counter on the exiled object adds no participant.
+  if (from === "anywhere" && isDeepStrictEqual(to, { zone: "graveyard", owner: "an-opponent" }) &&
+      replace.replacement === "effects" && isDeepStrictEqual(replace, { replacement: "effects", effects: [{ steps: [{
+        effect: "exile", what: AFFECTED_MOVE, counters: [{ counter: { type: "void" }, count: SINGLE }],
+      }] }] })) {
+    const withCounter = replace.effects[0].steps[0];
+    if (withCounter.effect === "exile") return { event, from, exile: withCounter } as const;
+  }
+}
+
 /** A per-object move altered to exile, with only the supported follow-up shape. */
 export function exileReplacementParts(replacement: ReplacementInstruction) {
   const { event, replace } = replacement;
