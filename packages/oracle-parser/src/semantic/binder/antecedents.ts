@@ -395,22 +395,35 @@ export function poolPicks(this: Analyzer, scope: string, pool?: string): { id: s
       ? [{ id: node.id, path: node.path, pool: from.id, cardinality: node.cardinality }] : [];
   });
 }
+/** Every pick "from among" a pool or "one of them" the ability at `path` has
+ * attempted so far, bound or not: the instructions whose `fromAmong` or
+ * `pool` operand was walked. An unresolved pick still takes cards from its
+ * pool, so a remainder or pronoun cannot be proven past it. */
+function attemptedPicks(analyzer: Analyzer, path: string): string[] {
+  const root = /^(.*\/abilities\/\d+)\//.exec(path)?.[1];
+  if (!root) return [];
+  return [...new Set(analyzer.result.references.flatMap(reference =>
+    reference.path.startsWith(`${root}/`) && /\/(?:fromAmong|pool)$/.test(reference.path) ? [reference.path] : []))];
+}
 /** A singular pronoun after a pick "from among" a pool: "You may reveal an
  * Elf card from among them and put it into your hand", "You choose a
  * nonland card from it. That player discards that card." The pool itself is
  * plural, so the one pick (or the object it became, CR 400.7j) is the only
  * object the pronoun can mean (CR 608.2c). Bound only when the remaining
- * candidates are exactly that pool and that pick, the pick is the only one
- * from the pool, and the pronoun is inside the pick's own optional group or
+ * candidates are exactly that pool and that pick, the pick is the only pick
+ * the ability has attempted from any pool, and the pronoun is inside the pick's own optional group or
  * sentence; a `choose-object` pick ("you choose … that card") is meant by any
  * later pronoun of the ability. */
 export function poolPickAntecedent(this: Analyzer, expression: ObjectRef, path: string, candidates: Candidate[], context: Context): Candidate | undefined {
-  if (objectCardinality(expression) !== "one" || candidates.length !== 2) return;
+  // "From it" names a set to pick from, never an earlier pick.
+  if (objectCardinality(expression) !== "one" || candidates.length !== 2 || /\/(?:fromAmong|pool)$/.test(path)) return;
+  const attempted = attemptedPicks(this, path);
   for (const [pool, picked] of [[candidates[0], candidates[1]], [candidates[1], candidates[0]]]) {
     if (pool.domain !== "object" || pool.cardinality === "one" || picked.domain !== "object" || picked.cardinality !== "one") continue;
     const picks = this.poolPicks(context.ability, pool.id);
     const [pick] = picks;
-    if (picks.length !== 1 || pick.cardinality !== "one" || pick.id !== (picked.successorOf ?? picked.id)) continue;
+    if (picks.length !== 1 || pick.cardinality !== "one" || pick.id !== (picked.successorOf ?? picked.id) ||
+        attempted.length !== 1 || !attempted[0].startsWith(`${pick.path}/`)) continue;
     const step = pickStep(pick.path);
     const event = step ? stepEvent(this, step) : undefined;
     if (!step || !event || path.startsWith(`${step}/`)) continue;
@@ -449,13 +462,16 @@ export function revealedHand(this: Analyzer, expression: ObjectRef, path: string
 /** "Put the rest on the bottom of your library": the cards the ability's
  * controller looked at, revealed or milled from their own library, less the
  * one pick this ability made from among them (CR 608.2c). Bound only when
- * that pool is the only group still established and the ability made
- * exactly one pick from any pool; another player's cards, two pools or two
- * picks stay unresolved. */
+ * that pool is the only group still established, no other look, reveal,
+ * mill or exile of the ability (in any branch) could be meant, and the
+ * ability attempted exactly one pick, bound to that pool; another player's
+ * cards, two pools or two picks (even an unresolved one) stay unresolved. */
 export function libraryDigRemainder(this: Analyzer, expression: Extract<ObjectRef, { ref: "rest" }>, path: string, context: Context): Candidate | undefined {
   const groups = context.objects.filter(candidate => candidate.cardinality !== "one");
   const picks = this.poolPicks(context.ability);
-  if (groups.length !== 1 || picks.length !== 1 || picks[0].pool !== groups[0].id || this.invalidNodes.has(groups[0].id)) return;
+  const attempted = attemptedPicks(this, path);
+  if (groups.length !== 1 || picks.length !== 1 || picks[0].pool !== groups[0].id || this.invalidNodes.has(groups[0].id) ||
+      attempted.length !== 1 || !attempted[0].startsWith(`${picks[0].path}/`)) return;
   const [pool] = groups;
   const [pick] = picks;
   if (pool.domain !== "object" || expression.exclude || (expression.of && this.at(child(path, "of"))?.id !== pool.id)) return;
@@ -464,6 +480,12 @@ export function libraryDigRemainder(this: Analyzer, expression: Extract<ObjectRe
     : node?.node === "selection" && "ref" in node.expression && node.expression.ref === "library-cards" ? pickStep(node.path) : undefined;
   const event = origin ? stepEvent(this, origin) : undefined;
   if (!origin || !event || !["look-at", "reveal", "mill"].includes(event.operation) || event.repeated) return;
+  // The only pool on any path: no other look, reveal, mill or exile of this
+  // ability (in any branch) other than the pick's own instruction.
+  const pickSteps = new Set(attempted.map(at => pickStep(at.replace(/\/(?:filter\/fromAmong|pool)$/, ""))));
+  const pools = this.result.nodes.filter(entry => entry.node === "event" && entry.scope === context.ability &&
+    ["look-at", "reveal", "mill", "exile"].includes(entry.operation) && !pickSteps.has(entry.path));
+  if (pools.length !== 1 || pools[0].id !== event.id) return;
   const owner = this.at(`${origin}/what/of/owner`);
   if (this.at(`${origin}/who`)?.id !== context.you || (owner && owner.id !== context.you) ||
       (event.operation !== "mill" && !owner)) return;
@@ -471,7 +493,8 @@ export function libraryDigRemainder(this: Analyzer, expression: Extract<ObjectRe
   const id = this.node({ id: this.id(path, "remainder"), path, node: "remainder", scope: context.ability,
     pool: pool.id, excluding: pick.id, rules });
   const step = pickStep(pick.path);
-  if (step && stepEvent(this, step)?.optional)
+  const pickEvent = step ? stepEvent(this, step) : undefined;
+  if (pickEvent?.optional || pickEvent?.conditional)
     this.engineFeature("optional-look-remainder", path, "Use all remaining looked-at cards. When the choice was declined, use the full pool.", rules);
   return this.bound(expression, path, id, rules);
 }

@@ -74,6 +74,18 @@ describe("library dig picks and the rest (B01)", () => {
     assert.deepEqual(refs(picks)["/effects/3/steps/0/what"], { unresolved: "unsupported-reference" });
   });
 
+  it("keeps the rest unresolved when a second pick from the pool is itself unresolved (Wakanda Forever!)", () => {
+    const { binding, blocks: [block] } = card("Reveal the top six cards of your library. You may put a permanent card from among them onto the battlefield with an indestructible counter on it. You may put a permanent card from among them into your hand. Put the rest into your graveyard.", "Sorcery", "{4}{G}{G}", "Wakanda Forever!");
+    assert.deepEqual(refs(block)["/effects/3/steps/0/what"], { unresolved: "unsupported-reference" });
+    assert.ok(!binding.nodes.some(node => node.node === "remainder"));
+  });
+
+  it("keeps the rest unresolved when another branch looks at a second pool", () => {
+    const { binding, blocks: [block] } = card("Look at the top five cards of your library. If you control a creature, look at the top three cards of your library. Otherwise, put a card from among them into your hand. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(block)["/effects/2/steps/0/what"], { unresolved: "unsupported-reference" });
+    assert.ok(!binding.nodes.some(node => node.node === "remainder"));
+  });
+
   it("keeps a plural pronoun after an any-number pick from a plural pool unresolved", () => {
     const { blocks: [block] } = card("Choose one —\n• Form a Party — Look at the top five cards of your library. You may reveal any number of creature cards from among them and put them into your hand. Put the rest on the bottom of your library in a random order.\n• Start a Brawl — Creatures you control get +2/+2 until end of turn.", "Sorcery", "{3}{G}", "You Meet in a Tavern");
     assert.deepEqual(refs(block)["/effects/0/steps/0/options/0/effects/1/steps/0/steps/1/what"], { unresolved: "ambiguous-antecedent" });
@@ -93,6 +105,14 @@ describe("hand reveals and the chosen card (B02)", () => {
     assert.deepEqual(block.residuals, []);
     assert.deepEqual(refs(block)["/effects/0/steps/1/what/filter/fromAmong"], selection("/effects/0/steps/0/what"));
     assert.deepEqual(refs(block)["/effects/1/steps/0/what"], selection("/effects/0/steps/1/what"));
+  });
+
+  it("never reads a second \"from it\" as the first chosen card", () => {
+    const { blocks: [block] } = card("Target opponent reveals their hand. You choose a nonland card from it. You choose a land card from it. That player discards that card.", "Sorcery");
+    assert.deepEqual(refs(block)["/effects/1/steps/0/what/filter/fromAmong"], selection("/effects/0/steps/0/what"));
+    assert.deepEqual(refs(block)["/effects/2/steps/0/what/filter/fromAmong"], { unresolved: "ambiguous-antecedent" });
+    // Two attempted picks: "that card" is not proven either.
+    assert.deepEqual(refs(block)["/effects/3/steps/0/what"], { unresolved: "ambiguous-antecedent" });
   });
 
   it("keeps a choice from two zones unresolved (Memory Leak)", () => {
