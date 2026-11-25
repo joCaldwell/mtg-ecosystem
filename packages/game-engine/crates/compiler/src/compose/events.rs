@@ -11,6 +11,37 @@
 use super::*;
 
 pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<TriggerCondition> {
+    use AttachmentEvent::{Attacks, CombatDamageToPlayer, Dies};
+    use kir::AttachmentKind::{Enchanted, Equipped};
+    let host = match trigger {
+        SourceTrigger::Attacks {
+            what: SourceAttacker::Equipped { noun },
+        } => Some((Equipped, Attacks, noun)),
+        SourceTrigger::Attacks {
+            what: SourceAttacker::Enchanted { noun },
+        } => Some((Enchanted, Attacks, noun)),
+        SourceTrigger::Dies {
+            what: TriggerObject::Equipped { noun },
+        } => Some((Equipped, Dies, noun)),
+        SourceTrigger::Dies {
+            what: TriggerObject::Enchanted { noun },
+        } => Some((Enchanted, Dies, noun)),
+        SourceTrigger::DealsDamage {
+            what,
+            combat: Some(true),
+            to,
+            grouping: None,
+        } if to == "any" => match what {
+            SourceDamageObject::Equipped { noun } => Some((Equipped, CombatDamageToPlayer, noun)),
+            SourceDamageObject::Enchanted { noun } => Some((Enchanted, CombatDamageToPlayer, noun)),
+            _ => None,
+        },
+        _ => None,
+    };
+    if let Some((attachment, event, noun)) = host {
+        return (noun == "creature")
+            .then_some(TriggerCondition::AttachedCreature { attachment, event });
+    }
     match trigger {
         SourceTrigger::Enters {
             what: TriggerObject::This { noun },

@@ -384,10 +384,9 @@ allowances add to existing plays per turn (CR 305.2), and hand-size effects
 use source timestamps at cleanup (CR 514.1, 613.11).
 
 This surface admits the source’s unconditional tapped entry. Conditional
-entry and entry choices belong to W2. General attached-to references belong
-to W1. Static control changes, characteristic-defining abilities, ability
-removal, and permissions to cast from additional zones require further
-admission. Paid invocations and resolved effects keep independent lifetimes.
+entry and entry choices belong to W2. Static control changes, characteristic-defining
+abilities, ability removal, and permissions to cast from additional zones
+require further admission. Paid invocations and resolved effects keep independent lifetimes.
 
 ### Attachment entry and ordering
 
@@ -401,7 +400,16 @@ from object IDs, map iteration or trace retention. Simultaneous competing
 attachments need the unimplemented ordering of CR 613.7m and reject explicitly.
 Timestamps and their allocator are canonical state and replay inputs.
 
-Signed attachment stats apply in the creature power and toughness layer.
+Equip announces one creature its controller controls at sorcery timing. Its
+KIR Attach instruction moves the Equipment if both incarnations remain legal.
+Enchant creature, artifact, land and permanent use the same predicate for spell
+targeting and ongoing attachment legality. Enchant player remains unsupported.
+Shroud and hexproof restrict new targets. Protection or an ineligible host
+sends an Aura to its owner's graveyard and detaches an Equipment (CR 704.5m/n).
+Attachment scopes apply keyword grants, combat restrictions and signed stats
+to the current host in their respective layers. Attack and combat-damage
+triggers match the host at the event. Dies triggers read the pre-event
+attachment (CR 603.10a). These attachment cells earn Executes.
 Fixed-color protection follows the current creature and affects targeting,
 blocking, damage prevention and attachment legality. Applied prevention keeps
 the protection facts captured when the damage was processed.

@@ -134,6 +134,12 @@ impl Characteristics {
         value
     }
 
+    fn is_attachment(&self) -> bool {
+        self.subtypes
+            .iter()
+            .any(|s| matches!(s.as_str(), "Aura" | "Equipment"))
+    }
+
     pub fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
     }
@@ -1286,6 +1292,10 @@ pub enum CascadeThreshold {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
+    AttachedCreature {
+        attachment: kir::AttachmentKind,
+        event: AttachmentEvent,
+    },
     ControlledLandEntersBattlefield,
     DamageDealt {
         source: DamageTriggerSource,
@@ -1314,6 +1324,14 @@ pub enum TriggerCondition {
     AnyCreatureDies,
     SelfDies,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentEvent {
+    Attacks,
+    Dies,
+    CombatDamageToPlayer,
+}
+
 /// CR 120.2/120.7/603.2c: independent source, kind and recipient dimensions.
 /// Source means the observer's exact incarnation; CreatureFilter separately
 /// matches actual creature damage sources and requires FilteredDamageTriggerV1.
@@ -1480,6 +1498,7 @@ impl TriggerCondition {
     /// Stable reporting vocabulary, independent of the serde representation.
     pub fn reporting_key(&self) -> &'static str {
         match self {
+            Self::AttachedCreature { .. } => "attached_creature",
             Self::StepBegan { .. } => "step_began",
             Self::CreatureAttacked { .. } => "creature_attacked",
             Self::DamageDealt { .. } => "damage_dealt",
@@ -1691,6 +1710,9 @@ pub struct Definition {
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1, Capability::ComposedAbilityV1]);
+        if self.characteristics.is_attachment() {
+            set.insert(Capability::AttachmentsV1);
+        }
         match self.characteristics.kind {
             CardKind::Land => {
                 set.insert(Capability::LandPlayV1);
@@ -1816,6 +1838,11 @@ impl Definition {
                 set.insert(Capability::FilteredDamageTriggerV1);
             }
             let trigger = match &ability.condition {
+                TriggerCondition::AttachedCreature { event, .. } => match event {
+                    AttachmentEvent::Attacks => Capability::AttackTriggerV1,
+                    AttachmentEvent::Dies => Capability::CreatureDiesV1,
+                    AttachmentEvent::CombatDamageToPlayer => Capability::DamageTriggerV1,
+                },
                 TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
                 TriggerCondition::SpellCast { spell, .. } => {
                     if matches!(spell, TypePredicate::SpellColor { .. }) {

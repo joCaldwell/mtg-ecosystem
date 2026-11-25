@@ -276,6 +276,29 @@ fn scope(what: &ast::ObjectRef, spell: bool) -> Result<Scope, Failure> {
         R::SelfObject(_) => Ok(Scope::Source),
         R::Each(x) => matching(&x.filter, spell),
         R::All(x) => matching(&x.filter, spell),
+        R::Variant29(x) if !spell => {
+            let kind = match x.r#ref {
+                ast::ObjectRefVariant29Ref::Equipped => kir::AttachmentKind::Equipped,
+                ast::ObjectRefVariant29Ref::Enchanted => kir::AttachmentKind::Enchanted,
+            };
+            let atoms = match x.noun.as_str() {
+                "permanent" => vec![],
+                "land" => vec![kir::Atom::Type {
+                    kind: CardKind::Land,
+                }],
+                "artifact" => vec![kir::Atom::Type {
+                    kind: CardKind::Artifact,
+                }],
+                "creature" => vec![kir::Atom::Type {
+                    kind: CardKind::Creature,
+                }],
+                _ => return Err(gap("attachment-noun")),
+            };
+            Ok(Scope::Attachment {
+                kind,
+                filter: Pred(atoms),
+            })
+        }
         R::Variant29(_) | R::Fortified(_) => Err(unsupported("static", "ref:attached-to:static")),
         other => Err(gap(&format!("scope:{}", variant(other)))),
     }

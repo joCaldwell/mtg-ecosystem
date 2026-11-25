@@ -257,7 +257,9 @@ impl RulesTxn {
                     .into_iter()
                     .map(|player| candidate_index(&mut candidates, Candidate::Player { player }))
                     .collect(),
-                TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent => self
+                TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::BattlefieldCreature
+                | TargetDomain::BattlefieldPermanent => self
                     .state
                     .rules
                     .objects
