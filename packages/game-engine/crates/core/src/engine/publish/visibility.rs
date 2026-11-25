@@ -416,6 +416,7 @@ impl RulesTxn {
             EffectiveTriggerAbility::Intrinsic { index } => {
                 VisibleTriggerAbility::Intrinsic { index }
             }
+            EffectiveTriggerAbility::Followup { .. } => VisibleTriggerAbility::Followup {},
         }
     }
     pub(crate) fn player_entity(

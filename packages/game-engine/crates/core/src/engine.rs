@@ -138,6 +138,7 @@ mod kir;
 pub use damage_life::{NoncombatDamageOccurrence, TargetEntity};
 
 pub use triggers::EffectiveTriggerAbility;
+mod resolution_triggers;
 pub mod triggers;
 pub use triggers::{
     CastOccurrence, CastOccurrenceId, TriggerEventWitness, TriggerId, TriggerOccurrenceId,

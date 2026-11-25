@@ -159,6 +159,7 @@ impl RulesTxn {
         self.validate_counter_placement_state()?;
         self.validate_mana_uses()?;
         self.validate_activation_uses()?;
+        self.validate_resolution_triggers()?;
         self.validate_trigger_state()?;
         self.validate_library_position_memory()?;
         self.validate_effect_state()?;

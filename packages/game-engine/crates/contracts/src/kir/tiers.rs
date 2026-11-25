@@ -21,6 +21,7 @@ use super::*;
 use crate::{ActivationCost, Capability, Definition, Instruction, SpellProgram, TriggerCondition};
 
 mod executes;
+pub(super) use executes::validate_resolution_targets;
 
 /// CR 113.3: the `Executes` tier of a definition: its card shell and every
 /// non-kernel surface has an executor ([`executes`]) and every kernel node
@@ -200,6 +201,7 @@ pub enum Cell {
     /// CR 608.2c-d: a control node (sequence with a decision or result,
     /// condition, choice, repetition, payment) run by the continuation.
     Control,
+    ResolutionTrigger,
     // CR 106, 605: mana abilities beyond the tap-only fixed, any-color and
     // commander-color surface.
     /// CR 106.1a: N mana of one color chosen from a printed list.
@@ -337,6 +339,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ReorderLibraryTop
         | C::ScryController
         | C::SurveilController
+        | C::ResolutionTrigger
         | C::Control
         | C::ManaChoose
         | C::ManaLandsCouldProduce
@@ -509,6 +512,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::GroupHandDiscardV1
         // CR 603.4: opened with its executor and rules tests; no review yet.
         | C::InterveningIfV1
+        | C::ResolutionTriggerV1
         | C::EventTriggerV1 => Tiers::EXECUTES,
     }
 }

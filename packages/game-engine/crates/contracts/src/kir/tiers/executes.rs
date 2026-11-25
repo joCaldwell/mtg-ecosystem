@@ -142,14 +142,11 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         kir::Node::Optional { node, .. }
         | kir::Node::UnlessPays { node, .. }
         | kir::Node::IfPays { node, .. }
-        | kir::Node::Delayed { node, .. } => cost_conditions(node, out),
+        => cost_conditions(node, out),
         kir::Node::ForEach { body, .. } | kir::Node::Choose { body, .. } => {
             cost_conditions(body, out)
         }
-        kir::Node::Reflexive { first, then } => {
-            cost_conditions(first, out)?;
-            cost_conditions(then, out)
-        }
+        kir::Node::Delayed { .. } | kir::Node::Reflexive { .. } => Ok(()),
     }
 }
 
@@ -200,6 +197,22 @@ fn program(
         event,
         announced_x,
     };
+    let followups: Vec<_> = p.instructions.iter().enumerate().filter(|(_, i)| {
+        matches!(i, Instruction::Kernel { node: kir::Node::Delayed { .. } | kir::Node::Reflexive { .. }, .. })
+    }).collect();
+    if let [(offset, Instruction::Kernel { node, source_block })] = followups.as_slice() {
+        let body = match node {
+            kir::Node::Delayed { program, .. } | kir::Node::Reflexive { program, .. } => program,
+            _ => unreachable!(),
+        };
+        if *offset + 1 != p.instructions.len()
+            || body.instructions.iter().any(|i| i.source_block() != *source_block)
+        {
+            return cell("program", "resolution_trigger_final_instruction_and_label");
+        }
+    } else if !followups.is_empty() {
+        return cell("program", "multiple_resolution_triggers");
+    }
     let mut used = BTreeSet::new();
     for Instruction::Kernel { node, .. } in &p.instructions {
         used.extend(kir::check(node, &env)?.target_slots);
@@ -208,6 +221,13 @@ fn program(
         return Err("unused target occurrence".into());
     }
     Ok(())
+}
+
+pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<(), String> {
+    if p.targets.iter().any(|t| t.chooser != Chooser::Controller || t.stage != EvaluationStage::Announcement) {
+        return cell("target", "resolution_trigger_announcement");
+    }
+    validate_target_bindings(p)
 }
 
 fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {

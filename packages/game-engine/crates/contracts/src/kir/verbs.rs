@@ -180,6 +180,12 @@ pub struct SearchSpec {
 pub enum DelayedEvent {
     #[serde(deserialize_with = "no_operands")]
     NextEndStep,
+    #[serde(deserialize_with = "no_operands")]
+    NextTurnUpkeep,
+    /// CR 400.7j: exile this one announced creature and remember its successor.
+    NextEndStepAfterExile { slot: u32 },
+    /// CR 400.7j, 603.10a: exile this source's death successor and watch one permanent.
+    TargetLeavesAfterExilingSource { slot: u32 },
     NextUpkeep {
         of: PlayerExpr,
     },
@@ -343,6 +349,7 @@ pub enum Verb {
         until: Until,
     },
     /// CR 603.7.
+    ReturnCapturedExile {},
     CreateDelayedTrigger {
         event: DelayedEvent,
         node: Box<Node>,

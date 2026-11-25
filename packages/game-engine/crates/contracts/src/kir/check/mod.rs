@@ -1,6 +1,7 @@
 //! [`check`]: the single scope, type and audited-cell decision for a node,
 //! and the capabilities it derives.
 use super::*;
+use crate::{FunctioningZone, Instruction, SpellProgram, SpellResolution, SpellTiming};
 
 mod counters;
 mod damage;
@@ -130,6 +131,22 @@ pub fn target_slots(node: &Node) -> BTreeSet<u32> {
     walk.out.target_slots
 }
 
+fn resolution_trigger_body(program: &SpellProgram) -> Result<&Node, KirError> {
+    let [Instruction::Kernel { node, .. }] = program.instructions.as_slice() else {
+        return unaudited("resolution trigger instruction count");
+    };
+    if program.resolution != SpellResolution::Instructions
+        || program.timing != SpellTiming::Instant
+        || program.functioning_zone != FunctioningZone::Stack
+        || !program.optional_additional_costs.is_empty()
+        || program.optional_target
+        || program.additional_sacrifice.is_some()
+    {
+        return unaudited("resolution trigger program shell");
+    }
+    Ok(node)
+}
+
 struct Walk<'a, 'e> {
     env: &'a Env<'e>,
     /// Collect references only: no scope, kind or audit judgement.
@@ -152,17 +169,6 @@ fn kind<T>(detail: impl Into<String>) -> Result<T, KirError> {
 fn unaudited<T>(detail: impl Into<String>) -> Result<T, KirError> {
     Err(KirError::Unaudited(detail.into()))
 }
-/// A missing cell ends a check and is no finding of a scan.
-macro_rules! missing_cell {
-    ($walk:expr, $detail:expr) => {
-        if $walk.scan {
-            Ok(())
-        } else {
-            unaudited($detail)
-        }
-    };
-}
-
 impl Walk<'_, '_> {
     fn domain(&self, slot: u32) -> Result<TargetDomain, KirError> {
         match self.env.targets.get(slot as usize) {
@@ -585,7 +591,8 @@ impl Walk<'_, '_> {
     fn delayed(&mut self, event: &DelayedEvent) -> Result<(), KirError> {
         match event {
             DelayedEvent::NextUpkeep { of } => self.player(of),
-            DelayedEvent::NextEndStep | DelayedEvent::EndOfCombat | DelayedEvent::Event { .. } => {
+            DelayedEvent::NextEndStepAfterExile { slot } | DelayedEvent::TargetLeavesAfterExilingSource { slot } => self.expect(&Ref::Target { slot: *slot }, &[RefKind::Object], "exile target").map(|_| ()),
+            _ => {
                 Ok(())
             }
         }
@@ -594,6 +601,7 @@ impl Walk<'_, '_> {
     /// Scope and type of every operand of a verb. Total over [`Verb`].
     fn operands(&mut self, verb: &Verb) -> Result<(), KirError> {
         match verb {
+            Verb::ReturnCapturedExile {} => Ok(()),
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
             | Verb::LoseLife { player, amount }
@@ -907,26 +915,95 @@ impl Walk<'_, '_> {
                 }
                 self.nested(node, true)
             }
-            Node::Delayed { event, node } => {
-                self.delayed(event)?;
-                self.nested_unaudited(node)?;
-                missing_cell!(self, "delayed node")
+            Node::Delayed { event, program } => {
+                if let DelayedEvent::NextEndStepAfterExile { slot } | DelayedEvent::TargetLeavesAfterExilingSource { slot } = event {
+                    self.out.target_slots.insert(*slot);
+                }
+                if self.scan {
+                    return Ok(());
+                }
+                if in_control {
+                    return unaudited("nested delayed trigger");
+                }
+                let child = resolution_trigger_body(program)?;
+                match (event, child) {
+                    (DelayedEvent::NextEndStepAfterExile { slot }, Node::Do(Verb::ReturnCapturedExile {}))
+                        if self.creature_target(*slot)? && program.targets.is_empty() => {}
+                    (DelayedEvent::TargetLeavesAfterExilingSource { slot }, Node::Do(Verb::ReturnCapturedExile {}))
+                        if self.env.context == Context::Triggered
+                            && self.env.event.is_some_and(|event| *event.pattern() == EventPattern::self_dies())
+                            && self.creature_target(*slot)?
+                            && program.targets.is_empty() => {}
+                    (DelayedEvent::NextUpkeep { of }, Node::Do(Verb::Discard { player, random: true, .. }))
+                        if *of == PlayerExpr::you(self.env.context) && player.is_you()
+                            && program.targets.is_empty() => self.resolution_trigger_child(program, child)?,
+                    (DelayedEvent::NextEndStep | DelayedEvent::NextTurnUpkeep | DelayedEvent::NextUpkeep { .. },
+                        Node::Do(Verb::Draw { player, amount }))
+                        if player.is_you() && amount.as_fixed().is_some_and(|n| *n > Quantity::zero())
+                            && program.targets.is_empty() => {
+                        if let DelayedEvent::NextUpkeep { of } = event
+                            && *of != PlayerExpr::you(self.env.context)
+                        {
+                            return unaudited("delayed upkeep player");
+                        }
+                        self.resolution_trigger_child(program, child)?;
+                    }
+                    (DelayedEvent::NextEndStep, Node::Do(Verb::CreateTokens { .. }))
+                        if program.targets.is_empty() => self.resolution_trigger_child(program, child)?,
+                    _ => return unaudited("delayed trigger event and body"),
+                }
+                self.resolution_trigger();
+                Ok(())
             }
-            Node::Reflexive { first, then } => {
-                self.nested_unaudited(first)?;
-                self.nested_unaudited(then)?;
-                missing_cell!(self, "reflexive node")
+            Node::Reflexive { payment, program } => {
+                if self.scan {
+                    return Ok(());
+                }
+                if in_control || self.env.context != Context::Triggered
+                    || payment.generic.is_negative()
+                    || payment.generic.to_u32().is_none_or(|n| n > 32)
+                    || payment.colored.len() > 32
+                    || (payment.generic == Quantity::zero() && payment.colored.is_empty())
+                {
+                    return unaudited("reflexive trigger payment");
+                }
+                let child = resolution_trigger_body(program)?;
+                if !matches!(child, Node::Do(
+                    Verb::Damage { .. } | Verb::PutCounters { .. } | Verb::Tap { .. }
+                    | Verb::Destroy { .. } | Verb::Draw { .. }
+                )) || program.targets.len() != 1
+                    || !matches!(program.targets[0].domain,
+                        TargetDomain::AnyDamageTarget | TargetDomain::AnyPlayer
+                        | TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent)
+                {
+                    return unaudited("reflexive trigger body");
+                }
+                self.resolution_trigger_child(program, child)?;
+                self.resolution_trigger();
+                Ok(())
             }
         }
     }
 
-    /// Scope-check the child of an unsupported trigger control. Only an
-    /// audited parent may rely on a successful child audit.
-    fn nested_unaudited(&mut self, node: &Node) -> Result<(), KirError> {
-        match self.nested(node, true) {
-            Err(KirError::Unaudited(_)) => Ok(()),
-            result => result,
+    fn resolution_trigger(&mut self) {
+        self.out.capabilities.insert(Capability::ResolutionTriggerV1);
+        self.out.cells.insert(Cell::ResolutionTrigger);
+    }
+
+    fn resolution_trigger_child(&mut self, program: &SpellProgram, child: &Node) -> Result<(), KirError> {
+        super::tiers::validate_resolution_targets(program).map_err(KirError::Unaudited)?;
+        let admitted = check(child, &Env {
+            context: Context::Triggered,
+            targets: &program.targets,
+            event: None,
+            announced_x: false,
+        })?;
+        if admitted.target_slots.iter().copied().ne(0..program.targets.len() as u32) {
+            return unaudited("resolution trigger target use");
         }
+        self.out.cells.extend(admitted.cells);
+        self.out.capabilities.extend(admitted.capabilities);
+        Ok(())
     }
 
     fn audit_choice(from: &SetExpr, minimum: &Amount, maximum: &Amount) -> Result<(), KirError> {
@@ -1111,6 +1188,7 @@ impl Walk<'_, '_> {
             | Verb::CopyStackObject { .. }
             | Verb::GainControl { .. }
             | Verb::Attach { .. }
+            | Verb::ReturnCapturedExile {}
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
             | Verb::Transform { .. }
@@ -1213,7 +1291,8 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::CopyStackObject { .. }
         | Verb::GainControl { .. }
         | Verb::Attach { .. }
-        | Verb::CreateDelayedTrigger { .. }
+        | Verb::ReturnCapturedExile {}
+            | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
         | Verb::Transform { .. }
         | Verb::SetDesignation { .. }
@@ -1235,6 +1314,9 @@ pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
         out.extend(DRAIN_CAPABILITIES);
     } else {
         visit_verbs(node, &mut |verb| verb_capabilities(verb, &mut out));
+        if matches!(node, Node::Delayed { .. } | Node::Reflexive { .. }) {
+            out.insert(Capability::ResolutionTriggerV1);
+        }
         if node.uses_continuation() {
             out.insert(Capability::KernelControlV1);
         }
@@ -1300,12 +1382,9 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
         Node::Optional { node, .. }
         | Node::UnlessPays { node, .. }
         | Node::IfPays { node, .. }
-        | Node::Delayed { node, .. } => visit_verbs(node, visit),
+        => visit_verbs(node, visit),
         Node::ForEach { body, .. } | Node::Choose { body, .. } => visit_verbs(body, visit),
-        Node::Reflexive { first, then } => {
-            visit_verbs(first, visit);
-            visit_verbs(then, visit);
-        }
+        Node::Delayed { .. } | Node::Reflexive { .. } => {},
     }
 }
 

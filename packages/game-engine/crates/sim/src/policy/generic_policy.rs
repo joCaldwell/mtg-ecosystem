@@ -45,7 +45,7 @@ fn visible_event_player(
     entry: &VisibleStackEntry,
     d: &Definition,
 ) -> Option<PlayerId> {
-    let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &entry.triggered.as_ref()?.ability;
+    let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &entry.triggered.as_ref()?.ability else { return None; };
     match &d.triggered.get(*index as usize)?.condition {
         TriggerCondition::Event {
             pattern: kir::EventPattern::StepBegins { .. },
@@ -297,7 +297,7 @@ impl Strategy<'_> {
     ) -> Option<(&'a Definition, &'a SpellProgram)> {
         let (d, p) = if let Some(t) = &s.triggered {
             let d = definition(self.catalog, &t.oracle_id).ok()?;
-            let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &t.ability;
+            let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &t.ability else { return None; };
             (d, &d.triggered.get(*index as usize)?.program)
         } else if let Some(a) = &s.ability {
             let d = definition(self.catalog, &a.oracle_id).ok()?;

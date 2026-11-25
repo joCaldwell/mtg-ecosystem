@@ -46,6 +46,7 @@ pub struct TriggerHandle(pub String);
 #[schemars(rename = "VisibleTriggerAbility")]
 pub enum VisibleTriggerAbility {
     Intrinsic { index: u32 },
+    Followup {},
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]

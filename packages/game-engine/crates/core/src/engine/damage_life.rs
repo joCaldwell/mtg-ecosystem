@@ -86,6 +86,11 @@ impl RulesTxn {
     pub(crate) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
         let rules = self.rules_mut();
+        if !rules.resolution_triggers.is_empty() {
+            for row in rules.resolution_triggers.values_mut() {
+                row.refresh_source(fact);
+            }
+        }
         for trigger in &mut rules.pending_triggers {
             if trigger.source == object {
                 trigger.source_facts = fact.clone();

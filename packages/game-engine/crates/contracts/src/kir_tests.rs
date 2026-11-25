@@ -474,11 +474,11 @@ fn control_rejects_unsupported_operands_and_children() {
     for node in [
         Node::Delayed {
             event: DelayedEvent::NextEndStep,
-            node: child(),
+            program: Box::new(crate::SpellProgram::instructions(crate::SpellTiming::Instant)),
         },
         Node::Reflexive {
-            first: child(),
-            then: child(),
+            payment: crate::ManaCost { generic: 1.into(), colored: vec![] },
+            program: Box::new(crate::SpellProgram::instructions(crate::SpellTiming::Instant)),
         },
         Node::ForEach {
             var: 0,

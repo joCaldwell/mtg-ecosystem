@@ -19,6 +19,7 @@ impl RulesTxn {
         }
         self.retire_returned_frames()?;
         self.release_detached();
+        self.retire_resolution_triggers();
         Ok(())
     }
     /// The working copy of the suspended frame that one rule step advances.
