@@ -137,3 +137,7 @@ pub(super) fn lower(
         selections,
     })
 }
+
+#[cfg(test)]
+#[path = "modal_tests.rs"]
+mod tests;

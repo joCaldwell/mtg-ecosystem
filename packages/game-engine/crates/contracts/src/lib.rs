@@ -1181,7 +1181,11 @@ impl ModalSpell {
     pub const MAX_MODES: usize = 5;
 
     pub fn masks(len: usize, min: u32, max: u32) -> impl Iterator<Item = u8> {
-        let limit = (len <= Self::MAX_MODES).then(|| 1u8 << len).unwrap_or(0);
+        let limit = if len <= Self::MAX_MODES {
+            1u8 << len
+        } else {
+            0
+        };
         (1..limit).filter(move |mask| (min..=max).contains(&mask.count_ones()))
     }
 }
