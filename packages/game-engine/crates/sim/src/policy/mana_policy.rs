@@ -162,6 +162,9 @@ fn usable_printed(
             .as_ref()
             .is_none_or(|n| object.plus_one_counters >= *n)
         && !(ability.restriction.is_some() && object.mana_ability_used == Some(true))
+        // CR 602.5: the view does not prove an "Activate only if" condition;
+        // the plan never names a source the payment window may not offer.
+        && ability.condition.is_none()
 }
 
 /// The colors one ability of a permanent `controller` controls produces.

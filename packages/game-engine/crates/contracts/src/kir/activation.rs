@@ -27,6 +27,10 @@ pub enum ActivationCondition {
     },
     /// "if you have no cards in hand" / "exactly N cards in hand" (CR 402).
     HandCards { cmp: Cmp, value: Quantity },
+    /// "if this creature is attacking" / "if this creature's power is N or
+    /// greater" (CR 506.4, 208.1): the source's own current facts. Its
+    /// count is one when the source satisfies `filter`, otherwise zero.
+    Source { filter: Pred },
     /// Every part holds.
     All(Vec<ActivationCondition>),
     /// "or": at least one part holds.
@@ -89,6 +93,24 @@ fn permanent_atom(atom: &Atom) -> bool {
     }
 }
 
+/// CR 506.4, 110.5, 208.1: combat status, tapped status and fixed power
+/// or toughness bounds of the source itself.
+fn source_atom(atom: &Atom) -> bool {
+    match atom {
+        Atom::Attacking | Atom::Blocking | Atom::Tapped | Atom::Untapped => true,
+        Atom::Power { value, .. } | Atom::Toughness { value, .. } => {
+            value.as_fixed().is_some_and(|v| !v.is_negative())
+        }
+        Atom::AnyOf { alternatives } => {
+            alternatives.len() >= 2
+                && alternatives
+                    .iter()
+                    .all(|p| !p.0.is_empty() && p.0.iter().all(source_atom))
+        }
+        _ => false,
+    }
+}
+
 /// CR 404.2: a graveyard card's printed types and subtypes.
 fn card_atom(atom: &Atom) -> bool {
     match atom {
@@ -128,6 +150,10 @@ impl ActivationCondition {
                 *cmp,
                 value,
             ),
+            Self::Source { filter } => Cond::Satisfies {
+                object: Ref::Source,
+                filter: filter.clone(),
+            },
             Self::All(parts) => Cond::All {
                 conditions: parts.iter().map(Self::condition).collect(),
             },
@@ -180,6 +206,12 @@ impl ActivationCondition {
                 },
                 _ => return Err(unaudited()),
             },
+            Cond::Satisfies {
+                object: Ref::Source,
+                filter,
+            } if !filter.0.is_empty() && filter.0.iter().all(source_atom) => Self::Source {
+                filter: filter.clone(),
+            },
             Cond::All { conditions } if conditions.len() >= 2 => Self::All(
                 conditions
                     .iter()
@@ -230,6 +262,15 @@ impl ActivationCondition {
                 let (first, rest) = counts.split_first()?;
                 *counts = rest;
                 holds(*first, *cmp, value)
+            }
+            Self::Source { .. } => {
+                let (first, rest) = counts.split_first()?;
+                *counts = rest;
+                match first {
+                    0 => false,
+                    1 => true,
+                    _ => return None,
+                }
             }
             Self::All(parts) => {
                 let mut all = true;

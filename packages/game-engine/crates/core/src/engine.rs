@@ -165,7 +165,7 @@ pub use mana_permanents::PermanentManaUndo;
 pub use mana_permanents::{ManaActivation, ManaSourceScope, zero_mana_cost};
 pub mod stack_costs;
 pub use actions::{ResolutionChoice, StackKind};
-pub use stack_costs::AnnouncementOrigin;
+pub use stack_costs::{ActivationConditionCheck, AnnouncementOrigin};
 pub mod commander;
 pub mod payments;
 pub use commander::CommanderContinuation;

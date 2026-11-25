@@ -478,7 +478,7 @@ impl RulesTxn {
             || (a.restriction.is_some() && self.mana_ability_index_used(source, index))
             || a.condition
                 .as_ref()
-                .is_some_and(|c| self.activation_condition_check(player, c).is_err())
+                .is_some_and(|c| self.activation_condition_check(player, source, c).is_err())
             || (a.costs.tap
                 && self.target_is_creature(source)
                 && !o.attack_ready
@@ -761,7 +761,7 @@ impl RulesTxn {
                 .condition
                 .as_ref()
                 .map(|c| {
-                    self.activation_condition_check(a.player, c)
+                    self.activation_condition_check(a.player, a.source, c)
                         .map(|check| ManaConditionEvidence {
                             index: a.index,
                             check,

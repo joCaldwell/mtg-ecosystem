@@ -57,6 +57,7 @@ pub(super) fn lower(
     for (path, term) in &parts {
         phrases.push(term_phrases(path, term, &mut terms, player)?);
     }
+    let line = line.replace('\u{2019}', "'");
     let printed = combinations(&phrases)
         .into_iter()
         .any(|joined| line.ends_with(&format!("Activate only {joined}.")));
@@ -120,6 +121,21 @@ fn term_phrases(
             json!({"restriction":"timing","turn":"your","before":"declare-attackers"}),
             ActivationWindow::YourTurnBeforeAttackers,
             "during your turn, before attackers are declared",
+        ),
+        (
+            json!({"restriction":"timing","phase":"combat"}),
+            ActivationWindow::Combat,
+            "during combat",
+        ),
+        (
+            json!({"restriction":"timing","phase":"end-of-combat"}),
+            ActivationWindow::EndOfCombat,
+            "during the end of combat step",
+        ),
+        (
+            json!({"restriction":"condition","condition":{"condition":"not-your-turn"}}),
+            ActivationWindow::NotYourTurn,
+            "if it's not your turn",
         ),
     ];
     if let Some((_, window, phrase)) = windows.iter().find(|(shape, ..)| term == shape) {
@@ -236,6 +252,56 @@ fn condition(
             };
             (count(set, cmp, n), phrases)
         }
+        // CR 506.4: "if this creature is attacking".
+        Some("status") if fields == 3 => {
+            let (atom, word) = source_status(value)?;
+            let filter = kir::Pred(vec![atom]);
+            (source(filter), vec![format!("this creature is {word}")])
+        }
+        // CR 208.1: "if this creature's power is N or greater".
+        Some("compare") if fields == 3 => {
+            let measured = &value["value"];
+            let stat = measured["attribute"].as_str();
+            if measured.as_object().map(Map::len) != Some(3)
+                || measured["amount"] != "attribute"
+                || measured["of"] != json!({"noun": "creature", "ref": "this"})
+            {
+                return Err(reject());
+            }
+            let (cmp, n) = control::comparison(&value["comparison"])?;
+            let bound = (0..=20).find(|&i| n == Quantity::from(i)).ok_or_else(reject)?;
+            if cmp != Cmp::AtLeast {
+                return Err(reject());
+            }
+            let value = kir::Amount::fixed(n);
+            let (atom, stat) = match stat {
+                Some("power") => (Atom::Power { cmp, value }, "power"),
+                Some("toughness") => (Atom::Toughness { cmp, value }, "toughness"),
+                _ => return Err(reject()),
+            };
+            let phrase = format!("this creature's {stat} is {bound} or greater");
+            (source(kir::Pred(vec![atom])), vec![phrase])
+        }
+        // "if this creature is attacking or blocking": one fact of the source.
+        Some("any-of")
+            if fields == 2
+                && value["conditions"]
+                    .as_array()
+                    .is_some_and(|parts| parts.iter().all(|p| p["condition"] == "status")) =>
+        {
+            let parts = value["conditions"].as_array().ok_or_else(reject)?;
+            let statuses = parts
+                .iter()
+                .map(source_status)
+                .collect::<Result<Vec<_>, _>>()?;
+            let [(first, a), (second, b)] = statuses.as_slice() else {
+                return Err(reject());
+            };
+            let filter = kir::Pred(vec![Atom::AnyOf {
+                alternatives: vec![kir::Pred(vec![first.clone()]), kir::Pred(vec![second.clone()])],
+            }]);
+            (source(filter), vec![format!("this creature is {a} or {b}")])
+        }
         // "A or B": at least one holds.
         Some("any-of") if fields == 2 => {
             let parts = value["conditions"]
@@ -273,6 +339,27 @@ fn condition(
     };
     kir::ActivationCondition::of(&cond).map_err(|_| reject())?;
     Ok((cond, phrases))
+}
+
+fn source(filter: kir::Pred) -> Cond {
+    Cond::Satisfies {
+        object: kir::Ref::Source,
+        filter,
+    }
+}
+
+/// CR 506.4: the source's printed combat status.
+fn source_status(value: &Value) -> Result<(Atom, &'static str), Failure> {
+    if value.as_object().map(Map::len) != Some(3)
+        || value["what"] != json!({"noun": "creature", "ref": "this"})
+    {
+        return Err(reject());
+    }
+    match value["status"].as_str() {
+        Some("attacking") => Ok((Atom::Attacking, "attacking")),
+        Some("blocking") => Ok((Atom::Blocking, "blocking")),
+        _ => Err(reject()),
+    }
 }
 
 fn count(set: kir::SetExpr, cmp: Cmp, n: Quantity) -> Cond {

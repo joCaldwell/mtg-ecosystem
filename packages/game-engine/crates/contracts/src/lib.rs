@@ -1392,6 +1392,13 @@ pub enum ActivationWindow {
     YourTurn,
     YourUpkeep,
     YourTurnBeforeAttackers,
+    /// CR 506.1: any turn's combat phase, beginning of combat through end
+    /// of combat.
+    Combat,
+    /// CR 511: any turn's end of combat step.
+    EndOfCombat,
+    /// CR 102.1: a turn whose active player is another player.
+    NotYourTurn,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

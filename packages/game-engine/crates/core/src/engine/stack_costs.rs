@@ -43,13 +43,14 @@ impl RulesTxn {
     pub(super) fn activation_condition_check(
         &self,
         player: PlayerId,
+        source: ObjectId,
         condition: &KirCond,
     ) -> Result<ActivationConditionCheck, String> {
         let form = ActivationCondition::of(condition).map_err(|e| e.to_string())?;
         let counts = form
             .leaves()
             .into_iter()
-            .map(|leaf| self.activation_leaf_count(player, leaf))
+            .map(|leaf| self.activation_leaf_count(player, source, leaf))
             .collect::<Result<Vec<_>, _>>()?;
         if !form.passes(&counts) {
             return Err("activation condition is not met".into());
@@ -60,6 +61,7 @@ impl RulesTxn {
     fn activation_leaf_count(
         &self,
         player: PlayerId,
+        source: ObjectId,
         leaf: &ActivationCondition,
     ) -> Result<u32, String> {
         use ActivationCondition as C;
@@ -84,6 +86,11 @@ impl RulesTxn {
             C::HandCards { .. } => objects
                 .filter(|o| o.zone == (Zone::Hand { owner: player }))
                 .count(),
+            // CR 506.4, 208.1: the source's own current facts.
+            C::Source { filter } => usize::from(
+                query::matches_pred(&self.object_facts(self.current(source)?), player, filter)
+                    == Tri::Yes,
+            ),
             C::All(_) | C::Any(_) => return Err("activation condition leaf invariant".into()),
         };
         u32::try_from(count).map_err(|_| "activation condition count limit".into())
@@ -118,6 +125,7 @@ impl RulesTxn {
             && leaves.iter().zip(&check.counts).all(|(leaf, &count)| {
                 let bound = match leaf {
                     ActivationCondition::Controlled { .. } => objects,
+                    ActivationCondition::Source { .. } => 1,
                     _ => owned,
                 };
                 count as usize <= bound
@@ -158,6 +166,11 @@ impl RulesTxn {
             None => true,
             Some(ActivationWindow::YourTurn) => own_turn,
             Some(ActivationWindow::YourUpkeep) => own_turn && step == TurnStep::Upkeep,
+            Some(ActivationWindow::Combat) => step.phase() == Phase::Combat,
+            Some(ActivationWindow::EndOfCombat) => step == TurnStep::EndCombat,
+            Some(ActivationWindow::NotYourTurn) => {
+                self.state.rules.active.is_some() && !own_turn
+            }
             Some(ActivationWindow::YourTurnBeforeAttackers) => {
                 own_turn
                     && matches!(
@@ -173,7 +186,7 @@ impl RulesTxn {
             && restriction
                 .condition
                 .as_ref()
-                .is_none_or(|c| self.activation_condition_check(player, c).is_ok())
+                .is_none_or(|c| self.activation_condition_check(player, source, c).is_ok())
             && (!restriction.once_each_turn
                 || !self
                     .state
@@ -351,7 +364,7 @@ impl RulesTxn {
         // CR 602.5: the condition is read once, as the activation begins.
         let condition = self
             .activated_condition(object, ability)?
-            .map(|c| self.activation_condition_check(player, &c))
+            .map(|c| self.activation_condition_check(player, object, &c))
             .transpose()?;
         let cost = self
             .copiable_definition(object)?
