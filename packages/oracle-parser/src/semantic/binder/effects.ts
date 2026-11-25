@@ -282,7 +282,9 @@ function tapCostCondition(analyzer: Analyzer, prior: Effect, sentence: Sentence,
   const target = analyzer.at(child(previous, "what"));
   if (!event || event.optional || !target || !analyzer.announced(target) || !isDeepStrictEqual(event.inputs, [target.id])) return false;
   const rules = ["118.11", "118.12", "608.2c", "701.26a"];
-  analyzer.node({ id: analyzer.id(conditionPath, "event-link"), path: conditionPath, node: "event-link",
+  // CR 118.12: "if you do" asks whether the cost was started, not which
+  // event happened, so this is the cost condition, not an event link.
+  analyzer.node({ id: analyzer.id(conditionPath, "action-cost-condition"), path: conditionPath, node: "action-cost-condition",
     scope: context.ability, event: event.id, action: "tap", rules });
   analyzer.engineFeature("action-cost-condition", conditionPath, "Check whether the controller started the mandatory tap cost.", rules);
   return true;

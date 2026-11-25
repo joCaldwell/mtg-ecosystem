@@ -38,7 +38,12 @@ it("B14 binds Energy Tap's condition to its sole mandatory tap cost", () => {
   const text = "Tap target untapped creature you control. If you do, add an amount of {C} equal to that creature's mana value.";
   const { graph, resolution } = card("Energy Tap", "Sorcery", text);
   assert.equal(resolution.complete, true);
-  assert.equal(node(graph, "event-link", "/effects/1/condition").event, node(graph, "event", "/effects/0/steps/0").id);
+  // CR 118.12: "if you do" asks whether the tap cost was started, so the
+  // condition is the cost condition on that tap, never a plain event link.
+  const cost = node(graph, "action-cost-condition", "/effects/1/condition");
+  assert.equal(cost.event, node(graph, "event", "/effects/0/steps/0").id);
+  assert.equal(cost.action, "tap");
+  assert.ok(!graph.nodes.some(n => n.node === "event-link" && n.path.endsWith("/effects/1/condition")));
   assert.equal(target(graph, "/amount/of"), target(graph, "/effects/0/steps/0/what"));
   const twoTaps = text.replace("you control.", "you control, then tap target untapped creature you control.");
   residual(card("Two taps", "Sorcery", twoTaps), "/condition", "Payment/performance conditions need");
