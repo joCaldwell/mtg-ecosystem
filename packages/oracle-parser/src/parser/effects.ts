@@ -2,7 +2,7 @@
 // and activated-ability bodies.
 
 import type {
-  Ability, AbilityRemoval, Amount, AnnouncementTime, CantAction, CounterSpec, DamageTarget, Duration, Effect, GainedAbility,
+  Ability, AbilityRemoval, Amount, AnnouncementTime, CantAction, Condition, CounterSpec, DamageTarget, Duration, Effect, GainedAbility,
   ObjectFilter, ObjectRef, PlayerRef, Sentence, SignedAmount,
   ZoneRef, SpecifiedTokenSpec, TokenSpec,
 } from "../ast.ts";
@@ -321,6 +321,22 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       if (!clashOutcomeHasClash(sentences, s, containsEffect)) return c.fail("clash before its result is tested");
       if (!voteReferencesResolved(sentences, s)) return c.fail("vote offering the choice that its result names");
       if (!pileReferencesResolved(sentences, s)) return c.fail("separation into piles (and a pile choice) before a pile is used");
+      const thenPrefix = thenPrefixes.get(s);
+      if (thenPrefix) {
+        if (tokenDefinition) return c.fail("complete copiable token definition");
+        // The prefix is a sentence of its own: it must pass the same
+        // antecedent checks as any other, before the conditional half does.
+        if (!clashOutcomeHasClash(sentences, thenPrefix, containsEffect) || !voteReferencesResolved(sentences, thenPrefix) ||
+          !pileReferencesResolved(sentences, thenPrefix)) return c.fail("resolved references before a conditional final instruction");
+        // "the chosen spell/permanent" needs exactly one earlier choice of one object.
+        if (JSON.stringify(s.steps).includes('"ref":"choice-result"') && !singleEarlierChoice(sentences))
+          return c.fail("one chosen object before a conditional final instruction");
+        const withPrefix = [...sentences, thenPrefix];
+        if (!clashOutcomeHasClash(withPrefix, s, containsEffect) || !voteReferencesResolved(withPrefix, s) ||
+          !pileReferencesResolved(withPrefix, s)) return c.fail("resolved references before a conditional final instruction");
+        sentences.push(thenPrefix, s);
+        continue;
+      }
       if (beginsThen && previousSentence?.condition && containsEffect(previousSentence.steps, "search") &&
           s.steps[0]?.effect === "shuffle" && s.steps[0].who.player === "that-player" && !s.condition) {
         if (!foldConditionalSearchShuffle(previousSentence, s)) return c.fail("represented conditional search/shuffle continuation");
@@ -680,6 +696,7 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
       const unit = parseUnitQuantity(c, { parseObjectRef, parsePlayerRef, parsePossessivePlayer, isPluralPlayerRef });
       return unit && c.punct(",") ? unit : null;
     });
+    const stepsStart = c.pos;
     const steps = withConditionDifference(sentence.condition, () => parseSteps(c, ctx, leadingDuration ?? undefined), true)
       ?? (leadingDuration || leadingVote || leadingUnit ? null : parseStartingWith(c, () => withConditionDifference(sentence.condition, () => parseSteps(c, ctx), true)));
     if (!steps) return null;
@@ -743,8 +760,20 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     const tailCondition = c.word("unless", "if");
     if (tailCondition && leadingUnless) return c.fail("one payment clause scope");
     if (tailCondition && sentence.conditionKind === "unless") return c.fail("one condition for a leading unless");
+    let prefix: Sentence | undefined;
+    if (tailCondition && steps.length !== 1) {
+      const plain = !sentence.condition && !leadingDuration && !leadingVote && !leadingUnit && !sentence.bindings && sentence.steps === steps;
+      const before = plain ? thenPrefixSteps(c, stepsStart, c.pos - 1, steps, ctx) : null;
+      if (!before) return c.fail("unambiguous conditional instruction scope");
+      prefix = { steps: before };
+      sentence.steps = steps.slice(-1);
+    }
+    // The split cannot keep a per-member condition: when the conditional
+    // instruction acts on or for any group of players or objects, its
+    // condition could be meant for each member ("… deals 2 damage to each
+    // opponent if that player controls a Swamp"), which one sentence-level
+    // condition cannot state.
     if (tailCondition) {
-      if (steps.length !== 1) return c.fail("unambiguous conditional instruction scope");
       const condition = (tailCondition === "unless" ? parseUnlessPayment(c) ?? parseUnlessDamage(c) : null) ??
         parseCondition(c, tailCondition === "unless" ? { purpose: "unless" } : { outcomes: true });
       if (!condition) return null;
@@ -762,14 +791,141 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
         if (!c.punct(",") || !c.words("where", "x", "is")) return null;
         return parseAmount(c);
       });
+      // After a ", then" split the definition could serve either half.
+      if (lateBinding && prefix) return c.fail("one instruction for a trailing X definition");
       if (lateBinding) sentence.bindings = [{ variable: "x", value: lateBinding }];
     }
 
+    if (prefix && !isAllowlistedSplit(prefix.steps, sentence.steps, sentence.condition))
+      return c.fail("unambiguous conditional instruction scope");
     if (!c.punct(".") && !c.done()) return null;
+    if (prefix) thenPrefixes.set(sentence, prefix);
     return sentence;
   });
   if (result === null) { ctx.lastSubject = previousSubject; ctx.lastPlayer = previousPlayer; }
   return result;
+}
+
+/** The instructions before ", then" in a sentence whose trailing "if" or
+ * "unless" clause governs only its final instruction (CR 608.2c): "Surveil
+ * 2, then counter the chosen spell unless its controller pays {1} …";
+ * "… reveals the top card of their library, then puts it onto the
+ * battlefield if it's a permanent card." Accepted only when the text before
+ * the last ", then" parses, alone, to exactly every step but the last, so
+ * the final step is precisely the instruction after "then". Coordination
+ * with "and" or a comma alone stays ambiguous and keeps failing. */
+const thenPrefixes = new WeakMap<Sentence, Sentence>();
+
+function thenPrefixSteps(c: Cursor, start: number, end: number, steps: Effect[], ctx: EffectContext): Effect[] | null {
+  let then = -1;
+  for (let i = end - 1; i > start; i--) {
+    const token = c.tokens[i];
+    const comma = c.tokens[i - 1];
+    if (token.kind === "punct" && token.value === '"') return null;
+    if (token.kind === "word" && !token.possessive && token.value === "then" && comma?.kind === "punct" && comma.value === ",") { then = i; break; }
+  }
+  if (then < 0) return null;
+  // Any group anywhere in the instruction (an actor, a source, a target, an
+  // affected set) may make the condition per member; the sentence-level
+  // condition cannot keep that partition (Vaevictis Asmadi, the Dire).
+  if (hasGroupReference(steps)) return null;
+  const subject = ctx.lastSubject, player = ctx.lastPlayer;
+  const body = new Cursor(c.tokens.slice(start, then - 1));
+  const before = parseSteps(body, ctx);
+  ctx.lastSubject = subject; ctx.lastPlayer = player;
+  if (!before || !body.done() || JSON.stringify(before) !== JSON.stringify(steps.slice(0, -1))) return null;
+  return steps.slice(0, -1);
+}
+
+/** The ", then … if/unless" split accepts only these exact instruction shapes,
+ * each acting for you on singular objects (Swallowed by Leviathan, Phantasmal
+ * Sphere, Retraced Image, Quag Feast). Anything else keeps the guard. */
+const json = (value: unknown) => JSON.stringify(value);
+const keysAre = (value: object, keys: string[]) => json(Object.keys(value).sort()) === json([...keys].sort());
+const YOU = '{"player":"you"}';
+const isFixed = (amount: unknown) => !!amount && typeof amount === "object" && (amount as { amount?: unknown }).amount === "fixed";
+const isSelf = (ref: unknown) => !!ref && typeof ref === "object" && ["self", "this"].includes((ref as { ref?: unknown }).ref as string) &&
+  Object.keys(ref).every(key => key === "ref" || key === "noun");
+
+/** Exactly one earlier instruction chose objects, and it chose exactly one. */
+function singleEarlierChoice(sentences: Sentence[]): boolean {
+  const choices = sentences.flatMap(sentence => sentence.steps).filter(step => step.effect === "declare-target" || step.effect === "choose-object");
+  if (choices.length !== 1) return false;
+  const what = (choices[0] as { what?: unknown }).what as { count?: unknown; upTo?: unknown } | undefined;
+  return !!what && JSON.stringify(what.count) === '{"amount":"fixed","value":1}' && !what.upTo;
+}
+
+const isChosen = (what: unknown) => !!what && typeof what === "object" && (what as { ref?: unknown }).ref === "choice-result" &&
+  (what as { number?: unknown }).number === "singular";
+const forYou = (step: Effect, kinds: Effect["effect"][]) => kinds.includes(step.effect) &&
+  keysAre(step, ["effect", "who", "amount"]) && json((step as { who?: unknown }).who) === YOU && isFixed((step as { amount?: unknown }).amount);
+const isLook = (step: Effect) => (step.effect === "surveil" || step.effect === "scry") && isFixed(step.amount) &&
+  (keysAre(step, ["effect", "amount"]) || (keysAre(step, ["effect", "who", "amount"]) && json(step.who) === YOU));
+
+/** Exact rows, each pairing the instruction before ", then", the conditional
+ * instruction, and what the condition may refer to (CR 608.2c). A pronoun
+ * in the condition ("it", "its controller", "that …") is allowed only in a
+ * row whose single antecedent is fixed by the shapes themselves:
+ * - Swallowed by Leviathan: surveil, then counter the chosen spell; "its" is
+ *   that spell (surveil introduces no single object).
+ * - Phantasmal Sphere: a counter on this creature, then sacrifice this
+ *   creature; "it" is this creature.
+ * - Retraced Image: reveal a card from your hand, then put that card onto the
+ *   battlefield; "that card" and "it" are the revealed card.
+ * - Quag Feast: mill a fixed number of cards, then destroy the chosen
+ *   permanent; "its" is the chosen permanent.
+ * Otherwise only instructions for you, with no object or player pronoun in
+ * the condition: draw / gain life / mill / scry / surveil, then lose or gain
+ * life, draw, or exile your top card. */
+function isAllowlistedSplit(prefix: Effect[], conditional: Effect[], condition: Condition | undefined): boolean {
+  if (conditional.length !== 1 || !condition) return false;
+  const [step] = conditional;
+  const only = prefix.length === 1 ? prefix[0] : undefined;
+  if (only && isLook(only) && step.effect === "counter" && keysAre(step, ["effect", "what"]) && isChosen(step.what)) return true;
+  if (only?.effect === "put-counters" && keysAre(only, ["effect", "on", "counter", "count"]) && isSelf(only.on) && isFixed(only.count) &&
+    step.effect === "sacrifice" && keysAre(step, ["effect", "who", "what"]) && json(step.who) === YOU && json(step.what) === json(only.on)) return true;
+  if (only?.effect === "reveal" && keysAre(only, ["effect", "who", "what"]) && json(only.who) === YOU &&
+    json(only.what) === '{"ref":"filter","filter":{"cls":"card","zone":{"zone":"hand","owner":"your"}},"count":{"amount":"fixed","value":1}}' &&
+    step.effect === "move-zone" && keysAre(step, ["effect", "what", "to"]) && json(step.what) === '{"ref":"that","filter":{"cls":"card"}}' &&
+    json(step.to) === '{"zone":"battlefield"}') return true;
+  if (only && forYou(only, ["mill"]) && step.effect === "destroy" && keysAre(step, ["effect", "what"]) && isChosen(step.what)) return true;
+  // Rows whose condition may name nothing in the sentence: only you and
+  // quantified descriptions ("you control a Swamp"), never another player,
+  // an object, or a relation to one ("its owner", "its controller").
+  let names = false;
+  const visit = (value: unknown): void => {
+    if (names || !value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    const node = value as Record<string, unknown>;
+    if (typeof node.player === "string" && node.player !== "you") names = true;
+    if (typeof node.ref === "string" && node.ref !== "filter") names = true;
+    if ("of" in node && typeof node.of === "object" && node.of && "ref" in node.of) names = true;
+    // Zone and control relations: "its owner's hand", "that player controls".
+    for (const key of ["owner", "control", "controller"]) {
+      const relation = node[key];
+      if (typeof relation === "string" && relation !== "your" && relation !== "you") names = true;
+    }
+    Object.values(node).forEach(visit);
+  };
+  visit(condition);
+  if (names) return false;
+  return prefix.every(earlier => forYou(earlier, ["draw", "gain-life", "mill"]) || isLook(earlier)) &&
+    (forYou(step, ["lose-life", "gain-life", "draw"]) || (step.effect === "exile" && keysAre(step, ["effect", "what"]) &&
+      json(step.what) === '{"ref":"library-cards","position":"top","count":{"amount":"fixed","value":1},"of":{"zone":"library","owner":"your"}}'));
+}
+
+/** Any player group, or an object reference that may denote several objects
+ * (a fixed count of exactly one, such as "the top card of your library", is
+ * not a group). */
+function hasGroupReference(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasGroupReference);
+  const node = value as Record<string, unknown>;
+  if (typeof node.player === "string" && isPluralPlayerRef(node as PlayerRef)) return true;
+  if (node.ref === "each" || node.ref === "all" || node.ref === "them" || node.ref === "rest" ||
+    (node.ref !== undefined && (node.plural === true || node.number === "plural")) ||
+    (node.ref !== undefined && node.count !== undefined && JSON.stringify(node.count) !== '{"amount":"fixed","value":1}')) return true;
+  return Object.values(node).some(hasGroupReference);
 }
 
 /** "as you cast this spell" / "as you activate this ability" (CR 601.2, 602.2). */

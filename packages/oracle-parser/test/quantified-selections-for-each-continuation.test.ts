@@ -65,7 +65,7 @@ describe("independent sentences after a for-each", () => {
     fails("For each opponent, you may draw a card. Otherwise, you gain 1 life.", "Sorcery");
     fails("For each blocking creature, flip a coin. If you win the flip, draw a card.", "Sorcery");
     fails("For each creature you control, draw a card. Then put the rest on the bottom of your library.", "Sorcery");
-    // A following loop over the same earlier event still names "this way".
-    fails("Exile the top X cards of your library. For each land card exiled this way, create a Treasure token. For each blue card exiled this way, draw a card.", "Sorcery");
+    // A following "exiled this way" names the loop's own exile when its body exiles too.
+    fails("Exile the top X cards of your library. For each land card exiled this way, exile two cards from your graveyard. For each blue card exiled this way, draw a card.", "Sorcery");
   });
 });

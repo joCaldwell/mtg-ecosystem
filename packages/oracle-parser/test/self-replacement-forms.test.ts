@@ -156,7 +156,6 @@ describe('static modification replaced while a condition holds', () => {
     }]);
   });
   it('rejects an additional modification, another condition form, or a plural subject', () => {
-    fails("Enchanted creature gets -2/-2. It gets -5/-5 as long as you've completed a dungeon.", 'Enchantment — Aura');
     fails("Enchanted creature gets -2/-2. It gets -5/-5 instead if you've completed a dungeon.", 'Enchantment — Aura');
     fails("Enchanted creature gets -2/-2 as long as you control a Swamp. It gets -5/-5 instead as long as you've completed a dungeon.", 'Enchantment — Aura');
     fails("Creatures you control get +1/+1. It gets +2/+2 instead as long as you've completed a dungeon.", 'Enchantment');

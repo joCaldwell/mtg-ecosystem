@@ -218,6 +218,26 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
               modifier.conditionScope = "each-affected-object";
             continue;
           }
+          // "~ has hexproof unless it's attacking": the modification applies
+          // exactly as long as the condition is false (CR 611.3a). A payment
+          // is not a continuously checked state, so it is not accepted here.
+          const unless = c.attempt((c): Condition | null => {
+            if (c.word("unless") === null) return null;
+            const condition = parseCondition(c, { purpose: "unless" });
+            // Only a continuously checkable game state, never a payment,
+            // an action outcome, a roll or any event history.
+            if (!condition || !isStatePredicate(condition) || !isAllowlistedUnlessState(condition)) return null;
+            // "it" must provably name the one subject: "this creature …
+            // unless it's attacking". After a group subject ("Creatures you
+            // control …", "Each creature …") it could be each member or the
+            // source, so it is rejected.
+            if (JSON.stringify(condition).includes('"ref":"it"') && what.ref !== "self" && what.ref !== "this") return null;
+            return condition;
+          });
+          if (unless) {
+            modifier.condition = { condition: "not", of: unless };
+            continue;
+          }
         }
         break;
       }
@@ -446,7 +466,11 @@ function parseStaticGroup(c: Cursor): StaticEffect | null {
       // tap/choose actions (CR 614.1c-d, 614.12, 616.1).
       const entry = isPeriod && (left.static === "enters-tapped" || left.static === "enters-with-counters") &&
         (subject.ref === "this" || subject.ref === "self");
-      if (!entry && !isUngovernedStaticClause(left)) continue;
+      // A sentence boundary closes a condition's scope: "Equipped creature
+      // gets +1/+1. As long as it's red, it has trample." (Tenza, Godo's
+      // Maul). Only a conjunction leaves a trailing condition ambiguous.
+      const clause = (effect: StaticEffect): boolean => isUngovernedStaticClause(effect) || (isPeriod && isSentenceStaticClause(effect));
+      if (!entry && !clause(left)) continue;
       let tail = tokens.slice(index + 1);
       if (entry && tail[0]?.kind === "word" && tail[0].value === "as" && tail[1]?.kind === "word" && tail[1].value === "it")
         tail = [tail[0], ...subjectTokens, ...tail.slice(2)];
@@ -454,7 +478,11 @@ function parseStaticGroup(c: Cursor): StaticEffect | null {
       if (!remaining) continue;
       const rightCursor = new Cursor(remaining);
       const right = parseStaticUnbound(rightCursor);
-      if (!right || !rightCursor.done() || (entry ? right.static !== "as-enters" : !isUngovernedStaticClause(right))) continue;
+      if (!right || !rightCursor.done() || (entry ? right.static !== "as-enters" : !clause(right))) continue;
+      // A conditional sentence accepted only at the sentence boundary may
+      // name no second singular object: "As long as this Equipment is
+      // tapped, it doesn't untap …" leaves "it" ambiguous.
+      if (!entry && !isUngovernedStaticClause(right) && namesAnotherObject(tail)) continue;
       if (entry && right.static === "as-enters" && JSON.stringify(right.what) !== JSON.stringify(subject)) continue;
       // "..., where X is ..." can bind the preceding instruction as well.
       // Do not assign a final binding solely to the right clause when a left
@@ -495,6 +523,26 @@ function isUngovernedStaticClause(effect: StaticEffect): boolean {
   return !hasOuterCondition(effect);
 }
 
+/** Unquoted words that introduce or name a singular object other than the
+ * continued subject. */
+function namesAnotherObject(tokens: Token[]): boolean {
+  let quoted = false;
+  return tokens.some(token => {
+    if (token.kind === "punct" && token.value === '"') { quoted = !quoted; return false; }
+    if (quoted) return false;
+    if (token.kind === "selfref") return true;
+    return token.kind === "word" && ["this", "that", "target", "another", "enchanted", "equipped"].includes(token.value);
+  });
+}
+
+/** A complete static sentence whose own condition, leading or trailing,
+ * cannot reach a neighbouring sentence. */
+function isSentenceStaticClause(effect: StaticEffect): boolean {
+  if (effect.static === "group") return effect.effects.every(isSentenceStaticClause);
+  if (effect.static === "conditional") return !effect.otherwise && isSentenceStaticClause(effect.effect);
+  return ["modify", "cant", "combat-rule", "untap-step-suppression", "player-abilities", "prohibit", "cast-limit"].includes(effect.static);
+}
+
 function hasOuterCondition(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some(hasOuterCondition);
@@ -505,6 +553,28 @@ function hasOuterCondition(value: unknown): boolean {
 }
 
 function staticContinuationTokens(tokens: Token[], subject: ObjectRef, subjectTokens: Token[], conjunction: boolean): Token[] | null {
+  const word = (token: Token | undefined, value: string) => token?.kind === "word" && !token.possessive && token.value === value;
+  // "As long as it's legendary, it gets an additional +2/+2.": both
+  // pronouns of a following conditional sentence name the preceding subject.
+  // That one sentence is restated with its condition trailing ("Equipped
+  // creature gets an additional +2/+2 as long as equipped creature is
+  // legendary"), which has the same meaning and keeps the condition inside
+  // its own sentence; any later sentence follows unchanged.
+  if (!conjunction && word(tokens[0], "as") && word(tokens[1], "long") && word(tokens[2], "as")) {
+    const isPunct = (token: Token | undefined, value: string) => token?.kind === "punct" && token.value === value;
+    const comma = tokens.findIndex(token => isPunct(token, ",") || isPunct(token, '"') || isPunct(token, "."));
+    if (comma < 0 || !isPunct(tokens[comma], ",")) return null;
+    let end = tokens.findIndex((token, index) => index > comma && (isPunct(token, ".") || isPunct(token, '"')));
+    if (end < 0) end = tokens.length;
+    else if (!isPunct(tokens[end], ".")) return null;
+    const condition = pronounSubject(tokens.slice(3, comma), subject, subjectTokens) ?? tokens.slice(3, comma);
+    const body = pronounSubject(tokens.slice(comma + 1, end), subject, subjectTokens);
+    if (!body) return null;
+    // "they also have vigilance": "also" only marks the added modification.
+    const also = word(body[subjectTokens.length], "also") ? 1 : 0;
+    return [...body.slice(0, subjectTokens.length), ...body.slice(subjectTokens.length + also),
+      ...tokens.slice(0, 3), ...condition, ...tokens.slice(end)];
+  }
   const first = tokens[0];
   if (!first) return null;
   if (first.kind !== "word" || first.possessive) return tokens;
@@ -524,6 +594,61 @@ function staticContinuationTokens(tokens: Token[], subject: ObjectRef, subjectTo
   if (conjunction && ["get", "gets", "has", "have", "gain", "gains", "lose", "loses", "can't", "can", "doesn't", "don't", "must", "attack", "attacks", "block", "blocks"].includes(first.value))
     return [...subjectTokens, ...tokens];
   return tokens;
+}
+
+/** Current-state predicates a static ability can check continuously (CR
+ * 611.3a). Anything scoped to an event, a roll, a choice or a history is a
+ * resolution outcome, not a state. */
+const STATE_CONDITIONS = new Set(["control", "count", "control-count", "status", "compare", "is-filter", "has-keyword",
+  "cards-in-hand", "not", "any-of", "all-of", "designation", "most-common-color", "life-total", "completed-dungeon",
+  "player-counters", "your-turn", "not-your-turn", "day-night", "full-party", "paired", "opponent-count", "current-phase"]);
+/** Quantities of the current game state, never of an event, payment, choice
+ * or history (e.g. "the amount of mana spent to cast it"). */
+const STATE_AMOUNTS = new Set(["fixed", "count", "attribute", "attribute-extremum", "attribute-sum", "counter-count", "devotion",
+  "distinct-count", "life-total", "life-total-extremum", "opponent-count", "party-size", "player-count", "speed",
+  "starting-life-total", "plus", "minus", "half", "twice", "product", "per-player-extremum", "commander-color-identity-count"]);
+
+function isStatePredicate(condition: Condition): boolean {
+  let state = true;
+  const visit = (value: unknown): void => {
+    if (!state || !value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    const node = value as Record<string, unknown>;
+    if (typeof node.condition === "string" && !STATE_CONDITIONS.has(node.condition)) state = false;
+    if (typeof node.amount === "string" && !STATE_AMOUNTS.has(node.amount)) state = false;
+    if ("scope" in node || "roll" in node || "window" in node || "during" in node) state = false;
+    Object.values(node).forEach(visit);
+  };
+  visit(condition);
+  return state;
+}
+
+/** The exact states a static "unless" accepts: the object's own combat or
+ * tap status ("unless it's attacking [or blocking]", Tadeas, Juniper
+ * Ascendant) and the turn or phase ("unless it's your main phase"). */
+function isAllowlistedUnlessState(condition: Condition): boolean {
+  if (condition.condition === "any-of") return condition.conditions.every(isAllowlistedUnlessState);
+  if (condition.condition === "status") {
+    const ref = (condition.what as { ref?: unknown }).ref;
+    return Object.keys(condition).length === 3 && (ref === "it" || ref === "self" || ref === "this") &&
+      ["attacking", "blocking", "tapped", "untapped"].includes(condition.status as string);
+  }
+  return condition.condition === "current-phase" || condition.condition === "your-turn" || condition.condition === "not-your-turn";
+}
+
+/** Replace a leading "it"/"they" (or "it's"/"they're") with the preceding
+ * subject, when its number agrees; null when there is no such pronoun. */
+function pronounSubject(tokens: Token[], subject: ObjectRef, subjectTokens: Token[]): Token[] | null {
+  const first = tokens[0];
+  if (first?.kind !== "word" || first.possessive) return null;
+  const contraction = first.value === "it's" ? "is" : first.value === "they're" ? "are" : null;
+  const singular = first.value === "it" || first.value === "it's";
+  if (!singular && first.value !== "they" && first.value !== "they're") return null;
+  if (subject.ref !== "self" && subject.ref !== "this" && subject.ref !== "enchanted" && subject.ref !== "equipped" &&
+    !(subject.ref === "each" && subjectTokens[0]?.kind === "word" && subjectTokens[0].value !== "each")) return null;
+  if (singular !== (subject.ref !== "each")) return null;
+  const verb: Token[] = contraction ? [{ kind: "word", value: contraction, raw: contraction, possessive: false }] : [];
+  return [...subjectTokens, ...verb, ...tokens.slice(1)];
 }
 
 /** CR 305.6, 611.3a, 702.14a–e: one ability per distinct basic land
@@ -582,8 +707,43 @@ function parseCharacteristicSubjectUnion(c: Cursor): StaticEffect | null {
   });
 }
 
+/** "You may look at cards exiled with this creature[, and you may play lands
+ * and cast spells from among those cards]." A static ability's permission is
+ * continuous, so the printed text needs no "any time" (CR 406.3, 611.3a).
+ * The cards are this object's linked exiled cards (CR 607.2a); "those
+ * cards" in the coordinated play permission are exactly those cards. */
+function parseLinkedExileLook(c: Cursor): StaticEffect | null {
+  return c.attempt((c): StaticEffect | null => {
+    if (!c.words("you", "may", "look", "at")) return null;
+    c.word("the");
+    const what = parseObjectRef(c);
+    if (what?.ref !== "related" || what.number !== "plural" || what.relation.relation !== "linked-exile" ||
+      (what.relation.source.ref !== "self" && what.relation.source.ref !== "this") ||
+      JSON.stringify(what.filter) !== '{"cls":"card"}' || Object.keys(what.relation).length !== 2) return null;
+    const look: StaticEffect = { static: "look-permission", permission: { who: { player: "you" }, what: [what], timing: "any-time" } };
+    const play = c.attempt((c): StaticEffect | null => {
+      if (!c.punct(",") || c.word("and") === null) return null;
+      const play = parsePlayPermissionStatic(c);
+      if (!play) return null;
+      const permissions = play.static === "group" ? play.effects : [play];
+      for (const permission of permissions) {
+        if (permission.static !== "play-permission" || permission.permission.who.player !== "you") return null;
+        const from = permission.permission.fromAmong;
+        if (from?.ref !== "that" || !from.plural || JSON.stringify(from.filter) !== '{"cls":"card"}') return null;
+        permission.permission.fromAmong = what;
+      }
+      return play;
+    });
+    c.punct(".");
+    if (!c.done()) return null;
+    return play ? { static: "group", effects: [look, play] } : look;
+  });
+}
+
 function parseStaticBase(c: Cursor): StaticEffect | null {
   return c.attempt((c): StaticEffect | null => {
+    const linkedLook = parseLinkedExileLook(c);
+    if (linkedLook) return linkedLook;
     const entryCopy = parseEntryCopy(c, parseGainedAbilities);
     if (entryCopy) return entryCopy;
     const persistent = parsePersistentRule(c) ?? parsePregameRule(c, body => parseSentences(body, { modalOptions: [] }));
