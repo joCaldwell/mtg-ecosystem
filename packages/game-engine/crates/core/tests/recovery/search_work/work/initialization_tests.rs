@@ -20,6 +20,7 @@ fn zero_budget_defers_projection_and_request_headers_until_initialization_unit()
     // construction observable. No snapshot/admission claim is made for it.
     game.state.rules.combat.push(Attacker {
         attacker: ObjectId {
+            face: Default::default(),
             card: CardId(999),
             incarnation: 0,
         },

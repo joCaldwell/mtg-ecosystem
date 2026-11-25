@@ -253,6 +253,7 @@ fn failed_mixed_cast_keeps_or_undoes_only_its_recorded_mana() {
         let mut g = game();
         {
             let selected_answer = g.next_test_decision().activate_mana(ObjectId {
+                face: Default::default(),
                 card: CardId(1),
                 incarnation: 0,
             });
@@ -264,6 +265,7 @@ fn failed_mixed_cast_keeps_or_undoes_only_its_recorded_mana() {
         };
         {
             let selected_answer = g.next_test_decision().activate_mana(ObjectId {
+                face: Default::default(),
                 card: CardId(5),
                 incarnation: 0,
             });

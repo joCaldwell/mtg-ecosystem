@@ -268,6 +268,12 @@ pub struct Blocker {
 /// blocker is hidden behind another.
 pub(crate) fn record_blockers(accepted: &AcceptedArchive, raw: &str, row: &Value) -> Vec<Blocker> {
     let found = crate::compose::blockers(accepted, raw);
+    let faces = row["faces"].as_array();
+    let blocks = faces
+        .into_iter()
+        .flatten()
+        .flat_map(|face| face["result"]["abilities"].as_array().into_iter().flatten())
+        .collect::<Vec<_>>();
     let abilities = &row["faces"][0]["result"]["abilities"];
     let mut out: Vec<Blocker> = found
         .bindings
@@ -281,7 +287,11 @@ pub(crate) fn record_blockers(accepted: &AcceptedArchive, raw: &str, row: &Value
     out.extend(found.blocks.iter().map(|(block, f)| Blocker {
         kind: BlockerKind::Block,
         block: Some(*block),
-        code: reason_code(&f.path, &f.reason, &abilities[*block]),
+        code: reason_code(
+            &f.path,
+            &f.reason,
+            blocks.get(*block).copied().unwrap_or(&Value::Null),
+        ),
     }));
     out.extend(found.card.iter().map(|f| Blocker {
         kind: BlockerKind::Card,

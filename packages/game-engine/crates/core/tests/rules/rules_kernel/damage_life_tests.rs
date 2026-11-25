@@ -239,6 +239,7 @@ fn invalid_damage_life_quantities_recipients_and_source_metadata_are_atomic() {
             0,
             DamageRecipient::Creature {
                 object: ObjectId {
+                    face: Default::default(),
                     card: CardId(15),
                     incarnation: 99,
                 },

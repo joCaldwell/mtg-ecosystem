@@ -169,6 +169,12 @@ impl RulesTxn {
                     Action::PlayLand { object } => Action::PlayLand {
                         object: handle(object)?,
                     },
+                    Action::CastBackFace { card } => Action::CastBackFace {
+                        card: handle(card)?,
+                    },
+                    Action::PlayLandBackFace { object } => Action::PlayLandBackFace {
+                        object: handle(object)?,
+                    },
                     Action::ActivateMana { object } => Action::ActivateMana {
                         object: handle(object)?,
                     },

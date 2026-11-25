@@ -75,13 +75,29 @@ impl RulesTxn {
                         self.activate_ability(input.player, input.decision_id, object, ability)?
                     }
                     Action::PlayLand { object } => {
-                        self.play_land(input.player, input.decision_id, object.card)?;
+                        self.play_land(
+                            input.player,
+                            input.decision_id,
+                            object.card,
+                            CardFace::Front,
+                        )?;
+                    }
+                    Action::PlayLandBackFace { object } => {
+                        self.play_land(
+                            input.player,
+                            input.decision_id,
+                            object.card,
+                            CardFace::Back,
+                        )?;
                     }
                     Action::ActivateMana { object } => {
                         self.begin_payment_mana(&input, object, Frame::Priority)?;
                     }
                     Action::Cast { card } => {
-                        self.announce_priority_spell(input.player, card.card)?;
+                        self.announce_priority_spell(input.player, card.card, CardFace::Front)?;
+                    }
+                    Action::CastBackFace { card } => {
+                        self.announce_priority_spell(input.player, card.card, CardFace::Back)?;
                     }
                     Action::Pass => {
                         self.record_event(Event::PriorityPassed {

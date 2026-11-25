@@ -39,11 +39,19 @@ test('retained archive hashes agree with JavaScript and source parser', () => {
     }
     // Extraction also preserves unparsed records for rejection witnesses.
     if (record.status !== 'parsed') continue;
-    const parsed = parseOracleText(record.source.oracle_text, record.source.name, {
-      layout: record.source.layout, typeLine: record.source.type_line, includeSourceProvenance: true,
-    });
-    assert.equal(parsed.ok, true, record.source.name);
-    // Archive interchange is JSON: optional undefined TS properties are absent.
-    if (parsed.ok) assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)), record.faces[0].result.abilities, record.source.name);
+    const faces = record.source.card_faces ?? [record.source];
+    assert.equal(record.faces.length, faces.length, record.source.name);
+    for (const [index, face] of faces.entries()) {
+      const archived = record.faces[index];
+      assert.equal(archived.sourceFaceIndex, index, face.name);
+      const parsed = parseOracleText(face.oracle_text, face.name, {
+        layout: record.source.layout,
+        typeLine: face.type_line ?? record.source.type_line,
+        includeSourceProvenance: true,
+      });
+      assert.ok(parsed.ok, face.name);
+      // Archive interchange omits optional undefined properties.
+      assert.deepEqual(JSON.parse(JSON.stringify(parsed.abilities)), archived.result.abilities, face.name);
+    }
   }
 });

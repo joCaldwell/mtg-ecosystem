@@ -125,16 +125,27 @@ impl RulesTxn {
             let hand = obj.zone == (Zone::Hand { owner: player });
             let command = obj.zone == (Zone::Command { owner: player });
             let controlled = obj.present_on_battlefield() && obj.controller == player;
-            if priority && hand && self.validate_land_play(player, id.card).is_ok() {
-                actions.push(Action::PlayLand { object: id });
-            }
-            // CR 702.34a: a graveyard card is offered only with flashback.
+            // CR 712.11b-c, 712.12: evaluate each candidate using its chosen
+            // face, including when the front and back have different types.
             let graveyard = obj.zone == (Zone::Graveyard { owner: player });
-            if priority
-                && (hand || command || graveyard)
-                && self.validate_priority_spell_cast(player, id.card).is_ok()
-            {
-                actions.push(Action::Cast { card: id });
+            if priority && (hand || command || graveyard) {
+                for face in self.definition(id.card)?.faces() {
+                    if hand && self.validate_land_face(player, id.card, face).is_ok() {
+                        actions.push(match face {
+                            CardFace::Front => Action::PlayLand { object: id },
+                            CardFace::Back => Action::PlayLandBackFace { object: id },
+                        });
+                    }
+                    if self
+                        .validate_priority_spell_cast(player, id.card, face)
+                        .is_ok()
+                    {
+                        actions.push(match face {
+                            CardFace::Front => Action::Cast { card: id },
+                            CardFace::Back => Action::CastBackFace { card: id },
+                        });
+                    }
+                }
             }
             if controlled && self.validate_mana_activation(player, id).is_ok() {
                 actions.push(Action::ActivateMana { object: id });

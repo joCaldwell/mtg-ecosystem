@@ -6,6 +6,7 @@ mod costs;
 mod damage_triggers;
 mod keywords;
 mod library;
+mod modal_double_faced;
 mod permanents_mana;
 mod removal_wipes;
 mod target_operands;

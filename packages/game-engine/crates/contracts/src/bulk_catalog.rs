@@ -140,7 +140,26 @@ impl BulkCardFacts {
         let conspiracy = type_line
             .split_whitespace()
             .any(|term| term == "Conspiracy");
-        let oracle_text = source["oracle_text"].as_str().unwrap_or_default();
+        // CR 712.8a and 903.3: a modal card's front determines command eligibility.
+        let front = &source["card_faces"][0];
+        let modal_front = source["layout"] == "modal_dfc" && front.is_object();
+        let (face_name, oracle_text, type_line) = if modal_front {
+            (
+                front["name"].as_str().ok_or("missing modal front name")?,
+                front["oracle_text"]
+                    .as_str()
+                    .ok_or("missing modal front text")?,
+                front["type_line"]
+                    .as_str()
+                    .ok_or("missing modal front types")?,
+            )
+        } else {
+            (
+                name,
+                source["oracle_text"].as_str().unwrap_or_default(),
+                type_line,
+            )
+        };
         let ante = oracle_text
             .split(|c: char| !c.is_alphabetic())
             .any(|term| term.eq_ignore_ascii_case("ante"));
@@ -151,14 +170,14 @@ impl BulkCardFacts {
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let (types, subtypes) = type_line.split_once(" — ").unwrap_or((type_line, ""));
         let single_face = !type_line.contains(" // ") && source["card_faces"].is_null();
-        let legendary_creature = single_face
+        let legendary_creature = (single_face || modal_front)
             && types.split_whitespace().any(|t| t == "Legendary")
             && types.split_whitespace().any(|t| t == "Creature");
         let changeling = source["keywords"]
             .as_array()
             .is_some_and(|keywords| keywords.iter().any(|keyword| keyword == "Changeling"));
         let all_types = oracle_text.lines().any(|line| {
-            line.strip_prefix(name)
+            line.strip_prefix(face_name)
                 .is_some_and(|rest| rest.starts_with(" is every creature type"))
         });
         let time_lord_doctor = legendary_creature
@@ -337,7 +356,11 @@ fn validate_definition(
     let source: Value = strict_read(&p.source_json)?;
     if row.oracle_id != d.oracle_id
         || source["oracle_id"] != d.oracle_id
-        || row.facts.name != d.name
+        || if let Some(back) = &d.modal_back {
+            row.facts.name != format!("{} // {}", d.name, back.name)
+        } else {
+            row.facts.name != d.name
+        }
         || row.facts != BulkCardFacts::from_source(&source)?
         || row.facts.color_identity.len() != d.characteristics.color_identity.len()
         || !row

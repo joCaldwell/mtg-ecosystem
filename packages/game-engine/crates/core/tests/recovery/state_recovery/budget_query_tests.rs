@@ -200,6 +200,7 @@ fn identical_permitted_histories_produce_identical_contexts_with_different_hidde
         .unwrap();
     let mut object = other.state.rules.objects.remove(&CardId(1)).unwrap();
     object.id = ObjectId {
+        face: Default::default(),
         card: CardId(99),
         incarnation: 42,
     };

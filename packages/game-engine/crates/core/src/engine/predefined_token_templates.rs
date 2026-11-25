@@ -7,6 +7,7 @@ use mtg_contracts::kir::{Amount, Context, PlayerExpr, Verb};
 
 pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken) -> Definition {
     let mut d = source.clone();
+    d.modal_back = None;
     d.oracle_id = format!("token:{}", id.0);
     d.name = format!("{} Token", kind.name());
     d.characteristics = Characteristics {

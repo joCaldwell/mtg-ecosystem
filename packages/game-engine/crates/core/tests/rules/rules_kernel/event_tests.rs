@@ -4,6 +4,7 @@ fn leaf(proposed: ProposedEvent) -> EventGroup {
 }
 fn land() -> ObjectId {
     ObjectId {
+        face: Default::default(),
         card: CardId(0),
         incarnation: 0,
     }
@@ -138,6 +139,7 @@ fn failed_children_conflicts_limits_and_overflows_roll_back_state_and_evidence()
         nested,
         leaf(ProposedEvent::Move {
             object: ObjectId {
+                face: Default::default(),
                 card: CardId(0),
                 incarnation: 99,
             },

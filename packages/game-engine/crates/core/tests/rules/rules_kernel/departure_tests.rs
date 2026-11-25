@@ -855,6 +855,7 @@ fn queued_departure_budget_partitions_and_accepted_input_cancellation_restore_id
     let mut initial = Game::new(prepared(true));
     {
         let selected_answer = initial.next_test_decision().activate_mana(ObjectId {
+            face: Default::default(),
             card: CardId(0),
             incarnation: 0,
         });

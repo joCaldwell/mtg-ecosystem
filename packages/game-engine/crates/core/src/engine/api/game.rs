@@ -107,6 +107,7 @@ impl RulesTxn {
                         deathtouch_damage: false,
                         attack_ready: c.zone == Zone::Battlefield,
                         id: ObjectId {
+                            face: Default::default(),
                             card: c.id,
                             incarnation: 0,
                         },

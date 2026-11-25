@@ -20,6 +20,8 @@ pub enum BatchCause {
         player: PlayerId,
         decision_id: u64,
         source: ObjectId,
+        #[serde(default, skip_serializing_if = "CardFace::is_front")]
+        face: CardFace,
     },
     TurnProgression,
     UntapStep,
@@ -35,6 +37,8 @@ pub enum BatchCause {
         stack_id: StackId,
         player: PlayerId,
         source: ObjectId,
+        #[serde(default, skip_serializing_if = "CardFace::is_front")]
+        face: CardFace,
     },
     Payment {
         stack_id: StackId,
@@ -271,7 +275,10 @@ pub(super) enum EntryOverride {
 #[derive(Clone, Copy)]
 enum BatchAuthority<'a> {
     Ordinary,
-    SpellToStack(PlayerId),
+    SpellToStack {
+        player: PlayerId,
+        face: CardFace,
+    },
     Graveyard(
         &'a BTreeMap<ObjectId, Zone>,
         &'a [regeneration::ShieldMember],
@@ -282,6 +289,7 @@ enum BatchAuthority<'a> {
     /// of one entry batch, all read against the same prior state.
     BattlefieldEntry {
         entries: &'a [(ObjectId, EntryOverride)],
+        land: Option<(ObjectId, PlayerId, CardFace)>,
     },
 }
 fn independent_footprints(
@@ -1485,9 +1493,19 @@ impl RulesTxn {
 
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
-        let authority = if !entry_override.is_empty() {
+        let land = match &cause {
+            BatchCause::LandPlay {
+                player,
+                source,
+                face,
+                ..
+            } => Some((*source, *player, *face)),
+            _ => None,
+        };
+        let authority = if !entry_override.is_empty() || land.is_some() {
             BatchAuthority::BattlefieldEntry {
                 entries: entry_override,
+                land,
             }
         } else if placing
             || events
@@ -1523,7 +1541,12 @@ impl RulesTxn {
             };
             BatchAuthority::Graveyard(proof, &regeneration_members)
         } else if let (
-            BatchCause::Casting { player, source, .. },
+            BatchCause::Casting {
+                player,
+                source,
+                face,
+                ..
+            },
             EventGroup::Occurrence {
                 proposed:
                     ProposedEvent::Move {
@@ -1534,7 +1557,10 @@ impl RulesTxn {
         ) = (&cause, &group)
             && source == object
         {
-            BatchAuthority::SpellToStack(*player)
+            BatchAuthority::SpellToStack {
+                player: *player,
+                face: *face,
+            }
         } else {
             BatchAuthority::Ordinary
         };
@@ -1764,17 +1790,15 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    fn entry_tapped(&self, object: ObjectId, controller: PlayerId) -> Result<bool, String> {
-        let mut entering = self.current(object)?.clone();
-        entering.controller = controller;
+    fn entry_tapped(&self, entering: &Object) -> Result<bool, String> {
         Ok(self
-            .copiable_definition(object)?
+            .copiable_definition(entering.id)?
             .static_abilities
             .iter()
             .any(|ability| match &ability.effect {
                 StaticEffect::EntersTapped => true,
                 StaticEffect::EntersTappedIf { condition } => {
-                    self.entry_condition(&entering, condition)
+                    self.entry_condition(entering, condition)
                 }
                 _ => false,
             }))
@@ -1783,7 +1807,7 @@ impl RulesTxn {
         &mut self,
         object: ObjectId,
         destination: Zone,
-        intended_controller: Option<PlayerId>,
+        intended: Option<(PlayerId, CardFace)>,
         entry_state: Option<&Self>,
         force_tapped: bool,
         entry_payment: Option<bool>,
@@ -1800,11 +1824,18 @@ impl RulesTxn {
         };
         let destination = &replaced;
         let o = self.current(*object)?.clone();
-        // CR 304.4, 307.4: an instant or sorcery card never enters the
-        // battlefield; a rule that would put one there leaves it in place.
+        // CR 712.8a,f, 712.11-14: use the chosen face on a cast or land
+        // play, retain it on spell resolution, and otherwise use the front.
+        let face = match *destination {
+            Zone::Battlefield if o.zone == Zone::Stack => object.face,
+            Zone::Battlefield | Zone::Stack => intended.map_or(CardFace::Front, |(_, face)| face),
+            _ => CardFace::Front,
+        };
+        let face_id = ObjectId { face, ..*object };
+        // CR 304.4, 307.4, 712.14b: an instant or sorcery cannot enter.
         if *destination == Zone::Battlefield
             && matches!(
-                self.definition(object.card)?.characteristics.kind,
+                self.copiable_definition(face_id)?.characteristics.kind,
                 CardKind::Instant | CardKind::Sorcery
             )
         {
@@ -1858,6 +1889,7 @@ impl RulesTxn {
         // CR 400.7: a zone move creates a new incarnation, and an actual
         // outcome explicitly provides its successor. No stale lookup.
         let successor = ObjectId {
+            face,
             card: object.card,
             incarnation: object
                 .incarnation
@@ -1872,6 +1904,7 @@ impl RulesTxn {
         {
             self.rules_mut().commander_returns.insert(successor);
         }
+        let intended_controller = intended.map(|(player, _)| player);
         let controller = if *destination == Zone::Battlefield {
             intended_controller.unwrap_or(o.controller)
         } else if *destination == Zone::Stack {
@@ -1899,7 +1932,7 @@ impl RulesTxn {
             true
         } else {
             let prior = entry_state.unwrap_or(self);
-            let unpaid = if let Some(amount) = prior.entry_life_cost(*object)? {
+            let unpaid = if let Some(amount) = prior.entry_life_cost(face_id)? {
                 match entry_payment {
                     Some(paid) => !paid,
                     None if !prior.can_pay_entry_life(controller, &amount) => true,
@@ -1912,13 +1945,18 @@ impl RulesTxn {
             } else {
                 false
             };
-            unpaid || prior.entry_tapped(*object, controller)?
+            unpaid
+                || prior.entry_tapped(&Object {
+                    id: face_id,
+                    controller,
+                    ..o.clone()
+                })?
         };
         // CR 122.6 and 614.1c: entry counters exist on the successor from
         // the moment it enters, including for entry observers.
         let mut plus_one_counters = Quantity::zero();
         if *destination == Zone::Battlefield {
-            for ability in &self.copiable_definition(*object)?.static_abilities {
+            for ability in &self.copiable_definition(face_id)?.static_abilities {
                 if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
                     plus_one_counters.add(count);
                 }
@@ -2107,7 +2145,7 @@ impl RulesTxn {
                 self.apply_move(
                     *object,
                     Zone::Battlefield,
-                    Some(owner),
+                    Some((owner, CardFace::Front)),
                     entry_state,
                     true,
                     None,
@@ -2164,7 +2202,7 @@ impl RulesTxn {
                         return Err("invalid attached Aura entry".into());
                     }
                 }
-                let force_tapped = matches!(authority, BatchAuthority::BattlefieldEntry { entries }
+                let force_tapped = matches!(authority, BatchAuthority::BattlefieldEntry { entries, .. }
                     if entries.iter().any(|(entrant, entry)| entrant == object
                         && matches!(entry, EntryOverride::ForceTapped)));
                 // Check allocation before movement/LKI writes, even for direct
@@ -2979,12 +3017,18 @@ impl RulesTxn {
                 object,
                 destination,
             } => {
-                let caster = match authority {
-                    BatchAuthority::SpellToStack(player) => Some(player),
+                let intended = match authority {
+                    BatchAuthority::SpellToStack { player, face } => Some((player, face)),
+                    BatchAuthority::BattlefieldEntry {
+                        land: Some((source, player, face)),
+                        ..
+                    } if source == *object && *destination == Zone::Battlefield => {
+                        Some((player, face))
+                    }
                     _ => None,
                 };
                 let entry = match authority {
-                    BatchAuthority::BattlefieldEntry { entries } => entries
+                    BatchAuthority::BattlefieldEntry { entries, .. } => entries
                         .iter()
                         .find(|(entrant, _)| entrant == object)
                         .map(|(_, entry)| *entry),
@@ -2998,7 +3042,7 @@ impl RulesTxn {
                 self.apply_move(
                     *object,
                     *destination,
-                    caster,
+                    intended,
                     entry_state,
                     force_tapped,
                     payment,

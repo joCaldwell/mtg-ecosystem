@@ -15,6 +15,16 @@ pub struct PendingEntry {
     force_tapped: bool,
 }
 
+fn entry_face(object: ObjectId, cause: &BatchCause) -> ObjectId {
+    match cause {
+        BatchCause::LandPlay { face, .. } => ObjectId {
+            face: *face,
+            ..object
+        },
+        _ => object,
+    }
+}
+
 enum EntryPayment {
     NoneRequired,
     ForceTapped,
@@ -87,7 +97,7 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let controller = self.current(object)?.controller;
         if self
-            .entry_life_cost(object)?
+            .entry_life_cost(entry_face(object, &cause))?
             .is_some_and(|amount| self.can_pay_entry_life(controller, &amount))
         {
             let resume = self.save_frame(resume);
@@ -121,6 +131,36 @@ impl RulesTxn {
             if entry.controller == viewer && entry.object == object)
     }
 
+    pub(super) fn battlefield_entry_payment_source(
+        &self,
+        viewer: PlayerId,
+        entry: &PendingEntry,
+    ) -> Option<DecisionSource> {
+        if viewer != entry.controller {
+            return None;
+        }
+        // Bind the explanation to the card's current handle and use the
+        // prospective face only for its printed name and entry cost.
+        let face = entry_face(entry.object, &entry.cause);
+        let definition = self.copiable_definition(face).ok()?;
+        let amount = self.entry_life_cost(face).ok()??;
+        let consequence = if entry.force_tapped {
+            "It enters tapped either way."
+        } else {
+            "It enters tapped if you decline."
+        };
+        Some(DecisionSource {
+            kind: DecisionSourceKind::Effect,
+            oracle_id: definition.oracle_id.clone(),
+            object: Some(self.handle_for(viewer, entry.object).ok()?),
+            ability: None,
+            text: format!(
+                "Pay {amount} life as {} enters? {consequence}",
+                definition.name
+            ),
+        })
+    }
+
     pub(super) fn battlefield_entry_request(
         &self,
         entry: &PendingEntry,
@@ -129,7 +169,7 @@ impl RulesTxn {
             return Ok(None);
         }
         let amount = self
-            .entry_life_cost(entry.object)?
+            .entry_life_cost(entry_face(entry.object, &entry.cause))?
             .ok_or("missing entry life cost")?;
         Ok(self
             .can_pay_entry_life(entry.controller, &amount)
@@ -144,7 +184,7 @@ impl RulesTxn {
             return Ok(());
         }
         let amount = self
-            .entry_life_cost(entry.object)?
+            .entry_life_cost(entry_face(entry.object, &entry.cause))?
             .ok_or("missing entry life cost")?;
         let payment = if self.can_pay_entry_life(entry.controller, &amount) {
             let input = input.ok_or("missing entry life decision")?;
@@ -240,6 +280,7 @@ impl RulesTxn {
                 player,
                 source,
                 decision_id,
+                face,
             } => {
                 let live = self.is_live(player);
                 // The only intervening decision can be the optional payment.
@@ -262,7 +303,7 @@ impl RulesTxn {
                     return Err("invalid suspended land play origin".into());
                 }
                 if live {
-                    self.validate_land_play_in_frame(player, source.card, resume)
+                    self.validate_land_play_in_frame(player, source.card, face, resume)
                         .map_err(|error| format!("invalid suspended land play: {error}"))?;
                 }
             }
@@ -273,7 +314,9 @@ impl RulesTxn {
         if let Ok(object) = self.current(entry.object) {
             if object.zone == Zone::Battlefield
                 || object.controller != entry.controller
-                || self.entry_life_cost(entry.object)?.is_none()
+                || self
+                    .entry_life_cost(entry_face(entry.object, &entry.cause))?
+                    .is_none()
             {
                 return Err("invalid suspended battlefield entry".into());
             }

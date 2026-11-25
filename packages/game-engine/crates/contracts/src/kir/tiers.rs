@@ -415,7 +415,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::AnyDamageTargetV1
         | C::NoncombatDamageV1
         | C::SelfDiesV1 => Tiers::SEARCH_HOSTING,
-        C::ModalChoiceV1 => Tiers::EXECUTES,
+        C::ModalChoiceV1 | C::ModalDoubleFacedV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1
@@ -621,6 +621,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             }
             _ => {}
         }
+    }
+    if let Some(back) = &d.modal_back {
+        cells.extend(definition_cells(back)?);
     }
     Ok(cells)
 }
