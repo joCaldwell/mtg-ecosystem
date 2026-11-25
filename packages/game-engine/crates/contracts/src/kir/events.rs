@@ -48,6 +48,11 @@ pub enum EventPattern {
         combat: bool,
         recipient: PlayerExpr,
     },
+    /// CR 603.2c: one ability with two disjoint trigger events.
+    AnyOf {
+        first: Box<EventPattern>,
+        second: Box<EventPattern>,
+    },
 }
 
 impl EventPattern {
@@ -61,6 +66,7 @@ impl EventPattern {
             Self::Cast { .. } => "cast",
             Self::StepBegins { .. } => "step_begins",
             Self::DealsDamage { .. } => "deals_damage",
+            Self::AnyOf { .. } => "any_of",
         }
     }
 
@@ -73,7 +79,7 @@ impl EventPattern {
             Self::Attacks { attacker } => Some(attacker),
             Self::Cast { spell, .. } => Some(spell),
             Self::DealsDamage { source, .. } => Some(source),
-            Self::StepBegins { .. } => None,
+            Self::StepBegins { .. } | Self::AnyOf { .. } => None,
         }
     }
 
@@ -255,6 +261,19 @@ fn event_pred(pred: &Pred, depth: usize) -> Result<(), KirError> {
 /// expressions. `attachment` states whether the source is an Aura or
 /// Equipment, the only sources with a host (CR 301.5, 303.4).
 pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirError> {
+    if let EventPattern::AnyOf { first, second } = pattern {
+        // Each branch names the source and neither binds an event operand.
+        // A single occurrence cannot be both an entry and a death or attack.
+        return match (&**first, &**second) {
+            (EventPattern::Enters { object }, EventPattern::Dies { object: other })
+            | (EventPattern::Enters { object }, EventPattern::Attacks { attacker: other })
+                if *object == Pred::source() && *other == Pred::source() =>
+            {
+                Ok(())
+            }
+            _ => Err(KirError::Unaudited("event alternatives".into())),
+        };
+    }
     let players: &[&PlayerExpr] = match pattern {
         EventPattern::Cast { caster, .. } => &[caster],
         EventPattern::StepBegins { active, .. } => &[active],
@@ -333,6 +352,12 @@ pub enum Intervening {
     SourceCastByController,
     /// "if you have no cards in hand" (CR 402).
     ControllerHandEmpty,
+    /// CR 603.4, 109.5: a fixed comparison of information about "you".
+    ControllerComparison {
+        measure: ControllerMeasure,
+        cmp: Cmp,
+        value: Quantity,
+    },
     /// "if this permanent is tapped/untapped" (CR 110.5).
     SourceTapped { tapped: bool },
     /// "if you control a creature with power N or greater" (CR 208).
@@ -346,6 +371,74 @@ pub enum Intervening {
         cmp: Cmp,
         value: Quantity,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ControllerMeasure {
+    Life,
+    HandCount,
+    GraveyardCount(Pred),
+}
+
+impl ControllerMeasure {
+    /// CR 110.4: the permanent card types present in the admitted catalog.
+    pub fn permanent_cards() -> Pred {
+        Pred(vec![Atom::AnyType {
+            kinds: vec![
+                CardKind::Land,
+                CardKind::Creature,
+                CardKind::Enchantment,
+                CardKind::Artifact,
+            ],
+        }])
+    }
+
+    fn amount(&self) -> Amount {
+        let of = PlayerExpr::you(Context::Triggered);
+        match self {
+            Self::Life => Amount::LifeOf { player: of },
+            Self::HandCount => Amount::Count {
+                set: SetExpr::Matching {
+                    zone: ZoneExpr::Hand { of },
+                    filter: Pred::default(),
+                },
+            },
+            Self::GraveyardCount(filter) => Amount::Count {
+                set: SetExpr::Matching {
+                    zone: ZoneExpr::Graveyard { of },
+                    filter: filter.clone(),
+                },
+            },
+        }
+    }
+
+    fn of(amount: &Amount) -> Option<Self> {
+        let you = PlayerExpr::you(Context::Triggered);
+        match amount {
+            Amount::LifeOf { player } if *player == you => Some(Self::Life),
+            Amount::Count {
+                set:
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Hand { of },
+                        filter,
+                    },
+            } if *of == you && filter.0.is_empty() => Some(Self::HandCount),
+            Amount::Count {
+                set:
+                    SetExpr::Matching {
+                        zone: ZoneExpr::Graveyard { of },
+                        filter,
+                    },
+            } if *of == you
+                && (filter.0.is_empty()
+                    || *filter == Self::permanent_cards()
+                    || matches!(filter.0.as_slice(), [Atom::Type { .. }])) =>
+            {
+                Some(Self::GraveyardCount(filter.clone()))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Intervening {
@@ -366,6 +459,15 @@ impl Intervening {
                 },
                 cmp: Cmp::Exactly,
                 right: Amount::fixed(Quantity::zero()),
+            },
+            Self::ControllerComparison {
+                measure,
+                cmp,
+                value,
+            } => Cond::Compare {
+                left: measure.amount(),
+                cmp: *cmp,
+                right: Amount::fixed(value.clone()),
             },
             Self::SourceTapped { tapped } => Cond::Satisfies {
                 object: Ref::Source,
@@ -425,7 +527,27 @@ impl Intervening {
                 cmp,
                 right: Amount::Fixed { value },
             } => Self::board(filter, *cmp, value)?,
-            Cond::Compare { .. } => Self::ControllerHandEmpty,
+            Cond::Compare {
+                left,
+                cmp,
+                right: Amount::Fixed { value },
+            } => match ControllerMeasure::of(left) {
+                Some(ControllerMeasure::HandCount)
+                    if *cmp == Cmp::Exactly && *value == Quantity::zero() =>
+                {
+                    Self::ControllerHandEmpty
+                }
+                Some(measure) if !value.is_negative() => Self::ControllerComparison {
+                    measure,
+                    cmp: *cmp,
+                    value: value.clone(),
+                },
+                _ => {
+                    return Err(KirError::Unaudited(
+                        "intervening controller comparison".into(),
+                    ));
+                }
+            },
             Cond::Satisfies {
                 filter: Pred(atoms),
                 ..
@@ -490,6 +612,13 @@ impl Intervening {
     pub fn admits(&self, pattern: &EventPattern) -> bool {
         match self {
             Self::SourceCastByController => *pattern == EventPattern::self_enters(),
+            Self::ControllerComparison { .. } => match pattern {
+                EventPattern::Enters { .. }
+                | EventPattern::Attacks { .. }
+                | EventPattern::StepBegins { .. } => true,
+                EventPattern::AnyOf { first, second } => self.admits(first) && self.admits(second),
+                _ => false,
+            },
             _ => true,
         }
     }

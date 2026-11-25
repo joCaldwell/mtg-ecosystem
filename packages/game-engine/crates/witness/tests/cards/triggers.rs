@@ -29,6 +29,11 @@ const ELEMENTAL_BOND: &str = record!("d9a7e5a6-3e41-4fc6-987a-18fe1b9d67dd");
 const SHATTERED_ANGEL: &str = record!("e339c6cb-c75d-4dd4-8c1a-78f844983242");
 const IMPACT_TREMORS: &str = record!("9242cd3e-1a71-4700-8182-9c1005616033");
 const GRISTLE_GRINNER: &str = record!("419f4648-2ace-4bd4-9ae4-8d456688c089");
+const CONVALESCENT_CARE: &str = record!("162407d9-3e3c-440f-a7a9-22936d99fc8a");
+const GIXIAN_SKULLFLAYER: &str = record!("0b2a59a3-cf87-48fe-99e2-4c2063119b55");
+const GRAVE_TITAN: &str = record!("f3abd4d1-a975-4e85-8684-aa0fce029670");
+const ICHOR_WELLSPRING: &str = record!("5b5ef43b-13fd-4461-8d2d-18be65e9a790");
+const IVORY_CRANE_NETSUKE: &str = record!("ab151429-0890-4231-a3a7-34e8455dac70");
 
 /// A two-seat board at `step` whose catalog adds `cards`, each compiled
 /// from frozen source to `Executes` only.
@@ -797,4 +802,238 @@ fn a_forged_death_controller_on_a_pending_trigger_is_rejected() {
         .err()
         .unwrap();
     assert!(error.contains("death LKI binding"), "{error}");
+}
+
+/// CR 603.2c, 603.6a, 603.10a: entry and death use the same printed
+/// ability, each on the source's own incarnation.
+#[test]
+fn lane_d_wellspring_uses_one_ability_for_entry_and_death() {
+    let prepared = prepare(
+        board(&[ICHOR_WELLSPRING], TurnStep::PrecombatMain)
+            .permanent_or_hand("Ichor Wellspring", 0, 0, true)
+            .permanent_or_hand("Shatter", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Mountain", 0, 0, false),
+    );
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let definition = g.definition(CardId(0)).unwrap();
+    let [ability] = definition.triggered.as_slice() else {
+        panic!("one printed trigger");
+    };
+    assert!(matches!(
+        ability.condition.pattern(),
+        EventPattern::AnyOf { .. }
+    ));
+
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[2, 3]);
+    drive(&mut g, &[], triggered);
+    let source = Driver::object(&g, 0);
+    assert_eq!(g.state.rules.stack.len(), 1);
+    assert!(matches!(
+        &g.state.rules.stack[0].kind,
+        StackKind::Triggered {
+            ability: EffectiveTriggerAbility::Intrinsic { index: 0 },
+            witness: TriggerEventWitness::Moved { movement },
+            ..
+        } if movement.successor == source && movement.destination == Zone::Battlefield
+    ));
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(hand(&g, 0), 2);
+
+    Driver::cast(&mut g, CardId(1));
+    Driver::pick_object(&mut g, source);
+    Driver::pay(&mut g, &[4, 5]);
+    drive(&mut g, &[], triggered);
+    assert_eq!(g.state.rules.stack.len(), 1);
+    let StackKind::Triggered {
+        ability: EffectiveTriggerAbility::Intrinsic { index: 0 },
+        witness: TriggerEventWitness::Moved { movement },
+        ..
+    } = &g.state.rules.stack[0].kind
+    else {
+        panic!("same printed trigger on death");
+    };
+    assert_eq!(movement.previous, source);
+    assert_eq!(movement.destination, Zone::Graveyard { owner: PlayerId(0) });
+    checked(&g);
+    let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+    let StackKind::Triggered { witness, .. } = &mut forged.state.rules.stack[0].kind else {
+        unreachable!()
+    };
+    *witness = TriggerEventWitness::Tapped {
+        object: source,
+        controller: PlayerId(0),
+    };
+    assert_forgery_rejected(&g, forged, "no matching alternative");
+
+    let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+    let mut duplicate = forged.state.rules.stack[0].clone();
+    let StackKind::Triggered { trigger_id, .. } = &mut duplicate.kind else {
+        unreachable!()
+    };
+    trigger_id.0 = forged.state.rules.next_trigger_id;
+    duplicate.id.0 = forged.state.rules.next_stack_id;
+    forged.state.rules.next_trigger_id += 1;
+    forged.state.rules.next_stack_id += 1;
+    forged.state.rules.stack.push(duplicate);
+    assert_forgery_rejected(&g, forged, "duplicate mixed trigger occurrence");
+
+    settle(&mut g);
+    assert_eq!(hand(&g, 0), 2);
+    assert_recoverable((&g).into());
+}
+
+/// CR 508.3a, 603.2c: the attack branch observes just the declared source,
+/// even when multiple creatures are declared in the same occurrence.
+#[test]
+fn lane_d_grave_titan_matches_its_own_attack_once() {
+    let prepared = prepare(
+        board(&[GRAVE_TITAN], TurnStep::BeginningCombat)
+            .permanent_or_hand("Grave Titan", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false),
+    );
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let attackers = [Driver::object(&g, 0), Driver::object(&g, 1)];
+    drive(&mut g, &attackers, triggered);
+    assert_eq!(g.state.rules.stack.len(), 1);
+    assert!(matches!(
+        &g.state.rules.stack[0].kind,
+        StackKind::Triggered {
+            ability: EffectiveTriggerAbility::Intrinsic { index: 0 },
+            witness: TriggerEventWitness::CreatureAttacked { attacker, .. },
+            ..
+        } if attacker.object == attackers[0]
+    ));
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(g.state.rules.tokens.len(), 2);
+    assert_recoverable((&g).into());
+}
+
+/// CR 603.4, 608.2a: playing a spell in response changes the hand size and
+/// makes a formerly true condition fail at resolution.
+#[test]
+fn lane_d_netsuke_rechecks_hand_size_on_resolution() {
+    let mut setup = board(&[IVORY_CRANE_NETSUKE], TurnStep::Untap)
+        .permanent_or_hand("Ivory Crane Netsuke", 0, 0, false)
+        .permanent_or_hand("Lightning Bolt", 0, 0, true)
+        .permanent_or_hand("Mountain", 0, 0, false);
+    for _ in 0..6 {
+        setup = setup.permanent_or_hand("Island", 0, 0, true);
+    }
+    let mut g = Game::with_trace(prepare(setup), TraceMode::Detailed);
+    let netsuke = Driver::object(&g, 0);
+    let before = life(&g, 0);
+    drive(&mut g, &[], triggered);
+    assert_eq!(hand(&g, 0), 7);
+    checked(&g);
+    Driver::cast(&mut g, CardId(1));
+    let target = g.next_test_decision().select(Candidate::Player {
+        player: PlayerId(1),
+    });
+    Driver::answer(&mut g, u64::MAX, target);
+    Driver::pay(&mut g, &[2]);
+    settle(&mut g);
+    assert_eq!(hand(&g, 0), 6);
+    assert_eq!(life(&g, 0), before);
+    assert_eq!(intervening(&g, netsuke), [(true, true), (false, false)]);
+    assert_recoverable((&g).into());
+}
+
+/// The exact upper life threshold includes 5 and excludes 6 (CR 603.4).
+#[test]
+fn lane_d_convalescent_care_checks_its_controllers_life() {
+    for total in [5, 6] {
+        let prepared = prepare(
+            board(&[CONVALESCENT_CARE], TurnStep::Untap)
+                .permanent_or_hand("Convalescent Care", 0, 0, false)
+                .life(PlayerId(0), total.into()),
+        );
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let care = Driver::object(&g, 0);
+        drive(&mut g, &[], |g| g.state.rules.turn.step == TurnStep::Upkeep);
+        if total == 5 {
+            checked(&g);
+            settle(&mut g);
+            assert_eq!(intervening(&g, care), [(true, true), (false, true)]);
+            assert_eq!(life(&g, 0), 8.into());
+            assert_eq!(hand(&g, 0), 1);
+        } else {
+            assert_eq!(intervening(&g, care), [(true, false)]);
+            assert!(g.state.rules.stack.is_empty());
+            assert_eq!(life(&g, 0), 6.into());
+            assert_eq!(hand(&g, 0), 0);
+        }
+        assert_recoverable((&g).into());
+    }
+}
+
+/// CR 404, 603.4: other graveyards and other card types cannot satisfy the
+/// threshold. Snapshots must carry the right kind and a possible count.
+#[test]
+fn lane_d_skullflayer_checks_only_creature_cards_in_its_controllers_graveyard() {
+    for creatures in [2, 3] {
+        let mut setup = board(&[GIXIAN_SKULLFLAYER], TurnStep::Untap)
+            .permanent_or_hand("Gixian Skullflayer", 0, 0, false)
+            .card(
+                "Grizzly Bears",
+                1,
+                1,
+                Zone::Graveyard { owner: PlayerId(1) },
+            )
+            .card("Island", 0, 0, Zone::Graveyard { owner: PlayerId(0) });
+        for _ in 0..creatures {
+            setup = setup.card(
+                "Grizzly Bears",
+                0,
+                0,
+                Zone::Graveyard { owner: PlayerId(0) },
+            );
+        }
+        let mut g = Game::with_trace(prepare(setup), TraceMode::Detailed);
+        let source = Driver::object(&g, 0);
+        drive(&mut g, &[], |g| g.state.rules.turn.step == TurnStep::Upkeep);
+        assert_eq!(triggered(&g), creatures == 3);
+        if creatures == 3 {
+            checked(&g);
+            for (observed, passed) in [
+                (ControllerMeasurement::GraveyardCount(2), true),
+                (ControllerMeasurement::GraveyardCount(100), true),
+                (ControllerMeasurement::HandCount(3), true),
+                (ControllerMeasurement::GraveyardCount(2), false),
+            ] {
+                let mut forged: Snapshot = strict_read(&g.snapshot().unwrap()).unwrap();
+                let StackKind::Triggered {
+                    match_condition, ..
+                } = &mut forged.state.rules.stack[0].kind
+                else {
+                    unreachable!();
+                };
+                *match_condition = Some(InterveningCheck::ControllerComparison {
+                    controller: PlayerId(0),
+                    observed,
+                    passed,
+                });
+                assert_forgery_rejected(&g, forged, "invalid trigger match condition proof");
+            }
+            settle(&mut g);
+        }
+        assert_eq!(
+            g.current(source).unwrap().plus_one_counters,
+            i64::from(creatures - 2).into()
+        );
+        assert_recoverable((&g).into());
+    }
+}
+
+fn assert_forgery_rejected(g: &Game, mut forged: Snapshot, expected: &str) {
+    forged.state_sha256 = digest(&forged.state).unwrap();
+    let error = Game::restore(g.prepared.as_ref().clone(), &canonical(&forged).unwrap())
+        .err()
+        .expect("forged snapshot rejected");
+    assert!(error.contains(expected), "{error}");
 }

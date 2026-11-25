@@ -155,6 +155,22 @@ impl TriggerEventWitness {
         matches!(self, Self::TokenEntered { .. } | Self::Entered { .. })
             || matches!(self, Self::Moved { movement: m } if m.destination == Zone::Battlefield && m.from != Zone::Battlefield)
     }
+
+    // CR 603.2c: the audited mixed alternatives cannot describe the same
+    // occurrence. Collection and restore both use the actual event kind.
+    fn branch<'a>(&self, pattern: &'a EventPattern) -> Option<&'a EventPattern> {
+        let EventPattern::AnyOf { first, second } = pattern else {
+            return Some(pattern);
+        };
+        if self.enters() {
+            return Some(first);
+        }
+        match (&**second, self) {
+            (EventPattern::Dies { .. }, witness) if witness.dies() => Some(second),
+            (EventPattern::Attacks { .. }, Self::CreatureAttacked { .. }) => Some(second),
+            _ => None,
+        }
+    }
 }
 /// CR 603.10: the facts an event froze for its object, read as the object
 /// was at that moment: the entering permanent, the declared attacker, the
@@ -707,7 +723,9 @@ impl RulesTxn {
                 .enumerate()
             {
                 let mut entry_witness = None;
-                let pattern = definition.condition.pattern();
+                let Some(pattern) = witness.branch(definition.condition.pattern()) else {
+                    continue;
+                };
                 let matches = match pattern {
                     EventPattern::Enters { object: pred } => enters && {
                         let subject = subject.ok_or("missing entrant identity")?;
@@ -790,6 +808,7 @@ impl RulesTxn {
                                     identity_holds(pred, damage.source.object, &identity)
                                 })
                     }
+                    EventPattern::AnyOf { .. } => false,
                 };
                 if matches
                     && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
@@ -1404,7 +1423,9 @@ impl RulesTxn {
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
-        let pattern = definition.condition.pattern();
+        let pattern = witness
+            .branch(definition.condition.pattern())
+            .ok_or("snapshot trigger witness has no matching alternative")?;
         // The accepted-input journal authenticates the historical attachment;
         // an observer can move to another creature before its ability resolves,
         // so a host is any object other than the source itself.
@@ -1602,6 +1623,14 @@ impl RulesTxn {
                     && (match pattern {
                         EventPattern::Dies { object: pred } => {
                             witness.dies()
+                                && self
+                                    .state
+                                    .rules
+                                    .cards
+                                    .get(&subject.card)
+                                    .is_some_and(|card| {
+                                        m.destination == (Zone::Graveyard { owner: card.owner })
+                                    })
                                 && identity_holds(pred, subject, &identity(subject))
                                 && creature_card(pred, subject)?
                         }
@@ -1636,6 +1665,27 @@ impl RulesTxn {
             }
             _ => false,
         }
+    }
+
+    fn validate_alternative_occurrence<'a>(
+        &self,
+        source: ObjectId,
+        ability: EffectiveTriggerAbility,
+        event: &'a TriggerOccurrenceId,
+        seen: &mut BTreeSet<(ObjectId, EffectiveTriggerAbility, u64, &'a [u32])>,
+    ) -> Result<(), String> {
+        if matches!(
+            self.effective_trigger(source, ability)?.condition.pattern(),
+            EventPattern::AnyOf { .. }
+        ) {
+            let TriggerOccurrenceId::Batch(occurrence) = event else {
+                return Err("snapshot mixed trigger has no batch occurrence".into());
+            };
+            if !seen.insert((source, ability, occurrence.batch, &occurrence.path)) {
+                return Err("snapshot duplicate mixed trigger occurrence".into());
+            }
+        }
+        Ok(())
     }
     pub(crate) fn validate_trigger_entry(
         &self,
@@ -1708,6 +1758,7 @@ impl RulesTxn {
             return Err("snapshot trigger/stack resource bound".into());
         }
         let mut ids = BTreeSet::new();
+        let mut alternatives = BTreeSet::new();
         for trigger in &self.state.rules.pending_triggers {
             self.validate_trigger_source(
                 trigger.source,
@@ -1737,12 +1788,26 @@ impl RulesTxn {
                 trigger.death_controller,
                 &trigger.witness,
             )?;
+            self.validate_alternative_occurrence(
+                trigger.source,
+                trigger.ability,
+                &trigger.event,
+                &mut alternatives,
+            )?;
         }
         for entry in &self.state.rules.stack {
             if let Some(id) = self.validate_trigger_entry(entry)?
                 && !ids.insert(id)
             {
                 return Err("snapshot duplicate trigger identity".into());
+            }
+            if let StackKind::Triggered { ability, event, .. } = &entry.kind {
+                self.validate_alternative_occurrence(
+                    entry.source,
+                    *ability,
+                    event,
+                    &mut alternatives,
+                )?;
             }
         }
         if let Frame::TriggerOrder { placement } | Frame::TriggerTargets { placement, .. } =
