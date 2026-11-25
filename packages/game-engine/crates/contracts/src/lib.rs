@@ -293,6 +293,8 @@ pub enum Capability {
     CreatureDiesV1,
     SelfDiesV1,
     InterveningIfV1,
+    /// CR 603.2: an admitted event pattern outside the reviewed event rows.
+    EventTriggerV1,
     CreatureOrPlaneswalkerTargetV1,
 
     ModalChoiceV1,
@@ -1071,14 +1073,6 @@ impl SacrificeFilter {
         Ok(())
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct DeathFilter {
-    pub controlled: bool,
-    pub other: bool,
-    pub non_token: bool,
-    pub non_subtypes: Vec<String>,
-}
 /// Fixed-turn effects expire in the atomic cleanup action (CR 514.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1291,200 +1285,47 @@ pub struct ActivatedAbility {
 pub enum CascadeThreshold {
     SourceSpellManaValue,
 }
-/// Mandatory ordinary event patterns. ETB patterns inspect the event's
-/// resulting battlefield, including the entering source itself (CR 603.6a).
-/// Dies inspects the battlefield immediately before the actual graveyard move
-/// (CR 603.10/700.4), including a source that dies simultaneously.
+/// CR 603.2: an ordinary triggered ability's event, and the intervening
+/// "if" it checks when the event occurs and again as it resolves (CR 603.4).
+/// [`kir::check_event`] admits the pattern and [`kir::Intervening::of`] the
+/// condition.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerCondition {
-    AttachedCreature {
-        attachment: kir::AttachmentKind,
-        event: AttachmentEvent,
-    },
-    ControlledLandEntersBattlefield,
-    DamageDealt {
-        source: DamageTriggerSource,
-        kind: TriggerDamageKind,
-        recipient: DamageTriggerRecipient,
-    },
-    CreatureAttacked {
-        attacker: AttackSubject,
-    },
-    SpellCast {
-        caster: CasterRelation,
-        #[schemars(schema_with = "cast_spell_predicate_schema")]
-        spell: TypePredicate,
-    },
-    StepBegan {
-        step: BeginningStep,
-        turn_relation: TurnRelation,
-    },
-    OpponentCreatureDies,
-    SelfEntersBattlefield,
-    /// The exact source incarnation actually changes from untapped to tapped.
-    SelfBecomesTapped,
-    /// Excludes the exact source incarnation, never every copy of its card.
-    OtherCreatureEntersBattlefield,
-    /// The disjoint union of this creature and all other creatures dying.
-    AnyCreatureDies,
-    SelfDies,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AttachmentEvent {
-    Attacks,
-    Dies,
-    CombatDamageToPlayer,
-}
-
-/// CR 120.2/120.7/603.2c: independent source, kind and recipient dimensions.
-/// Source means the observer's exact incarnation; CreatureFilter separately
-/// matches actual creature damage sources and requires FilteredDamageTriggerV1.
-/// DamageTriggerV1 requires combat/player; V2 permits any kind or opponents.
-/// These predicates alone supply no event-player or event-quantity binding.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "subject", rename_all = "snake_case", deny_unknown_fields)]
-pub enum DamageTriggerSource {
-    Source {},
-    /// A creature dealing damage, with additional type membership and a
-    /// controller relation to the observing ability's controller (CR 603.10).
-    CreatureFilter {
-        controller: DamageSourceRelation,
-        types: TypePredicate,
+    Event {
+        pattern: kir::EventPattern,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        intervening_if: Option<kir::Cond>,
     },
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DamageSourceRelation {
-    Controller,
-}
-impl<'de> Deserialize<'de> for DamageSourceRelation {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        match String::deserialize(deserializer)?.as_str() {
-            "controller" => Ok(Self::Controller),
-            _ => Err(serde::de::Error::custom(
-                "unsupported damage source relation",
-            )),
+impl TriggerCondition {
+    /// An event with no intervening condition.
+    pub fn on(pattern: kir::EventPattern) -> Self {
+        Self::Event {
+            pattern,
+            intervening_if: None,
         }
     }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum TriggerDamageKind {
-    Combat,
-    Any,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum DamageTriggerRecipient {
-    Player,
-    OpponentPlayer,
-}
-/// Ordinary per-creature declaration predicates (CR 508.3a/603.2c).
-/// Controller relation and full type membership are independent of ownership.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "subject", rename_all = "snake_case", deny_unknown_fields)]
-pub enum AttackSubject {
-    Source {},
-    Filter {
-        controller: AttackerRelation,
-        types: TypePredicate,
-    },
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AttackerRelation {
-    Controller,
-    AnyPlayer,
-    Opponent,
-}
-/// CR 603.3a: caster relation is independent of the source's controller/owner.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum CasterRelation {
-    Controller,
-    AnyPlayer,
-    Opponent,
-}
-/// Source ObjectFilter fields are conjunctive; explicit anyOf retains OR.
-/// Type membership includes additional types. Spell color uses frozen characteristics.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "predicate", rename_all = "snake_case", deny_unknown_fields)]
-pub enum TypePredicate {
-    #[schemars(skip)]
-    SpellColor {
-        color: Color,
-    },
-    // An empty struct also enforces serde unknown-field rejection here.
-    Any {},
-    Type {
-        kind: CardKind,
-    },
-    NotType {
-        kind: CardKind,
-    },
-    Subtype {
-        #[schemars(regex(pattern = "^[A-Z][A-Za-z -]{0,63}$"))]
-        subtype: String,
-    },
-    All {
-        #[schemars(length(min = 1, max = 32))]
-        terms: Vec<TypePredicate>,
-    },
-    AnyOf {
-        #[schemars(length(min = 1, max = 32))]
-        terms: Vec<TypePredicate>,
-    },
-}
-fn cast_spell_predicate_schema(generator: &mut SchemaGenerator) -> Schema {
-    json_schema!({"oneOf":[generator.subschema_for::<TypePredicate>(), {
-        "type":"object", "required":["predicate","color"], "additionalProperties":false,
-        "properties":{"predicate":{"const":"spell_color"}, "color":{"enum":["W","U","B","R","G"]}}
-    }]})
-}
-
-impl TypePredicate {
-    pub fn matches(&self, c: &Characteristics) -> bool {
+    pub fn pattern(&self) -> &kir::EventPattern {
         match self {
-            Self::Any {} => true,
-            Self::SpellColor { color } => c.colors.contains(color),
-            Self::Type { kind } => c.has_type(*kind),
-            Self::NotType { kind } => !c.has_type(*kind),
-            Self::Subtype { subtype } => c.subtypes.contains(subtype),
-            Self::All { terms } => terms.iter().all(|t| t.matches(c)),
-            Self::AnyOf { terms } => terms.iter().any(|t| t.matches(c)),
+            Self::Event { pattern, .. } => pattern,
         }
     }
-    pub fn validate(&self) -> Result<(), String> {
-        self.validate_type_shape(false)
+    pub fn intervening_if(&self) -> Option<&kir::Cond> {
+        match self {
+            Self::Event { intervening_if, .. } => intervening_if.as_ref(),
+        }
     }
-
-    fn validate_type_shape(&self, cast: bool) -> Result<(), String> {
-        fn visit(p: &TypePredicate, depth: usize, remaining: &mut usize, cast: bool) -> bool {
-            if depth > 8 || *remaining == 0 {
-                return false;
-            }
-            *remaining -= 1;
-            match p {
-                TypePredicate::SpellColor { .. } => false,
-                TypePredicate::Subtype { subtype } => {
-                    cast && cast_subtype::subtype_spelling(subtype)
-                }
-                TypePredicate::All { terms } | TypePredicate::AnyOf { terms } => {
-                    !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining, cast))
-                }
-                _ => true,
-            }
-        }
-        if visit(self, 0, &mut 32, cast) {
-            Ok(())
-        } else {
-            Err("type predicate structural bound".into())
-        }
+    /// Stable reporting vocabulary, independent of the serde representation.
+    pub fn reporting_key(&self) -> &'static str {
+        self.pattern().reporting_key()
     }
 }
-/// Exact step predicates; phases, delayed and conditional boundaries are excluded.
+/// Exact step predicates; delayed and conditional boundaries are excluded.
+/// CR 503-507, 511-513: the beginning of the upkeep, draw, beginning of
+/// combat, end of combat and end steps, and of the precombat and postcombat
+/// main phases. A turn has one combat phase, so its postcombat main phase is
+/// its second main phase (CR 505.1a).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BeginningStep {
@@ -1492,40 +1333,9 @@ pub enum BeginningStep {
     Upkeep,
     Draw,
     End,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum TurnRelation {
-    Controller,
-    AnyPlayer,
-    Opponent,
-}
-impl TriggerCondition {
-    /// Stable reporting vocabulary, independent of the serde representation.
-    pub fn reporting_key(&self) -> &'static str {
-        match self {
-            Self::AttachedCreature { .. } => "attached_creature",
-            Self::StepBegan { .. } => "step_began",
-            Self::CreatureAttacked { .. } => "creature_attacked",
-            Self::DamageDealt { .. } => "damage_dealt",
-            Self::SpellCast { .. } => "spell_cast",
-            Self::OpponentCreatureDies => "opponent_creature_dies",
-            Self::SelfEntersBattlefield => "self_enters_battlefield",
-            Self::OtherCreatureEntersBattlefield => "other_creature_enters_battlefield",
-            Self::AnyCreatureDies => "any_creature_dies",
-            Self::SelfDies => "self_dies",
-            Self::SelfBecomesTapped => "self_becomes_tapped",
-            Self::ControlledLandEntersBattlefield => "controlled_land_enters_battlefield",
-        }
-    }
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub enum InterveningCondition {
-    ControllerHandEmpty,
-    SourceCastByController,
-    SourceStatus { status: TapStatus },
-    ControllerHasCreatureWithPower { minimum_power: Quantity },
+    BeginningOfCombat,
+    EndOfCombat,
+    PostcombatMain,
 }
 /// CR 110.5: only battlefield permanents have tapped/untapped status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -1542,12 +1352,8 @@ impl TapStatus {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TriggeredAbility {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub death_filter: Option<DeathFilter>,
     pub functioning_zone: FunctioningZone,
     pub condition: TriggerCondition,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub intervening_if: Option<InterveningCondition>,
     /// This mandatory stack program is placed by the rules, never cast or
     /// activated. Its existing Instant shape carries no timing permission.
     pub program: SpellProgram,
@@ -1819,70 +1625,8 @@ impl Definition {
             add_program_requirements(&mut set, &ability.program);
         }
         for ability in &self.triggered {
-            if ability.death_filter.is_some()
-                || (ability.condition == TriggerCondition::SelfDies
-                    && ability.program.instructions.iter().any(|i| {
-                        matches!(
-                            i,
-                            kernel!(CreateTokens {
-                                token: kir::TokenSpec::Creature { .. },
-                                ..
-                            })
-                        )
-                    }))
-            {
-                set.insert(Capability::SacrificeV1);
-            }
             set.insert(Capability::TriggeredAbilityV1);
-            if matches!(ability.condition, TriggerCondition::DamageDealt { .. })
-                && has_controller_discard(&ability.program)
-            {
-                set.insert(Capability::DamageControllerDiscardV1);
-            }
-            if matches!(
-                ability.condition,
-                TriggerCondition::DamageDealt {
-                    source: DamageTriggerSource::CreatureFilter { .. },
-                    ..
-                }
-            ) {
-                set.insert(Capability::FilteredDamageTriggerV1);
-            }
-            let trigger = match &ability.condition {
-                TriggerCondition::AttachedCreature { event, .. } => match event {
-                    AttachmentEvent::Attacks => Capability::AttackTriggerV1,
-                    AttachmentEvent::Dies => Capability::CreatureDiesV1,
-                    AttachmentEvent::CombatDamageToPlayer => Capability::DamageTriggerV1,
-                },
-                TriggerCondition::StepBegan { .. } => Capability::StepBeginningTriggerV1,
-                TriggerCondition::SpellCast { spell, .. } => {
-                    if matches!(spell, TypePredicate::SpellColor { .. }) {
-                        set.insert(Capability::CastColorPredicateV1);
-                    } else if cast_subtype::restricted(spell) {
-                        set.insert(Capability::CastSubtypePredicateV1);
-                    }
-                    Capability::CastTriggerV1
-                }
-                TriggerCondition::CreatureAttacked { .. } => Capability::AttackTriggerV1,
-                TriggerCondition::DamageDealt {
-                    kind: TriggerDamageKind::Combat,
-                    recipient: DamageTriggerRecipient::Player,
-                    ..
-                } => Capability::DamageTriggerV1,
-                TriggerCondition::DamageDealt { .. } => Capability::SourceDamageTriggerV2,
-                TriggerCondition::OpponentCreatureDies => Capability::BoardWipesV1,
-                TriggerCondition::SelfEntersBattlefield => Capability::SelfEntersBattlefieldV1,
-                TriggerCondition::ControlledLandEntersBattlefield => {
-                    Capability::ControlledLandEntryV1
-                }
-                TriggerCondition::SelfBecomesTapped => Capability::SourceTapTriggerV1,
-                TriggerCondition::OtherCreatureEntersBattlefield => {
-                    Capability::OtherCreatureEntersBattlefieldV1
-                }
-                TriggerCondition::AnyCreatureDies => Capability::CreatureDiesV1,
-                TriggerCondition::SelfDies => Capability::SelfDiesV1,
-            };
-            set.insert(trigger);
+            set.extend(trigger_capabilities(ability));
             add_program_requirements(&mut set, &ability.program);
         }
         for keyword in &self.keywords {
@@ -1900,6 +1644,115 @@ impl Definition {
         }
         kir::executes(self)
     }
+}
+/// The reviewed event rows a triggered ability uses. Each capability names
+/// one row of patterns whose detection a review covered; any other admitted
+/// pattern uses the `Executes` row [`Capability::EventTriggerV1`].
+fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
+    use kir::{Atom, EventPattern as E, Pred};
+    let you = || PlayerExpr::you(Context::Triggered);
+    let creature = Atom::Type {
+        kind: CardKind::Creature,
+    };
+    let pattern = ability.condition.pattern();
+    let mut caps = vec![];
+    if ability.condition.intervening_if().is_some() {
+        caps.push(Capability::InterveningIfV1);
+    }
+    // CR 700.4: a creature you control (optionally another, nontoken or
+    // non-Spirit) dying, any creature dying, or the host of this Aura or
+    // Equipment dying.
+    let creature_dies = |p: &Pred| {
+        *p == Pred::attached_creature() || *p == Pred(vec![creature.clone()]) || {
+            let mut rest = p.0.as_slice();
+            let mut take = |atom: &Atom, required: bool| match rest.split_first() {
+                Some((first, tail)) if first == atom => {
+                    rest = tail;
+                    true
+                }
+                _ => !required,
+            };
+            take(&creature, true)
+                && take(
+                    &Atom::NotSubtype {
+                        subtype: "Spirit".into(),
+                    },
+                    false,
+                )
+                && take(&Atom::ControlledBy { player: you() }, true)
+                && take(&Atom::NotToken, false)
+                && take(
+                    &Atom::IsNot {
+                        object: kir::Ref::Source,
+                    },
+                    false,
+                )
+                && rest.is_empty()
+        }
+    };
+    let event = match pattern {
+        E::Enters { .. } if *pattern == E::self_enters() => Capability::SelfEntersBattlefieldV1,
+        E::Enters { .. } if *pattern == E::other_creature_enters() => {
+            Capability::OtherCreatureEntersBattlefieldV1
+        }
+        E::Enters { .. } if *pattern == E::controlled_land_enters() => {
+            Capability::ControlledLandEntryV1
+        }
+        E::Dies { .. } if *pattern == E::self_dies() => {
+            if ability.program.instructions.iter().any(|i| {
+                matches!(
+                    i,
+                    kernel!(CreateTokens {
+                        token: kir::TokenSpec::Creature { .. },
+                        ..
+                    })
+                )
+            }) {
+                caps.push(Capability::SacrificeV1);
+            }
+            Capability::SelfDiesV1
+        }
+        E::Dies { .. } if *pattern == E::opponent_creature_dies() => Capability::BoardWipesV1,
+        E::Dies { object } if creature_dies(object) => {
+            if object.names_you() {
+                caps.push(Capability::SacrificeV1);
+            }
+            Capability::CreatureDiesV1
+        }
+        E::BecomesTapped { .. } if *pattern == E::self_becomes_tapped() => {
+            Capability::SourceTapTriggerV1
+        }
+        E::Attacks { .. } => Capability::AttackTriggerV1,
+        E::Cast { spell, .. } => {
+            if matches!(spell.0.as_slice(), [Atom::Color { .. }]) {
+                caps.push(Capability::CastColorPredicateV1);
+            } else if cast_subtype::restricted(spell) {
+                caps.push(Capability::CastSubtypePredicateV1);
+            }
+            Capability::CastTriggerV1
+        }
+        E::StepBegins { .. } => Capability::StepBeginningTriggerV1,
+        E::DealsDamage {
+            source,
+            combat,
+            recipient,
+        } => {
+            if has_controller_discard(&ability.program) {
+                caps.push(Capability::DamageControllerDiscardV1);
+            }
+            if !source.0.iter().any(|a| matches!(a, Atom::Is { .. })) {
+                caps.push(Capability::FilteredDamageTriggerV1);
+            }
+            if *combat && *recipient == PlayerExpr::EachPlayer {
+                Capability::DamageTriggerV1
+            } else {
+                Capability::SourceDamageTriggerV2
+            }
+        }
+        _ => Capability::EventTriggerV1,
+    };
+    caps.push(event);
+    caps
 }
 fn validate_permanent_costs(c: &PermanentActivationCosts) -> Result<(), String> {
     if c.mana

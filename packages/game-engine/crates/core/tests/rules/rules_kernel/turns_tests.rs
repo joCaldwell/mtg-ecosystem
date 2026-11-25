@@ -1082,13 +1082,11 @@ fn flash_end_step_draw() {
     source.keywords = vec![KeywordAbility::Flash];
     source.spell.as_mut().unwrap().timing = SpellTiming::Instant;
     source.triggered = vec![TriggeredAbility {
-        death_filter: None,
         functioning_zone: FunctioningZone::Battlefield,
-        condition: TriggerCondition::StepBegan {
+        condition: TriggerCondition::on(mtg_contracts::kir::EventPattern::StepBegins {
             step: BeginningStep::End,
-            turn_relation: TurnRelation::Controller,
-        },
-        intervening_if: None,
+            active: mtg_contracts::kir::PlayerExpr::you(mtg_contracts::kir::Context::Triggered),
+        }),
         program: SpellProgram {
             additional_sacrifice: None,
             optional_additional_costs: vec![],

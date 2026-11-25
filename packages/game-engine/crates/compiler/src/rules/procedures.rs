@@ -13,13 +13,12 @@ pub(crate) mod controller_library {
         program: &mut SpellProgram,
     ) -> Result<Option<Instruction>, Failure> {
         // Trigger lowering has already bound the damage source to the invocation.
-        let TriggerCondition::SpellCast {
-            caster: CasterRelation::Controller,
-            spell: TypePredicate::SpellColor { .. },
-        } = condition
-        else {
+        let EventPattern::Cast { caster, spell } = condition.pattern() else {
             return Ok(None);
         };
+        if !caster.is_you() || !matches!(spell.0.as_slice(), [Atom::Color { .. }]) {
+            return Ok(None);
+        }
         let [
             Sentence {
                 bindings,
@@ -93,7 +92,7 @@ pub(crate) mod source_dies_nonland_destroy {
         else {
             return None;
         };
-        if *condition == TriggerCondition::SelfDies
+        if *condition.pattern() == EventPattern::self_dies()
             && intervening.is_none()
             && bindings.is_empty()
             && matches!(steps.as_slice(),
@@ -167,9 +166,7 @@ pub(crate) mod land_entry_gain_life {
         )?;
         Ok(Some(TriggeredAbility {
             functioning_zone: FunctioningZone::Battlefield,
-            condition: TriggerCondition::SelfEntersBattlefield,
-            intervening_if: None,
-            death_filter: None,
+            condition: TriggerCondition::on(EventPattern::self_enters()),
             program: SpellProgram {
                 functioning_zone: FunctioningZone::Stack,
                 timing: SpellTiming::Instant,

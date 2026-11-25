@@ -1262,6 +1262,114 @@
       "archive_line": 32553
     },
     {
+      "file": "phase1-r4/0109432d-5a2a-456f-ad39-b75cb4c73420.json",
+      "oracle_id": "0109432d-5a2a-456f-ad39-b75cb4c73420",
+      "record_sha256": "14aa35a7308794aac229e8235777eaf03d71eae25c5a2b2749d89b50ad58e125",
+      "source_sha256": "655d03bbcfa4484b8bd784eb9e38d7073daae7b871655753a456630857d5ba18",
+      "ast_sha256": "2424df437e7933891c66874367a50e1aa386d76688da2ef2e1605661e903269e",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 168
+    },
+    {
+      "file": "phase1-r4/05a6a571-643e-429e-8e5c-1c3f8b0dc746.json",
+      "oracle_id": "05a6a571-643e-429e-8e5c-1c3f8b0dc746",
+      "record_sha256": "480a923234e993f534ecd7622067e29d09ff1b39f11d6d6f5feed07c866b041f",
+      "source_sha256": "a5243df7b6a8e37452d6511326061b0e03464c839dcf7fd5ff274bbf84393398",
+      "ast_sha256": "2d411e0f85d7194ce85edf2e4e93c09b4746859bfd94583063b095625d1a9dd0",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 893
+    },
+    {
+      "file": "phase1-r4/60e3ccf2-63f5-4435-a752-1d82fefb55d7.json",
+      "oracle_id": "60e3ccf2-63f5-4435-a752-1d82fefb55d7",
+      "record_sha256": "b385b49cf181c95cd8cc5e3c0afab6e5f4ee95d5071da4c600c95ff9ceb240ff",
+      "source_sha256": "3810ce93ddcb5dcb5bc5099818671a2dd54e62cde215dd43e706ffd634de17e3",
+      "ast_sha256": "aeb7815391efe09c7409b14d27b70a4bd123f1bc8a735374c587b5c1c60fdaa5",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 14549
+    },
+    {
+      "file": "phase1-r4/68930fb6-d833-40cf-8917-1a1bf60edbe3.json",
+      "oracle_id": "68930fb6-d833-40cf-8917-1a1bf60edbe3",
+      "record_sha256": "f14db4b7683a8781ec262bb6c663f61d4170e79fac1770e165537234ce9f2856",
+      "source_sha256": "03fde5ec14c66a240b697e2927f0460c4016edb055b35c40729c94c1735eb5f1",
+      "ast_sha256": "28080438d4240e0f143832c12703fe23948e0ffe51157bde91c2c02543500f56",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 15714
+    },
+    {
+      "file": "phase1-r4/8b983a46-580f-4a94-8ef3-5253e503148e.json",
+      "oracle_id": "8b983a46-580f-4a94-8ef3-5253e503148e",
+      "record_sha256": "d30403a653bca90ec60615a47178b065dfd938e23186db21b1ad0fb277280c9e",
+      "source_sha256": "cd97abec26330dda9d2dfcf31fab6562251f382d6617a94ee510e40136648856",
+      "ast_sha256": "5972af024d5a2b5e9325066798f1315c5ffef8757cabab1ec7dc86aa019cf3f8",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 21050
+    },
+    {
+      "file": "phase1-r4/ae8003eb-9f19-4f23-be3b-0ac3ddc03a72.json",
+      "oracle_id": "ae8003eb-9f19-4f23-be3b-0ac3ddc03a72",
+      "record_sha256": "76697d0086bde0c1f5137878b3e3317bb088ef23a026a1a42da86c4dcee37e4c",
+      "source_sha256": "a8717cc9c3b1cff550b733f20b95882662bee513539bcabef7b4d303cb403586",
+      "ast_sha256": "682e98e090269e515f7922f767d0793e10d6ac6c80d243f21c29140b9b17b0fe",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 26281
+    },
+    {
+      "file": "phase1-r4/c26887e1-27f4-4550-921b-53460e43c079.json",
+      "oracle_id": "c26887e1-27f4-4550-921b-53460e43c079",
+      "record_sha256": "ebab98f2b7ac0c6f9299dd61af3cef45ec33a489883743bda1528219d0df606d",
+      "source_sha256": "c7d5906d8354beecb992f55b55ffe50b630f389ed9c73b6668079eb4f2855e44",
+      "ast_sha256": "85dc557a7897e6b6221c9ab9cf02bee01d780ce20f81f757f1ff026176aa673c",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 29305
+    },
+    {
+      "file": "phase1-r4/d26b27db-a567-4631-b4b6-7294222fbdd1.json",
+      "oracle_id": "d26b27db-a567-4631-b4b6-7294222fbdd1",
+      "record_sha256": "68f65f8ede6638b030788bb7834940cd67c2bb7cba7e5af9293b0f0f867e0ba5",
+      "source_sha256": "004e0b76ee27063f9f64073645e0f988be4f984f3c736b3ac01994da99da7f11",
+      "ast_sha256": "5baf7d1d717ce7e1bb171acac25ddefad0f82dca7411009b6e833995111d308e",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 31744
+    },
+    {
+      "file": "phase1-r4/d9a7e5a6-3e41-4fc6-987a-18fe1b9d67dd.json",
+      "oracle_id": "d9a7e5a6-3e41-4fc6-987a-18fe1b9d67dd",
+      "record_sha256": "316012366cf20c1d8159a82dbb7814c9c7af79320466ee62ea33ec46e357747f",
+      "source_sha256": "e98d66733886a30263ccb3ed975e47ccd28a3b4df83b9a36959cd66d2da7c33b",
+      "ast_sha256": "71f23739753b7bfed9ecd8fc5985735e9d849bb682635a70f1ec9ec431de26e7",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 32872
+    },
+    {
+      "file": "phase1-r4/9242cd3e-1a71-4700-8182-9c1005616033.json",
+      "oracle_id": "9242cd3e-1a71-4700-8182-9c1005616033",
+      "record_sha256": "d5e0ea983fe120763930d0aa6776b7e9f9eb96f5ead4307927307bf558610030",
+      "source_sha256": "a452ce3455205786bfeb87494eb29ff7bcd9eb9c1d51693c0e918e19d5011044",
+      "ast_sha256": "38f347401666744efaca2d525c172936bdbde23ce418b5cea1dcc8da8ea3e20e",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 22044
+    },
+    {
+      "file": "phase1-r4/e339c6cb-c75d-4dd4-8c1a-78f844983242.json",
+      "oracle_id": "e339c6cb-c75d-4dd4-8c1a-78f844983242",
+      "record_sha256": "1a6dad7b987f7c34e60823a5f4b1767c209c2db2d9f843511247f1de42971b9a",
+      "source_sha256": "7e2b5f577c77d585f7508aea8076560b5cf0bb64f17f426a34addfdbaa5c1bf7",
+      "ast_sha256": "91870d1f1830044a03f2364b424e20dbb8be2cfba4181fb01bfe5eb4aaac1fee",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 34293
+    },
+    {
+      "file": "phase1-r4/419f4648-2ace-4bd4-9ae4-8d456688c089.json",
+      "oracle_id": "419f4648-2ace-4bd4-9ae4-8d456688c089",
+      "record_sha256": "607af7adef1756aff5cb7bb7ebd0b22c4267145c8bd6481d2b6f0e9a85a27e96",
+      "source_sha256": "94268e8de107653b6ec54edeb098362cf361ac8cb31c00828aa3733e4b6fc8de",
+      "ast_sha256": "14eb17b95025197efdae03787826bd9728f7de82206f94199b6f384181656700",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 9865
+    },
+    {
       "file": "phase1-r4/00abb43b-550f-42d2-9049-61ac56ff5d8d.json",
       "oracle_id": "00abb43b-550f-42d2-9049-61ac56ff5d8d",
       "record_sha256": "b47f0136876f13fdd199326cd5e7d00522beb45354a4186ba6698b8f90376be0",

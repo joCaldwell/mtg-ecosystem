@@ -345,6 +345,9 @@ impl Walk<'_, '_> {
                 Atom::IsNot { object } => {
                     self.expect(object, &[RefKind::Object], "excluded object")?;
                 }
+                // CR 201.5: identity with a reference is an event pattern's
+                // comparison; a resolving set never names one object this way.
+                Atom::Is { .. } => return unaudited("identity atom outside an event pattern"),
                 Atom::AnyOf { alternatives } => {
                     if alternatives.is_empty() {
                         return kind("empty predicate alternatives");
@@ -557,6 +560,11 @@ impl Walk<'_, '_> {
             }
             Cond::Not { condition } => self.condition(condition),
             Cond::All { conditions } => conditions.iter().try_for_each(|c| self.condition(c)),
+            // CR 603.4: only an intervening "if" reads these, through
+            // [`Intervening`]; no resolving control node does.
+            Cond::Satisfies { .. } | Cond::CastBy { .. } => {
+                unaudited("intervening condition in a resolving node")
+            }
         }
     }
 
@@ -1121,7 +1129,7 @@ impl Walk<'_, '_> {
                         .iter()
                         .try_for_each(|alternative| Self::audited_filter(zone, alternative))?;
                 }
-                Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } => {
+                Atom::Blocking | Atom::OwnedBy { .. } | Atom::IsNot { .. } | Atom::Is { .. } => {
                     return unaudited("set filter atom");
                 }
             }
@@ -1257,11 +1265,11 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
 
 /// The event-player roles an event supplies (CR 603.2).
 fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
-    match event {
+    match event.pattern() {
         // CR 601.2: the caster of the triggering spell.
-        TriggerCondition::SpellCast { .. } => &[EventPlayerRole::Caster],
+        EventPattern::Cast { .. } => &[EventPlayerRole::Caster],
         // CR 500: the player whose step began.
-        TriggerCondition::StepBegan { .. } => &[EventPlayerRole::ActivePlayer],
+        EventPattern::StepBegins { .. } => &[EventPlayerRole::ActivePlayer],
         _ => &[],
     }
 }
@@ -1272,7 +1280,7 @@ fn event_player_roles(event: &TriggerCondition) -> &'static [EventPlayerRole] {
 fn event_supplies(event: &TriggerCondition, role: EventPlayerRole) -> bool {
     event_player_roles(event).contains(&role)
         || (role == EventPlayerRole::DamagedPlayer
-            && matches!(event, TriggerCondition::DamageDealt { .. }))
+            && matches!(event.pattern(), EventPattern::DealsDamage { .. }))
 }
 
 /// The event-player role an event supplies, for lowerers of "that player".

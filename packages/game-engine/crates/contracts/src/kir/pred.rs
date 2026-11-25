@@ -84,6 +84,11 @@ pub enum Atom {
         cmp: Cmp,
         value: Amount,
     },
+    /// CR 201.5: the referenced object itself. Only an event pattern
+    /// compares its object with a reference this way.
+    Is {
+        object: Ref,
+    },
     /// "Other", "another": not the referenced object.
     IsNot {
         object: Ref,

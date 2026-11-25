@@ -108,7 +108,9 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
             kir::Cond::All { conditions } => conditions.iter().for_each(|c| cond(c, out)),
             kir::Cond::Compare { .. }
             | kir::Cond::Exists { .. }
-            | kir::Cond::ActivePlayer { .. } => {}
+            | kir::Cond::ActivePlayer { .. }
+            | kir::Cond::Satisfies { .. }
+            | kir::Cond::CastBy { .. } => {}
         }
     }
     match node {
@@ -451,46 +453,17 @@ fn enchant_target(targets: &[TargetSpec]) -> bool {
     }
 }
 
-/// The event row: conditions whose detection needs no program-specific data.
+/// The event row: an admitted event pattern and intervening condition
+/// (CR 603.2, 603.4) on a battlefield permanent's triggered ability.
 fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     let kind = d.characteristics.kind;
-    let creature = d.characteristics.has_type(CardKind::Creature);
-    let event = match &a.condition {
-        TriggerCondition::AttachedCreature { attachment, .. } => match attachment {
-            kir::AttachmentKind::Equipped => d.characteristics.subtypes == ["Equipment"],
-            kir::AttachmentKind::Enchanted => d.characteristics.subtypes == ["Aura"],
-        },
-        TriggerCondition::SelfEntersBattlefield => true,
-        // CR 700.4: "dies" is defined for creatures; the runtime witness
-        // reads the primary card type.
-        TriggerCondition::SelfDies => kind == CardKind::Creature,
-        TriggerCondition::StepBegan { .. } => true,
-        TriggerCondition::SpellCast { spell, .. } => match spell {
-            TypePredicate::SpellColor { color } => *color != Color::C,
-            _ => spell.validate_type_shape(true).is_ok(),
-        },
-        TriggerCondition::CreatureAttacked { attacker } => match attacker {
-            AttackSubject::Source {} => creature,
-            AttackSubject::Filter { types, .. } => types.validate().is_ok(),
-        },
-        TriggerCondition::OtherCreatureEntersBattlefield
-        | TriggerCondition::AnyCreatureDies
-        | TriggerCondition::OpponentCreatureDies
-        | TriggerCondition::ControlledLandEntersBattlefield
-        // CR 701.20a: the exact source's own untapped-to-tapped change.
-        | TriggerCondition::SelfBecomesTapped => true,
-        // CR 510.2, 120.3: damage this source or a filtered creature deals to
-        // a player; event-bound recipients and quantities stay with families.
-        TriggerCondition::DamageDealt { source, .. } => match source {
-            DamageTriggerSource::Source {} => creature,
-            DamageTriggerSource::CreatureFilter { types, .. } => types.validate().is_ok(),
-        },
-    };
+    let pattern = a.condition.pattern();
     let key = a.condition.reporting_key();
-    if !event {
-        return cell("trigger", key);
-    }
-    if a.intervening_if.is_some() {
+    kir::check_event(pattern, d.characteristics.is_attachment())
+        .map_err(|e| format!("cell:trigger:{key}:{e}"))?;
+    if let Some(condition) = a.condition.intervening_if()
+        && !kir::Intervening::of(condition).is_ok_and(|i| i.admits(pattern))
+    {
         return cell("trigger", format!("{key}:intervening_if"));
     }
     if a.functioning_zone != FunctioningZone::Battlefield
@@ -500,14 +473,6 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
         )
     {
         return cell("trigger", format!("{key}:source"));
-    }
-    if a.death_filter.as_ref().is_some_and(|f| {
-        a.condition != TriggerCondition::AnyCreatureDies
-            || !f.controlled
-            || f.non_subtypes.iter().any(|s| s != "Spirit")
-            || f.non_subtypes.len() > 1
-    }) {
-        return cell("trigger", format!("{key}:death_filter"));
     }
     program(&a.program, Context::Triggered, Some(&a.condition), false)
 }
@@ -1088,9 +1053,7 @@ mod tests {
             with(|d| {
                 d.triggered.push(TriggeredAbility {
                     functioning_zone: FunctioningZone::Battlefield,
-                    condition: TriggerCondition::SelfEntersBattlefield,
-                    intervening_if: None,
-                    death_filter: None,
+                    condition: TriggerCondition::on(kir::EventPattern::self_enters()),
                     program: program(vec![instruction], vec![target(domain)]),
                 })
             })

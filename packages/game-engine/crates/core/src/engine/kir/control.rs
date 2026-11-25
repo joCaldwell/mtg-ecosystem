@@ -277,6 +277,9 @@ impl RulesTxn {
             Cond::ActivePlayer { .. } => {
                 return Err("active-player condition outside statics".into());
             }
+            Cond::Satisfies { .. } | Cond::CastBy { .. } => {
+                return Err("intervening condition in a resolving node".into());
+            }
             Cond::CostPaid { identity } => self
                 .entry(self.kernel_root()?.stack_id)?
                 .selected_additional_costs

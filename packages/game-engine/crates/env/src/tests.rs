@@ -147,7 +147,7 @@ fn published_profile_vocabulary_pin() {
     let table = mtg_observe::catalog::CardTable::new(source.catalog()).unwrap();
     assert_eq!(
         table.vocabulary_sha256,
-        "fc56a2f8cb8de44e19f9974cae6fecbd02bd0496fc2433a9e75b30853e465fda"
+        "97dac83325670add0397d2aa7e0e22928fcd4940e2f094aa3d86f7876a8bbcdf"
     );
     assert_eq!(
         table.card_tokens.len(),

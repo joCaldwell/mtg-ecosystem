@@ -200,7 +200,7 @@ fn compare(actual: Option<&Quantity>, cmp: Cmp, value: &Amount) -> bool {
 /// object's current structural ones (CR 205, 613.1d), colors its current
 /// colors (CR 613.1e), power, toughness and keywords fully derived
 /// (CR 613.1f, 613.4). An operand this reader cannot evaluate is `Unknown`.
-fn matches_atom(object: &impl ObjectFacts, you: PlayerId, atom: &Atom) -> Tri {
+pub fn matches_atom(object: &impl ObjectFacts, you: PlayerId, atom: &Atom) -> Tri {
     match atom {
         Atom::Type { kind } => known(object.structural(), |c| c.has_type(*kind)),
         Atom::NotType { kind } => known(object.structural(), |c| !c.has_type(*kind)),
@@ -249,7 +249,7 @@ fn matches_atom(object: &impl ObjectFacts, you: PlayerId, atom: &Atom) -> Tri {
             compare(Some(&c.printed_mana_value()), *cmp, value)
         }),
         // Identity against an invocation's reference is the caller's fact.
-        Atom::IsNot { .. } => Tri::Unknown,
+        Atom::Is { .. } | Atom::IsNot { .. } => Tri::Unknown,
         Atom::AnyOf { alternatives } => alternatives.iter().fold(Tri::No, |found, pred| {
             match (found, matches_pred(object, you, pred)) {
                 (Tri::Yes, _) | (_, Tri::Yes) => Tri::Yes,

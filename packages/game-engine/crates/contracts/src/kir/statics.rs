@@ -260,7 +260,8 @@ fn predicate_in_layer(filter: &Pred, layer: Layer) -> bool {
         Atom::Power { .. }
         | Atom::Toughness { .. }
         | Atom::Keyword { .. }
-        | Atom::NotKeyword { .. } => false,
+        | Atom::NotKeyword { .. }
+        | Atom::Is { .. } => false,
     })
 }
 
@@ -298,7 +299,7 @@ fn condition_supported(condition: &Cond) -> bool {
         Cond::All { conditions } => {
             !conditions.is_empty() && conditions.iter().all(condition_supported)
         }
-        Cond::CostPaid { .. } => false,
+        Cond::CostPaid { .. } | Cond::Satisfies { .. } | Cond::CastBy { .. } => false,
     }
 }
 

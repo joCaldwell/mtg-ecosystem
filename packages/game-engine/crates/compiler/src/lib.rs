@@ -8,7 +8,7 @@
 //! lowers, is rejected.
 pub use catalog::*;
 use mtg_contracts::kir::{
-    Amount, Atom, Cmp, Context, Destination, PlayerExpr, Pred, SetExpr, Verb,
+    Amount, Atom, Cmp, Context, Destination, EventPattern, PlayerExpr, Pred, Ref, SetExpr, Verb,
 };
 use mtg_contracts::*;
 pub use mtg_oracle_ast as ast;

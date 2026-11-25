@@ -1,6 +1,6 @@
 //! KIR checker cells: admitted and rejected verbs, operands, scopes and tags.
 use super::*;
-use crate::{BeginningStep, CasterRelation, PermanentFilter, TurnRelation, TypePredicate};
+use crate::{BeginningStep, PermanentFilter};
 
 fn spell<'a>(targets: &'a [TargetSpec]) -> Env<'a> {
     Env {
@@ -78,14 +78,15 @@ fn target_references_need_an_announced_slot_of_the_right_kind() {
 #[test]
 fn event_players_exist_only_for_events_that_supply_the_role() {
     let caster = gain(PlayerExpr::event(EventPlayerRole::Caster), Amount::fixed(1));
-    let cast = TriggerCondition::SpellCast {
-        caster: CasterRelation::AnyPlayer,
-        spell: TypePredicate::Any {},
-    };
-    let step = TriggerCondition::StepBegan {
+    let cast = TriggerCondition::on(EventPattern::Cast {
+        caster: PlayerExpr::EachPlayer,
+        spell: Pred::default(),
+    });
+    let step = TriggerCondition::on(EventPattern::StepBegins {
         step: BeginningStep::Upkeep,
-        turn_relation: TurnRelation::AnyPlayer,
-    };
+        active: PlayerExpr::EachPlayer,
+    });
+    let self_dies = TriggerCondition::on(EventPattern::self_dies());
     let triggered = |event| Env {
         context: Context::Triggered,
         targets: &[],
@@ -110,7 +111,7 @@ fn event_players_exist_only_for_events_that_supply_the_role() {
     );
     assert!(check(&active, &triggered(Some(&step))).is_ok());
     assert!(matches!(
-        check(&caster, &triggered(Some(&TriggerCondition::SelfDies))),
+        check(&caster, &triggered(Some(&self_dies))),
         Err(KirError::Scope(_))
     ));
     assert!(matches!(
@@ -1138,10 +1139,8 @@ fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
     // definition at executes, whatever its surfaces earned.
     bears.keywords.clear();
     bears.triggered.push(crate::TriggeredAbility {
-        death_filter: None,
         functioning_zone: crate::FunctioningZone::Battlefield,
-        condition: TriggerCondition::SelfEntersBattlefield,
-        intervening_if: None,
+        condition: TriggerCondition::on(EventPattern::self_enters()),
         program: crate::SpellProgram {
             optional_additional_costs: vec![],
             additional_sacrifice: None,
@@ -1433,4 +1432,97 @@ fn library_cells_reject_other_libraries_destinations_and_filters() {
     ] {
         assert!(matches!(check(&node, &spell(&[])), Err(KirError::Type(_))));
     }
+}
+
+/// Every admitted event pattern is one the collector and snapshot recovery
+/// evaluate identically; the rest reject (CR 110.5d, 508.1f, 603.2, 701.26a).
+#[test]
+fn event_patterns_admit_only_what_collection_and_recovery_agree_on() {
+    let creature = Atom::Type {
+        kind: CardKind::Creature,
+    };
+    let unaudited = |pattern: EventPattern, attachment: bool| {
+        assert!(
+            matches!(
+                check_event(&pattern, attachment),
+                Err(KirError::Unaudited(_))
+            ),
+            "{pattern:?}"
+        );
+    };
+    // Only the source's own tap is observed.
+    check_event(&EventPattern::self_becomes_tapped(), false).unwrap();
+    unaudited(
+        EventPattern::BecomesTapped {
+            object: Pred(vec![creature.clone()]),
+        },
+        false,
+    );
+    // A spell has no tapped status; an attacker's is read before its tap.
+    for status in [Atom::Tapped, Atom::Untapped] {
+        unaudited(
+            EventPattern::Cast {
+                caster: PlayerExpr::EachPlayer,
+                spell: Pred(vec![status.clone()]),
+            },
+            false,
+        );
+        unaudited(
+            EventPattern::Attacks {
+                attacker: Pred(vec![Atom::AnyOf {
+                    alternatives: vec![Pred(vec![status.clone()])],
+                }]),
+            },
+            false,
+        );
+    }
+    // Recovery cannot prove an object was not the host.
+    unaudited(
+        EventPattern::Dies {
+            object: Pred(vec![
+                creature.clone(),
+                Atom::IsNot {
+                    object: Ref::AttachedTo,
+                },
+            ]),
+        },
+        true,
+    );
+    check_event(
+        &EventPattern::Dies {
+            object: Pred::attached_creature(),
+        },
+        true,
+    )
+    .unwrap();
+}
+
+/// CR 603.4: a battlefield-count clause never names the source itself, at
+/// any depth of alternatives.
+#[test]
+fn intervening_counts_reject_nested_identity() {
+    let you = Atom::ControlledBy {
+        player: PlayerExpr::you(Context::Triggered),
+    };
+    let count = |inner: Atom| Cond::Exists {
+        set: SetExpr::battlefield(Pred(vec![inner, you.clone()])),
+    };
+    let nested = Atom::AnyOf {
+        alternatives: vec![Pred(vec![Atom::AnyOf {
+            alternatives: vec![Pred(vec![Atom::Is {
+                object: Ref::Source,
+            }])],
+        }])],
+    };
+    assert!(matches!(
+        Intervening::of(&count(nested)),
+        Err(KirError::Unaudited(_))
+    ));
+    let other = Atom::IsNot {
+        object: Ref::Source,
+    };
+    assert!(matches!(
+        Intervening::of(&count(other)),
+        Ok(Intervening::BattlefieldCount { .. })
+    ));
 }
