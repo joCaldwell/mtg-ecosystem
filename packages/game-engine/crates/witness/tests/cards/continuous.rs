@@ -39,6 +39,7 @@ const TURTLE_DUCK: &str = record!("e93782e3-1b93-459a-a7de-06c3b6591e6f");
 const CELESTIAL_COLONNADE: &str = record!("876ac6f6-74de-4666-84c6-83d81f054723");
 const DARKEST_HOUR: &str = record!("5667376e-e59c-4b17-b096-5d92cdfe3db1");
 const THRAN_LENS: &str = record!("0ac723bf-ce86-4028-a693-0ef498e4c82d");
+const LOSE_CALM: &str = record!("73d71731-f694-471c-b2ad-a36854bb06a1");
 
 fn lowered(raw: &str) -> Definition {
     let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
@@ -425,6 +426,42 @@ fn resolved_continuous_setter_orders_between_two_static_sources() {
     };
     *timestamp = u64::MAX;
     assert!(forged.validate_state().is_err());
+}
+
+// CR 302.6, 702.10 and 702.111: the new controller can immediately attack
+// with the creature, and a single blocker is illegal after the menace grant.
+#[test]
+fn resolved_continuous_granted_menace_requires_two_blockers() {
+    let mut g = with(
+        board(&[LOSE_CALM]),
+        &[
+            ("Lose Calm", 0, true),
+            ("Grizzly Bears", 1, false),
+            ("Grizzly Bears", 1, false),
+            ("Grizzly Bears", 1, false),
+            ("Mountain", 0, false),
+            ("Mountain", 0, false),
+            ("Mountain", 0, false),
+            ("Mountain", 0, false),
+        ],
+    );
+    let [attacker, first, second] = [1, 2, 3].map(|card| object(&g, card));
+    cast_on(&mut g, 0, &[target(attacker)], &[4, 5, 6, 7]);
+    let request = blockers(&mut g, &[attacker]);
+    assert!(
+        g.respond(
+            request.player,
+            request.id,
+            request.block(vec![(first, attacker)])
+        )
+        .is_err()
+    );
+    g.respond(
+        request.player,
+        request.id,
+        request.block(vec![(first, attacker), (second, attacker)]),
+    )
+    .unwrap();
 }
 
 #[test]

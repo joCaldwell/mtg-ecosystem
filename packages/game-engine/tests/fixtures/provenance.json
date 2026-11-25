@@ -1998,6 +1998,15 @@
       "ast_sha256": "a64bcfb1c8309cd4c41695bfeea5180524848badcab0bb164e48867a6f8567ef",
       "archive": "archive-manifest-phase1-r4.json",
       "archive_line": 12980
+    },
+    {
+      "file": "phase1-r4/73d71731-f694-471c-b2ad-a36854bb06a1.json",
+      "oracle_id": "73d71731-f694-471c-b2ad-a36854bb06a1",
+      "record_sha256": "bd164bb76e60b0fda2fbe20ad291461b5ca3b2f915f1f7b981d70c33caae5f7d",
+      "source_sha256": "a2a6abeb583b9f81fafd4a7b0863b9285189e36aa4e34d85860cda363a09ec39",
+      "ast_sha256": "d17d6c0ea4fb49632dd7ee22de0e57c29a856a20236bffd3847d6047a3deefd0",
+      "archive": "archive-manifest-phase1-r4.json",
+      "archive_line": 17444
     }
   ]
 }
