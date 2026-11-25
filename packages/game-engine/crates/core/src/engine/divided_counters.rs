@@ -10,6 +10,10 @@ impl RulesTxn {
         entry: &StackInstance,
     ) -> bool {
         let count = self.bound_target_count(entry);
-        count == program.targets.len() || (program.optional_target && count == 0)
+        if program.optional_target {
+            return count <= program.targets.len()
+                && entry.targets.iter().collect::<BTreeSet<_>>().len() == count;
+        }
+        count == program.targets.len()
     }
 }

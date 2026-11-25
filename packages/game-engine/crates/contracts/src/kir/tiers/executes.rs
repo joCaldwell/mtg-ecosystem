@@ -116,7 +116,7 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         }
     }
     match node {
-        kir::Node::Do(_) => Ok(()),
+        kir::Node::Do(_) | kir::Node::ChooseObject { .. } | kir::Node::TapTargets { .. } => Ok(()),
         kir::Node::Seq(nodes) => nodes.iter().try_for_each(|n| cost_conditions(n, out)),
         kir::Node::If {
             condition,
@@ -250,10 +250,23 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
     // CR 115.1d, 601.2c, 608.2b: zero targets is a legal announcement.
     // A skipped occurrence can be read only by an independent leaf whose
     // entire action applies to that one object.
-    if p.optional_target
+    if p.targets.len() > 1 && p.optional_target {
+        let mut targeted =
+            p.instructions
+                .iter()
+                .filter_map(|Instruction::Kernel { node, .. }| {
+                    (!kir::target_slots(node).is_empty()).then_some(node)
+                });
+        if !matches!(targeted.next(), Some(kir::Node::TapTargets { count, .. }) if *count as usize == p.targets.len())
+            || targeted.next().is_some()
+        {
+            return cell("target", "up_to_many_requires_one_target_group");
+        }
+    } else if p.optional_target
         && (!matches!(p.targets.as_slice(), [t] if matches!(t.domain,
                 TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
-                | TargetDomain::ControlledBattlefieldPermanent))
+                | TargetDomain::ControlledBattlefieldPermanent
+                | TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard))
             || p.instructions
                 .iter()
                 .any(|Instruction::Kernel { node, .. }| {
@@ -269,6 +282,13 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                 }))
     {
         return cell("target", "up_to_one_requires_independent_object_leaves");
+    }
+    if !p.optional_target
+        && p.instructions
+            .iter()
+            .any(|Instruction::Kernel { node, .. }| matches!(node, kir::Node::TapTargets { .. }))
+    {
+        return cell("target", "target_group_requires_optional_announcement");
     }
     let mut ids = BTreeSet::new();
     for (index, target) in p.targets.iter().enumerate() {
@@ -302,15 +322,33 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                     | TargetDomain::ControlledBattlefieldPermanent
                     | TargetDomain::StackSpell
                     | TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
             ) || (matches!(
                 t.domain,
-                TargetDomain::StackSpell | TargetDomain::OwnGraveyardCard
-            ) && (f.types.is_empty()
+                TargetDomain::StackSpell
+                    | TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
+            ) && ((f.types.is_empty() && f.predicate.is_none())
                 || !f.non_types.is_empty()
                 || !f.non_colors.is_empty()
                 || f.opponent
                 || f.power.is_some()
                 || f.tapped))
+                || (matches!(t.domain, TargetDomain::OwnGraveyardCreatureCard)
+                    && (!f.types.is_empty() || f.predicate.is_none()))
+                || f.predicate.as_ref().is_some_and(|predicate| {
+                    t.domain == TargetDomain::StackSpell
+                        || f.power.is_some()
+                        || kir::audit_target_predicate(
+                            predicate,
+                            matches!(
+                                t.domain,
+                                TargetDomain::OwnGraveyardCard
+                                    | TargetDomain::OwnGraveyardCreatureCard
+                            ),
+                        )
+                        .is_err()
+                })
                 || f.types
                     .iter()
                     .enumerate()

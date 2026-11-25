@@ -131,7 +131,7 @@ of an instruction for the resolving stack object.
 | `Ref` | The closed reference vocabulary: source, controller (with its role), target slot, attached-to, event object/player, entering object, step result, bound variable, linked pool, announced X |
 | `PlayerExpr`, `SetExpr`, `Amount` | Players, object sets (`Matching { zone, filter: Pred }`) and quantities built from references and predicate atoms |
 | `Verb` | One game action over those operands |
-| `Node` | `Do`, `Seq`, `If`, `Optional`, `ForEach`, `Choose`, `UnlessPays`, `IfPays`, `Delayed`, `Reflexive` |
+| `Node` | `Do`, `Seq`, `If`, `Optional`, `ForEach`, `Choose`, `ChooseObject`, `TapTargets`, `UnlessPays`, `IfPays`, `Delayed`, `Reflexive` |
 
 `kir::check(node, env)` is the one admission decision. It proves each reference
 is in scope and of the right kind for the context, targets and event; rejects a
@@ -170,8 +170,13 @@ both payment nodes support life and generic mana. The continuation skips an
 optional effect with no live chooser and takes the unpaid branch with no live
 payer: `UnlessPays` performs its node, `IfPays` does not (CR 118.12).
 `Choose` binds a pool from a matching public set when both bounds force zero
-or the size of that set. Interactive object choice remains unaudited because
-the saved candidates and chooser are not refreshed on departure (CR 800.4a/g).
+or the size of that set. `ChooseObject` offers one mandatory public object choice
+from a current controller-relative battlefield set. Its audited action returns
+that permanent to its owner's hand. The saved frame derives candidate identities
+from the current state and requires a matching offer when consuming an answer
+(CR 608.2d, 800.4a). `TapTargets` consumes one grouped, optional announcement
+and changes the status of its legal surviving targets simultaneously (CR 115.3,
+608.2b, 701.26).
 
 Controls read fixed amounts, announced X and counts of audited sets. Life
 changes, payments and choice bounds require nonnegative amounts. Object sets

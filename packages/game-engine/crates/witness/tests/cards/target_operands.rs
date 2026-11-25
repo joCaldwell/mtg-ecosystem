@@ -435,3 +435,5 @@ fn rescue_returns_a_permanent_you_control() {
     assert_eq!(zone(&g, 2), Zone::Hand { owner: PlayerId(0) });
     assert_eq!(zone(&g, 3), Zone::Battlefield);
 }
+
+mod resolution_selections;

@@ -214,6 +214,8 @@ pub enum Reason<S: Space> {
     /// CR 303.4f: the object an Aura put onto the battlefield without being
     /// cast enters attached to. The slot's subject is the Aura.
     EntryAttachment,
+    /// CR 608.2d: choose a public object while applying an instruction.
+    ResolveObjectChoice,
 }
 
 impl<S: Space> Reason<S> {
@@ -253,6 +255,7 @@ impl<S: Space> Reason<S> {
             Self::EntryAttachment => 30,
             Self::ChooseModes => 31,
             Self::ChosenObjectCost { .. } => 32,
+            Self::ResolveObjectChoice => 35,
         }
     }
 }

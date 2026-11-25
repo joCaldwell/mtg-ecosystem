@@ -60,6 +60,13 @@ pub enum Payment {
     Life { amount: Amount },
 }
 
+/// The instruction performed on a single public object selected at resolution.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ObjectChoiceAction {
+    ReturnToOwnerHand,
+}
+
 /// Control over verbs. A node is performed in written order (CR 608.2c).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -92,6 +99,17 @@ pub enum Node {
         minimum: Amount,
         maximum: Amount,
         body: Box<Node>,
+    },
+    /// CR 608.2d: the controller chooses one object from the current public set.
+    ChooseObject {
+        from: SetExpr,
+        action: ObjectChoiceAction,
+    },
+    /// CR 115.3, 608.2b, 701.26: tap or untap all legal announced members
+    /// of the single "up to N" target occurrence simultaneously.
+    TapTargets {
+        count: u32,
+        tap: bool,
     },
     /// CR 118.12a: perform `node` unless `payer` pays.
     UnlessPays {
@@ -171,7 +189,10 @@ impl Node {
             | Self::UnlessPays { .. }
             | Self::IfPays { .. } => true,
             Self::Reflexive { .. } => true,
-            Self::Do(_) | Self::Delayed { .. } => false,
+            Self::Do(_)
+            | Self::Delayed { .. }
+            | Self::ChooseObject { .. }
+            | Self::TapTargets { .. } => false,
         }
     }
 }

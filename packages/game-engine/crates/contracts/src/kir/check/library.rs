@@ -127,7 +127,7 @@ impl Walk<'_, '_> {
     /// card types, supertypes, subtypes, colors, fixed power, toughness or
     /// mana value comparisons, and alternatives of these (CR 205, 208,
     /// 202.3). Status, control, ownership and keyword atoms reject.
-    fn library_card_filter(filter: &Pred) -> Result<(), KirError> {
+    pub(in crate::kir) fn library_card_filter(filter: &Pred) -> Result<(), KirError> {
         for atom in &filter.0 {
             match atom {
                 Atom::Type { .. }

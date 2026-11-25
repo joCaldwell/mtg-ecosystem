@@ -270,6 +270,7 @@ fn filters() -> Vec<(PermanentFilter, [Slots; 4])> {
                                 opponent,
                                 tapped,
                                 power,
+                                predicate: None,
                             },
                             expected,
                         ));
@@ -559,6 +560,7 @@ fn query_matches_expected_board_sets_on_derived_and_permitted_facts() {
         opponent: false,
         tapped: false,
         power: Some(CreaturePowerFilter::AtLeast { value: 5.into() }),
+        predicate: None,
     };
     assert_eq!(
         query::matches_permanent_filter(&seen(grown), you, &strong),

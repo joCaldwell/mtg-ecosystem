@@ -121,6 +121,7 @@ impl RulesTxn {
             Reason::OrderLibraryTop => Reason::OrderLibraryTop,
             Reason::OrderLibraryBottom => Reason::OrderLibraryBottom,
             Reason::EntryAttachment => Reason::EntryAttachment,
+            Reason::ResolveObjectChoice => Reason::ResolveObjectChoice,
         })
     }
 

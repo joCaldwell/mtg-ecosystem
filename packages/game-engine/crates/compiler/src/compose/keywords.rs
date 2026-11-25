@@ -337,6 +337,7 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
                 opponent: false,
                 tapped: false,
                 power: None,
+                predicate: None,
             }),
         ));
     }

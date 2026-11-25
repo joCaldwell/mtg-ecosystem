@@ -21,6 +21,7 @@ use mtg_contracts::kir::{
 
 mod control;
 mod exec;
+mod object_choice;
 pub use control::{LeafProgram, Task};
 
 /// The players a player expression denotes for one resolving invocation.
@@ -57,6 +58,23 @@ impl RulesTxn {
         node: Node,
         source_block: u32,
     ) -> Result<(), String> {
+        if let Node::TapTargets { tap, .. } = node {
+            let objects = self
+                .entry(frame.stack_id)?
+                .targets
+                .iter()
+                .zip(&frame.legal_targets)
+                .filter_map(|(&object, &legal)| legal.then_some(object))
+                .collect();
+            return self.kernel_tap_objects(frame, objects, tap, source_block);
+        }
+        if matches!(node, Node::ChooseObject { .. }) {
+            self.rules_mut().frame = Frame::ResolutionChoice {
+                frame,
+                choice: ResolutionChoice::Object {},
+            };
+            return Ok(());
+        }
         if let Node::Delayed { event, .. } = &node {
             return self.execute_delayed_trigger(frame, event, source_block);
         }

@@ -44,6 +44,7 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolutionChoice {
+    Object {},
     OptionalEffect {
         player: PlayerId,
         target: ObjectId,
@@ -431,6 +432,7 @@ impl RulesTxn {
             return Ok(None);
         };
         Ok(match choice {
+            ResolutionChoice::Object {} => self.object_choice_request(frame)?,
             ResolutionChoice::Search { .. }
             | ResolutionChoice::ReorderLibraryTop { .. }
             | ResolutionChoice::Scry { .. }
@@ -484,6 +486,9 @@ impl RulesTxn {
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
+                if matches!(choice, ResolutionChoice::Object {}) {
+                    return self.object_choice_step(frame);
+                }
                 if let ResolutionChoice::OptionalEffect {
                     player,
                     target,
@@ -505,7 +510,8 @@ impl RulesTxn {
 
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::OptionalEffect { .. }
+                        ResolutionChoice::Object {}
+                        | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
                         | ResolutionChoice::ReorderLibraryTop { .. }
                         | ResolutionChoice::Scry { .. }
@@ -532,7 +538,8 @@ impl RulesTxn {
                     .take()
                     .ok_or("missing resolution choice")?;
                 let source_block = match choice {
-                    ResolutionChoice::OptionalEffect { .. }
+                    ResolutionChoice::Object {}
+                    | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
                     | ResolutionChoice::ReorderLibraryTop { .. }
                     | ResolutionChoice::Scry { .. }
@@ -1286,6 +1293,7 @@ impl RulesTxn {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (ResolutionChoice::Object {}, _) => self.object_choice_spec(frame).is_ok(),
                 (
                     ResolutionChoice::Sacrifice {
                         player,

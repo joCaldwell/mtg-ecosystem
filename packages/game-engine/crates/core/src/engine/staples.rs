@@ -61,7 +61,7 @@ impl RulesTxn {
                 TargetDomain::OwnGraveyardCard => true,
                 TargetDomain::OwnGraveyardCreatureCard => self
                     .definition(object.id.card)
-                    .is_ok_and(|d| d.characteristics.kind == CardKind::Creature),
+                    .is_ok_and(|d| d.characteristics.has_type(CardKind::Creature)),
                 _ => false,
             }
     }
@@ -75,12 +75,17 @@ impl RulesTxn {
     ) -> bool {
         self.graveyard_target_legal(object, player, spec.domain)
             && spec.filter.as_ref().is_none_or(|filter| {
-                self.copiable_definition(object.id).is_ok_and(|definition| {
-                    filter
-                        .types
-                        .iter()
-                        .any(|kind| definition.characteristics.has_type(*kind))
-                })
+                (filter.types.is_empty()
+                    || self.copiable_definition(object.id).is_ok_and(|definition| {
+                        filter
+                            .types
+                            .iter()
+                            .any(|kind| definition.characteristics.has_type(*kind))
+                    }))
+                    && filter.predicate.as_ref().is_none_or(|predicate| {
+                        crate::query::matches_pred(&self.object_facts(object), player, predicate)
+                            .is_yes()
+                    })
             })
     }
 
