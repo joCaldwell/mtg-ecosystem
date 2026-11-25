@@ -328,7 +328,7 @@ required occurrences, larger counts and permanent spells reject.
 "This [permanent]" in an ability names the source: tap, untap, return to its
 owner's hand or put on top of its owner's library (`Cell::TapStatusSource`,
 `Cell::MoveSourceOwnerZone`). Only its current battlefield incarnation moves
-(CR 400.7); a commander offers the command zone (CR 903.9a). "Put a +1/+1
+(CR 400.7); a commander offers the command zone (CR 903.9b). "Put a +1/+1
 counter on each [creature filter]" is one simultaneous placement on the
 members read when it is performed (CR 122.6, 608.2h, `Cell::PlusOneCountersSet`).
 These cells earn `Executes` only. "Return a land you control" and "untap up to

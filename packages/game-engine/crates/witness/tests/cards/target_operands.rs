@@ -4,7 +4,7 @@
 //! permanent as an operand, and an up-to-one target that may be omitted.
 //! Every decision is checked for state validity and an exact snapshot round
 //! trip; every finished resolution replays from its journal.
-//! Pinned CR 109.5, 115.1d, 122.6, 400.7, 601.2c, 608.2b/h, 701.26, 903.9a:
+//! Pinned CR 109.5, 115.1d, 122.6, 400.7, 601.2c, 608.2b/h, 701.26, 903.9b:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use mtg_contracts::kir::{Cell, Tiers, definition_cells, definition_tiers};
 use mtg_core::testkit::*;
@@ -331,7 +331,7 @@ fn fencer_clique_puts_itself_on_top_of_its_library() {
 
 /// Selenia, Dark Angel as a commander: "Pay 2 life: Return Selenia to its
 /// owner's hand." The owner may put the commander into the command zone
-/// instead (CR 903.9a); the pending choice validates and recovers.
+/// instead (CR 903.9b); the pending choice validates and recovers.
 #[test]
 fn selenia_returning_itself_offers_the_command_zone() {
     for to_command in [true, false] {
