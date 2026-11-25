@@ -10,6 +10,26 @@ pub(super) fn lower(
     optional: Option<bool>,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
+    if to == "your" {
+        let slot = bind_own_graveyard_target(cx.program, cx.slots, &object(what)?, false)?;
+        let movement = Instruction::move_target(slot, Destination::OwnerHand, cx.source_block);
+        return match optional {
+            None => Ok(movement),
+            // CR 603.5, 603.3d: announce the target when the ability is
+            // stacked, then offer the controller the choice at resolution.
+            Some(true) => {
+                let Instruction::Kernel { node, source_block } = movement;
+                Ok(Instruction::Kernel {
+                    node: kir::Node::Optional {
+                        chooser: PlayerExpr::you(cx.context),
+                        node: Box::new(node),
+                    },
+                    source_block,
+                })
+            }
+            Some(false) => Err(step("return-to-hand", "optional")),
+        };
+    }
     if optional.is_some() {
         return Err(step("return-to-hand", "optional"));
     }

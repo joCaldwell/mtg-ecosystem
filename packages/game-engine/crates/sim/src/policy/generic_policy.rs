@@ -1334,6 +1334,7 @@ impl Strategy<'_> {
                 (false, false, mana.clone())
             }
             ActivationCost::ExileSource { mana } => (false, false, mana.clone()),
+            ActivationCost::ChooseObjects(_) => return None,
             ActivationCost::TapSource => (true, false, zero_cost()),
             ActivationCost::SacrificeSource => (false, true, zero_cost()),
             ActivationCost::Mana { cost } => (false, false, cost.clone()),

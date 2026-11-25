@@ -2,6 +2,7 @@
 //! CR 601.2b-c, 603.3d/603.4/603.10a and 608.2a-b, pinned official rules:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
+use mtg_contracts::kir::{Atom, Cmp, ControllerMeasure, Intervening, Pred};
 #[cfg(feature = "testkit")]
 pub const SEEDS: &str = "dd3d4d96-1e88-49e1-8276-7f62c22ad91a";
 
@@ -28,6 +29,38 @@ pub struct EntryCast {
     pub spell: ObjectId,
     pub caster: PlayerId,
 }
+
+/// The actual value read for an intervening comparison (CR 603.4).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ControllerMeasurement {
+    Life(Quantity),
+    HandCount(u32),
+    GraveyardCount(u32),
+}
+
+impl ControllerMeasurement {
+    fn quantity(&self) -> Quantity {
+        match self {
+            Self::Life(life) => life.clone(),
+            Self::HandCount(count) | Self::GraveyardCount(count) => {
+                Quantity::from(i64::from(*count))
+            }
+        }
+    }
+
+    fn validates(&self, measure: &ControllerMeasure, owned_limit: u32) -> bool {
+        match (self, measure) {
+            (Self::Life(_), ControllerMeasure::Life) => true,
+            (Self::HandCount(count), ControllerMeasure::HandCount)
+            | (Self::GraveyardCount(count), ControllerMeasure::GraveyardCount(_)) => {
+                *count <= owned_limit
+            }
+            _ => false,
+        }
+    }
+}
+
 /// Evidence of the information actually read, never a fabricated hand count.
 /// The hand-empty variant retains its existing serialized field shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +74,11 @@ pub enum InterveningCheck {
     ControllerHandEmpty {
         controller: PlayerId,
         hand_count: u32,
+        passed: bool,
+    },
+    ControllerComparison {
+        controller: PlayerId,
+        observed: ControllerMeasurement,
         passed: bool,
     },
     SourceStatus {
@@ -68,6 +106,7 @@ impl InterveningCheck {
     pub fn passed(&self) -> bool {
         match self {
             Self::ControllerHandEmpty { passed, .. }
+            | Self::ControllerComparison { passed, .. }
             | Self::SourceStatus { passed, .. }
             | Self::BattlefieldCount { passed, .. } => *passed,
             Self::ControllerHasCreatureWithPower { qualifying, .. } => qualifying.is_some(),
@@ -78,14 +117,14 @@ impl InterveningCheck {
     }
     fn validates(
         &self,
-        condition: &mtg_contracts::kir::Intervening,
+        condition: &Intervening,
         controller: PlayerId,
         source: ObjectId,
-        hand_limit: u32,
+        card_bound: u32,
     ) -> bool {
         match (condition, self) {
             (
-                mtg_contracts::kir::Intervening::SourceCastByController,
+                Intervening::SourceCastByController,
                 Self::SourceCastByController {
                     entrant,
                     controller: checked,
@@ -101,15 +140,31 @@ impl InterveningCheck {
                     })
             }
             (
-                mtg_contracts::kir::Intervening::ControllerHandEmpty,
+                Intervening::ControllerHandEmpty,
                 Self::ControllerHandEmpty {
                     controller: c,
                     hand_count,
                     passed,
                 },
-            ) => *c == controller && *hand_count <= hand_limit && *passed == (*hand_count == 0),
+            ) => *c == controller && *hand_count <= card_bound && *passed == (*hand_count == 0),
             (
-                mtg_contracts::kir::Intervening::SourceTapped { tapped: wanted },
+                Intervening::ControllerComparison {
+                    measure,
+                    cmp,
+                    value,
+                },
+                Self::ControllerComparison {
+                    controller: checked,
+                    observed,
+                    passed,
+                },
+            ) => {
+                *checked == controller
+                    && observed.validates(measure, card_bound)
+                    && *passed == compare(&observed.quantity(), *cmp, value)
+            }
+            (
+                Intervening::SourceTapped { tapped: wanted },
                 Self::SourceStatus {
                     controller: c,
                     source: s,
@@ -125,15 +180,18 @@ impl InterveningCheck {
                     && *passed == (*wanted == *tapped)
             }
             (
-                mtg_contracts::kir::Intervening::BattlefieldCount { cmp, value, .. },
+                Intervening::BattlefieldCount { cmp, value, .. },
                 Self::BattlefieldCount {
                     controller: c,
                     count,
                     passed,
                 },
-            ) => *c == controller && *passed == board_compare(*count, *cmp, value),
+            ) => {
+                *c == controller
+                    && *passed == compare(&Quantity::from(i64::from(*count)), *cmp, value)
+            }
             (
-                mtg_contracts::kir::Intervening::ControllerHasCreatureWithPower { minimum_power },
+                Intervening::ControllerHasCreatureWithPower { minimum_power },
                 Self::ControllerHasCreatureWithPower {
                     controller: c,
                     minimum_power: recorded,
@@ -151,22 +209,19 @@ impl InterveningCheck {
     }
 }
 /// CR 603.4: the audited intervening clause of a triggered ability, if any.
-pub(super) fn intervening(
-    definition: &TriggeredAbility,
-) -> Result<Option<mtg_contracts::kir::Intervening>, String> {
+pub(super) fn intervening(definition: &TriggeredAbility) -> Result<Option<Intervening>, String> {
     definition
         .condition
         .intervening_if()
-        .map(mtg_contracts::kir::Intervening::of)
+        .map(Intervening::of)
         .transpose()
         .map_err(|e| format!("unaudited intervening condition: {e}"))
 }
-fn board_compare(count: u32, cmp: mtg_contracts::kir::Cmp, value: &Quantity) -> bool {
-    let count = Quantity::from(i64::from(count));
+fn compare(observed: &Quantity, cmp: Cmp, value: &Quantity) -> bool {
     match cmp {
-        mtg_contracts::kir::Cmp::AtLeast => count >= *value,
-        mtg_contracts::kir::Cmp::AtMost => count <= *value,
-        mtg_contracts::kir::Cmp::Exactly => count == *value,
+        Cmp::AtLeast => observed >= value,
+        Cmp::AtMost => observed <= value,
+        Cmp::Exactly => observed == value,
     }
 }
 fn tap_status(tapped: bool) -> TapStatus {
@@ -260,7 +315,7 @@ impl RulesTxn {
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn check_intervening(
         &self,
-        condition: &mtg_contracts::kir::Intervening,
+        condition: &Intervening,
         controller: PlayerId,
         source: ObjectId,
         last_known: &ObjectBefore,
@@ -270,30 +325,52 @@ impl RulesTxn {
             return Err("intervening condition requested after controller departure".into());
         }
         Ok(match condition {
-            mtg_contracts::kir::Intervening::SourceCastByController => {
-                InterveningCheck::SourceCastByController {
-                    entrant: source,
-                    controller,
-                    cast,
-                }
-            }
-            mtg_contracts::kir::Intervening::ControllerHandEmpty => {
-                let hand_count = u32::try_from(
-                    self.state
-                        .rules
-                        .objects
-                        .values()
-                        .filter(|o| o.zone == Zone::Hand { owner: controller })
-                        .count(),
-                )
-                .map_err(|_| "hand count limit")?;
+            Intervening::SourceCastByController => InterveningCheck::SourceCastByController {
+                entrant: source,
+                controller,
+                cast,
+            },
+            Intervening::ControllerHandEmpty => {
+                let hand_count = self.trigger_hand_count(controller)?;
                 InterveningCheck::ControllerHandEmpty {
                     controller,
                     hand_count,
                     passed: hand_count == 0,
                 }
             }
-            mtg_contracts::kir::Intervening::SourceTapped { tapped: wanted } => {
+            Intervening::ControllerComparison {
+                measure,
+                cmp,
+                value,
+            } => {
+                let observed = match measure {
+                    ControllerMeasure::Life => ControllerMeasurement::Life(
+                        self.state.rules.players[controller.0 as usize].life.clone(),
+                    ),
+                    ControllerMeasure::HandCount => {
+                        ControllerMeasurement::HandCount(self.trigger_hand_count(controller)?)
+                    }
+                    ControllerMeasure::GraveyardCount(filter) => {
+                        let count = self
+                            .state
+                            .rules
+                            .objects
+                            .values()
+                            .filter(|o| o.zone == Zone::Graveyard { owner: controller })
+                            .filter(|o| self.intervening_card_matches(o.id.card, filter))
+                            .count();
+                        ControllerMeasurement::GraveyardCount(
+                            u32::try_from(count).map_err(|_| "graveyard count limit")?,
+                        )
+                    }
+                };
+                InterveningCheck::ControllerComparison {
+                    controller,
+                    passed: compare(&observed.quantity(), *cmp, value),
+                    observed,
+                }
+            }
+            Intervening::SourceTapped { tapped: wanted } => {
                 let (tapped, information) = match self.current(source) {
                     Ok(o) if o.zone == Zone::Battlefield => (o.tapped, SourceInformation::Current),
                     _ if last_known.object == source && last_known.zone == Zone::Battlefield => {
@@ -310,7 +387,7 @@ impl RulesTxn {
                     passed: *wanted == tapped,
                 }
             }
-            mtg_contracts::kir::Intervening::BattlefieldCount { filter, cmp, value } => {
+            Intervening::BattlefieldCount { filter, cmp, value } => {
                 // CR 603.4: the board as it is now; the source compares by
                 // its identity, including after it has left.
                 let identity = |r: &mtg_contracts::kir::Ref| {
@@ -336,10 +413,10 @@ impl RulesTxn {
                 InterveningCheck::BattlefieldCount {
                     controller,
                     count,
-                    passed: board_compare(count, *cmp, value),
+                    passed: compare(&Quantity::from(i64::from(count)), *cmp, value),
                 }
             }
-            mtg_contracts::kir::Intervening::ControllerHasCreatureWithPower { minimum_power } => {
+            Intervening::ControllerHasCreatureWithPower { minimum_power } => {
                 let mut qualifying = None;
                 for object in self
                     .state
@@ -369,6 +446,17 @@ impl RulesTxn {
                 }
             }
         })
+    }
+    fn trigger_hand_count(&self, controller: PlayerId) -> Result<u32, String> {
+        u32::try_from(
+            self.state
+                .rules
+                .objects
+                .values()
+                .filter(|o| o.zone == Zone::Hand { owner: controller })
+                .count(),
+        )
+        .map_err(|_| "hand count limit".into())
     }
     pub(crate) fn check_resolution_condition(
         &mut self,
@@ -417,9 +505,10 @@ impl RulesTxn {
         Ok(())
     }
     pub(crate) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
-        let definition = match self.entry(frame.stack_id)?.kind {
+        let entry = self.entry(frame.stack_id)?;
+        let definition = match entry.kind {
             StackKind::Triggered { ability, .. } => {
-                Some(self.effective_trigger(self.entry(frame.stack_id)?.source, ability)?)
+                Some(self.effective_trigger(entry.source, ability)?)
             }
             _ => None,
         };
@@ -427,26 +516,78 @@ impl RulesTxn {
             Some(definition) => intervening(definition)?,
             _ => None,
         };
-        if expected == Some(mtg_contracts::kir::Intervening::SourceCastByController)
-            && !matches!(&self.entry(frame.stack_id)?.kind, StackKind::Triggered { match_condition, .. }
+        if expected == Some(Intervening::SourceCastByController)
+            && !matches!(&entry.kind, StackKind::Triggered { match_condition, .. }
                 if match_condition == &frame.condition_check)
         {
             return Err("cast-entry resolution lost its match evidence".into());
+        }
+        if let Some(InterveningCheck::ControllerComparison { passed: false, .. }) =
+            &frame.condition_check
+            && (frame.cursor != 0
+                || frame.draw_progress.is_some()
+                || frame.each_player_draw.is_some()
+                || frame.set_damage.is_some()
+                || frame.random_discard.is_some()
+                || frame.group_discard.is_some())
+        {
+            return Err("snapshot progressed after failed intervening comparison".into());
         }
         match (expected, &frame.condition_check) {
             (None, None) => Ok(()),
             (Some(condition), Some(check))
                 if check.validates(
                     &condition,
-                    self.entry(frame.stack_id)?.controller,
-                    self.entry(frame.stack_id)?.source,
-                    self.prepared.config.owned_limit() as u32,
+                    entry.controller,
+                    entry.source,
+                    self.intervening_card_bound(entry.controller, &condition),
                 ) =>
             {
                 Ok(())
             }
             _ => Err("invalid resolution condition cache".into()),
         }
+    }
+
+    /// CR 400.7, 404: in the graveyard, owned physical cards have their printed
+    /// types. Use the same filter for the live count and its historical bound.
+    fn intervening_card_matches(&self, card: CardId, filter: &Pred) -> bool {
+        !self.state.rules.tokens.contains_key(&card)
+            && (filter.0.is_empty()
+                || self.definition(card).is_ok_and(|definition| {
+                    let printed = &definition.characteristics;
+                    filter.0.iter().all(|atom| match atom {
+                        Atom::Type { kind } => printed.has_type(*kind),
+                        Atom::AnyType { kinds } => kinds.iter().any(|kind| printed.has_type(*kind)),
+                        _ => false,
+                    })
+                }))
+    }
+
+    fn intervening_card_bound(&self, controller: PlayerId, condition: &Intervening) -> u32 {
+        let all_cards = Pred::default();
+        let filter = match condition {
+            Intervening::ControllerComparison {
+                measure: ControllerMeasure::GraveyardCount(filter),
+                ..
+            } => filter,
+            Intervening::ControllerHandEmpty
+            | Intervening::ControllerComparison {
+                measure: ControllerMeasure::HandCount,
+                ..
+            } => &all_cards,
+            _ => return 0,
+        };
+        let count = self
+            .state
+            .rules
+            .cards
+            .iter()
+            .filter(|(id, card)| {
+                card.owner == controller && self.intervening_card_matches(**id, filter)
+            })
+            .count();
+        count.min(self.prepared.config.owned_limit()) as u32
     }
 }
 impl RulesTxn {
@@ -480,7 +621,7 @@ impl RulesTxn {
                     &condition,
                     controller,
                     source,
-                    self.prepared.config.owned_limit() as u32,
+                    self.intervening_card_bound(controller, &condition),
                 ) && check.passed()
                     && !matches!(
                         check,

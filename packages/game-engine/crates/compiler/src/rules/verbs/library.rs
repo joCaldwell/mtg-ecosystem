@@ -2,11 +2,10 @@
 //!
 //! A printed search is a run of steps: search the player's own library for
 //! cards with a filter, optionally reveal them, put them into one zone, then
-//! shuffle that library. The run lowers to one `Search` verb (the found
-//! cards, their reveal and their destination) followed by one `Shuffle`
-//! verb. Any other arrangement (a shuffle before the cards move, found cards
-//! split between zones, another player's library, a count other than a fixed
-//! one) rejects under `verb:search:<detail>`.
+//! shuffle that library. This run lowers to a `Search` and a `Shuffle`.
+//! When exactly one card can be found and the text puts it on top after
+//! shuffling, one `Search` shuffles the other cards (CR 701.24b).
+//! Other arrangements reject under `verb:search:<detail>`.
 //!
 //! Pinned Comprehensive Rules 2026-09-25:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
@@ -40,6 +39,46 @@ pub(super) fn look(
     }))
 }
 
+/// CR 401.2, 608.2c, 701.20e: one private look at your library's
+/// fixed-size prefix, followed immediately by returning that exact pool
+/// to the top in any order. R4 binds "them" to this look.
+pub(super) fn reorder_top(cx: &mut StepCx<'_>, steps: &[Step]) -> Result<Instruction, Failure> {
+    uncounted(cx)?;
+    let reject = || step("look-at", "unlowered");
+    let [
+        Step::LookAt { who, what },
+        Step::MoveZone {
+            what: moved,
+            to,
+            order: Some(order),
+            tapped: None,
+            who: None,
+        },
+        ..,
+    ] = steps
+    else {
+        return Err(reject());
+    };
+    if *who != json!({"player": "you"})
+        || *moved != json!({"ref": "them"})
+        || *to != json!({"zone": "library", "owner": "your", "position": "top"})
+        || order != "any"
+    {
+        return Err(reject());
+    }
+    let Some(top) = what.get("top") else {
+        return Err(reject());
+    };
+    if *what != json!({"top": top, "of": {"zone": "library", "owner": "your"}}) {
+        return Err(reject());
+    }
+    let amount = fixed_positive_amount(&typed::<ast::Amount>(top, "amount")?)?;
+    Ok(cx.act(Verb::ReorderLibraryTop {
+        player: PlayerExpr::you(cx.context),
+        amount: Amount::Fixed { value: amount },
+    }))
+}
+
 /// CR 701.23a, 608.2c: lower the search run starting at `steps[0]`.
 /// Returns its instructions and the number of printed steps it consumed.
 pub(super) fn search(
@@ -60,6 +99,10 @@ pub(super) fn search(
         return Err(search_error("zones"));
     }
     let (filter, maximum, up_to) = found(find)?;
+    // CR 701.23d: a search simply for a quantity must find that many.
+    if up_to && filter.0.is_empty() {
+        return Err(search_error("up_to_quantity"));
+    }
     // The rest of the run: an optional reveal, one move, one shuffle.
     let mut at = 1;
     let mut reveal = false;
@@ -69,6 +112,29 @@ pub(super) fn search(
         }
         reveal = true;
         at += 1;
+    }
+    if let [
+        shuffle @ Step::Shuffle { .. },
+        movement @ Step::MoveZone { .. },
+        ..,
+    ] = &steps[at..]
+    {
+        if !you || maximum != 1 || !top_after_shuffle(movement, &who_value) {
+            return Err(search_error("found_cards"));
+        }
+        validate_search_shuffle(shuffle, &who_value)?;
+        return Ok((
+            vec![cx.act(Verb::Search {
+                player,
+                search: kir::SearchSpec {
+                    filter,
+                    maximum: Amount::fixed(1),
+                    to: Destination::OwnerLibraryTop,
+                    reveal,
+                },
+            })],
+            at + 2,
+        ));
     }
     let Some(Step::MoveZone {
         what,
@@ -86,25 +152,10 @@ pub(super) fn search(
     }
     let to = destination(to, &player, tapped.unwrap_or(false))?;
     at += 1;
-    let Some(Step::Shuffle {
-        who,
-        library,
-        optional,
-    }) = steps.get(at)
-    else {
-        return Err(search_error("shuffle"));
-    };
-    if optional.is_some()
-        || serde_json::to_value(who).ok().as_ref() != Some(&who_value)
-        || *library != json!({"zone": "library", "owner": who_value})
-    {
-        return Err(search_error("shuffle"));
-    }
-    // CR 701.23d: a search simply for a quantity must find that many; "up
-    // to" that many has no representation.
-    if up_to && filter.0.is_empty() {
-        return Err(search_error("up_to_quantity"));
-    }
+    validate_search_shuffle(
+        steps.get(at).ok_or_else(|| search_error("shuffle"))?,
+        &who_value,
+    )?;
     let search = cx.act(Verb::Search {
         player: player.clone(),
         search: kir::SearchSpec {
@@ -116,6 +167,26 @@ pub(super) fn search(
     });
     let shuffle = cx.act(Verb::Shuffle { player });
     Ok((vec![search, shuffle], at + 1))
+}
+
+/// CR 701.24a: the mandatory shuffle of the library that was searched.
+fn validate_search_shuffle(shuffle: &Step, player: &Value) -> Result<(), Failure> {
+    if matches!(shuffle, Step::Shuffle { who, library, optional: None }
+        if serde_json::to_value(who).ok().as_ref() == Some(player)
+            && *library == json!({"zone": "library", "owner": player}))
+    {
+        Ok(())
+    } else {
+        Err(search_error("shuffle"))
+    }
+}
+
+/// CR 701.24b: the found singleton stays outside the shuffle.
+fn top_after_shuffle(movement: &Step, player: &Value) -> bool {
+    matches!(movement, Step::MoveZone { what, to, order: None, tapped: None, who: None }
+        if (*what == json!({"ref": "it"})
+            || *what == json!({"ref": "that", "filter": {"cls": "card"}}))
+        && *to == json!({"zone": "library", "owner": player, "position": "top"}))
 }
 
 /// CR 701.24a: "shuffle your library", outside a search run.

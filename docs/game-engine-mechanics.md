@@ -144,8 +144,8 @@ revalidate owner choices before exposing queries.
 Library manipulation is private to its chooser and replay-proven. While a
 search, scry or surveil choice waits, only its chooser sees the library cards
 it looks at, a searcher its whole library (CR 701.23a); no other seat learns
-an identity, count or order. Candidates follow object order and view rows
-handle order (minted in object order); neither follows library position. Scry picks the bottom
+an identity, count or order. Search candidates follow object order, and
+view rows follow handle order (minted in object order). Scry picks the bottom
 cards, then orders the top and bottom groups; surveil picks the graveyard cards,
 then orders the rest (CR 701.22a, 701.25a). Each asks only for orders of two or
 more cards and commits one atomic event; positions other seats remembered in
@@ -157,6 +157,25 @@ turn order. Discards clamp to hand size, group choices stay private until one
 simultaneous discard, and random discard samples without replacement. Library-top
 events preserve order and cannot compose with a conflicting order write. These
 all finish before Commander SBAs; departure never redirects attempts.
+
+Fixed, unqualified discard can follow other spell or ability instructions.
+The controller, one announced player or opponent, each player, or each
+opponent chooses from their own hand (CR 701.9a-b, 101.4). The damaged
+player remains available in a damage trigger. A spell can make its
+announced player discard at random, including an announced X count.
+Choices and intermediate random samples stay private. Simultaneous
+discard publishes the cards only when the rules expose their destinations.
+
+
+A private "look at the top N, then put them back in any order" asks the
+controller to order the clamped prefix (CR 401.2, 701.20e). The order
+decision shows the current prefix to that player, including a lone card.
+The engine saves only the order and identities that player learned. A
+permutation can invalidate a public position in the prefix while positions
+beyond the prefix remain known. This top-level instruction saves the
+looked-at prefix and its resulting permutation. Snapshot 94 records
+the private choice and the engine validates the completed outcome before
+replay. Observations use the existing order decision.
 
 Ordinary spell sequences preserve the source order of eligible fixed library,
 life, removal and land-allowance instructions across printed blocks. A library
@@ -299,8 +318,35 @@ any permanent, or "another" (never the source), and can also tap the source
 after mana (CR 109.1, 602.2b, 701.21a). "[Mana], Exile this card from your
 graveyard" functions only in its owner's graveyard: only that owner activates
 it, targets precede mana, and the card is exiled after mana (CR 113.6j, 602.2a-b,
-701.13a). An unpaid entry keeps the card in that graveyard and a paid one does
-not. Exiling it from hand, and discard or tap-a-permanent costs, reject.
+701.13a). The ability keeps its graveyard source through announcement and
+exiles it on payment.
+
+A battlefield activation can choose a fixed number of cards to discard from
+its controller's hand, untapped permanents that player controls to tap, or
+cards to exile from that player's graveyard (CR 601.2g–h, 602.2b, 701.9,
+701.13, 701.26). The allowed qualities are any card or one card type for
+discard, any permanent, one permanent type, one subtype or an artifact or
+creature for tap, and any card, one type or one subtype for graveyard exile.
+An explicit “another” excludes the source. These terms can combine with fixed
+mana and the source's `{T}` symbol. A creature subject to summoning sickness
+can pay a written tap cost, even for its own ability. Its own `{T}` symbol
+still requires continuous control or haste, and one tap cannot pay both terms
+(CR 107.5, 302.6).
+
+Targets come first, followed by any mana window and then the activator's
+`ChosenObjectCost` picks in ascending object order. A prefix offers only
+objects that leave enough eligible choices to finish. The announcement commits
+mana, the source tap and the entire chosen set in one rule step. Discard
+candidates and the selected prefix remain private until the actual move to
+the public graveyard (CR 400.2). Paid receipts bind the exact movements or
+taps. A later untap preserves the proof that a tap paid the cost. The priority
+menu requires enough eligible objects left after funding mana. It uses the
+current pool and a bounded search over independent tap-mana abilities, reserving
+the source for its own `{T}` cost. The proof excludes mana abilities that need
+mana or life payments or have riders. The engine checks availability again
+after the mana window. Random and whole-hand discard, variable counts,
+other graveyards, self-exile from hand and chosen-object mana abilities remain
+outside these cells.
 
 Printed restrictions are permission gates. "As a sorcery" is the program's
 main-phase timing. "During your turn", "during your upkeep" and "during your
@@ -398,6 +444,15 @@ not its successor; tokens have zero mana value. Entry returns target at trigger
 placement; optional returns choose at resolution; no legal target removes the
 trigger.
 
+A single announced card from the controller's graveyard can return to that
+player's hand. The target may name a card type or type alternatives
+(CR 205.2b, 404.1, 601.2c, 608.2b). A printed "may" offers a separate
+acceptance at resolution (CR 603.5, 608.2d). A creature card can enter the
+battlefield under the controller's control, tapped when printed
+(CR 110.2a, 614.1c). These moves use the exact announced incarnation and
+earn `Executes`. A commander bound for the hand still offers its owner
+the command zone (CR 903.9b).
+
 When a removal's next instruction refers to the controller of its sole target,
 the saved appearance supplies that player after the target leaves. That player
 can create the printed token recipe or gain life. A life amount equal to the
@@ -443,6 +498,16 @@ count per owner and Oracle identity (CR 701.23e), never an incarnation: each
 physical departure is counted once, a public one consuming one copy of its
 identity and a hidden one one of each; a reversed cast restores the copy its
 announcement consumed (CR 601.2i).
+
+A search of the controller's library can find at most one card, set it
+aside within the library while the rest shuffles, and put it on top
+(CR 701.24b). The library shuffles even if no card was found. The chooser
+knows the resulting top. If the source instructs a reveal, all players
+learn the found card and its new position (CR 701.20a, 701.23e). The
+published position carries no library object handle and lasts while its
+position is known. Searches that split found cards among destinations
+or order several found cards after shuffling still reject.
+
 
 ## Battlefield entry replacements
 
@@ -646,6 +711,14 @@ its host (CR 201.5, 301.5, 303.4):
 
 Same-kind alternatives ("this creature or another Elf you control") form one
 `AnyOf` predicate, so an occurrence triggers the ability once (CR 603.2).
+Two mixed alternatives can name only the source's own entry and its own
+death or declared attack. They share one ability index, and collection and
+recovery select the branch from the typed occurrence (CR 603.2c, 603.6a,
+603.10a, 508.3a). Recovery rejects duplicate instances for one occurrence
+or a second entry or death for the same source incarnation and ability.
+The attacker in the event witness supplies the controller of the source's
+own attack trigger (CR 603.3a). Mixed alternatives bind no event object or
+player operand.
 Player operands are "you", each opponent or each player. The reviewed narrow
 lowerers run first; the general event table lowers the remaining enters, dies,
 put-into-graveyard and attacks events term by term through the board filter.
@@ -654,9 +727,17 @@ put-into-graveyard and attacks events term by term through the board filter.
 `kir::Intervening::of` admits an intervening `kir::Cond` in exactly one audited
 form: "if you cast it", an empty hand, the source's tapped status, a creature
 with power N or greater, or a count of permanents "you" control matching a
-filter, possibly excluding the source (CR 603.4). Core checks it when the event
+filter, possibly excluding the source. Entry, attack and beginning-of-step
+triggers can also compare a fixed amount with the controller's life, hand
+size, or own graveyard card count. The graveyard filter admits all cards,
+one card type, or the supported permanent card types. Tokens are excluded
+(CR 111.6, 404). Core checks the clause when the event
 occurs and again as the ability resolves, recording `InterveningCheck`
-evidence. These earn `Executes` (`InterveningIfV1`, `EventTriggerV1`). An
+evidence (CR 603.4). Snapshots save the comparison's measured quantity and
+check its kind, controller, count bound, and result. A graveyard count's
+bound includes only owned physical cards that match the printed filter.
+These earn `Executes`
+(`InterveningIfV1`, `EventTriggerV1`). An
 opponent's creature dying freezes that creature's controller
 (`triggers::binds_death_controller`). Event-object pronouns ("it", "that
 creature") remain unaudited.
@@ -794,7 +875,7 @@ the derived decisions equal the capability lists they replaced.
 | --- | --- |
 | Instruction × stack object | A checked KIR node with operands bound in its spell, activated or triggered context. Unsupported operands and verbs reject. |
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
-| Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, the cycling and typecycling hand discard, and a graveyard source exiled after mana, only where that announcement route pays the complete cost (CR 602.2b). |
+| Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, chosen discard/tap/graveyard exile, the cycling and typecycling hand discard, and a graveyard source exiled after mana, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |

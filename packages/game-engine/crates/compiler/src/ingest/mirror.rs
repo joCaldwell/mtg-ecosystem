@@ -585,6 +585,13 @@ pub(crate) struct SourceCounter {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "cost", rename_all = "kebab-case")]
 pub(crate) enum SourceCost {
+    Discard {
+        what: serde_json::Value,
+        random: Option<bool>,
+    },
+    TapObjects {
+        what: serde_json::Value,
+    },
     Exile {
         what: serde_json::Value,
         from: Option<serde_json::Value>,

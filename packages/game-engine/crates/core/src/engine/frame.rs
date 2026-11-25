@@ -107,6 +107,7 @@ macro_rules! frame_walk {
                 | Frame::AnnounceX { cast: _ }
                 | Frame::HybridCost { cast: _ }
                 | Frame::SacrificeCost { cast: _ }
+                | Frame::ChosenObjectCost { cast: _, selected: _ }
                 | Frame::EntityTargets { cast: _ }
                 | Frame::StackTargets { cast: _ }
                 | Frame::PlayerTargets { cast: _ }
@@ -274,6 +275,7 @@ macro_rules! frame_parent {
             | Self::AnnounceX { .. }
             | Self::HybridCost { .. }
             | Self::SacrificeCost { .. }
+            | Self::ChosenObjectCost { .. }
             | Self::ForcedSacrifice { .. }
             | Self::Setup
             | Self::CounterPlacement { .. }
@@ -368,6 +370,7 @@ impl Frame {
             | Frame::AnnounceX { cast }
             | Frame::HybridCost { cast }
             | Frame::SacrificeCost { cast }
+            | Frame::ChosenObjectCost { cast, .. }
             | Frame::EntityTargets { cast }
             | Frame::StackTargets { cast }
             | Frame::PlayerTargets { cast }

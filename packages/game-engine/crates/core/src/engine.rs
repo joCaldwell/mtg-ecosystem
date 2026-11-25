@@ -34,6 +34,7 @@ pub use graveyard_group::{GraveyardGroup, GroupFinish, GroupResult};
 pub mod group_discard;
 pub mod hideaway;
 pub use hideaway::HideawayLink;
+mod chosen_cost;
 pub mod random_discard;
 pub mod removal;
 pub mod sacrifice;

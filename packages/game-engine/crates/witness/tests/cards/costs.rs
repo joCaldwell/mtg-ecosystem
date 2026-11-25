@@ -20,6 +20,8 @@ macro_rules! record {
     };
 }
 
+mod chosen_objects;
+
 const BLAZE: &str = record!("0596920f-9946-42f4-a03b-24aab67f9f1b");
 const BOROS_RECRUIT: &str = record!("00abb43b-550f-42d2-9049-61ac56ff5d8d");
 const VAULT_SKIRGE: &str = record!("64cf5d59-7bcd-4b0b-a160-c8468d4c0f60");

@@ -401,7 +401,15 @@ impl RulesTxn {
         depth: usize,
     ) -> Result<(), String> {
         let (node, _) = self.node_at(task)?;
-        self.validate_resolving(self.kernel_root()?)?;
+        let root = self.kernel_root()?;
+        self.validate_resolving(root)?;
+        if root
+            .condition_check
+            .as_ref()
+            .is_some_and(|check| !check.passed())
+        {
+            return Err("snapshot kernel task after failed intervening condition".into());
+        }
         if task.chooser().is_some_and(|p| p.0 >= 4) {
             return Err("invalid kernel chooser".into());
         }
@@ -411,13 +419,16 @@ impl RulesTxn {
             return Err("missing kernel completion".into());
         }
         match (&task.stage, node) {
-            (Stage::Complete { .. }, _)
+            (Stage::Complete { outcomes }, _)
                 if task.resume == FrameLink(0)
                     && task.path.is_empty()
                     && task.bindings.is_empty()
                     && depth == 1
                     && depth < self.state.rules.frames.len() =>
             {
+                for outcome in outcomes {
+                    self.validate_library_reorder_outcome(self.kernel_root()?, None, outcome)?;
+                }
                 Ok(())
             }
             (Stage::Leaf, Node::Do(_)) | (Stage::Run, _) => Ok(()),

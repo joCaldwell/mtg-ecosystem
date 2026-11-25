@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    62,
-    "d3460a3bcb383d91f76aa09349c5f18c1769ee99517a83b08b10bbd4a4710175",
+    63,
+    "9f94df5e13bd4781347e2d83a7b15f6094a47eee3c6de082fdee2df700966823",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    93,
-    "74cf7a9b7f752397fd526b0bbdf4b1b0cfb2d09db69b01a2b59291dc21088c64",
+    96,
+    "e5ae8423c03836000d22b087d816a416a4849682fc1a9da1735fd85a59857a87",
 );
 const WORK_PIN: (u32, &str) = (
     55,
@@ -335,8 +335,8 @@ fn suspended_land_play_rejects_rehashed_tampering() {
 
 /// Wire shapes no fixture board suspends in: a battlefield search's entry
 /// choice with a chosen Aura host and a payment (CR 303.4f, 614.1c), and a
-/// forced tapped entry that still offers its payment. Substituted into
-/// real snapshots; only their JSON shape is fingerprinted.
+/// forced tapped entry that still offers its payment, and a private
+/// top-order choice and outcome. Only their JSON shape is fingerprinted.
 fn library_entry_shapes() -> Vec<String> {
     let game = mid_resolution();
     let object = Driver::object(&game, 0);
@@ -353,10 +353,112 @@ fn library_entry_shapes() -> Vec<String> {
     let mut entry: Value =
         serde_json::from_str(&suspended_battlefield_entry().snapshot().unwrap()).unwrap();
     entry["state"]["rules"]["frame"]["entry"]["force_tapped"] = true.into();
-    [search, entry]
+    let mut reorder = search.clone();
+    reorder["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::ReorderLibraryTop {
+            player: PlayerId(0),
+            looked: vec![object],
+            source_block: 0,
+        })
+        .unwrap();
+    let Frame::ResolutionChoice { frame, .. } = &game.state.rules.frame else {
+        unreachable!("fixture has a resolving choice")
+    };
+    let mut frame = frame.clone();
+    frame.cursor = 1;
+    frame.outcomes = vec![InstructionOutcome::Effect {
+        actual: Some(EventOutcome::LibraryTopReordered {
+            player: PlayerId(0),
+            looked: vec![object],
+            top: vec![object],
+        }),
+    }];
+    let mut completed = search.clone();
+    completed["state"]["rules"]["frame"] = serde_json::to_value(Frame::Resolve { frame }).unwrap();
+    [search, entry, reorder, completed]
         .iter()
         .map(|value| serde_json::to_string(value).unwrap())
         .collect()
+}
+
+fn chosen_cost_shapes() -> Vec<Game> {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let forest = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Forest")
+        .unwrap();
+    forest.source_labels = None;
+    for action in [ChosenCostAction::Discard, ChosenCostAction::Tap] {
+        forest.activated.push(ActivatedAbility {
+            cost: ActivationCost::ChooseObjects(ChosenObjectCost {
+                action,
+                filter: ChosenCostFilter::Any,
+                count: 1,
+                another: false,
+                tap_source: false,
+                mana: None,
+            }),
+            functioning_zone: FunctioningZone::Battlefield,
+            restriction: None,
+            program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
+                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0),
+            ]),
+        });
+    }
+    forest.capabilities = forest.requirements();
+    let prepared = Board::new(catalog, "snapshot-chosen-cost")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, true)
+        .prepare();
+    let mut samples = vec![];
+    for (ability, card) in [(0, 1), (1, 0)] {
+        let mut game = Game::new(prepared.clone());
+        let source = Driver::object(&game, 0);
+        let object = Driver::object(&game, card);
+        Driver::action(
+            &mut game,
+            Action::ActivateAbility {
+                object: source,
+                ability,
+            },
+        );
+        assert!(matches!(
+            Driver::request(&mut game, u64::MAX).reason,
+            Reason::ChosenObjectCost { .. }
+        ));
+        samples.push(game.fork());
+        Driver::pick_object(&mut game, object);
+        assert_eq!(
+            Driver::request(&mut game, u64::MAX).reason,
+            Reason::Priority
+        );
+        samples.push(game);
+    }
+    samples
+}
+
+/// Intervening comparisons carry one of three measured values in the saved
+/// resolution check. Substitute each variant to fingerprint its wire shape.
+fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
+    let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+    [
+        ControllerMeasurement::Life(5.into()),
+        ControllerMeasurement::HandCount(7),
+        ControllerMeasurement::GraveyardCount(3),
+    ]
+    .into_iter()
+    .map(move |observed| {
+        sample["state"]["rules"]["frame"]["frame"]["condition_check"] =
+            serde_json::to_value(InterveningCheck::ControllerComparison {
+                controller: PlayerId(0),
+                observed,
+                passed: true,
+            })
+            .unwrap();
+        serde_json::to_string(&sample).unwrap()
+    })
 }
 
 #[test]
@@ -369,8 +471,10 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             super::kernel_control_tests::suspended_control(),
         ])
         .chain(mana_riders())
+        .chain(chosen_cost_shapes())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
+        .chain(intervening_comparison_shapes())
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

@@ -63,7 +63,7 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
             (Route::Player, SPELL | TRIGGERED)
         }
         TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => {
-            (Route::Object, SPELL | TRIGGERED)
+            (Route::Object, ANY)
         }
         TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
             (Route::Stack, SPELL | ACTIVATED)
@@ -98,8 +98,11 @@ fn spell_costs(p: &SpellProgram, context: Context) -> bool {
                 }))
 }
 
-/// The optional-cost identities a node's conditions read.
-fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
+/// The optional-cost identities a node reads. The engine announces all
+/// program targets, so it cannot admit a target in a cost-gated branch
+/// (CR 601.2c, 702.33d).
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result<(), String> {
     fn cond<'a>(c: &'a kir::Cond, out: &mut Vec<&'a String>) {
         match c {
             kir::Cond::CostPaid { identity } => out.push(identity),
@@ -113,18 +116,28 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
         }
     }
     match node {
-        kir::Node::Do(_) => {}
-        kir::Node::Seq(nodes) => nodes.iter().for_each(|n| cost_conditions(n, out)),
+        kir::Node::Do(_) => Ok(()),
+        kir::Node::Seq(nodes) => nodes.iter().try_for_each(|n| cost_conditions(n, out)),
         kir::Node::If {
             condition,
             then,
             otherwise,
         } => {
+            let before = out.len();
             cond(condition, out);
-            cost_conditions(then, out);
-            if let Some(otherwise) = otherwise {
-                cost_conditions(otherwise, out);
+            if out.len() != before
+                && (!kir::target_slots(then).is_empty()
+                    || otherwise
+                        .as_ref()
+                        .is_some_and(|node| !kir::target_slots(node).is_empty()))
+            {
+                return cell("target", "cost_conditional_announcement");
             }
+            cost_conditions(then, out)?;
+            if let Some(otherwise) = otherwise {
+                cost_conditions(otherwise, out)?;
+            }
+            Ok(())
         }
         kir::Node::Optional { node, .. }
         | kir::Node::UnlessPays { node, .. }
@@ -134,8 +147,8 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
             cost_conditions(body, out)
         }
         kir::Node::Reflexive { first, then } => {
-            cost_conditions(first, out);
-            cost_conditions(then, out);
+            cost_conditions(first, out)?;
+            cost_conditions(then, out)
         }
     }
 }
@@ -159,7 +172,7 @@ fn program(
     // CR 702.33d: a "kicked" condition reads a cost this spell declares.
     let mut paid = vec![];
     for Instruction::Kernel { node, .. } in &p.instructions {
-        cost_conditions(node, &mut paid);
+        cost_conditions(node, &mut paid)?;
     }
     if paid.iter().any(|id| {
         !p.optional_additional_costs
@@ -252,13 +265,16 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                 TargetDomain::BattlefieldPermanent
                     | TargetDomain::ControlledBattlefieldPermanent
                     | TargetDomain::StackSpell
-            ) || (t.domain == TargetDomain::StackSpell
-                && (f.types.is_empty()
-                    || !f.non_types.is_empty()
-                    || !f.non_colors.is_empty()
-                    || f.opponent
-                    || f.power.is_some()
-                    || f.tapped))
+                    | TargetDomain::OwnGraveyardCard
+            ) || (matches!(
+                t.domain,
+                TargetDomain::StackSpell | TargetDomain::OwnGraveyardCard
+            ) && (f.types.is_empty()
+                || !f.non_types.is_empty()
+                || !f.non_colors.is_empty()
+                || f.opponent
+                || f.power.is_some()
+                || f.tapped))
                 || f.types
                     .iter()
                     .enumerate()
@@ -352,6 +368,25 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                     route,
                     None | Some(Route::Object | Route::Entity | Route::Stack)
                 )
+        }
+        ActivationCost::ChooseObjects(cost) => {
+            use ChosenCostAction::{Discard, ExileFromGraveyard, Tap};
+            use ChosenCostFilter::{Any, ArtifactOrCreature, Subtype, Type};
+            a.functioning_zone == FunctioningZone::Battlefield
+                && cost.count > 0
+                && cost.mana.as_ref().is_none_or(mana_ok)
+                && (!cost.another || cost.action != Discard)
+                && match (&cost.action, &cost.filter) {
+                    (Tap, Type(CardKind::Instant | CardKind::Sorcery)) => false,
+                    (Discard, Subtype(_) | ArtifactOrCreature) => false,
+                    (ExileFromGraveyard, ArtifactOrCreature) => false,
+                    (_, Subtype(name)) => {
+                        !name.is_empty()
+                            && name.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+                    }
+                    (_, Any | Type(_) | ArtifactOrCreature) => true,
+                }
+                && matches!(route, None | Some(Route::Object | Route::Entity))
         }
         // CR 701.21a: only the exact source permanent pays this cost.
         ActivationCost::SacrificeSource => {

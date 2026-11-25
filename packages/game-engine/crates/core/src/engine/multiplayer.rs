@@ -489,6 +489,7 @@ impl RulesTxn {
             }
         }
         self.revalidate_sacrifice_departure()?;
+        self.revalidate_chosen_cost_departure()?;
         // A departure can invalidate a pending mode, priority cast or mana
         // activation before its rule step. Keep the input journal, discard
         // only the stale proposal, and leave valid pending actions intact.
@@ -498,6 +499,7 @@ impl RulesTxn {
                 | Frame::ResolutionPayment { .. }
                 | Frame::Mana { .. }
                 | Frame::SacrificeCost { .. }
+                | Frame::ChosenObjectCost { .. }
                 | Frame::SpendMana { .. }
                 | Frame::ManaAbility { .. }
                 | Frame::ManaSourceChoice { .. }

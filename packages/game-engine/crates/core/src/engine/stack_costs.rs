@@ -242,6 +242,7 @@ impl RulesTxn {
             ActivationCost::SacrificePermanent { mana, .. } => {
                 mana.clone().unwrap_or_else(zero_mana_cost)
             }
+            ActivationCost::ChooseObjects(cost) => cost.mana.clone().unwrap_or_else(zero_mana_cost),
             ActivationCost::Mana { cost } => cost.clone(),
             ActivationCost::DiscardSource { mana } | ActivationCost::ExileSource { mana } => {
                 mana.clone()
@@ -254,14 +255,18 @@ impl RulesTxn {
                 colored: vec![],
             },
         };
-        let chosen = matches!(cost, ActivationCost::SacrificePermanent { .. });
+        let chosen = matches!(
+            cost,
+            ActivationCost::SacrificePermanent { .. } | ActivationCost::ChooseObjects(_)
+        );
         let mana = matches!(
             cost,
             ActivationCost::Mana { .. }
                 | ActivationCost::DiscardSource { .. }
                 | ActivationCost::ExileSource { .. }
                 | ActivationCost::SacrificePermanent { mana: Some(_), .. }
-        ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
+        ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some())
+            || matches!(&cost, ActivationCost::ChooseObjects(cost) if cost.mana.is_some());
         let targeted = !self.copiable_definition(object)?.activated[ability as usize]
             .program
             .targets
@@ -276,6 +281,7 @@ impl RulesTxn {
             death_controller: None,
             sacrificed: None,
             sacrificed_set: vec![],
+            chosen_payment: vec![],
             effect_source_handles: vec![],
             source_facts: { Some(self.object_before(object)?) },
             entity_targets: vec![],
@@ -305,6 +311,7 @@ impl RulesTxn {
                         | ActivationCost::ExileSource { .. }
                         | ActivationCost::Composite { .. }
                         | ActivationCost::SacrificePermanent { .. }
+                        | ActivationCost::ChooseObjects(_)
                         | ActivationCost::SacrificeSource
                 )
             {
@@ -335,7 +342,9 @@ impl RulesTxn {
                 TargetDomain::ControlledBattlefieldCreature
                 | TargetDomain::ControlledBattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
-                | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
+                | TargetDomain::BattlefieldPermanent
+                | TargetDomain::OwnGraveyardCard
+                | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
                 _ => Frame::EntityTargets { cast },
             };
         } else if mana {
@@ -355,19 +364,22 @@ impl RulesTxn {
             };
         } else if chosen {
             // CR 602.2b/601.2g-h: no mana opportunity for a cost with no mana.
-            self.rules_mut().frame = Frame::SacrificeCost {
-                cast: Casting {
-                    sacrifices: vec![],
-                    origin: AnnouncementOrigin::Activated,
-                    spending: Some(BTreeMap::new()),
-                    spending_restricted: vec![],
-                    stack_id: id,
-                    original_object: object,
-                    prior_passes: self.state.rules.passes.clone(),
-                    mana_activations: vec![],
-                    undo_mana: false,
-                    revealed_hand_consumed: false,
-                },
+            let cast = Casting {
+                sacrifices: vec![],
+                origin: AnnouncementOrigin::Activated,
+                spending: Some(BTreeMap::new()),
+                spending_restricted: vec![],
+                stack_id: id,
+                original_object: object,
+                prior_passes: self.state.rules.passes.clone(),
+                mana_activations: vec![],
+                undo_mana: false,
+                revealed_hand_consumed: false,
+            };
+            self.rules_mut().frame = if matches!(cost, ActivationCost::ChooseObjects(_)) {
+                Self::chosen_cost_frame(cast)
+            } else {
+                Frame::SacrificeCost { cast }
             };
         } else {
             if let ActivationCost::TapPayLifeSacrificeSource { life } = &cost {
@@ -405,6 +417,7 @@ impl RulesTxn {
                     | ActivationCost::Mana { .. }
                     | ActivationCost::DiscardSource { .. }
                     | ActivationCost::ExileSource { .. }
+                    | ActivationCost::ChooseObjects(_)
                     | ActivationCost::SacrificePermanent { .. } => {
                         return Err("activated cost branch invariant".into());
                     }
@@ -442,6 +455,7 @@ impl RulesTxn {
             ActivationCost::SacrificePermanent { mana, .. } => {
                 mana.clone().unwrap_or_else(zero_mana_cost)
             }
+            ActivationCost::ChooseObjects(cost) => cost.mana.clone().unwrap_or_else(zero_mana_cost),
             ActivationCost::Mana { cost } => cost.clone(),
             ActivationCost::DiscardSource { mana } | ActivationCost::ExileSource { mana } => {
                 mana.clone()
@@ -464,13 +478,15 @@ impl RulesTxn {
         {
             return Err("snapshot activation payment/use invariant".into());
         }
-        let announcing = match self.underlying_mana_frame(&self.state.rules.frame)? {
+        let stage = self.underlying_mana_frame(&self.state.rules.frame)?;
+        let announcing = match stage {
             Frame::Targets { cast }
             | Frame::PlayerTargets { cast }
             | Frame::EntityTargets { cast }
             | Frame::StackTargets { cast }
             | Frame::Mana { cast }
             | Frame::SacrificeCost { cast }
+            | Frame::ChosenObjectCost { cast, .. }
             | Frame::SpendMana { cast }
             | Frame::Payment { cast } => {
                 cast.stack_id == entry.id && cast.origin == AnnouncementOrigin::Activated
@@ -493,6 +509,8 @@ impl RulesTxn {
                             | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::BattlefieldPermanent
+                            | TargetDomain::OwnGraveyardCard
+                            | TargetDomain::OwnGraveyardCreatureCard
                     )
                 }))
             || (!entry.player_targets.is_empty()
@@ -531,12 +549,18 @@ impl RulesTxn {
                                 | ActivationCost::ExileSource { .. }
                                 | ActivationCost::Composite { .. }
                                 | ActivationCost::SacrificePermanent { .. }
+                                | ActivationCost::ChooseObjects(_)
                                 | ActivationCost::SacrificeSource
                         ) || (!program.targets.is_empty()))
                 }
             }
         {
             return Err("snapshot activated invocation invariant".into());
+        }
+        if let ActivationCost::ChooseObjects(cost) = &activated.cost
+            && entry.paid.is_none()
+        {
+            self.validate_chosen_announcement_stage(entry, cost, stage)?;
         }
 
         if matches!(
@@ -574,6 +598,7 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
+        self.validate_paid_chosen_cost(entry)?;
         // CR 601.2a, 702.34a, 903.8: a spell is cast by its owner from that
         // owner's own hand, from the command zone as that owner's commander,
         // or from that owner's own graveyard only with flashback. No other

@@ -9,6 +9,50 @@ fn card(kind: CardKind) -> Card<'static> {
     }
 }
 
+#[test]
+fn lane_d_observed_triggers_require_complete_alternatives_and_intervening_operands() {
+    let creature = card(CardKind::Creature);
+    let source = json!({"ref":"this","noun":"creature"});
+    let enters = json!({"trigger":"enters","what":source});
+    let dies = json!({"trigger":"dies","what":source});
+    let pair = |a, b| json!({"trigger":"any-of","events":[a,b]});
+    let mixed = events::general(&creature, &pair(enters.clone(), dies.clone()))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(mixed, EventPattern::AnyOf { .. }));
+    assert_eq!(
+        events::general(&creature, &pair(dies, enters.clone())).unwrap(),
+        Some(mixed.clone())
+    );
+    for bad in [
+        json!({"trigger":"attacks","what":source,"grouping":"one-or-more"}),
+        json!({"trigger":"dies","what":{"ref":"filter","filter":{"types":["creature"]},
+            "count":{"amount":"fixed","value":1}}}),
+        json!({"trigger":"phase","phase":"upkeep","whose":"your"}),
+    ] {
+        assert_eq!(
+            events::general(&creature, &pair(enters.clone(), bad)).unwrap(),
+            None
+        );
+    }
+
+    let count = json!({"condition":"count","of":{"cls":"card","types":["creature"],
+        "zone":{"zone":"graveyard","owner":"your"}},
+        "comparison":{"op":"ge","value":{"amount":"fixed","value":3}}});
+    assert!(events::intervening(&count, &EventPattern::self_enters()).is_ok());
+    assert!(events::intervening(&count, &mixed).is_err());
+    let mut wrong_owner = count.clone();
+    wrong_owner["of"]["zone"]["owner"] = json!("opponent");
+    let mut dropped_qualifier = count;
+    dropped_qualifier["of"]["control"] = json!("you");
+    for bad in [wrong_owner, dropped_qualifier] {
+        assert!(
+            events::intervening(&bad, &EventPattern::self_enters()).is_err(),
+            "{bad}"
+        );
+    }
+}
+
 fn costs(raw: serde_json::Value) -> Vec<SourceCost> {
     serde_json::from_value(raw).unwrap()
 }
@@ -128,6 +172,48 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
             "{unsupported}"
         );
     }
+}
+
+#[test]
+fn chosen_object_cost_counts_qualities_and_zones_must_match_printed_terms() {
+    let discard = json!({"cost":"discard","what":{"ref":"filter",
+        "filter":{"cls":"card","types":["land"]},"count":{"amount":"fixed","value":2}}});
+    let tap = json!({"cost":"tap-objects","what":{"ref":"filter","filter":{
+        "types":["creature"],"control":"you","status":["untapped"],"other":true},
+        "count":{"amount":"fixed","value":1}}});
+    let exile = json!({"cost":"exile","what":{"ref":"filter","filter":{
+        "cls":"card","zone":{"zone":"graveyard","owner":"your"}},
+        "count":{"amount":"fixed","value":3}}});
+    for (term, printed, near_misses) in [
+        (
+            discard.clone(),
+            "Discard two land cards",
+            ["Discard a land card", "Discard two cards"],
+        ),
+        (
+            tap.clone(),
+            "Tap another untapped creature you control",
+            [
+                "Tap an untapped creature you control",
+                "Tap another creature you control",
+            ],
+        ),
+        (
+            exile,
+            "Exile three cards from your graveyard",
+            [
+                "Exile three cards from a graveyard",
+                "Exile three cards from your hand",
+            ],
+        ),
+    ] {
+        let terms = costs(json!([term]));
+        assert!(costs::printed(&terms, &format!("{printed}: Draw a card.")).is_ok());
+        for mismatch in near_misses {
+            assert!(costs::printed(&terms, &format!("{mismatch}: Draw a card.")).is_err());
+        }
+    }
+    assert!(costs::lower(&card(CardKind::Artifact), &costs(json!([tap, discard]))).is_err());
 }
 
 #[test]

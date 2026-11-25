@@ -30,6 +30,7 @@ pub mod testkit;
 // The public API is this explicit list. Engine internals are `pub` only where
 // external test binaries need them; they stay unreachable unless `testkit`
 // re-exports them (see testkit.rs).
+pub use engine::ControllerMeasurement;
 #[allow(unused_imports)]
 pub(crate) use engine::*;
 pub use engine::{

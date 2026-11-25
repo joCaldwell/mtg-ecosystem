@@ -137,6 +137,8 @@ pub enum Cell {
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
     MoveSourceOwnerZone,
+    MoveOwnGraveyardTargetToHand,
+    MoveOwnGraveyardCreatureToBattlefield,
     ExileTargetGraveyard,
     ExileGraveyards,
     MoveSet,
@@ -187,12 +189,14 @@ pub enum Cell {
     // CR 701.22-701.25: library search, shuffle, scry and surveil.
     /// CR 701.23: the controller searches their library.
     SearchController,
+    SearchLibraryTop,
     /// CR 701.23, 608.2h: a target's last-known controller searches theirs.
     SearchTargetController,
     /// CR 701.24a.
     ShuffleController,
     ShuffleTargetController,
     /// CR 701.22a.
+    ReorderLibraryTop,
     ScryController,
     /// CR 701.25a.
     SurveilController,
@@ -228,6 +232,8 @@ pub enum Cell {
     ActivationRestriction,
     /// CR 113.6j, 602.2b, 701.13a: a graveyard activation exiling its source.
     GraveyardExileSource,
+    /// CR 602.2b: fixed selections to discard, tap or exile as a cost.
+    ChosenObjectCost,
     /// CR 119.4, 602.2b: a stack activation paying life.
     ActivationPayLife,
     /// CR 122.1, 602.2b: a stack activation removing +1/+1 counters from
@@ -295,6 +301,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveTargetExile
         | C::MovePermanentOwnerHand
         | C::MoveSourceOwnerZone
+        | C::MoveOwnGraveyardTargetToHand
+        | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
         | C::MoveSet
@@ -328,9 +336,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::GainControl
         | C::SetCharacteristics
         | C::SearchController
+        | C::SearchLibraryTop
         | C::SearchTargetController
         | C::ShuffleController
         | C::ShuffleTargetController
+        | C::ReorderLibraryTop
         | C::ScryController
         | C::SurveilController
         | C::Control
@@ -347,6 +357,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Typecycling
         | C::ActivationRestriction
         | C::GraveyardExileSource
+        | C::ChosenObjectCost
         | C::ActivationPayLife
         | C::ActivationRemoveCounters
         | C::SacrificeCostChoice
@@ -480,6 +491,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::PayLifeCostV1
         | C::DiscardSourceCostV1
         | C::ExileSourceCostV1
+        | C::ChosenObjectCostV1
         | C::PlayerOrPlaneswalkerTargetV1
         | C::OpponentLifeDrainV1
         | C::KernelControlV1
@@ -490,6 +502,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ActivatedSourceKeywordGrantV1
         | C::MultiTypeCreatureTokensV1
         | C::OwnGraveyardCardReturnV1
+        | C::PrivateLibraryReorderV1
+        | C::SearchLibraryTopV1
         | C::PermanentRemovalV1
         | C::SacrificeV1
         | C::FixedArtifactSacrificeCostV1
@@ -577,6 +591,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             cells.insert(Cell::GraveyardExileSource);
         }
         match &a.cost {
+            ActivationCost::ChooseObjects(_) => {
+                cells.insert(Cell::ChosenObjectCost);
+            }
             ActivationCost::Composite { costs } => {
                 if costs.pay_life.is_some() {
                     cells.insert(Cell::ActivationPayLife);
