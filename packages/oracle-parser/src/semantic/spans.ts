@@ -50,12 +50,12 @@ export function blockSpans(line: ParsedLine): BlockSpans {
   const header = source.lines.find(l => l.role === "header");
   if (!header || source.lines[0] !== header) return { unsupported: "block has no header line" };
 
-  // CR 207.2c-d: "Label — " opens the block. Some printings set the dash
-  // without spaces ("Splice onto Arcane—").
+  // CR 207.2c-d: "Label — " opens the block. An unspaced dash is never an
+  // ability word: it separates a keyword from a nonmana cost (CR 702.47a
+  // "Splice onto Arcane—An opponent gains 5 life"), so it stays unsupported.
   const label = "abilityWord" in ability ? ability.abilityWord : undefined;
   if (label !== undefined) {
-    const dash = (from: number) => header.text.startsWith(`${label} — `, from) ? label.length + 2
-      : header.text.startsWith(`${label}—`, from) ? label.length + 1 : undefined;
+    const dash = (from: number) => header.text.startsWith(`${label} — `, from) ? label.length + 2 : undefined;
     // First, or right after a chapter's numerals (CR 714.2b: "I — Label — ").
     const at = dash(0) !== undefined ? 0
       : "chapters" in ability && /^[IVX]+(?:, [IVX]+)* — /.exec(header.text)?.[0].length;

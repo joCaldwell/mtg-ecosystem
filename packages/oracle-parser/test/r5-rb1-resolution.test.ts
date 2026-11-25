@@ -170,10 +170,11 @@ describe("span certificates", () => {
     assert.deepEqual(ashore.residuals, []);
   });
 
-  it("reads a label printed with an unspaced dash", () => {
+  it("never certifies an unspaced keyword-cost dash as an ability word", () => {
+    // CR 702.47a: the opponent gaining 5 life is Roar of Jukai's splice cost,
+    // not an instruction of the spell.
     const text = "If you control a Forest, each blocked creature gets +2/+2 until end of turn.\nSplice onto Arcane—An opponent gains 5 life. (As you cast an Arcane spell, you may reveal this card from your hand and pay its splice cost. If you do, add this card's effects to that spell.)";
     const [, splice] = blocks("Roar of Jukai", text, "Instant — Arcane", "{2}{G}");
-    assert.deepEqual(segments("Splice onto Arcane—An opponent gains 5 life.", splice),
-      ["Splice onto Arcane—=/abilityWord", "An opponent gains 5 life.=/effects/0"]);
+    assert.ok(!("certificate" in splice.spans), JSON.stringify(splice.spans));
   });
 });
