@@ -53,6 +53,7 @@ impl RulesTxn {
             Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. } => {
                 return self.sacrifice_request();
             }
+            Frame::ChosenObjectCost { selected, .. } => return self.chosen_cost_request(selected),
             Frame::LegendRule { .. } => return self.legend_request(),
             Frame::BattlefieldEntry { entry } => return self.battlefield_entry_request(entry),
             Frame::Priority => self.priority_decision(self.state.rules.priority)?,

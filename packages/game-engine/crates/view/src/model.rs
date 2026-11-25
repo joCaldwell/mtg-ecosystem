@@ -174,6 +174,9 @@ pub enum Reason<S: Space> {
     BottomOpening,
     Sacrifice,
     SacrificeCost,
+    ChosenObjectCost {
+        action: mtg_contracts::ChosenCostAction,
+    },
     ForcedSacrifice {
         previous: Vec<(PlayerId, S::Object)>,
     },
@@ -247,6 +250,7 @@ impl<S: Space> Reason<S> {
             Self::OrderLibraryBottom => 29,
             Self::EntryAttachment => 30,
             Self::ChooseModes => 31,
+            Self::ChosenObjectCost { .. } => 32,
         }
     }
 }

@@ -62,13 +62,17 @@ impl RulesTxn {
         self.can_pay(player, cost)
     }
 
-    fn can_pay_announced(&self, stack: &StackInstance, cost: &ManaCost) -> Result<bool, String> {
+    pub(super) fn can_pay_announced(
+        &self,
+        stack: &StackInstance,
+        cost: &ManaCost,
+    ) -> Result<bool, String> {
         self.can_pay_offered(stack.controller, cost)
     }
 
     /// The spend answer carries only unrestricted mana; a restricted
     /// allocation has no decision that could produce it.
-    fn validate_announced_allocation(
+    pub(super) fn validate_announced_allocation(
         &self,
         stack: &StackInstance,
         cost: &ManaCost,
@@ -135,7 +139,10 @@ impl RulesTxn {
             return Err("expected mana spending".into());
         };
         cast.spending = Some(unrestricted.clone());
-        if self.invocation_sacrifice(self.top()?).is_some() {
+        if self.invocation_chosen_cost(self.top()?)?.is_some() {
+            self.rules_mut().frame = Self::chosen_cost_frame(cast);
+            Ok(())
+        } else if self.invocation_sacrifice(self.top()?).is_some() {
             self.rules_mut().frame = Frame::SacrificeCost { cast };
             Ok(())
         } else {
@@ -148,7 +155,15 @@ impl RulesTxn {
     // resumes is reconciled with its live stack entry when the step commits
     // its frame lease (CR 608.2h/113.7a).
     pub(super) fn payment_step(&mut self, cast: Casting) -> Result<(), String> {
-        match self.pay_announcement_costs(&cast)? {
+        self.payment_step_with_objects(cast, &[])
+    }
+
+    pub(super) fn payment_step_with_objects(
+        &mut self,
+        cast: Casting,
+        selected: &[ObjectId],
+    ) -> Result<(), String> {
+        match self.pay_announcement_with_objects(&cast, selected)? {
             AnnouncementPayment::Completed(completed) => {
                 self.rules_mut().priority = completed.controller;
                 self.rules_mut().frame = Frame::Priority;
@@ -175,6 +190,14 @@ impl RulesTxn {
     pub(crate) fn pay_announcement_costs(
         &mut self,
         cast: &Casting,
+    ) -> Result<AnnouncementPayment, String> {
+        self.pay_announcement_with_objects(cast, &[])
+    }
+
+    fn pay_announcement_with_objects(
+        &mut self,
+        cast: &Casting,
+        selected: &[ObjectId],
     ) -> Result<AnnouncementPayment, String> {
         let stack = self.top()?.clone();
 
@@ -228,6 +251,7 @@ impl RulesTxn {
             return Ok(AnnouncementPayment::Unpayable);
         }
         self.check_sacrifice_payment(&stack, cast)?;
+        let chosen = self.chosen_payment_events(&stack, selected)?;
         let proposed = {
             let spending = cast
                 .spending
@@ -341,6 +365,7 @@ impl RulesTxn {
             )?;
         }
         self.pay_sacrifice_cost(&stack, &cast.sacrifices)?;
+        self.commit_chosen_payment(&stack, chosen)?;
         self.finish_payment_shuffles(cast)?;
         self.rules_mut()
             .stack

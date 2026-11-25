@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    61,
-    "03327c1a794125ac0eeaedb6acd613816f4972d1147037fa8fa62f8c88275d00",
+    62,
+    "2b9c2d4d70d0f1b73f106619d56073391ccafb75c35aa5e9aea0b811df92599e",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    92,
-    "74cf7a9b7f752397fd526b0bbdf4b1b0cfb2d09db69b01a2b59291dc21088c64",
+    93,
+    "819739230cb53d6a47259ed5f3a0b4601fa3181320e0905e5aa94f491e75de8e",
 );
 const WORK_PIN: (u32, &str) = (
     54,
@@ -359,6 +359,64 @@ fn library_entry_shapes() -> Vec<String> {
         .collect()
 }
 
+fn chosen_cost_shapes() -> Vec<Game> {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let forest = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Forest")
+        .unwrap();
+    forest.source_labels = None;
+    for action in [ChosenCostAction::Discard, ChosenCostAction::Tap] {
+        forest.activated.push(ActivatedAbility {
+            cost: ActivationCost::ChooseObjects(ChosenObjectCost {
+                action,
+                filter: ChosenCostFilter::Any,
+                count: 1,
+                another: false,
+                tap_source: false,
+                mana: None,
+            }),
+            functioning_zone: FunctioningZone::Battlefield,
+            restriction: None,
+            program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
+                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0),
+            ]),
+        });
+    }
+    forest.capabilities = forest.requirements();
+    let prepared = Board::new(catalog, "snapshot-chosen-cost")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, true)
+        .prepare();
+    let mut samples = vec![];
+    for (ability, card) in [(0, 1), (1, 0)] {
+        let mut game = Game::new(prepared.clone());
+        let source = Driver::object(&game, 0);
+        let object = Driver::object(&game, card);
+        Driver::action(
+            &mut game,
+            Action::ActivateAbility {
+                object: source,
+                ability,
+            },
+        );
+        assert!(matches!(
+            Driver::request(&mut game, u64::MAX).reason,
+            Reason::ChosenObjectCost { .. }
+        ));
+        samples.push(game.fork());
+        Driver::pick_object(&mut game, object);
+        assert_eq!(
+            Driver::request(&mut game, u64::MAX).reason,
+            Reason::Priority
+        );
+        samples.push(game);
+    }
+    samples
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -369,6 +427,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             super::kernel_control_tests::suspended_control(),
         ])
         .chain(mana_riders())
+        .chain(chosen_cost_shapes())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .collect::<Vec<_>>();

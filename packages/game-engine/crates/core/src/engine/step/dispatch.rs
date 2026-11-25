@@ -41,6 +41,7 @@ impl RulesTxn {
             frame @ (Frame::SacrificeCost { .. } | Frame::ForcedSacrifice { .. }) => {
                 self.sacrifice_step(frame)?
             }
+            Frame::ChosenObjectCost { cast, selected } => self.chosen_cost_step(cast, selected)?,
             Frame::Setup => self.setup_step()?,
 
             Frame::AdditionalCosts { cast } => self.bind_additional_costs(cast)?,

@@ -65,6 +65,9 @@ impl RulesTxn {
         }) {
             return Err("snapshot detached invocation ownership invariant".into());
         }
+        for entry in s.rules.detached.values() {
+            self.validate_paid_chosen_cost(entry)?;
+        }
         let mut unowned = false;
         s.rules.frame.for_each_held(&s.rules.frames, &mut |held| {
             if let frame::Held::Invocation { hold: _, id } = held {
@@ -230,6 +233,7 @@ impl RulesTxn {
                         | Frame::Mana { .. }
                         | Frame::SpendMana { .. }
                         | Frame::SacrificeCost { .. }
+                        | Frame::ChosenObjectCost { .. }
                         | Frame::Payment { .. }
                 ) || (matches!(
                     self.underlying_mana_frame(&s.rules.frame)?,
@@ -285,6 +289,7 @@ impl RulesTxn {
             | Frame::Mana { cast }
             | Frame::SpendMana { cast }
             | Frame::SacrificeCost { cast }
+            | Frame::ChosenObjectCost { cast, .. }
             | Frame::Payment { cast } => {
                 let top = self.top()?;
                 if (!cast.sacrifices.is_empty()
@@ -361,10 +366,14 @@ impl RulesTxn {
                     Frame::Mana { .. }
                         | Frame::SpendMana { .. }
                         | Frame::SacrificeCost { .. }
+                        | Frame::ChosenObjectCost { .. }
                         | Frame::Payment { .. }
                 ) && !self.announced_target_count_valid(self.program()?, top)
                 {
                     return Err("snapshot payment target invariant".into());
+                }
+                if let Frame::ChosenObjectCost { selected, .. } = stage {
+                    self.validate_chosen_cost_frame(top, cast, selected)?;
                 }
             }
             Frame::Resolve { frame }

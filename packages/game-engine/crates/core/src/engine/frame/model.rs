@@ -120,6 +120,10 @@ pub enum Frame {
     SacrificeCost {
         cast: Casting,
     },
+    ChosenObjectCost {
+        cast: Casting,
+        selected: Vec<ObjectId>,
+    },
     ForcedSacrifice {
         frame: Resolving,
         remaining: Vec<PlayerId>,

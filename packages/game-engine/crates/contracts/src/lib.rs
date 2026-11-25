@@ -279,6 +279,7 @@ pub enum Capability {
 
     DiscardSourceCostV1,
     ExileSourceCostV1,
+    ChosenObjectCostV1,
     AnyDamageTargetV1,
 
     PlayerOrPlaneswalkerTargetV1,
@@ -1204,6 +1205,51 @@ fn single_sacrifice_count(n: &u32) -> bool {
     *n == 1
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChosenCostAction {
+    Discard,
+    Tap,
+    ExileFromGraveyard,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum ChosenCostFilter {
+    Any,
+    Type(CardKind),
+    Subtype(String),
+    ArtifactOrCreature,
+}
+
+impl ChosenCostFilter {
+    pub fn matches(&self, characteristics: &Characteristics) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Type(kind) => characteristics.has_type(*kind),
+            Self::Subtype(name) => characteristics.subtypes.contains(name),
+            Self::ArtifactOrCreature => {
+                characteristics.has_type(CardKind::Artifact)
+                    || characteristics.has_type(CardKind::Creature)
+            }
+        }
+    }
+}
+
+/// CR 602.2b, 601.2g-h: one fixed chosen-object term paid after any mana.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChosenObjectCost {
+    pub action: ChosenCostAction,
+    pub filter: ChosenCostFilter,
+    #[schemars(range(min = 1))]
+    pub count: u32,
+    pub another: bool,
+    pub tap_source: bool,
+    pub mana: Option<ManaCost>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ActivationCost {
@@ -1215,6 +1261,7 @@ pub enum ActivationCost {
     ExileSource {
         mana: ManaCost,
     },
+    ChooseObjects(ChosenObjectCost),
     SacrificePermanent {
         #[serde(
             default = "single_sacrifice",
@@ -1686,6 +1733,7 @@ impl Definition {
             set.insert(match ability.cost {
                 ActivationCost::DiscardSource { .. } => Capability::DiscardSourceCostV1,
                 ActivationCost::ExileSource { .. } => Capability::ExileSourceCostV1,
+                ActivationCost::ChooseObjects(_) => Capability::ChosenObjectCostV1,
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,

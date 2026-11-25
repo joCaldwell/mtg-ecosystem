@@ -8,12 +8,15 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
+mod chosen;
+
 #[derive(Default)]
 struct Terms {
     tap: bool,
     mana: Option<ManaCost>,
     sacrifice_source: bool,
     sacrifice_other: Option<SacrificeOther>,
+    chosen: Option<ChosenObjectCost>,
     life: Option<Quantity>,
     counters: Option<Quantity>,
 }
@@ -148,7 +151,11 @@ pub(super) fn sacrifice_quality(filter: &serde_json::Value) -> Result<SacrificeF
 
 fn term(card: &Card<'_>, terms: &mut Terms, cost: &SourceCost) -> Result<(), Failure> {
     match cost {
-        SourceCost::Exile { .. } => return Err(exile_gap()),
+        SourceCost::Discard { .. } | SourceCost::TapObjects { .. } | SourceCost::Exile { .. } => {
+            if terms.chosen.replace(chosen::lower(cost)?).is_some() {
+                return Err(duplicate());
+            }
+        }
         SourceCost::TapSelf {} => {
             if std::mem::replace(&mut terms.tap, true) {
                 return Err(duplicate());
@@ -255,10 +262,13 @@ pub(super) fn printed(costs: &[SourceCost], line: &str) -> Result<(), Failure> {
             SourceCost::Sacrifice { .. } => term.starts_with("Sacrifice "),
             SourceCost::PayLife { .. } => term.starts_with("Pay "),
             SourceCost::RemoveCounters { .. } => term.starts_with("Remove "),
-            SourceCost::Exile { from, .. } => {
-                from.as_ref().and_then(|z| z["zone"].as_str()) == Some("graveyard")
+            SourceCost::Exile { what, from } if what["ref"] == "this" => {
+                *from == Some(serde_json::json!({"zone":"graveyard","owner":"your"}))
                     && term == "Exile this card from your graveyard"
             }
+            SourceCost::Discard { .. }
+            | SourceCost::TapObjects { .. }
+            | SourceCost::Exile { .. } => chosen::matches_printed(&chosen::lower(cost)?, term),
         };
         if !same {
             return Err(mismatch());
@@ -284,7 +294,7 @@ pub(super) fn exile_source(
     use serde_json::json;
     if !costs
         .iter()
-        .any(|term| matches!(term, SourceCost::Exile { .. }))
+        .any(|term| matches!(term, SourceCost::Exile { what, .. } if what["ref"] == "this"))
     {
         return Ok(None);
     }
@@ -326,9 +336,21 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
         mana,
         sacrifice_source,
         sacrifice_other,
+        chosen,
         life,
         counters,
     } = terms;
+    if let Some(mut cost) = chosen {
+        if sacrifice_source || sacrifice_other.is_some() || life.is_some() || counters.is_some() {
+            return Err(unsupported(
+                "compose.cost",
+                "unsupported chosen-object cost combination",
+            ));
+        }
+        cost.tap_source = tap;
+        cost.mana = mana;
+        return Ok(ActivationCost::ChooseObjects(cost));
+    }
     if life.is_some() || counters.is_some() {
         if sacrifice_other.is_some() {
             return Err(unsupported(

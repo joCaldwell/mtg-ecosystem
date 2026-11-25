@@ -131,6 +131,48 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
 }
 
 #[test]
+fn chosen_object_cost_counts_qualities_and_zones_must_match_printed_terms() {
+    let discard = json!({"cost":"discard","what":{"ref":"filter",
+        "filter":{"cls":"card","types":["land"]},"count":{"amount":"fixed","value":2}}});
+    let tap = json!({"cost":"tap-objects","what":{"ref":"filter","filter":{
+        "types":["creature"],"control":"you","status":["untapped"],"other":true},
+        "count":{"amount":"fixed","value":1}}});
+    let exile = json!({"cost":"exile","what":{"ref":"filter","filter":{
+        "cls":"card","zone":{"zone":"graveyard","owner":"your"}},
+        "count":{"amount":"fixed","value":3}}});
+    for (term, printed, near_misses) in [
+        (
+            discard.clone(),
+            "Discard two land cards",
+            ["Discard a land card", "Discard two cards"],
+        ),
+        (
+            tap.clone(),
+            "Tap another untapped creature you control",
+            [
+                "Tap an untapped creature you control",
+                "Tap another creature you control",
+            ],
+        ),
+        (
+            exile,
+            "Exile three cards from your graveyard",
+            [
+                "Exile three cards from a graveyard",
+                "Exile three cards from your hand",
+            ],
+        ),
+    ] {
+        let terms = costs(json!([term]));
+        assert!(costs::printed(&terms, &format!("{printed}: Draw a card.")).is_ok());
+        for mismatch in near_misses {
+            assert!(costs::printed(&terms, &format!("{mismatch}: Draw a card.")).is_err());
+        }
+    }
+    assert!(costs::lower(&card(CardKind::Artifact), &costs(json!([tap, discard]))).is_err());
+}
+
+#[test]
 fn event_rows_only_add_self_entry_for_the_cards_own_type() {
     let enters = |noun: &str| -> SourceTrigger {
         serde_json::from_value(json!({"trigger":"enters","what":{"ref":"this","noun":noun}}))
