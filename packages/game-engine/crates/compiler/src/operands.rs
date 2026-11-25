@@ -590,35 +590,39 @@ fn lower_filter_for(filter: &ast::ObjectFilter, you: PlayerExpr) -> Result<Pred,
             });
         }
     }
-    // CR 208.1, 202.3: a fixed comparison of power, toughness or mana value.
     for property in listed(&filter.properties, "properties")? {
-        let ast::Amount::Fixed(bound) = &*property.comparison.value else {
-            return Err(operand(
-                "filter",
-                format!("properties:{}", variant(&*property.comparison.value)),
-            ));
-        };
-        let bound = bound.value;
-        let overflow = || operand("filter", "properties:bound");
-        // Integers: "less than N" is "at most N-1" (CR 107.1).
-        let (cmp, bound) = match property.comparison.op {
-            ast::ComparisonOp::Ge => (Cmp::AtLeast, bound),
-            ast::ComparisonOp::Gt => (Cmp::AtLeast, bound.checked_add(1).ok_or_else(overflow)?),
-            ast::ComparisonOp::Le => (Cmp::AtMost, bound),
-            ast::ComparisonOp::Lt => (Cmp::AtMost, bound.checked_sub(1).ok_or_else(overflow)?),
-            ast::ComparisonOp::Eq => (Cmp::Exactly, bound),
-        };
-        let value = Amount::fixed(bound);
-        atoms.push(match property.property {
-            ast::PropertyConstraintProperty::Power => Atom::Power { cmp, value },
-            ast::PropertyConstraintProperty::Toughness => Atom::Toughness { cmp, value },
-            ast::PropertyConstraintProperty::ManaValue => Atom::ManaValue { cmp, value },
-            ref other => {
-                return Err(operand("filter", format!("properties:{}", variant(other))));
-            }
-        });
+        atoms.push(lower_fixed_property(property)?);
     }
     Ok(Pred(atoms))
+}
+
+/// CR 208.1, 202.3: a fixed comparison of power, toughness or mana value.
+fn lower_fixed_property(property: &ast::PropertyConstraint) -> Result<Atom, Failure> {
+    let ast::Amount::Fixed(bound) = &*property.comparison.value else {
+        return Err(operand(
+            "filter",
+            format!("properties:{}", variant(&*property.comparison.value)),
+        ));
+    };
+    let bound = bound.value;
+    let overflow = || operand("filter", "properties:bound");
+    // Integers: "less than N" is "at most N-1" (CR 107.1).
+    let (cmp, bound) = match property.comparison.op {
+        ast::ComparisonOp::Ge => (Cmp::AtLeast, bound),
+        ast::ComparisonOp::Gt => (Cmp::AtLeast, bound.checked_add(1).ok_or_else(overflow)?),
+        ast::ComparisonOp::Le => (Cmp::AtMost, bound),
+        ast::ComparisonOp::Lt => (Cmp::AtMost, bound.checked_sub(1).ok_or_else(overflow)?),
+        ast::ComparisonOp::Eq => (Cmp::Exactly, bound),
+    };
+    let value = Amount::fixed(bound);
+    Ok(match property.property {
+        ast::PropertyConstraintProperty::Power => Atom::Power { cmp, value },
+        ast::PropertyConstraintProperty::Toughness => Atom::Toughness { cmp, value },
+        ast::PropertyConstraintProperty::ManaValue => Atom::ManaValue { cmp, value },
+        ref other => {
+            return Err(operand("filter", format!("properties:{}", variant(other))));
+        }
+    })
 }
 
 /// CR 205, 208, 202.3: the printed characteristics a library card is
@@ -1019,6 +1023,16 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
 pub(crate) fn target_occurrence(
     what: &ast::ObjectRef,
 ) -> Result<(&ast::ObjectFilter, &str, bool), Failure> {
+    let (filter, selection, count, optional) = object_target_occurrence(what)?;
+    if count != 1 {
+        return Err(operand("target", if optional { "up_to" } else { "count" }));
+    }
+    Ok((filter, selection, optional))
+}
+
+fn object_target_occurrence(
+    what: &ast::ObjectRef,
+) -> Result<(&ast::ObjectFilter, &str, u32, bool), Failure> {
     let ast::ObjectRef::Target(target) = what else {
         return Err(operand("target", format!("ref_{}", variant(what))));
     };
@@ -1041,16 +1055,45 @@ pub(crate) fn target_occurrence(
             return Err(operand("target", field));
         }
     }
-    if !matches!(&**count, ast::Amount::Fixed(n) if n.value == 1) {
-        return Err(operand(
-            "target",
-            if up_to.is_some() { "up_to" } else { "count" },
-        ));
+    let count = match &**count {
+        ast::Amount::Fixed(n) => u32::try_from(n.value).ok().filter(|n| *n > 0),
+        _ => None,
     }
+    .ok_or_else(|| operand("target", if up_to.is_some() { "up_to" } else { "count" }))?;
     let selection = selection_id
         .as_deref()
         .ok_or_else(|| operand("target", "selection_id"))?;
-    Ok((filter, selection, *up_to == Some(true)))
+    Ok((filter, selection, count, *up_to == Some(true)))
+}
+
+/// CR 115.3, 601.2c: one up-to occurrence with one exact filter. Slot zero
+/// keeps the archive's selection identity for resolution graph verification.
+pub(crate) fn bind_optional_target_group(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &ast::ObjectRef,
+) -> Result<Option<u32>, Failure> {
+    let Ok((filter, selection, count, true)) = object_target_occurrence(what) else {
+        return Ok(None);
+    };
+    if count == 1 {
+        return Ok(None);
+    }
+    if !(2..=7).contains(&count) || !program.targets.is_empty() {
+        return Err(operand("target", "up_to"));
+    }
+    let (domain, filter) = lower_target_filter(filter)?;
+    for index in 0..count {
+        let identity = if index == 0 {
+            selection.to_owned()
+        } else {
+            format!("{selection}/{index}")
+        };
+        let slot = bind_target(program, slots, &identity, domain)?;
+        program.targets[slot as usize].filter = Some(filter.clone());
+    }
+    program.optional_target = true;
+    Ok(Some(count))
 }
 
 /// CR 601.2c, 608.2b: the permanent criteria of a target. `types` lists
@@ -1061,7 +1104,7 @@ pub(crate) fn target_occurrence(
 fn lower_target_filter(
     filter: &ast::ObjectFilter,
 ) -> Result<(TargetDomain, PermanentFilter), Failure> {
-    const TERMS: [&str; 7] = [
+    const TERMS: [&str; 8] = [
         "cls",
         "types",
         "all_of",
@@ -1069,6 +1112,7 @@ fn lower_target_filter(
         "non_colors",
         "control",
         "status",
+        "properties",
     ];
     if let Some(field) = present_fields(filter)
         .into_iter()
@@ -1136,10 +1180,23 @@ fn lower_target_filter(
         Some([status]) if status == "tapped" => true,
         Some(_) => return Err(operand("target_filter", "status")),
     };
+    let predicate = filter
+        .properties
+        .as_ref()
+        .map(|_| {
+            listed(&filter.properties, "properties")?
+                .iter()
+                .map(lower_fixed_property)
+                .collect::<Result<Vec<_>, _>>()
+                .map(Pred)
+        })
+        .transpose()
+        .map_err(|_| operand("target_filter", "properties"))?;
     Ok((
         domain,
         PermanentFilter {
             power: None,
+            predicate,
             types,
             non_types,
             non_colors,
@@ -1244,8 +1301,7 @@ pub(crate) fn bind_own_graveyard_target(
 ) -> Result<u32, Failure> {
     let (filter, selection, optional) = target_occurrence(what)?;
     let invalid_filter = || operand("target", "own_graveyard_filter");
-    if optional
-        || filter.cls != Some(ast::ObjectFilterCls::Card)
+    if filter.cls != Some(ast::ObjectFilterCls::Card)
         || !filter.zone.as_deref().is_some_and(|zone| {
             zone.zone == ast::Zone::Graveyard
                 && zone.position.is_none()
@@ -1253,37 +1309,59 @@ pub(crate) fn bind_own_graveyard_target(
                 && zone.owner.as_deref()
                     == Some(&ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner::Your)
         })
-        || present_fields(filter)
-            .into_iter()
-            .any(|field| !matches!(field, "cls" | "zone" | "types" | "all_of"))
     {
         return Err(invalid_filter());
     }
-    let kinds = match (filter.types.as_deref(), filter.all_of.as_deref()) {
-        (None, None) => vec![],
-        (Some([kind]), None) => vec![card_kind(kind, "target_filter")?],
-        (None, Some(group)) => type_alternatives(group, "target_filter")?,
-        _ => return Err(invalid_filter()),
-    };
-    let domain = if kinds == [CardKind::Creature] {
+    let mut printed = filter.clone();
+    printed.zone = None;
+    let permanent = printed.permanent.take();
+    let mut predicate = lower_card_filter(&printed).map_err(|_| invalid_filter())?;
+    if permanent.is_some() {
+        // CR 110.4: the permanent card types in the admitted catalog.
+        predicate.0.push(Atom::AnyType {
+            kinds: vec![
+                CardKind::Artifact,
+                CardKind::Creature,
+                CardKind::Enchantment,
+                CardKind::Land,
+            ],
+        });
+    }
+    let domain = if predicate.0.contains(&Atom::Type {
+        kind: CardKind::Creature,
+    }) {
         TargetDomain::OwnGraveyardCreatureCard
     } else if creature_only {
         return Err(invalid_filter());
     } else {
         TargetDomain::OwnGraveyardCard
     };
+    // Preserve the existing wire shape for unqualified cards and type-only
+    // alternatives. Everything else keeps its exact conjunction.
+    let simple = if permanent.is_none()
+        && present_fields(filter)
+            .iter()
+            .all(|field| matches!(*field, "cls" | "zone" | "types" | "all_of"))
+    {
+        match (filter.types.as_deref(), filter.all_of.as_deref()) {
+            (None, None) => Some(vec![]),
+            (Some([kind]), None) => Some(vec![card_kind(kind, "target_filter")?]),
+            (None, Some(group)) => type_alternatives(group, "target_filter").ok(),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let criteria = match simple {
+        Some(kinds) if kinds.is_empty() || domain == TargetDomain::OwnGraveyardCreatureCard => None,
+        Some(kinds) => Some(PermanentFilter::any().with_types(kinds)),
+        None => Some(PermanentFilter {
+            predicate: Some(predicate),
+            ..PermanentFilter::any()
+        }),
+    };
     let already_bound = slots.contains_key(selection);
-    let slot = bind_object_target(program, slots, selection, domain, false)?;
-    let criteria = (domain == TargetDomain::OwnGraveyardCard && !kinds.is_empty()).then_some(
-        PermanentFilter {
-            types: kinds,
-            non_types: vec![],
-            non_colors: vec![],
-            opponent: false,
-            tapped: false,
-            power: None,
-        },
-    );
+    let slot = bind_object_target(program, slots, selection, domain, optional)?;
     let target = &mut program.targets[slot as usize];
     if already_bound && target.filter != criteria {
         return Err(operand("target_filter", "conflicting"));

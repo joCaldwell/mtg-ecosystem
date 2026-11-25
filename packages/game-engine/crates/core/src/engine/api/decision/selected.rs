@@ -178,6 +178,19 @@ impl RulesTxn {
         let original = &pending.decision;
         let unchanged =
             current.shape == original.shape && current.candidates == original.candidates;
+        // CR 608.2d, 800.4a: require the full public offer for a resolution
+        // object choice. A departure that changes the offer discards the
+        // accepted input and gives the chooser a fresh decision.
+        if matches!(
+            self.state.rules.frame,
+            Frame::ResolutionChoice {
+                choice: ResolutionChoice::Object {},
+                ..
+            }
+        ) && (!unchanged || original.id != pending.decision_id)
+        {
+            return Err("resolution object choice offer changed".into());
+        }
         // CR 701.22a, 701.23a, 701.25a, 903.9b: nothing can change a library
         // choice, or the command-zone choice of a found commander, while it
         // waits, so its complete saved table, unselected rows included, must

@@ -108,6 +108,23 @@ pub fn check(node: &Node, env: &Env<'_>) -> Result<DerivedRequirements, KirError
     Ok(walk.out)
 }
 
+pub(super) fn audit_target_predicate(filter: &Pred, graveyard: bool) -> Result<(), KirError> {
+    if filter.0.is_empty() {
+        return unaudited("empty target predicate");
+    }
+    if !graveyard
+        && !filter.0.iter().all(|atom| {
+            matches!(
+                atom,
+                Atom::Power { .. } | Atom::Toughness { .. } | Atom::ManaValue { .. }
+            )
+        })
+    {
+        return unaudited("battlefield characteristic predicate");
+    }
+    Walk::library_card_filter(filter)
+}
+
 /// The target occurrences a node names, without judging the node. Program
 /// validation uses this to prove every announced target is read (CR 601.2c);
 /// [`check`] remains the admission decision.
@@ -914,6 +931,53 @@ impl Walk<'_, '_> {
                 self.bound.pop();
                 result
             }
+            Node::TapTargets { count, .. } => {
+                // CR 115.3, 601.2c, 608.2b: one occurrence, at most N distinct
+                // objects. The program admits these slots only as one group.
+                if !(2..=7).contains(count) {
+                    return unaudited("tap target group bounds");
+                }
+                self.out.target_slots.extend(0..*count);
+                if !self.scan {
+                    if in_control
+                        || self.env.targets.len() != *count as usize
+                        || self.env.targets.iter().any(|t| {
+                            !matches!(
+                                t.domain,
+                                TargetDomain::BattlefieldCreature
+                                    | TargetDomain::BattlefieldPermanent
+                                    | TargetDomain::ControlledBattlefieldPermanent
+                            )
+                        })
+                    {
+                        return unaudited("tap target group");
+                    }
+                    self.out.cells.insert(Cell::TapTargetGroup);
+                    self.out
+                        .capabilities
+                        .insert(Capability::OptionalTargetGroupV1);
+                }
+                Ok(())
+            }
+            Node::ChooseObject { from, action } => {
+                self.control_set(from)?;
+                if !self.scan {
+                    if in_control
+                        || !matches!(from, SetExpr::Matching { zone: ZoneExpr::Battlefield, filter }
+                        if filter.0.contains(&Atom::ControlledBy {
+                            player: PlayerExpr::you(self.env.context),
+                        }))
+                        || *action != ObjectChoiceAction::ReturnToOwnerHand
+                    {
+                        return unaudited("resolution object choice");
+                    }
+                    self.out.cells.insert(Cell::ChooseObjectOwnerHand);
+                    self.out
+                        .capabilities
+                        .insert(Capability::ResolutionObjectChoiceV1);
+                }
+                Ok(())
+            }
             Node::UnlessPays {
                 payer,
                 payment,
@@ -1406,6 +1470,12 @@ pub fn node_capabilities(node: &Node) -> BTreeSet<Capability> {
         if matches!(node, Node::Delayed { .. } | Node::Reflexive { .. }) {
             out.insert(Capability::ResolutionTriggerV1);
         }
+        if matches!(node, Node::TapTargets { .. }) {
+            out.insert(Capability::OptionalTargetGroupV1);
+        }
+        if matches!(node, Node::ChooseObject { .. }) {
+            out.insert(Capability::ResolutionObjectChoiceV1);
+        }
         if node.uses_continuation() {
             out.insert(Capability::KernelControlV1);
         }
@@ -1472,7 +1542,10 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
             visit_verbs(node, visit)
         }
         Node::ForEach { body, .. } | Node::Choose { body, .. } => visit_verbs(body, visit),
-        Node::Delayed { .. } | Node::Reflexive { .. } => {}
+        Node::Delayed { .. }
+        | Node::Reflexive { .. }
+        | Node::ChooseObject { .. }
+        | Node::TapTargets { .. } => {}
     }
 }
 

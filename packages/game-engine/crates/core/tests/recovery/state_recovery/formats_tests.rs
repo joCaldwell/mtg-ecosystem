@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    67,
-    "3a36c2efa2daf299b68ec2c802ae7ad0acc68efdda4af09cdf0549fd1bae401a",
+    68,
+    "6f3c99f1cffb0c62216551ce4985e87b56b4fa6f2c1dbfa25dc7083bca6dd101",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    100,
-    "564aa8cc9222e0727648dbd1376dc842012d0b85f610d42ddc0ef04dd113d01e",
+    101,
+    "a2ca5fafcb3f74dbbc3958bbb304e77c46c1ba50cc01c36903913ad505037e94",
 );
 const WORK_PIN: (u32, &str) = (
     56,
@@ -381,6 +381,14 @@ fn library_entry_shapes() -> Vec<String> {
         .collect()
 }
 
+/// CR 608.2d: the open object choice carries only the resolving frame and a tag.
+fn object_choice_shape() -> String {
+    let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+    sample["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::Object {}).unwrap();
+    serde_json::to_string(&sample).unwrap()
+}
+
 fn chosen_cost_shapes() -> Vec<Game> {
     let mut catalog = FixtureCatalog::Witness.get().clone();
     let forest = catalog
@@ -522,6 +530,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .chain(intervening_comparison_shapes())
+        .chain([object_choice_shape()])
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

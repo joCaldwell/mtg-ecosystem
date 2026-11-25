@@ -698,7 +698,7 @@ impl RulesTxn {
                     self.return_kernel(task.resume)?;
                 }
             }
-            Node::Delayed { .. } => {
+            Node::Delayed { .. } | Node::ChooseObject { .. } | Node::TapTargets { .. } => {
                 return Err("unsupported kernel trigger control".into());
             }
         }

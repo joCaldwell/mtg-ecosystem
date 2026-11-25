@@ -123,6 +123,7 @@ impl RulesTxn {
             Reason::Populate => Reason::Populate,
             Reason::Proliferate => Reason::Proliferate,
             Reason::EntryAttachment => Reason::EntryAttachment,
+            Reason::ResolveObjectChoice => Reason::ResolveObjectChoice,
         })
     }
 

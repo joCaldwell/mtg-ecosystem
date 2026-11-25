@@ -292,6 +292,9 @@ pub enum Capability {
     LifeLossV1,
     OpponentLifeDrainV1,
     KernelControlV1,
+    ResolutionObjectChoiceV1,
+    TargetCharacteristicsV1,
+    OptionalTargetGroupV1,
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
@@ -441,6 +444,9 @@ pub struct PermanentFilter {
     )]
     #[schemars(with = "CreaturePowerFilter")]
     pub power: Option<CreaturePowerFilter>,
+    /// Additional fixed characteristic tests at announcement and resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub predicate: Option<kir::Pred>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "comparison", rename_all = "snake_case", deny_unknown_fields)]
@@ -2103,6 +2109,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
             .is_some_and(|filter| filter.power.is_some())
         {
             set.insert(Capability::PowerFilteredRemovalV1);
+        }
+        if target
+            .filter
+            .as_ref()
+            .is_some_and(|filter| filter.predicate.is_some())
+        {
+            set.insert(Capability::TargetCharacteristicsV1);
         }
         if target.filter.as_ref().is_some_and(|filter| filter.tapped) {
             set.insert(Capability::TappedPermanentTargetV1);

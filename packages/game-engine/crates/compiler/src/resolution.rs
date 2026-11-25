@@ -234,7 +234,33 @@ impl Resolution {
             .ok_or_else(|| invalid("resolution", "missing block"))?;
         for entry in &block.refs {
             let RefEntry::Ref(r) = entry else { continue };
+            let expression = ability.pointer(&r.path);
             let ResolvedRef::Target(t) = &*r.r#ref else {
+                // CR 608.2b-c: the singular follow-up lowerers for these
+                // object effects consume only an announced antecedent.
+                if expression.is_some_and(|e| matches!(e["ref"].as_str(), Some("it" | "that")))
+                    && r.path.rsplit_once('/').is_some_and(|(step, operand)| {
+                        matches!(operand, "what" | "on")
+                            && ability.pointer(step).is_some_and(|s| {
+                                matches!(
+                                    s["effect"].as_str(),
+                                    Some(
+                                        "gain-abilities"
+                                            | "gain-control"
+                                            | "pump"
+                                            | "put-counters"
+                                            | "set-characteristics"
+                                            | "untap"
+                                    )
+                                )
+                            })
+                    })
+                {
+                    return Err(unsupported(
+                        "resolution",
+                        format!("object follow-up {} needs an announced target", r.path),
+                    ));
+                }
                 continue;
             };
             let targets = match (reflexive, r.scope.as_deref()) {
@@ -245,7 +271,6 @@ impl Resolution {
                 }
                 _ => targets,
             };
-            let expression = ability.pointer(&r.path);
             let fight_antecedent = r.path.rsplit_once('/').is_some_and(|(parent, field)| {
                 field == "a"
                     && ability.pointer(parent).is_some_and(|step| {

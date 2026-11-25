@@ -44,6 +44,7 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolutionChoice {
+    Object {},
     Populate,
     Proliferate,
     OptionalEffect {
@@ -434,6 +435,7 @@ impl RulesTxn {
             return Ok(None);
         };
         Ok(match choice {
+            ResolutionChoice::Object {} => self.object_choice_request(frame)?,
             ResolutionChoice::Populate | ResolutionChoice::Proliferate => {
                 self.keyword_action_request(frame, choice)?
             }
@@ -490,6 +492,9 @@ impl RulesTxn {
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
+                if matches!(choice, ResolutionChoice::Object {}) {
+                    return self.object_choice_step(frame);
+                }
                 if matches!(
                     choice,
                     ResolutionChoice::Populate | ResolutionChoice::Proliferate
@@ -517,7 +522,8 @@ impl RulesTxn {
 
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::Populate
+                        ResolutionChoice::Object {}
+                        | ResolutionChoice::Populate
                         | ResolutionChoice::Proliferate
                         | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
@@ -546,7 +552,8 @@ impl RulesTxn {
                     .take()
                     .ok_or("missing resolution choice")?;
                 let source_block = match choice {
-                    ResolutionChoice::Populate
+                    ResolutionChoice::Object {}
+                    | ResolutionChoice::Populate
                     | ResolutionChoice::Proliferate
                     | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
@@ -1313,6 +1320,7 @@ impl RulesTxn {
                 .get(frame.cursor as usize)
                 .ok_or("snapshot missing choice instruction")?;
             let valid = match (choice, instruction) {
+                (ResolutionChoice::Object {}, _) => self.object_choice_spec(frame).is_ok(),
                 (
                     ResolutionChoice::Sacrifice {
                         player,

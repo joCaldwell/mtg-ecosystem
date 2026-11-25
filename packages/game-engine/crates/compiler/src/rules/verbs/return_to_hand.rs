@@ -37,6 +37,23 @@ pub(super) fn lower(
         return Err(step("return-to-hand", "destination"));
     }
     let what = object(what)?;
+    // CR 109.5, 115.1d, 400.3, 608.2c-d: choose the permanent when returning it.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if let ast::ObjectRef::Filter(selection) = &what
+        && matches!(&*selection.count, ast::Amount::Fixed(count) if count.value == 1)
+        && selection.up_to.is_none()
+        && selection.group_constraints.is_none()
+        && selection.random.is_none()
+        && selection.filter.control == Some(ast::ObjectFilterControl::You)
+    {
+        return Ok(Instruction::Kernel {
+            node: kir::Node::ChooseObject {
+                from: SetExpr::battlefield(lower_filter(&selection.filter, cx.context)?),
+                action: kir::ObjectChoiceAction::ReturnToOwnerHand,
+            },
+            source_block: cx.source_block,
+        });
+    }
     if is_set(&what) {
         return Ok(cx.act(Verb::Move {
             what: lower_board_set(&what, cx.context)?,
