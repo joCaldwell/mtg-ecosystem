@@ -367,9 +367,9 @@ allowances add to existing plays per turn (CR 305.2), and hand-size effects
 use source timestamps at cleanup (CR 514.1, 613.11).
 
 This surface admits the source’s unconditional tapped entry. Conditional
-entry and entry choices belong to W2. Static control changes, characteristic-defining abilities, ability
-removal, and permissions to cast from additional zones require further
-admission. Paid invocations and resolved effects keep independent lifetimes.
+entry and entry choices belong to W2. Static control changes, characteristic-defining
+abilities, ability removal, and permissions to cast from additional zones
+require further admission. Paid invocations and resolved effects keep independent lifetimes.
 
 ### Attachment entry and ordering
 

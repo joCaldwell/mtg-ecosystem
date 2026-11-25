@@ -455,11 +455,7 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     // A surface with no executor (for example a life payment on a stack
     // activation's composite cost) earns no tier, so no cell qualifies it.
     executes::surfaces(d).map_err(KirError::Unaudited)?;
-    if d.characteristics
-        .subtypes
-        .iter()
-        .any(|s| matches!(s.as_str(), "Aura" | "Equipment"))
-    {
+    if d.characteristics.is_attachment() {
         cells.insert(Cell::Attachment);
     }
     Ok(cells)

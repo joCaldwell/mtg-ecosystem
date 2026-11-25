@@ -134,6 +134,12 @@ impl Characteristics {
         value
     }
 
+    fn is_attachment(&self) -> bool {
+        self.subtypes
+            .iter()
+            .any(|s| matches!(s.as_str(), "Aura" | "Equipment"))
+    }
+
     pub fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
     }
@@ -1701,6 +1707,9 @@ pub struct Definition {
 impl Definition {
     pub fn requirements(&self) -> BTreeSet<Capability> {
         let mut set = BTreeSet::from([Capability::NormalLayoutV1, Capability::ComposedAbilityV1]);
+        if self.characteristics.is_attachment() {
+            set.insert(Capability::AttachmentsV1);
+        }
         match self.characteristics.kind {
             CardKind::Land => {
                 set.insert(Capability::LandPlayV1);

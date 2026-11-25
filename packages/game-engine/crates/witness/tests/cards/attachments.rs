@@ -11,6 +11,9 @@ fn game_with(cards: &[(&str, u8, bool)], adapt: impl FnOnce(&mut Catalog)) -> Ga
     let mut catalog = FixtureCatalog::Witness.get().clone();
     for raw in [
         include_str!(
+            "../../../../tests/fixtures/phase1-r4/2a9054ce-7276-4030-901a-cf6aa18f2b62.json"
+        ),
+        include_str!(
             "../../../../tests/fixtures/phase1-r4/c6c2f370-fc33-4907-975c-a07af3dc664d.json"
         ),
         include_str!(
@@ -34,6 +37,7 @@ fn game_with(cards: &[(&str, u8, bool)], adapt: impl FnOnce(&mut Catalog)) -> Ga
             panic!("{result:?}")
         };
         definition.validate().unwrap();
+        assert!(definition.capabilities.contains(&Capability::AttachmentsV1));
         assert_eq!(definition_tiers(&definition).unwrap(), Tiers::EXECUTES);
         assert!(
             definition_cells(&definition)
@@ -160,6 +164,64 @@ fn aura_target_concedes_before_or_after_entry() {
         );
         checked(&g);
     }
+}
+
+#[test]
+fn bequeathal_leaves_before_its_dies_trigger_is_stacked() {
+    let mut g = game(&[
+        ("Bequeathal", 0, true),
+        ("Grizzly Bears", 0, false),
+        ("Lightning Bolt", 0, true),
+        ("Forest", 0, false),
+        ("Mountain", 0, false),
+    ]);
+    let host = Driver::object(&g, 1);
+    Driver::cast(&mut g, CardId(0));
+    let r = Driver::request(&mut g, u64::MAX);
+    g.respond(r.player, r.id, r.targets(vec![host])).unwrap();
+    mtg_witness::equipped::pay_and_resolve(&mut g, u64::MAX, vec![]);
+    let aura = Driver::object(&g, 0);
+    assert_eq!(g.current(aura).unwrap().attached_to, Some(host));
+    Driver::cast(&mut g, CardId(2));
+    mtg_witness::equipped::pay_to_priority(
+        &mut g,
+        u64::MAX,
+        vec![TargetEntity::Object { object: host }],
+    );
+
+    // Stop between SBA processing and trigger placement (CR 704.3, 704.5m).
+    let graveyard = Zone::Graveyard { owner: PlayerId(0) };
+    for _ in 0..128 {
+        if g.current(Driver::object(&g, 0)).unwrap().zone == graveyard {
+            break;
+        }
+        match g.advance(Budget::new(1)) {
+            Advance::Suspended { .. } => {}
+            Advance::AwaitingDecision(r) if r.reason == Reason::Priority => g
+                .respond(r.player, r.id, mtg_witness::temporary::pass(&r))
+                .unwrap(),
+            other => panic!("unexpected resolution boundary {other:?}"),
+        }
+    }
+    assert_eq!(g.current(Driver::object(&g, 0)).unwrap().zone, graveyard);
+    assert_eq!(g.current(Driver::object(&g, 1)).unwrap().zone, graveyard);
+    let [pending] = g.state.rules.pending_triggers.as_slice() else {
+        panic!("one pending Aura trigger")
+    };
+    assert_eq!(pending.source, aura);
+    assert!(
+        matches!(&pending.witness, TriggerEventWitness::Moved { movement } if movement.previous == host && movement.destination == graveyard)
+    );
+    assert!(g.state.rules.stack.is_empty());
+    checked(&g);
+
+    assert_eq!(Driver::request(&mut g, u64::MAX).reason, Reason::Priority);
+    assert_eq!(g.top().unwrap().source, aura);
+    assert!(matches!(g.top().unwrap().kind, StackKind::Triggered { .. }));
+    let library = g.state.rules.libraries[&PlayerId(0)].len();
+    mtg_witness::equipped::pay_and_resolve(&mut g, u64::MAX, vec![]);
+    assert_eq!(g.state.rules.libraries[&PlayerId(0)].len(), library - 2);
+    checked(&g);
 }
 
 #[test]
