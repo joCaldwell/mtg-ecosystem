@@ -357,7 +357,11 @@ find as many as it can (CR 701.23d). A printed reveal happens once, in the
 library, for any destination; a found commander bound for its owner's hand
 then offers the command zone (CR 903.9b), and the found cards move together, onto
 the battlefield (optionally tapped, CR 614.1c) under the searcher's control or
-into the owner's hand or graveyard. Revealed hand cards are a public minimum
+into the owner's hand or graveyard. Found cards are saved in object order. A
+found Aura entering the battlefield enchants an object its controller chooses
+among those already there that it could enchant, without targeting (CR 303.4f);
+with none it stays in the library (CR 303.4g), as does a found instant or
+sorcery (CR 304.4, 307.4), which never enters the battlefield by any move. Revealed hand cards are a public minimum
 count per owner and Oracle identity (CR 701.23e), never an incarnation: each
 physical departure is counted once, a public one consuming one copy of its
 identity and a hidden one one of each; a reversed cast restores the copy its
@@ -374,12 +378,17 @@ entering permanent cannot contribute to its own count. Simultaneous entry
 uses the common prior battlefield and ordered entry sees earlier moves.
 Conditional tapped entry and entry counters apply to every move onto the
 battlefield. A land play's life-payment offer runs through
-`begin_battlefield_entry`; an untapped search onto the battlefield asks each
-payable found entrant in object order, counting life already committed, then
-commits the payments and one simultaneous entry batch with a per-entrant
-override. A forced tapped search entry asks nothing. Each continuation
-suspends before mutation and commits the chosen payment and entry together. It skips the offer when the controller
-cannot pay (CR 119.4) or the move already requires tapped entry. A land play
+`begin_battlefield_entry`; a search onto the battlefield asks each payable
+found entrant in object order, counting life already committed, then commits
+the payments and one simultaneous entry batch with a per-entrant override. The
+offer binds its entrant as the decision's subject. A forced tapped entry still
+offers a payable payment and enters tapped either way (CR 614.1c, 614.12; the
+shockland ruling "If an effect puts this land onto the battlefield tapped, you
+may pay 2 life, but it still enters tapped.", [Lorwyn Eclipsed release
+notes](https://magic.wizards.com/en/news/feature/lorwyn-eclipsed-release-notes)).
+Each continuation suspends before mutation and commits the chosen payment and
+entry together. It skips the offer when the controller
+cannot pay (CR 119.4). A land play
 still requires a land in hand.
 
 ## Keywords, attachments and temporary effects

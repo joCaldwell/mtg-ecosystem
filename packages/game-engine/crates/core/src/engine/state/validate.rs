@@ -136,6 +136,18 @@ impl RulesTxn {
             {
                 return Err("snapshot zone-owner invariant".into());
             }
+            // CR 304.4, 307.4: no instant or sorcery is ever a permanent.
+            if o.zone == Zone::Battlefield
+                && matches!(
+                    self.definition(setup.id)
+                        .map_err(|_| "snapshot battlefield definition")?
+                        .characteristics
+                        .kind,
+                    CardKind::Instant | CardKind::Sorcery
+                )
+            {
+                return Err("snapshot instant or sorcery on the battlefield".into());
+            }
         }
         self.validate_attachment_state()?;
         self.validate_control_state()?;

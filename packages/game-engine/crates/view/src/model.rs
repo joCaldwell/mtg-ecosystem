@@ -201,6 +201,9 @@ pub enum Reason<S: Space> {
     /// CR 701.22a: the cards going to the bottom, in their final order from
     /// the top of that group down.
     OrderLibraryBottom,
+    /// CR 303.4f: the object an Aura put onto the battlefield without being
+    /// cast enters attached to. The slot's subject is the Aura.
+    EntryAttachment,
 }
 
 impl<S: Space> Reason<S> {
@@ -237,6 +240,7 @@ impl<S: Space> Reason<S> {
             Self::SurveilGraveyard => 27,
             Self::OrderLibraryTop => 28,
             Self::OrderLibraryBottom => 29,
+            Self::EntryAttachment => 30,
         }
     }
 }

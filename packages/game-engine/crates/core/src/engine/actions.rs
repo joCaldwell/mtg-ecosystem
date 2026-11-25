@@ -75,13 +75,16 @@ pub enum ResolutionChoice {
         top: Option<Vec<ObjectId>>,
         source_block: u32,
     },
-    /// CR 614.1c, 614.12: the found cards of an untapped search onto the
-    /// battlefield wait while their controller chooses, entrant by entrant
-    /// in object order, whether to pay each entry life cost (`paid`); then
-    /// they all enter in one entry batch.
+    /// CR 303.4f, 614.1c, 614.12: the found cards of a search onto the
+    /// battlefield wait while their controller chooses, in object order,
+    /// each found Aura's host and then, entrant by entrant, whether to pay
+    /// each entry life cost (`paid`); then they all enter in one batch.
     SearchEntry {
         player: PlayerId,
         found: Vec<ObjectId>,
+        /// CR 303.4f: each found Aura's chosen host, Aura first.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        hosts: Vec<(ObjectId, ObjectId)>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         paid: Vec<(ObjectId, bool)>,
         source_block: u32,

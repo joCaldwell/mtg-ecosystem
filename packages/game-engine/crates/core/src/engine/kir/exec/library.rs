@@ -36,6 +36,17 @@ impl SearchBounds {
     }
 }
 
+/// What a battlefield search asks next (CR 303.4f, 614.1c).
+pub(in crate::engine) enum EntryQuestion {
+    /// The host a found Aura enters attached to.
+    Attach {
+        aura: ObjectId,
+        hosts: Vec<ObjectId>,
+    },
+    /// Whether to pay a found entrant's entry life cost.
+    Pay { entrant: ObjectId },
+}
+
 impl RulesTxn {
     /// The admitted library verb at this frame's cursor.
     fn library_verb(&self, frame: &Resolving) -> Result<(Verb, u32), String> {
@@ -252,6 +263,9 @@ impl RulesTxn {
         found: Vec<ObjectId>,
         source_block: u32,
     ) -> Result<(), String> {
+        // One canonical order for every continuation that saves the set.
+        let mut found = found;
+        found.sort();
         let (search, _) = self.search_destination(&frame)?;
         if search.reveal && !found.is_empty() {
             self.commit(
@@ -297,21 +311,31 @@ impl RulesTxn {
             };
             return Ok(());
         }
-        // CR 614.1c: an untapped entry onto the battlefield first collects
-        // each entrant's entry life payment.
-        if self.search_destination(&frame)?.1 == Some(Zone::Battlefield) {
-            return self.continue_search_entry(frame, player, found, vec![], source_block);
+        // CR 303.4f, 614.1c: an entry onto the battlefield first collects
+        // each found Aura's host and each entrant's entry life payment.
+        if self.search_onto_battlefield(&frame)? {
+            return self.continue_search_entry(frame, player, found, vec![], vec![], source_block);
         }
-        self.commit_search(frame, player, found, &choices, &[], source_block)
+        self.commit_search(frame, player, found, &choices, &[], &[], source_block)
     }
 
-    /// CR 119.4, 614.1c, 614.12: offer the next found entrant's entry life
-    /// payment, or enter them all once every payable entrant was asked.
+    /// The admitted search puts its found cards onto the battlefield,
+    /// tapped or not.
+    fn search_onto_battlefield(&self, frame: &Resolving) -> Result<bool, String> {
+        Ok(matches!(
+            self.search_destination(frame)?.0.to,
+            Destination::Battlefield { .. }
+        ))
+    }
+
+    /// CR 303.4f, 119.4, 614.1c, 614.12: ask the next entry question of a
+    /// battlefield search, or enter every entrant once all were asked.
     fn continue_search_entry(
         &mut self,
         frame: Resolving,
         player: PlayerId,
         found: Vec<ObjectId>,
+        hosts: Vec<(ObjectId, ObjectId)>,
         paid: Vec<(ObjectId, bool)>,
         source_block: u32,
     ) -> Result<(), String> {
@@ -319,35 +343,122 @@ impl RulesTxn {
             return self
                 .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
         }
-        if self.next_entry_offer(player, &found, &paid)?.is_some() {
+        if self
+            .next_entry_question(player, &found, &hosts, &paid)?
+            .is_some()
+        {
             self.rules_mut().frame = Frame::ResolutionChoice {
                 frame,
                 choice: ResolutionChoice::SearchEntry {
                     player,
                     found,
+                    hosts,
                     paid,
                     source_block,
                 },
             };
             return Ok(());
         }
-        self.commit_search(frame, player, found, &[], &paid, source_block)
+        self.commit_search(frame, player, found, &[], &hosts, &paid, source_block)
     }
 
-    /// CR 119.4, 614.1c: the next found entrant (object order) whose entry
-    /// life cost its controller can still pay after the payments already
-    /// chosen, or none. An entrant unpayable at its turn is never asked and
-    /// enters tapped. `paid` must be exactly the entrants asked so far.
-    pub(in crate::engine) fn next_entry_offer(
+    /// CR 304.4, 307.4: an instant or sorcery never enters the battlefield.
+    fn may_enter_battlefield(&self, card: CardId) -> Result<bool, String> {
+        let kind = self.definition(card)?.characteristics.kind;
+        Ok(!matches!(kind, CardKind::Instant | CardKind::Sorcery))
+    }
+
+    /// CR 303.4f: the objects a found Aura could enchant as it enters: on
+    /// the battlefield already, never chosen as a target (Hexproof and
+    /// Shroud do not apply), but never one with protection from it. `None`
+    /// for a card that is no Aura.
+    fn entry_hosts(&self, aura: ObjectId) -> Result<Option<Vec<ObjectId>>, String> {
+        let characteristics = self.structural_characteristics(aura)?;
+        if characteristics.kind != CardKind::Enchantment || characteristics.subtypes != ["Aura"] {
+            return Ok(None);
+        }
+        let mut hosts = vec![];
+        for object in self.state.rules.objects.values() {
+            if object.id != aura
+                && object.present_on_battlefield()
+                && self.is_live(object.controller)
+                && self.attachment_target_type_valid(aura, object.id)?
+                && !self.protected_from(object.id, &characteristics)
+            {
+                hosts.push(object.id);
+            }
+        }
+        hosts.sort();
+        Ok(Some(hosts))
+    }
+
+    /// CR 303.4f-g, 304.4, 307.4: the found cards that enter, each Aura on
+    /// its chosen host; the others stay in the library.
+    fn search_entrants(
+        &self,
+        found: &[ObjectId],
+        hosts: &[(ObjectId, ObjectId)],
+    ) -> Result<Vec<(ObjectId, Option<ObjectId>)>, String> {
+        let mut entrants = vec![];
+        for object in found {
+            if !self.may_enter_battlefield(object.card)? {
+                continue;
+            }
+            match self.entry_hosts(*object)? {
+                None => entrants.push((*object, None)),
+                Some(_) => {
+                    if let Some((_, host)) = hosts.iter().find(|(aura, _)| aura == object) {
+                        entrants.push((*object, Some(*host)));
+                    }
+                }
+            }
+        }
+        Ok(entrants)
+    }
+
+    /// The next entry question of a battlefield search: first each found
+    /// Aura's host, in object order (CR 303.4f; an Aura with no legal host
+    /// is never asked and stays in the library, CR 303.4g), then each
+    /// entrant whose entry life cost its controller can still pay after
+    /// the payments already chosen (CR 119.4, 614.1c). `hosts` and `paid`
+    /// must be exactly the answers given so far, in that order.
+    pub(in crate::engine) fn next_entry_question(
         &self,
         player: PlayerId,
         found: &[ObjectId],
+        hosts: &[(ObjectId, ObjectId)],
         paid: &[(ObjectId, bool)],
-    ) -> Result<Option<ObjectId>, String> {
+    ) -> Result<Option<EntryQuestion>, String> {
+        let mut attached = hosts.iter();
+        for object in found {
+            if !self.may_enter_battlefield(object.card)? {
+                continue;
+            }
+            let Some(legal) = self.entry_hosts(*object)? else {
+                continue;
+            };
+            if legal.is_empty() {
+                continue;
+            }
+            match attached.next() {
+                Some((aura, host)) if aura == object && legal.contains(host) => {}
+                Some(_) => return Err("search entry attachment order".into()),
+                None if paid.is_empty() => {
+                    return Ok(Some(EntryQuestion::Attach {
+                        aura: *object,
+                        hosts: legal,
+                    }));
+                }
+                None => return Err("search entry payment before an attachment".into()),
+            }
+        }
+        if attached.next().is_some() {
+            return Err("search entry attachment without an Aura".into());
+        }
         let mut committed = Quantity::zero();
         let mut answered = paid.iter();
-        for object in found {
-            let Some(amount) = self.entry_life_cost(*object)? else {
+        for (object, _) in self.search_entrants(found, hosts)? {
+            let Some(amount) = self.entry_life_cost(object)? else {
                 continue;
             };
             let mut total = committed.clone();
@@ -356,13 +467,13 @@ impl RulesTxn {
                 continue;
             }
             match answered.next() {
-                Some((asked, pays)) if asked == object => {
+                Some((asked, pays)) if *asked == object => {
                     if *pays {
                         committed = total;
                     }
                 }
                 Some(_) => return Err("search entry payment order".into()),
-                None => return Ok(Some(*object)),
+                None => return Ok(Some(EntryQuestion::Pay { entrant: object })),
             }
         }
         if answered.next().is_some() {
@@ -371,21 +482,111 @@ impl RulesTxn {
         Ok(None)
     }
 
-    /// CR 701.23a, e, 110.2, 903.9b: move the (already revealed, when
-    /// printed) found cards together, each commander to the zone its owner
-    /// chose. Revealed cards that reach the hand stay publicly counted there
-    /// by Oracle identity.
+    /// The saved answers of a battlefield search are, structurally, its own
+    /// whether or not the searcher is still in the game: found cards in
+    /// strictly increasing object order, distinct cards of the searcher's
+    /// library within the maximum, and hosts then payments answered for
+    /// found cards in that order, each at most once, with no earlier
+    /// payable entrant skipped (life is read even after a departure).
+    fn valid_entry_answers(
+        &self,
+        player: PlayerId,
+        maximum: usize,
+        found: &[ObjectId],
+        hosts: &[(ObjectId, ObjectId)],
+        paid: &[(ObjectId, bool)],
+    ) -> Result<bool, String> {
+        let owned = |o: &ObjectId| {
+            self.state
+                .rules
+                .cards
+                .get(&o.card)
+                .is_some_and(|card| card.owner == player)
+        };
+        let ordered = |ids: &[ObjectId]| {
+            ids.windows(2).all(|w| w[0] < w[1]) && ids.iter().all(|o| found.contains(o))
+        };
+        let auras: Vec<_> = hosts.iter().map(|(aura, _)| *aura).collect();
+        let asked: Vec<_> = paid.iter().map(|(o, _)| *o).collect();
+        if found.is_empty()
+            || found.len() > maximum
+            || !found
+                .windows(2)
+                .all(|w| w[0].card < w[1].card && w[0] < w[1])
+            || !found.iter().all(owned)
+            || !ordered(&auras)
+            || !ordered(&asked)
+            || hosts
+                .iter()
+                .any(|(aura, host)| aura == host || found.contains(host))
+        {
+            return Ok(false);
+        }
+        // No answered payment may skip an earlier entrant whose cost the
+        // remaining life covered (CR 119.4), by the printed definitions.
+        let mut committed = Quantity::zero();
+        let mut answered = paid.iter().peekable();
+        let life = self
+            .state
+            .rules
+            .players
+            .get(usize::from(player.0))
+            .ok_or("missing searcher")?;
+        for object in found {
+            let Some(next) = answered.peek() else {
+                break;
+            };
+            let definition = self.definition(object.card)?;
+            let Some(amount) = definition
+                .static_abilities
+                .iter()
+                .find_map(|a| match &a.effect {
+                    StaticEffect::PayLifeOrEnterTapped { amount } => Some(amount.clone()),
+                    _ => None,
+                })
+            else {
+                continue;
+            };
+            let mut total = committed.clone();
+            total.add(&amount);
+            if next.0 == *object {
+                if next.1 {
+                    committed = total;
+                }
+                answered.next();
+            } else if life.can_pay_life(&total) && !auras.contains(object) {
+                return Ok(false);
+            }
+        }
+        Ok(answered.next().is_none())
+    }
+
+    /// CR 701.23a, e, 110.2, 303.4f, 614.1c, 903.9b: move the (already
+    /// revealed, when printed) found cards together, each commander to the
+    /// zone its owner chose. A battlefield search pays the chosen entry
+    /// life first, then enters its entrants in one simultaneous batch, each
+    /// Aura attached to its chosen host, tapped when printed (a shockland
+    /// paid for still enters tapped then). Revealed cards that reach the
+    /// hand stay publicly counted there by Oracle identity.
     fn commit_search(
         &mut self,
         frame: Resolving,
         player: PlayerId,
         found: Vec<ObjectId>,
         choices: &[(ObjectId, bool)],
+        hosts: &[(ObjectId, ObjectId)],
         paid: &[(ObjectId, bool)],
         source_block: u32,
     ) -> Result<(), String> {
         let (search, to) = self.search_destination(&frame)?;
-        if found.is_empty() {
+        let battlefield = matches!(search.to, Destination::Battlefield { .. });
+        let tapped = matches!(search.to, Destination::Battlefield { tapped: true, .. });
+        let entering: Vec<(ObjectId, Option<ObjectId>)> = if battlefield {
+            self.search_entrants(&found, hosts)?
+        } else {
+            found.iter().map(|o| (*o, None)).collect()
+        };
+        if entering.is_empty() {
             return self.finish_instruction(
                 frame,
                 InstructionOutcome::SetMoved {
@@ -395,20 +596,24 @@ impl RulesTxn {
             );
         }
         let cause = self.instruction_cause(&frame, source_block)?;
-        let occurrences = found
+        let occurrences = entering
             .iter()
-            .map(|object| {
+            .map(|(object, host)| {
                 let command = choices.iter().any(|(o, yes)| o == object && *yes);
-                match to {
+                match (to, host) {
                     _ if command => ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Command { owner: player },
                     },
-                    Some(destination) => ProposedEvent::Move {
+                    (_, Some(target)) => ProposedEvent::EnterAttached {
+                        object: *object,
+                        target: *target,
+                    },
+                    (Some(destination), None) => ProposedEvent::Move {
                         object: *object,
                         destination,
                     },
-                    None => ProposedEvent::EnterTapped { object: *object },
+                    (None, None) => ProposedEvent::EnterTapped { object: *object },
                 }
             })
             .collect();
@@ -417,18 +622,23 @@ impl RulesTxn {
         // tapped as chosen; the payments precede the one simultaneous entry.
         let mut overrides = vec![];
         let mut payments = vec![];
-        if to == Some(Zone::Battlefield) {
-            for object in &found {
-                let Some(amount) = self.entry_life_cost(*object)? else {
-                    continue;
-                };
+        if battlefield {
+            for (object, host) in &entering {
+                let amount = self.entry_life_cost(*object)?;
                 let pays = paid.iter().any(|(o, yes)| o == object && *yes);
-                if pays {
+                if let (Some(amount), true) = (&amount, pays) {
                     payments.push(EventGroup::Occurrence {
-                        proposed: ProposedEvent::LoseLife { player, amount },
+                        proposed: ProposedEvent::LoseLife {
+                            player,
+                            amount: amount.clone(),
+                        },
                     });
                 }
-                overrides.push((*object, events::EntryOverride::LifePayment { paid: pays }));
+                if tapped && (amount.is_some() || host.is_some()) {
+                    overrides.push((*object, events::EntryOverride::ForceTapped));
+                } else if amount.is_some() {
+                    overrides.push((*object, events::EntryOverride::LifePayment { paid: pays }));
+                }
             }
         }
         let batch = if overrides.is_empty() {
@@ -445,11 +655,12 @@ impl RulesTxn {
             .occurrences
             .iter()
             .filter_map(|occurrence| match &occurrence.actual {
-                EventOutcome::Moved { movement } => Some(movement.clone()),
+                EventOutcome::Moved { movement }
+                | EventOutcome::EnteredAttached { movement, .. } => Some(movement.clone()),
                 _ => None,
             })
             .collect::<Vec<_>>();
-        if movements.len() != found.len() {
+        if movements.len() != entering.len() {
             return Err("search movement invariant".into());
         }
         if search.reveal {
@@ -501,6 +712,7 @@ impl RulesTxn {
         let commanders = self.found_commanders(frame, found)?;
         let asked: Vec<_> = choices.iter().map(|(o, _)| *o).collect();
         Ok(Self::subset(&bounds.candidates, found)
+            && found.windows(2).all(|w| w[0] < w[1])
             && (bounds.minimum..=bounds.maximum).contains(&found.len())
             && remaining.first() == Some(&object)
             && asked.iter().chain(remaining).copied().collect::<Vec<_>>() == commanders)
@@ -535,15 +747,43 @@ impl RulesTxn {
                     bounds.maximum as u32,
                 ))
             }
-            // CR 119.4, 614.1c: pay the next entrant's entry life cost, or
-            // let it enter tapped.
-            ResolutionChoice::SearchEntry { player, .. } if self.is_live(*player) => {
-                Some(self.pick_flags(
-                    *player,
-                    Reason::OptionalEffect,
-                    &[Flag::Accept, Flag::Decline],
-                ))
-            }
+            // CR 303.4f: the host a found Aura enters attached to; CR 119.4,
+            // 614.1c: whether to pay the next entrant's entry life cost. The
+            // entrant is the slot's subject, so the answer binds to it.
+            ResolutionChoice::SearchEntry {
+                player,
+                found,
+                hosts,
+                paid,
+                ..
+            } if self.is_live(*player) => Some(
+                match self
+                    .next_entry_question(*player, found, hosts, paid)?
+                    .ok_or("search entry without a question")?
+                {
+                    EntryQuestion::Attach { aura, hosts } => {
+                        let mut candidates = vec![Candidate::Object { object: aura }];
+                        candidates.extend(objects(&hosts));
+                        self.decision(
+                            *player,
+                            Reason::EntryAttachment,
+                            candidates,
+                            Shape::Pick {
+                                slots: vec![Slot {
+                                    role: SlotRole::Choice,
+                                    subject: Some(0),
+                                    allowed: (1..=hosts.len() as u32).collect(),
+                                    min: 1,
+                                    max: 1,
+                                    repeat: false,
+                                }],
+                                rules: vec![],
+                            },
+                        )
+                    }
+                    EntryQuestion::Pay { entrant } => self.entry_payment_decision(*player, entrant),
+                },
+            ),
             ResolutionChoice::Scry {
                 player,
                 looked,
@@ -639,16 +879,26 @@ impl RulesTxn {
         }
         if let ResolutionChoice::SearchEntry {
             found,
+            mut hosts,
             mut paid,
             source_block,
             ..
         } = choice
         {
-            let entrant = self
-                .next_entry_offer(player, &found, &paid)?
-                .ok_or("search entry payment without an offer")?;
-            paid.push((entrant, input.flag(Flag::Accept)?));
-            return self.continue_search_entry(frame, player, found, paid, source_block);
+            match self
+                .next_entry_question(player, &found, &hosts, &paid)?
+                .ok_or("search entry answer without a question")?
+            {
+                EntryQuestion::Attach { aura, hosts: legal } => {
+                    let host = input.object()?;
+                    if !legal.contains(&host) {
+                        return Err("search entry host is not a legal host".into());
+                    }
+                    hosts.push((aura, host));
+                }
+                EntryQuestion::Pay { entrant } => paid.push((entrant, input.flag(Flag::Accept)?)),
+            }
+            return self.continue_search_entry(frame, player, found, hosts, paid, source_block);
         }
         let chosen = input.objects()?;
         match choice {
@@ -887,28 +1137,22 @@ impl RulesTxn {
         // answers well formed, before the departure fast path accepts it.
         let staged = match (choice, &verb) {
             (ResolutionChoice::Search { .. }, Verb::Search { .. }) => true,
-            // Found cards of an untapped battlefield search: distinct cards
-            // of the searcher's own library, each asked at most once.
-            (ResolutionChoice::SearchEntry { found, paid, .. }, Verb::Search { search, .. }) => {
+            // A battlefield search's saved answers, checked before the
+            // departure fast path accepts them.
+            (
+                ResolutionChoice::SearchEntry {
+                    found, hosts, paid, ..
+                },
+                Verb::Search { search, .. },
+            ) => {
                 let maximum = search
                     .maximum
                     .as_fixed()
                     .and_then(Quantity::to_u32)
                     .ok_or("search maximum has no audited evaluation")?
                     as usize;
-                let asked: Vec<_> = paid.iter().map(|(o, _)| *o).collect();
-                matches!(search.to, Destination::Battlefield { tapped: false, .. })
-                    && !found.is_empty()
-                    && found.len() <= maximum
-                    && found.iter().map(|o| o.card).collect::<BTreeSet<_>>().len() == found.len()
-                    && found.iter().all(|o| {
-                        self.state
-                            .rules
-                            .cards
-                            .get(&o.card)
-                            .is_some_and(|card| card.owner == player)
-                    })
-                    && Self::subset(found, &asked)
+                matches!(search.to, Destination::Battlefield { .. })
+                    && self.valid_entry_answers(player, maximum, found, hosts, paid)?
             }
             (
                 ResolutionChoice::Scry {
@@ -957,12 +1201,17 @@ impl RulesTxn {
             (ResolutionChoice::Search { .. }, Verb::Search { search, .. }) => {
                 self.search_bounds(player, search)?.needs_choice()
             }
-            (ResolutionChoice::SearchEntry { found, paid, .. }, Verb::Search { search, .. }) => {
+            (
+                ResolutionChoice::SearchEntry {
+                    found, hosts, paid, ..
+                },
+                Verb::Search { search, .. },
+            ) => {
                 let bounds = self.search_bounds(player, search)?;
                 Self::subset(&bounds.candidates, found)
                     && (bounds.minimum..=bounds.maximum).contains(&found.len())
                     && self
-                        .next_entry_offer(player, found, paid)
+                        .next_entry_question(player, found, hosts, paid)
                         .is_ok_and(|next| next.is_some())
             }
             (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })

@@ -37,6 +37,8 @@ const SKYSHROUD_CLAIM: &str = record!("376c9d3f-21d3-4251-bb6a-026fa9e1b0e1");
 const HALLOWED_FOUNTAIN: &str = record!("f1750962-a87c-49f6-b731-02ae971ac6ea");
 const TEMPLE_GARDEN: &str = record!("f413a83d-a40d-434c-b20a-4c707c0527fa");
 const BREEDING_POOL: &str = record!("20283c4a-f1f0-42f0-bc08-6da87474426b");
+const ZUR_THE_ENCHANTER: &str = record!("d7950018-d744-48a8-81aa-0d8384703f48");
+const PACIFISM: &str = record!("5f5e0b10-c8cf-450c-bfd3-bcb0528ec330");
 
 const SEED: [u8; 32] = [7; 32];
 
@@ -1439,6 +1441,13 @@ fn entry_payment(g: &mut Game, pay: bool) {
         (PlayerId(0), &Reason::OptionalEffect),
         "{d:?}"
     );
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("{d:?}")
+    };
+    assert!(matches!(
+        slots[0].subject.map(|i| &d.candidates[i as usize]),
+        Some(Candidate::Object { .. })
+    ));
     checked(g);
     assert_recoverable((&*g).into());
     let flag = if pay { Flag::Accept } else { Flag::Decline };
@@ -1451,32 +1460,37 @@ fn entry_payment(g: &mut Game, pay: bool) {
 }
 
 /// Farseek: "Search your library for a Plains, Island, Swamp, or Mountain
-/// card, put it onto the battlefield tapped, then shuffle." CR 614.1c: a
-/// forced tapped entry makes Hallowed Fountain's payment moot, so none is
-/// offered.
+/// card, put it onto the battlefield tapped, then shuffle." CR 614.1c,
+/// 614.12 and the shockland ruling ("If an effect puts this land onto the
+/// battlefield tapped, you may pay 2 life, but it still enters tapped.",
+/// Lorwyn Eclipsed release notes): Hallowed Fountain still offers its
+/// payment and enters tapped either way.
 #[test]
-fn farseek_puts_a_shockland_onto_the_battlefield_tapped_without_an_offer() {
-    let prepared = board(&[
-        (FARSEEK, &[Cell::SearchController, Cell::ShuffleController]),
-        (HALLOWED_FOUNTAIN, &[]),
-    ])
-    .permanent_or_hand("Farseek", 0, 0, true)
-    .permanent_or_hand("Forest", 0, 0, false)
-    .permanent_or_hand("Forest", 0, 0, false)
-    .library_card("Hallowed Fountain", 0)
-    .library_card("Forest", 1)
-    .prepare();
-    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
-    let before = life(&g, 0);
-    Driver::cast(&mut g, CardId(0));
-    Driver::pay(&mut g, &[1, 2]);
-    let fountain = Driver::object(&g, 3);
-    answer(&mut g, 0, Reason::SearchLibrary, &[fountain]);
-    settle(&mut g);
-    let fountain = g.current(Driver::object(&g, 3)).unwrap().clone();
-    assert_eq!((fountain.zone, fountain.tapped), (Zone::Battlefield, true));
-    assert_eq!(life(&g, 0), before);
-    assert_eq!(shuffles(&g, 0), 1);
+fn farseek_offers_a_shockland_payment_and_enters_it_tapped_either_way() {
+    for pay in [true, false] {
+        let prepared = board(&[
+            (FARSEEK, &[Cell::SearchController, Cell::ShuffleController]),
+            (HALLOWED_FOUNTAIN, &[]),
+        ])
+        .permanent_or_hand("Farseek", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .library_card("Hallowed Fountain", 0)
+        .library_card("Forest", 1)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let before = life(&g, 0);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2]);
+        let fountain = Driver::object(&g, 3);
+        answer(&mut g, 0, Reason::SearchLibrary, &[fountain]);
+        entry_payment(&mut g, pay);
+        settle(&mut g);
+        let fountain = g.current(Driver::object(&g, 3)).unwrap().clone();
+        assert_eq!((fountain.zone, fountain.tapped), (Zone::Battlefield, true));
+        assert_eq!(life(&g, 0), minus(before, if pay { 2 } else { 0 }));
+        assert_eq!(shuffles(&g, 0), 1);
+    }
 }
 
 /// Flooded Strand finding Hallowed Fountain onto the battlefield untapped:
@@ -1620,6 +1634,7 @@ fn search_entry_state_rejects_forged_entrants_and_answers() {
         |found: Vec<ObjectId>, paid: Vec<(ObjectId, bool)>| ResolutionChoice::SearchEntry {
             player: PlayerId(0),
             found,
+            hosts: vec![],
             paid,
             source_block,
         };
@@ -1640,4 +1655,353 @@ fn search_entry_state_rejects_forged_entrants_and_answers() {
     ] {
         forged_choice_rejected(&mut g, &choice, what);
     }
+}
+
+fn claim(starting: i64, seats: u8) -> (Game, [ObjectId; 2]) {
+    let prepared = board(&[
+        (
+            SKYSHROUD_CLAIM,
+            &[Cell::SearchController, Cell::ShuffleController],
+        ),
+        (TEMPLE_GARDEN, &[]),
+        (BREEDING_POOL, &[]),
+    ])
+    .seats(seats)
+    .life(PlayerId(0), Quantity::from(starting))
+    .permanent_or_hand("Skyshroud Claim", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .library_card("Temple Garden", 0)
+    .library_card("Breeding Pool", 0)
+    .library_card("Forest", 1)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3, 4]);
+    let found = [5, 6].map(|id| Driver::object(&g, id));
+    (g, found)
+}
+
+fn offered_entrant(d: &Decision<Rules>) -> ObjectId {
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("{d:?}")
+    };
+    match slots[0].subject.map(|i| &d.candidates[i as usize]) {
+        Some(Candidate::Object { object }) => *object,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The found set is saved in object order whatever order the searcher
+/// picked it in, so at 3 life the lower object is the one offered.
+#[test]
+fn search_entry_found_cards_are_in_object_order() {
+    let (mut g, [garden, pool]) = claim(3, 2);
+    answer(&mut g, 0, Reason::SearchLibrary, &[pool, garden]);
+    let d = next_choice(&mut g);
+    assert_eq!(d.reason, Reason::OptionalEffect);
+    assert_eq!(offered_entrant(&d), garden);
+    let Frame::ResolutionChoice {
+        choice: ResolutionChoice::SearchEntry { found, .. },
+        ..
+    } = &g.state.rules.frame
+    else {
+        panic!()
+    };
+    assert_eq!(found, &vec![garden, pool]);
+}
+
+/// The pending payment binds to its entrant: replacing the found set under
+/// an accepted answer changes the offer, which the saved table rejects.
+#[test]
+fn a_pending_entry_payment_binds_to_its_entrant() {
+    let (mut g, [garden, pool]) = claim(40, 2);
+    answer(&mut g, 0, Reason::SearchLibrary, &[garden, pool]);
+    let d = next_choice(&mut g);
+    assert_eq!(offered_entrant(&d), garden);
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Flag { flag: Flag::Accept }).unwrap(),
+    )
+    .unwrap();
+    g.validate_state().unwrap();
+    let original = g.state.rules.frame.clone();
+    if let Frame::ResolutionChoice {
+        choice: ResolutionChoice::SearchEntry { found, .. },
+        ..
+    } = &mut g.state.rules.frame
+    {
+        *found = vec![pool];
+    }
+    assert!(
+        g.validate_state().is_err(),
+        "payment moved to another entrant"
+    );
+    g.state.rules.frame = original;
+    g.validate_state().unwrap();
+}
+
+/// CR 800.4a: after the searcher departs mid-entry, its saved payments must
+/// still answer the found entrants in order; skipping a payable entrant is
+/// rejected both while the concession is queued and after it.
+#[test]
+fn departed_search_entry_rejects_skipped_payments() {
+    let (mut g, [garden, pool]) = claim(40, 3);
+    answer(&mut g, 0, Reason::SearchLibrary, &[garden, pool]);
+    assert_eq!(next_choice(&mut g).reason, Reason::OptionalEffect);
+    let Frame::ResolutionChoice {
+        choice: ResolutionChoice::SearchEntry { source_block, .. },
+        ..
+    } = g.state.rules.frame.clone()
+    else {
+        panic!()
+    };
+    let forged = ResolutionChoice::SearchEntry {
+        player: PlayerId(0),
+        found: vec![garden, pool],
+        hosts: vec![],
+        paid: vec![(pool, true)],
+        source_block,
+    };
+    let unsorted = ResolutionChoice::SearchEntry {
+        player: PlayerId(0),
+        found: vec![pool, garden],
+        hosts: vec![],
+        paid: vec![],
+        source_block,
+    };
+    g.concede(PlayerId(0)).unwrap();
+    forged_choice_rejected(&mut g, &forged, "queued: skipped payable entrant");
+    forged_choice_rejected(&mut g, &unsorted, "queued: unsorted found set");
+    through_departure(&mut g, 0);
+    forged_choice_rejected(&mut g, &forged, "departed: skipped payable entrant");
+    forged_choice_rejected(&mut g, &unsorted, "departed: unsorted found set");
+}
+
+/// Zur the Enchanter attacks; seat 1 controls Grizzly Bears (card 8)
+/// unless it answers with Murder on Zur instead. Returns the game at the
+/// trigger's search.
+fn zur(murder: bool) -> Game {
+    let mut board = board(&[
+        (
+            ZUR_THE_ENCHANTER,
+            &[Cell::SearchController, Cell::ShuffleController],
+        ),
+        (PACIFISM, &[]),
+    ])
+    .permanent_or_hand("Zur the Enchanter", 0, 0, false)
+    .permanent_or_hand("Murder", 1, 1, true)
+    .permanent_or_hand("Swamp", 1, 1, false)
+    .permanent_or_hand("Swamp", 1, 1, false)
+    .permanent_or_hand("Swamp", 1, 1, false)
+    .library_card("Pacifism", 0)
+    .library_card("Grizzly Bears", 0)
+    .library_card("Forest", 1);
+    if !murder {
+        board = board.permanent_or_hand("Grizzly Bears", 1, 1, false);
+    }
+    let mut g = Game::with_trace(board.prepare(), TraceMode::Detailed);
+    let zur = Driver::object(&g, 0);
+    let mut responded = !murder;
+    for _ in 0..64 {
+        let r = Driver::request(&mut g, u64::MAX);
+        let answer = match &r.reason {
+            Reason::Priority
+                if !responded && r.player == PlayerId(1) && !g.state.rules.stack.is_empty() =>
+            {
+                responded = true;
+                Driver::cast(&mut g, CardId(1));
+                Driver::pick_object(&mut g, zur);
+                Driver::pay(&mut g, &[2, 3, 4]);
+                continue;
+            }
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            Reason::Attackers => r.attack(vec![(zur, PlayerId(1))]),
+            Reason::OptionalEffect if r.player == PlayerId(0) => {
+                r.pick_one(&Candidate::Flag { flag: Flag::Accept }).unwrap()
+            }
+            Reason::SearchLibrary => {
+                assert_eq!(g.zone(zur) == Some(Zone::Battlefield), !murder);
+                return g;
+            }
+            other => panic!("unexpected decision {other:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    panic!("Zur's trigger never searched")
+}
+
+/// Pass to the postcombat main phase, declaring no blockers.
+fn finish_combat(g: &mut Game) {
+    for _ in 0..64 {
+        let r = Driver::request(g, u64::MAX);
+        if g.state.rules.turn.step == TurnStep::PostcombatMain {
+            return;
+        }
+        let answer = match &r.reason {
+            Reason::Priority => mtg_witness::temporary::pass(&r),
+            Reason::Blockers => r.block(vec![]),
+            other => panic!("unexpected decision {other:?}"),
+        };
+        g.respond(r.player, r.id, answer).unwrap();
+    }
+    panic!("combat never ended")
+}
+
+/// "Whenever Zur attacks, you may search your library for an enchantment
+/// card with mana value 3 or less, put it onto the battlefield, then
+/// shuffle." CR 303.4f: Pacifism, put onto the battlefield without being
+/// cast, enchants a creature its controller chooses (not a target).
+#[test]
+fn zur_puts_pacifism_onto_a_chosen_creature() {
+    let mut g = zur(false);
+    let [zur, pacifism, bears] = [0, 5, 8].map(|id| Driver::object(&g, id));
+    answer(&mut g, 0, Reason::SearchLibrary, &[pacifism]);
+    let d = next_choice(&mut g);
+    assert_eq!(
+        (d.player, &d.reason),
+        (PlayerId(0), &Reason::EntryAttachment)
+    );
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("{d:?}")
+    };
+    assert_eq!(
+        slots[0].subject.map(|i| d.candidates[i as usize].clone()),
+        Some(Candidate::Object { object: pacifism })
+    );
+    let hosts: std::collections::BTreeSet<_> = slots[0]
+        .allowed
+        .iter()
+        .map(|i| match &d.candidates[*i as usize] {
+            Candidate::Object { object } => *object,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        hosts,
+        std::collections::BTreeSet::from([zur, bears]),
+        "both creatures"
+    );
+    assert!(library_view(&g, 1).is_empty());
+    checked(&g);
+    assert_recoverable((&g).into());
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Object { object: bears }).unwrap(),
+    )
+    .unwrap();
+    finish_combat(&mut g);
+    let pacifism = g.current(Driver::object(&g, 5)).unwrap().clone();
+    assert_eq!(pacifism.zone, Zone::Battlefield);
+    assert_eq!(pacifism.controller, PlayerId(0));
+    assert_eq!(pacifism.attached_to, Some(bears));
+    assert_eq!(shuffles(&g, 0), 1);
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
+/// CR 303.4g: with Zur destroyed in response and no other creature,
+/// Pacifism has nothing to enchant, so it stays in the library, which is
+/// still shuffled.
+#[test]
+fn zur_leaves_pacifism_in_the_library_without_a_creature_to_enchant() {
+    let mut g = zur(true);
+    let pacifism = Driver::object(&g, 5);
+    answer(&mut g, 0, Reason::SearchLibrary, &[pacifism]);
+    finish_combat(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 5)),
+        Some(Zone::Library { owner: PlayerId(0) })
+    );
+    assert_eq!(shuffles(&g, 0), 1);
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
+/// CR 304.4, 307.4: an unrestricted search onto the battlefield (Rampant
+/// Growth's IR edited to "two cards, untapped"; no printed card finds an
+/// instant or sorcery for the battlefield) puts the shockland there while
+/// the sorcery it found stays in the library. A sorcery on the battlefield
+/// never validates.
+#[test]
+fn a_battlefield_search_leaves_a_found_sorcery_in_the_library() {
+    let mut catalog = catalog(&[
+        (
+            RAMPANT_GROWTH,
+            &[Cell::SearchController, Cell::ShuffleController],
+        ),
+        (HALLOWED_FOUNTAIN, &[]),
+    ]);
+    let growth = identity_in(&catalog, "Rampant Growth");
+    let definition = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.oracle_id == growth)
+        .unwrap();
+    let mut value = serde_json::to_value(&*definition).unwrap();
+    fn unrestrict(value: &mut serde_json::Value) -> usize {
+        match value {
+            serde_json::Value::Object(fields) => {
+                let here = match fields.get_mut("search") {
+                    Some(serde_json::Value::Object(search)) if search.contains_key("to") => {
+                        search.insert("filter".into(), serde_json::json!([]));
+                        search.insert(
+                            "maximum".into(),
+                            serde_json::json!({"amount": "fixed", "value": "2"}),
+                        );
+                        search["to"].as_object_mut().unwrap().remove("tapped");
+                        1
+                    }
+                    _ => 0,
+                };
+                here + fields.values_mut().map(unrestrict).sum::<usize>()
+            }
+            serde_json::Value::Array(items) => items.iter_mut().map(unrestrict).sum(),
+            _ => 0,
+        }
+    }
+    assert_eq!(unrestrict(&mut value), 1);
+    *definition = serde_json::from_value(value).unwrap();
+    let prepared = Board::new(catalog, "r4-library-witness")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .seed(SEED)
+        .permanent_or_hand("Rampant Growth", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .library_card("Hallowed Fountain", 0)
+        .library_card("Rampant Growth", 0)
+        .library_card("Grizzly Bears", 0)
+        .library_card("Forest", 1)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let found = objects(&g, &[3, 4]);
+    let d = answer(&mut g, 0, Reason::SearchLibrary, &found);
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("{d:?}")
+    };
+    assert_eq!((slots[0].min, slots[0].max), (2, 2));
+    entry_payment(&mut g, true);
+    settle(&mut g);
+    assert_eq!(g.zone(Driver::object(&g, 3)), Some(Zone::Battlefield));
+    assert_eq!(
+        g.zone(Driver::object(&g, 4)),
+        Some(Zone::Library { owner: PlayerId(0) })
+    );
+    assert_eq!(shuffles(&g, 0), 1);
+
+    // A forged sorcery permanent: the found Rampant Growth on the battlefield.
+    let sorcery = Driver::object(&g, 4);
+    let object = g.state.rules.objects.get_mut(&sorcery.card).unwrap();
+    object.zone = Zone::Battlefield;
+    for library in g.state.rules.libraries.values_mut() {
+        library.retain(|card| *card != sorcery.card);
+    }
+    assert!(g.validate_state().is_err(), "sorcery on the battlefield");
 }

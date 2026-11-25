@@ -1761,6 +1761,16 @@ impl RulesTxn {
         };
         let destination = &replaced;
         let o = self.current(*object)?.clone();
+        // CR 304.4, 307.4: an instant or sorcery card never enters the
+        // battlefield; a rule that would put one there leaves it in place.
+        if *destination == Zone::Battlefield
+            && matches!(
+                self.definition(object.card)?.characteristics.kind,
+                CardKind::Instant | CardKind::Sorcery
+            )
+        {
+            return Err("an instant or sorcery cannot enter the battlefield".into());
+        }
         // CR 111.8: once a token has left the battlefield it cannot move again.
         if self
             .state
@@ -2085,7 +2095,12 @@ impl RulesTxn {
                 let source = self.current(*object)?;
                 {
                     let characteristics = self.structural_characteristics(*object)?;
-                    if source.zone != Zone::Stack
+                    // CR 303.4f: an Aura entering without being cast (from its
+                    // owner's library, by a search) enchants a chosen object it
+                    // could enchant; that choice does not target.
+                    let owner = self.state.rules.cards[&object.card].owner;
+                    let chosen = source.zone == (Zone::Library { owner });
+                    if !(source.zone == Zone::Stack || chosen)
                         || characteristics.kind != CardKind::Enchantment
                         || characteristics.subtypes != ["Aura"]
                         || !self.is_live(source.controller)
@@ -2093,17 +2108,26 @@ impl RulesTxn {
                         || !self
                             .current(*target)
                             .is_ok_and(|o| o.present_on_battlefield() && self.is_live(o.controller))
-                        || !self.targetable_by(*target, source.controller)
+                        || (!chosen && !self.targetable_by(*target, source.controller))
                         || self.protected_from(*target, &characteristics)
                     {
                         return Err("invalid attached Aura entry".into());
                     }
                 }
+                let force_tapped = matches!(authority, BatchAuthority::BattlefieldEntry { entries }
+                    if entries.iter().any(|(entrant, entry)| entrant == object
+                        && matches!(entry, EntryOverride::ForceTapped)));
                 // Check allocation before movement/LKI writes, even for direct
                 // private application; the batch/rule-step owns full rollback.
                 let (attachment_timestamp, next) = self.next_attachment_allocation()?;
-                let EventOutcome::Moved { movement } =
-                    self.apply_move(*object, Zone::Battlefield, None, entry_state, false, None)?
+                let EventOutcome::Moved { movement } = self.apply_move(
+                    *object,
+                    Zone::Battlefield,
+                    None,
+                    entry_state,
+                    force_tapped,
+                    None,
+                )?
                 else {
                     return Err("attached entry movement invariant".into());
                 };
