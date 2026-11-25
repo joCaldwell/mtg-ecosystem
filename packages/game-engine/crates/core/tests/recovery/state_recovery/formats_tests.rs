@@ -23,8 +23,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "069e4186a70e0a1d45a8a55a1ae2f679459462ac5ff4d4ddb98b7a25449433a2",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    86,
-    "dcef367b6fdfe442e555a5b014a30db86829e467b3c9ce7cfdb44b406694ebe9",
+    87,
+    "7353cfe93089aec67b4e76292ed6b784b7523b1f53a995c7e6e0cdfdbb1cac5f",
 );
 const WORK_PIN: (u32, &str) = (
     53,
@@ -253,12 +253,35 @@ fn mid_resolution() -> Game {
     game
 }
 
+fn suspended_battlefield_entry() -> Game {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let land = catalog.definitions.iter_mut().find(|d| d.name == "Forest").unwrap();
+    land.source_labels = None;
+    land.static_abilities.push(StaticAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        effect: StaticEffect::PayLifeOrEnterTapped { amount: 2.into() },
+    });
+    land.capabilities = land.requirements();
+    let mut game = Game::new(
+        Board::new(catalog, "snapshot-entry-choice")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Forest", 0, 0, true)
+            .libraries("Forest", 4)
+            .prepare(),
+    );
+    let object = Driver::object(&game, 0);
+    Driver::action(&mut game, Action::PlayLand { object });
+    assert_eq!(Driver::request(&mut game, u64::MAX).reason, Reason::OptionalEffect);
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
         .into_iter()
         .chain([
             mid_resolution(),
+            suspended_battlefield_entry(),
             super::kernel_control_tests::suspended_control(),
         ])
         .chain(mana_riders())

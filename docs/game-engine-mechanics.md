@@ -344,6 +344,21 @@ prevents destruction before replacement; generic departures never imply dies
 triggers. Typed land search may find zero (CR 701.23b); found lands enter
 simultaneously without reveal, then the library shuffles.
 
+## Battlefield entry replacements
+
+A permanent's own entry replacement sets the tapped state or adds a fixed
+number of +1/+1 counters to the new incarnation before entry triggers and
+state-based checks (CR 122.6, 614.1c, 614.12). Conditional tapped entry can
+count permanents controlled by the incoming controller, using their current
+structural characteristics, or count that controller's live opponents. The
+entering permanent cannot contribute to its own count. Simultaneous entry
+uses the common prior battlefield and ordered entry sees earlier moves.
+The same replacement path applies to land plays and moves from other zones.
+A supported land may ask its incoming controller to pay a fixed life cost
+or enter tapped. The entry continuation suspends before mutation and commits
+the chosen payment and entry together. It omits the offer when the
+controller cannot pay (CR 119.4). A land play still requires a land in hand.
+
 ## Keywords, attachments and temporary effects
 
 Battlefield static abilities use KIR scopes, predicates, conditions and

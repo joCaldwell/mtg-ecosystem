@@ -200,6 +200,7 @@ macro_rules! frame_walk {
                 }
                 | Frame::CleanupClear
                 | Frame::Draw
+                | Frame::BattlefieldEntry { entry: _ }
                 | Frame::Priority
                 | Frame::Transition
                 | Frame::EnterStep
@@ -222,6 +223,7 @@ macro_rules! frame_parent {
             Self::Stabilize { resume, .. } | Self::LegendRule { resume, .. } => {
                 Some((resume, Hold::Resolving))
             }
+            Self::BattlefieldEntry { entry } => Some((&$($mutable)? entry.resume, Hold::Resolving)),
             Self::ManaSourceChoice { resume, .. } => Some((resume, Hold::Suspended)),
             Self::ManaAbility { activation } => Some((&$($mutable)? activation.resume, Hold::Suspended)),
             Self::GraveyardGroup { tx } => match &$($mutable)? tx.finish {
@@ -414,6 +416,7 @@ impl Frame {
                 changed: _,
             }
             | Frame::Draw
+            | Frame::BattlefieldEntry { entry: _ }
             | Frame::Priority
             | Frame::Transition
             | Frame::EnterStep

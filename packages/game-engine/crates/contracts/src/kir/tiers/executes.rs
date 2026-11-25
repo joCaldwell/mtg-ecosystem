@@ -548,7 +548,20 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
         // CR 302, 208: a creature card has printed power and toughness.
         CardKind::Creature => {
             c.power.is_some()
-                && c.toughness.as_ref().is_some_and(|n| *n > Quantity::zero())
+                && c.toughness.as_ref().is_some_and(|n| {
+                    if *n > Quantity::zero() {
+                        return true;
+                    }
+                    // CR 122.6 and 704.5f: entry counters contribute before
+                    // the first state-based toughness check.
+                    let mut entry_toughness = n.clone();
+                    for ability in &d.static_abilities {
+                        if let kir::StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
+                            entry_toughness.add(count);
+                        }
+                    }
+                    entry_toughness > Quantity::zero()
+                })
                 && d.intrinsic_zone.is_none()
                 && d.spell.as_ref().is_some_and(permanent_spell)
         }
@@ -597,6 +610,14 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
             Context::Spell,
             None,
         )?;
+    }
+    if d.static_abilities
+        .iter()
+        .filter(|a| matches!(a.effect, kir::StaticEffect::PayLifeOrEnterTapped { .. }))
+        .count()
+        > 1
+    {
+        return cell("static", "multiple_entry_life_payments");
     }
     for a in &d.static_abilities {
         a.validate_static(d)?;

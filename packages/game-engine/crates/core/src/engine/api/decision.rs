@@ -54,6 +54,7 @@ impl RulesTxn {
                 return self.sacrifice_request();
             }
             Frame::LegendRule { .. } => return self.legend_request(),
+            Frame::BattlefieldEntry { entry } => return self.battlefield_entry_request(entry),
             Frame::Priority => self.priority_decision(self.state.rules.priority)?,
             Frame::TriggerTargets { .. } if !self.top_has_target_domain()? => return Ok(None),
             Frame::TriggerTargets { .. }

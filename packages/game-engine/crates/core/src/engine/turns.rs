@@ -68,28 +68,15 @@ impl RulesTxn {
     ) -> Result<(), String> {
         self.validate_land_play(player, card)?;
         let object = self.object_id(card).ok_or("missing land source")?;
-        self.commit_batch(
+        self.begin_battlefield_entry(
+            object,
             BatchCause::LandPlay {
                 player,
                 decision_id,
                 source: object,
             },
-            EventGroup::Ordered {
-                children: vec![
-                    EventGroup::Occurrence {
-                        proposed: ProposedEvent::Move {
-                            object,
-                            destination: Zone::Battlefield,
-                        },
-                    },
-                    EventGroup::Occurrence {
-                        proposed: ProposedEvent::LandPlayed { player },
-                    },
-                ],
-            },
-        )?;
-        self.rules_mut().passes.clear();
-        Ok(self.stabilize()?)
+            Frame::Priority,
+        )
     }
     // CR 500.5, 106.4: pools empty at each step/phase ending. CR 500-514:
     // transition and entry work are separate serializable, budgeted frames.

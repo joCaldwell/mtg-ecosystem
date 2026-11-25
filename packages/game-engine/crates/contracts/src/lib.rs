@@ -202,6 +202,9 @@ pub enum Capability {
     UntapControllerLandsV1,
     StepBeginningTriggerV1,
     EntersTappedV1,
+    EntryLifePaymentV1,
+    ConditionalEntryTappedV1,
+    EntryPlusOneCountersV1,
 
     TypedNonbasicIntrinsicManaV1,
     FlashV1,
