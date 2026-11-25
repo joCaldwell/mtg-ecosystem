@@ -226,6 +226,8 @@ pub enum Capability {
 
     TemporaryPowerToughnessV1,
     TemporaryCombatProhibitionV1,
+    ResolvedControlV1,
+    ResolvedCharacteristicsV1,
 
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
@@ -1857,6 +1859,7 @@ pub fn supported_temporary_keywords(keywords: &[KeywordAbility]) -> bool {
                     | KeywordAbility::Lifelink
                     | KeywordAbility::Hexproof
                     | KeywordAbility::Haste
+                    | KeywordAbility::Menace
                     | KeywordAbility::Trample
                     | KeywordAbility::FirstStrike
             ) && !keywords[..index].contains(keyword)

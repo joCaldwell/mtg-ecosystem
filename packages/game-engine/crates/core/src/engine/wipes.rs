@@ -308,6 +308,9 @@ impl RulesTxn {
             ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
             | ResolvedEffectKind::PumpSet { targets, .. }
             | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
+            | ResolvedEffectKind::GainControl { targets, .. }
+            | ResolvedEffectKind::SetCharacteristics { targets, .. }
+            | ResolvedEffectKind::PumpAnnouncedX { targets, .. }
             | ResolvedEffectKind::ExileDamaged { targets } => targets,
             _ => return Err("not set effect".into()),
         };
@@ -442,7 +445,7 @@ impl RulesTxn {
                                 | CardKind::Enchantment
                                 | CardKind::Land
                         ),
-                        _ => d.characteristics.kind == CardKind::Creature,
+                        _ => self.historical_creature_possible(&d.characteristics),
                     })
             })
     }
@@ -518,7 +521,7 @@ impl RulesTxn {
                     !self.state.rules.cards.contains_key(&object.card)
                         || !self
                             .copiable_definition(object)
-                            .is_ok_and(|d| d.characteristics.kind == CardKind::Creature)
+                            .is_ok_and(|d| self.historical_creature_possible(&d.characteristics))
                 }
             })
             || match damage.amount {

@@ -392,10 +392,9 @@ impl RulesTxn {
         Ok(Some(hosts))
     }
 
-    /// CR 303.4a: by printed types, the Aura card `aura` could enchant the
-    /// card `host`; both are read from their printed definitions, so this
-    /// holds after either has left the game.
-    fn printed_host_compatible(&self, aura: CardId, host: CardId) -> Result<bool, String> {
+    /// CR 303.4a: check whether a departed host could have been legal.
+    /// Replay authenticates the selected host and its layered types.
+    fn historical_host_compatible(&self, aura: CardId, host: CardId) -> Result<bool, String> {
         let printed = &self.definition(host)?.characteristics;
         Ok(self
             .definition(aura)?
@@ -403,7 +402,7 @@ impl RulesTxn {
             .as_ref()
             .and_then(|spell| spell.targets.first())
             .is_some_and(|spec| match spec.domain {
-                TargetDomain::BattlefieldCreature => printed.has_type(CardKind::Creature),
+                TargetDomain::BattlefieldCreature => self.historical_creature_possible(printed),
                 TargetDomain::BattlefieldPermanent => spec.filter.as_ref().is_some_and(|filter| {
                     filter.types.is_empty()
                         || filter.types.iter().any(|kind| printed.has_type(*kind))
@@ -474,7 +473,7 @@ impl RulesTxn {
                             .cards
                             .get(&host.card)
                             .is_some_and(|card| !self.is_live(card.owner))
-                            && self.printed_host_compatible(object.card, host.card)?
+                            && self.historical_host_compatible(object.card, host.card)?
                     }
                 };
                 if !chosen {
@@ -565,7 +564,7 @@ impl RulesTxn {
                 Some(current) => {
                     current.id == *host
                         && current.present_on_battlefield()
-                        && self.printed_host_compatible(aura.card, host.card)?
+                        && self.attachment_target_type_valid(*aura, *host)?
                         && !self.protected_from(*host, printed)
                 }
                 None => {
@@ -574,7 +573,7 @@ impl RulesTxn {
                         .cards
                         .get(&host.card)
                         .is_some_and(|card| !self.is_live(card.owner))
-                        && self.printed_host_compatible(aura.card, host.card)?
+                        && self.historical_host_compatible(aura.card, host.card)?
                 }
             };
             if !chosen {

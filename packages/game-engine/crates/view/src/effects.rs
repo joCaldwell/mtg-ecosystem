@@ -1,5 +1,5 @@
 use super::*;
-use mtg_contracts::kir::{CombatProhibitionScope, CombatRequirement};
+use mtg_contracts::kir::{CharacteristicSet, CombatProhibitionScope, CombatRequirement};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct EffectHandle(pub String);
@@ -142,6 +142,19 @@ visible_effects! {
         origin: VisibleEffectSource<O> => nested,
         affects: CombatProhibitionScope<VisibleTarget<O>> => combat_scope,
         restriction: CombatRequirement,
+        expires_in_cleanup_of_turn: u64,
+    },
+    GainControl(handle) {
+        origin: VisibleEffectSource<O> => nested,
+        targets: Vec<VisibleTarget<O>> => targets,
+        controller: PlayerId,
+        while_source_remains: bool,
+        expires_in_cleanup_of_turn: Option<u64>,
+    },
+    SetCharacteristics(handle) {
+        origin: VisibleEffectSource<O> => nested,
+        targets: Vec<VisibleTarget<O>> => targets,
+        values: CharacteristicSet,
         expires_in_cleanup_of_turn: u64,
     },
     ModifyPowerToughness(handle) {

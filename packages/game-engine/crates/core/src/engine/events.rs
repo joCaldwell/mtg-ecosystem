@@ -174,6 +174,8 @@ pub struct ControlBefore {
     pub objects: Vec<ObjectBefore>,
     pub attachments: Vec<AttachmentBefore>,
     pub(super) effects: Vec<ControlEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) resolved_grants: Vec<ResolvedEffect>,
     pub live_players: Vec<PlayerId>,
     pub next_attachment_timestamp: u64,
 }
@@ -317,7 +319,9 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
             | ProposedEvent::EnterAttached { .. }
             | ProposedEvent::Attach { .. }
             | ProposedEvent::ReversePermanentMana { .. }
-    )
+            | ProposedEvent::CleanupEffects
+    ) || matches!(event, ProposedEvent::CreateEffect { effect }
+            if matches!(effect.kind, ResolvedEffectKind::GainControl { .. }))
 }
 
 fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSet<FactKey>) {
@@ -704,6 +708,14 @@ fn collect<'a>(
 }
 impl RulesTxn {
     pub(crate) fn control_before(&self) -> Result<Option<Box<ControlBefore>>, String> {
+        let resolved_grants = self
+            .state
+            .rules
+            .effects
+            .iter()
+            .filter(|effect| matches!(effect.kind, ResolvedEffectKind::GainControl { .. }))
+            .cloned()
+            .collect::<Vec<_>>();
         let objects = self
             .state
             .rules
@@ -712,6 +724,7 @@ impl RulesTxn {
             .filter(|object| object.zone == Zone::Battlefield)
             .collect::<Vec<_>>();
         if self.state.rules.control_effects.is_empty()
+            && resolved_grants.is_empty()
             && objects
                 .iter()
                 .all(|object| self.is_live(object.default_controller))
@@ -733,6 +746,7 @@ impl RulesTxn {
                 })
                 .collect(),
             effects: self.state.rules.control_effects.clone(),
+            resolved_grants,
             live_players: self.live_players(),
             next_attachment_timestamp: self.state.rules.next_attachment_timestamp,
         })))
@@ -948,6 +962,9 @@ impl RulesTxn {
                         ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
                         | ResolvedEffectKind::PumpSet { targets, .. }
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
+                        | ResolvedEffectKind::GainControl { targets, .. }
+                        | ResolvedEffectKind::SetCharacteristics { targets, .. }
+                        | ResolvedEffectKind::PumpAnnouncedX { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
                         | ResolvedEffectKind::ModifyPowerToughness { target, .. }

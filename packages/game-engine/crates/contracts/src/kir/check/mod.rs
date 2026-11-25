@@ -679,6 +679,7 @@ impl Walk<'_, '_> {
                 self.set(what)?;
                 self.player(controller)
             }
+            Verb::SetCharacteristics { what, .. } => self.set(what),
             Verb::Attach { what, to } => {
                 self.expect(what, &[RefKind::Object], "attachment")?;
                 self.expect(to, &[RefKind::Object], "attachment host")
@@ -708,6 +709,9 @@ impl Walk<'_, '_> {
                         self.amount(power)?;
                         self.amount(toughness)
                     }
+                    Change::PowerToughnessX { .. } => self
+                        .expect(&Ref::AnnouncedX, &[RefKind::Number], "announced pump X")
+                        .map(drop),
                     Change::AddKeywords { keywords } | Change::RemoveKeywords { keywords } => {
                         if keywords.is_empty() {
                             return kind("empty keyword change");
@@ -953,7 +957,11 @@ impl Walk<'_, '_> {
         match verb {
             // These executors authenticate against top-level instructions
             // after the temporary leaf program has been removed.
-            Verb::CreateTokens { .. } | Verb::ModifyUntil { .. } | Verb::RestrictCombat { .. } => {
+            Verb::CreateTokens { .. }
+            | Verb::ModifyUntil { .. }
+            | Verb::RestrictCombat { .. }
+            | Verb::GainControl { .. }
+            | Verb::SetCharacteristics { .. } => {
                 unaudited("nested leaf needs persistent provenance")
             }
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
@@ -1077,6 +1085,16 @@ impl Walk<'_, '_> {
                 change,
                 until,
             } => self.audit_modify(what, *layer, change, *until),
+            Verb::GainControl {
+                what,
+                controller,
+                until,
+            } => self.audit_gain_control(what, controller, *until),
+            Verb::SetCharacteristics {
+                what,
+                values,
+                until,
+            } => self.audit_characteristic_set(what, values, *until),
             Verb::RestrictCombat {
                 affects,
                 restriction,
@@ -1098,7 +1116,6 @@ impl Walk<'_, '_> {
             | Verb::AddMana { .. }
             | Verb::Counter { .. }
             | Verb::CopyStackObject { .. }
-            | Verb::GainControl { .. }
             | Verb::Attach { .. }
             | Verb::CreateDelayedTrigger { .. }
             | Verb::PlayPermission { .. }
@@ -1181,6 +1198,12 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::CreateTokens { token, .. } => tokens::capabilities(token, out),
         Verb::PutCounters { counter, .. } => counters::capabilities(counter, out),
         Verb::ModifyUntil { what, change, .. } => modify::capabilities(what, change, out),
+        Verb::GainControl { .. } => {
+            out.insert(Capability::ResolvedControlV1);
+        }
+        Verb::SetCharacteristics { .. } => {
+            out.insert(Capability::ResolvedCharacteristicsV1);
+        }
         Verb::RestrictCombat { .. } => {
             out.insert(Capability::TemporaryCombatProhibitionV1);
         }
@@ -1194,7 +1217,6 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::Search { .. }
         | Verb::Counter { .. }
         | Verb::CopyStackObject { .. }
-        | Verb::GainControl { .. }
         | Verb::Attach { .. }
         | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }

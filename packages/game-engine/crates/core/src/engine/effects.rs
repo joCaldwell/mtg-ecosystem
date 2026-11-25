@@ -8,9 +8,9 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{
-    Allowance, Amount, Atom, Change, Cmp, CombatProhibitionScope, CombatRequirement, Cond,
-    HandSizeChange, Layer, PlayerExpr, Pred, Ref, Scope, SetExpr, SpellCostChange, StaticRule,
-    ZoneExpr,
+    Allowance, Amount, Atom, Change, CharacteristicSet, Cmp, CombatProhibitionScope,
+    CombatRequirement, Cond, HandSizeChange, Layer, PlayerExpr, Pred, Ref, Scope, SetExpr,
+    SpellCostChange, StaticRule, Until, ZoneExpr,
 };
 
 macro_rules! effect_id {
@@ -66,13 +66,26 @@ impl ResolvedEffect {
     }
     fn extends_beyond_creation_turn(&self) -> bool {
         self.lasts_until_controller_turn()
+            || matches!(
+                self.kind,
+                ResolvedEffectKind::GainControl {
+                    until: Until::Indefinite | Until::SourceLeaves,
+                    ..
+                }
+            )
     }
 
     fn survives_cleanup(&self, owner: PlayerId, turn: u64) -> bool {
-        self.extends_beyond_creation_turn()
+        matches!(
+            self.kind,
+            ResolvedEffectKind::GainControl {
+                until: Until::Indefinite | Until::SourceLeaves,
+                ..
+            }
+        ) || (self.extends_beyond_creation_turn()
             && (self.lasts_until_controller_turn()
                 || self.origin.controller != owner
-                || self.expires_in_cleanup_of_turn == turn)
+                || self.expires_in_cleanup_of_turn == turn))
     }
 
     pub(super) fn additional_land_plays(&self, player: PlayerId, turn: u64) -> Option<&Quantity> {
@@ -118,6 +131,21 @@ pub enum ResolvedEffectKind {
     CombatProhibition {
         affects: CombatProhibitionScope<ObjectId>,
         restriction: CombatRequirement,
+    },
+    GainControl {
+        targets: Vec<ObjectId>,
+        controller: PlayerId,
+        until: Until,
+    },
+    SetCharacteristics {
+        targets: Vec<ObjectId>,
+        values: CharacteristicSet,
+        timestamp: u64,
+    },
+    PumpAnnouncedX {
+        targets: Vec<ObjectId>,
+        x: Quantity,
+        modifier: CreatureStatModifier,
     },
 
     ModifyPowerToughness {
@@ -220,22 +248,49 @@ fn static_compare(left: &Quantity, cmp: Cmp, right: &Quantity) -> bool {
 // CR 613.7m: simultaneous entrants with a conflicting setter would
 // need a player's timestamp choice. Only ordered or commuting setters are
 // admitted at this boundary.
-fn latest_static_setter(changes: &[(u64, &Change)]) -> Result<Option<Change>, String> {
-    let Some(&(latest, change)) = changes.last() else {
-        return Ok(None);
-    };
-    if changes
-        .iter()
-        .rev()
-        .take_while(|(time, _)| *time == latest)
-        .any(|(_, other)| *other != change)
-    {
+fn latest_setter<T: PartialEq>(
+    setters: impl Iterator<Item = (u64, T)>,
+) -> Result<Option<T>, String> {
+    let mut latest = None;
+    let mut conflicts = false;
+    for (time, value) in setters {
+        match &latest {
+            Some((previous, _)) if time < *previous => {}
+            Some((previous, earlier)) if time == *previous => conflicts |= *earlier != value,
+            _ => {
+                latest = Some((time, value));
+                conflicts = false;
+            }
+        }
+    }
+    if conflicts {
         return Err("simultaneous continuous setters require timestamp order".into());
     }
-    Ok(Some(change.clone()))
+    Ok(latest.map(|(_, value)| value))
 }
 
 impl RulesTxn {
+    pub(super) fn resolved_characteristic_sets(
+        &self,
+        object: ObjectId,
+    ) -> impl Iterator<Item = (u64, &CharacteristicSet)> {
+        let present = self
+            .current(object)
+            .is_ok_and(|o| o.present_on_battlefield());
+        self.state
+            .rules
+            .effects
+            .iter()
+            .filter_map(move |effect| match &effect.kind {
+                ResolvedEffectKind::SetCharacteristics {
+                    targets,
+                    values,
+                    timestamp,
+                } if present && targets.contains(&object) => Some((*timestamp, values)),
+                _ => None,
+            })
+    }
+
     fn static_player(&self, expr: &PlayerExpr, controller: PlayerId, player: PlayerId) -> bool {
         match expr {
             PlayerExpr::EachPlayer => self.is_live(player),
@@ -528,6 +583,8 @@ impl RulesTxn {
                 .min()
                 .expect("checked static changes");
             let facts = match first {
+                // CR 613.8: admitted layer-4 static scopes cannot read any
+                // type or subtype that another admitted layer-4 effect changes.
                 Layer::Type => self
                     .copiable_definition(target.id)
                     .map(|d| std::borrow::Cow::Borrowed(&d.characteristics)),
@@ -718,12 +775,44 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    pub(super) fn structural_characteristics(
+    fn resolved_type_layer(
         &self,
         object: ObjectId,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let mut facts =
             std::borrow::Cow::Borrowed(&self.copiable_definition(object)?.characteristics);
+        // CR 613.7b: retained rows are in creation order, including
+        // replacement of the creature subtypes added by an earlier row.
+        for (_, values) in self.resolved_characteristic_sets(object) {
+            let Some(animation) = &values.animation else {
+                continue;
+            };
+            let facts = facts.to_mut();
+            for kind in [CardKind::Creature, CardKind::Artifact] {
+                if (kind == CardKind::Creature || animation.add_artifact) && !facts.has_type(kind) {
+                    facts.additional_types.push(kind);
+                }
+            }
+            facts.additional_types.sort_unstable();
+            if animation.replace_creature_subtypes {
+                facts
+                    .subtypes
+                    .retain(|s| !mtg_contracts::kir::is_creature_subtype(s));
+            }
+            for subtype in &animation.creature_subtypes {
+                if !facts.subtypes.contains(subtype) {
+                    facts.subtypes.push(subtype.clone());
+                }
+            }
+        }
+        Ok(facts)
+    }
+
+    pub(super) fn structural_characteristics(
+        &self,
+        object: ObjectId,
+    ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
+        let mut facts = self.resolved_type_layer(object)?;
         for (_, change) in self.static_changes(object, Layer::Type, None) {
             if let Change::AddTypes { kinds } = change {
                 for kind in kinds {
@@ -751,10 +840,20 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<std::borrow::Cow<'_, Characteristics>, String> {
         let mut facts = self.structural_characteristics(object)?;
-        if let Some(Change::SetColors { colors }) =
-            latest_static_setter(&self.static_changes(object, Layer::Color, sources))?
-        {
-            facts.to_mut().colors = colors;
+        let statics = self.static_changes(object, Layer::Color, sources);
+        let colors = statics
+            .into_iter()
+            .filter_map(|(time, change)| match change {
+                Change::SetColors { colors } => Some((time, colors)),
+                _ => None,
+            });
+        let resolved = self
+            .resolved_characteristic_sets(object)
+            .filter_map(|(time, values)| Some((time, values.colors.as_ref()?)));
+        // CR 613.8a: static color scopes cannot read colors, and a
+        // resolved setter always affects its captured objects.
+        if let Some(colors) = latest_setter(colors.chain(resolved))? {
+            facts.to_mut().colors.clone_from(colors);
         }
         Ok(facts)
     }
@@ -773,11 +872,41 @@ impl RulesTxn {
         sources: Option<&[CardId]>,
     ) -> Result<Characteristics, String> {
         let mut c = self.color_layer_with_sources(object, sources)?.into_owned();
-        if let Some(Change::SetPowerToughness { power, toughness }) =
-            latest_static_setter(&self.static_changes(object, Layer::PowerToughnessSet, sources))?
-        {
-            c.power = power.as_fixed().cloned();
-            c.toughness = toughness.as_fixed().cloned();
+        if c.has_type(CardKind::Creature) {
+            let statics = self.static_changes(object, Layer::PowerToughnessSet, sources);
+            // CR 613.4b: a setter can leave either characteristic alone.
+            // Neither supported kind reads a layer-7 result (CR 613.8a).
+            let base = |power_stat| {
+                let fixed = statics.iter().filter_map(|(time, change)| {
+                    let Change::SetPowerToughness { power, toughness } = change else {
+                        return None;
+                    };
+                    Some((
+                        *time,
+                        if power_stat { power } else { toughness }.as_fixed()?,
+                    ))
+                });
+                let resolved =
+                    self.resolved_characteristic_sets(object)
+                        .filter_map(|(time, values)| {
+                            Some((
+                                time,
+                                if power_stat {
+                                    &values.base_power
+                                } else {
+                                    &values.base_toughness
+                                }
+                                .as_ref()?,
+                            ))
+                        });
+                latest_setter(fixed.chain(resolved)).map(|value| value.cloned())
+            };
+            if let Some(power) = base(true)? {
+                c.power = Some(power);
+            }
+            if let Some(toughness) = base(false)? {
+                c.toughness = Some(toughness);
+            }
         }
         // CR 122.1a / 613.4c: counters and additive effects share layer 7c.
         if let Ok(o) = self.current(object) {
@@ -812,8 +941,14 @@ impl RulesTxn {
                 targets,
                 modifier: Some(CreatureStatModifier { power, toughness }),
                 ..
+            }
+            | ResolvedEffectKind::PumpAnnouncedX {
+                targets,
+                modifier: CreatureStatModifier { power, toughness },
+                ..
             } = &e.kind
                 && targets.contains(&object)
+                && c.has_type(CardKind::Creature)
             {
                 c.power.as_mut().ok_or("set power")?.add(power);
                 c.toughness.as_mut().ok_or("set toughness")?.add(toughness);
@@ -829,6 +964,7 @@ impl RulesTxn {
                 ..
             } = &e.kind
                 && *target == object
+                && c.has_type(CardKind::Creature)
             {
                 c.power
                     .as_mut()
@@ -1508,6 +1644,29 @@ impl RulesTxn {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        Instruction::Kernel {
+                            node: mtg_contracts::kir::Node::Do(verb),
+                            source_block,
+                        },
+                        kind @ (ResolvedEffectKind::GainControl { .. }
+                        | ResolvedEffectKind::SetCharacteristics { .. }
+                        | ResolvedEffectKind::PumpAnnouncedX { .. }),
+                    ) => {
+                        *source_block == effect.origin.source_block
+                            && self
+                                .continuous_kind(
+                                    frame,
+                                    verb,
+                                    self.state
+                                        .rules
+                                        .next_batch_id
+                                        .checked_sub(1)
+                                        .ok_or("missing effect creation batch")?,
+                                )?
+                                .as_ref()
+                                == Some(kind)
+                    }
+                    (
                         kernel!(RestrictCombat { affects, restriction, .. } @ source_block),
                         kind @ ResolvedEffectKind::CombatProhibition { .. },
                     ) => {
@@ -1600,8 +1759,12 @@ impl RulesTxn {
                     ResolvedEffectKind::RemoveIndestructibleSet { targets, .. }
                     | ResolvedEffectKind::PumpSet { targets, .. }
                     | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
+                    | ResolvedEffectKind::GainControl { targets, .. }
+                    | ResolvedEffectKind::SetCharacteristics { targets, .. }
+                    | ResolvedEffectKind::PumpAnnouncedX { targets, .. }
                     | ResolvedEffectKind::ExileDamaged { targets } => {
-                        effect.target_handles.len() == targets.len() * 4
+                        targets.len() <= self.event_group_limit()
+                            && effect.target_handles.len() == targets.len() * 4
                             && targets.iter().enumerate().all(|(i, o)| {
                                 (0..4).all(|v| {
                                     self.object_handle_id(PlayerId(v), *o)
@@ -1825,13 +1988,21 @@ impl RulesTxn {
         })
     }
     pub(crate) fn validate_effect_state(&self) -> Result<(), String> {
-        let mut ids = BTreeSet::new();
         if self.state.rules.effects.len() > self.effect_limit() {
             return Err("effect capacity".into());
         }
+        if !self
+            .state
+            .rules
+            .effects
+            .windows(2)
+            .all(|rows| rows[0].id < rows[1].id)
+        {
+            return Err("effect creation order invariant".into());
+        }
+        let mut last_setter = None;
         for e in &self.state.rules.effects {
-            if !ids.insert(e.id)
-                || e.id.0 >= self.state.rules.next_effect_id
+            if e.id.0 >= self.state.rules.next_effect_id
                 || e.origin.controller.0 >= 4
                 || if e.extends_beyond_creation_turn() {
                     e.expires_in_cleanup_of_turn == 0
@@ -1844,6 +2015,14 @@ impl RulesTxn {
             {
                 return Err("effect state identity invariant".into());
             }
+            if let ResolvedEffectKind::SetCharacteristics { timestamp, .. } = &e.kind {
+                if *timestamp >= self.state.rules.next_batch_id
+                    || last_setter.is_some_and(|previous| previous >= *timestamp)
+                {
+                    return Err("characteristic setter timestamp invariant".into());
+                }
+                last_setter = Some(*timestamp);
+            }
             if e.origin.stack_id.0 >= self.state.rules.next_stack_id {
                 return Err("effect origin stack identity invariant".into());
             }
@@ -1855,6 +2034,67 @@ impl RulesTxn {
             let mut bound = false;
             for instruction in instructions {
                 bound |= match (instruction, &e.kind) {
+                    (
+                        kernel!(GainControl { what, controller, until } @ source_block),
+                        ResolvedEffectKind::GainControl {
+                            targets,
+                            controller: recipient,
+                            until: duration,
+                        },
+                    ) => {
+                        *source_block == e.origin.source_block
+                            && until == duration
+                            && self.is_live(*recipient)
+                            && match controller {
+                                PlayerExpr::Is {
+                                    who: Ref::Controller { .. },
+                                } => *recipient == e.origin.controller,
+                                PlayerExpr::Is {
+                                    who: Ref::Target { .. },
+                                } => true,
+                                _ => false,
+                            }
+                            && self.valid_continuous_capture(e, what, targets)
+                            && (*duration != Until::SourceLeaves
+                                || self.control_source_remains(e.origin.source))
+                            && targets.iter().any(|&object| {
+                                self.current(object)
+                                    .is_ok_and(|o| o.zone == Zone::Battlefield)
+                            })
+                    }
+                    (
+                        kernel!(SetCharacteristics { what, values, until: Until::EndOfTurn } @ source_block),
+                        ResolvedEffectKind::SetCharacteristics {
+                            targets,
+                            values: saved,
+                            timestamp,
+                        },
+                    ) => {
+                        *source_block == e.origin.source_block
+                            && values == saved
+                            && *timestamp < self.state.rules.next_batch_id
+                            && self.valid_continuous_capture(e, what, targets)
+                    }
+                    (
+                        kernel!(ModifyUntil { what, change: Change::PowerToughnessX { power, toughness },
+                            until: Until::EndOfTurn, .. } @ source_block),
+                        ResolvedEffectKind::PumpAnnouncedX {
+                            targets,
+                            x,
+                            modifier,
+                        },
+                    ) => {
+                        *source_block == e.origin.source_block
+                            && !x.is_negative()
+                            && power.with_x(x) == modifier.power
+                            && toughness.with_x(x) == modifier.toughness
+                            && self.valid_continuous_capture(e, what, targets)
+                            && targets.iter().all(|object| {
+                                self.copiable_definition(object).is_ok_and(|d| {
+                                    self.historical_creature_possible(&d.characteristics)
+                                })
+                            })
+                    }
                     (
                         kernel!(RestrictCombat { affects, restriction, .. } @ source_block),
                         ResolvedEffectKind::CombatProhibition {
@@ -1936,10 +2176,9 @@ impl RulesTxn {
                                 }
                                 SetExpr::One {
                                     object: Ref::Target { .. },
-                                } => {
-                                    self.copiable_definition(target)?.characteristics.kind
-                                        == CardKind::Creature
-                                }
+                                } => self.historical_creature_possible(
+                                    &self.copiable_definition(target)?.characteristics,
+                                ),
                                 _ => false,
                             }
                     }
@@ -1983,8 +2222,9 @@ impl RulesTxn {
                             && *source_block == e.origin.source_block
                             && e.target_handles.len() == 4
                             && self.state.rules.cards.contains_key(&target.card)
-                            && self.copiable_definition(target)?.characteristics.kind
-                                == CardKind::Creature
+                            && self.historical_creature_possible(
+                                &self.copiable_definition(target)?.characteristics,
+                            )
                     }
 
                     _ => false,
@@ -2012,6 +2252,40 @@ impl RulesTxn {
             }
         }
         Ok(())
+    }
+
+    fn valid_continuous_capture(
+        &self,
+        effect: &ResolvedEffect,
+        what: &SetExpr,
+        targets: &[ObjectId],
+    ) -> bool {
+        !targets.is_empty()
+            && self.valid_set_effect_targets(
+                effect,
+                targets,
+                Some(&mtg_contracts::ObjectSet::ControllerPermanents),
+            )
+            && targets.iter().all(|id| {
+                self.state
+                    .rules
+                    .objects
+                    .get(&id.card)
+                    .is_none_or(|current| id.incarnation <= current.id.incarnation)
+            })
+            && match what {
+                SetExpr::One {
+                    object: Ref::Source,
+                } => targets == [effect.origin.source],
+                SetExpr::One {
+                    object: Ref::Target { .. },
+                } => targets.len() == 1,
+                SetExpr::Matching {
+                    zone: ZoneExpr::Battlefield,
+                    ..
+                } => targets.windows(2).all(|w| w[0] < w[1]),
+                _ => false,
+            }
     }
 }
 
@@ -2231,6 +2505,38 @@ impl RulesTxn {
                 .collect()
         };
         Ok(match &e.kind {
+            ResolvedEffectKind::GainControl {
+                targets,
+                controller,
+                until,
+            } => VisibleEffect::GainControl {
+                handle,
+                origin,
+                targets: set_views(targets)?,
+                controller: *controller,
+                while_source_remains: *until == Until::SourceLeaves,
+                expires_in_cleanup_of_turn: (*until == Until::EndOfTurn)
+                    .then_some(e.expires_in_cleanup_of_turn),
+            },
+            ResolvedEffectKind::SetCharacteristics {
+                targets, values, ..
+            } => VisibleEffect::SetCharacteristics {
+                handle,
+                origin,
+                targets: set_views(targets)?,
+                values: values.clone(),
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
+            ResolvedEffectKind::PumpAnnouncedX {
+                targets, modifier, ..
+            } => VisibleEffect::PumpSet {
+                handle,
+                origin,
+                targets: set_views(targets)?,
+                power: modifier.power.clone(),
+                toughness: modifier.toughness.clone(),
+                expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+            },
             ResolvedEffectKind::CombatProhibition {
                 affects,
                 restriction,
@@ -2488,6 +2794,31 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
+    fn characteristic_set_vocabulary(&self) -> impl Iterator<Item = &CharacteristicSet> {
+        self.prepared.catalog.definitions.iter().flat_map(|d| {
+            d.spell_programs()
+                .chain(d.activated.iter().map(|ability| &ability.program))
+                .chain(d.triggered.iter().map(|ability| &ability.program))
+                .flat_map(|p| &p.instructions)
+                .filter_map(|i| match i.verb() {
+                    Some(mtg_contracts::kir::Verb::SetCharacteristics { values, .. }) => {
+                        Some(values)
+                    }
+                    _ => None,
+                })
+        })
+    }
+
+    /// Structural lower bound for witnesses that retain only an identity.
+    /// The replay journal authenticates the exact layer-4 history.
+    pub(super) fn historical_creature_possible(&self, printed: &Characteristics) -> bool {
+        printed.has_type(CardKind::Creature)
+            || (!matches!(printed.kind, CardKind::Instant | CardKind::Sorcery)
+                && self
+                    .characteristic_set_vocabulary()
+                    .any(|values| values.animation.is_some()))
+    }
+
     // Copiable identity is immutable within each incarnation. Independent
     // replay proves the continuous changes present at the capture boundary.
     pub(crate) fn validate_characteristic_identity(
@@ -2496,10 +2827,10 @@ impl RulesTxn {
         c: &Characteristics,
     ) -> Result<(), String> {
         let mut base = self.copiable_definition(source)?.characteristics.clone();
-        if base.power.is_some() != c.power.is_some()
-            || base.toughness.is_some() != c.toughness.is_some()
+        if c.has_type(CardKind::Creature) != c.power.is_some()
+            || c.power.is_some() != c.toughness.is_some()
         {
-            return Err("modified source lost printed stat shape".into());
+            return Err("modified source has invalid stat shape".into());
         }
         // Replay authenticates which provider existed at the original capture.
         base.power = c.power.clone();
@@ -2523,12 +2854,42 @@ impl RulesTxn {
                 || c.additional_types.iter().any(|kind| {
                     !base.has_type(*kind)
                         && !vocabulary().any(|change| matches!(change, Change::AddTypes { kinds } if kinds.contains(kind)))
+                        && !(!matches!(base.kind, CardKind::Instant | CardKind::Sorcery)
+                            && c.has_type(CardKind::Creature)
+                            && self.characteristic_set_vocabulary().any(|values| {
+                                values.animation.as_ref().is_some_and(|a| match kind {
+                                    CardKind::Creature => true,
+                                    CardKind::Artifact => a.add_artifact,
+                                    _ => false,
+                                })
+                            }))
                 })
                 || (base.colors != c.colors
-                    && !vocabulary().any(|change| matches!(change, Change::SetColors { colors } if *colors == c.colors)))
+                    && !vocabulary().any(|change| matches!(change, Change::SetColors { colors } if *colors == c.colors))
+                    && !self.characteristic_set_vocabulary().any(|values| values.colors.as_ref() == Some(&c.colors)))
             {
                 return Err("historical type or color outside admitted static changes".into());
             }
+        }
+        if base.subtypes != c.subtypes {
+            let animations = || {
+                self.characteristic_set_vocabulary()
+                    .filter_map(|value| value.animation.as_ref())
+            };
+            if !c.has_type(CardKind::Creature)
+                || c.subtypes.iter().any(|s| {
+                    !base.subtypes.contains(s)
+                        && !animations().any(|a| a.creature_subtypes.contains(s))
+                })
+                || base.subtypes.iter().any(|s| {
+                    !c.subtypes.contains(s)
+                        && (!mtg_contracts::kir::is_creature_subtype(s)
+                            || !animations().any(|a| a.replace_creature_subtypes))
+                })
+            {
+                return Err("historical subtype outside admitted animation".into());
+            }
+            base.subtypes.clone_from(&c.subtypes);
         }
         base.additional_types.clone_from(&c.additional_types);
         base.colors.clone_from(&c.colors);

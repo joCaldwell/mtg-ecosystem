@@ -35,7 +35,8 @@ impl Walk<'_, '_> {
                 object: Ref::Target { slot },
             } => match self.domain(*slot)? {
                 TargetDomain::BattlefieldPermanent
-                | TargetDomain::ControlledBattlefieldPermanent => Ok(Cell::UntapTarget),
+                | TargetDomain::ControlledBattlefieldPermanent
+                | TargetDomain::BattlefieldCreature => Ok(Cell::UntapTarget),
                 _ => unaudited("untap target domain"),
             },
             what if *what == SetExpr::lands_you_control(self.env.context) => {
