@@ -194,8 +194,39 @@ fn modal_double_faced_entry_payment_uses_the_chosen_land() {
         let entry = Driver::request(&mut game, 1);
         assert_eq!(entry.reason, Reason::OptionalEffect);
         assert_eq!(Driver::object(&game, 0), card);
-        assert!(view(&game, 1).view.objects.is_empty());
         assert_recoverable((&game).into());
+        let before_restore = [view(&game, 0), view(&game, 1)];
+        let snapshot = game.snapshot().unwrap();
+        game = Game::restore(game.prepared.as_ref().clone(), &snapshot).unwrap();
+        let owner = view(&game, 0);
+        let opponent = view(&game, 1);
+        assert_eq!(owner, before_restore[0]);
+        assert_eq!(opponent, before_restore[1]);
+        assert_eq!(
+            owner.decision.as_ref().unwrap().reason,
+            Reason::OptionalEffect
+        );
+        let hand = &owner.view.objects[0];
+        assert_eq!(hand.zone, Zone::Hand { owner: PlayerId(0) });
+        assert_eq!(
+            hand.modal_faces.as_ref().unwrap().active_face,
+            CardFace::Front
+        );
+        assert_eq!(
+            hand.characteristics.as_ref().unwrap().kind,
+            CardKind::Creature
+        );
+        let source = owner.decision_context.unwrap().source.unwrap();
+        assert_eq!(source.object.as_ref(), Some(&hand.handle));
+        assert_eq!(source.oracle_id, hand.oracle_id);
+        assert_eq!(
+            source.text,
+            "Pay 3 life as Witch-Blessed Meadow enters? It enters tapped if you decline."
+        );
+        assert!(opponent.view.objects.is_empty());
+        assert!(opponent.decision.is_none());
+        assert!(opponent.decision_context.is_none());
+
         let mut life = game.state.rules.players[0].life.clone();
         if pay {
             life.subtract(&3.into());

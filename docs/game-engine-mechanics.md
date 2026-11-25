@@ -144,9 +144,11 @@ incarnations. A stale ability source retains the face its incarnation had.
 
 A viewer with permission to identify the card can see both face names and the
 active face. Hidden hands and libraries expose neither face without existing
-look or reveal permission (CR 712.6–7). Back-face state is invalid for
-single-faced cards, outside stack or battlefield, on a land spell, or on an
-instant or sorcery permanent.
+look or reveal permission (CR 712.6–7). A pending land-entry payment names the
+chosen face and its life cost in the acting player's decision context, including
+after restore. The card in hand keeps its front characteristics. Back-face
+state is invalid for single-faced cards, outside stack or battlefield, on a
+land spell, or on an instant or sorcery permanent.
 
 Modal double-faced support is provisional at the `Executes` tier. Transform
 and convert abilities, flashback on an MDFC, and other layouts including

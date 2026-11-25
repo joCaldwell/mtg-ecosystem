@@ -235,6 +235,14 @@ impl RulesTxn {
         // No stack fallback for setup, combat, cleanup, rule choices or observers.
         // Otherwise a different player's pending source could leak through context.
         let entry = match (&self.state.rules.frame, reason) {
+            (Frame::BattlefieldEntry { entry }, Reason::OptionalEffect) => {
+                return self
+                    .battlefield_entry_payment_source(viewer, entry)
+                    .map(|source| DecisionContext {
+                        source: Some(source),
+                        ..Default::default()
+                    });
+            }
             (Frame::ManaSourceChoice { player, source, .. }, _) if *player == viewer => {
                 return self
                     .described_source(viewer, *source, DecisionSourceKind::ManaAbility, None)

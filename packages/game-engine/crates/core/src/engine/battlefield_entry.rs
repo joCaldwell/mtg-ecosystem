@@ -131,6 +131,36 @@ impl RulesTxn {
             if entry.controller == viewer && entry.object == object)
     }
 
+    pub(super) fn battlefield_entry_payment_source(
+        &self,
+        viewer: PlayerId,
+        entry: &PendingEntry,
+    ) -> Option<DecisionSource> {
+        if viewer != entry.controller {
+            return None;
+        }
+        // Bind the explanation to the card's current handle and use the
+        // prospective face only for its printed name and entry cost.
+        let face = entry_face(entry.object, &entry.cause);
+        let definition = self.copiable_definition(face).ok()?;
+        let amount = self.entry_life_cost(face).ok()??;
+        let consequence = if entry.force_tapped {
+            "It enters tapped either way."
+        } else {
+            "It enters tapped if you decline."
+        };
+        Some(DecisionSource {
+            kind: DecisionSourceKind::Effect,
+            oracle_id: definition.oracle_id.clone(),
+            object: Some(self.handle_for(viewer, entry.object).ok()?),
+            ability: None,
+            text: format!(
+                "Pay {amount} life as {} enters? {consequence}",
+                definition.name
+            ),
+        })
+    }
+
     pub(super) fn battlefield_entry_request(
         &self,
         entry: &PendingEntry,
