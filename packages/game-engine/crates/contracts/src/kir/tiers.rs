@@ -229,6 +229,8 @@ pub enum Cell {
     ActivationRestriction,
     /// CR 113.6j, 602.2b, 701.13a: a graveyard activation exiling its source.
     GraveyardExileSource,
+    /// CR 602.2b: fixed selections to discard, tap or exile as a cost.
+    ChosenObjectCost,
     /// CR 119.4, 602.2b: a stack activation paying life.
     ActivationPayLife,
     /// CR 122.1, 602.2b: a stack activation removing +1/+1 counters from
@@ -349,6 +351,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Typecycling
         | C::ActivationRestriction
         | C::GraveyardExileSource
+        | C::ChosenObjectCost
         | C::ActivationPayLife
         | C::ActivationRemoveCounters
         | C::SacrificeCostChoice
@@ -480,6 +483,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::PayLifeCostV1
         | C::DiscardSourceCostV1
         | C::ExileSourceCostV1
+        | C::ChosenObjectCostV1
         | C::PlayerOrPlaneswalkerTargetV1
         | C::OpponentLifeDrainV1
         | C::KernelControlV1
@@ -579,6 +583,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             cells.insert(Cell::GraveyardExileSource);
         }
         match &a.cost {
+            ActivationCost::ChooseObjects(_) => {
+                cells.insert(Cell::ChosenObjectCost);
+            }
             ActivationCost::Composite { costs } => {
                 if costs.pay_life.is_some() {
                     cells.insert(Cell::ActivationPayLife);

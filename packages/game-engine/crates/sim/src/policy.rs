@@ -561,6 +561,7 @@ impl Strategy<'_> {
             // CR 701.22a, 701.25a: keep every looked-at card on top.
             (
                 Reason::Discard
+                | Reason::ChosenObjectCost { .. }
                 | Reason::ResolveDiscard
                 | Reason::DamageEffect { .. }
                 | Reason::AdditionalCosts

@@ -265,6 +265,16 @@ impl RulesTxn {
         };
         {
             match &self.copiable_definition(entry.source)?.activated[ability as usize].cost {
+                ActivationCost::ChooseObjects(cost) => {
+                    let mut cast = cast;
+                    self.rules_mut().frame = if cost.mana.is_some() {
+                        self.announcement_mana_frame(cast)?
+                    } else {
+                        cast.spending = Some(BTreeMap::new());
+                        Self::chosen_cost_frame(cast)
+                    };
+                    return Ok(());
+                }
                 ActivationCost::SacrificePermanent { mana: None, .. } => {
                     let mut cast = cast;
                     cast.spending = Some(BTreeMap::new());

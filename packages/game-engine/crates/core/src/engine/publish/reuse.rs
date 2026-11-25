@@ -60,6 +60,10 @@ impl Frame {
                 | Frame::AnnounceX { cast: _ }
                 | Frame::HybridCost { cast: _ }
                 | Frame::SacrificeCost { cast: _ }
+                | Frame::ChosenObjectCost {
+                    cast: _,
+                    selected: _,
+                }
                 | Frame::ForcedSacrifice {
                     frame: _,
                     remaining: _,

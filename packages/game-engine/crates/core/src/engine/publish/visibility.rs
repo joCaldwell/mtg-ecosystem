@@ -191,6 +191,7 @@ pub(super) struct ProjectionCache {
 type ObjectCores = std::cell::RefCell<Arc<BTreeMap<ObjectId, Arc<ObjectCore>>>>;
 #[derive(Clone)]
 struct ObjectCore {
+    modal_faces: Option<VisibleModalFaces>,
     keywords: Vec<KeywordAbility>,
     restrictions: Vec<CreatureRestriction>,
     token: Option<VisibleToken>,
@@ -696,6 +697,7 @@ impl RulesTxn {
         // Same position as the unshared projection: after this viewer's
         // attachment handles and before its own handle.
         let ObjectCore {
+            modal_faces,
             keywords,
             restrictions,
             token,
@@ -715,7 +717,7 @@ impl RulesTxn {
             None => self.object_core(object, index)?,
         };
         Ok(VisibleObject {
-            modal_faces: self.visible_modal_faces(object.id)?,
+            modal_faces,
             face_down: false,
             exiled_by: None,
             phased_out: object.phased_out.is_some(),
@@ -772,6 +774,7 @@ impl RulesTxn {
     ) -> Result<ObjectCore, String> {
         let static_sources = index.map(|index| index.static_sources.as_slice());
         Ok(ObjectCore {
+            modal_faces: self.visible_modal_faces(object.id)?,
             keywords: if object.zone == Zone::Battlefield {
                 let keywords = self.current_keywords_with_sources(object.id, static_sources);
                 if self.target_is_creature(object.id) {

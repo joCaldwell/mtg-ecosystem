@@ -401,6 +401,11 @@ impl RulesTxn {
         {
             return Err("no payable sacrifice permanent".into());
         }
+        if let ActivationCost::ChooseObjects(cost) = &ability.cost
+            && !self.can_choose_cost(player, object, cost)?
+        {
+            return Err("no payable chosen-object cost".into());
+        }
         if !self.has_target_domain(&ability.program, player, self.color_layer(object)?.as_ref()) {
             return Err("no eligible ability targets".into());
         }

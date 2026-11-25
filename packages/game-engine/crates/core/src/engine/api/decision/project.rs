@@ -90,6 +90,7 @@ impl RulesTxn {
             Reason::BottomOpening => Reason::BottomOpening,
             Reason::Sacrifice => Reason::Sacrifice,
             Reason::SacrificeCost => Reason::SacrificeCost,
+            Reason::ChosenObjectCost { action } => Reason::ChosenObjectCost { action },
             Reason::ForcedSacrifice { previous } => Reason::ForcedSacrifice {
                 previous: previous
                     .into_iter()

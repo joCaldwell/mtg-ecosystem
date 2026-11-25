@@ -164,6 +164,7 @@ impl RulesTxn {
             death_controller: None,
             sacrificed: None,
             sacrificed_set: vec![],
+            chosen_payment: vec![],
             effect_source_handles,
             source_facts: Some(source_facts),
             entity_targets: vec![],

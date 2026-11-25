@@ -271,7 +271,10 @@ fn dual_spell_record(back: &str) -> String {
     let mut front: Value = serde_json::from_str(STONE_RAIN).unwrap();
     let back: Value = serde_json::from_str(back).unwrap();
     front["source"]["layout"] = json!("modal_dfc");
-    front["source"]["name"] = json!(format!("Stone Rain // {}", back["source"]["name"].as_str().unwrap()));
+    front["source"]["name"] = json!(format!(
+        "Stone Rain // {}",
+        back["source"]["name"].as_str().unwrap()
+    ));
     let mut identity = back["source"]["color_identity"].as_array().unwrap().clone();
     identity.push(json!("R"));
     front["source"]["color_identity"] = json!(identity);
@@ -388,7 +391,10 @@ fn modal_double_faced_permanent_spell_enters_with_the_cast_face() {
     let permanent = Driver::object(&game, 0);
     assert_eq!(permanent.face, CardFace::Back);
     assert_eq!(game.current(permanent).unwrap().zone, Zone::Battlefield);
-    assert_eq!(game.copiable_definition(permanent).unwrap().name, "Grizzly Bears");
+    assert_eq!(
+        game.copiable_definition(permanent).unwrap().name,
+        "Grizzly Bears"
+    );
     let characteristics = game.characteristics(permanent).unwrap();
     assert_eq!(characteristics.kind, CardKind::Creature);
     assert_eq!(characteristics.power, Some(2.into()));
@@ -422,8 +428,8 @@ fn modal_double_faced_snapshot_rejects_impossible_face_state() {
         assert!(error.contains(message), "{error}");
     }
     let malformed = valid.snapshot().unwrap().replacen(
-        ""incarnation":0",
-        ""incarnation":0,"face":"transformed"",
+        r#""incarnation":0"#,
+        r#""incarnation":0,"face":"transformed""#,
         1,
     );
     assert_ne!(malformed, valid.snapshot().unwrap());

@@ -19,12 +19,12 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    62,
-    "f4ef87afc9b39a5eef1f257de2ab88cd3c2b4b5495509537d5a9b05eee918f35",
+    63,
+    "73bd29ea83f4cbe627b9d37ba83458aed994cf930946d50ec228531e48ece84f",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     96,
-    "0a8d414e630141811a74b7e24c1d9ddeaff2bfa9b1dd3b3da979a42081e16146",
+    "e5ae8423c03836000d22b087d816a416a4849682fc1a9da1735fd85a59857a87",
 );
 const WORK_PIN: (u32, &str) = (
     55,
@@ -381,6 +381,64 @@ fn library_entry_shapes() -> Vec<String> {
         .collect()
 }
 
+fn chosen_cost_shapes() -> Vec<Game> {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    let forest = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Forest")
+        .unwrap();
+    forest.source_labels = None;
+    for action in [ChosenCostAction::Discard, ChosenCostAction::Tap] {
+        forest.activated.push(ActivatedAbility {
+            cost: ActivationCost::ChooseObjects(ChosenObjectCost {
+                action,
+                filter: ChosenCostFilter::Any,
+                count: 1,
+                another: false,
+                tap_source: false,
+                mana: None,
+            }),
+            functioning_zone: FunctioningZone::Battlefield,
+            restriction: None,
+            program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
+                Instruction::draw(PlayerExpr::you(Context::Activated), 1.into(), 0),
+            ]),
+        });
+    }
+    forest.capabilities = forest.requirements();
+    let prepared = Board::new(catalog, "snapshot-chosen-cost")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, true)
+        .prepare();
+    let mut samples = vec![];
+    for (ability, card) in [(0, 1), (1, 0)] {
+        let mut game = Game::new(prepared.clone());
+        let source = Driver::object(&game, 0);
+        let object = Driver::object(&game, card);
+        Driver::action(
+            &mut game,
+            Action::ActivateAbility {
+                object: source,
+                ability,
+            },
+        );
+        assert!(matches!(
+            Driver::request(&mut game, u64::MAX).reason,
+            Reason::ChosenObjectCost { .. }
+        ));
+        samples.push(game.fork());
+        Driver::pick_object(&mut game, object);
+        assert_eq!(
+            Driver::request(&mut game, u64::MAX).reason,
+            Reason::Priority
+        );
+        samples.push(game);
+    }
+    samples
+}
+
 /// Intervening comparisons carry one of three measured values in the saved
 /// resolution check. Substitute each variant to fingerprint its wire shape.
 fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
@@ -413,6 +471,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
             super::kernel_control_tests::suspended_control(),
         ])
         .chain(mana_riders())
+        .chain(chosen_cost_shapes())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
         .chain(intervening_comparison_shapes())

@@ -369,6 +369,25 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                     None | Some(Route::Object | Route::Entity | Route::Stack)
                 )
         }
+        ActivationCost::ChooseObjects(cost) => {
+            use ChosenCostAction::{Discard, ExileFromGraveyard, Tap};
+            use ChosenCostFilter::{Any, ArtifactOrCreature, Subtype, Type};
+            a.functioning_zone == FunctioningZone::Battlefield
+                && cost.count > 0
+                && cost.mana.as_ref().is_none_or(mana_ok)
+                && (!cost.another || cost.action != Discard)
+                && match (&cost.action, &cost.filter) {
+                    (Tap, Type(CardKind::Instant | CardKind::Sorcery)) => false,
+                    (Discard, Subtype(_) | ArtifactOrCreature) => false,
+                    (ExileFromGraveyard, ArtifactOrCreature) => false,
+                    (_, Subtype(name)) => {
+                        !name.is_empty()
+                            && name.chars().all(|c| c.is_ascii_alphabetic() || c == '-')
+                    }
+                    (_, Any | Type(_) | ArtifactOrCreature) => true,
+                }
+                && matches!(route, None | Some(Route::Object | Route::Entity))
+        }
         // CR 701.21a: only the exact source permanent pays this cost.
         ActivationCost::SacrificeSource => {
             kind == CardKind::Creature && route != Some(Route::Player)

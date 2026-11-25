@@ -1815,10 +1815,12 @@ impl RulesTxn {
             _ => CardFace::Front,
         };
         let face_id = ObjectId { face, ..*object };
-        let entering_kind = self.copiable_definition(face_id)?.characteristics.kind;
         // CR 304.4, 307.4, 712.14b: an instant or sorcery cannot enter.
         if *destination == Zone::Battlefield
-            && matches!(entering_kind, CardKind::Instant | CardKind::Sorcery)
+            && matches!(
+                self.copiable_definition(face_id)?.characteristics.kind,
+                CardKind::Instant | CardKind::Sorcery
+            )
         {
             return Err("an instant or sorcery cannot enter the battlefield".into());
         }
@@ -2756,6 +2758,7 @@ impl RulesTxn {
                     .get_mut(&object.card)
                     .ok_or("missing untap object")?
                     .tapped = false;
+                self.mark_chosen_cost_untapped(*object);
                 EventOutcome::Untapped { object: *object }
             }
             ProposedEvent::ClearMana { player } => {

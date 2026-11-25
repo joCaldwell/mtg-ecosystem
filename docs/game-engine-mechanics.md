@@ -350,8 +350,35 @@ any permanent, or "another" (never the source), and can also tap the source
 after mana (CR 109.1, 602.2b, 701.21a). "[Mana], Exile this card from your
 graveyard" functions only in its owner's graveyard: only that owner activates
 it, targets precede mana, and the card is exiled after mana (CR 113.6j, 602.2a-b,
-701.13a). An unpaid entry keeps the card in that graveyard and a paid one does
-not. Exiling it from hand, and discard or tap-a-permanent costs, reject.
+701.13a). The ability keeps its graveyard source through announcement and
+exiles it on payment.
+
+A battlefield activation can choose a fixed number of cards to discard from
+its controller's hand, untapped permanents that player controls to tap, or
+cards to exile from that player's graveyard (CR 601.2g–h, 602.2b, 701.9,
+701.13, 701.26). The allowed qualities are any card or one card type for
+discard, any permanent, one permanent type, one subtype or an artifact or
+creature for tap, and any card, one type or one subtype for graveyard exile.
+An explicit “another” excludes the source. These terms can combine with fixed
+mana and the source's `{T}` symbol. A creature subject to summoning sickness
+can pay a written tap cost, even for its own ability. Its own `{T}` symbol
+still requires continuous control or haste, and one tap cannot pay both terms
+(CR 107.5, 302.6).
+
+Targets come first, followed by any mana window and then the activator's
+`ChosenObjectCost` picks in ascending object order. A prefix offers only
+objects that leave enough eligible choices to finish. The announcement commits
+mana, the source tap and the entire chosen set in one rule step. Discard
+candidates and the selected prefix remain private until the actual move to
+the public graveyard (CR 400.2). Paid receipts bind the exact movements or
+taps. A later untap preserves the proof that a tap paid the cost. The priority
+menu requires enough eligible objects left after funding mana. It uses the
+current pool and a bounded search over independent tap-mana abilities, reserving
+the source for its own `{T}` cost. The proof excludes mana abilities that need
+mana or life payments or have riders. The engine checks availability again
+after the mana window. Random and whole-hand discard, variable counts,
+other graveyards, self-exile from hand and chosen-object mana abilities remain
+outside these cells.
 
 Printed restrictions are permission gates. "As a sorcery" is the program's
 main-phase timing. "During your turn", "during your upkeep" and "during your
@@ -847,7 +874,7 @@ the derived decisions equal the capability lists they replaced.
 | --- | --- |
 | Instruction × stack object | A checked KIR node with operands bound in its spell, activated or triggered context. Unsupported operands and verbs reject. |
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
-| Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, the cycling and typecycling hand discard, and a graveyard source exiled after mana, only where that announcement route pays the complete cost (CR 602.2b). |
+| Cost × route | Tap, mana, source sacrifice, chosen sacrifices of a type, type union, subtype or any permanent (optionally several, "another", or with a source tap), tap/mana/sacrifice/life/+1/+1-counter combinations, untargeted tap, pay life and sacrifice the source, chosen discard/tap/graveyard exile, the cycling and typecycling hand discard, and a graveyard source exiled after mana, only where that announcement route pays the complete cost (CR 602.2b). |
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |

@@ -270,6 +270,7 @@ impl RulesTxn {
                 | Reason::Targets { .. }
                 | Reason::Mana { .. }
                 | Reason::SpendMana { .. }
+                | Reason::ChosenObjectCost { .. }
                 | Reason::SacrificeCost,
             ) => self.top().ok()?,
             _ => return None,

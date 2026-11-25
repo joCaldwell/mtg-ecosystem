@@ -931,7 +931,7 @@ impl GameTestkit for Game {
         RulesTxn::offer_commander_sba(self, resume)
     }
     fn pay_announcement_costs(&mut self, cast: &Casting) -> Result<AnnouncementPayment, String> {
-        RulesTxn::pay_announcement_costs(self, cast)
+        RulesTxn::pay_announcement_costs(self, cast, &[])
     }
     fn payment_pool(
         &self,
