@@ -462,6 +462,11 @@ impl RulesTxn {
         {
             return true;
         }
+        // CR 614.1c: the entering card whose entry payment its controller
+        // decides, wherever it enters from.
+        if self.battlefield_entry_visible(viewer, object.id) {
+            return true;
+        }
         if self.replacement_reveals(object.id) {
             return true;
         }
@@ -1274,7 +1279,9 @@ impl RulesTxn {
             let current: Vec<_> = if reference
                 || matches!(
                     self.state.rules.frame,
-                    Frame::ResolutionChoice { .. } | Frame::GraveyardGroup { .. }
+                    Frame::ResolutionChoice { .. }
+                        | Frame::GraveyardGroup { .. }
+                        | Frame::BattlefieldEntry { .. }
                 ) {
                 self.state
                     .rules

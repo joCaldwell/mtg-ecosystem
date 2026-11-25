@@ -110,6 +110,17 @@ impl RulesTxn {
         self.finish_battlefield_entry(object, cause, resume, payment, force_tapped)
     }
 
+    /// The entering card its controller decides about while the entry
+    /// waits, even from a hidden zone; nobody else sees it.
+    pub(in crate::engine) fn battlefield_entry_visible(
+        &self,
+        viewer: PlayerId,
+        object: ObjectId,
+    ) -> bool {
+        matches!(&self.state.rules.frame, Frame::BattlefieldEntry { entry }
+            if entry.controller == viewer && entry.object == object)
+    }
+
     pub(super) fn battlefield_entry_request(
         &self,
         entry: &PendingEntry,
@@ -356,6 +367,9 @@ mod tests {
             let mut life = game.state.rules.players[0].life.clone();
             game.begin_battlefield_entry(object, BatchCause::Fixture, Frame::Priority, true)
                 .unwrap();
+            // A rules transaction publishes on commit; this white-box call
+            // outside one publishes explicitly.
+            game.refresh_visibility().unwrap();
             let decision = Driver::request(&mut game, u64::MAX);
             assert_eq!(decision.reason, Reason::OptionalEffect);
             // The entrant is the slot's subject.
@@ -367,6 +381,36 @@ mod tests {
                     .subject
                     .map(|i| decision.candidates[i as usize].clone()),
                 Some(Candidate::Object { object })
+            );
+            // Its controller observes the library entrant it decides about;
+            // nobody else sees a library card.
+            let observed = game.observe(PlayerId(0), Budget::unlimited());
+            let mine = match observed {
+                QueryResult::Complete(QueryValue::Observation(mine)) => mine,
+                QueryResult::Rejected(rejection) => panic!("observation rejected: {rejection:?}"),
+                _ => panic!("the entering controller observes its decision"),
+            };
+            let pending = mine.decision.as_ref().expect("a pending entry payment");
+            let Candidate::Object { object: handle } = &pending.candidates[2] else {
+                panic!("{pending:?}")
+            };
+            assert!(
+                mine.view
+                    .objects
+                    .iter()
+                    .any(|o| &o.handle == handle && matches!(o.zone, Zone::Library { .. }))
+            );
+            let QueryResult::Complete(QueryValue::Observation(theirs)) =
+                game.observe(PlayerId(1), Budget::unlimited())
+            else {
+                panic!("an opponent observes")
+            };
+            assert!(
+                theirs
+                    .view
+                    .objects
+                    .iter()
+                    .all(|o| !matches!(o.zone, Zone::Library { .. }))
             );
             game.validate_state().unwrap();
             let flag = if pay { Flag::Accept } else { Flag::Decline };

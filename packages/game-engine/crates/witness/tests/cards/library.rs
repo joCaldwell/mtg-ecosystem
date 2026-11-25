@@ -1785,6 +1785,11 @@ fn departed_search_entry_rejects_skipped_payments() {
 /// unless it answers with Murder on Zur instead. Returns the game at the
 /// trigger's search.
 fn zur(murder: bool) -> Game {
+    zur_with(2, murder, (!murder).then_some(1))
+}
+
+/// Zur in a `seats`-player game; Grizzly Bears (card 8) under `bears`.
+fn zur_with(seats: u8, murder: bool, bears: Option<u8>) -> Game {
     let mut board = board(&[
         (
             ZUR_THE_ENCHANTER,
@@ -1799,9 +1804,10 @@ fn zur(murder: bool) -> Game {
     .permanent_or_hand("Swamp", 1, 1, false)
     .library_card("Pacifism", 0)
     .library_card("Grizzly Bears", 0)
-    .library_card("Forest", 1);
-    if !murder {
-        board = board.permanent_or_hand("Grizzly Bears", 1, 1, false);
+    .library_card("Forest", 1)
+    .seats(seats);
+    if let Some(seat) = bears {
+        board = board.permanent_or_hand("Grizzly Bears", seat, seat, false);
     }
     let mut g = Game::with_trace(board.prepare(), TraceMode::Detailed);
     let zur = Driver::object(&g, 0);
@@ -2004,4 +2010,78 @@ fn a_battlefield_search_leaves_a_found_sorcery_in_the_library() {
         library.retain(|card| *card != sorcery.card);
     }
     assert!(g.validate_state().is_err(), "sorcery on the battlefield");
+}
+
+/// CR 303.4g, 800.4a: Zur is Murdered in response, and while its controller
+/// chooses Pacifism's host, the only remaining creature's controller
+/// concedes. No host is left, so Pacifism stays in the library and the
+/// library is still shuffled; nothing faults.
+#[test]
+fn pacifism_stays_in_the_library_when_its_last_host_leaves_during_the_choice() {
+    let mut g = zur_with(3, true, Some(2));
+    let pacifism = Driver::object(&g, 5);
+    answer(&mut g, 0, Reason::SearchLibrary, &[pacifism]);
+    let d = next_choice(&mut g);
+    assert_eq!(d.reason, Reason::EntryAttachment);
+    g.concede(PlayerId(2)).unwrap();
+    g.validate_state().unwrap();
+    finish_combat(&mut g);
+    assert!(!g.is_live(PlayerId(2)));
+    assert_eq!(
+        g.zone(Driver::object(&g, 5)),
+        Some(Zone::Library { owner: PlayerId(0) })
+    );
+    assert_eq!(shuffles(&g, 0), 1);
+    checked(&g);
+    assert_recoverable((&g).into());
+}
+
+/// Saved hosts name only Auras, and saved payments are only ever affordable
+/// in sequence (CR 119.4), both while the searcher is in the game and after
+/// it departs.
+#[test]
+fn search_entry_answers_name_only_auras_and_affordable_payments() {
+    for (life, case) in [(40, 0), (40, 1), (3, 2)] {
+        let (mut g, [garden, pool]) = claim(life, 3);
+        answer(&mut g, 0, Reason::SearchLibrary, &[garden, pool]);
+        assert_eq!(next_choice(&mut g).reason, Reason::OptionalEffect);
+        let Frame::ResolutionChoice {
+            choice: ResolutionChoice::SearchEntry { source_block, .. },
+            ..
+        } = g.state.rules.frame.clone()
+        else {
+            panic!()
+        };
+        let forest = Driver::object(&g, 1);
+        let entry = |hosts: Vec<(ObjectId, ObjectId)>, paid: Vec<(ObjectId, bool)>| {
+            ResolutionChoice::SearchEntry {
+                player: PlayerId(0),
+                found: vec![garden, pool],
+                hosts,
+                paid,
+                source_block,
+            }
+        };
+        let (forged, what) = match case {
+            // Temple Garden posing as an Aura, skipping its payment.
+            0 => (
+                entry(vec![(garden, forest)], vec![(pool, true)]),
+                "non-Aura host entry skipping a payment",
+            ),
+            // Temple Garden posing as an Aura beside its own payment.
+            1 => (
+                entry(vec![(garden, forest)], vec![(garden, true)]),
+                "non-Aura host entry",
+            ),
+            // Two 2-life payments from 3 life.
+            _ => (
+                entry(vec![], vec![(garden, true), (pool, true)]),
+                "unaffordable payments",
+            ),
+        };
+        forged_choice_rejected(&mut g, &forged, what);
+        g.concede(PlayerId(0)).unwrap();
+        through_departure(&mut g, 0);
+        forged_choice_rejected(&mut g, &forged, what);
+    }
 }

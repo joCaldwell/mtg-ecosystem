@@ -406,8 +406,12 @@ impl RulesTxn {
             }
             match self.entry_hosts(*object)? {
                 None => entrants.push((*object, None)),
-                Some(_) => {
-                    if let Some((_, host)) = hosts.iter().find(|(aura, _)| aura == object) {
+                // CR 303.4g: a chosen host that has since left (its
+                // controller conceded) leaves the Aura in the library.
+                Some(legal) => {
+                    if let Some((_, host)) = hosts.iter().find(|(aura, _)| aura == object)
+                        && legal.contains(host)
+                    {
                         entrants.push((*object, Some(*host)));
                     }
                 }
@@ -429,7 +433,7 @@ impl RulesTxn {
         hosts: &[(ObjectId, ObjectId)],
         paid: &[(ObjectId, bool)],
     ) -> Result<Option<EntryQuestion>, String> {
-        let mut attached = hosts.iter();
+        let mut attached = hosts.iter().peekable();
         for object in found {
             if !self.may_enter_battlefield(object.card)? {
                 continue;
@@ -437,20 +441,27 @@ impl RulesTxn {
             let Some(legal) = self.entry_hosts(*object)? else {
                 continue;
             };
+            // An answered Aura stays answered, even if its host has left
+            // since (it then stays in the library at entry, CR 303.4g).
+            if attached.peek().is_some_and(|(aura, _)| aura == object) {
+                attached.next();
+                continue;
+            }
+            // CR 303.4g: no legal host, so nothing to ask; this includes
+            // the last host leaving while the question was open.
             if legal.is_empty() {
                 continue;
             }
-            match attached.next() {
-                Some((aura, host)) if aura == object && legal.contains(host) => {}
-                Some(_) => return Err("search entry attachment order".into()),
-                None if paid.is_empty() => {
-                    return Ok(Some(EntryQuestion::Attach {
-                        aura: *object,
-                        hosts: legal,
-                    }));
-                }
-                None => return Err("search entry payment before an attachment".into()),
+            if attached.peek().is_some() {
+                return Err("search entry attachment order".into());
             }
+            if !paid.is_empty() {
+                return Err("search entry payment before an attachment".into());
+            }
+            return Ok(Some(EntryQuestion::Attach {
+                aura: *object,
+                hosts: legal,
+            }));
         }
         if attached.next().is_some() {
             return Err("search entry attachment without an Aura".into());
@@ -507,6 +518,12 @@ impl RulesTxn {
             ids.windows(2).all(|w| w[0] < w[1]) && ids.iter().all(|o| found.contains(o))
         };
         let auras: Vec<_> = hosts.iter().map(|(aura, _)| *aura).collect();
+        for aura in &auras {
+            let printed = &self.definition(aura.card)?.characteristics;
+            if printed.kind != CardKind::Enchantment || printed.subtypes != ["Aura"] {
+                return Ok(false);
+            }
+        }
         let asked: Vec<_> = paid.iter().map(|(o, _)| *o).collect();
         if found.is_empty()
             || found.len() > maximum
@@ -549,12 +566,18 @@ impl RulesTxn {
             };
             let mut total = committed.clone();
             total.add(&amount);
+            // Only an affordable payment is ever asked (CR 119.4), and an
+            // affordable one is never skipped.
+            let affordable = life.can_pay_life(&total);
             if next.0 == *object {
+                if !affordable {
+                    return Ok(false);
+                }
                 if next.1 {
                     committed = total;
                 }
                 answered.next();
-            } else if life.can_pay_life(&total) && !auras.contains(object) {
+            } else if affordable {
                 return Ok(false);
             }
         }
@@ -756,11 +779,11 @@ impl RulesTxn {
                 hosts,
                 paid,
                 ..
-            } if self.is_live(*player) => Some(
-                match self
-                    .next_entry_question(*player, found, hosts, paid)?
-                    .ok_or("search entry without a question")?
-                {
+            // No question: the last open one lost its subject (CR 303.4g)
+            // and the step commits the entry without a decision.
+            } if self.is_live(*player) => self
+                .next_entry_question(*player, found, hosts, paid)?
+                .map(|question| match question {
                     EntryQuestion::Attach { aura, hosts } => {
                         let mut candidates = vec![Candidate::Object { object: aura }];
                         candidates.extend(objects(&hosts));
@@ -782,8 +805,7 @@ impl RulesTxn {
                         )
                     }
                     EntryQuestion::Pay { entrant } => self.entry_payment_decision(*player, entrant),
-                },
-            ),
+                }),
             ResolutionChoice::Scry {
                 player,
                 looked,
@@ -864,6 +886,23 @@ impl RulesTxn {
             | ResolutionChoice::Surveil { player, .. } => *player,
             _ => return Err("not a library choice".into()),
         };
+        if let ResolutionChoice::SearchEntry {
+            found,
+            hosts,
+            paid,
+            source_block,
+            ..
+        } = &choice
+            && self.is_live(player)
+            && self
+                .next_entry_question(player, found, hosts, paid)?
+                .is_none()
+        {
+            // The open question lost its subject: enter what remains.
+            self.rules_mut().pending = None;
+            let (found, hosts, paid) = (found.clone(), hosts.clone(), paid.clone());
+            return self.continue_search_entry(frame, player, found, hosts, paid, *source_block);
+        }
         if self.library_request(&frame, &choice)?.is_none() {
             self.rules_mut().pending = None;
             return self
@@ -1210,9 +1249,24 @@ impl RulesTxn {
                 let bounds = self.search_bounds(player, search)?;
                 Self::subset(&bounds.candidates, found)
                     && (bounds.minimum..=bounds.maximum).contains(&found.len())
-                    && self
-                        .next_entry_question(player, found, hosts, paid)
-                        .is_ok_and(|next| next.is_some())
+                    && match self.next_entry_question(player, found, hosts, paid) {
+                        Ok(Some(_)) => true,
+                        // The one valid pause without a question: an open
+                        // host choice lost its last host (CR 303.4g), so
+                        // the next step commits the entry. Nothing else
+                        // can remove a question while it waits.
+                        Ok(None) => {
+                            paid.is_empty()
+                                && found.iter().try_fold(false, |lost, o| {
+                                    Ok::<_, String>(
+                                        lost || (self.may_enter_battlefield(o.card)?
+                                            && self.entry_hosts(*o)?.is_some()
+                                            && !hosts.iter().any(|(aura, _)| aura == o)),
+                                    )
+                                })?
+                        }
+                        Err(_) => false,
+                    }
             }
             (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })
             | (ResolutionChoice::Surveil { looked, .. }, Verb::Surveil { amount, .. }) => {

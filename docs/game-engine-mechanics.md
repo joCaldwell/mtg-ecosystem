@@ -360,7 +360,8 @@ the battlefield (optionally tapped, CR 614.1c) under the searcher's control or
 into the owner's hand or graveyard. Found cards are saved in object order. A
 found Aura entering the battlefield enchants an object its controller chooses
 among those already there that it could enchant, without targeting (CR 303.4f);
-with none it stays in the library (CR 303.4g), as does a found instant or
+with none, including when the last host leaves while the choice is open or
+before entry, it stays in the library (CR 303.4g), as does a found instant or
 sorcery (CR 304.4, 307.4), which never enters the battlefield by any move. Revealed hand cards are a public minimum
 count per owner and Oracle identity (CR 701.23e), never an incarnation: each
 physical departure is counted once, a public one consuming one copy of its
@@ -382,7 +383,8 @@ battlefield. A land play's life-payment offer runs through
 found entrant in object order, counting life already committed, then commits
 the payments and one simultaneous entry batch with a per-entrant override. The
 offer binds its entrant as the decision's subject. A forced tapped entry still
-offers a payable payment and enters tapped either way (CR 614.1c, 614.12; the
+offers a payable payment and enters tapped either way, and its controller sees
+the entering card while deciding, even from a hidden zone (CR 614.1c, 614.12; the
 shockland ruling "If an effect puts this land onto the battlefield tapped, you
 may pay 2 life, but it still enters tapped.", [Lorwyn Eclipsed release
 notes](https://magic.wizards.com/en/news/feature/lorwyn-eclipsed-release-notes)).
