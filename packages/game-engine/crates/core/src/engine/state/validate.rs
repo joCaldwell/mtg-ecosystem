@@ -281,6 +281,12 @@ impl RulesTxn {
                         cast.original_object != top.source
                     }
                     || top.paid.is_some()
+                    || (cast.revealed_hand_consumed
+                        && !(cast.origin.is_spell()
+                            && top.cast_from
+                                == (Zone::Hand {
+                                    owner: s.rules.cards[&top.source.card].owner,
+                                })))
                 {
                     return Err("snapshot casting frame invariant".into());
                 }

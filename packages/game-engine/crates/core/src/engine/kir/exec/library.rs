@@ -2,11 +2,13 @@
 //!
 //! The acting player looks at hidden library cards through one resolution
 //! choice. Only that player sees them (`visible_to`): a searcher sees the
-//! whole searched library in object order (CR 701.23a) while only matching
-//! cards are selectable, so no other seat learns an identity, a candidate
-//! count or an order. Found cards are revealed in the library, then move
-//! together; a found commander bound for its owner's hand first offers the
-//! command zone (CR 903.9b). Revealed cards in their owner's hand stay
+//! whole searched library (CR 701.23a) while only matching cards are
+//! selectable, so no other seat learns an identity, a candidate count or an
+//! order. Candidates follow object order; view rows, like every permitted
+//! view object, follow handle order (handles are minted in object order), so
+//! neither follows library position. Printed reveals happen once, in the
+//! library; a found commander bound for its owner's hand then offers the
+//! command zone (CR 903.9b), and the found cards move together. Revealed cards in their owner's hand stay
 //! publicly counted by Oracle identity (CR 701.23e). A departed actor's
 //! library left the game with them (CR 800.4a), so their pending choice is
 //! skipped.
@@ -240,8 +242,9 @@ impl RulesTxn {
         })
     }
 
-    /// CR 701.23a, 903.9b: ask each found commander's owner where it goes
-    /// before the found cards move together.
+    /// CR 701.23a, e, 903.9b: reveal printed found cards once, still in the
+    /// library, then ask each found commander's owner where it goes before
+    /// the found cards move together.
     fn complete_search(
         &mut self,
         frame: Resolving,
@@ -249,6 +252,16 @@ impl RulesTxn {
         found: Vec<ObjectId>,
         source_block: u32,
     ) -> Result<(), String> {
+        let (search, _) = self.search_destination(&frame)?;
+        if search.reveal && !found.is_empty() {
+            self.commit(
+                ProposedEvent::RevealFound {
+                    player,
+                    objects: found.clone(),
+                },
+                self.instruction_cause(&frame, source_block)?,
+            )?;
+        }
         let remaining = self.found_commanders(&frame, &found)?;
         self.continue_search(frame, player, found, remaining, vec![], source_block)
     }
@@ -287,10 +300,10 @@ impl RulesTxn {
         self.commit_search(frame, player, found, &choices, source_block)
     }
 
-    /// CR 701.23a, e, 110.2, 903.9b: reveal the found cards in the library
-    /// when printed, then move them together, each commander to the zone
-    /// its owner chose. Revealed cards that reach the hand stay publicly
-    /// counted there by Oracle identity.
+    /// CR 701.23a, e, 110.2, 903.9b: move the (already revealed, when
+    /// printed) found cards together, each commander to the zone its owner
+    /// chose. Revealed cards that reach the hand stay publicly counted there
+    /// by Oracle identity.
     fn commit_search(
         &mut self,
         frame: Resolving,
@@ -310,16 +323,6 @@ impl RulesTxn {
             );
         }
         let cause = self.instruction_cause(&frame, source_block)?;
-        let reveal = search.reveal && matches!(to, Some(Zone::Hand { .. }));
-        if reveal {
-            self.commit(
-                ProposedEvent::RevealFound {
-                    player,
-                    objects: found.clone(),
-                },
-                cause.clone(),
-            )?;
-        }
         let occurrences = found
             .iter()
             .map(|object| {
@@ -346,7 +349,7 @@ impl RulesTxn {
                 _ => Err("search movement invariant".to_string()),
             })
             .collect::<Result<Vec<_>, _>>()?;
-        if reveal {
+        if search.reveal {
             let revealed: Vec<_> = movements
                 .iter()
                 .filter(|m| m.destination == (Zone::Hand { owner: player }))
@@ -698,7 +701,7 @@ impl RulesTxn {
                 *player == viewer && looked.contains(&object)
             }
             // CR 701.23a: every card of the searched library, matching or
-            // not, in object order; no position is published.
+            // not; no position is published.
             ResolutionChoice::Search { player, .. } if *player == viewer => {
                 self.current(object).is_ok_and(|current| {
                     current.id == object && current.zone == (Zone::Library { owner: viewer })
@@ -756,9 +759,9 @@ impl RulesTxn {
                     top,
                     ..
                 },
-                Verb::Scry { .. },
+                Verb::Scry { amount, .. },
             ) => {
-                !looked.is_empty()
+                self.valid_looked(frame, player, looked, amount)?
                     && match (bottom, top) {
                         (None, None) => true,
                         (Some(bottom), None) => {
@@ -776,9 +779,9 @@ impl RulesTxn {
                 ResolutionChoice::Surveil {
                     looked, graveyard, ..
                 },
-                Verb::Surveil { .. },
+                Verb::Surveil { amount, .. },
             ) => {
-                !looked.is_empty()
+                self.valid_looked(frame, player, looked, amount)?
                     && graveyard.as_ref().is_none_or(|graveyard| {
                         Self::subset(looked, graveyard) && Self::rest(looked, graveyard).len() > 1
                     })
@@ -803,6 +806,30 @@ impl RulesTxn {
             }
             _ => false,
         })
+    }
+
+    /// CR 701.22a, 701.25a: the looked-at cards are distinct cards of the
+    /// chooser's own library, at least one and at most the printed amount;
+    /// this holds even after the chooser left with that library.
+    fn valid_looked(
+        &self,
+        frame: &Resolving,
+        player: PlayerId,
+        looked: &[ObjectId],
+        amount: &mtg_contracts::kir::Amount,
+    ) -> Result<bool, String> {
+        let amount = self.kernel_amount(frame, amount)?;
+        let count = Quantity::from(i64::try_from(looked.len()).map_err(|_| "look limit")?);
+        Ok(!looked.is_empty()
+            && count <= amount
+            && Self::subset(looked, looked)
+            && looked.iter().all(|o| {
+                self.state
+                    .rules
+                    .cards
+                    .get(&o.card)
+                    .is_some_and(|card| card.owner == player)
+            }))
     }
 
     /// Distinct members of `looked`.

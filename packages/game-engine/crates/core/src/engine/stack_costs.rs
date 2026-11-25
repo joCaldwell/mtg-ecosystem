@@ -192,6 +192,7 @@ impl RulesTxn {
                 prior_passes: self.state.rules.passes.clone(),
                 mana_activations: vec![],
                 undo_mana: false,
+                revealed_hand_consumed: false,
             };
             self.rules_mut().frame = match self.copiable_definition(object)?.activated
                 [ability as usize]
@@ -220,6 +221,7 @@ impl RulesTxn {
                     prior_passes: self.state.rules.passes.clone(),
                     mana_activations: vec![],
                     undo_mana: false,
+                    revealed_hand_consumed: false,
                 },
             };
         } else if chosen {
@@ -235,6 +237,7 @@ impl RulesTxn {
                     prior_passes: self.state.rules.passes.clone(),
                     mana_activations: vec![],
                     undo_mana: false,
+                    revealed_hand_consumed: false,
                 },
             };
         } else {

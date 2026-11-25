@@ -178,9 +178,10 @@ impl RulesTxn {
         let original = &pending.decision;
         let unchanged =
             current.shape == original.shape && current.candidates == original.candidates;
-        // CR 701.22a, 701.23a, 701.25a: nothing can change a library choice
-        // while it waits, so its complete saved table, unselected candidates
-        // included, must be the current offer; no remapping applies.
+        // CR 701.22a, 701.23a, 701.25a, 903.9b: nothing can change a library
+        // choice, or the command-zone choice of a found commander, while it
+        // waits, so its complete saved table, unselected rows included, must
+        // be the current offer; no remapping applies.
         if !unchanged
             && matches!(
                 &self.state.rules.frame,
@@ -188,6 +189,9 @@ impl RulesTxn {
                     choice: ResolutionChoice::Search { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. },
+                    ..
+                } | Frame::CommanderReturn {
+                    continuation: CommanderContinuation::Search { .. },
                     ..
                 }
             )

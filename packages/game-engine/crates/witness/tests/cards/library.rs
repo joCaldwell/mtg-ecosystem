@@ -31,6 +31,7 @@ const CULTIVATE: &str = record!("8b755881-a72d-4e21-a369-d2924eb4585a");
 const ARMILLARY_SPHERE: &str = record!("3963140c-da67-43e6-9514-fe9dc0a43c4d");
 const CRYSTAL_BALL: &str = record!("bd85fe4d-1d62-416f-ac2d-e287911c84e3");
 const SINISTER_STARFISH: &str = record!("58321467-41d6-4419-bcb2-cd3e60f677b3");
+const TIME_OF_NEED: &str = record!("4f2adfd0-c8ab-4bcc-ae55-cb0e798aec7f");
 
 const SEED: [u8; 32] = [7; 32];
 
@@ -69,7 +70,11 @@ fn catalog(cards: &[(&str, &[Cell])]) -> Catalog {
 }
 
 fn identity(name: &str) -> String {
-    oracle_id(FixtureCatalog::Witness.get(), name).to_owned()
+    identity_in(FixtureCatalog::Witness.get(), name)
+}
+
+fn identity_in(catalog: &Catalog, name: &str) -> String {
+    oracle_id(catalog, name).to_owned()
 }
 
 /// State validation and an exact snapshot round trip.
@@ -237,6 +242,18 @@ fn rampant_growth_offers_basic_lands_and_always_shuffles() {
         assert_eq!((slots[0].min, slots[0].max), (0, 1));
         // CR 701.23a: the searcher looks at every card, not only matches.
         private_to(&mut g, 0, 4);
+        // Candidates follow object order and view rows handle order (handles
+        // are minted in object order); neither follows library position.
+        assert!(offered.windows(2).all(|w| w[0] < w[1]));
+        let rows: Vec<_> = observation(&g, 0)
+            .view
+            .objects
+            .into_iter()
+            .filter(|o| matches!(o.zone, Zone::Library { .. }))
+            .map(|o| o.handle.0)
+            .collect();
+        assert_eq!(rows.len(), 4);
+        assert!(rows.windows(2).all(|w| w[0] < w[1]));
         let island = lands[0];
         answer(
             &mut g,
@@ -902,22 +919,16 @@ fn library_state_rejects_forged_choices_and_lost_randomness() {
     let ResolutionChoice::Search { source_block, .. } = choice.clone() else {
         panic!("{choice:?}")
     };
-    g.validate_state().unwrap();
-    let original = g.state.rules.frame.clone();
-    if let Frame::ResolutionChoice { choice, .. } = &mut g.state.rules.frame {
-        *choice = ResolutionChoice::Surveil {
-            player: PlayerId(1),
-            looked: vec![],
-            graveyard: None,
-            source_block,
-        };
-    }
-    assert!(
-        g.validate_state().is_err(),
-        "forged departed choice variant"
-    );
-    g.state.rules.frame = original;
-    g.validate_state().unwrap();
+    let surveil = ResolutionChoice::Surveil {
+        player: PlayerId(1),
+        looked: vec![Driver::object(&g, 3)],
+        graveyard: None,
+        source_block,
+    };
+    // Queued concession, then after the departure itself.
+    forged_choice_rejected(&mut g, &surveil, "queued forged choice variant");
+    through_departure(&mut g, 1);
+    forged_choice_rejected(&mut g, &surveil, "departed forged choice variant");
 
     // A saved search answer keeps its whole offered table.
     let prepared = board(&[(RAMPANT_GROWTH, &[Cell::SearchController])])
@@ -963,4 +974,388 @@ fn library_state_rejects_forged_choices_and_lost_randomness() {
     // A seeded board's shuffles need its match randomness.
     g.state.rules.match_state = None;
     assert!(g.validate_state().is_err(), "seed without randomness");
+}
+
+/// Advance one rules step at a time until `seat` has left; its library
+/// choice is still the suspended frame.
+fn through_departure(g: &mut Game, seat: u8) {
+    for _ in 0..64 {
+        if !g.is_live(PlayerId(seat)) {
+            assert!(
+                matches!(g.state.rules.frame, Frame::ResolutionChoice { .. }),
+                "{:?}",
+                g.state.rules.frame
+            );
+            return;
+        }
+        let _ = g.advance(Budget::new(1));
+    }
+    panic!("seat {seat} never departed")
+}
+
+/// The current state validates; with `choice` substituted it does not.
+fn forged_choice_rejected(g: &mut Game, choice: &ResolutionChoice, what: &str) {
+    g.validate_state().unwrap();
+    let original = g.state.rules.frame.clone();
+    if let Frame::ResolutionChoice {
+        choice: current, ..
+    } = &mut g.state.rules.frame
+    {
+        *current = choice.clone();
+    }
+    assert!(g.validate_state().is_err(), "{what}");
+    g.state.rules.frame = original;
+    g.validate_state().unwrap();
+}
+
+/// CR 701.22a, 800.4a: a departed scrier's saved `looked` cards stay
+/// distinct cards of their own library within the printed amount, both
+/// while the concession is queued and after the departure.
+#[test]
+fn departed_scry_rejects_impossible_looked_cards() {
+    let prepared = board(&[(OPT, &[Cell::ScryController])])
+        .seats(3)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Opt", 1, 1, true)
+        .permanent_or_hand("Island", 1, 1, false)
+        .library_card("Swamp", 1)
+        .library_card("Island", 1)
+        .library_card("Forest", 2)
+        .library_card("Forest", 0)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    // Seat 0 passes to seat 1, who casts Opt at instant speed.
+    Driver::pass(&mut g);
+    Driver::cast(&mut g, CardId(1));
+    Driver::pay(&mut g, &[2]);
+    let d = next_choice(&mut g);
+    assert_eq!((d.player, &d.reason), (PlayerId(1), &Reason::ScryBottom));
+    let Frame::ResolutionChoice { choice, .. } = g.state.rules.frame.clone() else {
+        panic!()
+    };
+    let ResolutionChoice::Scry {
+        looked,
+        source_block,
+        ..
+    } = choice
+    else {
+        panic!("{choice:?}")
+    };
+    let [own, other_own, theirs] = [3, 4, 5].map(|id| Driver::object(&g, id));
+    assert_eq!(looked, vec![own]);
+    let forged = |looked: Vec<ObjectId>| ResolutionChoice::Scry {
+        player: PlayerId(1),
+        looked,
+        bottom: None,
+        top: None,
+        source_block,
+    };
+    let cases = [
+        (forged(vec![own, own]), "duplicate looked card"),
+        (forged(vec![theirs]), "opponent-owned looked card"),
+        (forged(vec![own, other_own]), "more than the printed amount"),
+    ];
+    g.concede(PlayerId(1)).unwrap();
+    for (choice, what) in &cases {
+        forged_choice_rejected(&mut g, choice, what);
+    }
+    through_departure(&mut g, 1);
+    for (choice, what) in &cases {
+        forged_choice_rejected(&mut g, choice, what);
+    }
+}
+
+/// The Sphere board with two Forests on top of the library.
+fn two_forest_sphere() -> Game {
+    let prepared = board(SPHERE)
+        .permanent_or_hand("Armillary Sphere", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, true)
+        .library_card("Forest", 0)
+        .library_card("Forest", 0)
+        .library_card("Island", 0)
+        .library_card("Forest", 1)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let sphere = Driver::object(&g, 0);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: sphere,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut g, &[1, 2]);
+    let found = objects(&g, &[4, 5]);
+    answer(&mut g, 0, Reason::SearchLibrary, &found);
+    settle(&mut g);
+    g
+}
+
+fn known_forests(g: &Game) -> usize {
+    let forest = identity("Forest");
+    g.publicly_searched_hand(PlayerId(1))
+        .unwrap()
+        .iter()
+        .filter(|(owner, id)| *owner == PlayerId(0) && *id == forest)
+        .count()
+}
+
+/// CR 400.7, 701.23e: a discard is one departure from the hand, whether
+/// applied alone or inside a batch, so it consumes exactly one known copy.
+#[test]
+fn one_discard_consumes_one_known_copy() {
+    for batch in [false, true] {
+        let mut g = two_forest_sphere();
+        assert_eq!(known_forests(&g), 2);
+        let discard = ProposedEvent::DiscardCard {
+            object: Driver::object(&g, 4),
+            player: PlayerId(0),
+        };
+        if batch {
+            g.commit_batch(
+                BatchCause::Cleanup,
+                EventGroup::Simultaneous {
+                    occurrences: vec![discard],
+                },
+            )
+            .unwrap();
+        } else {
+            g.apply_occurrence(&discard).unwrap();
+        }
+        assert_eq!(known_forests(&g), 1, "batch {batch}");
+        g.validate_state().unwrap();
+    }
+}
+
+/// Time of Need: "Search your library for a legendary creature card, reveal
+/// it, put it into your hand, then shuffle." Seat 0 also holds a hidden
+/// Isamaru.
+fn time_of_need(commander: bool, seats: u8) -> Game {
+    let mut board = board(&[(
+        TIME_OF_NEED,
+        &[Cell::SearchController, Cell::ShuffleController],
+    )])
+    .seats(seats)
+    .permanent_or_hand("Time of Need", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Isamaru, Hound of Konda", 0, 0, true)
+    .library_card("Isamaru, Hound of Konda", 0)
+    .library_card("Grizzly Bears", 0)
+    .library_card("Forest", 1);
+    if commander {
+        board = board.commander(CardId(4));
+    }
+    let mut g = Game::with_trace(board.prepare(), TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let found = Driver::object(&g, 4);
+    answer(&mut g, 0, Reason::SearchLibrary, &[found]);
+    g
+}
+
+fn revealed_in_library(g: &Game, card: u32) -> bool {
+    g.events().iter().any(|e| {
+        matches!(e, Event::Committed { actual: EventOutcome::FoundRevealed { objects, .. }, .. }
+            if objects.iter().any(|o| o.card == CardId(card) && o.incarnation == 0))
+    })
+}
+
+/// CR 601.2i, 701.23e: an unpaid Isamaru returns to the hand it was cast
+/// from, restoring the known copy its announcement consumed; casting the
+/// hidden or the revealed copy leaves seat 1 the same view.
+#[test]
+fn reversed_cast_restores_a_known_hand_copy() {
+    let mut views = vec![];
+    for card in [3, 4] {
+        let mut g = time_of_need(false, 2);
+        settle(&mut g);
+        let isamaru = (PlayerId(0), identity("Isamaru, Hound of Konda"));
+        assert_eq!(
+            observation(&g, 1).view.known_searched_hand,
+            vec![isamaru.clone()]
+        );
+        Driver::cast(&mut g, CardId(card));
+        let d = Driver::request(&mut g, u64::MAX);
+        assert!(observation(&g, 1).view.known_searched_hand.is_empty());
+        g.respond(
+            d.player,
+            d.id,
+            Answer::Pay {
+                pay: PayAnswer::Finish {
+                    undo_on_failure: true,
+                },
+            },
+        )
+        .unwrap();
+        assert_eq!(Driver::request(&mut g, u64::MAX).reason, Reason::Priority);
+        assert_eq!(
+            g.zone(Driver::object(&g, card)),
+            Some(Zone::Hand { owner: PlayerId(0) })
+        );
+        assert_eq!(observation(&g, 1).view.known_searched_hand, vec![isamaru]);
+        checked(&g);
+        views.push(serde_json::to_string(&observation(&g, 1).view).unwrap());
+    }
+    assert_eq!(views[0], views[1]);
+}
+
+/// CR 701.23e, 903.9b: Time of Need reveals the found commander while it is
+/// still in the library, before its owner chooses a zone; conceding at
+/// that prompt cannot skip the reveal.
+#[test]
+fn time_of_need_reveals_a_commander_before_its_zone_choice() {
+    for concede in [false, true] {
+        let mut g = time_of_need(true, 3);
+        let d = next_choice(&mut g);
+        assert!(matches!(d.reason, Reason::CommanderReturn { .. }), "{d:?}");
+        assert!(revealed_in_library(&g, 4));
+        checked(&g);
+        if concede {
+            g.concede(PlayerId(0)).unwrap();
+            for _ in 0..64 {
+                if let Advance::AwaitingDecision(_) = g.advance(Budget::new(1)) {
+                    break;
+                }
+            }
+            assert!(!g.is_live(PlayerId(0)));
+            g.validate_state().unwrap();
+        } else {
+            g.respond(
+                d.player,
+                d.id,
+                d.pick_one(&Candidate::Flag {
+                    flag: Flag::Destination,
+                })
+                .unwrap(),
+            )
+            .unwrap();
+            settle(&mut g);
+            assert_eq!(
+                g.state.rules.objects[&CardId(4)].zone,
+                Zone::Hand { owner: PlayerId(0) }
+            );
+        }
+        let reveals = g
+            .events()
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    Event::Committed {
+                        actual: EventOutcome::FoundRevealed { .. },
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(reveals, 1);
+    }
+}
+
+/// CR 701.23e: a printed reveal of cards bound for the battlefield happens
+/// in the library too; nothing stays counted in a hand. Rampant Growth's IR
+/// is edited to reveal (no frozen card prints this; the cell admits it).
+#[test]
+fn a_revealed_search_onto_the_battlefield_reveals_in_the_library() {
+    let mut catalog = catalog(&[(
+        RAMPANT_GROWTH,
+        &[Cell::SearchController, Cell::ShuffleController],
+    )]);
+    let growth = identity_in(&catalog, "Rampant Growth");
+    let definition = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.oracle_id == growth)
+        .unwrap();
+    let mut value = serde_json::to_value(&*definition).unwrap();
+    fn reveal(value: &mut serde_json::Value) -> usize {
+        match value {
+            serde_json::Value::Object(fields) => {
+                let here = match fields.get_mut("search") {
+                    Some(serde_json::Value::Object(search)) if search.contains_key("to") => {
+                        search.insert("reveal".into(), true.into());
+                        1
+                    }
+                    _ => 0,
+                };
+                here + fields.values_mut().map(reveal).sum::<usize>()
+            }
+            serde_json::Value::Array(items) => items.iter_mut().map(reveal).sum(),
+            _ => 0,
+        }
+    }
+    assert_eq!(reveal(&mut value), 1);
+    *definition = serde_json::from_value(value).unwrap();
+    let prepared = Board::new(catalog, "r4-library-witness")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .seed(SEED)
+        .permanent_or_hand("Rampant Growth", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .library_card("Island", 0)
+        .library_card("Forest", 1)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let island = Driver::object(&g, 3);
+    answer(&mut g, 0, Reason::SearchLibrary, &[island]);
+    settle(&mut g);
+    assert!(revealed_in_library(&g, 3));
+    let events = g.events();
+    let reveal = events
+        .iter()
+        .position(|e| {
+            matches!(
+                e,
+                Event::Committed {
+                    actual: EventOutcome::FoundRevealed { .. },
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    let entry = events
+        .iter()
+        .position(|e| {
+            matches!(e, Event::Committed { actual: EventOutcome::Moved { movement }, .. }
+            if movement.previous == island && movement.destination == Zone::Battlefield)
+        })
+        .unwrap();
+    assert!(reveal < entry);
+    assert!(observation(&g, 1).view.known_searched_hand.is_empty());
+}
+
+/// CR 903.9b: once the owner answered the found commander's zone choice,
+/// the saved flag rows cannot be swapped to change what that answer means.
+#[test]
+fn search_commander_choice_keeps_its_saved_flag_rows() {
+    let mut g = time_of_need(true, 2);
+    let d = next_choice(&mut g);
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Flag {
+            flag: Flag::Destination,
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    g.validate_state().unwrap();
+    let pending = g.state.rules.pending.clone();
+    g.state
+        .rules
+        .pending
+        .as_mut()
+        .unwrap()
+        .decision
+        .candidates
+        .swap(0, 1);
+    assert!(g.validate_state().is_err(), "swapped commander flag rows");
+    g.state.rules.pending = pending;
+    g.validate_state().unwrap();
 }

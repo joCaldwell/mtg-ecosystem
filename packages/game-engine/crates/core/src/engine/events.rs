@@ -1889,7 +1889,21 @@ impl RulesTxn {
 
         self.apply_prepared_occurrence(proposed, before, BatchAuthority::Ordinary)
     }
+    /// CR 400.7, 701.23e: one occurrence, with each physical departure from a
+    /// publicly known hand accounted once, around any nested leaves (a
+    /// discard is a move).
     fn apply_prepared_occurrence(
+        &mut self,
+        proposed: &ProposedEvent,
+        before: Option<&PreEventFacts>,
+        authority: BatchAuthority<'_>,
+    ) -> Result<EventOutcome, String> {
+        let known_hand = self.known_hand_cards();
+        let actual = self.apply_occurrence_leaf(proposed, before, authority)?;
+        self.forget_departed_hand_cards(known_hand)?;
+        Ok(actual)
+    }
+    fn apply_occurrence_leaf(
         &mut self,
         proposed: &ProposedEvent,
         before: Option<&PreEventFacts>,
@@ -1908,7 +1922,6 @@ impl RulesTxn {
         {
             return Err("regeneration shield requires authenticated creation".into());
         }
-        let known_hand = self.known_hand_cards();
 
         let actual = match proposed {
             ProposedEvent::Mill {
@@ -2080,7 +2093,7 @@ impl RulesTxn {
                 if let Some(actual) = self.replace_destruction(*object, shields, before)? {
                     return Ok(actual);
                 }
-                self.apply_prepared_occurrence(
+                self.apply_occurrence_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard {
@@ -2103,7 +2116,7 @@ impl RulesTxn {
                 if let Some(actual) = self.replace_destruction(*object, shields, before)? {
                     return Ok(actual);
                 }
-                self.apply_prepared_occurrence(
+                self.apply_occurrence_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard {
@@ -2222,7 +2235,7 @@ impl RulesTxn {
                         .and_then(|proof| proof.get(&source))
                         .copied()
                         .unwrap_or(Zone::Graveyard { owner });
-                    let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                    let EventOutcome::Moved { movement } = self.apply_occurrence_leaf(
                         &ProposedEvent::Move {
                             object: source,
                             destination,
@@ -2279,7 +2292,7 @@ impl RulesTxn {
                     .get(&object.card)
                     .ok_or("missing sacrificed card")?
                     .owner;
-                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                let EventOutcome::Moved { movement } = self.apply_occurrence_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard { owner },
@@ -2301,7 +2314,7 @@ impl RulesTxn {
                 {
                     return Err("invalid discard event".into());
                 }
-                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                let EventOutcome::Moved { movement } = self.apply_occurrence_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Graveyard { owner: *player },
@@ -2333,7 +2346,7 @@ impl RulesTxn {
                     .get(&owner)
                     .and_then(|cards| cards.first())
                     .copied();
-                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                let EventOutcome::Moved { movement } = self.apply_occurrence_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination: Zone::Library { owner },
@@ -2520,7 +2533,7 @@ impl RulesTxn {
                 let destination = Zone::Graveyard {
                     owner: self.state.rules.cards[&object.card].owner,
                 };
-                let EventOutcome::Moved { movement } = self.apply_prepared_occurrence(
+                let EventOutcome::Moved { movement } = self.apply_occurrence_leaf(
                     &ProposedEvent::Move {
                         object: *object,
                         destination,
@@ -2790,7 +2803,6 @@ impl RulesTxn {
                 self.apply_move(*object, *destination, caster, false)?
             }
         };
-        self.forget_departed_hand_cards(known_hand)?;
         self.update_library_position_memory(proposed, &actual);
         Ok(actual)
     }

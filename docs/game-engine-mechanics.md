@@ -143,8 +143,9 @@ revalidate owner choices before exposing queries.
 
 Library manipulation is private to its chooser and replay-proven. While a
 search, scry or surveil choice waits, only its chooser sees the library cards
-it looks at, a searcher its whole library in object order (CR 701.23a); no
-other seat learns an identity, count or order. Scry picks the bottom
+it looks at, a searcher its whole library (CR 701.23a); no other seat learns
+an identity, count or order. Candidates follow object order and view rows
+handle order (minted in object order); neither follows library position. Scry picks the bottom
 cards, then orders the top and bottom groups; surveil picks the graveyard cards,
 then orders the rest (CR 701.22a, 701.25a). Each asks only for orders of two or
 more cards and commits one atomic event; positions other seats remembered in
@@ -350,15 +351,17 @@ excluding prevented destruction. Turn-long exile replacement covers only
 creatures actually dealt its damage, so exile causes no death. Indestructible
 prevents destruction before replacement; generic departures never imply dies
 triggers. A search shows the searcher every card of a non-empty library and
-offers those with the printed qualities, sorted so no position leaks; with no
-match it still asks, offering none. With a quality it may find none (CR
-701.23b); "a card" must find as many as it can (CR 701.23d). A found commander
-bound for its owner's hand first offers the command zone (CR 903.9b); then
-printed reveals happen in the library and the found cards move together, onto
+offers those with the printed qualities; with no match it still asks,
+offering none. With a quality it may find none (CR 701.23b); "a card" must
+find as many as it can (CR 701.23d). A printed reveal happens once, in the
+library, for any destination; a found commander bound for its owner's hand
+then offers the command zone (CR 903.9b), and the found cards move together, onto
 the battlefield (optionally tapped, CR 614.1c) under the searcher's control or
 into the owner's hand or graveyard. Revealed hand cards are a public minimum
-count per owner and Oracle identity (CR 701.23e), never an incarnation: a public
-departure of that identity consumes one, and a hidden departure one of each.
+count per owner and Oracle identity (CR 701.23e), never an incarnation: each
+physical departure is counted once, a public one consuming one copy of its
+identity and a hidden one one of each; a reversed cast restores the copy its
+announcement consumed (CR 601.2i).
 
 ## Keywords, attachments and temporary effects
 

@@ -164,6 +164,35 @@ impl RulesTxn {
         Ok(())
     }
 
+    /// The publicly known copies of `card`'s identity in its owner's hand.
+    /// Every seat holds the same counts.
+    pub(super) fn known_hand_count(&self, card: CardId) -> u32 {
+        let Some(physical) = self.state.rules.cards.get(&card) else {
+            return 0;
+        };
+        self.state.knowledge.visibility[0]
+            .revealed_hand
+            .get(&physical.owner)
+            .and_then(|rows| rows.get(&physical.oracle_id))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// CR 601.2i: a reversed announcement puts the card back where it was
+    /// announced from, restoring the known copy its departure consumed.
+    pub(super) fn restore_known_hand_copy(&mut self, card: CardId) {
+        let physical = &self.state.rules.cards[&card];
+        let (owner, oracle) = (physical.owner, physical.oracle_id.clone());
+        for knowledge in &mut self.state.knowledge.visibility {
+            *knowledge
+                .revealed_hand
+                .entry(owner)
+                .or_default()
+                .entry(oracle.clone())
+                .or_default() += 1;
+        }
+    }
+
     /// CR 701.23e: every player saw `cards` enter `owner`'s hand revealed.
     pub(super) fn remember_revealed_hand(
         &mut self,
@@ -198,6 +227,16 @@ impl RulesTxn {
             .visibility
             .get(viewer.0 as usize)
             .ok_or("invalid viewer")?;
+        // Every reveal and departure is public, so every seat counts alike.
+        if self
+            .state
+            .knowledge
+            .visibility
+            .iter()
+            .any(|other| other.revealed_hand != k.revealed_hand)
+        {
+            return Err("revealed hand memory differs between seats".into());
+        }
         let mut cards = vec![];
         for (owner, rows) in &k.revealed_hand {
             if !self.is_live(*owner) {
