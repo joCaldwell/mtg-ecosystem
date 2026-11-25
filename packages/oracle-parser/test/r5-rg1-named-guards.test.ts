@@ -95,6 +95,9 @@ describe("GG-delay: a created ability owns sentences that name objects only its 
     rejects("When this enchantment enters, sacrifice a creature. When you do, you gain 3 life. If the sacrificed creature was a Hamster, draw a card.", "Enchantment");
     // Earthbender Ascension: the reflexive "if" would also govern the trample grant.
     rejects("Landfall — Whenever a land you control enters, put a quest counter on this enchantment. When you do, if it has four or more quest counters on it, put a +1/+1 counter on target creature you control. It gains trample until end of turn.", "Enchantment", "Earthbender Ascension");
+    // "That player" must be exactly one player at the body's own level.
+    rejects("When an artifact enters this turn, each opponent exiles the top two cards of their library. You may cast a spell from among cards that player exiled this way without paying its mana cost.", "Sorcery");
+    rejects("When an artifact enters this turn, target creature gains \"{T}: Target opponent exiles the top two cards of their library.\" You may cast a spell from among cards that player exiled this way without paying its mana cost.", "Sorcery");
     // A reflexive body is held to the same actor check.
     rejects("You may exile the top card of your library. When you do, target opponent exiles the top two cards of their library. Put that card from among cards you exiled this way into your hand.", "Sorcery");
     // "cards you exiled this way" names your exile, not the opponent's in the body.
@@ -190,6 +193,12 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
     rejects("For each opponent, target player reveals cards from the top of their library until they reveal a creature card, then exiles that card.", "Sorcery");
     // Scrying then drawing reorders and draws from the same library each time.
     rejects("For each creature you control, scry 1, then draw a card.", "Sorcery");
+    // Several players may search one library: not one searcher's repeated search (CR 701.23h).
+    rejects("Target opponent reveals their hand. For each creature, its controller searches that player's library for a basic land card and puts it into their hand. Then that player shuffles.", "Sorcery");
+    // A shuffle two sentences after the loop is never checked as the members' shuffle.
+    rejects("For each creature you control, you may search your library for a creature card with the same name as that creature. Put those cards onto the battlefield. Then shuffle.", "Sorcery");
+    // The member's scry and your draw touch different libraries in every iteration.
+    rejects("For each player, that player scries 1, then you draw a card.", "Sorcery");
     // The searchers' shuffle must include every searcher (you may be one of them).
     rejects("Destroy all nonbasic lands. For each land destroyed this way, its controller may search their library for a basic land card and put it onto the battlefield. Then each opponent who searched their library this way shuffles.", "Sorcery");
     // Without "controlled by different players" two members may share a library.
@@ -233,6 +242,8 @@ describe("GG-cond: a trailing condition after ', then' governs only the final in
   });
 
   it("still rejects 'and' coordination, a leading condition, and per-step conditions", () => {
+    // Only allowlisted instruction shapes split; here the top card of each player's library.
+    rejects("Draw a card, then exile the top card of each player's library if it's a creature card.", "Sorcery");
     rejects("Counter target activated ability from an artifact source and destroy that artifact if it's on the battlefield.", "Instant");
     // Volatile Stormdrake: "If you do" governs both instructions.
     rejects("When this creature enters, exchange control of this creature and target creature an opponent controls. If you do, you get {E}{E}{E}{E}, then sacrifice that creature unless you pay an amount of {E} equal to its mana value.", "Creature — Drake");

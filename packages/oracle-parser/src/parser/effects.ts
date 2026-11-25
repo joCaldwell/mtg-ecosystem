@@ -770,7 +770,8 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     // condition could be meant for each member ("… deals 2 damage to each
     // opponent if that player controls a Swamp"), which one sentence-level
     // condition cannot state.
-    if (prefix && hasGroupReference(sentence.steps)) return c.fail("unambiguous conditional instruction scope");
+    if (prefix && !(prefix.steps.every(isSplitPrefixStep) && sentence.steps.every(isSplitConditionalStep)))
+      return c.fail("unambiguous conditional instruction scope");
     if (tailCondition) {
       const condition = (tailCondition === "unless" ? parseUnlessPayment(c) ?? parseUnlessDamage(c) : null) ??
         parseCondition(c, tailCondition === "unless" ? { purpose: "unless" } : { outcomes: true });
@@ -831,6 +832,49 @@ function thenPrefixSteps(c: Cursor, start: number, end: number, steps: Effect[],
   ctx.lastSubject = subject; ctx.lastPlayer = player;
   if (!before || !body.done() || JSON.stringify(before) !== JSON.stringify(steps.slice(0, -1))) return null;
   return steps.slice(0, -1);
+}
+
+/** The ", then … if/unless" split accepts only these exact instruction shapes,
+ * each acting for you on singular objects (Swallowed by Leviathan, Phantasmal
+ * Sphere, Retraced Image, Quag Feast). Anything else keeps the guard. */
+const json = (value: unknown) => JSON.stringify(value);
+const keysAre = (value: object, keys: string[]) => json(Object.keys(value).sort()) === json([...keys].sort());
+const YOU = '{"player":"you"}';
+const isFixed = (amount: unknown) => !!amount && typeof amount === "object" && (amount as { amount?: unknown }).amount === "fixed";
+const isSelf = (ref: unknown) => !!ref && typeof ref === "object" && ["self", "this"].includes((ref as { ref?: unknown }).ref as string) &&
+  Object.keys(ref).every(key => key === "ref" || key === "noun");
+
+function isSplitPrefixStep(step: Effect): boolean {
+  switch (step.effect) {
+    case "draw": case "gain-life": case "mill":
+      return keysAre(step, ["effect", "who", "amount"]) && json(step.who) === YOU && isFixed(step.amount);
+    case "surveil": case "scry":
+      return (keysAre(step, ["effect", "amount"]) || (keysAre(step, ["effect", "who", "amount"]) && json(step.who) === YOU)) && isFixed(step.amount);
+    case "put-counters":
+      return keysAre(step, ["effect", "on", "counter", "count"]) && isSelf(step.on) && isFixed(step.count);
+    case "reveal":
+      return keysAre(step, ["effect", "who", "what"]) && json(step.who) === YOU &&
+        json(step.what) === '{"ref":"filter","filter":{"cls":"card","zone":{"zone":"hand","owner":"your"}},"count":{"amount":"fixed","value":1}}';
+    default: return false;
+  }
+}
+
+function isSplitConditionalStep(step: Effect): boolean {
+  const chosen = (what: unknown) => !!what && typeof what === "object" && (what as { ref?: unknown }).ref === "choice-result" &&
+    (what as { number?: unknown }).number === "singular";
+  switch (step.effect) {
+    case "counter": case "destroy": return keysAre(step, ["effect", "what"]) && chosen(step.what);
+    case "sacrifice": return keysAre(step, ["effect", "who", "what"]) && json(step.who) === YOU && isSelf(step.what);
+    case "lose-life": case "gain-life": case "draw":
+      return keysAre(step, ["effect", "who", "amount"]) && json(step.who) === YOU && isFixed(step.amount);
+    case "move-zone":
+      return keysAre(step, ["effect", "what", "to"]) && json(step.what) === '{"ref":"that","filter":{"cls":"card"}}' &&
+        json(step.to) === '{"zone":"battlefield"}';
+    case "exile":
+      return keysAre(step, ["effect", "what"]) &&
+        json(step.what) === '{"ref":"library-cards","position":"top","count":{"amount":"fixed","value":1},"of":{"zone":"library","owner":"your"}}';
+    default: return false;
+  }
 }
 
 /** Any player group, or an object reference that may denote several objects

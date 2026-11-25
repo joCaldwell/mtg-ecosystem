@@ -70,7 +70,10 @@ function ownLibrariesOnly(each: ObjectRef | PlayerRef, steps: Effect[]): boolean
   const reads = steps.filter(readsLibrary);
   if (!reads.length) return true;
   if (!("player" in each)) return false;
-  return reads.every(step => {
+  // Every other library action in the same body must be the member's too
+  // ("that player scries 1, then you draw a card" draws from your library
+  // in every iteration).
+  return steps.filter(step => readsLibrary(step) || step.effect === "draw").every(step => {
     const actor = "who" in step ? step.who : undefined;
     if (!actor || !("player" in actor) || actor.player !== "that-player") return false;
     let own = true;
@@ -106,6 +109,10 @@ const EVENTLESS_EFFECTS = new Set<Effect["effect"]>(["create-token", "draw", "da
  * cannot refer to the loop, or forEachContinuationsScoped proved its scope.
  * Any other loop makes its sentence list fail there. */
 const settled = new WeakSet<Loop>();
+
+function laterShuffle(sentences: Sentence[], from: number): boolean {
+  return sentences.slice(from).some(sentence => hasOwnNode(sentence.steps, node => node.effect === "shuffle"));
+}
 
 /** Independent loops of member searches whose following shuffle, if any,
  * forEachContinuationsScoped must still match (CR 701.23h). */
@@ -249,6 +256,8 @@ function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
   // A search inside an ability the body creates happens later; it is never
   // the search of a shuffle made now.
   if (!searches.length) return !hasNode(loop.effects, isSearch) || !shuffles.length;
+  if (!shuffles.length && !hasOwnNode(loop.effects, node => node.effect === "shuffle")) return true;
+  if (!isAllowlistedSearchBody(loop)) return false;
   if (hasOwnNode(loop.effects, node => node.effect === "shuffle")) {
     if (shuffles.length || !("player" in loop.each)) return false;
     return searches.every(search => librarySearched(search) === '"that-player"') &&
@@ -256,6 +265,45 @@ function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
   }
   if (!shuffles.length) return true;
   return markSearchShuffle(loop, next);
+}
+
+/** The member-search bodies whose shuffle scope is proven, by exact shape:
+ * one searcher per library (CR 701.23h combines one player's repeated
+ * searches): you search your library or, in an object loop, the enclosing
+ * player's library (Doubling Chant, Clarion Ultimatum, Dichotomancy,
+ * Haunting Echoes); each controller optionally searches their own library
+ * and puts the card onto the battlefield (From the Ashes); in a player loop
+ * you search each player's library, exile the card, and that player
+ * shuffles (Jace, Architect of Thought). */
+function isAllowlistedSearchBody(loop: Loop): boolean {
+  if (loop.effects.length !== 1) return false;
+  const [body] = loop.effects;
+  if (body.condition || body.otherwise || body.bindings) return false;
+  const objectLoop = "ref" in loop.each;
+  const json = (value: unknown) => JSON.stringify(value);
+  const controller = '{"player":"controller","of":{"ref":"it"}}';
+  const search = (step: Effect | undefined, who: string, owner: string): boolean =>
+    step?.effect === "search" && json(step.who) === who && !step.forEach &&
+    json(step.zones) === `{"selection":"all","of":[{"zone":"library","owner":${owner}}]}`;
+  const [first, second, third] = body.steps;
+  if (body.steps.length === 1 && first.effect === "optional-group") {
+    const [inner, put] = first.steps;
+    return objectLoop && json(first.who) === controller && first.steps.length === 2 && search(inner, controller, '"their"') &&
+      put?.effect === "move-zone" && json(put.what) === '{"ref":"it"}' && json(put.to) === '{"zone":"battlefield"}';
+  }
+  if (search(first, '{"player":"you"}', '"your"')) {
+    if (!objectLoop) return false;
+    if (body.steps.length === 1) return true;
+    return body.steps.length === 2 && second.effect === "move-zone" && !second.optional && json(second.what) === '{"ref":"it"}' &&
+      (json(second.to) === '{"zone":"hand","owner":"your"}' || json(second.to) === '{"zone":"battlefield"}');
+  }
+  if (search(first, '{"player":"you"}', '"that-player"')) {
+    if (objectLoop) return body.steps.length === 1 ||
+      (body.steps.length === 2 && second.effect === "exile" && !second.optional && json(second.what) === '{"ref":"them"}');
+    return json(loop.each) === '{"player":"each-player"}' && body.steps.length === 3 && second.effect === "exile" &&
+      json(second.what) === '{"ref":"it"}' && third.effect === "shuffle" && json(third.who) === '{"player":"that-player"}';
+  }
+  return false;
 }
 
 function ownSearches(loop: Loop): Extract<Effect, { effect: "search" }>[] {
@@ -470,6 +518,7 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
       if (step.effect !== "for-each" || !shuffleScopeUnchecked.has(step)) continue;
       shuffleScopeUnchecked.delete(step);
       const next = sentences[i + 1];
+      if (laterShuffle(sentences, i + 2)) return false;
       if (next && next.steps.some(later => later.effect === "shuffle") && !coalesceMemberSearches(step, next)) return false;
     }
     for (const loop of unsettledLoops(sentences[i])) {
@@ -480,6 +529,9 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
         sentences.splice(i + 1, 1);
         continue;
       }
+      // A shuffle beyond the next sentence could only be the members'
+      // CR 701.23h shuffle, which is checked only directly after the loop.
+      if (hasOwnNode(loop.effects, isSearch) && laterShuffle(sentences, i + 2)) return false;
       if (shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) {
         if (!coalesceMemberSearches(loop, next)) return false;
         settled.add(loop);

@@ -4,13 +4,13 @@
 // the associated action that happened earlier in the same resolution.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 
-import type { Duration, Effect, ObjectRef, Sentence, Trigger } from "../ast.ts";
+import type { Duration, Effect, ObjectRef, PlayerRef, Sentence, Trigger } from "../ast.ts";
 import { isCardCopyCast } from "./card-copy.ts";
 import { Cursor } from "./cursor.ts";
 import type { EffectContext } from "./effects.ts";
 import { parseTrigger, parseTriggerLimit } from "./triggers.ts";
 import { parseActivationRules } from "./restrictions.ts";
-import { parseComparison, parseCondition, parseCounterSpec, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
+import { isPluralPlayerRef, parseComparison, parseCondition, parseCounterSpec, parseFilter, parseObjectRef, parsePlayerRef } from "./refs.ts";
 import { parseReflexiveOutcome } from "./event-outcomes.ts";
 import { parseTurnLinkedTrigger } from "./temporal.ts";
 import { isCopyRetargetContinuation, prepareStackCopyInput, type StackCopyInputProof } from "./stack-copy.ts";
@@ -27,10 +27,10 @@ function hasSupportedContinuations(sentences: Sentence[], reflexive = false): bo
   for (let i = 1; i < sentences.length; i++) {
     const previous = sentences[i - 1];
     const next = sentences[i];
-    if (next.condition?.condition === "you-do" || next.condition?.condition === "you-dont") continue;
     // "cards <player> exiled this way" must name an exile the body made by
     // that player, whatever else would continue the body.
     if (!exileActorsMatch(sentences.slice(0, i), next)) return false;
+    if (next.condition?.condition === "you-do" || next.condition?.condition === "you-dont") continue;
     if (reflexive && continuesReflexiveBody(previous, next)) continue;
     if (continuesBodyLocalObject(sentences.slice(0, i), next, reflexive)) continue;
     // "..., then exile … and copy them. You may cast the copies": the cast
@@ -105,20 +105,26 @@ function continuesReflexiveBody(previous: Sentence, next: Sentence): boolean {
  * ("create two … tokens … Sacrifice them at …"), Codie, Vociferous Codex and
  * Devourer of Destiny. A condition, a fresh target, or an anaphor whose class
  * the body never introduced keeps the scope ambiguous (Time to Feed). */
+/** The instructions a body-local continuation may be: exactly the kinds its
+ * accepted cards use (End-Blaze Epiphany, Dalkovan Encampment, Grishnákh,
+ * Codie, Devourer of Destiny, Doom Reigns Supreme). */
+const CONTINUATION_EFFECTS = new Set(["grant-play-permission", "create-delayed-trigger", "untap", "gain-abilities", "move-zone", "exile", "play-card"]);
+
 function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: boolean): boolean {
   if (next.condition || next.otherwise || next.bindings || hasTarget(next.steps)) return false;
+  if (!next.steps.every(step => CONTINUATION_EFFECTS.has(step.effect))) return false;
   if (body.some(sentence => sentence.otherwise)) return false;
   // A reflexive ability's intervening condition (603.4) is recorded on its
   // first sentence only; it cannot also govern a continuation.
   if (reflexive && body.some(sentence => sentence.condition)) return false;
   const objects = reflexive && hasTarget(body) ||
-    hasNode(body, node => node.effect === "create-token" || (node.effect === "choose-object" && !isCardRef(node.what)));
+    hasOwnNode(body, node => node.effect === "create-token" || (node.effect === "choose-object" && !isCardRef(node.what)));
   // Each card anaphor needs the production that can be its antecedent:
   // "exiled this way" / "the exiled cards" an exile, "those cards" / "the
   // rest" a look, and a singular "that card" a chosen or found card.
   const exilers = bodyExilers(body);
-  const looked = hasNode(body, node => node.effect === "look-at");
-  const chosen = hasNode(body, node => node.effect === "scan-library" || (node.effect === "choose-object" && isCardRef(node.what)));
+  const looked = hasOwnNode(body, node => node.effect === "look-at");
+  const chosen = hasOwnNode(body, node => node.effect === "scan-library" || (node.effect === "choose-object" && isCardRef(node.what)));
   const cardAnaphor = (node: Record<string, unknown>): boolean => {
     const kind = cardAnaphorKind(node);
     if (kind !== "exiled") return kind === "looked" ? looked : kind === "chosen" ? chosen : false;
@@ -134,7 +140,7 @@ function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: b
 /** Who made each of the body's library exiles (an elided actor is you). */
 function bodyExilers(body: Sentence[]): string[] {
   const exilers: string[] = [];
-  hasNode(body, node => {
+  hasOwnNode(body, node => {
     if ((node.effect === "exile" && isLibraryCards(node.what)) || (node.effect === "scan-library" && node.operation === "exile"))
       exilers.push(JSON.stringify(node.who ?? { player: "you" }));
     return false;
@@ -151,13 +157,18 @@ function exileActorMatches(body: Sentence[], exilers: string[], node: Record<str
   if (actor === undefined) return exilers.length > 0;
   let resolved = JSON.stringify(actor);
   if (resolved === '{"player":"that-player"}') {
+    // Exactly one other player named at the body's own level (not inside an
+    // ability it grants or creates), and that player is one player.
     const players = new Set<string>();
-    hasNode(body, candidate => {
-      if (typeof candidate.player === "string" && candidate.player !== "you" && candidate.player !== "that-player")
+    let group = false;
+    hasOwnNode(body, candidate => {
+      if (typeof candidate.player === "string" && candidate.player !== "you" && candidate.player !== "that-player") {
         players.add(JSON.stringify(candidate));
+        if (isPluralPlayerRef(candidate as PlayerRef)) group = true;
+      }
       return false;
     });
-    if (players.size !== 1) return false;
+    if (group || players.size !== 1) return false;
     resolved = [...players][0];
   }
   return exilers.includes(resolved);
@@ -168,6 +179,16 @@ function exileActorsMatch(body: Sentence[], next: Sentence): boolean {
   const exilers = bodyExilers(body);
   return !hasNode(next.steps, node => cardAnaphorKind(node) === "exiled" &&
     (node.relation as { who?: unknown } | undefined)?.who !== undefined && !exileActorMatches(body, exilers, node));
+}
+
+/** Like hasNode, but never inside an ability the body grants or creates. */
+function hasOwnNode(value: unknown, test: (node: Record<string, unknown>) => boolean): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(item => hasOwnNode(item, test));
+  const node = value as Record<string, unknown>;
+  if (test(node)) return true;
+  if (node.effect === "create-delayed-trigger" || node.effect === "create-reflexive-trigger" || node.gained === "quoted") return false;
+  return Object.values(node).some(item => hasOwnNode(item, test));
 }
 
 function isLibraryCards(value: unknown): boolean {

@@ -226,7 +226,7 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
             const condition = parseCondition(c, { purpose: "unless" });
             // Only a continuously checkable game state, never a payment,
             // an action outcome, a roll or any event history.
-            return condition && isStatePredicate(condition) ? condition : null;
+            return condition && isStatePredicate(condition) && isAllowlistedUnlessState(condition) ? condition : null;
           });
           if (unless) {
             modifier.condition = { condition: "not", of: unless };
@@ -601,6 +601,19 @@ function isStatePredicate(condition: Condition): boolean {
   };
   visit(condition);
   return state;
+}
+
+/** The exact states a static "unless" accepts: the object's own combat or
+ * tap status ("unless it's attacking [or blocking]", Tadeas, Juniper
+ * Ascendant) and the turn or phase ("unless it's your main phase"). */
+function isAllowlistedUnlessState(condition: Condition): boolean {
+  if (condition.condition === "any-of") return condition.conditions.every(isAllowlistedUnlessState);
+  if (condition.condition === "status") {
+    const ref = (condition.what as { ref?: unknown }).ref;
+    return Object.keys(condition).length === 3 && (ref === "it" || ref === "self" || ref === "this") &&
+      ["attacking", "blocking", "tapped", "untapped"].includes(condition.status as string);
+  }
+  return condition.condition === "current-phase" || condition.condition === "your-turn" || condition.condition === "not-your-turn";
 }
 
 /** Replace a leading "it"/"they" (or "it's"/"they're") with the preceding
