@@ -226,11 +226,12 @@ impl RulesTxn {
                                 InstructionOutcome::ObjectNoLongerPresent { target }
                             } else {
                                 let owner = self.state.rules.cards[&target.card].owner;
-                                let destination = if *to == mtg_contracts::kir::Destination::OwnerLibraryTop {
-                                    Zone::Library { owner }
-                                } else {
-                                    Zone::Hand { owner }
-                                };
+                                let destination =
+                                    if *to == mtg_contracts::kir::Destination::OwnerLibraryTop {
+                                        Zone::Library { owner }
+                                    } else {
+                                        Zone::Hand { owner }
+                                    };
                                 if self.state.rules.commanders.history(target.card).is_some() {
                                     self.rules_mut().frame = Frame::CommanderReturn {
                                         object: target,
