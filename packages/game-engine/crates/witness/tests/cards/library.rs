@@ -2093,13 +2093,10 @@ fn unrestricted_growth(cards: &[(&str, &[Cell])]) -> Catalog {
     catalog
 }
 
-/// CR 303.4f-g: a saved host is the exact legal object chosen. With
-/// Pacifism on seat 1's Bears and Hallowed Fountain's payment still open,
-/// a Forest substituted for the Bears never validates; the Bears leaving
-/// with its conceding owner does, and Pacifism then stays in the library
-/// while the Fountain enters.
-#[test]
-fn a_saved_aura_host_is_the_chosen_legal_object_or_departed() {
+/// Rampant Growth (edited IR, see [`unrestricted_growth`]) finds Pacifism
+/// and Hallowed Fountain; Pacifism goes on seat 1's Bears and the
+/// Fountain's payment is open. Seat 2 controls a Forest (card 8).
+fn pacifism_then_fountain() -> (Game, [ObjectId; 5], u32) {
     let prepared = Board::new(
         unrestricted_growth(&[(HALLOWED_FOUNTAIN, &[]), (PACIFISM, &[])]),
         "r4-library-witness",
@@ -2115,12 +2112,13 @@ fn a_saved_aura_host_is_the_chosen_legal_object_or_departed() {
     .library_card("Hallowed Fountain", 0)
     .library_card("Grizzly Bears", 0)
     .library_card("Forest", 1)
+    .permanent_or_hand("Forest", 2, 2, false)
     .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
-    let before = life(&g, 0);
     Driver::cast(&mut g, CardId(0));
     Driver::pay(&mut g, &[1, 2]);
-    let [forest, bears, pacifism, fountain] = [1, 3, 4, 5].map(|id| Driver::object(&g, id));
+    let ids = [1, 3, 4, 5, 8].map(|id| Driver::object(&g, id));
+    let [_, bears, pacifism, fountain, _] = ids;
     answer(&mut g, 0, Reason::SearchLibrary, &[pacifism, fountain]);
     let d = next_choice(&mut g);
     assert_eq!(d.reason, Reason::EntryAttachment);
@@ -2139,6 +2137,17 @@ fn a_saved_aura_host_is_the_chosen_legal_object_or_departed() {
     else {
         panic!()
     };
+    (g, ids, source_block)
+}
+
+/// CR 303.4f-g: a saved host is the exact legal object chosen. A Forest
+/// substituted for the Bears never validates; the Bears leaving with its
+/// conceding owner does, and Pacifism then stays in the library while the
+/// Fountain enters.
+#[test]
+fn a_saved_aura_host_is_the_chosen_legal_object_or_departed() {
+    let (mut g, [forest, _, pacifism, fountain, _], source_block) = pacifism_then_fountain();
+    let before = life(&g, 0);
     let swapped = ResolutionChoice::SearchEntry {
         player: PlayerId(0),
         found: vec![pacifism, fountain],
@@ -2160,6 +2169,37 @@ fn a_saved_aura_host_is_the_chosen_legal_object_or_departed() {
     assert_eq!((fountain.zone, fountain.tapped), (Zone::Battlefield, false));
     assert_eq!(life(&g, 0), minus(before, 2));
     assert_eq!(shuffles(&g, 0), 1);
+}
+
+/// CR 800.4a: after the searcher itself concedes, a saved host substituted
+/// by seat 2's Forest (still on the battlefield) or by the searcher's own
+/// Forest (gone with it) never validates, while the true Bears does, both
+/// while the concession is queued and after the departure.
+#[test]
+fn a_departed_searchers_saved_host_stays_the_chosen_object() {
+    let (mut g, [own_forest, _, pacifism, fountain, other_forest], source_block) =
+        pacifism_then_fountain();
+    let host = |host: ObjectId| ResolutionChoice::SearchEntry {
+        player: PlayerId(0),
+        found: vec![pacifism, fountain],
+        hosts: vec![(pacifism, host)],
+        paid: vec![],
+        source_block,
+    };
+    g.concede(PlayerId(0)).unwrap();
+    for departed in [false, true] {
+        if departed {
+            through_departure(&mut g, 0);
+            assert!(g.state.rules.objects.get(&own_forest.card).is_none());
+        }
+        g.validate_state().unwrap();
+        forged_choice_rejected(&mut g, &host(other_forest), "a present Forest as host");
+        forged_choice_rejected(
+            &mut g,
+            &host(own_forest),
+            "the searcher's own Forest as host",
+        );
+    }
 }
 
 /// A search entry never waits without a question: with Zur Murdered and no
