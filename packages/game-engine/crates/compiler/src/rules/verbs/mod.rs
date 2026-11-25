@@ -6,6 +6,7 @@
 use super::*;
 
 mod combat;
+mod continuous;
 mod counters;
 mod damage;
 mod destroy;
@@ -114,6 +115,26 @@ pub(crate) fn append_spell_effects(
 /// mirror; a tag without a verb module rejects under its own name.
 fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
     match s {
+        Step::GainControl {
+            who,
+            what,
+            duration,
+        } => continuous::control(cx, who, what, duration.as_ref()),
+        Step::Become {
+            what,
+            spec,
+            duration,
+        } => continuous::lower_become(cx, what, spec, duration),
+        Step::ModifyCharacteristics {
+            what,
+            modifiers,
+            snapshot,
+            stated_as,
+            duration,
+        } => {
+            let ast::LitEffectCreated::EffectCreated = snapshot;
+            continuous::modify(cx, what, modifiers, *stated_as, duration)
+        }
         Step::Cant {
             what,
             action,

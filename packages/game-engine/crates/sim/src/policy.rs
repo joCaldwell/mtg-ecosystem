@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 mod generic_policy;
 mod mana_policy;
 use crate::mana_spend::{payment, spend};
+pub(crate) use mana_policy::available_tap;
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Policy {

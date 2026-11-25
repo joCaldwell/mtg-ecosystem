@@ -65,6 +65,8 @@ pub use statics::*;
 pub(crate) use tiers::executes;
 pub use tiers::*;
 pub use verbs::*;
+mod creature_types;
+pub use creature_types::is_creature_subtype;
 
 // ---------------------------------------------------------------------------
 // Constructors

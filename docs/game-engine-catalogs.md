@@ -155,7 +155,8 @@ Every flat effect is a kernel verb; the audited cells are:
 | `destroy`, `move`, `tap`, `untap` | One announced target by domain (destroy; exile, owner's hand, top of owner's library; tap; untap), an optional target destroy, matching battlefield sets, your lands (untap), one player's graveyard or every graveyard (exile), one card from your graveyard (hand), or one creature card from your graveyard (battlefield) |
 | `mill`, `discard`, `sacrifice` | Controller or one announced player (mill; X for the player); controller, damaged player, announced player (random or X), each player or each opponent (discard); damaged player, target opponent, each player or each opponent sacrifices one creature |
 | `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source or one announced creature |
-| `modify_until` | End-of-turn fixed P/T change of the source, one announced creature or a matching battlefield set; the source's own keyword grant |
+| `modify_until` | End-of-turn fixed P/T change or keyword grant on the audited source, target and set operands; signed announced-X P/T change on one announced creature or activated source |
+| `gain_control`, `set_characteristics` | The [captured battlefield recipients, durations and layers](game-engine-mechanics.md#continuous-permanent-control) |
 | `search`, `shuffle` | The controller's own library, or that of a filtered target's captured controller: up to a fixed number of cards with printed type, supertype, subtype, color or fixed stat qualities, optionally revealed, onto the searcher's battlefield (optionally tapped) or into the owner's hand or graveyard; the shuffle of that library, or a singleton to the top after shuffling the remainder |
 | `scry`, `surveil`, `reorder_library_top` | The controller, a fixed positive number |
 

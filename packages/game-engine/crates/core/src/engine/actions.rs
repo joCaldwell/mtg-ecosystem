@@ -381,7 +381,7 @@ impl RulesTxn {
             );
         if tap
             && (source.tapped
-                || (self.characteristics(object)?.kind == CardKind::Creature
+                || (self.characteristics(object)?.has_type(CardKind::Creature)
                     && !source.attack_ready
                     && !self.has_keyword(source.id, KeywordAbility::Haste)))
         {

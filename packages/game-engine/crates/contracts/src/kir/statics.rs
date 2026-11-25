@@ -239,7 +239,11 @@ fn player_is_bound(player: &PlayerExpr) -> bool {
 fn predicate_in_layer(filter: &Pred, layer: Layer) -> bool {
     filter.0.iter().all(|atom| match atom {
         Atom::Type { .. } | Atom::NotType { .. } | Atom::AnyType { .. } => layer > Layer::Type,
-        Atom::Subtype { subtype } | Atom::NotSubtype { subtype } => !subtype.is_empty(),
+        // CR 613.8a-c: resolved animation can change creature subtypes in
+        // layer 4. A layer-4 static that reads one needs dependency sorting.
+        Atom::Subtype { subtype } | Atom::NotSubtype { subtype } => {
+            !subtype.is_empty() && (layer > Layer::Type || !is_creature_subtype(subtype))
+        }
         Atom::Legendary
         | Atom::NotLegendary
         | Atom::Basic
@@ -407,7 +411,9 @@ impl crate::StaticAbility {
                                     }
                                 })
                         }
-                        Change::RemoveKeywords { .. } | Change::Controller { .. } => false,
+                        Change::RemoveKeywords { .. }
+                        | Change::Controller { .. }
+                        | Change::PowerToughnessX { .. } => false,
                         Change::SetColors { colors } => {
                             colors.iter().all(|color| *color != Color::C)
                         }
