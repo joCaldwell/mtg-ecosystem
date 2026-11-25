@@ -173,6 +173,11 @@ pub(super) fn cycling(
     })
 }
 
+/// CR 702.34a: "Flashback [cost]" with one fixed mana cost.
+pub(super) fn flashback(keyword: &SourceKeyword, text: &str) -> Result<ManaCost, Failure> {
+    keyword_mana(keyword, "Flashback", text)
+}
+
 /// The one kicker identity a spell declares; "if this spell was kicked"
 /// reads it (CR 702.33d).
 pub(super) const KICKER: &str = "kicker";

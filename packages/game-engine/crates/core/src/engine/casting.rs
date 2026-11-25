@@ -29,9 +29,12 @@ impl RulesTxn {
         self.validate_cast_permission(player)?;
         let object = self.state.rules.objects.get(&card).ok_or("invalid cast")?;
         let definition = self.definition(card)?;
+        // CR 702.34a: flashback permits casting from its owner's graveyard.
         if !(object.zone == (Zone::Hand { owner: player })
             || (object.zone == (Zone::Command { owner: player })
-                && self.state.rules.commanders.history(card).is_some()))
+                && self.state.rules.commanders.history(card).is_some())
+            || (object.zone == (Zone::Graveyard { owner: player })
+                && definition.flashback.is_some()))
             || self.state.rules.cards[&card].owner != player
             || definition.spell.is_none()
         {
@@ -229,6 +232,16 @@ impl RulesTxn {
                 | TargetDomain::OwnGraveyardCard,
             ) => Frame::Targets { cast },
         })
+    }
+    /// CR 702.34a: a spell whose flashback cost was paid (the one way a spell
+    /// is cast from a graveyard) is exiled instead of moving anywhere else as
+    /// it leaves the stack. A copy was never cast and keeps `destination`.
+    pub(super) fn stack_departure(&self, entry: &StackInstance, destination: Zone) -> Zone {
+        if entry.kind.is_spell() && matches!(entry.cast_from, Zone::Graveyard { .. }) {
+            Zone::Exile
+        } else {
+            destination
+        }
     }
     /// CR 800.4a: a departed player casts nothing.
     pub(crate) fn validate_cast_permission(&self, player: PlayerId) -> Result<(), String> {

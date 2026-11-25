@@ -1192,8 +1192,15 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let mut cost = d.characteristics.mana_cost.clone();
+        // CR 702.34a: a graveyard cast pays the flashback cost.
+        let flashback = o.zone == (Zone::Graveyard { owner: v.viewer });
+        let mut cost = match (&d.flashback, flashback) {
+            (Some(flashback), true) => flashback.clone(),
+            (None, true) => return None,
+            _ => d.characteristics.mana_cost.clone(),
+        };
         if let Some(p) = &d.spell
+            && !flashback
             && p.instructions.iter().any(announced_x)
         {
             cost.generic.add(&self.choose_x(v, d, p)?);
@@ -1528,10 +1535,14 @@ impl Strategy<'_> {
         for stage in 0..5 {
             for o in &v.objects {
                 let command = o.zone == (Zone::Command { owner: v.viewer });
-                if !command && !in_viewers_hand(v, o) {
+                let graveyard = o.zone == (Zone::Graveyard { owner: v.viewer });
+                if !command && !graveyard && !in_viewers_hand(v, o) {
                     continue;
                 }
                 let d = definition(self.catalog, &o.oracle_id)?;
+                if graveyard && d.flashback.is_none() {
+                    continue;
+                }
                 let Some(p) = &d.spell else { continue };
                 let taxed = command
                     && v.commanders.iter().any(|c| {
@@ -1541,7 +1552,9 @@ impl Strategy<'_> {
                                 .get(&v.viewer)
                                 .is_some_and(|n| *n > Quantity::zero())
                     });
-                let rank = if !command && engine_card(d) {
+                let rank = if graveyard {
+                    4
+                } else if !command && engine_card(d) {
                     0
                 } else if command && !taxed {
                     1

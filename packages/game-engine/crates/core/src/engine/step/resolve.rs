@@ -25,7 +25,7 @@ impl RulesTxn {
             let destination = if resolved && program.resolution == SpellResolution::Permanent {
                 Zone::Battlefield
             } else {
-                Zone::Graveyard { owner }
+                self.stack_departure(stack, Zone::Graveyard { owner })
             };
             if destination == Zone::Battlefield
                 && self.copiable_definition(source)?.characteristics.subtypes == ["Aura"]

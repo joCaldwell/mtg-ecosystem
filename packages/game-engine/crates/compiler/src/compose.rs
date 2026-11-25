@@ -623,6 +623,14 @@ fn compose(
                                 .optional_additional_costs
                                 .push(keywords::kicker(one, label, text)?);
                         }
+                        // CR 702.34a: flashback is an instant's or sorcery's
+                        // alternative cost from its owner's graveyard.
+                        [one] if one.keyword == "flashback" => {
+                            if !spell_kind || definition.flashback.is_some() {
+                                return Err(unsupported("keyword", "keyword:flashback:source"));
+                            }
+                            definition.flashback = Some(keywords::flashback(one, text)?);
+                        }
                         [one] if one.keyword == "enchant" => {
                             let spell = definition
                                 .spell

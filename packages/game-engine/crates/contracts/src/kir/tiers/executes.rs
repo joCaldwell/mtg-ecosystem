@@ -753,6 +753,17 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     if !shell {
         return cell("shell", name(&c.kind));
     }
+    // CR 702.34a: flashback is a fixed mana alternative cost of an instant
+    // or sorcery whose own cost announces no X or hybrid choice.
+    if let Some(cost) = &d.flashback
+        && (!matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
+            || d.x_mana_cost
+            || !c.hybrid_mana.is_empty()
+            || cost.generic.is_negative()
+            || cost.colored.contains(&Color::C))
+    {
+        return cell("keyword", "flashback");
+    }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         program(
             d.spell.as_ref().ok_or("missing spell program")?,

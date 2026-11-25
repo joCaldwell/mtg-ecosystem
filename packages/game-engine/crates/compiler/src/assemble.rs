@@ -42,6 +42,7 @@ pub(crate) fn shell(
         source_labels: None,
         composed: true,
         x_mana_cost: printed_cost.x,
+        flashback: None,
         oracle_id: r.oracle_identity,
         name: source.name,
         characteristics: Characteristics {

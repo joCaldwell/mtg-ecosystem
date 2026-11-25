@@ -124,6 +124,7 @@ impl RulesTxn {
     pub(super) fn construct_spell_cost(
         &self,
         card: CardId,
+        from: Zone,
         x: Option<&Quantity>,
         selected: &[String],
         hybrid: Option<&[HybridPayment]>,
@@ -154,7 +155,20 @@ impl RulesTxn {
         }
         let mut cost = total_cost(
             {
-                let mut cost = definition.characteristics.mana_cost.clone();
+                // CR 702.34a, 118.9: the flashback cost replaces the mana cost
+                // of a spell cast from its owner's graveyard.
+                let mut cost = match from {
+                    Zone::Graveyard { .. } => {
+                        if x.is_some() || hybrid.is_some() {
+                            return Err("flashback cost announces no X or hybrid".into());
+                        }
+                        definition
+                            .flashback
+                            .clone()
+                            .ok_or("graveyard cast without flashback")?
+                    }
+                    _ => definition.characteristics.mana_cost.clone(),
+                };
                 if let Some(colors) = hybrid {
                     self.validate_hybrid_colors(card, colors)?;
                     cost.colored
@@ -188,6 +202,7 @@ impl RulesTxn {
         let lock = self.cost_lock_inputs(entry.source.card, entry.controller, entry.cast_from)?;
         let total = self.construct_spell_cost(
             entry.source.card,
+            entry.cast_from,
             entry.x.as_ref(),
             entry.selected_additional_costs.as_deref().unwrap_or(&[]),
             (!entry.hybrid_colors.is_empty()).then_some(entry.hybrid_colors.as_slice()),
@@ -248,6 +263,7 @@ impl RulesTxn {
                 || entry.total_cost
                     != self.construct_spell_cost(
                         entry.source.card,
+                        entry.cast_from,
                         entry.x.as_ref(),
                         entry.selected_additional_costs.as_deref().unwrap_or(&[]),
                         (!entry.hybrid_colors.is_empty()).then_some(entry.hybrid_colors.as_slice()),

@@ -128,8 +128,10 @@ impl RulesTxn {
             if priority && hand && self.validate_land_play(player, id.card).is_ok() {
                 actions.push(Action::PlayLand { object: id });
             }
+            // CR 702.34a: a graveyard card is offered only with flashback.
+            let graveyard = obj.zone == (Zone::Graveyard { owner: player });
             if priority
-                && (hand || command)
+                && (hand || command || graveyard)
                 && self.validate_priority_spell_cast(player, id.card).is_ok()
             {
                 actions.push(Action::Cast { card: id });

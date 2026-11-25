@@ -234,6 +234,9 @@ pub enum Cell {
     SpellAdditionalSacrifice,
     /// CR 702.33a, d: a spell's kicker cost and the conditions reading it.
     Kicker,
+    /// CR 702.34a: casting from the graveyard for the flashback cost, and
+    /// exile as the spell leaves the stack.
+    Flashback,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -330,7 +333,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeCostTap
         | C::SacrificeCostAnother
         | C::SpellAdditionalSacrifice
-        | C::Kicker => Tiers::EXECUTES,
+        | C::Kicker
+        | C::Flashback => Tiers::EXECUTES,
     }
 }
 
@@ -521,6 +525,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if !d.characteristics.hybrid_mana.is_empty() {
         cells.insert(Cell::HybridManaCost);
+    }
+    if d.flashback.is_some() {
+        cells.insert(Cell::Flashback);
     }
     if let Some(p) = &d.spell {
         if p.additional_sacrifice.is_some() {
