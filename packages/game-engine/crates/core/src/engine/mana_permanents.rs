@@ -106,6 +106,10 @@ testkit_fields! {
         pub ability_use: Option<ManaAbilityUse>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pub previously_used: bool,
+        /// CR 602.5, 605.3a: printed mana ability `index` read its
+        /// "Activate only if" condition as the activation began.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub condition: Option<ManaConditionEvidence>,
         pub produced: BTreeMap<Color, Quantity>,
         pub spent: BTreeMap<Color, Quantity>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -118,6 +122,14 @@ testkit_fields! {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         pub kept: bool,
     }
+}
+
+/// The evidence a conditioned mana ability's receipt keeps.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManaConditionEvidence {
+    pub index: u32,
+    pub check: super::stack_costs::ActivationConditionCheck,
 }
 
 /// CR 733.1: whether every receipt can be reversed. A set with a kept
@@ -147,6 +159,25 @@ impl RulesTxn {
             .rules
             .mana_ability_uses
             .contains(&self.mana_use_key(source, index))
+    }
+    /// Snapshot validation of a permanent mana receipt's condition evidence
+    /// against the printed ability it names.
+    pub(super) fn validate_mana_condition_receipt(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        receipt: &PermanentManaUndo,
+    ) -> Result<(), String> {
+        let Some(evidence) = &receipt.condition else {
+            return Ok(());
+        };
+        let condition = self
+            .definition(source.card)?
+            .mana_abilities
+            .get(evidence.index as usize)
+            .and_then(|a| a.condition.as_ref())
+            .ok_or("snapshot activation condition evidence invariant")?;
+        self.validate_activation_condition_check(player, Some(condition), Some(&evidence.check))
     }
     pub(super) fn validate_mana_uses(&self) -> Result<(), String> {
         if self.state.rules.mana_ability_uses.len() > self.state.rules.objects.len() {
@@ -445,6 +476,9 @@ impl RulesTxn {
                 .as_ref()
                 .is_some_and(|n| o.plus_one_counters < *n)
             || (a.restriction.is_some() && self.mana_ability_index_used(source, index))
+            || a.condition
+                .as_ref()
+                .is_some_and(|c| self.activation_condition_check(player, c).is_err())
             || (a.costs.tap
                 && self.target_is_creature(source)
                 && !o.attack_ready
@@ -722,6 +756,18 @@ impl RulesTxn {
                 .restriction
                 .map(|_| self.mana_use_key(a.source, a.index)),
             previously_used: self.mana_ability_index_used(a.source, a.index),
+            condition: a
+                .ability
+                .condition
+                .as_ref()
+                .map(|c| {
+                    self.activation_condition_check(a.player, c)
+                        .map(|check| ManaConditionEvidence {
+                            index: a.index,
+                            check,
+                        })
+                })
+                .transpose()?,
             produced: BTreeMap::new(),
             spent: spending.clone(),
             spent_restricted: vec![],

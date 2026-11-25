@@ -729,8 +729,9 @@ fn timing_table_lowers_printed_sorcery_speed() {
         composed(SEAL).activated[0].program.timing,
         SpellTiming::Instant
     );
+    let you = |_: &str| Ok(Some(PlayerExpr::you(kir::Context::Activated)));
     let timing = |source: Option<serde_json::Value>, line: &str| {
-        activation_restrictions::lower(source, line)
+        activation_restrictions::lower(source, line, &you)
     };
     assert_eq!(
         timing(
@@ -769,7 +770,11 @@ fn timing_table_lowers_printed_sorcery_speed() {
         .unwrap(),
         (
             SpellTiming::MainPhase,
-            Some(ActivationRestriction { window: None, once_each_turn: true })
+            Some(ActivationRestriction {
+                window: None,
+                once_each_turn: true,
+                condition: None
+            })
         )
     );
     assert_eq!(
@@ -781,9 +786,81 @@ fn timing_table_lowers_printed_sorcery_speed() {
         .1,
         Some(ActivationRestriction {
             window: Some(ActivationWindow::YourUpkeep),
-            once_each_turn: false
+            once_each_turn: false,
+            condition: None
         })
     );
+    // CR 602.5: "Activate only if" lowers only when the printed sentence is
+    // exactly the one the typed condition renders.
+    let control = |filter: serde_json::Value| {
+        json!({"restriction":"condition","condition":{"condition":"control",
+            "who":{"player":"you"},
+            "what":{"ref":"filter","filter":filter,"count":{"amount":"fixed","value":1}}}})
+    };
+    let lands = json!({"restriction":"condition","condition":{"condition":"control-count",
+        "who":{"player":"you"},"of":{"types":["land"]},
+        "comparison":{"op":"ge","value":{"amount":"fixed","value":5}}}});
+    let temple = "{T}: Add {C}{C}. Activate only if you control five or more lands.";
+    let (_, five) = timing(Some(lands.clone()), temple).unwrap();
+    let five = five.unwrap().condition.unwrap();
+    assert!(matches!(
+        kir::ActivationCondition::of(&five).unwrap(),
+        kir::ActivationCondition::Controlled { cmp: kir::Cmp::AtLeast, ref value, .. }
+            if *value == Quantity::from(5)
+    ));
+    for wrong in [
+        "{T}: Add {C}{C}. Activate only if you control four or more lands.",
+        "{T}: Add {C}{C}. Activate only if you control five or more artifacts.",
+        "{T}: Add {C}{C}. Activate only if an opponent controls five or more lands.",
+        "{T}: Add {C}{C}.",
+    ] {
+        assert!(timing(Some(lands.clone()), wrong).is_err(), "{wrong}");
+    }
+    // The condition's player must bind to the activator.
+    let opponent = |_: &str| Ok(Some(PlayerExpr::EachOpponent));
+    assert!(activation_restrictions::lower(Some(lands), temple, &opponent).is_err());
+    for (filter, line) in [
+        (json!({"types":["artifact"]}), "if you control an artifact"),
+        (json!({"subtypes":["Swamp"]}), "if you control a Swamp"),
+        (
+            json!({"anyOf":[{"subtypes":["Island"]},{"subtypes":["Mountain"]}]}),
+            "if you control an Island or a Mountain",
+        ),
+        (
+            json!({"supertypes":["legendary"],"types":["creature"]}),
+            "if you control a legendary creature",
+        ),
+        (
+            json!({"types":["creature"],"withAbility":["flying"]}),
+            "if you control a creature with flying",
+        ),
+    ] {
+        let printed = format!("{{T}}: Add {{C}}. Activate only {line}.");
+        assert!(timing(Some(control(filter.clone())), &printed).is_ok(), "{line}");
+        assert!(timing(Some(control(filter)), "{T}: Add {C}. Activate only if you control a Forest.").is_err());
+    }
+    // Terms the core cannot read exactly reject by name.
+    assert!(
+        timing(
+            Some(control(json!({"supertypes":["snow"],"types":["land"]}))),
+            "{T}: Add {C}. Activate only if you control a snow land."
+        )
+        .is_err()
+    );
+    let graveyard = json!({"restriction":"all-of","restrictions":[{"restriction":"sorcery"},
+        {"restriction":"condition","condition":{"condition":"count",
+            "of":{"cls":"card","zone":{"zone":"graveyard","owner":"your"}},
+            "comparison":{"op":"ge","value":{"amount":"fixed","value":7}}}}]});
+    let (timing_kind, restriction) = timing(
+        Some(graveyard),
+        "{T}: X. Activate only as a sorcery and only if there are seven or more cards in your graveyard.",
+    )
+    .unwrap();
+    assert_eq!(timing_kind, SpellTiming::MainPhase);
+    assert!(matches!(
+        kir::ActivationCondition::of(&restriction.unwrap().condition.unwrap()).unwrap(),
+        kir::ActivationCondition::GraveyardCards { .. }
+    ));
 }
 
 /// Archive R4 negative mutations: each changes the resolution, the printed

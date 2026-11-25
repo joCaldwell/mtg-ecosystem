@@ -905,9 +905,20 @@ fn compose_face(
                     effects,
                 } => {
                     ability_word(&word, &result.lines[block].text)?;
-                    let (timing, restriction) =
-                        activation_restrictions::lower(restriction, &result.lines[block].text)?;
+                    let (timing, restriction) = activation_restrictions::lower(
+                        restriction,
+                        &result.lines[block].text,
+                        &|path| {
+                            resolution.control_player(
+                                block,
+                                &printed[block],
+                                path,
+                                Context::Activated,
+                            )
+                        },
+                    )?;
                     let mana_restriction = restriction
+                        .as_ref()
                         .filter(|r| r.once_each_turn && r.window.is_none())
                         .map(|_| SourceActivationRestriction::OnceEachTurn {});
                     let peeled = control::peel(&effects)?;
@@ -935,16 +946,19 @@ fn compose_face(
                         )?,
                         None => None,
                     };
-                    if let Some(mana) = mana {
+                    if let Some(mut mana) = mana {
                         if spell_kind
                             || timing != SpellTiming::Instant
-                            || restriction.is_some_and(|r| r.window.is_some())
+                            || restriction.as_ref().is_some_and(|r| r.window.is_some())
                         {
                             return Err(unsupported(
                                 "restriction",
                                 "timing restriction on a mana ability",
                             ));
                         }
+                        // CR 602.5, 605.3a: "Activate only if" gates the
+                        // mana ability as its activation begins.
+                        mana.condition = restriction.and_then(|r| r.condition);
                         labels.mana.push(label);
                         definition.mana_abilities.push(mana);
                     } else {

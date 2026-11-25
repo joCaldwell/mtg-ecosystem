@@ -343,6 +343,10 @@ impl RulesTxn {
                     || cast.mana_activations.iter().any(|a| {
                         a.player != top.controller
                             || (a.permanent.is_none() && a.amount != Quantity::from(1))
+                            || a.permanent.as_ref().is_some_and(|p| {
+                                self.validate_mana_condition_receipt(a.player, a.object, p)
+                                    .is_err()
+                            })
                     })
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame)?,

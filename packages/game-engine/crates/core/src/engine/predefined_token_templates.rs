@@ -57,6 +57,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
             riders: vec![],
             source_block: 0,
             restriction: None,
+            condition: None,
         });
     } else {
         let instruction = match kind {
