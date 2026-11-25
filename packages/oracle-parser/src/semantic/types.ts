@@ -308,7 +308,7 @@ export type BindingNode = NodeBase & (
   | { node: "cast-linked-copies"; scope: string; event: string; copies: string; caster: string; choice: "optional-per-copy" }
   | { node: "linked-exile-filter"; scope: string; pool: string }
   | { node: "blight-payment"; scope: string; payer: string; count: number }
-  | { node: "action-cost-condition"; scope: string; event: string; action: "sacrifice" | "discard" }
+  | { node: "action-cost-condition"; scope: string; event: string; action: "sacrifice" | "discard" | "tap" }
   | { node: "value-exchange"; scope: string; subjects: [string, string]; event: string; operation: "life-and-toughness" }
   | { node: "targeting-permission"; scope: string; controller: string; affected: string[]; evaluation: "each-target-legality-check";
       duration: Extract<Effect, { effect: "targeting-as-though" }>["duration"] }

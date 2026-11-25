@@ -78,6 +78,7 @@ export function walk(this: Analyzer, value: unknown, path: string, context: Cont
       this.bound(expression, path, context.enteringKickerX, ["107.3m", "400.7d", "702.33e"]);
     else if (expression.amount === "x" && context.triggerX) this.bound(expression, path, context.triggerX, ["701.37c"]);
     else if (expression.amount === "x" && context.announcedX) this.bound(expression, path, context.announcedX, ["107.3a"]);
+    else if (expression.amount === "x" && this.bindPrintedQuantity(expression, path, context)) return;
     else if (expression.amount === "that-much") {
       // "Discard all the cards in your hand, then draw that many cards"; "You
       // may pay that much life. If you do, draw that many cards": the
@@ -236,6 +237,7 @@ export function walk(this: Analyzer, value: unknown, path: string, context: Cont
   }
   if (value.amount === "dice-result" || value.condition === "dice-result")
     this.diagnostic("unsupported-scope", path, "A die result needs its exact roll occurrence, natural/final stage, retained-results set, and table/trigger scope bound.", ["706.2", "706.3", "706.6", "706.7"]);
+  if (value.amount === "kicker-count" && this.bindPrintedQuantity(value as Extract<Amount, { amount: "kicker-count" }>, path, context)) return;
   if (value.amount === "kicker-count")
     this.diagnostic("unsupported-number-binding", path, "This count requires the linked originating spell's recorded kicker payments.", ["400.7d", "702.33"]);
   if (value.amount === "life-change")
@@ -270,6 +272,7 @@ export function walk(this: Analyzer, value: unknown, path: string, context: Cont
     return;
   }
   if (value.amount === "mana-spent") {
+    if (this.bindPrintedQuantity(value as Extract<Amount, { amount: "mana-spent" }>, path, context)) return;
     const what = child(path, "what");
     if (!context.barrier && context.phase === "resolution" && context.triggerObject?.event === "cast" &&
         value.quantity === "total" && value.source === undefined && !context.uncertainStackOrigin &&
