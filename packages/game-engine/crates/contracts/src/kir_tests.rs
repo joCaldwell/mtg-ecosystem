@@ -1433,3 +1433,96 @@ fn library_cells_reject_other_libraries_destinations_and_filters() {
         assert!(matches!(check(&node, &spell(&[])), Err(KirError::Type(_))));
     }
 }
+
+/// Every admitted event pattern is one the collector and snapshot recovery
+/// evaluate identically; the rest reject (CR 110.5d, 508.1f, 603.2, 701.26a).
+#[test]
+fn event_patterns_admit_only_what_collection_and_recovery_agree_on() {
+    let creature = Atom::Type {
+        kind: CardKind::Creature,
+    };
+    let unaudited = |pattern: EventPattern, attachment: bool| {
+        assert!(
+            matches!(
+                check_event(&pattern, attachment),
+                Err(KirError::Unaudited(_))
+            ),
+            "{pattern:?}"
+        );
+    };
+    // Only the source's own tap is observed.
+    check_event(&EventPattern::self_becomes_tapped(), false).unwrap();
+    unaudited(
+        EventPattern::BecomesTapped {
+            object: Pred(vec![creature.clone()]),
+        },
+        false,
+    );
+    // A spell has no tapped status; an attacker's is read before its tap.
+    for status in [Atom::Tapped, Atom::Untapped] {
+        unaudited(
+            EventPattern::Cast {
+                caster: PlayerExpr::EachPlayer,
+                spell: Pred(vec![status.clone()]),
+            },
+            false,
+        );
+        unaudited(
+            EventPattern::Attacks {
+                attacker: Pred(vec![Atom::AnyOf {
+                    alternatives: vec![Pred(vec![status.clone()])],
+                }]),
+            },
+            false,
+        );
+    }
+    // Recovery cannot prove an object was not the host.
+    unaudited(
+        EventPattern::Dies {
+            object: Pred(vec![
+                creature.clone(),
+                Atom::IsNot {
+                    object: Ref::AttachedTo,
+                },
+            ]),
+        },
+        true,
+    );
+    check_event(
+        &EventPattern::Dies {
+            object: Pred::attached_creature(),
+        },
+        true,
+    )
+    .unwrap();
+}
+
+/// CR 603.4: a battlefield-count clause never names the source itself, at
+/// any depth of alternatives.
+#[test]
+fn intervening_counts_reject_nested_identity() {
+    let you = Atom::ControlledBy {
+        player: PlayerExpr::you(Context::Triggered),
+    };
+    let count = |inner: Atom| Cond::Exists {
+        set: SetExpr::battlefield(Pred(vec![inner, you.clone()])),
+    };
+    let nested = Atom::AnyOf {
+        alternatives: vec![Pred(vec![Atom::AnyOf {
+            alternatives: vec![Pred(vec![Atom::Is {
+                object: Ref::Source,
+            }])],
+        }])],
+    };
+    assert!(matches!(
+        Intervening::of(&count(nested)),
+        Err(KirError::Unaudited(_))
+    ));
+    let other = Atom::IsNot {
+        object: Ref::Source,
+    };
+    assert!(matches!(
+        Intervening::of(&count(other)),
+        Ok(Intervening::BattlefieldCount { .. })
+    ));
+}

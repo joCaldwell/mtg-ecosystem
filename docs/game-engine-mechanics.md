@@ -524,7 +524,7 @@ Same-kind alternatives ("this creature or another Elf you control") form one
 Player operands are "you", each opponent or each player. The reviewed narrow
 lowerers run first; the general event table lowers the remaining enters, dies,
 put-into-graveyard and attacks events term by term through the board filter.
-`kir::check_event` admits only atoms evaluable on event facts.
+`kir::check_event` admits only atoms evaluable on event facts. Cast and attack patterns read no tapped status (CR 110.5d, 508.1f), and no pattern excludes the host, which a snapshot cannot prove. Recovery reads frozen facts as of the event, including a controller who has since left (CR 800.4a). Only combat damage needs a creature source (CR 510.1).
 
 `kir::Intervening::of` admits an intervening `kir::Cond` in exactly one audited
 form: "if you cast it", an empty hand, the source's tapped status, a creature

@@ -26,19 +26,36 @@ const SINISTER_MONOLITH: &str = record!("ae8003eb-9f19-4f23-be3b-0ac3ddc03a72");
 const UNDEAD_AUGUR: &str = record!("c26887e1-27f4-4550-921b-53460e43c079");
 const HOWLING_MINE: &str = record!("d26b27db-a567-4631-b4b6-7294222fbdd1");
 const ELEMENTAL_BOND: &str = record!("d9a7e5a6-3e41-4fc6-987a-18fe1b9d67dd");
+const SHATTERED_ANGEL: &str = record!("e339c6cb-c75d-4dd4-8c1a-78f844983242");
+const IMPACT_TREMORS: &str = record!("9242cd3e-1a71-4700-8182-9c1005616033");
+const GRISTLE_GRINNER: &str = record!("419f4648-2ace-4bd4-9ae4-8d456688c089");
 
 /// A two-seat board at `step` whose catalog adds `cards`, each compiled
 /// from frozen source to `Executes` only.
 fn board(cards: &[&str], step: TurnStep) -> Board {
+    board_with(compiled(cards, true), step)
+}
+
+/// The frozen `cards`, each `Executes` only when `executes_only`.
+fn compiled(cards: &[&str], executes_only: bool) -> Vec<Definition> {
+    cards
+        .iter()
+        .map(|raw| {
+            let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+            let mtg_compiler::CompileResult::Lowered { definition } = result else {
+                panic!("frozen trigger witness failed: {result:?}");
+            };
+            let tiers = definition_tiers(&definition).unwrap();
+            assert!(!executes_only || tiers == Tiers::EXECUTES);
+            *definition
+        })
+        .collect()
+}
+
+/// A two-seat board at `step` whose catalog adds `definitions`.
+fn board_with(definitions: Vec<Definition>, step: TurnStep) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
-    for raw in cards {
-        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
-        let mtg_compiler::CompileResult::Lowered { definition } = result else {
-            panic!("frozen trigger witness failed: {result:?}");
-        };
-        assert_eq!(definition_tiers(&definition).unwrap(), Tiers::EXECUTES);
-        catalog.definitions.push(*definition);
-    }
+    catalog.definitions.extend(definitions);
     catalog
         .definitions
         .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
@@ -74,6 +91,7 @@ fn drive(g: &mut Game, attack: &[ObjectId], stop: impl Fn(&Game) -> bool) {
             Reason::Priority => mtg_witness::temporary::pass(&d),
             Reason::Attackers => d.attack(attack.iter().map(|a| (*a, PlayerId(1))).collect()),
             Reason::Blockers => d.block(vec![]),
+            Reason::OptionalEffect => d.pick_one(&Candidate::Flag { flag: Flag::Accept }).unwrap(),
             Reason::OrderTriggers => {
                 checked(g);
                 Answer::Order {
@@ -491,4 +509,154 @@ fn lagonna_band_elder_counts_enchantments_twice() {
         assert_eq!(intervening(&g, source), [(true, true), (false, !bounce)]);
         assert_recoverable((&g).into());
     }
+}
+
+/// Shattered Angel: "Whenever a land an opponent controls enters, you may
+/// gain 3 life." The entering land's controller concedes with the trigger
+/// on the stack. The frozen entry facts are those of the event, when that
+/// player was in the game (CR 800.4a), so state validation, restore and
+/// replay keep the trigger, and it resolves for its surviving controller.
+#[test]
+fn shattered_angel_keeps_its_trigger_when_the_lands_controller_concedes() {
+    let prepared = prepare(
+        board(&[SHATTERED_ANGEL], TurnStep::PostcombatMain)
+            .seats(3)
+            .permanent_or_hand("Shattered Angel", 0, 0, false)
+            .permanent_or_hand("Forest", 1, 1, true),
+    );
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let forest = Driver::object(&g, 1);
+    let start = life(&g, 0);
+    drive(&mut g, &[], |g| {
+        g.state.rules.turn_owner == PlayerId(1)
+            && g.state.rules.turn.step == TurnStep::PrecombatMain
+            && matches!(g.state.rules.frame, Frame::Priority)
+    });
+    Driver::action(&mut g, Action::PlayLand { object: forest });
+    drive(&mut g, &[], triggered);
+    assert!(matches!(
+        &g.state.rules.stack[0].kind,
+        StackKind::Triggered {
+            witness: TriggerEventWitness::Entered { .. },
+            ..
+        }
+    ));
+    checked(&g);
+    g.concede(PlayerId(1)).unwrap();
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(life(&g, 0), plus(&start, 3));
+    assert_recoverable((&g).into());
+}
+
+/// A private observer that draws a card whenever an enchantment deals
+/// damage to an opponent. Its source predicate never names a creature.
+fn enchantment_damage_observer(base: &Definition) -> Definition {
+    let mut d = base.clone();
+    d.oracle_id = "ffffffff-ffff-4fff-8fff-0000000000b4".into();
+    d.name = "Private Tremor Observer".into();
+    let you = PlayerExpr::you(Context::Triggered);
+    d.triggered[0].condition = TriggerCondition::on(kir::EventPattern::DealsDamage {
+        source: kir::Pred(vec![kir::Atom::Type {
+            kind: CardKind::Enchantment,
+        }]),
+        combat: false,
+        recipient: PlayerExpr::EachOpponent,
+    });
+    d.triggered[0].program.instructions = vec![Instruction::Kernel {
+        node: kir::Node::Do(Verb::Draw {
+            player: you,
+            amount: Amount::fixed(1),
+        }),
+        source_block: 0,
+    }];
+    d.capabilities = d.requirements();
+    d.validate().unwrap();
+    assert_eq!(definition_tiers(&d).unwrap(), Tiers::EXECUTES);
+    d
+}
+
+/// CR 510.1: only creatures deal combat damage, so only a combat damage
+/// witness requires a creature source. Impact Tremors ("Whenever a creature
+/// you control enters, this enchantment deals 1 damage to each opponent")
+/// deals noncombat damage as an enchantment; an admitted observer of
+/// enchantment damage triggers, validates, restores and replays.
+#[test]
+fn noncreature_damage_sources_validate_for_an_admitted_observer() {
+    let tremors = compiled(&[IMPACT_TREMORS], false).remove(0);
+    let observer = enchantment_damage_observer(&tremors);
+    let prepared = prepare(
+        board_with(vec![tremors, observer], TurnStep::PrecombatMain)
+            .permanent_or_hand("Impact Tremors", 0, 0, false)
+            .permanent_or_hand("Private Tremor Observer", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false),
+    );
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let before = hand(&g, 0);
+    Driver::cast(&mut g, CardId(2));
+    Driver::pay(&mut g, &[3, 4]);
+    drive(&mut g, &[], |g| {
+        g.state
+            .rules
+            .stack
+            .iter()
+            .any(|s| s.source.card == CardId(1))
+    });
+    checked(&g);
+    let observed = g
+        .state
+        .rules
+        .stack
+        .iter()
+        .filter(|s| s.source.card == CardId(1))
+        .count();
+    assert!(observed > 0);
+    settle(&mut g);
+    assert!(hand(&g, 0) >= before - 1 + observed);
+    assert_recoverable((&g).into());
+}
+
+/// CR 603.10a: only the reviewed opponent-death row freezes a dying
+/// creature's controller. Gristle Grinner ("Whenever a creature dies, Gristle
+/// Grinner gets +2/+2 until end of turn") does not, so a snapshot whose
+/// pending Grinner trigger names one is rejected, as it is on the stack.
+#[test]
+fn a_forged_death_controller_on_a_pending_trigger_is_rejected() {
+    let prepared = prepare(
+        board_with(compiled(&[GRISTLE_GRINNER], false), TurnStep::PrecombatMain)
+            .permanent_or_hand("Gristle Grinner", 0, 0, false)
+            .permanent_or_hand("Gristle Grinner", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .permanent_or_hand("Murder", 0, 0, true)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Swamp", 0, 0, false),
+    );
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let bears = Driver::object(&g, 2);
+    Driver::cast(&mut g, CardId(3));
+    Driver::pick_object(&mut g, bears);
+    Driver::pay(&mut g, &[4, 5, 6]);
+    for _ in 0..16 {
+        let d = Driver::request(&mut g, u64::MAX);
+        if d.reason == Reason::OrderTriggers {
+            break;
+        }
+        let pass = mtg_witness::temporary::pass(&d);
+        g.respond(d.player, d.id, pass).unwrap();
+    }
+    assert_eq!(g.state.rules.pending_triggers.len(), 2);
+    checked(&g);
+    let raw = g.snapshot().unwrap();
+    let mut forged: Snapshot = strict_read(&raw).unwrap();
+    let mut pending = serde_json::to_value(&forged.state.rules.pending_triggers[0]).unwrap();
+    pending["death_controller"] = serde_json::json!(PlayerId(1));
+    forged.state.rules.pending_triggers[0] = serde_json::from_value(pending).unwrap();
+    forged.state_sha256 = digest(&forged.state).unwrap();
+    let error = Game::restore(g.prepared.as_ref().clone(), &canonical(&forged).unwrap())
+        .err()
+        .unwrap();
+    assert!(error.contains("death LKI binding"), "{error}");
 }

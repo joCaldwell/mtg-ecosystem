@@ -1401,10 +1401,12 @@ impl RulesTxn {
             }
         };
         let token = |object: ObjectId| self.state.rules.tokens.contains_key(&object.card);
+        // CR 800.4a: the frozen facts are the object's at the event, when its
+        // controller was in the game; a later departure does not undo them.
         let frozen = |facts| Frozen {
             facts,
             token: token(facts.object),
-            live: self.is_live(facts.controller),
+            live: true,
         };
         // CR 700.4: a pattern that names a creature reviewed the dying or
         // entering card as a creature card.
@@ -1413,7 +1415,14 @@ impl RulesTxn {
                 kind: CardKind::Creature,
             }) || self.copiable_definition(object)?.characteristics.kind == CardKind::Creature)
         };
+        // CR 603.10a: exactly the reviewed opponent-death row freezes the
+        // dying creature's controller, pending or on the stack alike.
         let binds = binds_death_controller(&definition);
+        if death_controller.is_some() != binds
+            || death_controller.is_some_and(|p| p.0 >= 4 || p == controller)
+        {
+            return Err("snapshot X/death LKI binding invariant".into());
+        }
         let valid = match witness {
             TriggerEventWitness::DamageDealt {
                 kind,
@@ -1442,7 +1451,9 @@ impl RulesTxn {
                     && (damage.id.0 as usize) < self.damage_limit()
                     && damage.amount > Quantity::zero()
                     && fact.zone == Zone::Battlefield
-                    && fact.characteristics.has_type(CardKind::Creature)
+                    // CR 510.1: only creatures deal combat damage.
+                    && (*kind != DamageKind::Combat
+                        || fact.characteristics.has_type(CardKind::Creature))
                     && (*kind != DamageKind::Combat || fact.controller == damage.controller)
                     && fact.controller.0 < 4
                     && damage.controller.0 < 4
@@ -1507,7 +1518,7 @@ impl RulesTxn {
                     && matches!(pattern, EventPattern::Cast { caster, spell }
                         if player_in(caster, Some(cast.caster), controller)
                             && holds(spell, Some(&Frozen { facts: &cast.spell, token: false,
-                                live: self.is_live(cast.caster) }), controller,
+                                live: true }), controller,
                                 cast.spell.object, &identity(cast.spell.object)))
                     && death_controller.is_none()
             }
@@ -1570,11 +1581,6 @@ impl RulesTxn {
                             witness.dies()
                                 && identity_holds(pred, subject, &identity(subject))
                                 && creature_card(pred, subject)?
-                                && if binds {
-                                    death_controller.is_some_and(|p| p.0 < 4 && p != controller)
-                                } else {
-                                    !pred.is_ref(Ref::AttachedTo) || death_controller.is_none()
-                                }
                         }
                         // An entry whose pattern read characteristics
                         // retains them as `Entered`.

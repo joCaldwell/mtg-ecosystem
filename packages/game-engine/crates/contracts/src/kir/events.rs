@@ -277,16 +277,50 @@ pub fn check_event(pattern: &EventPattern, attachment: bool) -> Result<(), KirEr
         {
             return Err(KirError::Unaudited("cast event identity".into()));
         }
+        // CR 110.5d: a spell has no tapped status. CR 508.1f taps an
+        // attacker after the facts an attack event is matched on, so a
+        // status read there would not be the declared attacker's.
+        if matches!(
+            pattern,
+            EventPattern::Cast { .. } | EventPattern::Attacks { .. }
+        ) && any_atom(object, &|a| matches!(a, Atom::Tapped | Atom::Untapped))
+        {
+            return Err(KirError::Unaudited("event status atom".into()));
+        }
+        // A snapshot records no historical host, so recovery can prove
+        // that an object was the host but never that it was not.
+        if any_atom(object, &|a| {
+            matches!(
+                a,
+                Atom::IsNot {
+                    object: Ref::AttachedTo
+                }
+            )
+        }) {
+            return Err(KirError::Unaudited("event object excludes the host".into()));
+        }
+        // CR 701.26a: the collector observes only the source's own tap.
+        if matches!(pattern, EventPattern::BecomesTapped { .. }) && *object != Pred::source() {
+            return Err(KirError::Unaudited("becomes-tapped object".into()));
+        }
     }
     Ok(())
 }
 
-fn mentions(pred: &Pred, object: Ref) -> bool {
-    pred.0.iter().any(|atom| match atom {
-        Atom::Is { object: o } | Atom::IsNot { object: o } => *o == object,
-        Atom::AnyOf { alternatives } => alternatives.iter().any(|p| mentions(p, object)),
-        _ => false,
+/// True when some atom, at any depth of alternatives, satisfies `test`.
+fn any_atom(pred: &Pred, test: &impl Fn(&Atom) -> bool) -> bool {
+    pred.0.iter().any(|atom| {
+        test(atom)
+            || matches!(atom, Atom::AnyOf { alternatives }
+                if alternatives.iter().any(|p| any_atom(p, test)))
     })
+}
+
+fn mentions(pred: &Pred, object: Ref) -> bool {
+    any_atom(
+        pred,
+        &|atom| matches!(atom, Atom::Is { object: o } | Atom::IsNot { object: o } if *o == object),
+    )
 }
 
 /// The intervening "if" clauses a triggered ability can check (CR 603.4).
@@ -439,11 +473,7 @@ impl Intervening {
         if value.is_negative()
             || !filter.0.contains(&you)
             || mentions(filter, Ref::AttachedTo)
-            || filter.0.iter().any(|atom| {
-                matches!(atom, Atom::Is { .. })
-                    || matches!(atom, Atom::AnyOf { alternatives }
-                        if alternatives.iter().any(|p| p.0.iter().any(|a| matches!(a, Atom::Is { .. }))))
-            })
+            || any_atom(filter, &|atom| matches!(atom, Atom::Is { .. }))
         {
             return Err(KirError::Unaudited("intervening battlefield count".into()));
         }
