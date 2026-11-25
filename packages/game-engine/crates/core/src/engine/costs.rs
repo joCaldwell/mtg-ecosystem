@@ -262,6 +262,23 @@ impl RulesTxn {
                 Err("nonspell cost lock".into())
             };
         }
+        // CR 601.2b: optional additional costs, then hybrid symbols, then X are
+        // announced in order, and the cost locks (CR 601.2f) only after all of
+        // them. A game that ends mid-announcement keeps that prefix.
+        let definition = self.copiable_definition(entry.source)?;
+        let additional_pending = !self
+            .program_for(entry)?
+            .optional_additional_costs
+            .is_empty()
+            && entry.selected_additional_costs.is_none();
+        let hybrid_pending = needs_choice && entry.hybrid_colors.is_empty();
+        let x_pending = definition.x_mana_cost && entry.x.is_none();
+        if (!entry.hybrid_colors.is_empty() && additional_pending)
+            || (entry.x.is_some() && (additional_pending || hybrid_pending))
+            || (entry.cost_lock.is_some() && (additional_pending || hybrid_pending || x_pending))
+        {
+            return Err("spell announcement order invariant".into());
+        }
         if let Some(lock) = &entry.cost_lock {
             if matches!(self.underlying_mana_frame(&self.state.rules.frame)?,
                 Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
@@ -285,10 +302,11 @@ impl RulesTxn {
             return Ok(());
         }
         let frame = self.underlying_mana_frame(&self.state.rules.frame)?;
+        // Only an unpaid entry may lack its lock: payment follows the lock.
         if entry.paid.is_none()
-            && matches!(frame,
+            && (matches!(frame,
             Frame::AdditionalCosts {cast} | Frame::HybridCost {cast} | Frame::AnnounceX {cast} | Frame::Targets {cast} | Frame::EntityTargets {cast} | Frame::StackTargets {cast} | Frame::PlayerTargets {cast} if cast.stack_id == entry.id)
-            || matches!(frame, Frame::Fault { .. } | Frame::Finished { .. })
+                || matches!(frame, Frame::Fault { .. } | Frame::Finished { .. }))
         {
             return Ok(());
         }

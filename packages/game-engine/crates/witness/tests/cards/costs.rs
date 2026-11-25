@@ -909,38 +909,134 @@ fn corrosive_gale_survives_a_concession_during_its_announcement() {
         } else {
             expect(&mut g, 0, Reason::HybridCost);
         }
-        for opponent in 1..4 {
-            if g.is_live(PlayerId(opponent)) {
-                g.concede(PlayerId(opponent)).unwrap();
-            }
-        }
-        let mut end = g.advance(Budget::new(1));
-        for _ in 0..16 {
-            if !matches!(
-                end,
-                Advance::Suspended { .. } | Advance::AwaitingDecision(_)
-            ) {
-                break;
-            }
-            g.drain_trace(&mut |_| {});
-            end = g.advance(Budget::new(1));
-        }
-        assert!(
-            matches!(
-                end,
-                Advance::Finished {
-                    winner: PlayerId(0)
-                }
-            ),
-            "{end:?}"
-        );
+        finish_by_concession(&mut g);
         let entry = g.state.rules.stack.last().unwrap();
         assert!(entry.paid.is_none());
         assert_eq!(entry.x, None);
         assert_eq!(entry.hybrid_colors.is_empty(), !at_x);
-        checked(&g);
-        assert_recoverable((&g).into());
+        // CR 601.2b: X follows the hybrid choice, so an X bound ahead of
+        // it is an impossible announcement even after the game ends.
+        if !at_x {
+            let mut forged = g.fork();
+            forged.state.rules.stack.last_mut().unwrap().x = Some(1.into());
+            assert!(
+                forged
+                    .validate_state()
+                    .unwrap_err()
+                    .contains("announcement order")
+            );
+        }
     }
+}
+
+/// The last opponents concede, and the game finishes for seat 0 (CR 104.2a,
+/// 800.4a); the finished state validates, round-trips and replays.
+fn finish_by_concession(g: &mut Game) {
+    for opponent in 1..4 {
+        if g.is_live(PlayerId(opponent)) {
+            g.concede(PlayerId(opponent)).unwrap();
+        }
+    }
+    let mut end = g.advance(Budget::new(1));
+    for _ in 0..16 {
+        if !matches!(
+            end,
+            Advance::Suspended { .. } | Advance::AwaitingDecision(_)
+        ) {
+            break;
+        }
+        g.drain_trace(&mut |_| {});
+        end = g.advance(Budget::new(1));
+    }
+    assert!(
+        matches!(
+            end,
+            Advance::Finished {
+                winner: PlayerId(0)
+            }
+        ),
+        "{end:?}"
+    );
+    checked(g);
+    assert_recoverable((&*g).into());
+}
+
+/// CR 601.2f: Corrosive Gale's cost locks only after its hybrid symbol and
+/// X are announced, so a locked entry that lost either fails validation
+/// after the game ends mid-payment.
+#[test]
+fn corrosive_gale_locked_after_concession_keeps_its_announcements() {
+    let prepared = board(&[(
+        CORROSIVE_GALE,
+        &[Cell::XManaCost, Cell::HybridManaCost, Cell::DamageSet],
+    )])
+    .permanent_or_hand("Corrosive Gale", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    pick(
+        &mut g,
+        0,
+        Reason::HybridCost,
+        &[Candidate::HybridPayment {
+            payment: HybridPayment::PayTwoLife,
+        }],
+    );
+    let d = expect(&mut g, 0, Reason::AnnounceX);
+    g.respond(d.player, d.id, Answer::Number { value: 0.into() })
+        .unwrap();
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Mana { .. }), "{d:?}");
+    finish_by_concession(&mut g);
+    let entry = g.state.rules.stack.last().unwrap();
+    assert!(entry.cost_lock.is_some() && entry.paid.is_none());
+    for (hybrid, x) in [(true, false), (false, true), (true, true)] {
+        let mut forged = g.fork();
+        let entry = forged.state.rules.stack.last_mut().unwrap();
+        if hybrid {
+            entry.hybrid_colors.clear();
+        }
+        if x {
+            entry.x = None;
+        }
+        assert!(
+            forged
+                .validate_state()
+                .unwrap_err()
+                .contains("announcement order"),
+            "{hybrid} {x}"
+        );
+    }
+}
+
+/// CR 601.2f-h: payment follows the cost lock, so a paid Beast Attack
+/// without its lock fails validation even after the game ends.
+#[test]
+fn paid_beast_attack_keeps_its_cost_lock_after_concession() {
+    let prepared = board(&[(BEAST_ATTACK, &[Cell::Flashback])])
+        .permanent_or_hand("Beast Attack", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3, 4, 5]);
+    expect(&mut g, 0, Reason::Priority);
+    finish_by_concession(&mut g);
+    let mut forged = g.fork();
+    let entry = forged.state.rules.stack.last_mut().unwrap();
+    assert!(entry.paid.is_some());
+    assert!(entry.cost_lock.take().is_some());
+    assert!(
+        forged
+            .validate_state()
+            .unwrap_err()
+            .contains("missing spell cost lock")
+    );
 }
 
 /// CR 601.2a, 903.8: a cast spell's only origins are its owner's hand, its
