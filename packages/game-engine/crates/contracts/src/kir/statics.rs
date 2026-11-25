@@ -25,10 +25,34 @@ pub enum AttachmentKind {
     Enchanted,
 }
 
+/// CR 614.12: evaluated against the pre-entry battlefield for the incoming controller.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum EntryCondition {
+    UnlessControlled {
+        filter: Pred,
+        cmp: Cmp,
+        count: Quantity,
+    },
+    UnlessOpponents {
+        cmp: Cmp,
+        count: Quantity,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StaticEffect {
     EntersTapped,
+    PayLifeOrEnterTapped {
+        amount: Quantity,
+    },
+    EntersTappedIf {
+        condition: EntryCondition,
+    },
+    EntersWithPlusOneCounters {
+        count: Quantity,
+    },
     Continuous {
         affects: Scope,
         changes: Vec<Change>,
@@ -146,7 +170,10 @@ impl Scope {
 impl StaticEffect {
     pub(crate) fn capability(&self, kind: CardKind) -> Capability {
         match self {
+            Self::EntersTappedIf { .. } => Capability::ConditionalEntryTappedV1,
+            Self::PayLifeOrEnterTapped { .. } => Capability::EntryLifePaymentV1,
             Self::EntersTapped => Capability::EntersTappedV1,
+            Self::EntersWithPlusOneCounters { .. } => Capability::EntryPlusOneCountersV1,
             Self::Rule {
                 rule:
                     StaticRule::CantBeCountered {
@@ -309,6 +336,33 @@ impl crate::StaticAbility {
         match &self.effect {
             StaticEffect::EntersTapped if on_battlefield => Ok(()),
             StaticEffect::EntersTapped => invalid("enters-tapped"),
+            StaticEffect::PayLifeOrEnterTapped { amount } => {
+                if on_battlefield && kind == CardKind::Land && *amount > Quantity::zero() {
+                    Ok(())
+                } else {
+                    invalid("entry-life-payment")
+                }
+            }
+            StaticEffect::EntersTappedIf { condition } => {
+                let supported = match condition {
+                    EntryCondition::UnlessControlled { filter, count, .. } => {
+                        !count.is_negative() && predicate_in_layer(filter, Layer::Color)
+                    }
+                    EntryCondition::UnlessOpponents { count, .. } => !count.is_negative(),
+                };
+                if on_battlefield && supported {
+                    Ok(())
+                } else {
+                    invalid("conditional-entry-tapped")
+                }
+            }
+            StaticEffect::EntersWithPlusOneCounters { count } => {
+                if on_battlefield && *count > Quantity::zero() {
+                    Ok(())
+                } else {
+                    invalid("entry-plus-one-counters")
+                }
+            }
             StaticEffect::Continuous {
                 affects,
                 changes,

@@ -30,6 +30,7 @@ impl RulesTxn {
     }
     pub(in crate::engine) fn step_frame(&mut self, frame: Frame) -> Result<(), RuleError> {
         match frame {
+            Frame::BattlefieldEntry { entry } => self.battlefield_entry_step(*entry)?,
             Frame::Kernel { task } => self.step_kernel_task(*task)?,
             Frame::GraveyardGroup { tx } => self.graveyard_group_step(tx)?,
 

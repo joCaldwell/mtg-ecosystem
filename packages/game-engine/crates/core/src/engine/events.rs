@@ -260,6 +260,12 @@ enum FactKey {
 // Ephemeral proof from validating a complete root group against the prior
 // state. Raw occurrence application receives no authority.
 #[derive(Clone, Copy)]
+pub(super) enum EntryOverride {
+    ForceTapped,
+    LifePayment { paid: bool },
+}
+
+#[derive(Clone, Copy)]
 enum BatchAuthority<'a> {
     Ordinary,
     SpellToStack(PlayerId),
@@ -269,6 +275,10 @@ enum BatchAuthority<'a> {
     ),
     CreateRegenerationShield,
     PlaceCounters,
+    BattlefieldEntry {
+        object: ObjectId,
+        entry: EntryOverride,
+    },
 }
 fn independent_footprints(
     footprints: impl IntoIterator<Item = (BTreeSet<FactKey>, BTreeSet<FactKey>)>,
@@ -714,11 +724,11 @@ impl RulesTxn {
         let mut occurrences = vec![];
         self.apply_leaf(
             &proposed,
-            batch_id,
-            &[],
+            (batch_id, &[]),
             before.clone(),
             &mut occurrences,
             BatchAuthority::Ordinary,
+            None,
         )?;
         // Only this exact BF -> exile movement cannot match any currently
         // supported dies/ETB trigger. General movement still uses apply_group.
@@ -1303,7 +1313,17 @@ impl RulesTxn {
         cause: BatchCause,
         group: EventGroup,
     ) -> Result<CommittedBatch, String> {
-        self.commit_batch_inner(cause, group, false)
+        self.commit_batch_inner(cause, group, false, None)
+    }
+
+    pub(super) fn commit_entry_batch(
+        &mut self,
+        cause: BatchCause,
+        group: EventGroup,
+        object: ObjectId,
+        entry: EntryOverride,
+    ) -> Result<CommittedBatch, String> {
+        self.commit_batch_inner(cause, group, false, Some((object, entry)))
     }
 
     fn commit_batch_inner(
@@ -1311,6 +1331,7 @@ impl RulesTxn {
         cause: BatchCause,
         group: EventGroup,
         library_append: bool,
+        entry_override: Option<(ObjectId, EntryOverride)>,
     ) -> Result<CommittedBatch, String> {
         let replacement = self.prepare_graveyard_batch(&cause, &group)?;
         let mut events = vec![];
@@ -1386,7 +1407,9 @@ impl RulesTxn {
 
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
-        let authority = if placing
+        let authority = if let Some((object, entry)) = entry_override {
+            BatchAuthority::BattlefieldEntry { object, entry }
+        } else if placing
             || events
                 .iter()
                 .any(|e| matches!(e, ProposedEvent::PutPlusOneCounters { .. }))
@@ -1511,7 +1534,7 @@ impl RulesTxn {
                     Some(before) => before.clone(),
                     None => self.facts(&[proposed])?,
                 };
-                self.apply_leaf(proposed, batch, path, before, out, authority)?;
+                self.apply_leaf(proposed, (batch, path), before, out, authority, None)?;
                 if changes_control_inputs(proposed) {
                     self.reconcile_controllers()?;
                 }
@@ -1546,7 +1569,7 @@ impl RulesTxn {
                 }
                 for (i, (event, before)) in occurrences.iter().zip(facts).enumerate() {
                     path.push(u32::try_from(i).map_err(|_| "event path resource limit")?);
-                    self.apply_leaf(event, batch, path, before, out, authority)?;
+                    self.apply_leaf(event, (batch, path), before, out, authority, Some(&common))?;
                     path.pop();
                 }
                 // CR 603.10a, 702.15c/702.2e: simultaneous departures use
@@ -1576,13 +1599,14 @@ impl RulesTxn {
     fn apply_leaf(
         &mut self,
         proposed: &ProposedEvent,
-        batch: u64,
-        path: &[u32],
+        (batch, path): (u64, &[u32]),
         before: PreEventFacts,
         out: &mut Vec<OccurrenceResult>,
         authority: BatchAuthority<'_>,
+        common: Option<&Self>,
     ) -> Result<(), String> {
-        let actual = self.apply_prepared_occurrence(proposed, Some(&before), authority)?;
+        let actual =
+            self.apply_occurrence_with_entry_state(proposed, Some(&before), authority, common)?;
         // Keep the pre-existing native flat trace as a compatibility view.
         let event = match &actual {
             EventOutcome::LeftGame { object, owner } => Event::ObjectLeftGame {
@@ -1660,19 +1684,29 @@ impl RulesTxn {
 }
 
 impl RulesTxn {
-    fn entry_tapped(&self, object: ObjectId) -> Result<bool, String> {
+    fn entry_tapped(&self, object: ObjectId, controller: PlayerId) -> Result<bool, String> {
+        let mut entering = self.current(object)?.clone();
+        entering.controller = controller;
         Ok(self
             .copiable_definition(object)?
             .static_abilities
             .iter()
-            .any(|ability| ability.effect == StaticEffect::EntersTapped))
+            .any(|ability| match &ability.effect {
+                StaticEffect::EntersTapped => true,
+                StaticEffect::EntersTappedIf { condition } => {
+                    self.entry_condition(&entering, condition)
+                }
+                _ => false,
+            }))
     }
     fn apply_move(
         &mut self,
         object: ObjectId,
         destination: Zone,
         intended_controller: Option<PlayerId>,
+        entry_state: Option<&Self>,
         force_tapped: bool,
+        entry_payment: Option<bool>,
     ) -> Result<EventOutcome, String> {
         let object = &object;
         let destination = &destination;
@@ -1766,8 +1800,37 @@ impl RulesTxn {
         // CR 614.1c/614.12: this source replacement modifies entry,
         // rather than tapping the permanent in a subsequent event.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        let enters_tapped =
-            *destination == Zone::Battlefield && (force_tapped || self.entry_tapped(*object)?);
+        let enters_tapped = if *destination != Zone::Battlefield {
+            false
+        } else if force_tapped {
+            true
+        } else {
+            let prior = entry_state.unwrap_or(self);
+            let unpaid = if let Some(amount) = prior.entry_life_cost(*object)? {
+                match entry_payment {
+                    Some(paid) => !paid,
+                    None if !prior.can_pay_entry_life(controller, &amount) => true,
+                    None => {
+                        return Err(
+                            "payable entry requires a battlefield entry continuation".into()
+                        );
+                    }
+                }
+            } else {
+                false
+            };
+            unpaid || prior.entry_tapped(*object, controller)?
+        };
+        // CR 122.6 and 614.1c: entry counters exist on the successor from
+        // the moment it enters, including for entry observers.
+        let mut plus_one_counters = Quantity::zero();
+        if *destination == Zone::Battlefield {
+            for ability in &self.copiable_definition(*object)?.static_abilities {
+                if let StaticEffect::EntersWithPlusOneCounters { count } = &ability.effect {
+                    plus_one_counters.add(count);
+                }
+            }
+        }
         let (turn, batch) = (self.state.rules.turn.number, self.state.rules.next_batch_id);
         self.rules_mut().objects.insert(
             object.card,
@@ -1778,7 +1841,7 @@ impl RulesTxn {
                 attachment_timestamp: None,
                 battlefield_entry_turn: (*destination == Zone::Battlefield).then_some(turn),
                 keyword_timestamp: (*destination == Zone::Battlefield).then_some(batch),
-                plus_one_counters: Quantity::zero(),
+                plus_one_counters,
                 marked_damage: Quantity::zero(),
                 attack_ready: false,
                 deathtouch_damage: false,
@@ -1859,6 +1922,16 @@ impl RulesTxn {
         before: Option<&PreEventFacts>,
         authority: BatchAuthority<'_>,
     ) -> Result<EventOutcome, String> {
+        self.apply_occurrence_with_entry_state(proposed, before, authority, None)
+    }
+
+    fn apply_occurrence_with_entry_state(
+        &mut self,
+        proposed: &ProposedEvent,
+        before: Option<&PreEventFacts>,
+        authority: BatchAuthority<'_>,
+        entry_state: Option<&Self>,
+    ) -> Result<EventOutcome, String> {
         let replacement = match authority {
             BatchAuthority::Graveyard(proof, _) => Some(proof),
             _ => None,
@@ -1927,7 +2000,7 @@ impl RulesTxn {
                 // private application; the batch/rule-step owns full rollback.
                 let (attachment_timestamp, next) = self.next_attachment_allocation()?;
                 let EventOutcome::Moved { movement } =
-                    self.apply_move(*object, Zone::Battlefield, None, false)?
+                    self.apply_move(*object, Zone::Battlefield, None, entry_state, false, None)?
                 else {
                     return Err("attached entry movement invariant".into());
                 };
@@ -2723,7 +2796,24 @@ impl RulesTxn {
                     BatchAuthority::SpellToStack(player) => Some(player),
                     _ => None,
                 };
-                self.apply_move(*object, *destination, caster, false)?
+                let (force_tapped, payment) = match authority {
+                    BatchAuthority::BattlefieldEntry {
+                        object: entrant,
+                        entry,
+                    } if entrant == *object => match entry {
+                        EntryOverride::ForceTapped => (true, None),
+                        EntryOverride::LifePayment { paid } => (false, Some(paid)),
+                    },
+                    _ => (false, None),
+                };
+                self.apply_move(
+                    *object,
+                    *destination,
+                    caster,
+                    entry_state,
+                    force_tapped,
+                    payment,
+                )?
             }
         };
         self.update_library_position_memory(proposed, &actual);

@@ -374,6 +374,9 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::StepBeginningTriggerV1
         | C::ContinuousStaticsV1
         | C::RuleStaticsV1
+        | C::EntryPlusOneCountersV1
+        | C::ConditionalEntryTappedV1
+        | C::EntryLifePaymentV1
         | C::EntersTappedV1
         | C::TypedNonbasicIntrinsicManaV1
         | C::FlashV1

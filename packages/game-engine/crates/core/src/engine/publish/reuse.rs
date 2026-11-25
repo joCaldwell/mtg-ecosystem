@@ -41,7 +41,8 @@ impl Frame {
                     frame = parent;
                     frames = &frames[..resume.0];
                 }
-                Frame::Kernel { task: _ }
+                Frame::BattlefieldEntry { entry: _ }
+                | Frame::Kernel { task: _ }
                 | Frame::GraveyardGroup { tx: _ }
                 | Frame::ManaSourceChoice {
                     player: _,

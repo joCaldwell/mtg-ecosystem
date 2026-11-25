@@ -6,10 +6,14 @@ impl RulesTxn {
     }
 
     pub(crate) fn main_phase_action(&self, player: PlayerId) -> bool {
+        self.main_phase_action_in_frame(player, &self.state.rules.frame)
+    }
+
+    fn main_phase_action_in_frame(&self, player: PlayerId, frame: &Frame) -> bool {
         self.is_live(player)
             && self.state.rules.active == Some(player)
             && self.state.rules.priority == player
-            && matches!(self.state.rules.frame, Frame::Priority)
+            && matches!(frame, Frame::Priority)
             && self.state.rules.stack.is_empty()
             && matches!(
                 self.state.rules.turn.step,
@@ -37,7 +41,16 @@ impl RulesTxn {
     // player's main phase with priority and an empty stack.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(crate) fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
-        if !self.main_phase_action(player) {
+        self.validate_land_play_in_frame(player, card, &self.state.rules.frame)
+    }
+
+    pub(super) fn validate_land_play_in_frame(
+        &self,
+        player: PlayerId,
+        card: CardId,
+        frame: &Frame,
+    ) -> Result<(), String> {
+        if !self.main_phase_action_in_frame(player, frame) {
             return Err(
                 "land play requires unused active-player main-phase land play and empty stack"
                     .into(),
@@ -68,28 +81,16 @@ impl RulesTxn {
     ) -> Result<(), String> {
         self.validate_land_play(player, card)?;
         let object = self.object_id(card).ok_or("missing land source")?;
-        self.commit_batch(
+        self.begin_battlefield_entry(
+            object,
             BatchCause::LandPlay {
                 player,
                 decision_id,
                 source: object,
             },
-            EventGroup::Ordered {
-                children: vec![
-                    EventGroup::Occurrence {
-                        proposed: ProposedEvent::Move {
-                            object,
-                            destination: Zone::Battlefield,
-                        },
-                    },
-                    EventGroup::Occurrence {
-                        proposed: ProposedEvent::LandPlayed { player },
-                    },
-                ],
-            },
-        )?;
-        self.rules_mut().passes.clear();
-        Ok(self.stabilize()?)
+            Frame::Priority,
+            false,
+        )
     }
     // CR 500.5, 106.4: pools empty at each step/phase ending. CR 500-514:
     // transition and entry work are separate serializable, budgeted frames.

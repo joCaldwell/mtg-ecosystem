@@ -78,6 +78,9 @@ pub struct Resolving {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Frame {
+    BattlefieldEntry {
+        entry: Box<battlefield_entry::PendingEntry>,
+    },
     Kernel {
         task: Box<kir::Task>,
     },

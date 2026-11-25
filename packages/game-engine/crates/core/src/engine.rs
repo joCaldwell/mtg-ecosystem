@@ -176,6 +176,7 @@ pub mod events;
 pub mod trace;
 pub use events::*;
 pub use trace::*;
+mod battlefield_entry;
 pub mod control;
 pub mod controlled_land_entry;
 pub mod multiplayer;
