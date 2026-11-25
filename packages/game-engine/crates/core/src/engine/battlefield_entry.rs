@@ -240,6 +240,9 @@ mod tests {
             assert_eq!(game.current(successor).unwrap().tapped, life_frozen);
             assert_eq!(game.current(successor).unwrap().zone, Zone::Battlefield);
             assert_eq!(game.state.rules.turn.lands_played, 0);
+            // This private board injects the life lock to exercise payment
+            // eligibility. Remove it before validating the catalog's state.
+            game.rules_mut().players[0].life_frozen_until_next_turn = false;
             game.validate_state().unwrap();
         }
     }
