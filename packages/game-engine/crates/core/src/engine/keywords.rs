@@ -99,6 +99,7 @@ impl RulesTxn {
             && !self.has_restriction(attacker, CreatureRestriction::CantBeBlocked)
             && !self.creature_restrictions(blocker).any(|restriction| {
                 restriction == CreatureRestriction::CantAttackOrBlock
+                    || restriction == CreatureRestriction::CantBlock
                     || (!attacker_flies && restriction == CreatureRestriction::CanBlockOnlyFlying)
             })
             && (!attacker_flies

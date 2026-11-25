@@ -277,13 +277,14 @@ impl RulesTxn {
         sources: Option<&'a [CardId]>,
     ) -> impl Iterator<Item = CreatureRestriction> + 'a {
         use mtg_contracts::kir::CombatRequirement as R;
-        self.combat_statics(object, sources)
+        self.combat_requirements(object, sources)
             .filter_map(|rule| match rule {
+                R::CantAttack => Some(CreatureRestriction::CantAttack),
                 R::CantBlock => Some(CreatureRestriction::CantBlock),
                 R::CantAttackOrBlock => Some(CreatureRestriction::CantAttackOrBlock),
                 R::CantBeBlocked => Some(CreatureRestriction::CantBeBlocked),
                 R::CanBlockOnlyFlying => Some(CreatureRestriction::CanBlockOnlyFlying),
-                R::CantAttack | R::AttackEachCombat => None,
+                R::AttackEachCombat => None,
             })
     }
 

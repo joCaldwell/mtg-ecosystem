@@ -742,7 +742,7 @@ fn compose(
                         }
                         _ => definition
                             .keywords
-                            .extend(keywords::lower(&card, &keywords)?),
+                            .extend(keywords::lower(card.kind, &keywords, text)?),
                     }
                 }
                 Block::Static {

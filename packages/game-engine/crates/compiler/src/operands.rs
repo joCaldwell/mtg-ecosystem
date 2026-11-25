@@ -745,7 +745,7 @@ fn only_field(filter: &ast::ObjectFilter) -> Option<&'static str> {
 /// Every printed term of a filter, by field name. Exhaustive over
 /// `ast::ObjectFilter`: a field the parser adds fails to compile here until
 /// it is named.
-fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
+pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
     let ast::ObjectFilter {
         characteristic_relations,
         all_of,

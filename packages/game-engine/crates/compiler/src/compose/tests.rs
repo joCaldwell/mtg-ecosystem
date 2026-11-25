@@ -164,24 +164,33 @@ fn event_rows_only_add_self_entry_for_the_cards_own_type() {
 fn keyword_rows_reject_parameters_and_unknown_keywords() {
     let keywords =
         |raw: serde_json::Value| -> Vec<SourceKeyword> { serde_json::from_value(raw).unwrap() };
-    let creature = card(CardKind::Creature);
+    let creature = CardKind::Creature;
     assert_eq!(
         keywords::lower(
-            &creature,
-            &keywords(json!([{"keyword":"flying"},{"keyword":"first-strike"}]))
+            creature,
+            &keywords(json!([{"keyword":"flying"},{"keyword":"first-strike"}])),
+            "Flying, first strike",
         )
         .unwrap(),
         [KeywordAbility::Flying, KeywordAbility::FirstStrike]
     );
-    assert!(keywords::lower(&creature, &[]).is_err());
+    assert!(keywords::lower(creature, &[], "").is_err());
     assert!(
         keywords::lower(
-            &creature,
-            &keywords(json!([{"keyword":"cycling","cost":[{"cost":"mana","symbols":["2"]}]}]))
+            creature,
+            &keywords(json!([{"keyword":"cycling","cost":[{"cost":"mana","symbols":["2"]}]}])),
+            "Cycling {2}",
         )
         .is_err()
     );
-    assert!(keywords::lower(&creature, &keywords(json!([{"keyword":"cascade"}]))).is_err());
+    assert!(
+        keywords::lower(
+            creature,
+            &keywords(json!([{"keyword":"cascade"}])),
+            "Cascade"
+        )
+        .is_err()
+    );
 }
 
 const R4: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");

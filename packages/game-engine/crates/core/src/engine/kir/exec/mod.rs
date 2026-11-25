@@ -2,6 +2,7 @@
 //! Verbs that keep an established executor (targeted removal, damage,
 //! tokens, player actions) are dispatched by `execute_kernel` to it.
 mod attach;
+mod combat;
 mod draw;
 mod grant_keywords;
 mod library;

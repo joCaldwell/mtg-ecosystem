@@ -2,6 +2,34 @@
 use super::*;
 
 impl Walk<'_, '_> {
+    pub(super) fn audit_combat_prohibition(
+        &self,
+        affects: &CombatProhibitionScope<Ref>,
+        restriction: CombatRequirement,
+        until: Until,
+    ) -> Result<Cell, KirError> {
+        use CombatRequirement as R;
+        if until != Until::EndOfTurn {
+            return unaudited("combat prohibition duration");
+        }
+        match (affects, restriction) {
+            (
+                CombatProhibitionScope::Target {
+                    target: Ref::Target { slot },
+                },
+                R::CantAttack | R::CantBlock | R::CantAttackOrBlock | R::CantBeBlocked,
+            ) if self.domain(*slot)? == TargetDomain::BattlefieldCreature => {
+                Ok(Cell::CombatProhibitionUntilEndOfTurn)
+            }
+            (
+                CombatProhibitionScope::Creatures {}
+                | CombatProhibitionScope::CreaturesWithoutFlying {},
+                R::CantBlock,
+            ) => Ok(Cell::CombatProhibitionUntilEndOfTurn),
+            _ => unaudited("combat prohibition recipient or action"),
+        }
+    }
+
     pub(super) fn audit_modify(
         &self,
         what: &SetExpr,
