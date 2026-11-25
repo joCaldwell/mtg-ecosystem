@@ -18,7 +18,10 @@
 //! independent of one another (a hosting review says nothing about hidden
 //! information), so a cell records each one it has passed.
 use super::*;
-use crate::{Capability, Definition, Instruction, SpellProgram, TriggerCondition};
+use crate::{
+    ActivationCost, Capability, Definition, FunctioningZone, Instruction, SpellProgram,
+    TriggerCondition,
+};
 
 mod executes;
 
@@ -208,6 +211,32 @@ pub enum Cell {
     ManaRiderDamageController,
     /// CR 605.1a, 119.3: "you gain N life" after adding mana.
     ManaRiderGainLifeController,
+    // CR 118, 601.2b/f-h: casting and activation costs beyond fixed mana.
+    /// CR 107.3a, 601.2b: a spell whose mana cost announces one X.
+    XManaCost,
+    /// CR 107.4e-f, 601.2f: two-color hybrid or Phyrexian cost symbols.
+    HybridManaCost,
+    /// CR 702.29a: cycling, a hand activation discarding its own source.
+    Cycling,
+    /// CR 119.4, 602.2b: a stack activation paying life.
+    ActivationPayLife,
+    /// CR 122.1, 602.2b: a stack activation removing +1/+1 counters from
+    /// its source.
+    ActivationRemoveCounters,
+    /// CR 701.21a: a sacrifice cost of several permanents, or of any one
+    /// permanent.
+    SacrificeCostChoice,
+    /// CR 602.2b: a chosen sacrifice paid with tapping the source.
+    SacrificeCostTap,
+    /// CR 109.1, 701.21a: "Sacrifice another ...", excluding the source.
+    SacrificeCostAnother,
+    /// CR 601.2b, 701.21a: a spell's additional sacrifice cost.
+    SpellAdditionalSacrifice,
+    /// CR 702.33a, d: a spell's kicker cost and the conditions reading it.
+    Kicker,
+    /// CR 702.34a: casting from the graveyard for the flashback cost, and
+    /// exile as the spell leaves the stack.
+    Flashback,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -294,7 +323,18 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ManaAbilityPayLife
         | C::ManaAbilitySelection
         | C::ManaRiderDamageController
-        | C::ManaRiderGainLifeController => Tiers::EXECUTES,
+        | C::ManaRiderGainLifeController
+        | C::XManaCost
+        | C::HybridManaCost
+        | C::Cycling
+        | C::ActivationPayLife
+        | C::ActivationRemoveCounters
+        | C::SacrificeCostChoice
+        | C::SacrificeCostTap
+        | C::SacrificeCostAnother
+        | C::SpellAdditionalSacrifice
+        | C::Kicker
+        | C::Flashback => Tiers::EXECUTES,
     }
 }
 
@@ -456,7 +496,8 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
             context,
             targets: &p.targets,
             event,
-            announced_x: false,
+            // CR 107.3a: only the spell announces its own X.
+            announced_x: context == Context::Spell && d.x_mana_cost,
         };
         for Instruction::Kernel { node, .. } in &p.instructions {
             cells.extend(check(node, &env)?.cells);
@@ -480,6 +521,56 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     executes::surfaces(d).map_err(KirError::Unaudited)?;
     if d.characteristics.is_attachment() {
         cells.insert(Cell::Attachment);
+    }
+    if d.x_mana_cost {
+        cells.insert(Cell::XManaCost);
+    }
+    if !d.characteristics.hybrid_mana.is_empty() {
+        cells.insert(Cell::HybridManaCost);
+    }
+    if d.flashback.is_some() {
+        cells.insert(Cell::Flashback);
+    }
+    if let Some(p) = &d.spell {
+        if p.additional_sacrifice.is_some() {
+            cells.insert(Cell::SpellAdditionalSacrifice);
+        }
+        if !p.optional_additional_costs.is_empty() {
+            cells.insert(Cell::Kicker);
+        }
+    }
+    for a in &d.activated {
+        if a.functioning_zone == FunctioningZone::Hand {
+            cells.insert(Cell::Cycling);
+        }
+        match &a.cost {
+            ActivationCost::Composite { costs } => {
+                if costs.pay_life.is_some() {
+                    cells.insert(Cell::ActivationPayLife);
+                }
+                if costs.remove_source_plus_one_counters.is_some() {
+                    cells.insert(Cell::ActivationRemoveCounters);
+                }
+            }
+            ActivationCost::SacrificePermanent {
+                count,
+                filter,
+                tap,
+                another,
+                ..
+            } => {
+                if *count != 1 || (filter.types.is_empty() && filter.subtypes.is_empty()) {
+                    cells.insert(Cell::SacrificeCostChoice);
+                }
+                if *tap {
+                    cells.insert(Cell::SacrificeCostTap);
+                }
+                if *another {
+                    cells.insert(Cell::SacrificeCostAnother);
+                }
+            }
+            _ => {}
+        }
     }
     Ok(cells)
 }

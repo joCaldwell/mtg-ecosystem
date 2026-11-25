@@ -122,22 +122,11 @@ impl RulesTxn {
                         old.extend(new);
                     }
                 }
-                let entry = self.top()?;
-                let immediate_cost = match &entry.kind {
-                    StackKind::Activated { ability, .. } => {
-                        matches!(
-                            self.copiable_definition(entry.source)?.activated[*ability as usize]
-                                .cost,
-                            ActivationCost::TapSource | ActivationCost::SacrificePermanent { .. }
-                        )
-                    }
-                    _ => false,
-                };
-                if immediate_cost {
+                if cast.origin.is_spell() {
+                    self.rules_mut().frame = self.announcement_mana_frame(cast)?;
+                } else {
                     // The activation cost determines its next payment stage.
                     self.continue_activation_after_targets(cast, input.decision_id)?;
-                } else {
-                    self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                 }
             }
             Frame::Mana { mut cast } => {

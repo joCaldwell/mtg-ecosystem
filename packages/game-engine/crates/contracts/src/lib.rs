@@ -1184,6 +1184,12 @@ pub enum ActivationCost {
         filter: SacrificeFilter,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mana: Option<ManaCost>,
+        /// CR 602.2b, 701.21a: "{T}" is paid with the sacrifice, after mana.
+        #[serde(default, skip_serializing_if = "is_false")]
+        tap: bool,
+        /// CR 109.1, 701.21a: "another" excludes the ability's own source.
+        #[serde(default, skip_serializing_if = "is_false")]
+        another: bool,
     },
     SacrificeSource,
     TapSource,
@@ -1492,6 +1498,11 @@ pub struct Definition {
     pub source_labels: Option<SourceLabels>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub x_mana_cost: bool,
+    /// CR 702.34a: "Flashback [cost]": this instant or sorcery may be cast
+    /// from its owner's graveyard for this mana instead of its mana cost,
+    /// and is exiled whenever it would leave the stack.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flashback: Option<ManaCost>,
     pub oracle_id: String,
     pub name: String,
     pub characteristics: Characteristics,

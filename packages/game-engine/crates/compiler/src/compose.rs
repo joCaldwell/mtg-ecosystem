@@ -119,6 +119,18 @@ enum Block {
         costs: Vec<SourceCost>,
         effects: Vec<serde_json::Value>,
     },
+    /// CR 601.2b, 601.2f-h: "As an additional cost to cast this spell, ...".
+    #[serde(rename = "additional-cost")]
+    AdditionalCost {
+        #[serde(rename = "abilityWord")]
+        ability_word: Option<String>,
+        costs: Vec<serde_json::Value>,
+        optional: Option<serde_json::Value>,
+        #[serde(rename = "costModifications")]
+        cost_modifications: Option<serde_json::Value>,
+        #[serde(rename = "variableConstraints")]
+        variable_constraints: Option<serde_json::Value>,
+    },
 }
 
 /// One printed sentence: either the shared typed mirror or step-table rows.
@@ -691,6 +703,32 @@ fn compose(
                                 .push(keywords::equip(&card, one, label, text)?);
                             labels.activated.push(label);
                         }
+                        [one] if one.keyword == "cycling" => {
+                            definition
+                                .activated
+                                .push(keywords::cycling(one, label, text)?);
+                            labels.activated.push(label);
+                        }
+                        // CR 702.33a: kicker is an optional additional cost
+                        // the caster declares while casting this spell.
+                        [one] if one.keyword == "kicker" => {
+                            let spell = definition
+                                .spell
+                                .as_mut()
+                                .filter(|s| spell_kind && s.optional_additional_costs.is_empty())
+                                .ok_or_else(|| unsupported("keyword", "keyword:kicker:source"))?;
+                            spell
+                                .optional_additional_costs
+                                .push(keywords::kicker(one, label, text)?);
+                        }
+                        // CR 702.34a: flashback is an instant's or sorcery's
+                        // alternative cost from its owner's graveyard.
+                        [one] if one.keyword == "flashback" => {
+                            if !spell_kind || definition.flashback.is_some() {
+                                return Err(unsupported("keyword", "keyword:flashback:source"));
+                            }
+                            definition.flashback = Some(keywords::flashback(one, text)?);
+                        }
                         [one] if one.keyword == "enchant" => {
                             let spell = definition
                                 .spell
@@ -837,6 +875,32 @@ fn compose(
                         labels.activated.push(label);
                         definition.activated.push(ability);
                     }
+                }
+                Block::AdditionalCost {
+                    ability_word: word,
+                    costs,
+                    optional,
+                    cost_modifications,
+                    variable_constraints,
+                } => {
+                    ability_word(&word, &result.lines[block].text)?;
+                    for (field, value) in [
+                        ("optional", optional),
+                        ("cost-modifications", cost_modifications),
+                        ("variable-constraints", variable_constraints),
+                    ] {
+                        if value.is_some() {
+                            return Err(unsupported(
+                                "additional-cost",
+                                format!("kind:additional-cost:{field}"),
+                            ));
+                        }
+                    }
+                    let spell = definition
+                        .spell
+                        .as_mut()
+                        .ok_or_else(|| unsupported("additional-cost", "source"))?;
+                    costs::spell_additional(&costs, &result.lines[block].text, spell)?;
                 }
                 Block::Triggered {
                     ability_word: word,

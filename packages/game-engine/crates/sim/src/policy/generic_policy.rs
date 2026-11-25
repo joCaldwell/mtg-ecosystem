@@ -1195,8 +1195,15 @@ impl Strategy<'_> {
         {
             return None;
         }
-        let mut cost = d.characteristics.mana_cost.clone();
+        // CR 702.34a: a graveyard cast pays the flashback cost.
+        let flashback = o.zone == (Zone::Graveyard { owner: v.viewer });
+        let mut cost = match (&d.flashback, flashback) {
+            (Some(flashback), true) => flashback.clone(),
+            (None, true) => return None,
+            _ => d.characteristics.mana_cost.clone(),
+        };
         if let Some(p) = &d.spell
+            && !flashback
             && p.instructions.iter().any(announced_x)
         {
             cost.generic.add(&self.choose_x(v, d, p)?);
@@ -1290,7 +1297,16 @@ impl Strategy<'_> {
             FunctioningZone::Hand => o.zone == (Zone::Hand { owner: v.viewer }),
             _ => false,
         };
+        let offered = Action::ActivateAbility {
+            object: o.handle.clone(),
+            ability: ability as u32,
+        };
         if !in_zone
+            || self
+                .memory
+                .offered_activations
+                .as_ref()
+                .is_some_and(|actions| !actions.contains(&offered))
             || self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
                 matches!(failed, PaymentAction::Activate(handle, index) if handle == &o.handle && *index == ability)
             })
@@ -1324,6 +1340,14 @@ impl Strategy<'_> {
                     .remove_source_plus_one_counters
                     .as_ref()
                     .is_some_and(|n| o.plus_one_counters < *n)
+                    // CR 119.4, 119.8: life that cannot change pays no life;
+                    // otherwise keep a margin above the printed payment.
+                    || costs.pay_life.as_ref().is_some_and(|life| {
+                        v.players
+                            .iter()
+                            .find(|r| r.player == v.viewer)
+                            .is_none_or(|r| r.life <= *life || r.life_frozen_until_next_turn)
+                    })
                 {
                     return None;
                 }
@@ -1337,6 +1361,8 @@ impl Strategy<'_> {
                 count,
                 filter,
                 mana,
+                tap,
+                another,
             } => {
                 if *count != 1 {
                     return None;
@@ -1344,11 +1370,12 @@ impl Strategy<'_> {
                 if !self
                     .sacrifice_objects(v, filter)
                     .iter()
+                    .filter(|t| !*another || t.handle != o.handle)
                     .any(|t| self.sacrifice_worthwhile(v, &a.program, t))
                 {
                     return None;
                 }
-                (false, false, mana.clone().unwrap_or_else(zero_cost))
+                (*tap, false, mana.clone().unwrap_or_else(zero_cost))
             }
         };
         if tap
@@ -1420,6 +1447,17 @@ impl Strategy<'_> {
             return Ok(Action::Pass);
         }
         self.memory.payment.next_priority(v);
+        self.memory.offered_activations = observation.decision.as_ref().map(|d| {
+            d.candidates
+                .iter()
+                .filter_map(|c| match c {
+                    Candidate::Action {
+                        action: action @ Action::ActivateAbility { .. },
+                    } => Some(action.clone()),
+                    _ => None,
+                })
+                .collect()
+        });
         self.memory.mana_plan.clear();
         self.memory.mana_ability = None;
         self.memory.mana_color = None;
@@ -1519,10 +1557,14 @@ impl Strategy<'_> {
         for stage in 0..5 {
             for o in &v.objects {
                 let command = o.zone == (Zone::Command { owner: v.viewer });
-                if !command && !in_viewers_hand(v, o) {
+                let graveyard = o.zone == (Zone::Graveyard { owner: v.viewer });
+                if !command && !graveyard && !in_viewers_hand(v, o) {
                     continue;
                 }
                 let d = definition(self.catalog, &o.oracle_id)?;
+                if graveyard && d.flashback.is_none() {
+                    continue;
+                }
                 let Some(p) = &d.spell else { continue };
                 let taxed = command
                     && v.commanders.iter().any(|c| {
@@ -1532,7 +1574,9 @@ impl Strategy<'_> {
                                 .get(&v.viewer)
                                 .is_some_and(|n| *n > Quantity::zero())
                     });
-                let rank = if !command && engine_card(d) {
+                let rank = if graveyard {
+                    4
+                } else if !command && engine_card(d) {
                     0
                 } else if command && !taxed {
                     1

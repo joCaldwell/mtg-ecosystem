@@ -28,14 +28,23 @@ impl<'de> Deserialize<'de> for SourceKeyword {
         };
         if !matches!(
             keyword.as_str(),
-            "bestow" | "equip" | "enchant" | "cascade" | "kicker" | "affinity" | "cycling"
+            "bestow"
+                | "equip"
+                | "enchant"
+                | "cascade"
+                | "kicker"
+                | "affinity"
+                | "cycling"
+                | "flashback"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
             return Err(D::Error::custom(format!("keyword:{keyword}")));
         }
         let allowed = match keyword.as_str() {
-            "bestow" | "equip" | "kicker" | "cycling" => ["keyword", "cost"].as_slice(),
+            "bestow" | "equip" | "kicker" | "cycling" | "flashback" => {
+                ["keyword", "cost"].as_slice()
+            }
             "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };

@@ -1387,7 +1387,7 @@ impl RulesTxn {
                 .cards
                 .get(&cast.spell.object.card)
                 .is_some_and(|c| c.owner == cast.spell.owner)
-            && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } if owner == cast.spell.owner)
+            && (matches!(cast.cast_from, Zone::Hand { owner } | Zone::Command { owner } | Zone::Graveyard { owner } if owner == cast.spell.owner)
                 || cast.cast_from == Zone::Exile)
             && (!cast.priority_paid_exile || cast.cast_from == Zone::Exile)
             && cast.x.as_ref().is_none_or(|x| !x.is_negative()))

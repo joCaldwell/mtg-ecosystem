@@ -85,7 +85,11 @@ pub(super) fn funding(
                     {
                         return 2;
                     }
-                    let mut cost = def.characteristics.mana_cost.clone();
+                    // CR 702.34a: a graveyard cast pays the flashback cost.
+                    let mut cost = match (&obj.zone, &def.flashback) {
+                        (Zone::Graveyard { .. }, Some(flashback)) => flashback.clone(),
+                        _ => def.characteristics.mana_cost.clone(),
+                    };
                     if matches!(obj.zone, Zone::Command { .. })
                         && let Some(n) = v
                             .commanders
