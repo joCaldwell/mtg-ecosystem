@@ -63,7 +63,7 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
             (Route::Player, SPELL | TRIGGERED)
         }
         TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => {
-            (Route::Object, SPELL | TRIGGERED)
+            (Route::Object, ANY)
         }
         TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
             (Route::Stack, SPELL | ACTIVATED)
@@ -252,13 +252,16 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                 TargetDomain::BattlefieldPermanent
                     | TargetDomain::ControlledBattlefieldPermanent
                     | TargetDomain::StackSpell
-            ) || (t.domain == TargetDomain::StackSpell
-                && (f.types.is_empty()
-                    || !f.non_types.is_empty()
-                    || !f.non_colors.is_empty()
-                    || f.opponent
-                    || f.power.is_some()
-                    || f.tapped))
+                    | TargetDomain::OwnGraveyardCard
+            ) || (matches!(
+                t.domain,
+                TargetDomain::StackSpell | TargetDomain::OwnGraveyardCard
+            ) && (f.types.is_empty()
+                || !f.non_types.is_empty()
+                || !f.non_colors.is_empty()
+                || f.opponent
+                || f.power.is_some()
+                || f.tapped))
                 || f.types
                     .iter()
                     .enumerate()

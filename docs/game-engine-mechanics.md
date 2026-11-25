@@ -144,8 +144,8 @@ revalidate owner choices before exposing queries.
 Library manipulation is private to its chooser and replay-proven. While a
 search, scry or surveil choice waits, only its chooser sees the library cards
 it looks at, a searcher its whole library (CR 701.23a); no other seat learns
-an identity, count or order. Candidates follow object order and view rows
-handle order (minted in object order); neither follows library position. Scry picks the bottom
+an identity, count or order. Search candidates follow object order, and
+view rows follow handle order (minted in object order). Scry picks the bottom
 cards, then orders the top and bottom groups; surveil picks the graveyard cards,
 then orders the rest (CR 701.22a, 701.25a). Each asks only for orders of two or
 more cards and commits one atomic event; positions other seats remembered in
@@ -157,6 +157,24 @@ turn order. Discards clamp to hand size, group choices stay private until one
 simultaneous discard, and random discard samples without replacement. Library-top
 events preserve order and cannot compose with a conflicting order write. These
 all finish before Commander SBAs; departure never redirects attempts.
+
+Fixed, unqualified discard can follow other spell or ability instructions.
+The controller, one announced player or opponent, each player, or each
+opponent chooses from their own hand (CR 701.9a-b, 101.4). The damaged
+player remains available in a damage trigger. A spell can make its
+announced player discard at random, including an announced X count.
+Choices and intermediate random samples stay private. Simultaneous
+discard publishes the cards only when the rules expose their destinations.
+
+
+A private "look at the top N, then put them back in any order" asks the
+controller to order the clamped prefix (CR 401.2, 701.20e). The order
+decision shows the current prefix to that player, including a lone card.
+The engine saves only the order and identities that player learned. A
+permutation can invalidate a public position in the prefix while positions
+beyond the prefix remain known. The procedure has its own event and
+`ReorderLibraryTop` choice. Snapshot 90 records that choice and outcome
+while observations use the existing order decision.
 
 Ordinary spell sequences preserve the source order of eligible fixed library,
 life, removal and land-allowance instructions across printed blocks. A library
@@ -381,6 +399,15 @@ not its successor; tokens have zero mana value. Entry returns target at trigger
 placement; optional returns choose at resolution; no legal target removes the
 trigger.
 
+A single announced card from the controller's graveyard can return to that
+player's hand. The target may name a card type or type alternatives
+(CR 205.2b, 404.1, 601.2c, 608.2b). A printed "may" offers a separate
+acceptance at resolution (CR 603.5, 608.2d). A creature card can enter the
+battlefield under the controller's control, tapped when printed
+(CR 110.2a, 614.1c). These moves use the exact announced incarnation and
+earn `Executes`. A commander bound for the hand still offers its owner
+the command zone (CR 903.9b).
+
 When a removal's next instruction refers to the controller of its sole target,
 the saved appearance supplies that player after the target leaves. That player
 can create the printed token recipe or gain life. A life amount equal to the
@@ -426,6 +453,16 @@ count per owner and Oracle identity (CR 701.23e), never an incarnation: each
 physical departure is counted once, a public one consuming one copy of its
 identity and a hidden one one of each; a reversed cast restores the copy its
 announcement consumed (CR 601.2i).
+
+A search of the controller's library can find at most one card, set it
+aside within the library while the rest shuffles, and put it on top
+(CR 701.24b). The library shuffles even if no card was found. The chooser
+knows the resulting top. If the source instructs a reveal, all players
+learn the found card and its new position (CR 701.20a, 701.23e). The
+published position carries no library object handle and lasts while its
+position is known. Searches that split found cards among destinations
+or order several found cards after shuffling still reject.
+
 
 ## Battlefield entry replacements
 

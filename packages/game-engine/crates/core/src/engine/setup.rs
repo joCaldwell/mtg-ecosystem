@@ -162,7 +162,7 @@ impl MatchState {
         open.word > 0 && ordinal.and_then(|n| stream_id(domain, seat, n).ok()) == Some(open.stream)
     }
 
-    /// A private board's randomness: seeded library shuffles, no opening.
+    /// A private board's randomness for resolving effects, with no opening.
     pub(super) fn scenario(seed: [u8; 32]) -> Self {
         Self {
             library_shuffles: [0; 4],
@@ -735,15 +735,28 @@ impl RulesTxn {
                 Err("snapshot scenario seed without match randomness".into())
             }
             (None, None) => Ok(()),
-            // A seeded private board shuffles libraries and has no opening.
+            // A seeded private board can run resolving shuffles and
+            // random effects. Its untouched setup and table streams stay empty.
             (None, Some(s)) => {
                 if Some(s.random.seed) != self.prepared.config.initial.seed
                     || s.random.version != 2
                     || s.setup.is_some()
                     || s.random.table != 0
-                    || s.random.seat_random != [0; 4]
-                    || s.library_shuffles.iter().any(|n| *n > ORDINAL_LIMIT)
-                    || s.random.open.is_some_and(|p| !s.valid_open_stream(p))
+                    || s.library_shuffles
+                        .iter()
+                        .chain(&s.random.seat_random)
+                        .any(|n| *n > ORDINAL_LIMIT)
+                    || s.random.open.is_some_and(|p| {
+                        !s.valid_open_stream(p)
+                            || !match &self.state.rules.frame {
+                                Frame::Resolve { frame } => frame
+                                    .random_discard
+                                    .as_ref()
+                                    .is_some_and(|discard| discard.stream == p.stream),
+                                Frame::Fault { .. } => true,
+                                _ => false,
+                            }
+                    })
                 {
                     return Err("snapshot scenario random identity".into());
                 }

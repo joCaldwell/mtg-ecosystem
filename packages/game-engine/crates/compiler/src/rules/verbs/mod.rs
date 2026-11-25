@@ -95,6 +95,12 @@ pub(crate) fn append_spell_effects(
                 at += consumed;
                 continue;
             }
+            if matches!(s, Step::LookAt { .. }) {
+                let instruction = library::reorder_top(&mut cx, &sentence.steps[at..])?;
+                program.instructions.push(instruction);
+                at += 2;
+                continue;
+            }
             let instruction = lower_step(&mut cx, s)?;
             program.instructions.push(instruction);
             at += 1;

@@ -65,6 +65,25 @@ impl RulesTxn {
                 _ => false,
             }
     }
+    /// CR 205.2b, 601.2c, 608.2b: any printed type alternative may
+    /// satisfy a card target, including a card's secondary type.
+    pub(super) fn graveyard_target_legal_for(
+        &self,
+        object: &Object,
+        player: PlayerId,
+        spec: &mtg_contracts::TargetSpec,
+    ) -> bool {
+        self.graveyard_target_legal(object, player, spec.domain)
+            && spec.filter.as_ref().is_none_or(|filter| {
+                self.copiable_definition(object.id).is_ok_and(|definition| {
+                    filter
+                        .types
+                        .iter()
+                        .any(|kind| definition.characteristics.has_type(*kind))
+                })
+            })
+    }
+
     pub(crate) fn creature_or_planeswalker(&self, id: ObjectId) -> bool {
         self.current(id).is_ok_and(|o| o.present_on_battlefield())
             && self
@@ -98,11 +117,11 @@ impl RulesTxn {
             Some(
                 TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
             ) => spec.is_some_and(|t| self.permanent_target_legal(object, entry.controller, t)),
-            Some(
-                domain @ (TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard),
-            ) => self
-                .current(object)
-                .is_ok_and(|o| self.graveyard_target_legal(o, entry.controller, domain)),
+            Some(TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard) => spec
+                .is_some_and(|spec| {
+                    self.current(object)
+                        .is_ok_and(|o| self.graveyard_target_legal_for(o, entry.controller, spec))
+                }),
             Some(TargetDomain::CreatureOrPlaneswalker) => {
                 self.creature_or_planeswalker(object)
                     && self.targetable_by(object, entry.controller)

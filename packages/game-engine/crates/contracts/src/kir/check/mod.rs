@@ -599,6 +599,7 @@ impl Walk<'_, '_> {
             | Verb::LoseLife { player, amount }
             | Verb::Mill { player, amount }
             | Verb::Discard { player, amount, .. }
+            | Verb::ReorderLibraryTop { player, amount }
             | Verb::Scry { player, amount }
             | Verb::Surveil { player, amount } => {
                 self.player(player)?;
@@ -1072,8 +1073,13 @@ impl Walk<'_, '_> {
             } => self.audit_modify(what, *layer, change, *until),
             Verb::Search { player, search } => self.audit_search(player, search),
             Verb::Shuffle { player } => self.audit_shuffle(player),
-            Verb::Scry { player, amount } => self.audit_look(player, amount, false),
-            Verb::Surveil { player, amount } => self.audit_look(player, amount, true),
+            Verb::ReorderLibraryTop { player, amount } => {
+                self.audit_look(player, amount, Cell::ReorderLibraryTop)
+            }
+            Verb::Scry { player, amount } => self.audit_look(player, amount, Cell::ScryController),
+            Verb::Surveil { player, amount } => {
+                self.audit_look(player, amount, Cell::SurveilController)
+            }
             Verb::Attach {
                 what: Ref::Source,
                 to: Ref::Target { slot: 0 },
@@ -1172,6 +1178,12 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::Mill { amount, .. } => mill::capabilities(amount, out),
         Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
         Verb::Sacrifice { player, .. } => sacrifice::capabilities(player, out),
+        Verb::Search { search, .. } if search.to == Destination::OwnerLibraryTop => {
+            out.insert(Capability::SearchLibraryTopV1);
+        }
+        Verb::ReorderLibraryTop { .. } => {
+            out.insert(Capability::PrivateLibraryReorderV1);
+        }
         Verb::Scry { .. }
         | Verb::Surveil { .. }
         | Verb::Regenerate { .. }

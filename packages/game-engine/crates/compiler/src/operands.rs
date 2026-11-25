@@ -1209,6 +1209,64 @@ fn bind_object_target(
     Ok(slot)
 }
 
+/// CR 601.2c, 608.2b: one card in the controller's graveyard, optionally
+/// qualified by a single card type or by alternatives of single types.
+pub(crate) fn bind_own_graveyard_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    what: &ast::ObjectRef,
+    creature_only: bool,
+) -> Result<u32, Failure> {
+    let (filter, selection, optional) = target_occurrence(what)?;
+    let invalid_filter = || operand("target", "own_graveyard_filter");
+    if optional
+        || filter.cls != Some(ast::ObjectFilterCls::Card)
+        || !filter.zone.as_deref().is_some_and(|zone| {
+            zone.zone == ast::Zone::Graveyard
+                && zone.position.is_none()
+                && zone.depth.is_none()
+                && zone.owner.as_deref()
+                    == Some(&ast::ObjectFilterZoneChangeHistoryFromZoneRefOwner::Your)
+        })
+        || present_fields(filter)
+            .into_iter()
+            .any(|field| !matches!(field, "cls" | "zone" | "types" | "all_of"))
+    {
+        return Err(invalid_filter());
+    }
+    let kinds = match (filter.types.as_deref(), filter.all_of.as_deref()) {
+        (None, None) => vec![],
+        (Some([kind]), None) => vec![card_kind(kind, "target_filter")?],
+        (None, Some(group)) => type_alternatives(group, "target_filter")?,
+        _ => return Err(invalid_filter()),
+    };
+    let domain = if kinds == [CardKind::Creature] {
+        TargetDomain::OwnGraveyardCreatureCard
+    } else if creature_only {
+        return Err(invalid_filter());
+    } else {
+        TargetDomain::OwnGraveyardCard
+    };
+    let already_bound = slots.contains_key(selection);
+    let slot = bind_object_target(program, slots, selection, domain, false)?;
+    let criteria = (domain == TargetDomain::OwnGraveyardCard && !kinds.is_empty()).then_some(
+        PermanentFilter {
+            types: kinds,
+            non_types: vec![],
+            non_colors: vec![],
+            opponent: false,
+            tapped: false,
+            power: None,
+        },
+    );
+    let target = &mut program.targets[slot as usize];
+    if already_bound && target.filter != criteria {
+        return Err(operand("target_filter", "conflicting"));
+    }
+    target.filter = criteria;
+    Ok(slot)
+}
+
 /// CR 107.1: a positive fixed number.
 pub(crate) fn fixed_positive_amount(amount: &ast::Amount) -> Result<Quantity, Failure> {
     match amount {

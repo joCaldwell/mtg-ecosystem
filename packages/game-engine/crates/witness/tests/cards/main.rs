@@ -1,4 +1,5 @@
 mod attachments;
+mod card_movement;
 mod control;
 mod costs;
 mod damage_triggers;

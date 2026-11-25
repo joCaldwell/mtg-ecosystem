@@ -7,4 +7,5 @@ mod grant_keywords;
 mod library;
 mod life;
 mod set_move;
+mod single_move;
 mod tap;

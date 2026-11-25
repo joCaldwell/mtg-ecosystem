@@ -351,6 +351,10 @@ pub enum Verb {
         designation: Designation,
     },
     /// CR 701.22.
+    ReorderLibraryTop {
+        player: PlayerExpr,
+        amount: Amount,
+    },
     Scry {
         player: PlayerExpr,
         amount: Amount,

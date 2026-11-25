@@ -23,6 +23,12 @@ pub enum ProposedEvent {
         count: Quantity,
         cards: Vec<ObjectId>,
     },
+    /// CR 401.2, 701.20e: a private look followed by ordering the prefix.
+    ReorderLibraryTop {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        top: Vec<ObjectId>,
+    },
     /// CR 701.22a: `looked` is the library's top; `top` goes back on top in
     /// that order and `bottom` beneath the rest in that order.
     Scry {
@@ -42,6 +48,12 @@ pub enum ProposedEvent {
     /// CR 701.24a: a whole resolving shuffle of one library.
     ShuffleLibrary {
         player: PlayerId,
+    },
+    /// CR 701.24b: shuffle every card except the found singleton, then
+    /// put it on top. An unsuccessful search still shuffles.
+    ShuffleLibraryToTop {
+        player: PlayerId,
+        found: Option<ObjectId>,
     },
     /// CR 110.2, 614.1c: a searched card enters under its owner's control,
     /// already tapped.
@@ -250,6 +262,10 @@ pub enum EventOutcome {
     Milled {
         player: PlayerId,
         movements: Vec<MoveOutcome>,
+    },
+    LibraryTopReordered {
+        player: PlayerId,
+        top: Vec<ObjectId>,
     },
     Scried {
         player: PlayerId,

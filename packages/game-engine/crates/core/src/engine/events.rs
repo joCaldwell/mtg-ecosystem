@@ -353,7 +353,8 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             }
             (keys.clone(), keys)
         }
-        ProposedEvent::Scry { player, looked, .. }
+        ProposedEvent::ReorderLibraryTop { player, looked, .. }
+        | ProposedEvent::Scry { player, looked, .. }
         | ProposedEvent::Surveil { player, looked, .. } => {
             let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
             read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
@@ -369,6 +370,7 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
         }
         ProposedEvent::FinishLibraryShuffle { .. }
         | ProposedEvent::ShuffleLibrary { .. }
+        | ProposedEvent::ShuffleLibraryToTop { .. }
         | ProposedEvent::ShuffleLibraryWord { .. }
         | ProposedEvent::Setup { .. } => {
             let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
@@ -853,7 +855,8 @@ impl RulesTxn {
                         libraries.insert(owner);
                     }
                 }
-                ProposedEvent::Scry { player, looked, .. }
+                ProposedEvent::ReorderLibraryTop { player, looked, .. }
+                | ProposedEvent::Scry { player, looked, .. }
                 | ProposedEvent::Surveil { player, looked, .. } => {
                     libraries.insert(*player);
                     players.insert(*player);
@@ -864,6 +867,10 @@ impl RulesTxn {
                     objects: found,
                 } => {
                     players.insert(*player);
+                    objects.extend(found.iter().copied());
+                }
+                ProposedEvent::ShuffleLibraryToTop { player, found } => {
+                    libraries.insert(*player);
                     objects.extend(found.iter().copied());
                 }
                 ProposedEvent::FinishLibraryShuffle { player }
@@ -2031,6 +2038,11 @@ impl RulesTxn {
                 cards,
             } => self.apply_mill(*player, count, cards, before, replacement)?,
 
+            ProposedEvent::ReorderLibraryTop {
+                player,
+                looked,
+                top,
+            } => self.apply_library_top_reorder(*player, looked, top)?,
             ProposedEvent::Scry {
                 player,
                 looked,
@@ -2043,7 +2055,12 @@ impl RulesTxn {
                 top,
                 graveyard,
             } => self.apply_surveil(*player, looked, top, graveyard, before)?,
-            ProposedEvent::ShuffleLibrary { player } => self.apply_library_shuffle(*player)?,
+            ProposedEvent::ShuffleLibrary { player } => {
+                self.apply_library_shuffle(*player, None)?
+            }
+            ProposedEvent::ShuffleLibraryToTop { player, found } => {
+                self.apply_library_shuffle(*player, *found)?
+            }
             ProposedEvent::EnterTapped { object } => {
                 if self.current(*object)?.zone
                     != (Zone::Library {

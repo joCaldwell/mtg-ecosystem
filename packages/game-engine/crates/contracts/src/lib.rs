@@ -322,6 +322,8 @@ pub enum Capability {
     GraveyardRecursionV1,
 
     OwnGraveyardCardReturnV1,
+    PrivateLibraryReorderV1,
+    SearchLibraryTopV1,
     BasicLandSearchV1,
 
     CreatureAnthemV1,

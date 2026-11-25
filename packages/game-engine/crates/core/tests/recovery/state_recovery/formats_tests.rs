@@ -23,8 +23,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "f9339952c54a0a4cad68f46af2db23e41d752c08a8c20362f921bf8a89a38b75",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    89,
-    "74cf7a9b7f752397fd526b0bbdf4b1b0cfb2d09db69b01a2b59291dc21088c64",
+    90,
+    "5f237b8f88542a20f282cc921276ef230aaec775d730d1ae5ae0b4c0241692ca",
 );
 const WORK_PIN: (u32, &str) = (
     53,
@@ -335,8 +335,8 @@ fn suspended_land_play_rejects_rehashed_tampering() {
 
 /// Wire shapes no fixture board suspends in: a battlefield search's entry
 /// choice with a chosen Aura host and a payment (CR 303.4f, 614.1c), and a
-/// forced tapped entry that still offers its payment. Substituted into
-/// real snapshots; only their JSON shape is fingerprinted.
+/// forced tapped entry that still offers its payment, and a private
+/// top-order choice. Only their JSON shape is fingerprinted.
 fn library_entry_shapes() -> Vec<String> {
     let game = mid_resolution();
     let object = Driver::object(&game, 0);
@@ -353,7 +353,15 @@ fn library_entry_shapes() -> Vec<String> {
     let mut entry: Value =
         serde_json::from_str(&suspended_battlefield_entry().snapshot().unwrap()).unwrap();
     entry["state"]["rules"]["frame"]["entry"]["force_tapped"] = true.into();
-    [search, entry]
+    let mut reorder = search.clone();
+    reorder["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::ReorderLibraryTop {
+            player: PlayerId(0),
+            looked: vec![object],
+            source_block: 0,
+        })
+        .unwrap();
+    [search, entry, reorder]
         .iter()
         .map(|value| serde_json::to_string(value).unwrap())
         .collect()

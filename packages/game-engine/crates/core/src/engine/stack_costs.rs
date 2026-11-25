@@ -207,7 +207,9 @@ impl RulesTxn {
                 TargetDomain::ControlledBattlefieldCreature
                 | TargetDomain::ControlledBattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
-                | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
+                | TargetDomain::BattlefieldPermanent
+                | TargetDomain::OwnGraveyardCard
+                | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
                 _ => Frame::EntityTargets { cast },
             };
         } else if mana {
@@ -358,6 +360,8 @@ impl RulesTxn {
                             | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::BattlefieldPermanent
+                            | TargetDomain::OwnGraveyardCard
+                            | TargetDomain::OwnGraveyardCreatureCard
                     )
                 }))
             || (!entry.player_targets.is_empty()

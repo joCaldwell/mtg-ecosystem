@@ -77,6 +77,37 @@ impl RulesTxn {
         Ok(())
     }
 
+    /// CR 401.2, 701.20e: reorder exactly the privately looked-at
+    /// prefix. Only the chooser remembers the resulting order.
+    pub(super) fn apply_library_top_reorder(
+        &mut self,
+        player: PlayerId,
+        looked: &[ObjectId],
+        top: &[ObjectId],
+    ) -> Result<EventOutcome, String> {
+        let count = Quantity::from(i64::try_from(looked.len()).map_err(|_| "look limit")?);
+        if !self.is_live(player)
+            || looked.is_empty()
+            || self.library_prefix(player, &count)? != looked
+        {
+            return Err("invalid private library prefix".into());
+        }
+        Self::library_partition(looked, [top, &[]])?;
+        let library = self
+            .rules_mut()
+            .libraries
+            .get_mut(&player)
+            .ok_or("missing library")?;
+        for (slot, object) in library.iter_mut().zip(top) {
+            *slot = object.card;
+        }
+        self.remember_library_order(player, top)?;
+        Ok(EventOutcome::LibraryTopReordered {
+            player,
+            top: top.to_vec(),
+        })
+    }
+
     /// CR 701.22a: put `top` back on top in order and `bottom` beneath the
     /// rest of the library in order.
     pub(super) fn apply_scry(
@@ -184,19 +215,42 @@ impl RulesTxn {
         })
     }
 
-    /// CR 701.24a: randomize the whole library with the seeded library
-    /// stream (Fisher-Yates with one rejection-sampled word per trial).
+    fn remember_library_order(&mut self, player: PlayerId, top: &[ObjectId]) -> Result<(), String> {
+        let sequence = self.state.knowledge.visibility[player.0 as usize]
+            .own_knowledge
+            .len();
+        self.remember_library_action(
+            player,
+            OwnKnowledgeAction::LibraryOrdered {
+                top: self.remembered(top, &format!("memory-{sequence}-top"))?,
+            },
+        )
+    }
+
+    /// CR 701.24a-b: randomize the library with the seeded Fisher-Yates
+    /// stream, excluding the found card on a search that puts it on top.
     pub(super) fn apply_library_shuffle(
         &mut self,
         player: PlayerId,
+        found: Option<ObjectId>,
     ) -> Result<EventOutcome, String> {
         if !self.is_live(player) {
             return Err("departed library shuffle".into());
+        }
+        if found.is_some_and(|object| self.zone(object) != Some(Zone::Library { owner: player })) {
+            return Err("found card is outside the shuffled library".into());
         }
         let rules = self.rules_mut();
         let library = rules.libraries.entry(player).or_default();
         if library.len() > capacities::OWNED_LIMIT + capacities::TOKEN_CAPACITY as usize {
             return Err("shuffle library exceeds the physical card and token bound".into());
+        }
+        if let Some(found) = found {
+            let index = library
+                .iter()
+                .position(|card| *card == found.card)
+                .ok_or("found card missing from shuffled library")?;
+            library.remove(index);
         }
         let state = rules
             .match_state
@@ -222,7 +276,13 @@ impl RulesTxn {
             .ok_or("public shuffle count overflow")?;
         let count = *ordinal;
         state.random.open = None;
+        if let Some(found) = found {
+            library.insert(0, found.card);
+        }
         self.remember_library_action(player, OwnKnowledgeAction::Shuffled)?;
+        if let Some(found) = found {
+            self.remember_library_order(player, &[found])?;
+        }
         Ok(EventOutcome::LibraryShuffled { player, count })
     }
 
