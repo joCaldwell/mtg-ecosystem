@@ -236,9 +236,13 @@ impl RulesTxn {
                 .characteristics
                 .hybrid_mana
                 .is_empty();
-        let choosing = matches!(self.underlying_mana_frame(&self.state.rules.frame)?,Frame::HybridCost {cast} if cast.stack_id==entry.id);
+        let frame = self.underlying_mana_frame(&self.state.rules.frame)?;
+        let choosing = matches!(frame, Frame::HybridCost {cast} if cast.stack_id==entry.id);
+        // CR 601.2b: optional additional costs are declared before hybrid
+        // symbols, so the symbols stay unchosen through that stage.
+        let declaring = matches!(frame, Frame::AdditionalCosts {cast} if cast.stack_id==entry.id);
         if choosing && (!needs_choice || entry.paid.is_some())
-            || (!entry.hybrid_colors.is_empty()) != (needs_choice && !choosing)
+            || (!entry.hybrid_colors.is_empty()) != (needs_choice && !choosing && !declaring)
         {
             return Err("hybrid announcement binding invariant".into());
         }

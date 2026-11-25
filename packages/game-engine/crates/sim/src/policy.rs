@@ -48,6 +48,9 @@ pub struct PolicyMemory {
     mana_ability: Option<mtg_core::ManaAbilityIdentity>,
     payment: PaymentAttempt,
     hybrid_choices: Vec<mtg_contracts::HybridPayment>,
+    /// The activations the pending priority decision offers, when one is
+    /// published; Develop never selects an activation outside them.
+    offered_activations: Option<Vec<Action<Viewer>>>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum PaymentAction {

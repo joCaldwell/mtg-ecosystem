@@ -34,6 +34,9 @@ const QUAGMIRE_DRUID: &str = record!("560e1e81-6675-4d08-8e82-cdf1abd4b3d0");
 const VORACIOUS_NULL: &str = record!("0f92daf5-520d-472a-a835-e6680a92fdab");
 const KRARK_CLAN_ENGINEERS: &str = record!("0964288c-0397-428a-9a84-784aaea4e040");
 const GUTTERSNIPE: &str = record!("c6bdaf76-6a03-4695-9c4b-f040e73435af");
+const CORROSIVE_GALE: &str = record!("6143073f-4110-4a37-bc0c-89fbda2fc839");
+const UNSPEAKABLE_SYMBOL: &str = record!("a5690d5f-633c-4a1e-afba-5fd79dcbf20e");
+const BEAST_ATTACK: &str = record!("3f5acd90-199c-4ed3-9c8a-eeac4670d876");
 
 /// A two-seat main-phase board whose catalog adds `cards`, each compiled
 /// from frozen source and occupying the named cells. A card with a W10 cell
@@ -209,6 +212,15 @@ fn blaze_announces_x_pays_it_and_deals_that_much_damage() {
             generic: 2.into(),
             colored: vec![Color::R],
         }
+    );
+    // CR 702.34a: only flashback casts a spell from a graveyard.
+    let mut forged = g.fork();
+    forged.state.rules.stack[0].cast_from = Zone::Graveyard { owner: PlayerId(0) };
+    assert!(
+        forged
+            .validate_state()
+            .unwrap_err()
+            .contains("casting origin")
     );
     Driver::pay(&mut g, &[1, 2, 3]);
     settle(&mut g);
@@ -723,6 +735,146 @@ fn krark_clan_engineers_sacrifices_two_artifacts() {
             Some(Zone::Graveyard {
                 owner: PlayerId(owner)
             })
+        );
+    }
+}
+
+/// Corrosive Gale ({X}{G/P}): "Corrosive Gale deals X damage to each
+/// creature with flying." The Phyrexian symbol is announced before X
+/// (CR 601.2b), and X stays unbound while it is; X then becomes the damage.
+#[test]
+fn corrosive_gale_announces_its_phyrexian_symbol_before_x() {
+    let prepared = board(&[(
+        CORROSIVE_GALE,
+        &[Cell::XManaCost, Cell::HybridManaCost, Cell::DamageSet],
+    )])
+    .permanent_or_hand("Corrosive Gale", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Storm Crow", 1, 1, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let before = life(&g, 0);
+    Driver::cast(&mut g, CardId(0));
+    pick(
+        &mut g,
+        0,
+        Reason::HybridCost,
+        &[Candidate::HybridPayment {
+            payment: HybridPayment::PayTwoLife,
+        }],
+    );
+    let d = expect(&mut g, 0, Reason::AnnounceX);
+    g.respond(d.player, d.id, Answer::Number { value: 2.into() })
+        .unwrap();
+    Driver::pay(&mut g, &[1, 2]);
+    assert_eq!(life(&g, 0), plus(&before, -2));
+    settle(&mut g);
+    assert_eq!(zone(&g, 3), Some(Zone::Graveyard { owner: PlayerId(1) }));
+    assert_eq!(zone(&g, 4), Some(Zone::Battlefield));
+    assert_eq!(zone(&g, 0), Some(Zone::Graveyard { owner: PlayerId(0) }));
+}
+
+/// Unspeakable Symbol: "Pay 3 life: Put a +1/+1 counter on target
+/// creature." A cost with no mana opens no mana window after targets: the
+/// life is paid at once and the activator gets priority (CR 601.2g,
+/// 602.2b).
+#[test]
+fn unspeakable_symbol_pays_life_after_targets_without_a_mana_window() {
+    let prepared = board(&[(UNSPEAKABLE_SYMBOL, &[Cell::ActivationPayLife])])
+        .permanent_or_hand("Unspeakable Symbol", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let before = life(&g, 0);
+    let symbol = Driver::object(&g, 0);
+    let bears = Driver::object(&g, 2);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: symbol,
+            ability: 0,
+        },
+    );
+    Driver::pick_object(&mut g, bears);
+    let d = expect(&mut g, 0, Reason::Priority);
+    assert!(!matches!(d.reason, Reason::Mana { .. }));
+    assert_eq!(life(&g, 0), plus(&before, -3));
+    assert!(g.state.rules.stack.last().unwrap().paid.is_some());
+    assert!(!g.current(Driver::object(&g, 1)).unwrap().tapped);
+    settle(&mut g);
+    assert_eq!(
+        g.current(bears).unwrap().plus_one_counters,
+        Quantity::from(1)
+    );
+}
+
+/// Beast Attack: "Create a 4/4 green Beast creature token. Flashback
+/// {2}{G}{G}{G}." With the same mana paid, a hand cast and a flashback cast
+/// are publicly distinct while on the stack, since only the flashback spell
+/// is exiled as it leaves (CR 702.34a). A forged origin in another player's
+/// graveyard, or a graveyard origin without flashback, fails validation.
+#[test]
+fn beast_attack_flashback_is_public_on_the_stack_and_its_origin_is_validated() {
+    let mut observed = vec![];
+    for from_graveyard in [false, true] {
+        let origin = if from_graveyard {
+            Zone::Graveyard { owner: PlayerId(0) }
+        } else {
+            Zone::Hand { owner: PlayerId(0) }
+        };
+        let prepared = board(&[(BEAST_ATTACK, &[Cell::Flashback])])
+            .card("Beast Attack", 0, 0, origin)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2, 3, 4, 5]);
+        expect(&mut g, 0, Reason::Priority);
+        let views: Vec<_> = (0..2).map(|seat| observation(&g, seat)).collect();
+        for o in &views {
+            assert_eq!(o.view.stack.len(), 1);
+            assert_eq!(o.view.stack[0].flashback, from_graveyard);
+        }
+        observed.push(views);
+
+        // Forged origins: another player's graveyard, and a graveyard origin
+        // for a card without flashback.
+        let mut forged = g.fork();
+        forged.state.rules.stack[0].cast_from = Zone::Graveyard { owner: PlayerId(1) };
+        assert!(
+            forged
+                .validate_state()
+                .unwrap_err()
+                .contains("casting origin")
+        );
+        let mut forged = g.fork();
+        forged.state.rules.stack[0].cast_from = Zone::Hand { owner: PlayerId(1) };
+        assert!(
+            forged
+                .validate_state()
+                .unwrap_err()
+                .contains("casting origin")
+        );
+        settle(&mut g);
+        let expected = if from_graveyard {
+            Zone::Exile
+        } else {
+            Zone::Graveyard { owner: PlayerId(0) }
+        };
+        assert_eq!(zone(&g, 0), Some(expected));
+    }
+    for seat in 0..2 {
+        assert_ne!(
+            serde_json::to_string(&observed[0][seat]).unwrap(),
+            serde_json::to_string(&observed[1][seat]).unwrap(),
+            "seat {seat}"
         );
     }
 }

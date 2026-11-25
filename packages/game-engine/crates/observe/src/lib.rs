@@ -311,6 +311,8 @@ pub fn encode(
         n[16] = s.cast_complete as i32;
         n[17] = s.spell_copy as i32;
         n[18] = -1;
+        // CR 702.34a: a flashback spell is exiled as it leaves the stack.
+        n[19] = s.flashback as i32;
     }
     for (j, k) in v.known_library_positions.iter().enumerate() {
         let i = base + v.stack.len() + j;

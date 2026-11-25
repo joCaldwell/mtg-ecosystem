@@ -284,6 +284,8 @@ or sorcery without X or hybrid symbols casts the card from its owner's
 graveyard at normal timing for the flashback cost instead of its mana cost
 (CR 702.34a, 118.9). As it resolves, fails to resolve or is countered, the spell is
 exiled instead. Abandoning the cast returns it to the graveyard (CR 733.1).
+The public stack entry marks a flashback spell. Validation rejects a spell cast
+from another player's hand or graveyard, or from a graveyard without flashback.
 "As an additional cost to cast this spell, sacrifice a/an [quality]" is paid
 after mana; a spell with nothing to sacrifice is not offered (CR 601.2b, 701.21a).
 Other additional costs reject as `kind:additional-cost:<term>`. Ward waits for the
@@ -291,7 +293,8 @@ trigger wave.
 
 An activation can also pay life and remove +1/+1 counters from its source, alone or with
 tap, mana and source sacrifice. A player who cannot pay is not offered the
-ability (CR 119.4, 122.1). A chosen sacrifice can count several permanents,
+ability (CR 119.4, 122.1), and a cost without mana is paid as targets complete,
+with no mana window (CR 601.2g). A chosen sacrifice can count several permanents,
 any permanent, or "another" (never the source), and can also tap the source
 after mana (CR 109.1, 602.2b, 701.21a). Each of these surfaces is its own
 `Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Kicker`,

@@ -648,7 +648,17 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     // 601.2b/f); a land has no mana cost to announce (CR 305.1).
     // CR 205.4: the basic supertype is admitted only on a land, whose shell
     // below then requires the land's intrinsic mana (CR 305.6).
+    // CR 107.4e-f: a two-color hybrid symbol names two distinct colors and a
+    // Phyrexian symbol one color and its 2-life alternative.
+    let hybrid_symbol = |symbol: &ColorHybridSymbol| match symbol.colors {
+        [HybridPayment::Mana(a), HybridPayment::Mana(b)] => {
+            a != b && a != Color::C && b != Color::C
+        }
+        [HybridPayment::Mana(a), HybridPayment::PayTwoLife] => a != Color::C,
+        _ => false,
+    };
     if ((!c.hybrid_mana.is_empty() || d.x_mana_cost) && d.spell.is_none())
+        || !c.hybrid_mana.iter().all(hybrid_symbol)
         || c.snow
         || (c.basic && c.kind != CardKind::Land)
         || c.subtypes.iter().any(|s| {
@@ -1144,6 +1154,41 @@ mod tests {
             },
             0,
         )
+    }
+
+    #[test]
+    fn hybrid_symbols_must_be_reviewed_pairs() {
+        let symbol = |colors| ColorHybridSymbol { colors };
+        let spell = |colors| with(|d| d.characteristics.hybrid_mana = vec![symbol(colors)]);
+        use HybridPayment::{Mana, PayTwoLife};
+        for colors in [
+            [Mana(Color::C), PayTwoLife],
+            [PayTwoLife, PayTwoLife],
+            [Mana(Color::G), Mana(Color::G)],
+            [PayTwoLife, Mana(Color::G)],
+            [Mana(Color::G), Mana(Color::C)],
+        ] {
+            let d = spell(colors);
+            assert!(
+                d.validate()
+                    .unwrap_err()
+                    .contains("cell:shell:characteristics"),
+                "{colors:?}"
+            );
+            assert!(kir::definition_tiers(&d).is_err());
+        }
+        for colors in [
+            [Mana(Color::G), PayTwoLife],
+            [Mana(Color::G), Mana(Color::U)],
+        ] {
+            let d = spell(colors);
+            d.validate().unwrap();
+            assert!(
+                kir::definition_tiers(&d)
+                    .unwrap()
+                    .admits(kir::ExecutionTier::Executes)
+            );
+        }
     }
 
     #[test]

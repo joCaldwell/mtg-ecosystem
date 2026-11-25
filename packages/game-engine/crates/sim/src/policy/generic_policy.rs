@@ -1294,7 +1294,16 @@ impl Strategy<'_> {
             FunctioningZone::Hand => o.zone == (Zone::Hand { owner: v.viewer }),
             _ => false,
         };
+        let offered = Action::ActivateAbility {
+            object: o.handle.clone(),
+            ability: ability as u32,
+        };
         if !in_zone
+            || self
+                .memory
+                .offered_activations
+                .as_ref()
+                .is_some_and(|actions| !actions.contains(&offered))
             || self.memory.payment.failed[usize::from(v.viewer.0)].iter().any(|failed| {
                 matches!(failed, PaymentAction::Activate(handle, index) if handle == &o.handle && *index == ability)
             })
@@ -1328,12 +1337,13 @@ impl Strategy<'_> {
                     .remove_source_plus_one_counters
                     .as_ref()
                     .is_some_and(|n| o.plus_one_counters < *n)
-                    // CR 119.4: keep a margin above a printed life payment.
+                    // CR 119.4, 119.8: life that cannot change pays no life;
+                    // otherwise keep a margin above the printed payment.
                     || costs.pay_life.as_ref().is_some_and(|life| {
                         v.players
                             .iter()
                             .find(|r| r.player == v.viewer)
-                            .is_none_or(|r| r.life <= *life)
+                            .is_none_or(|r| r.life <= *life || r.life_frozen_until_next_turn)
                     })
                 {
                     return None;
@@ -1434,6 +1444,17 @@ impl Strategy<'_> {
             return Ok(Action::Pass);
         }
         self.memory.payment.next_priority(v);
+        self.memory.offered_activations = observation.decision.as_ref().map(|d| {
+            d.candidates
+                .iter()
+                .filter_map(|c| match c {
+                    Candidate::Action {
+                        action: action @ Action::ActivateAbility { .. },
+                    } => Some(action.clone()),
+                    _ => None,
+                })
+                .collect()
+        });
         self.memory.mana_plan.clear();
         self.memory.mana_ability = None;
         self.memory.mana_color = None;

@@ -417,6 +417,29 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
+        // CR 601.2a, 702.34a: a spell is cast from its owner's own hand, or
+        // from its owner's own graveyard only with flashback.
+        if entry.kind.is_spell() && !self.is_spell_copy(entry) {
+            let owner = self
+                .state
+                .rules
+                .cards
+                .get(&entry.source.card)
+                .ok_or("missing spell physical card")?
+                .owner;
+            let consistent = match entry.cast_from {
+                Zone::Hand { owner: from } => from == owner && entry.controller == owner,
+                Zone::Graveyard { owner: from } => {
+                    from == owner
+                        && entry.controller == owner
+                        && self.copiable_definition(entry.source)?.flashback.is_some()
+                }
+                _ => true,
+            };
+            if !consistent {
+                return Err("snapshot spell casting origin invariant".into());
+            }
+        }
         self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
@@ -426,7 +449,12 @@ impl RulesTxn {
         }
         let x_spell = self.copiable_definition(entry.source)?.x_mana_cost && entry.kind.is_spell();
         let announcing_x = matches!(&self.state.rules.frame, Frame::AnnounceX { cast } if cast.stack_id == entry.id);
-        let x_bound = x_spell && !announcing_x;
+        // CR 601.2b: optional additional costs and hybrid symbols are
+        // announced before X, so X stays unbound through those stages.
+        let before_x = announcing_x
+            || matches!(&self.state.rules.frame,
+                Frame::AdditionalCosts { cast } | Frame::HybridCost { cast } if cast.stack_id == entry.id);
+        let x_bound = x_spell && !before_x;
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
             || entry.x.is_some() != x_bound
             || (announcing_x && !x_spell)
