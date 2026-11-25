@@ -13,7 +13,8 @@ import torch
 
 from pilot.checkpoint import load_checkpoint, save_checkpoint
 from pilot.model import masked_policy
-from pilot.ppo import terminal_gae
+from pilot.pods import RotatedPods
+from pilot.ppo import UpdateBatch, segment_gae
 from pilot.rollout import Collector
 from pilot.schema import Identity, action_masks, uniform_actions
 
@@ -45,17 +46,23 @@ class MaskTests(TestCase):
 class AdvantageTests(TestCase):
     def test_terminal_win_and_zero_bootstrap(self):
         values = np.array([0.2, 0.3, 0.5], dtype=np.float32)
-        returns, advantages = terminal_gae(values, True)
+        returns, advantages = segment_gae(values, 1.0)
         np.testing.assert_allclose(returns, [1, 1, 1])
         np.testing.assert_allclose(advantages, [0.74125, 0.675, 0.5])
 
-        returns, advantages = terminal_gae(values, False)
+        returns, advantages = segment_gae(values, 0.0)
         np.testing.assert_allclose(returns, [0, 0, 0])
         np.testing.assert_allclose(advantages, [-0.16125, -0.275, -0.5], atol=1e-7)
 
+    def test_live_segment_targets_use_the_next_win_probability(self):
+        values = np.array([0.2, 0.3], dtype=np.float32)
+        returns, advantages = segment_gae(values, 0.0, 0.8)
+        np.testing.assert_allclose(returns, [0.8, 0.8])
+        np.testing.assert_allclose(advantages, [0.575, 0.5])
+
 
 class RolloutTests(TestCase):
-    def test_previous_seat_is_scored_after_reset_and_censors_are_dropped(self):
+    def fixture(self):
         native_row = {
             "seat": np.array([1, 3]), "reward": np.zeros((2, 4), np.int32),
             "done": np.zeros(2), "info": np.zeros((2, 8), np.int32),
@@ -95,18 +102,57 @@ class RolloutTests(TestCase):
             def __call__(self, mask, cards):
                 return masked_policy(torch.zeros_like(mask, dtype=torch.float32), mask), torch.zeros((len(mask), 4))
 
+            def value_logits(self, mask, cards):
+                return torch.tensor([0.1, 0.2, 0.3, 0.4]).log().repeat(len(mask), 1)
+
+        def capture(batch, rows, mask, numeric):
+            chosen = mask[rows]
+            return SimpleNamespace(
+                tensors=lambda device: torch.from_numpy(chosen),
+                rows=lambda: iter(chosen),
+            )
+
         schema = SimpleNamespace(
             model_shape=SimpleNamespace(seats=4),
-            capture=lambda batch, rows, mask, numeric: list(mask[rows]),
-            collate=lambda observations, device: torch.from_numpy(np.stack(observations)),
+            capture=capture,
         )
-        collector = Collector(Env(), schema, torch.device("cpu"))
-        completed = collector.collect(UniformPolicy(), 1, 1, 2, perf_counter() + 30)
+        return Collector(Env(), schema, torch.device("cpu")), UniformPolicy()
+
+    def test_previous_seat_is_scored_after_reset_and_censors_are_dropped(self):
+        collector, model = self.fixture()
+        completed = collector.collect(model, 1, 1, 2, perf_counter() + 30)
         self.assertEqual([(len(t.samples), t.winner) for t in completed], [(1, 1)])
         self.assertEqual(collector.stats.outcomes.wins, {2: 1})
         self.assertEqual(collector.stats.outcomes.censors, {3: 1})
         self.assertEqual(collector.stats.censored_decisions, 2)
         self.assertEqual(collector.stats.forced_decisions, 1)
+
+    def test_live_boundary_rotates_forecast_and_next_update_continues_episode(self):
+        collector, model = self.fixture()
+        live = collector.collect(model, 1, 0, 2, perf_counter() + 30)
+        self.assertEqual(collector.env.steps, 1)
+        self.assertEqual(collector.stats.bootstrapped_decisions, 2)
+        self.assertEqual([len(t.samples) for t in live], [1, 1])
+        np.testing.assert_allclose(
+            UpdateBatch.from_trajectories(live, 4).winner_targets,
+            [[0.4, 0.1, 0.2, 0.3], [0.4, 0.1, 0.2, 0.3]],
+        )
+        self.assertEqual(collector.collect(model, 1, 0, 1, perf_counter() + 30), [])
+        self.assertEqual(collector.env.steps, 2)
+        self.assertEqual(collector.stats.censored_decisions, 1)
+        self.assertEqual(collector.stats.outcomes.wins, {2: 1})
+
+
+class RotationTests(TestCase):
+    def test_foundations_rotations_preserve_the_pod_and_balance_seat_zero(self):
+        fixtures = Path(__file__).resolve().parents[2] / "game-engine/tests/fixtures"
+        rotation = RotatedPods(fixtures / "profiles/commander-foundations-v1.json", "commander-foundations-v1")
+        first, second, third, fourth = rotation.tables
+        self.assertEqual(first, third)
+        self.assertEqual(second, fourth)
+        self.assertEqual(second, (first[-1], *first[:-1]))
+        self.assertNotEqual(first[0], second[0])
+        self.assertEqual([row["lanes"] for row in rotation.allocation(512)], [256, 256])
 
 
 class CheckpointTests(TestCase):

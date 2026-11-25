@@ -23,6 +23,7 @@ class Sample:
 class Trajectory:
     samples: list[Sample]
     winner: int | None  # Viewer-relative seat. A natural draw has no winner.
+    bootstrap: np.ndarray | None = None  # Winner distribution at a live boundary.
 
 
 @dataclass
@@ -69,7 +70,7 @@ class CollectionStats:
     learner_decisions: int = 0
     forced_decisions: int = 0
     censored_decisions: int = 0
-    unfinished_decisions: int = 0
+    bootstrapped_decisions: int = 0
     env_seconds: float = 0
     inference_seconds: float = 0
     outcomes: Outcomes = field(default_factory=Outcomes)
@@ -86,11 +87,11 @@ class Collector:
     def collect(
         self, model: Pilot, target: int, games: int, max_steps: int, deadline: float,
     ) -> list[Trajectory]:
-        """Keep only natural terminal trajectories gathered with this policy.
+        """Train every live segment while its behavior policy is current.
 
-        At the collection boundary, drop unresolved histories. On the next
-        collection those lanes can contribute fresh on-policy suffixes. GAE
-        advances once per recorded choice of the same seat, with gamma = 1.
+        Lanes and episodes stay open across updates. A segment ending at an
+        update boundary uses the frozen policy's winner distribution at the
+        next observation. A segment ending at a known censor has no target.
         """
         stats = self.stats
         started = perf_counter()
@@ -101,7 +102,7 @@ class Collector:
         stats.inference_seconds += perf_counter() - started
 
         trajectories = []
-        accepted = 0
+        collected = 0
         natural_at_start = stats.outcomes.natural
         with self.env.buffers() as batch:
             seats = read_results(batch).seats
@@ -115,24 +116,25 @@ class Collector:
                 mask, numeric = action_masks(batch)
                 actions = mask.argmax(axis=1).astype(np.int32)
                 rows = np.flatnonzero(mask.sum(axis=1) > 1)
-                observations = self.schema.capture(batch, rows, mask, numeric)
+                observations = self.schema.capture(batch, rows, mask, numeric) if rows.size else None
 
-            if observations:
+            if observations is not None:
                 started = perf_counter()
-                inputs = self.schema.collate(observations, self.device)
+                inputs = observations.tensors(self.device)
                 with precision(self.device):
                     log_probs, logits = model(inputs, cards)
                 choices = torch.multinomial(log_probs.exp(), 1)
                 values = logits.softmax(dim=1)[:, 0]
                 payload = torch.cat((choices, log_probs.gather(1, choices), values[:, None]), dim=1)
                 for row, observation, (action, log_prob, value) in zip(
-                    rows, observations, payload.cpu().numpy(), strict=True,
+                    rows, observations.rows(), payload.cpu().numpy(), strict=True,
                 ):
                     actions[row] = int(action)
                     pending[row][seats[row]].append(Sample(observation, int(action), log_prob, value))
                 stats.inference_seconds += perf_counter() - started
 
             stats.learner_decisions += len(rows)
+            collected += len(rows)
             stats.forced_decisions += len(actions) - len(rows)
             started = perf_counter()
             self.env.step(actions)
@@ -150,11 +152,26 @@ class Collector:
                         else:
                             relative = None if winner is None else (winner - seat) % seats_count
                             trajectories.append(Trajectory(samples, relative))
-                            accepted += len(samples)
                         pending[row][seat] = []
             seats = result.seats
-            if accepted >= target and stats.outcomes.natural - natural_at_start >= games:
+            if collected >= target and stats.outcomes.natural - natural_at_start >= games:
                 break
 
-        stats.unfinished_decisions += sum(len(samples) for lane in pending for samples in lane)
+        rows = np.asarray([i for i, lane in enumerate(pending) if any(lane)], dtype=np.intp)
+        if rows.size:
+            started = perf_counter()
+            with self.env.buffers() as batch:
+                mask, numeric = action_masks(batch)
+                boundary = self.schema.capture(batch, rows, mask, numeric)
+            with precision(self.device):
+                probabilities = model.value_logits(boundary.tensors(self.device), cards).softmax(dim=1)
+            for row, distribution in zip(rows, probabilities.cpu().numpy(), strict=True):
+                for seat, samples in enumerate(pending[row]):
+                    if samples:
+                        # One viewer's permitted frame provides the bootstrap
+                        # only. Each policy sample keeps its own viewer's frame.
+                        relative = np.roll(distribution, int(seats[row]) - seat)
+                        trajectories.append(Trajectory(samples, None, relative))
+                        stats.bootstrapped_decisions += len(samples)
+            stats.inference_seconds += perf_counter() - started
         return trajectories

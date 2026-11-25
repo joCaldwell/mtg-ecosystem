@@ -78,6 +78,53 @@ class ModelInput(NamedTuple):
     numeric_head: torch.Tensor
 
 
+class PackedObservations(NamedTuple):
+    globals: np.ndarray
+    players: np.ndarray
+    entity_int: np.ndarray
+    entity_num: np.ndarray
+    entity_valid: np.ndarray
+    entity_counts: np.ndarray
+    candidates: np.ndarray
+    candidate_counts: np.ndarray
+    mask: np.ndarray
+    numeric_head: np.ndarray
+
+    def rows(self):
+        """Views into owned batch storage for storing in the rollout."""
+        for i, (entities, candidates) in enumerate(
+            zip(self.entity_counts, self.candidate_counts, strict=True),
+        ):
+            yield Observation(
+                self.globals[i], self.players[i], self.entity_int[i, :entities],
+                self.entity_num[i, :entities], self.candidates[i, :candidates],
+                self.mask[i], bool(self.numeric_head[i]),
+            )
+
+    def tensors(self, device: torch.device) -> ModelInput:
+        def tensor(array):
+            return torch.from_numpy(array).to(device)
+
+        entity_int = tensor(self.entity_int)
+        candidate = tensor(self.candidates)
+        entity_features = torch.cat((
+            entity_int[..., :CARD_COLUMN], entity_int[..., CARD_COLUMN + 1:],
+            tensor(self.entity_num),
+        ), dim=-1)
+        return ModelInput(
+            signed_log(tensor(self.globals)),
+            signed_log(tensor(self.players)),
+            entity_int[..., CARD_COLUMN].clamp_min(0).long(),
+            signed_log(entity_features),
+            tensor(self.entity_valid),
+            signed_log(candidate[..., CANDIDATE_FEATURES]),
+            candidate[..., CANDIDATE_ENTITY].long(),
+            candidate[..., CANDIDATE_SEAT].long(),
+            tensor(self.mask),
+            tensor(self.numeric_head),
+        )
+
+
 @dataclass(frozen=True)
 class Results:
     seats: np.ndarray
@@ -185,24 +232,23 @@ class Schema:
             card_token_slots=self.card_tokens.shape[1], card_features=self.card_numeric.shape[1],
         )
 
-    def capture(self, batch, rows, mask, numeric) -> list[Observation]:
-        # Entities are written as a contiguous prefix. Candidate rows outside the
-        # current policy mask never participate in scoring, so trim the suffix.
+    def capture(self, batch, rows, mask, numeric) -> PackedObservations:
+        # Fancy indexing copies the Rust lease once per field. Keep the maximum
+        # active extent of this batch so inference needs no per-row collation.
         globals_, players, ent_int, ent_num, ent_mask, cand = (
             batch[key] for key in OBSERVATION_FIELDS
         )
-        entity_counts = ent_mask[rows].sum(axis=1)
-        candidate_count = cand.shape[1]
-        observations = []
-        for i, entities in zip(rows, entity_counts, strict=True):
-            active = np.flatnonzero(mask[i, :candidate_count])
-            candidates = 0 if numeric[i] or not active.size else active[-1] + 1
-            observations.append(Observation(
-                globals_[i].copy(), players[i].copy(), ent_int[i, :entities].copy(),
-                ent_num[i, :entities].copy(), cand[i, :candidates].copy(),
-                mask[i].copy(), bool(numeric[i]),
-            ))
-        return observations
+        valid = ent_mask[rows].astype(bool)
+        entity_counts = valid.sum(axis=1)
+        entities = int(entity_counts.max())
+        masks, heads = mask[rows], numeric[rows]
+        active = masks[:, :cand.shape[1]] & ~heads[:, None]
+        candidate_counts = (active * np.arange(1, cand.shape[1] + 1)).max(axis=1)
+        return PackedObservations(
+            globals_[rows], players[rows], ent_int[rows, :entities], ent_num[rows, :entities],
+            valid[:, :entities].copy(), entity_counts, cand[rows, :candidate_counts.max()],
+            candidate_counts, masks, heads,
+        )
 
     def collate(self, observations: list[Observation], device: torch.device) -> ModelInput:
         size = len(observations)
@@ -212,30 +258,19 @@ class Schema:
         ent_num = np.zeros((size, entities, self.wire["ent_num"][0][1]), np.int32)
         entity_valid = np.zeros((size, entities), bool)
         cand = np.full((size, candidates, self.wire["cand"][0][1]), -1, np.int32)
-        for i, observation in enumerate(observations):
-            count = len(observation.entity_int)
+        entity_counts = np.asarray([len(o.entity_int) for o in observations])
+        candidate_counts = np.asarray([len(o.candidates) for o in observations])
+        for i, (observation, count, candidate_count) in enumerate(
+            zip(observations, entity_counts, candidate_counts, strict=True),
+        ):
             ent_int[i, :count] = observation.entity_int
             ent_num[i, :count] = observation.entity_num
             entity_valid[i, :count] = True
-            cand[i, :len(observation.candidates)] = observation.candidates
-
-        def tensor(array):
-            return torch.from_numpy(array).to(device)
-
-        entity_int = tensor(ent_int)
-        candidate = tensor(cand)
-        entity_features = torch.cat((
-            entity_int[..., :CARD_COLUMN], entity_int[..., CARD_COLUMN + 1:], tensor(ent_num),
-        ), dim=-1)
-        return ModelInput(
-            signed_log(tensor(np.stack([o.globals for o in observations]))),
-            signed_log(tensor(np.stack([o.players for o in observations]))),
-            entity_int[..., CARD_COLUMN].clamp_min(0).long(),
-            signed_log(entity_features),
-            tensor(entity_valid),
-            signed_log(candidate[..., CANDIDATE_FEATURES]),
-            candidate[..., CANDIDATE_ENTITY].long(),
-            candidate[..., CANDIDATE_SEAT].long(),
-            tensor(np.stack([o.mask for o in observations])),
-            tensor(np.asarray([o.numeric_head for o in observations], dtype=bool)),
-        )
+            cand[i, :candidate_count] = observation.candidates
+        return PackedObservations(
+            np.stack([o.globals for o in observations]),
+            np.stack([o.players for o in observations]), ent_int, ent_num,
+            entity_valid, entity_counts, cand, candidate_counts,
+            np.stack([o.mask for o in observations]),
+            np.asarray([o.numeric_head for o in observations], dtype=bool),
+        ).tensors(device)

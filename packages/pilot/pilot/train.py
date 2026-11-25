@@ -6,6 +6,7 @@ From the repo root, using a Python with PyTorch and NumPy installed:
         --library target/engine/release/libmtg_env.so --device cuda:0 \
         --opponents baseline --seconds 1800 --checkpoint generated/pilot.pt
 
+Pass --rotate-profile the embedded profile's source JSON to rotate its decks.
 Use --device cpu for CPU execution and --opponents self_play for all four seats.
 The extension build command is in the repo's batched NumPy environment guide.
 Output is JSON Lines with per-update progress and a final throughput summary.
@@ -16,6 +17,7 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 import resource
+from tempfile import TemporaryDirectory
 from time import perf_counter
 
 import numpy as np
@@ -23,6 +25,7 @@ import torch
 
 from .checkpoint import load_checkpoint, save_checkpoint
 from .model import Pilot
+from .pods import RotatedPods
 from .ppo import optimize
 from .rollout import Collector
 from .schema import Schema, library_digest, load_native
@@ -47,19 +50,24 @@ def configure_torch(device: torch.device, cpu_threads: int, seed: int) -> None:
         torch.cuda.manual_seed(seed)
 
 
-def make_env(native, profile, envs, threads, seed, opponents):
-    env = native.VecEnv(
-        profile, num_envs=envs, threads=threads, seed=seed,
-        config={"opponents": opponents},
-    )
+def make_env(native, profile, envs, threads, seed, opponents, rotation=None):
+    config = {"opponents": opponents}
+    if rotation is None:
+        env = native.VecEnv(profile, num_envs=envs, threads=threads, seed=seed, config=config)
+    else:
+        with TemporaryDirectory(prefix="pilot-pods-") as directory:
+            pods = rotation.write(Path(directory))
+            env = native.VecEnv(
+                profile, pods=pods, num_envs=envs, threads=threads, seed=seed, config=config,
+            )
     env.reset()
     return env
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--library", type=Path)
     parser.add_argument("--profile", default=PROFILE)
+    parser.add_argument("--rotate-profile", type=Path)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--opponents", default="self_play", choices=("self_play", "baseline"))
     parser.add_argument("--checkpoint", type=Path, required=True)
@@ -70,17 +78,22 @@ def main() -> None:
     parser.add_argument("--torch-threads", type=positive_int, default=4)
     parser.add_argument("--seed", type=int, default=57)
     parser.add_argument("--rollout-samples", type=positive_int, default=4096)
-    parser.add_argument("--rollout-games", type=positive_int, default=8)
+    parser.add_argument("--rollout-games", type=int, default=0)
     parser.add_argument("--rollout-steps", type=positive_int, default=4096)
     parser.add_argument("--minibatch", type=positive_int, default=256)
     parser.add_argument("--epochs", type=positive_int, default=2)
     args = parser.parse_args()
+    if args.rollout_games < 0:
+        parser.error("--rollout-games must be nonnegative")
+    rotation = RotatedPods(args.rotate_profile, args.profile) if args.rotate_profile else None
+    if rotation and args.envs % len(rotation.tables):
+        parser.error("--envs must be a multiple of the pod rotation count")
 
     native = load_native(args.library)
     device = torch.device(args.device)
     configure_torch(device, args.torch_threads, args.seed)
     rng = np.random.default_rng(args.seed)
-    env = make_env(native, args.profile, args.envs, args.threads, args.seed, args.opponents)
+    env = make_env(native, args.profile, args.envs, args.threads, args.seed, args.opponents, rotation)
     schema = Schema(env, library_digest(native))
     model = Pilot(schema).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
@@ -100,6 +113,7 @@ def main() -> None:
         "rollout_samples": args.rollout_samples, "rollout_games": args.rollout_games,
         "rollout_steps": args.rollout_steps, "minibatch": args.minibatch, "epochs": args.epochs,
         "parameters": sum(p.numel() for p in model.parameters()),
+        "learner_deck_allocation": rotation.allocation(args.envs) if rotation else None,
         "identity": asdict(schema.identity),
     }), flush=True)
 
@@ -127,7 +141,13 @@ def main() -> None:
             save_checkpoint(args.checkpoint, model, optimizer, schema.identity)
         print(json.dumps({
             "event": "rollout", "elapsed_seconds": perf_counter() - started, "updates": updates,
-            "learner_decisions": collector.stats.learner_decisions, **update,
+            "learner_decisions": collector.stats.learner_decisions,
+            "bootstrapped_decisions": collector.stats.bootstrapped_decisions,
+            "env_seconds": collector.stats.env_seconds,
+            "inference_seconds": collector.stats.inference_seconds,
+            "update_seconds": update_seconds,
+            "peak_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024,
+            **update,
             **collector.stats.outcomes.summary(),
         }), flush=True)
 
@@ -137,7 +157,7 @@ def main() -> None:
         "event": "summary", "elapsed_seconds": elapsed, "updates": updates,
         "learner_decisions": stats.learner_decisions, "forced_decisions": stats.forced_decisions,
         "trained_samples": trained_samples, "censored_decisions": stats.censored_decisions,
-        "unfinished_decisions": stats.unfinished_decisions,
+        "bootstrapped_decisions": stats.bootstrapped_decisions,
         "learner_decisions_per_second": stats.learner_decisions / elapsed,
         "env_seconds": stats.env_seconds, "inference_seconds": stats.inference_seconds,
         "update_seconds": update_seconds,
@@ -152,7 +172,7 @@ def main() -> None:
         **stats.outcomes.summary(),
     }), flush=True)
     if updates == 0:
-        raise SystemExit("No natural terminal trajectory contributed a PPO update")
+        raise SystemExit("No trajectory contributed a PPO update")
 
 
 if __name__ == "__main__":

@@ -65,15 +65,22 @@ class Pilot(nn.Module):
         padded = F.pad(rows, (0, 0, 1, 0))
         return padded.gather(1, (index + 1).unsqueeze(-1).expand(-1, -1, rows.size(-1)))
 
-    def forward(self, inputs: ModelInput, cards: torch.Tensor):
+    def encode_observation(self, inputs: ModelInput, cards: torch.Tensor) -> torch.Tensor:
         globals_ = self.global_project(inputs.globals).unsqueeze(1)
-        players = self.player_project(inputs.players) + self.seat_embed
+        players = self.player_project(inputs.players)
+        players = players + self.seat_embed.to(players.dtype)
         entities = self.entity_project(inputs.entity_features) + cards[inputs.entity_cards]
         visible = F.pad(inputs.entity_valid, (1 + self.shape.seats, 0), value=True)
-        encoded = self.transformer(
+        return self.transformer(
             torch.cat((globals_, players, entities), dim=1),
             src_key_padding_mask=~visible,
         )
+
+    def value_logits(self, inputs: ModelInput, cards: torch.Tensor) -> torch.Tensor:
+        return self.winner(self.encode_observation(inputs, cards)[:, 0]).float()
+
+    def forward(self, inputs: ModelInput, cards: torch.Tensor):
+        encoded = self.encode_observation(inputs, cards)
         context = encoded[:, 0]
         players = encoded[:, 1:1 + self.shape.seats]
         entities = encoded[:, 1 + self.shape.seats:]

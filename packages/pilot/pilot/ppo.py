@@ -4,26 +4,20 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-from torch.nn import functional as F
 
 from .model import Pilot, precision
 from .rollout import Trajectory
 from .schema import Observation, Schema
 
 
-def terminal_gae(
-    values: np.ndarray, won: bool, gae_lambda: float = 0.95,
+def segment_gae(
+    values: np.ndarray, reward: float, bootstrap: float = 0.0, gae_lambda: float = 0.95,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return per-seat undiscounted returns and advantages for a natural ending.
-
-    The only nonzero reward is 1 for the winning seat at its final recorded
-    transition. The terminal bootstrap is zero. A draw gives every seat zero.
-    """
-    returns = np.full(len(values), float(won), dtype=np.float32)
+    """Use the terminal win indicator or the live boundary win probability."""
+    returns = np.full(len(values), reward + bootstrap, dtype=np.float32)
     advantages = np.empty_like(returns)
-    next_value = 0.0
+    next_value = bootstrap
     next_advantage = 0.0
-    reward = float(won)
     for i in range(len(values) - 1, -1, -1):
         delta = reward + next_value - values[i]
         next_advantage = delta + gae_lambda * next_advantage
@@ -39,29 +33,36 @@ class UpdateBatch:
     actions: np.ndarray
     old_log_probs: np.ndarray
     advantages: np.ndarray
-    winners: np.ndarray
+    winner_targets: np.ndarray
 
     @classmethod
-    def from_trajectories(cls, trajectories: list[Trajectory]):
-        observations, actions, log_probs, advantages, winners = [], [], [], [], []
+    def from_trajectories(cls, trajectories: list[Trajectory], seats: int):
+        observations, actions, log_probs, advantages, targets = [], [], [], [], []
         for trajectory in trajectories:
             samples = trajectory.samples
-            _, gae = terminal_gae(
-                np.asarray([s.win_probability for s in samples]), trajectory.winner == 0,
+            target = np.zeros(seats, dtype=np.float32)
+            if trajectory.winner is not None:
+                target[trajectory.winner] = 1
+            bootstrap = 0.0
+            if trajectory.bootstrap is not None:
+                target = trajectory.bootstrap
+                bootstrap = float(target[0])
+            _, gae = segment_gae(
+                np.asarray([s.win_probability for s in samples]),
+                float(trajectory.winner == 0), bootstrap,
             )
             observations.extend(s.observation for s in samples)
             actions.extend(s.action for s in samples)
             log_probs.extend(s.log_probability for s in samples)
             advantages.extend(gae)
-            # Draws contribute a zero return but have no four-way value label.
-            winners.extend([-100 if trajectory.winner is None else trajectory.winner] * len(samples))
+            targets.extend([target] * len(samples))
 
         advantage = np.asarray(advantages, dtype=np.float32)
         advantage = (advantage - advantage.mean()) / max(float(advantage.std()), 1e-8)
         return cls(
             observations, np.asarray(actions, dtype=np.int64),
             np.asarray(log_probs, dtype=np.float32), advantage,
-            np.asarray(winners, dtype=np.int64),
+            np.stack(targets),
         )
 
 
@@ -77,7 +78,7 @@ def optimize(
     minibatch: int,
     epochs: int,
 ) -> dict:
-    batch = UpdateBatch.from_trajectories(trajectories)
+    batch = UpdateBatch.from_trajectories(trajectories, schema.model_shape.seats)
     size = len(batch.observations)
     totals = torch.zeros(3, device=device)
 
@@ -92,7 +93,7 @@ def optimize(
             actions = tensor(batch.actions, indices)
             old = tensor(batch.old_log_probs, indices)
             advantages = tensor(batch.advantages, indices)
-            winners = tensor(batch.winners, indices)
+            winner_targets = tensor(batch.winner_targets, indices)
 
             optimizer.zero_grad(set_to_none=True)
             with precision(device):
@@ -102,8 +103,10 @@ def optimize(
             policy_loss = -torch.minimum(
                 ratio * advantages, ratio.clamp(0.8, 1.2) * advantages,
             ).mean()
-            value_loss = F.cross_entropy(values, winners, reduction="sum")
-            value_loss = value_loss / (winners != -100).sum().clamp_min(1)
+            # Natural wins provide one-hot targets. Live boundaries provide
+            # soft targets and natural draws yield a zero-weight row.
+            value_loss = -(values.log_softmax(dim=1) * winner_targets).sum()
+            value_loss = value_loss / winner_targets.any(dim=1).sum().clamp_min(1)
             entropy = -(log_probs.exp() * log_probs.masked_fill(~inputs.mask, 0)).sum(1).mean()
             # Imitation hook (unimplemented): capture a future expert_action
             # in the schema and add its masked cross-entropy here.
