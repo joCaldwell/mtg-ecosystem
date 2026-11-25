@@ -236,6 +236,32 @@ fn caster_matches(relation: CasterRelation, caster: PlayerId, controller: Player
         CasterRelation::Opponent => caster != controller,
     }
 }
+// CR 603.10a: callers select the pre-event battlefield for a death and
+// the resulting battlefield for combat. Only the exact attached incarnation matches.
+fn attachment_subject(event: AttachmentEvent, witness: &TriggerEventWitness) -> Option<ObjectId> {
+    match (event, witness) {
+        (AttachmentEvent::Attacks, TriggerEventWitness::CreatureAttacked { attacker, .. }) => {
+            Some(attacker.object)
+        }
+        (AttachmentEvent::Dies, TriggerEventWitness::Moved { movement }) if witness.dies() => {
+            Some(movement.previous)
+        }
+        (
+            AttachmentEvent::CombatDamageToPlayer,
+            TriggerEventWitness::DamageDealt {
+                kind: DamageKind::Combat,
+                damage,
+                ..
+            },
+        ) if damage.amount > Quantity::zero()
+            && matches!(damage.recipient, DamageRecipient::Player { .. }) =>
+        {
+            Some(damage.source.object)
+        }
+        _ => None,
+    }
+}
+
 fn attack_matches(
     predicate: &AttackSubject,
     source: ObjectId,
@@ -597,6 +623,9 @@ impl RulesTxn {
             {
                 let mut entry_witness = None;
                 let matches = match &definition.condition {
+                    TriggerCondition::AttachedCreature { event, .. } => object.attached_to.is_some_and(|host| {
+                        attachment_subject(*event, &witness) == Some(host) && observers.target_is_creature(host)
+                    }),
                     TriggerCondition::ControlledLandEntersBattlefield => {
                         if enters && entry_facts.is_none() {
                             entry_facts = Some(observers.object_before(
@@ -1290,6 +1319,10 @@ impl RulesTxn {
         let definition = self.effective_trigger(source, ability)?;
 
         let condition = &definition.condition;
+        // The accepted-input journal authenticates the historical attachment;
+        // an observer can move to another creature before its ability resolves.
+        let host_match = matches!(condition, TriggerCondition::AttachedCreature { event, .. }
+            if attachment_subject(*event, witness).is_some_and(|host| host != source));
         let valid = match witness {
             TriggerEventWitness::DamageDealt {
                 kind,
@@ -1331,14 +1364,15 @@ impl RulesTxn {
                         .get(&fact.object.card)
                         .is_some_and(|c| c.owner == fact.owner)
                     && matches!(damage.recipient, DamageRecipient::Player { player } if player.0 < 4)
-                    && damage_matches(
-                        condition,
-                        source,
-                        controller,
-                        *kind,
-                        damage,
-                        match_source.as_deref(),
-                    )
+                    && ((host_match && match_source.is_none())
+                        || damage_matches(
+                            condition,
+                            source,
+                            controller,
+                            *kind,
+                            damage,
+                            match_source.as_deref(),
+                        ))
                     && death_controller.is_none()
                 // No live source/recipient or current combat requirement. CR
                 // 113.7a/800.4 preserve a surviving controller's invocation.
@@ -1365,8 +1399,9 @@ impl RulesTxn {
                         .cards
                         .get(&attacker.object.card)
                         .is_some_and(|c| c.owner == attacker.owner)
-                    && matches!(condition, TriggerCondition::CreatureAttacked { attacker: predicate }
-                        if attack_matches(predicate, source, controller, attacker))
+                    && (host_match
+                        || matches!(condition, TriggerCondition::CreatureAttacked { attacker: predicate }
+                        if attack_matches(predicate, source, controller, attacker)))
                     && death_controller.is_none()
                 // Deliberately no current combat/player-liveness requirement:
                 // CR 113.7a/800.4 preserve a surviving controller's invocation.
@@ -1428,6 +1463,9 @@ impl RulesTxn {
                         | TriggerCondition::DamageDealt { .. }
                         | TriggerCondition::SelfBecomesTapped
                         | TriggerCondition::ControlledLandEntersBattlefield => false,
+                        TriggerCondition::AttachedCreature { .. } => {
+                            host_match && death_controller.is_none()
+                        }
                         TriggerCondition::SelfDies => witness.dies() && m.previous == source,
                         TriggerCondition::OpponentCreatureDies => {
                             witness.dies()

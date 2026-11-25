@@ -139,6 +139,8 @@ pub enum Cell {
     ExileTargetGraveyard,
     ExileGraveyards,
     MoveSet,
+    // CR 301.5 and 303.4: the attachment shell and its host.
+    Attachment,
     // CR 701.26: tap and untap.
     TapTarget,
     TapSet,
@@ -244,6 +246,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
         | C::MoveSet
+        | C::Attachment
         | C::TapTarget
         | C::TapSet
         | C::UntapTarget
@@ -452,6 +455,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     // A surface with no executor (for example a life payment on a stack
     // activation's composite cost) earns no tier, so no cell qualifies it.
     executes::surfaces(d).map_err(KirError::Unaudited)?;
+    if d.characteristics.is_attachment() {
+        cells.insert(Cell::Attachment);
+    }
     Ok(cells)
 }
 
