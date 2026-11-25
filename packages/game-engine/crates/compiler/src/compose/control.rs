@@ -522,7 +522,7 @@ fn payment(cost: &Value) -> Result<Payment, Failure> {
 
 /// A fixed comparison: `ge`, `le` and `eq` directly, `gt`/`lt` as their
 /// inclusive integer neighbour.
-fn comparison(comparison: &Value) -> Result<(Cmp, Quantity), Failure> {
+pub(super) fn comparison(comparison: &Value) -> Result<(Cmp, Quantity), Failure> {
     let value = &comparison["value"];
     let fixed = (comparison.as_object().map(Map::len) == Some(2)
         && value.as_object().map(Map::len) == Some(2)

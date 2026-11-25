@@ -216,7 +216,7 @@ impl ObjectFacts for Frozen<'_> {
 /// predicate for an ability controlled by `you`. `identity` resolves the
 /// source and its host; `facts` are the object's facts at the event, absent
 /// when only identity is compared.
-fn holds<F: ObjectFacts>(
+pub(super) fn holds<F: ObjectFacts>(
     pred: &Pred,
     facts: Option<&F>,
     you: PlayerId,
@@ -271,6 +271,9 @@ fn step_matches(step: BeginningStep, turn: &TurnState) -> bool {
             | (BeginningStep::Draw, TurnStep::Draw)
             | (BeginningStep::PrecombatMain, TurnStep::PrecombatMain)
             | (BeginningStep::End, TurnStep::End)
+            | (BeginningStep::BeginningOfCombat, TurnStep::BeginningCombat)
+            | (BeginningStep::EndOfCombat, TurnStep::EndCombat)
+            | (BeginningStep::PostcombatMain, TurnStep::PostcombatMain)
     )
 }
 

@@ -51,6 +51,13 @@ pub enum InterveningCheck {
         information: SourceInformation,
         passed: bool,
     },
+    /// CR 109.5, 608.2h: how many battlefield permanents satisfied the
+    /// clause's filter at this check.
+    BattlefieldCount {
+        controller: PlayerId,
+        count: u32,
+        passed: bool,
+    },
     ControllerHasCreatureWithPower {
         controller: PlayerId,
         minimum_power: Quantity,
@@ -60,7 +67,9 @@ pub enum InterveningCheck {
 impl InterveningCheck {
     pub fn passed(&self) -> bool {
         match self {
-            Self::ControllerHandEmpty { passed, .. } | Self::SourceStatus { passed, .. } => *passed,
+            Self::ControllerHandEmpty { passed, .. }
+            | Self::SourceStatus { passed, .. }
+            | Self::BattlefieldCount { passed, .. } => *passed,
             Self::ControllerHasCreatureWithPower { qualifying, .. } => qualifying.is_some(),
             Self::SourceCastByController {
                 controller, cast, ..
@@ -116,6 +125,16 @@ impl InterveningCheck {
                     && *passed == (*wanted == *tapped)
             }
             (
+                mtg_contracts::kir::Intervening::BattlefieldCount { cmp, value, .. },
+                Self::BattlefieldCount {
+                    controller: c,
+                    count,
+                    passed,
+                },
+            ) => {
+                *c == controller && *passed == board_compare(*count, *cmp, value)
+            }
+            (
                 mtg_contracts::kir::Intervening::ControllerHasCreatureWithPower { minimum_power },
                 Self::ControllerHasCreatureWithPower {
                     controller: c,
@@ -143,6 +162,14 @@ pub(super) fn intervening(
         .map(mtg_contracts::kir::Intervening::of)
         .transpose()
         .map_err(|e| format!("unaudited intervening condition: {e}"))
+}
+fn board_compare(count: u32, cmp: mtg_contracts::kir::Cmp, value: &Quantity) -> bool {
+    let count = Quantity::from(i64::from(count));
+    match cmp {
+        mtg_contracts::kir::Cmp::AtLeast => count >= *value,
+        mtg_contracts::kir::Cmp::AtMost => count <= *value,
+        mtg_contracts::kir::Cmp::Exactly => count == *value,
+    }
 }
 fn tap_status(tapped: bool) -> TapStatus {
     if tapped {
@@ -283,6 +310,35 @@ impl RulesTxn {
                     tapped,
                     information,
                     passed: *wanted == tapped,
+                }
+            }
+            mtg_contracts::kir::Intervening::BattlefieldCount { filter, cmp, value } => {
+                // CR 603.4: the board as it is now; the source compares by
+                // its identity, including after it has left.
+                let identity = |r: &mtg_contracts::kir::Ref| {
+                    (*r == mtg_contracts::kir::Ref::Source).then_some(source)
+                };
+                let count = self
+                    .state
+                    .rules
+                    .objects
+                    .values()
+                    .filter(|o| o.present_on_battlefield())
+                    .filter(|o| {
+                        triggers::holds(
+                            filter,
+                            Some(&self.object_facts(o)),
+                            controller,
+                            o.id,
+                            &identity,
+                        )
+                    })
+                    .count();
+                let count = u32::try_from(count).map_err(|_| "battlefield count limit")?;
+                InterveningCheck::BattlefieldCount {
+                    controller,
+                    count,
+                    passed: board_compare(count, *cmp, value),
                 }
             }
             mtg_contracts::kir::Intervening::ControllerHasCreatureWithPower { minimum_power } => {

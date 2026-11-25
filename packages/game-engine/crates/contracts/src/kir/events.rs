@@ -303,6 +303,15 @@ pub enum Intervening {
     SourceTapped { tapped: bool },
     /// "if you control a creature with power N or greater" (CR 208).
     ControllerHasCreatureWithPower { minimum_power: Quantity },
+    /// "if you control a [filter]" or "N or more [filter]" (CR 109.5,
+    /// 608.2h): the number of battlefield permanents satisfying `filter`
+    /// compared with a fixed number. The filter names "you" as their
+    /// controller and may exclude the source.
+    BattlefieldCount {
+        filter: Pred,
+        cmp: Cmp,
+        value: Quantity,
+    },
 }
 
 impl Intervening {
@@ -332,6 +341,22 @@ impl Intervening {
                     Atom::Untapped
                 }]),
             },
+            Self::BattlefieldCount { filter, cmp, value }
+                if *cmp == Cmp::AtLeast && *value == Quantity::from(1) =>
+            {
+                Cond::Exists {
+                    set: SetExpr::battlefield(filter.clone()),
+                }
+            }
+            Self::BattlefieldCount { filter, cmp, value } => Cond::Compare {
+                left: Amount::Count {
+                    set: SetExpr::battlefield(filter.clone()),
+                },
+                cmp: *cmp,
+                right: Amount::Fixed {
+                    value: value.clone(),
+                },
+            },
             Self::ControllerHasCreatureWithPower { minimum_power } => Cond::Exists {
                 set: SetExpr::battlefield(Pred(vec![
                     Atom::Type {
@@ -354,6 +379,18 @@ impl Intervening {
     pub fn of(condition: &Cond) -> Result<Self, KirError> {
         let candidate = match condition {
             Cond::CastBy { .. } => Self::SourceCastByController,
+            Cond::Compare {
+                left:
+                    Amount::Count {
+                        set:
+                            SetExpr::Matching {
+                                zone: ZoneExpr::Battlefield,
+                                filter,
+                            },
+                    },
+                cmp,
+                right: Amount::Fixed { value },
+            } => Self::board(filter, *cmp, value)?,
             Cond::Compare { .. } => Self::ControllerHandEmpty,
             Cond::Satisfies {
                 filter: Pred(atoms),
@@ -371,10 +408,18 @@ impl Intervening {
                         value: Amount::Fixed { value },
                         ..
                     },
-                ] if !value.is_negative() => Self::ControllerHasCreatureWithPower {
-                    minimum_power: value.clone(),
-                },
-                _ => return Err(KirError::Unaudited("intervening condition".into())),
+                ] if !value.is_negative()
+                    && Self::ControllerHasCreatureWithPower {
+                        minimum_power: value.clone(),
+                    }
+                    .condition()
+                        == *condition =>
+                {
+                    Self::ControllerHasCreatureWithPower {
+                        minimum_power: value.clone(),
+                    }
+                }
+                _ => Self::board(filter, Cmp::AtLeast, &Quantity::from(1))?,
             },
             _ => return Err(KirError::Unaudited("intervening condition".into())),
         };
@@ -383,6 +428,31 @@ impl Intervening {
         } else {
             Err(KirError::Unaudited("intervening condition".into()))
         }
+    }
+
+    /// CR 109.5, 608.2h: a count of permanents "you" control satisfying an
+    /// event-object predicate, which may exclude the source.
+    fn board(filter: &Pred, cmp: Cmp, value: &Quantity) -> Result<Self, KirError> {
+        let you = Atom::ControlledBy {
+            player: PlayerExpr::you(Context::Triggered),
+        };
+        if value.is_negative()
+            || !filter.0.contains(&you)
+            || mentions(filter, Ref::AttachedTo)
+            || filter.0.iter().any(|atom| {
+                matches!(atom, Atom::Is { .. })
+                    || matches!(atom, Atom::AnyOf { alternatives }
+                        if alternatives.iter().any(|p| p.0.iter().any(|a| matches!(a, Atom::Is { .. }))))
+            })
+        {
+            return Err(KirError::Unaudited("intervening battlefield count".into()));
+        }
+        event_pred(filter, 0)?;
+        Ok(Self::BattlefieldCount {
+            filter: filter.clone(),
+            cmp,
+            value: value.clone(),
+        })
     }
 
     /// The trigger event this clause can be checked against. "If you cast

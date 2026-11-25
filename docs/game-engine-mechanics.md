@@ -503,6 +503,39 @@ at resolution. Source
 status uses current incarnation or departure-refreshed LKI. Cast triggers collect
 after successful payment; declared attacks use the real declaration batch.
 
+A triggered ability's condition is `TriggerCondition::Event { pattern,
+intervening_if }` (`contracts/src/kir/events.rs`). A `kir::EventPattern` names
+the event and reads its object with a `kir::Pred` relative to the ability's
+controller. `Atom::Is` and `Atom::IsNot` compare the object with the source or
+its host (CR 201.5, 301.5, 303.4):
+
+| Event | Object matched on |
+| --- | --- |
+| `Enters` | the resulting battlefield; a characteristic read retains the entrant as `Entered` evidence (CR 603.6a) |
+| `Dies` | the battlefield just before the move, for any permanent, including "put into a graveyard from the battlefield" (CR 700.4, 603.10a) |
+| `Attacks` | the attacker's facts before the declaration (CR 508.3a) |
+| `Cast` | the spell's frozen stack characteristics, with the caster in a player set (CR 601.2i) |
+| `DealsDamage` | the source's battlefield appearance as positive damage is dealt to a player (CR 120.3, 510.2) |
+| `StepBegins` | upkeep, draw, beginning and end of combat, end, precombat and postcombat main (CR 503-513) |
+| `BecomesTapped` | only the source itself (CR 701.26a) |
+
+Same-kind alternatives ("this creature or another Elf you control") form one
+`AnyOf` predicate, so an occurrence triggers the ability once (CR 603.2).
+Player operands are "you", each opponent or each player. The reviewed narrow
+lowerers run first; the general event table lowers the remaining enters, dies,
+put-into-graveyard and attacks events term by term through the board filter.
+`kir::check_event` admits only atoms evaluable on event facts.
+
+`kir::Intervening::of` admits an intervening `kir::Cond` in exactly one audited
+form: "if you cast it", an empty hand, the source's tapped status, a creature
+with power N or greater, or a count of permanents "you" control matching a
+filter, possibly excluding the source (CR 603.4). Core checks it when the event
+occurs and again as the ability resolves, recording `InterveningCheck`
+evidence. These earn `Executes` (`InterveningIfV1`, `EventTriggerV1`). An
+opponent's creature dying freezes that creature's controller
+(`triggers::binds_death_controller`). Event-object pronouns ("it", "that
+creature") remain unaudited.
+
 Intrinsic landwalk and fixed-color protection can share a card with separately
 proved entry effects and fixed paid creature activations. Entry triggers on
 artifacts, Equipment and Auras use the entering incarnation. Supported entry
@@ -609,7 +642,7 @@ the derived decisions equal the capability lists they replaced.
 | Instruction × stack object | A checked KIR node with operands bound in its spell, activated or triggered context. Unsupported operands and verbs reject. |
 | Target route × stack object | Battlefield permanents/creatures and any-damage targets everywhere; players and own-graveyard cards for spells and triggers; stack targets for spells and activations. |
 | Cost × route | Tap, mana, source sacrifice, one sacrificed permanent of a type, type union or subtype, tap/mana/sacrifice combinations, and untargeted tap, pay life and sacrifice the source, only where that announcement route pays the complete cost (CR 602.2b). |
-| Event | Self entry of any permanent type, self dies, becomes tapped, beginning steps, casts, attacks, damage to a player, other creature entries, creature deaths and controlled land entries, without intervening conditions. |
+| Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
 | Card shell | A single-face normal card with a fixed cost and complete bound source. Unsupported shells and keywords reject. |

@@ -1150,9 +1150,24 @@ fn payers_and_choosers_bind_exactly_the_printed_player() {
 /// intervening-if decision instead of a resolution-only `If`.
 #[test]
 fn a_certified_trigger_header_with_its_condition_reaches_the_trigger_decision() {
+    // CR 603.4: "When this creature enters, if you control an artifact,
+    // draw a card." lowers its clause as a battlefield count that "you"
+    // control, checked when the event occurs and on resolution.
+    let scholar = composed(SCHOLAR_OF_STARS);
     assert_eq!(
-        rejection(SCHOLAR_OF_STARS),
-        "abilities.condition:unsupported_complete_intervening_if_condition"
+        scholar.triggered[0].condition.intervening_if().map(kir::Intervening::of),
+        Some(Ok(kir::Intervening::BattlefieldCount {
+            filter: Pred(vec![
+                Atom::Type {
+                    kind: CardKind::Artifact
+                },
+                Atom::ControlledBy {
+                    player: PlayerExpr::you(Context::Triggered)
+                },
+            ]),
+            cmp: Cmp::AtLeast,
+            value: Quantity::from(1),
+        }))
     );
     // Without its block condition the same printed header is a spans defect,
     // never a sentence condition.

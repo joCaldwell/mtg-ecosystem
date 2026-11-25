@@ -43,6 +43,16 @@ impl Card<'_> {
     fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
     }
+    /// CR 201.5: "this Aura", "this Equipment" name the source by the
+    /// subtype it has.
+    pub fn names_own_subtype(&self, noun: &str) -> bool {
+        let subtype = match noun {
+            "aura" => "Aura",
+            "equipment" => "Equipment",
+            _ => return false,
+        };
+        self.subtypes.iter().any(|s| s == subtype)
+    }
     /// CR 201.5: after archive-bound canonicalization a self reference is
     /// `{"ref":"this","noun":N}`. The printed noun must name one of the
     /// card's own types, or the reference is not to this object.
@@ -93,8 +103,8 @@ enum Block {
     Triggered {
         #[serde(rename = "abilityWord")]
         ability_word: Option<String>,
-        condition: Option<SourceCondition>,
-        trigger: Box<SourceTrigger>,
+        condition: Option<serde_json::Value>,
+        trigger: Box<serde_json::Value>,
         effects: Vec<serde_json::Value>,
     },
     Spell {
@@ -112,6 +122,7 @@ enum Block {
 }
 
 /// One printed sentence: either the shared typed mirror or step-table rows.
+#[derive(Clone)]
 enum Part {
     Typed(Sentence),
     Table(Vec<serde_json::Value>),
@@ -164,7 +175,10 @@ fn mirror_gap(sentence: &serde_json::Value, error: &serde_json::Error) -> Failur
 /// differently (a map where it reads a string, a string where it reads a
 /// counter).
 fn opaque(error: &serde_json::Error) -> bool {
-    let message = error.to_string();
+    opaque_message(&error.to_string())
+}
+
+fn opaque_message(message: &str) -> bool {
     message.contains("untagged enum")
         || message.starts_with("missing field")
         || message.starts_with("invalid type")
@@ -325,16 +339,27 @@ fn activation(
 
 fn trigger(
     card: &Card<'_>,
-    trigger: &SourceTrigger,
+    raw: &serde_json::Value,
     parts: Vec<Part>,
-    condition: Option<&SourceCondition>,
+    condition: Option<&serde_json::Value>,
     block: usize,
 ) -> Result<TriggeredAbility, Failure> {
-    // The event table only adds self events the shared lowerer keys to one
-    // card type; every other event keeps the shared trigger lowerer, which
-    // also binds event players, damage quantities and intervening conditions.
-    let Some(event) = events::lower(card, trigger) else {
+    // The reviewed lowerers decode the narrow trigger mirror. The event table
+    // only adds self events the shared lowerer keys to one card type; the
+    // shared trigger lowerer also binds event players, damage quantities and
+    // intervening conditions. A trigger neither admits falls to the general
+    // event table, which never changes a trigger the reviewed lowerers admit.
+    let narrow = serde_json::from_value::<SourceTrigger>(raw.clone());
+    let narrow_condition = condition
+        .map(|c| serde_json::from_value::<SourceCondition>(c.clone()))
+        .transpose();
+    let table = narrow.as_ref().ok().and_then(|t| events::lower(card, t));
+    let mut reviewed = None;
+    if table.is_none()
+        && let (Ok(t), Ok(c)) = (&narrow, &narrow_condition)
+    {
         let typed: Vec<Sentence> = parts
+            .clone()
             .into_iter()
             .map(|p| match p {
                 Part::Typed(s) => Ok(s),
@@ -344,14 +369,76 @@ fn trigger(
                 )),
             })
             .collect::<Result<_, _>>()?;
-        return lower_trigger(trigger, &typed, condition, block);
-    };
-    if condition.is_some() {
-        return Err(unsupported(
-            "abilities.condition",
-            "unsupported complete intervening-if condition",
-        ));
+        match lower_trigger(t, &typed, c.as_ref(), block) {
+            Ok(ability) => return Ok(ability),
+            Err(failure) => reviewed = Some(failure),
+        }
     }
+    // An intervening clause the reviewed lowerer does not read: lower the
+    // ability without it, then add the clause as a battlefield count.
+    if table.is_none()
+        && let (Ok(t), Some(raw_condition)) = (&narrow, condition)
+        && reviewed
+            .as_ref()
+            .is_none_or(|f| f.path == "abilities.condition")
+    {
+        let typed: Vec<Sentence> = parts
+            .clone()
+            .into_iter()
+            .map(|p| match p {
+                Part::Typed(s) => Ok(s),
+                Part::Table(_) => Err(unsupported(
+                    "compose.step",
+                    "step table rows require a table event",
+                )),
+            })
+            .collect::<Result<_, _>>()?;
+        match lower_trigger(t, &typed, None, block) {
+            Ok(mut ability) => {
+                let intervening = events::board_intervening(raw_condition)?;
+                let TriggerCondition::Event { intervening_if, .. } = &mut ability.condition;
+                *intervening_if = Some(intervening.condition());
+                return Ok(ability);
+            }
+            Err(failure) => {
+                reviewed.get_or_insert(failure);
+            }
+        }
+    }
+    let event = match table {
+        Some(event) => event,
+        None => match events::general(card, raw)? {
+            Some(event) => event,
+            None => {
+                return Err(reviewed.unwrap_or_else(|| {
+                    let error = narrow
+                        .err()
+                        .or_else(|| narrow_condition.err())
+                        .map(|e| e.to_string())
+                        .unwrap_or_default();
+                    if opaque_message(&error) {
+                        unsupported("compose.block", "trigger shape outside the lowering mirror")
+                    } else {
+                        unsupported("compose.block", error)
+                    }
+                }));
+            }
+        },
+    };
+    // CR 603.4: the reviewed intervening clauses, against this event.
+    let intervening = match (condition, narrow_condition) {
+        (None, _) => None,
+        (Some(raw_condition), narrow_condition) => {
+            match narrow_condition
+                .ok()
+                .flatten()
+                .map(|c| intervening_condition(narrow.as_ref().ok(), &event, Some(&c)))
+            {
+                Some(Ok(Some(reviewed))) => Some(reviewed),
+                _ => Some(events::board_intervening(raw_condition)?),
+            }
+        }
+    };
     let mut program = SpellProgram::instructions(SpellTiming::Instant);
     append_effects(
         &mut program,
@@ -363,7 +450,10 @@ fn trigger(
     )?;
     Ok(TriggeredAbility {
         functioning_zone: FunctioningZone::Battlefield,
-        condition: TriggerCondition::on(event),
+        condition: TriggerCondition::Event {
+            pattern: event,
+            intervening_if: intervening.map(|i| i.condition()),
+        },
         program,
     })
 }

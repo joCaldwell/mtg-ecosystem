@@ -675,6 +675,43 @@ pub(crate) fn lower_static_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fa
     Ok(pred)
 }
 
+/// CR 603.2, 109.5, 201.5: the object a trigger event names, relative to
+/// the ability's controller; "other" is not the source itself.
+pub(crate) fn lower_event_filter(filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
+    let mut plain = filter.clone();
+    let each = plain.all_of.take();
+    let any = plain.any_of.take();
+    let other = plain.other.take();
+    if other == Some(false) {
+        return Err(operand("filter", "other:false"));
+    }
+    let mut pred = lower_filter_for(&plain, PlayerExpr::you(Context::Triggered))?;
+    if let Some(children) = each {
+        if children.is_empty() {
+            return Err(operand("filter", "all_of:empty"));
+        }
+        for child in &children {
+            pred.0.extend(lower_event_filter(child)?.0);
+        }
+    }
+    if let Some(children) = any {
+        if children.is_empty() {
+            return Err(operand("filter", "any_of:empty"));
+        }
+        let alternatives = children
+            .iter()
+            .map(lower_event_filter)
+            .collect::<Result<_, _>>()?;
+        pred.0.push(Atom::AnyOf { alternatives });
+    }
+    if other.is_some() {
+        pred.0.push(Atom::IsNot {
+            object: kir::Ref::Source,
+        });
+    }
+    Ok(pred)
+}
+
 /// The filter terms a board set represents.
 const BOARD_FILTER_TERMS: [&str; 16] = [
     "cls",

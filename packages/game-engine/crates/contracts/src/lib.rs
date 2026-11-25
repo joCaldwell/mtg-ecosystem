@@ -1315,7 +1315,11 @@ impl TriggerCondition {
         self.pattern().reporting_key()
     }
 }
-/// Exact step predicates; phases, delayed and conditional boundaries are excluded.
+/// Exact step predicates; delayed and conditional boundaries are excluded.
+/// CR 503-507, 511-513: the beginning of the upkeep, draw, beginning of
+/// combat, end of combat and end steps, and of the precombat and postcombat
+/// main phases. A turn has one combat phase, so its postcombat main phase is
+/// its second main phase (CR 505.1a).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BeginningStep {
@@ -1323,6 +1327,9 @@ pub enum BeginningStep {
     Upkeep,
     Draw,
     End,
+    BeginningOfCombat,
+    EndOfCombat,
+    PostcombatMain,
 }
 /// CR 110.5: only battlefield permanents have tapped/untapped status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

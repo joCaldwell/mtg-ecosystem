@@ -211,6 +211,13 @@ pub(crate) fn lower_trigger(
                 "upkeep" => BeginningStep::Upkeep,
                 "draw-step" => BeginningStep::Draw,
                 "end-step" => BeginningStep::End,
+                // CR 507.1, 511.1: the beginning and end of combat steps.
+                "combat" => BeginningStep::BeginningOfCombat,
+                "end-of-combat" => BeginningStep::EndOfCombat,
+                // CR 505.1a: the main phase before combat, and the one after
+                // the turn's only combat phase.
+                "precombat-main" => BeginningStep::PrecombatMain,
+                "postcombat-main" | "second-main" => BeginningStep::PostcombatMain,
                 _ => return Err(unsupported("abilities.trigger.phase", "unsupported beginning step")),
             };
             let active = match whose.as_str() {
@@ -298,10 +305,29 @@ pub(crate) fn lower_trigger(
             Context::Triggered,
         )?;
     }
-    let intervening_if = match intervening {
+    let intervening_if = intervening_condition(Some(trigger), &pattern, intervening)?;
+    condition = TriggerCondition::Event {
+        pattern,
+        intervening_if: intervening_if.map(|i| i.condition()),
+    };
+    Ok(TriggeredAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        condition,
+        program,
+    })
+}
+
+/// CR 603.4: the reviewed intervening "if" clauses, each against the events
+/// it was reviewed for. `trigger` is the narrow trigger when one decoded.
+pub(crate) fn intervening_condition(
+    trigger: Option<&SourceTrigger>,
+    pattern: &EventPattern,
+    intervening: Option<&SourceCondition>,
+) -> Result<Option<kir::Intervening>, Failure> {
+    Ok(match intervening {
         None => None,
         Some(SourceCondition::WasCast { what, by })
-            if pattern == EventPattern::self_enters()
+            if *pattern == EventPattern::self_enters()
                 && *what == serde_json::json!({"ref":"it"})
                 && by.player == "you"
                 && by.of.is_none()
@@ -312,7 +338,7 @@ pub(crate) fn lower_trigger(
         Some(SourceCondition::Control {
             who,
             what: TriggerObject::Filter { filter, count },
-        }) if matches!(trigger, SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment")
+        }) if matches!(trigger, Some(SourceTrigger::Enters { what: TriggerObject::This { noun } }) if noun == "enchantment")
             && who.player == "you" =>
         {
             Some(kir::Intervening::ControllerHasCreatureWithPower {
@@ -320,7 +346,7 @@ pub(crate) fn lower_trigger(
             })
         }
         Some(SourceCondition::CardsInHand { who, comparison })
-            if (pattern == EventPattern::self_dies()
+            if (*pattern == EventPattern::self_dies()
                 || matches!(pattern, EventPattern::StepBegins { .. }))
                 && who.player == "you"
                 && who.selection_id.is_none()
@@ -350,14 +376,5 @@ pub(crate) fn lower_trigger(
                 "unsupported complete intervening-if condition",
             ));
         }
-    };
-    condition = TriggerCondition::Event {
-        pattern,
-        intervening_if: intervening_if.map(|i| i.condition()),
-    };
-    Ok(TriggeredAbility {
-        functioning_zone: FunctioningZone::Battlefield,
-        condition,
-        program,
     })
 }
