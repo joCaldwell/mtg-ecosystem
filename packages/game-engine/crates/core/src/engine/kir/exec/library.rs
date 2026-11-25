@@ -822,7 +822,8 @@ impl RulesTxn {
         let count = Quantity::from(i64::try_from(looked.len()).map_err(|_| "look limit")?);
         Ok(!looked.is_empty()
             && count <= amount
-            && Self::subset(looked, looked)
+            // Distinct physical cards: two incarnations are one card.
+            && looked.iter().map(|o| o.card).collect::<BTreeSet<_>>().len() == looked.len()
             && looked.iter().all(|o| {
                 self.state
                     .rules

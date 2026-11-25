@@ -1065,6 +1065,62 @@ fn departed_scry_rejects_impossible_looked_cards() {
     }
 }
 
+/// CR 400.7, 701.22a: a departed scrier's scry 2 cannot have looked at two
+/// incarnations of one physical card, though two is within the amount.
+#[test]
+fn departed_scry_two_rejects_two_incarnations_of_one_card() {
+    let prepared = board(&[(CRYSTAL_BALL, &[Cell::ScryController])])
+        .seats(3)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Crystal Ball", 1, 1, false)
+        .permanent_or_hand("Island", 1, 1, false)
+        .library_card("Swamp", 1)
+        .library_card("Island", 1)
+        .library_card("Forest", 2)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::pass(&mut g);
+    let ball = Driver::object(&g, 1);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: ball,
+            ability: 0,
+        },
+    );
+    Driver::pay(&mut g, &[2]);
+    let d = next_choice(&mut g);
+    assert_eq!((d.player, &d.reason), (PlayerId(1), &Reason::ScryBottom));
+    let Frame::ResolutionChoice { choice, .. } = g.state.rules.frame.clone() else {
+        panic!()
+    };
+    let ResolutionChoice::Scry {
+        looked,
+        source_block,
+        ..
+    } = choice
+    else {
+        panic!("{choice:?}")
+    };
+    let swamp = Driver::object(&g, 3);
+    assert_eq!(looked, vec![swamp, Driver::object(&g, 4)]);
+    let later = ObjectId {
+        card: swamp.card,
+        incarnation: swamp.incarnation + 1,
+    };
+    let forged = ResolutionChoice::Scry {
+        player: PlayerId(1),
+        looked: vec![swamp, later],
+        bottom: None,
+        top: None,
+        source_block,
+    };
+    g.concede(PlayerId(1)).unwrap();
+    forged_choice_rejected(&mut g, &forged, "queued: two incarnations of one card");
+    through_departure(&mut g, 1);
+    forged_choice_rejected(&mut g, &forged, "departed: two incarnations of one card");
+}
+
 /// The Sphere board with two Forests on top of the library.
 fn two_forest_sphere() -> Game {
     let prepared = board(SPHERE)
