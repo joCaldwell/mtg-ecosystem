@@ -126,6 +126,29 @@ impl RulesTxn {
                     source = describe(card, DecisionSourceKind::Spell, None);
                     "Cast spell".into()
                 }
+                Action::PlayLandBackFace { object } | Action::CastBackFace { card: object } => {
+                    let cast = matches!(action, Action::CastBackFace { .. });
+                    let definition = self
+                        .resolve_handle(viewer, object)
+                        .ok()
+                        .and_then(|id| self.face_definition(id.card, CardFace::Back).ok());
+                    if cast {
+                        source = definition.and_then(|d| {
+                            Some(DecisionSource {
+                                kind: DecisionSourceKind::Spell,
+                                oracle_id: d.oracle_id.clone(),
+                                object: Some(object.clone()),
+                                ability: None,
+                                text: d.source_labels.as_ref()?.text.clone(),
+                            })
+                        });
+                    }
+                    let verb = if cast { "Cast" } else { "Play" };
+                    definition.map_or_else(
+                        || format!("{verb} back face"),
+                        |d| format!("{verb} {}", d.name),
+                    )
+                }
                 Action::ActivateAbility { object, ability } => {
                     source = describe(object, DecisionSourceKind::Activated, Some(*ability));
                     "Activate ability".into()

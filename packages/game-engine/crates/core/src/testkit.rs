@@ -542,7 +542,7 @@ impl GameTestkit for Game {
         RulesTxn::announce_ability(self, player, decision_id, object, ability)
     }
     fn announce_priority_spell(&mut self, player: PlayerId, card: CardId) -> Result<(), String> {
-        RulesTxn::announce_priority_spell(self, player, card)
+        RulesTxn::announce_priority_spell(self, player, card, CardFace::Front)
     }
 
     fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
@@ -602,7 +602,12 @@ impl GameTestkit for Game {
     }
 
     fn casting_cost(&self, card: CardId, caster: PlayerId, from: Zone) -> Result<ManaCost, String> {
-        RulesTxn::casting_cost(self, card, caster, from)
+        RulesTxn::casting_cost(
+            self,
+            self.object_id(card).ok_or("missing spell object")?,
+            caster,
+            from,
+        )
     }
     fn check_history_capacity(&mut self) -> Result<(), String> {
         Ok(RulesTxn::check_history_capacity(self)?)
@@ -1183,7 +1188,7 @@ impl GameTestkit for Game {
         RulesTxn::validate_effect_state(self)
     }
     fn validate_land_play(&self, player: PlayerId, card: CardId) -> Result<(), String> {
-        RulesTxn::validate_land_play(self, player, card)
+        RulesTxn::validate_land_face(self, player, card, CardFace::Front)
     }
     fn validate_mana_activation(&self, player: PlayerId, object: ObjectId) -> Result<(), String> {
         RulesTxn::validate_mana_activation(self, player, object)

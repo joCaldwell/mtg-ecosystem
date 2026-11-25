@@ -363,6 +363,8 @@ pub fn encode(
                 Action::Pass => (9, -1, -1, 0, 0),
                 Action::PlayLand { object: h } => (10, object(h), -1, 0, 0),
                 Action::Cast { card: h } => (11, object(h), -1, 0, 0),
+                Action::PlayLandBackFace { object: h } => (10, object(h), -1, 1, 0),
+                Action::CastBackFace { card: h } => (11, object(h), -1, 1, 0),
                 Action::ActivateMana { object: h } => (12, object(h), -1, 0, 0),
                 Action::ActivateAbility { object: h, ability } => {
                     (13, object(h), -1, *ability as i32, 0)

@@ -213,6 +213,7 @@ fn rejected_ordered_batch_and_trigger_resource_overflow_roll_back_collection() {
     let enter = movement(&initial, 4, Zone::Battlefield);
     let invalid = ProposedEvent::Move {
         object: ObjectId {
+            face: Default::default(),
             card: CardId(999),
             incarnation: 0,
         },

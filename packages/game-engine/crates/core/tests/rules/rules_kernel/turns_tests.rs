@@ -349,6 +349,7 @@ fn unpayable_targetless_creature_reversal_keeps_or_undoes_only_casting_mana() {
         ));
         {
             let selected_answer = game.next_test_decision().activate_mana(ObjectId {
+                face: Default::default(),
                 card: CardId(0),
                 incarnation: 0,
             });
@@ -395,6 +396,7 @@ fn mana_empties_at_step_end_and_untap_and_draw_offer_no_early_priority() {
     let mut game = Game::new(FixtureCatalog::Base.admit(ScenarioConfig::turns_permanents()));
     {
         let selected_answer = game.next_test_decision().activate_mana(ObjectId {
+            face: Default::default(),
             card: CardId(0),
             incarnation: 0,
         });
@@ -1257,6 +1259,7 @@ fn land_movement_and_counting_batch_failure_is_atomic() {
                 EventGroup::Occurrence {
                     proposed: ProposedEvent::Move {
                         object: ObjectId {
+                            face: Default::default(),
                             card: CardId(1),
                             incarnation: 0,
                         },

@@ -9,6 +9,7 @@ struct SpellAnnouncement {
     player: PlayerId,
     original_object: ObjectId,
     cast_from: Zone,
+    face: CardFace,
 }
 
 impl RulesTxn {
@@ -21,6 +22,7 @@ impl RulesTxn {
         &self,
         player: PlayerId,
         card: CardId,
+        face: CardFace,
     ) -> Result<SpellAnnouncement, String> {
         if !matches!(self.state.rules.frame, Frame::Priority) || self.state.rules.priority != player
         {
@@ -28,7 +30,7 @@ impl RulesTxn {
         }
         self.validate_cast_permission(player)?;
         let object = self.state.rules.objects.get(&card).ok_or("invalid cast")?;
-        let definition = self.definition(card)?;
+        let definition = self.face_definition(card, face)?;
         // CR 702.34a: flashback permits casting from its owner's graveyard.
         if !(object.zone == (Zone::Hand { owner: player })
             || (object.zone == (Zone::Command { owner: player })
@@ -46,7 +48,7 @@ impl RulesTxn {
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         if program.timing == SpellTiming::MainPhase
             && !self.main_phase_action(player)
-            && !self.has_flash_permission(object, player)?
+            && !self.has_flash_permission(object, face, player)?
         {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
@@ -64,6 +66,7 @@ impl RulesTxn {
             player,
             original_object: object.id,
             cast_from: object.zone,
+            face,
         })
     }
 
@@ -93,16 +96,19 @@ impl RulesTxn {
         &self,
         player: PlayerId,
         card: CardId,
+        face: CardFace,
     ) -> Result<(), String> {
-        self.priority_spell_announcement(player, card).map(|_| ())
+        self.priority_spell_announcement(player, card, face)
+            .map(|_| ())
     }
 
     pub(crate) fn announce_priority_spell(
         &mut self,
         player: PlayerId,
         card: CardId,
+        face: CardFace,
     ) -> Result<(), String> {
-        let announcement = self.priority_spell_announcement(player, card)?;
+        let announcement = self.priority_spell_announcement(player, card, face)?;
         self.begin_spell_announcement(announcement)
     }
 
@@ -113,10 +119,18 @@ impl RulesTxn {
             player,
             original_object,
             cast_from,
+            face,
         } = announcement;
         let card = original_object.card;
         self.check_stack_capacity(1)?;
-        let total_cost = self.casting_cost(card, player, cast_from)?;
+        let total_cost = self.casting_cost(
+            ObjectId {
+                face,
+                ..original_object
+            },
+            player,
+            cast_from,
+        )?;
         let id = StackId(self.state.rules.next_stack_id);
         self.rules_mut().next_stack_id = self
             .state
@@ -134,6 +148,7 @@ impl RulesTxn {
                     stack_id: id,
                     player,
                     source: original_object,
+                    face,
                 },
             )?
             .successor;

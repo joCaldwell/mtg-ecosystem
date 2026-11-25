@@ -232,6 +232,7 @@ pub enum Capability {
     StaticDamageReplacementV1,
 
     NormalLayoutV1,
+    ModalDoubleFacedV1,
 
     BasicLandManaV1,
     LandPlayV1,
@@ -1553,9 +1554,30 @@ impl<'de> Deserialize<'de> for KeywordAbility {
         }
     }
 }
+/// CR 712.8a,f: a modal card has front characteristics until its back
+/// face is chosen for the stack or battlefield.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CardFace {
+    #[default]
+    Front,
+    Back,
+}
+impl CardFace {
+    pub fn is_front(&self) -> bool {
+        *self == Self::Front
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Definition {
+    /// The other printed face of a modal double-faced card. Only a physical
+    /// card's root definition owns this face.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal_back: Option<Box<Definition>>,
     /// Offline compiler-owned labels; absent on historical IR and synthetic definitions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_labels: Option<SourceLabels>,
@@ -1590,6 +1612,17 @@ pub struct Definition {
     pub composed: bool,
 }
 impl Definition {
+    pub fn face(&self, face: CardFace) -> Option<&Self> {
+        match face {
+            CardFace::Front => Some(self),
+            CardFace::Back => self.modal_back.as_deref(),
+        }
+    }
+
+    pub fn faces(&self) -> impl Iterator<Item = CardFace> {
+        std::iter::once(CardFace::Front).chain(self.modal_back.as_ref().map(|_| CardFace::Back))
+    }
+
     /// Executable versions of the spell program. For a modal spell the base
     /// program carries timing and resolution; effects belong to selections.
     pub fn spell_programs(&self) -> impl Iterator<Item = &SpellProgram> {
@@ -1716,6 +1749,10 @@ impl Definition {
         }
         for ability in &self.static_abilities {
             set.insert(ability.effect.capability(self.characteristics.kind));
+        }
+        if let Some(back) = &self.modal_back {
+            set.insert(Capability::ModalDoubleFacedV1);
+            set.extend(back.requirements());
         }
         set
     }

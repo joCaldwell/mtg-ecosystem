@@ -119,7 +119,9 @@ pub enum Flag {
 pub enum Action<S: Space> {
     Pass,
     PlayLand { object: S::Object },
+    PlayLandBackFace { object: S::Object },
     Cast { card: S::Object },
+    CastBackFace { card: S::Object },
     ActivateMana { object: S::Object },
     ActivateAbility { object: S::Object, ability: u32 },
 }

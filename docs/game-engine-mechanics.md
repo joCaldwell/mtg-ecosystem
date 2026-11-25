@@ -121,6 +121,38 @@ later submissions. Public revisions change only with permitted information.
 Real restore rejects sampled origins. [Search](game-engine-search.md) separately
 proves hypothetical origin and reconstruction.
 
+## Modal double-faced cards
+
+The layout allowlist admits Scryfall `normal` and `modal_dfc`. For an MDFC, Archive
+R4 must supply two ordered source faces with matching parses and complete
+resolution. Each face passes the ordinary shell and block checks independently
+and the compiled card requires every capability of both faces. The card keeps
+one physical identity and the frozen color identity across both faces
+(CR 903.4d). Deck construction and commander eligibility use the front face's
+characteristics (CR 712.8a, 903.3).
+
+Each legal face is a separate priority action. Casting checks timing, targets
+and costs for the selected spell face from hand or the command zone
+(CR 712.11b–c, 903.8). A land selection uses the normal land-play allowance and
+the chosen face's entry rules (CR 712.12). On the stack and battlefield the
+selected face supplies all characteristics and abilities, including mana value
+from that face's cost (CR 202.3, 712.8f). A resolving permanent spell keeps its
+cast face (CR 712.13). A card otherwise entering the battlefield uses its front
+face, and cards in hand, library, graveyard, exile or command use front
+characteristics (CR 712.8a, 712.14). Zone changes still create fresh
+incarnations. A stale ability source retains the face its incarnation had.
+
+A viewer with permission to identify the card can see both face names and the
+active face. Hidden hands and libraries expose neither face without existing
+look or reveal permission (CR 712.6–7). Back-face state is invalid for
+single-faced cards, outside stack or battlefield, on a land spell, or on an
+instant or sorcery permanent.
+
+Modal double-faced support is provisional at the `Executes` tier. Transform
+and convert abilities, flashback on an MDFC, and other layouts including
+transforming cards, Adventures, split cards, flip, meld and prototype remain
+outside admission. The layout rejection identifies the archived layout.
+
 <a id="commander-movement-and-hidden-libraries"></a>
 
 ## Commander and hidden information
@@ -819,7 +851,7 @@ the derived decisions equal the capability lists they replaced.
 | Event | An admitted `kir::EventPattern` on a battlefield permanent, with at most one audited intervening condition. Reviewed patterns keep their capabilities; any other uses `EventTriggerV1`. |
 | Static, mana, keyword | Own entry tapped, scoped continuous changes and rule statics as above; the [mana abilities](#mana-abilities) above, whose chosen, could-produce, mana-cost, life-cost, multi-ability and rider shapes are `Executes` cells (`kir::mana_ability_cells`); evergreen keywords without parameters. |
 | Kernel node | A [kernel node](game-engine-catalogs.md#kernel-ir) with checked children, bindings and an executor for its stack context. |
-| Card shell | A single-face normal card with a fixed, X or hybrid/Phyrexian spell cost and complete bound source, with the [cost keywords](#cost-keywords-and-variable-costs) above. Unsupported shells and keywords reject. |
+| Card shell | Normal cards and [modal double-faced cards](#modal-double-faced-cards) whose faces have complete bound source and supported spell costs and keywords. |
 
 Sentences resolve in printed order (CR 608.2c). A pronoun must be bound by the
 archive to a target of its own block or to an earlier step of that block;

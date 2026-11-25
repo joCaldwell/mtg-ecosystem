@@ -435,10 +435,10 @@ impl RulesTxn {
     /// CR 303.4a: by printed types, the Aura card `aura` could enchant the
     /// card `host`; both are read from their printed definitions, so this
     /// holds after either has left the game.
-    fn printed_host_compatible(&self, aura: CardId, host: CardId) -> Result<bool, String> {
-        let printed = &self.definition(host)?.characteristics;
+    fn printed_host_compatible(&self, aura: ObjectId, host: ObjectId) -> Result<bool, String> {
+        let printed = &self.copiable_definition(host)?.characteristics;
         Ok(self
-            .definition(aura)?
+            .copiable_definition(aura)?
             .spell
             .as_ref()
             .and_then(|spell| spell.targets.first())
@@ -514,7 +514,7 @@ impl RulesTxn {
                             .cards
                             .get(&host.card)
                             .is_some_and(|card| !self.is_live(card.owner))
-                            && self.printed_host_compatible(object.card, host.card)?
+                            && self.printed_host_compatible(*object, *host)?
                     }
                 };
                 if !chosen {
@@ -605,7 +605,7 @@ impl RulesTxn {
                 Some(current) => {
                     current.id == *host
                         && current.present_on_battlefield()
-                        && self.printed_host_compatible(aura.card, host.card)?
+                        && self.printed_host_compatible(*aura, *host)?
                         && !self.protected_from(*host, printed)
                 }
                 None => {
@@ -614,7 +614,7 @@ impl RulesTxn {
                         .cards
                         .get(&host.card)
                         .is_some_and(|card| !self.is_live(card.owner))
-                        && self.printed_host_compatible(aura.card, host.card)?
+                        && self.printed_host_compatible(*aura, *host)?
                 }
             };
             if !chosen {

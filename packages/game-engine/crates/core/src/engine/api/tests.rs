@@ -30,6 +30,7 @@ fn respond(game: &mut Game, choose: impl FnOnce(&Decision<Rules>) -> Answer) {
 fn cast(game: &mut Game) {
     respond(game, |d| {
         d.activate_mana(ObjectId {
+            face: Default::default(),
             card: CardId(0),
             incarnation: 0,
         })
@@ -39,6 +40,7 @@ fn cast(game: &mut Game) {
 fn complete(game: &mut Game) {
     respond(game, |d| {
         d.targets(vec![ObjectId {
+            face: Default::default(),
             card: CardId(2),
             incarnation: 0,
         }])
@@ -171,6 +173,7 @@ fn payment_reversal_retains_inputs_and_original_incarnation() {
     respond(&mut game, |d| d.cast(CardId(1)));
     respond(&mut game, |d| {
         d.targets(vec![ObjectId {
+            face: Default::default(),
             card: CardId(2),
             incarnation: 0,
         }])
@@ -205,6 +208,7 @@ fn pending_accepted_input_survives_restore_and_rehashed_impossible_state_rejects
         PlayerId(0),
         request.id,
         request.activate_mana(ObjectId {
+            face: Default::default(),
             card: CardId(0),
             incarnation: 0,
         }),
@@ -259,6 +263,7 @@ fn forest_intrinsic_is_derived_and_partial_multiblock_legality_keeps_other_block
     respond(&mut game, |d| {
         d.targets(vec![
             ObjectId {
+                face: Default::default(),
                 card: CardId(2),
                 incarnation: 0
             };
@@ -303,6 +308,7 @@ fn stale_resolution_target_does_not_follow_physical_card() {
     cast(&mut game);
     respond(&mut game, |d| {
         d.targets(vec![ObjectId {
+            face: Default::default(),
             card: CardId(2),
             incarnation: 0,
         }])

@@ -81,6 +81,26 @@ impl RulesTxn {
         }) {
             return Err("invalid battlefield entry turn".into());
         }
+        for object in s
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.id.face == CardFace::Back)
+        {
+            let card = self.copiable_definition(object.id)?;
+            if object.hideaway.is_some()
+                || match object.zone {
+                    Zone::Stack => card.spell.is_none(),
+                    Zone::Battlefield => matches!(
+                        card.characteristics.kind,
+                        CardKind::Instant | CardKind::Sorcery
+                    ),
+                    _ => true,
+                }
+            {
+                return Err("snapshot has an impossible back face for its zone".into());
+            }
+        }
         // Cleanup can remove land allowances before the next turn resets usage.
         // Replay proves the land count at the boundaries where it was incremented.
         if s.rules.players.len() != 4

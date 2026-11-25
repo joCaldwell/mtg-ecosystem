@@ -57,19 +57,27 @@ pub(crate) struct SourceLine {
 #[derive(Deserialize)]
 pub(crate) struct Source {
     pub(crate) id: String,
-    pub(crate) oracle_id: String,
+    oracle_id: String,
+    name: String,
+    layout: String,
+    pub(crate) color_identity: Vec<Color>,
+    card_faces: Option<Box<RawValue>>,
+    loyalty: Option<Box<RawValue>>,
+    defense: Option<Box<RawValue>>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SourceFace {
     pub(crate) name: String,
-    pub(crate) layout: String,
     pub(crate) oracle_text: String,
     pub(crate) mana_cost: String,
     pub(crate) type_line: String,
     pub(crate) colors: Vec<Color>,
-    pub(crate) color_identity: Vec<Color>,
     pub(crate) power: Option<String>,
     pub(crate) toughness: Option<String>,
-    pub(crate) card_faces: Option<Box<RawValue>>,
-    pub(crate) loyalty: Option<Box<RawValue>>,
-    pub(crate) defense: Option<Box<RawValue>>,
+    loyalty: Option<Box<RawValue>>,
+    defense: Option<Box<RawValue>>,
+    color_indicator: Option<Vec<Color>>,
 }
 
 pub(crate) fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
@@ -106,25 +114,20 @@ pub(crate) fn mana_cost(text: &str) -> Result<ManaCost, Failure> {
     Ok(cost)
 }
 
-/// A single-face normal card record whose source and diagnostic-binding bytes
-/// match their archived hashes, with a complete, name-matched parse whose AST
-/// bytes match the archived AST hash (CR 201.5, 712). Composition reads only
-/// these; resolution and block checks follow.
-pub(crate) struct SingleFace {
+pub(crate) struct CardSource {
     pub(crate) record: Record,
     pub(crate) shape: serde_json::Value,
     pub(crate) source: Source,
-    pub(crate) result: ParseResult,
+    pub(crate) faces: Vec<(SourceFace, ParseResult)>,
     pub(crate) ast_sha256: String,
 }
 
-pub(crate) fn read_single_face(record: &str) -> Result<SingleFace, Failure> {
+/// CR 712.3, 712.8: modal faces are independent printed sets of characteristics.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(crate) fn read_card(record: &str) -> Result<CardSource, Failure> {
     let r: Record = decode(record, "record")?;
     if r.record_type != "card" {
         return Err(invalid("recordType", "expected card record"));
-    }
-    if r.status != "parsed" {
-        return Err(unsupported("status", "complete-card parsing is required"));
     }
     if sha256(r.source.get().as_bytes()) != r.source_sha256
         || sha256(r.binding.get().as_bytes()) != r.binding_sha256
@@ -134,43 +137,84 @@ pub(crate) fn read_single_face(record: &str) -> Result<SingleFace, Failure> {
             "source or diagnostic binding hash mismatch",
         ));
     }
-    let shape: serde_json::Value = decode(r.source.get(), "source")?;
-    if shape.get("card_faces").is_some_and(|v| !v.is_null()) {
-        return Err(unsupported("source.layout", "multi-face layout"));
-    }
     let source: Source = decode(r.source.get(), "source")?;
     if source.oracle_id != r.oracle_identity || source.id.is_empty() || source.name.is_empty() {
         return Err(invalid("source", "missing or mismatched card identity"));
     }
-    if source.layout != "normal"
-        || source.card_faces.is_some()
-        || source.loyalty.is_some()
-        || source.defense.is_some()
-    {
-        return Err(unsupported(
-            "source.layout",
-            "composition requires a single-face normal card",
-        ));
+    let printed: Vec<SourceFace> = match (source.layout.as_str(), &source.card_faces) {
+        ("normal", None) if source.loyalty.is_none() && source.defense.is_none() => {
+            vec![decode(r.source.get(), "source")?]
+        }
+        ("modal_dfc", Some(faces)) if source.loyalty.is_none() && source.defense.is_none() => {
+            let faces: [SourceFace; 2] = decode(faces.get(), "source.card_faces")?;
+            if source.name != format!("{} // {}", faces[0].name, faces[1].name) {
+                return Err(invalid(
+                    "source.name",
+                    "card name does not match its modal faces",
+                ));
+            }
+            faces.into()
+        }
+        ("normal" | "modal_dfc", _) => {
+            return Err(unsupported(
+                "source.layout",
+                "unsupported normal or modal face shell",
+            ));
+        }
+        (layout, _) => {
+            return Err(unsupported("source.layout", format!("layout:{layout}")));
+        }
+    };
+    if r.status != "parsed" {
+        return Err(unsupported("status", "complete-card parsing is required"));
     }
-    if r.faces.len() != 1 || r.faces[0].source_face_index != 0 || r.faces[0].status != "attempted" {
+    if printed.len() != r.faces.len() {
         return Err(invalid("faces", "missing or duplicated source face"));
-    }
-    let result: ParseResult = decode(r.faces[0].result.get(), "faces[0].result")?;
-    if !result.ok || result.name != source.name || result.lines.iter().any(|l| !l.ok) {
-        return Err(invalid("faces[0].result", "incomplete or mismatched parse"));
     }
     let ast_sha256 = r
         .ast_sha256
         .clone()
         .ok_or_else(|| invalid("astSha256", "missing successful AST hash"))?;
-    if sha256(format!("[{}]", result.abilities.get()).as_bytes()) != ast_sha256 {
+    let faces = printed
+        .into_iter()
+        .zip(&r.faces)
+        .enumerate()
+        .map(|(index, (source, face))| {
+            if face.source_face_index as usize != index || face.status != "attempted" {
+                return Err(invalid("faces", "missing or duplicated source face"));
+            }
+            if source.loyalty.is_some()
+                || source.defense.is_some()
+                || source.color_indicator.as_ref().is_some_and(|colors| {
+                    colors.is_empty() || colors.iter().any(|c| !source.colors.contains(c))
+                })
+            {
+                return Err(unsupported(
+                    "source.face",
+                    "loyalty, defense or inconsistent color indicator",
+                ));
+            }
+            let result: ParseResult = decode(face.result.get(), "faces.result")?;
+            if !result.ok || result.name != source.name || result.lines.iter().any(|line| !line.ok)
+            {
+                return Err(invalid("faces.result", "incomplete or mismatched parse"));
+            }
+            Ok((source, result))
+        })
+        .collect::<Result<Vec<_>, Failure>>()?;
+    let abilities = faces
+        .iter()
+        .map(|(_, result)| result.abilities.get())
+        .collect::<Vec<_>>();
+    if sha256(format!("[{}]", abilities.join(",")).as_bytes()) != ast_sha256 {
         return Err(invalid("astSha256", "successful AST hash mismatch"));
     }
-    Ok(SingleFace {
+    let shape = decode(r.source.get(), "source")?;
+    Ok(CardSource {
         record: r,
         shape,
         source,
-        result,
+        faces,
         ast_sha256,
     })
 }
