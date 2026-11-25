@@ -3,6 +3,7 @@
 //! tokens, player actions) are dispatched by `execute_kernel` to it.
 mod attach;
 mod combat;
+mod continuous;
 mod draw;
 mod fight;
 mod grant_keywords;

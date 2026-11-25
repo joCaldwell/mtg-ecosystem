@@ -1016,7 +1016,9 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
 /// CR 115.1d, 601.2c: one printed target occurrence. The controller
 /// announces one object, or zero if the text allows up to one.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-fn target_occurrence(what: &ast::ObjectRef) -> Result<(&ast::ObjectFilter, &str, bool), Failure> {
+pub(crate) fn target_occurrence(
+    what: &ast::ObjectRef,
+) -> Result<(&ast::ObjectFilter, &str, bool), Failure> {
     let ast::ObjectRef::Target(target) = what else {
         return Err(operand("target", format!("ref_{}", variant(what))));
     };
@@ -1307,15 +1309,15 @@ pub(crate) fn fixed_positive(count: &Count) -> Result<Quantity, Failure> {
 }
 
 /// CR 613.4c: a fixed signed power or toughness change.
-pub(crate) fn signed_fixed(value: &SignedAmount) -> Result<Quantity, Failure> {
-    let ast::SignedAmount { sign, amount } = typed(value, "signed_amount")?;
-    let ast::Amount::Fixed(n) = &*amount else {
-        return Err(operand("signed_amount", variant(&*amount)));
+pub(crate) fn signed_fixed(value: &ast::SignedAmount) -> Result<Quantity, Failure> {
+    let ast::SignedAmount { sign, amount } = value;
+    let ast::Amount::Fixed(n) = &**amount else {
+        return Err(operand("signed_amount", variant(&**amount)));
     };
     let value = u32::try_from(n.value)
         .map(i64::from)
         .map_err(|_| operand("signed_amount", "fixed:range"))?;
-    Ok(Quantity::from(match *sign {
+    Ok(Quantity::from(match **sign {
         ast::SignedAmountSign::N1 => value,
         ast::SignedAmountSign::Minus1 => -value,
     }))

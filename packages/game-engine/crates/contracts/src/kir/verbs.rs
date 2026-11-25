@@ -124,6 +124,11 @@ pub enum Layer {
 pub enum Change {
     /// Layer 7c: a signed modification.
     PowerToughness { power: Amount, toughness: Amount },
+    /// Layer 7c: a signed modification bound to the invocation's announced X.
+    PowerToughnessX {
+        power: PumpDelta,
+        toughness: PumpDelta,
+    },
     /// Layer 7b.
     SetPowerToughness { power: Amount, toughness: Amount },
     /// Layer 6.
@@ -142,7 +147,9 @@ impl Change {
     /// The one layer this change belongs to (CR 613.1, 613.4).
     pub fn layer(&self) -> Layer {
         match self {
-            Self::PowerToughness { .. } => Layer::PowerToughnessModify,
+            Self::PowerToughness { .. } | Self::PowerToughnessX { .. } => {
+                Layer::PowerToughnessModify
+            }
             Self::SetPowerToughness { .. } => Layer::PowerToughnessSet,
             Self::AddKeywords { .. } | Self::RemoveKeywords { .. } => Layer::Ability,
             Self::SetColors { .. } => Layer::Color,
@@ -150,6 +157,54 @@ impl Change {
             Self::Controller { .. } => Layer::Control,
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "delta", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PumpDelta {
+    Fixed { value: Quantity },
+    X { negative: bool },
+}
+
+impl PumpDelta {
+    pub fn with_x(&self, x: &Quantity) -> Quantity {
+        match self {
+            Self::Fixed { value } => value.clone(),
+            Self::X { negative: false } => x.clone(),
+            Self::X { negative: true } => {
+                let mut result = Quantity::zero();
+                result.subtract(x);
+                result
+            }
+        }
+    }
+}
+
+/// Fixed values installed by one resolving effect (CR 611.2c, 613.6).
+/// An omitted characteristic retains its value from the other effects.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct CharacteristicSet {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub animation: Option<Animation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub colors: Option<Vec<Color>>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<KeywordAbility>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_power: Option<Quantity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_toughness: Option<Quantity>,
+}
+
+/// CR 205.1b: this permanent becomes a creature while retaining its
+/// card types and supertypes. Only its creature subtypes can be replaced.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Animation {
+    pub add_artifact: bool,
+    pub replace_creature_subtypes: bool,
+    pub creature_subtypes: Vec<String>,
 }
 
 /// How long a continuous effect lasts (CR 611.2a-b).
@@ -344,6 +399,12 @@ pub enum Verb {
     GainControl {
         what: SetExpr,
         controller: PlayerExpr,
+        until: Until,
+    },
+    /// CR 611.2c, 613.1d-f, 613.4b and 613.7b.
+    SetCharacteristics {
+        what: SetExpr,
+        values: CharacteristicSet,
         until: Until,
     },
     /// CR 701.3.

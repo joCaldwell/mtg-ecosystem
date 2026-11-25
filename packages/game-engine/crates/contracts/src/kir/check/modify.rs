@@ -2,6 +2,91 @@
 use super::*;
 
 impl Walk<'_, '_> {
+    pub(super) fn audit_gain_control(
+        &self,
+        what: &SetExpr,
+        controller: &PlayerExpr,
+        until: Until,
+    ) -> Result<Cell, KirError> {
+        if !matches!(
+            until,
+            Until::EndOfTurn | Until::Indefinite | Until::SourceLeaves
+        ) || (until == Until::SourceLeaves && self.env.context == Context::Spell)
+        {
+            return unaudited("gain control duration");
+        }
+        if *controller != PlayerExpr::you(self.env.context)
+            && !matches!(controller, PlayerExpr::Is { who: Ref::Target { slot } }
+                if matches!(self.domain(*slot)?, TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer))
+        {
+            return unaudited("gain control recipient");
+        }
+        self.audit_continuous_objects(what)?;
+        Ok(Cell::GainControl)
+    }
+
+    pub(super) fn audit_characteristic_set(
+        &self,
+        what: &SetExpr,
+        values: &CharacteristicSet,
+        until: Until,
+    ) -> Result<Cell, KirError> {
+        if until != Until::EndOfTurn
+            || values == &CharacteristicSet::default()
+            || values.colors.as_ref().is_some_and(|colors| {
+                colors
+                    .iter()
+                    .enumerate()
+                    .any(|(i, c)| *c == Color::C || colors[..i].contains(c))
+            })
+            || (!values.keywords.is_empty()
+                && !crate::supported_temporary_keywords(&values.keywords))
+            || values.animation.as_ref().is_some_and(|animation| {
+                values.base_power.is_none()
+                    || values.base_toughness.is_none()
+                    || (animation.replace_creature_subtypes
+                        && animation.creature_subtypes.is_empty())
+                    || animation
+                        .creature_subtypes
+                        .iter()
+                        .enumerate()
+                        .any(|(i, subtype)| {
+                            !is_creature_subtype(subtype)
+                                || animation.creature_subtypes[..i].contains(subtype)
+                        })
+            })
+        {
+            return unaudited("characteristic setter values or duration");
+        }
+        self.audit_continuous_objects(what)?;
+        Ok(Cell::SetCharacteristics)
+    }
+
+    fn audit_continuous_objects(&self, what: &SetExpr) -> Result<(), KirError> {
+        match what {
+            SetExpr::One {
+                object: Ref::Source,
+            } if self.env.context != Context::Spell => Ok(()),
+            SetExpr::One {
+                object: Ref::Target { slot },
+            } if matches!(
+                self.domain(*slot)?,
+                TargetDomain::BattlefieldCreature
+                    | TargetDomain::ControlledBattlefieldCreature
+                    | TargetDomain::BattlefieldPermanent
+                    | TargetDomain::ControlledBattlefieldPermanent
+            ) =>
+            {
+                Ok(())
+            }
+            SetExpr::Matching {
+                zone: ZoneExpr::Battlefield,
+                filter,
+            } => Self::audited_filter(&ZoneExpr::Battlefield, filter),
+            _ => unaudited("continuous effect objects"),
+        }
+    }
+
     pub(super) fn audit_combat_prohibition(
         &self,
         affects: &CombatProhibitionScope<Ref>,
@@ -71,6 +156,28 @@ impl Walk<'_, '_> {
                 }
                 _ => unaudited("pump set"),
             },
+            (
+                Layer::PowerToughnessModify,
+                Change::PowerToughnessX { power, toughness },
+                Until::EndOfTurn,
+            ) if matches!(power, PumpDelta::X { .. })
+                || matches!(toughness, PumpDelta::X { .. }) =>
+            {
+                let valid = match what {
+                    SetExpr::One {
+                        object: Ref::Source,
+                    } => self.env.context == Context::Activated,
+                    SetExpr::One {
+                        object: Ref::Target { slot },
+                    } => self.creature_target(*slot)?,
+                    _ => false,
+                };
+                if valid {
+                    Ok(Cell::PumpAnnouncedX)
+                } else {
+                    unaudited("announced X pump recipient")
+                }
+            }
             // CR 611.2c, 613.1f, 514.2: the exact source gains keywords until
             // end of turn.
             (Layer::Ability, Change::AddKeywords { keywords }, Until::EndOfTurn)
@@ -118,6 +225,9 @@ pub(super) fn capabilities(what: &SetExpr, change: &Change, out: &mut BTreeSet<C
         }
         (SetExpr::Matching { .. }, Change::PowerToughness { .. }) => {
             out.insert(Capability::BoardWipesV1);
+        }
+        (_, Change::PowerToughnessX { .. }) => {
+            out.insert(Capability::ResolvedCharacteristicsV1);
         }
         (
             SetExpr::One {

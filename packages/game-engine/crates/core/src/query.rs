@@ -92,9 +92,9 @@ fn known(
     characteristics.map_or(Tri::Unknown, |c| test(&c).into())
 }
 
-/// The canonical execution type lists creature first (CR 205.2b).
+/// CR 205.2b, 613.1d: a creature can gain or retain other card types.
 fn creature(object: &impl ObjectFacts) -> Tri {
-    known(object.structural(), |c| c.kind == CardKind::Creature)
+    known(object.structural(), |c| c.has_type(CardKind::Creature))
 }
 
 /// CR 601.2c/608.2b: whether a battlefield permanent satisfies a finite
@@ -143,20 +143,20 @@ pub fn matches_object_set(object: &impl ObjectFacts, you: PlayerId, set: &Object
     if !present(object) {
         return Tri::No;
     }
-    let Some(printed) = object.copiable() else {
+    let Some(current) = object.structural() else {
         return Tri::Unknown;
     };
     let controlled = object.controller() == you;
     match set {
         ObjectSet::GraveyardCards => Tri::No,
-        ObjectSet::Artifacts => printed.has_type(CardKind::Artifact).into(),
-        ObjectSet::Enchantments => printed.has_type(CardKind::Enchantment).into(),
-        ObjectSet::Creatures => creature(object),
-        ObjectSet::NonlandPermanents => (!printed.has_type(CardKind::Land)).into(),
+        ObjectSet::Artifacts => current.has_type(CardKind::Artifact).into(),
+        ObjectSet::Enchantments => current.has_type(CardKind::Enchantment).into(),
+        ObjectSet::Creatures => current.has_type(CardKind::Creature).into(),
+        ObjectSet::NonlandPermanents => (!current.has_type(CardKind::Land)).into(),
         // CR 109.5/806.1: current control, and a player who has left has no permanents.
         ObjectSet::OpponentNonlandPermanents => Tri::from(!controlled)
             .and(object.controller_is_live())
-            .and((!printed.has_type(CardKind::Land)).into()),
+            .and((!current.has_type(CardKind::Land)).into()),
         ObjectSet::AttackingCreatures => creature(object).and(object.attacking()),
         ObjectSet::ControllerCreatures => creature(object).and(controlled.into()),
         ObjectSet::ControllerPermanents => controlled.into(),
@@ -327,7 +327,7 @@ pub fn matches_target_domain(
 ) -> Tri {
     let battlefield_creature = || {
         if present(object) {
-            known(object.derived(), |c| c.kind == CardKind::Creature)
+            creature(object)
         } else {
             Tri::No
         }
@@ -345,14 +345,9 @@ pub fn matches_target_domain(
         TargetDomain::OwnGraveyardCreatureCard => {
             own_graveyard_card().and(known(object.copiable(), |c| c.kind == CardKind::Creature))
         }
-        TargetDomain::CreatureOrPlaneswalker => {
-            if present(object) {
-                known(object.derived(), |c| c.has_type(CardKind::Creature))
-            } else {
-                Tri::No
-            }
-        }
-        TargetDomain::BattlefieldCreature | TargetDomain::AnyDamageTarget => battlefield_creature(),
+        TargetDomain::BattlefieldCreature
+        | TargetDomain::AnyDamageTarget
+        | TargetDomain::CreatureOrPlaneswalker => battlefield_creature(),
         TargetDomain::ControlledBattlefieldCreature => {
             battlefield_creature().and((object.controller() == you).into())
         }
@@ -406,8 +401,8 @@ impl ObjectFacts for VisibleObject {
     fn is_token(&self) -> bool {
         self.token.is_some()
     }
-    // A permitted view publishes one derived record; its card types equal the
-    // copiable ones.
+    // A permitted view publishes a derived record. The copiable facts queried
+    // from it are the mana value and the types of cards off the battlefield.
     fn copiable(&self) -> Option<Cow<'_, Characteristics>> {
         self.characteristics.as_ref().map(Cow::Borrowed)
     }
@@ -420,20 +415,22 @@ impl ObjectFacts for VisibleObject {
     fn derived(&self) -> Option<Cow<'_, Characteristics>> {
         self.characteristics.as_ref().map(Cow::Borrowed)
     }
-    // A view lists the keywords of a phased-in battlefield creature, and of
-    // any permanent with indestructible. An absent keyword is known absent
-    // only there; elsewhere the list is simply not published.
+    // Publication lists all keywords on phased-in creatures and the three
+    // protection/targetability keywords on other visible permanents.
     fn has_keyword(&self, keyword: KeywordAbility) -> Tri {
         if self.keywords.contains(&keyword) {
             return Tri::Yes;
         }
-        let published = self.zone == Zone::Battlefield
-            && (self.keywords.contains(&KeywordAbility::Indestructible)
-                || (!self.phased_out
-                    && self
-                        .characteristics
-                        .as_ref()
-                        .is_some_and(|c| c.kind == CardKind::Creature)));
+        let published = present(self)
+            && self.characteristics.as_ref().is_some_and(|c| {
+                c.has_type(CardKind::Creature)
+                    || matches!(
+                        keyword,
+                        KeywordAbility::Hexproof
+                            | KeywordAbility::Indestructible
+                            | KeywordAbility::Shroud
+                    )
+            });
         if published { Tri::No } else { Tri::Unknown }
     }
     fn controller_is_live(&self) -> Tri {

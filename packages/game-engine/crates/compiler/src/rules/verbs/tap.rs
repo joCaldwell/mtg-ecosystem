@@ -40,7 +40,10 @@ pub(super) fn untap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Ins
         }));
     }
     Ok(Instruction::untap_target(
-        bind_permanent_target(cx.program, cx.slots, &what)?,
+        match continuous::followup_target(cx, &what) {
+            Some(slot) => slot,
+            None => bind_permanent_target(cx.program, cx.slots, &what)?,
+        },
         cx.source_block,
     ))
 }

@@ -567,10 +567,9 @@ impl RulesTxn {
                         .ok_or("snapshot copied token has no original")?;
                     if original.card.0 >= id.0
                         || original.incarnation != u32::from(prior.is_copy())
-                        || !prior
-                            .definition
-                            .characteristics
-                            .has_type(CardKind::Creature)
+                        || !self.historical_creature_possible(&prior.definition.characteristics)
+                        || self.state.rules.tokens.contains_key(&t.source.card)
+                            && t.source.card.0 >= id.0
                         || !source
                             .spell_programs()
                             .chain(source.triggered.iter().map(|ability| &ability.program))
@@ -604,11 +603,14 @@ impl RulesTxn {
             }
         }
         for (id, o) in &self.state.rules.objects {
+            // CR 122.1a, 122.2: counters remain on a permanent after a
+            // layer-4 animation ends. Replay proves the original placement.
             if o.plus_one_counters.is_negative()
                 || (o.plus_one_counters > Quantity::zero()
                     && (o.zone != Zone::Battlefield
-                        || self.copiable_definition(o.id)?.characteristics.kind
-                            != CardKind::Creature))
+                        || !self.historical_creature_possible(
+                            &self.copiable_definition(o.id)?.characteristics,
+                        )))
             {
                 return Err("snapshot counter invariant".into());
             }

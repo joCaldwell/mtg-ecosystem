@@ -413,8 +413,10 @@ departure until combat ends (CR 509.1g, 511.3). Skip blocker/damage steps only
 when none attacked. First and double strike have distinct participant sets;
 trample and deathtouch assignments, dealt damage and prevention remain distinct.
 
-Validate simultaneous damage before life/history writes. Assignment stays
-distinct from current or latest-departure source facts governing damage-time
+Validate simultaneous damage before life/history writes. Combat source
+validation reads the captured creature type, including animation, and
+keywords from resolved and static grants (CR 510.2, 613.1d,f). Assignment
+stays distinct from current or latest-departure source facts governing damage-time
 deathtouch, lifelink and beneficiary, including Equipment departure. Noncombat
 damage retains exact source and invocation controller. Protection from a color
 checks derived or last-known source colors for targeting, attachments, blocking
@@ -540,8 +542,9 @@ changes of that effect (CR 611.3, 613.6). Layer 4 adds artifact or enchantment
 types, layer 5 sets colors, layer 6 grants supported keywords, layer 7b sets
 base power and toughness, and layer 7c applies signed modifiers and counters.
 Earlier layers supply facts to later layers. Admission rejects scopes that
-could depend on another change in the same layer. Ordered setters apply by
-source timestamp (CR 613.7a,d–e). Simultaneous competing setters require a
+could depend on another change in the same layer, including creature-subtype
+filters for layer 4 and color filters for layer 5 (CR 613.8). Ordered setters
+apply by source or creation timestamp (CR 613.7a–b,d–e). Simultaneous competing setters require a
 timestamp choice and reject explicitly (CR 613.7m).
 
 Static guards can read the active player, public battlefield or graveyard
@@ -630,9 +633,19 @@ The new fight, player counter, populate and proliferate cells earn
 
 ### Continuous permanent control
 
-Kernel control grants determine control in layer 2; the latest supported grant
-wins and removing it reveals the default controller (CR 613.1b). A grant whose
-static source would itself need control-related exile rejects atomically.
+The `GainControl` cell captures one battlefield target, the exact source, or a
+matching battlefield set when it resolves (CR 611.2c). The recipient is the
+invocation's controller or one announced player. The grant lasts until
+cleanup, indefinitely, or while the exact source remains on the battlefield.
+The source duration must hold at resolution and ends if that source leaves
+or phases out (CR 611.2b, 702.26f). Durations that depend on who controls the
+source require a separate admission row.
+
+Layer 2 applies the active grants in creation order. A later grant can
+override an earlier one, which can apply again when the later grant ends.
+Each admitted grant assigns a fixed player to its captured incarnations,
+so there is no dependence on another layer-2 assignment (CR 613.1b, 613.7b,
+613.8). If no grant remains, the default controller applies.
 
 Reconciliation finishes each occurrence or simultaneous group before observers,
 keeping common-prior damage/death facts frozen. An actual controller change
@@ -660,6 +673,28 @@ Intrinsic keywords participate in combat, targeting and state-based actions. A
 temporary effect requires a checked KIR operation and runtime support for its
 exact target, duration and modifier; set modifications use the KIR selector and
 the executor's captured incarnations.
+
+`SetCharacteristics` captures a battlefield target, the exact source or a
+matching battlefield set and applies its fixed values through cleanup
+(CR 400.7, 514.2, 611.2c, 613.6). Animation adds creature and optionally
+artifact in layer 4, keeping the permanent's previous card types and
+supertypes. A fixed creature-subtype list can add subtypes, or replace just
+the creature subtypes where the printed wording requires it (CR 205.1b,
+205.3m). The same effect can set colors in layer 5, grant supported keywords
+in layer 6, and set base power and toughness in layer 7b. Setters for either
+stat compete independently at their timestamps. Counters and modifiers
+apply afterward in layer 7c. A +1/+1 counter stays on its permanent when
+animation expires and modifies its stats while it is a creature (CR 122.1a,
+122.2). Settled effects own one captured set and one creation timestamp
+across all their layers.
+
+The signed pump cell accepts fixed deltas and signed announced X on one
+announced creature, or the source of an activated ability. It reads and
+stores X at resolution (CR 107.3, 611.2d, 613.4c). Fixed pumps, untapping
+and keyword grants can read a certified singular target from a preceding
+control or untap instruction in the same block. Copy effects, ability
+removal, chosen characteristics and computed pump amounts have separate
+admission boundaries.
 
 Until-end-of-turn grants add supported keyword abilities to one announced
 creature or a captured battlefield set. The existing activated-source form

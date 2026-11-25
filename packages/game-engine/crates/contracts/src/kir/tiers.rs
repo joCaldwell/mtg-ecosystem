@@ -183,10 +183,13 @@ pub enum Cell {
     PumpSource,
     PumpTarget,
     PumpSet,
+    PumpAnnouncedX,
     SourceKeywordsUntilEndOfTurn,
     TargetKeywordsUntilEndOfTurn,
     SetKeywordsUntilEndOfTurn,
     CombatProhibitionUntilEndOfTurn,
+    GainControl,
+    SetCharacteristics,
     // CR 701.22-701.25: library search, shuffle, scry and surveil.
     /// CR 701.23: the controller searches their library.
     SearchController,
@@ -333,10 +336,13 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::TokensForTargetController
         | C::PlusOneCountersSet
         | C::PumpSet
+        | C::PumpAnnouncedX
         | C::SourceKeywordsUntilEndOfTurn
         | C::TargetKeywordsUntilEndOfTurn
         | C::SetKeywordsUntilEndOfTurn
         | C::CombatProhibitionUntilEndOfTurn
+        | C::GainControl
+        | C::SetCharacteristics
         | C::SearchController
         | C::SearchLibraryTop
         | C::SearchTargetController
@@ -465,6 +471,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ContinuousStaticsV1
         | C::RuleStaticsV1
         | C::TemporaryCombatProhibitionV1
+        | C::ResolvedControlV1
+        | C::ResolvedCharacteristicsV1
         | C::EntryPlusOneCountersV1
         | C::ConditionalEntryTappedV1
         | C::EntryLifePaymentV1

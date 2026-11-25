@@ -144,7 +144,7 @@ impl RulesTxn {
             .is_ok_and(|o| o.present_on_battlefield())
             && self
                 .structural_characteristics(object)
-                .is_ok_and(|d| d.kind == CardKind::Creature)
+                .is_ok_and(|d| d.has_type(CardKind::Creature))
     }
     // An indexed list is valid only for the current, unchanged rules state.
     // Both paths preserve object-table order and exact phased-in membership.
@@ -238,6 +238,15 @@ impl RulesTxn {
                         .is_ok_and(|o| o.present_on_battlefield()) =>
                 {
                     Some(keywords)
+                }
+                ResolvedEffectKind::SetCharacteristics {
+                    targets, values, ..
+                } if targets.contains(&object)
+                    && self
+                        .current(object)
+                        .is_ok_and(|o| o.present_on_battlefield()) =>
+                {
+                    Some(&values.keywords)
                 }
                 _ => None,
             };

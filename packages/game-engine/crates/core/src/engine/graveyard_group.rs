@@ -114,7 +114,7 @@ impl GroupFinish {
                             if let EventOutcome::Moved { movement } = &r.actual {
                                 if r.before.objects.iter().any(|o| {
                                     o.object == movement.previous
-                                        && o.characteristics.kind == CardKind::Creature
+                                        && o.characteristics.has_type(CardKind::Creature)
                                 }) {
                                     destroyed_creatures += 1;
                                 }

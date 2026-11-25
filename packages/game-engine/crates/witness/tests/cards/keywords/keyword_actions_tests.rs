@@ -548,3 +548,175 @@ fn keyword_action_allowlist_preserves_residual_clauses() {
         ));
     }
 }
+
+/// CR 122.1a, 613.4c, 701.34a: the counter stays on a land after its
+/// animation wears off, and proliferate can still choose the land.
+#[test]
+fn proliferate_can_choose_an_unanimated_permanent_with_a_counter() {
+    let mut scenario = board(&[
+        record!("09a1ab1b-d9f0-4a2a-a448-3190f85006e4"), // Natural Affinity
+        record!("1ba59349-a162-4444-b3e0-cddfc01ef03b"), // Rubblebelt Maverick
+        KARN_S_BASTION,
+    ])
+    .card(
+        "Rubblebelt Maverick",
+        0,
+        0,
+        Zone::Graveyard { owner: PlayerId(0) },
+    );
+    scenario = add(scenario, "Natural Affinity", 0, true);
+    scenario = add(scenario, "Karn's Bastion", 0, false);
+    for _ in 0..8 {
+        scenario = add(scenario, "Forest", 0, false);
+    }
+    let mut game = Game::new(scenario.prepare());
+    let land = card(&game, "Forest", 0, false);
+    let maverick = game
+        .state
+        .rules
+        .objects
+        .values()
+        .find(|o| o.zone == (Zone::Graveyard { owner: PlayerId(0) }))
+        .unwrap()
+        .id;
+    cast(&mut game, "Natural Affinity", 0);
+    pay(&mut game, 0, &["Forest", "Forest", "Forest"]);
+    empty_stack(&mut game);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: maverick,
+            ability: 0,
+        },
+    );
+    Driver::pick_object(&mut game, land);
+    pay(&mut game, 0, &["Forest"]);
+    empty_stack(&mut game);
+    assert_eq!(game.characteristics(land).unwrap().power, Some(3.into()));
+
+    let first_turn = game.state.rules.turn.number;
+    for _ in 0..60 {
+        let decision = Driver::request(&mut game, 1);
+        match decision.reason {
+            Reason::Priority
+                if game.state.rules.turn.number > first_turn && decision.player == PlayerId(0) =>
+            {
+                break;
+            }
+            Reason::Priority => Driver::pass(&mut game),
+            Reason::Attackers => {
+                let answer = decision.attack(vec![]);
+                game.respond(decision.player, decision.id, answer).unwrap();
+            }
+            reason => panic!("unexpected turn boundary {reason:?}"),
+        }
+    }
+    assert!(game.state.rules.turn.number > first_turn);
+    assert_eq!(game.characteristics(land).unwrap().power, None);
+    let bastion = card(&game, "Karn's Bastion", 0, false);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: bastion,
+            ability: 0,
+        },
+    );
+    pay(&mut game, 0, &["Forest", "Forest", "Forest", "Forest"]);
+    let decision = choice(&mut game, Reason::Proliferate);
+    assert_eq!(
+        decision.candidates,
+        vec![Candidate::Object { object: land }]
+    );
+    pick(&mut game, &decision, &[Candidate::Object { object: land }]);
+    empty_stack(&mut game);
+    assert_eq!(game.characteristics(land).unwrap().power, None);
+    assert_eq!(
+        game.state.rules.objects[&land.card].plus_one_counters,
+        2.into()
+    );
+    checked(&game);
+}
+
+/// CR 701.36, 707.2: an animated Clue can be chosen. The resulting Clue
+/// retains its printed activated ability and enters as a noncreature.
+#[test]
+fn populate_copies_an_animated_clues_artifact_values() {
+    let mut scenario = board(&[
+        THRABEN_INSPECTOR,
+        WAKE_THE_REFLECTIONS,
+        record!("4acacdd2-a736-43a2-ad67-891b9bd124f8"), // Alloy Animist
+    ]);
+    for (name, hand) in [
+        ("Thraben Inspector", true),
+        ("Wake the Reflections", true),
+        ("Alloy Animist", false),
+    ] {
+        scenario = add(scenario, name, 0, hand);
+    }
+    for _ in 0..4 {
+        scenario = add(scenario, "Plains", 0, false);
+    }
+    for _ in 0..3 {
+        scenario = add(scenario, "Forest", 0, false);
+    }
+    let mut game = Game::new(scenario.prepare());
+    cast(&mut game, "Thraben Inspector", 0);
+    pay(&mut game, 0, &["Plains"]);
+    empty_stack(&mut game);
+    let original = card(&game, "Clue Token", 0, false);
+    let animist = card(&game, "Alloy Animist", 0, false);
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: animist,
+            ability: 0,
+        },
+    );
+    Driver::pick_object(&mut game, original);
+    pay(&mut game, 0, &["Forest", "Forest", "Forest"]);
+    empty_stack(&mut game);
+    assert_eq!(
+        game.characteristics(original).unwrap().power,
+        Some(4.into())
+    );
+
+    cast(&mut game, "Wake the Reflections", 0);
+    pay(&mut game, 0, &["Plains"]);
+    let decision = choice(&mut game, Reason::Populate);
+    assert_eq!(
+        decision.candidates,
+        vec![Candidate::Object { object: original }]
+    );
+    pick(
+        &mut game,
+        &decision,
+        &[Candidate::Object { object: original }],
+    );
+    empty_stack(&mut game);
+    let copied = game.state.rules.objects[game.state.rules.tokens.last_key_value().unwrap().0].id;
+    let printed = game.characteristics(copied).unwrap();
+    assert_eq!(printed.kind, CardKind::Artifact);
+    assert_eq!(printed.power, None);
+    checked(&game);
+
+    let library_before = game.state.rules.libraries[&PlayerId(0)].len();
+    Driver::action(
+        &mut game,
+        Action::ActivateAbility {
+            object: copied,
+            ability: 0,
+        },
+    );
+    pay(&mut game, 0, &["Plains", "Plains"]);
+    empty_stack(&mut game);
+    assert!(game.object_id(copied.card).is_none());
+    assert_eq!(
+        game.state.rules.libraries[&PlayerId(0)].len(),
+        library_before - 1
+    );
+    assert_eq!(
+        game.characteristics(original).unwrap().power,
+        Some(4.into())
+    );
+    checked(&game);
+}
