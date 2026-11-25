@@ -505,13 +505,16 @@ impl RulesTxn {
                     if !source.spell_programs().any(|p| creates(p, spec))
                         && !source.triggered.iter().any(|a| creates(&a.program, spec))
                         && !source.activated.iter().any(|a| creates(&a.program, spec))
+                        && !self.resolution_trigger_created_token(t.source, &t.spec)?
                     {
                         return Err("snapshot token differs from creating instruction".into());
                     }
                     token_definition(source, *id, spec)
                 }
                 TokenTemplate::Predefined { kind } => {
-                    if !predefined_token_templates::can_create(source, *kind) {
+                    if !predefined_token_templates::can_create(source, *kind)
+                        && !self.resolution_trigger_created_token(t.source, &t.spec)?
+                    {
                         return Err(
                             "snapshot predefined token differs from creating instruction".into(),
                         );

@@ -201,8 +201,10 @@ draws, including each-player and announced-X draws, require a top-level draw
 instruction for their saved attempts and outcome. Token creation and
 temporary effects need persistent leaf provenance, and set damage retains
 facts tied to the top-level cursor. The specialized drain and optional target
-destroy retain their standalone routes. `Delayed` and `Reflexive` remain
-unaudited. Control nodes derive capabilities from their leaves, including
+destroy retain their standalone routes. `Delayed` and `Reflexive` carry
+separately checked, single-instruction programs. The parent instruction can
+register a one-shot [resolution-created trigger](game-engine-mechanics.md#delayed-and-reflexive-triggers)
+at the end of its program. Control nodes derive capabilities from their leaves, including
 target- and program-sensitive requirements. Continuation-based nodes also
 require `KernelControlV1`, which is outside the reviewed hosting and search
 sets. Composition and profile admission check each complete definition.

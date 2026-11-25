@@ -799,6 +799,31 @@ incarnation, including when the source also has supported intrinsic keywords
 (CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
 counters.
 
+### Delayed and reflexive triggers
+
+The final instruction can create one trigger with the invocation’s source
+and controller (CR 603.7, 603.12).
+
+| Actual occurrence | Admitted body |
+| --- | --- |
+| Next end step begins | Draw, create fixed tokens, or return the creature card exiled by the parent under its owner’s control. |
+| Next turn’s upkeep begins | Controller draws fixed cards. |
+| Controller’s next upkeep begins | Controller draws or randomly discards a fixed count. |
+| Chosen creature leaves | Return the card the parent exiled after its own death, under its owner’s control. |
+| Optional fixed mana payment completes | Announce one target for the separate reflexive ability. |
+
+Step transitions govern timing (CR 513.2). Captures bind exact incarnations
+(CR 400.7, 603.7c). Watchers see actual departures including SBAs, replacement
+moves and concession exile (CR 603.6c, 614.6, 800.4a/c). Mana undo restores
+watchers of reversed sacrifices (CR 733.1). Phased-out sources use the
+parent’s last-known facts (CR 608.2h, 702.26b). Stabilization and APNAP
+placement precede priority (CR 117.5, 603.3b–d).
+
+Recovery checks creator, controller, capture and firing evidence. Step
+watermarks and retired receipts prevent duplicate firings. These one-shot rows
+earn `Executes` under `ResolutionTriggerV1`.
+[Pinned Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)
+
 ### Printed choices, payments and conditions
 
 Each printed "may", "if", "unless" and "up to" of a block must match its AST

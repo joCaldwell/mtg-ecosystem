@@ -1190,6 +1190,7 @@ impl RulesTxn {
                 self.rules_mut().mana_ability_uses.insert(k);
             }
         }
+        self.undo_resolution_departure(&r.cost_triggers);
         self.rules_mut()
             .pending_triggers
             .retain(|t| !r.cost_triggers.contains(&t.id));

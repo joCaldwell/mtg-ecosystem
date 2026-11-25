@@ -25,9 +25,9 @@ impl RulesTxn {
         &mut self,
         task: kir::Task,
         payer: PlayerId,
-        generic: Quantity,
+        cost: ManaCost,
     ) -> Result<(), String> {
-        if generic.is_negative() {
+        if cost.generic.is_negative() {
             return Err("negative kernel mana payment".into());
         }
         let frame = self.kernel_root()?.clone();
@@ -39,10 +39,7 @@ impl RulesTxn {
             payment: ResolutionPayment {
                 resume,
                 payer,
-                cost: ManaCost {
-                    generic,
-                    colored: vec![],
-                },
+                cost,
                 stage: ResolutionPaymentStage::Offer,
                 receipts: vec![],
             },
@@ -85,7 +82,7 @@ impl RulesTxn {
                 payment.stage = ResolutionPaymentStage::Mana
             }
             (Answer::Pick { .. }, ResolutionPaymentStage::Offer) => {
-                return self.finish_kernel_payment(payment.resume, false);
+                return self.finish_kernel_payment(payment.resume, None);
             }
             (
                 Answer::Pay {
@@ -113,7 +110,7 @@ impl RulesTxn {
                     if *undo_mana {
                         self.undo_mana_receipts(payment.payer, &payment.receipts)?;
                     }
-                    return self.finish_kernel_payment(payment.resume, false);
+                    return self.finish_kernel_payment(payment.resume, None);
                 }
                 payment.stage = ResolutionPaymentStage::Spend;
             }
@@ -124,16 +121,18 @@ impl RulesTxn {
                 ResolutionPaymentStage::Spend,
             ) => {
                 let spending = unrestricted.clone();
-                self.commit(
-                    ProposedEvent::PayManaSelected {
-                        player: payment.payer,
-                        cost: payment.cost,
-                        spending,
-                        restricted: vec![],
-                    },
+                let batch = self.commit_batch(
                     self.instruction_cause(&frame, source_block)?,
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::PayManaSelected {
+                            player: payment.payer,
+                            cost: payment.cost,
+                            spending,
+                            restricted: vec![],
+                        },
+                    },
                 )?;
-                return self.finish_kernel_payment(payment.resume, true);
+                return self.finish_kernel_payment(payment.resume, Some(&batch));
             }
             _ => return Err("resolution payment input invariant".into()),
         }
@@ -147,13 +146,12 @@ impl RulesTxn {
         payment: &ResolutionPayment,
     ) -> Result<(), String> {
         self.validate_resolving(frame)?;
-        let (payer, _, generic) = self.kernel_payment_terms(payment.resume)?;
+        let (payer, _, cost) = self.kernel_payment_terms(payment.resume)?;
         if frame != self.kernel_root()?
             || payment.cost.generic.is_negative()
-            || payment.cost.generic != generic
+            || payment.cost != cost
             || payment.payer.0 >= 4
             || payer != payment.payer
-            || !payment.cost.colored.is_empty()
             || (payment.stage == ResolutionPaymentStage::Offer && !payment.receipts.is_empty())
             || payment.receipts.iter().any(|r| r.player != payment.payer)
         {
@@ -197,6 +195,6 @@ impl RulesTxn {
         }
         let resume = payment.resume;
         self.rules_mut().pending = None;
-        self.finish_kernel_payment(resume, false)
+        self.finish_kernel_payment(resume, None)
     }
 }

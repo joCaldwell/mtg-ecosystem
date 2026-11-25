@@ -758,7 +758,7 @@ impl RulesTxn {
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
             kernel!(Discard {
-                player: target_player!(_),
+                player: target_player!(_) | you!(),
                 random: true,
                 ..
             }) => self.random_discard_step(frame),

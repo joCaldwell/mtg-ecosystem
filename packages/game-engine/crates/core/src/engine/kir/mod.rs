@@ -57,6 +57,12 @@ impl RulesTxn {
         node: Node,
         source_block: u32,
     ) -> Result<(), String> {
+        if let Node::Delayed { event, .. } = &node {
+            return self.execute_delayed_trigger(frame, event, source_block);
+        }
+        if matches!(node, Node::Do(Verb::ReturnCapturedExile {})) {
+            return self.execute_captured_return(frame, source_block);
+        }
         // CR 119.3: the standalone drain pair uses the actual loss total.
         if let Some(amount) = mtg_contracts::kir::drain(&node) {
             let amount = self.kernel_amount(&frame, amount)?;

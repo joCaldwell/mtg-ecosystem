@@ -773,6 +773,7 @@ impl RulesTxn {
             object,
             destination: Zone::Exile,
         };
+        let before_event = self.pre_event();
         let mut before = self.facts(&[&proposed])?;
         before.control = authority;
         let batch_id = self.state.rules.next_batch_id;
@@ -787,9 +788,11 @@ impl RulesTxn {
             BatchAuthority::Ordinary,
             None,
         )?;
-        // Only this exact BF -> exile movement cannot match any currently
-        // supported dies/ETB trigger. General movement still uses apply_group.
+        // CR 603.6c, 800.4a/c: controller reconciliation can move a watched
+        // permanent. Collect the actual exile inside the same rule transaction.
+        // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
         let cause = BatchCause::ControlReconciliation;
+        self.collect_triggers(&cause, &before_event, &occurrences)?;
         self.record_evidence(EvidenceRecord::Batch {
             batch: Box::new(CommittedBatch {
                 batch_id,
