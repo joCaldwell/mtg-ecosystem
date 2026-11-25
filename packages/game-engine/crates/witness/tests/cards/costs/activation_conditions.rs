@@ -47,7 +47,7 @@ fn forge(g: &Game, counts: Option<Vec<u32>>) -> Game {
     else {
         panic!("expected an activated stack entry")
     };
-    *condition = counts.map(|counts| ActivationConditionCheck { counts });
+    *condition = counts.map(|counts| stack_costs::ActivationConditionCheck { counts });
     f
 }
 
