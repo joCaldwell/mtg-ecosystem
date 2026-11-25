@@ -193,6 +193,19 @@ describe("library dig picks and the rest (B01)", () => {
     assert.ok(druid.binding.references.some(reference => "ref" in reference.expression && reference.expression.ref === "rest" && reference.binding === "bound"));
   });
 
+  it("requires a die roll or coin flip between the pool and the rest to emit its event cleanly", () => {
+    const look = "Look at the top five cards of your library. Put a creature card from among them into your hand. ";
+    const rest = "Put the rest on the bottom of your library in any order.";
+    // An unsupported roll or flip emits no event and carries a diagnostic.
+    for (const roll of ["Flip a coin. ", "Roll two six-sided dice. "]) {
+      const { blocks: [block] } = card(look + roll + rest, "Sorcery");
+      assert.deepEqual(refs(block)["/effects/3/steps/0/what"], { unresolved: "unsupported-reference" }, roll);
+    }
+    // A single roll with its event moves nothing.
+    const { blocks: [die] } = card(look + "Roll a six-sided die. " + rest, "Sorcery");
+    assert.deepEqual(refs(die)["/effects/3/steps/0/what"], remainder("/effects/3/steps/0"));
+  });
+
   it("counts only the pick's own choice to take nothing", () => {
     const { binding, blocks: [block] } = card("You may look at the top five cards of your library, put one of them into your hand, and put the rest on the bottom of your library in any order.", "Sorcery");
     assert.deepEqual(block.residuals, []);
