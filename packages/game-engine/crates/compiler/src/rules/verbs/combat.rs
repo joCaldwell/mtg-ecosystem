@@ -27,17 +27,6 @@ pub(super) fn lower(
     };
     let affects = match what {
         ast::ObjectRef::Target(_) => target(bind_creature_target(cx.program, cx.slots, what)?),
-        ast::ObjectRef::That(reference)
-            if reference.plural.is_none()
-                && present_fields(&reference.filter) == ["types"]
-                && reference
-                    .filter
-                    .types
-                    .as_deref()
-                    .is_some_and(|t| t == ["creature"]) =>
-        {
-            target(previous_damage_target(cx)?)
-        }
         ast::ObjectRef::Each(_) | ast::ObjectRef::All(_) => {
             let set = lower_board_set(what, cx.context)?;
             if set == ObjectSet::Creatures.kernel(cx.context) {
@@ -55,26 +44,4 @@ pub(super) fn lower(
         restriction,
         until: kir::Until::EndOfTurn,
     }))
-}
-
-fn previous_damage_target(cx: &StepCx<'_>) -> Result<u32, Failure> {
-    let unbound = || operand("cant_recipient", "unbound_that_creature");
-    let ([target], Some(previous)) = (
-        cx.program.targets.as_slice(),
-        cx.program.instructions.last(),
-    ) else {
-        return Err(unbound());
-    };
-    if cx.slots.values().any(|slot| *slot == target.slot)
-        && target.domain == TargetDomain::BattlefieldCreature
-        && previous.source_block() == cx.source_block
-        && matches!(previous.verb(), Some(Verb::Damage {
-            to: kir::DamageTo::Ref { who: kir::Ref::Target { slot } },
-            ..
-        }) if *slot == target.slot)
-    {
-        Ok(target.slot)
-    } else {
-        Err(unbound())
-    }
 }

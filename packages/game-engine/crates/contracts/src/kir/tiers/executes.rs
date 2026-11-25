@@ -543,6 +543,12 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
                 | K::Lifelink
                 | K::Deathtouch
                 | K::Indestructible
+                // CR 702.16a-f: printed protection from one fixed color.
+                | K::ProtectionFromWhite
+                | K::ProtectionFromBlue
+                | K::ProtectionFromBlack
+                | K::ProtectionFromRed
+                | K::ProtectionFromGreen
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,

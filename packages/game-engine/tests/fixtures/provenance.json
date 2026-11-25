@@ -1559,15 +1559,6 @@
       "archive_line": 6139
     },
     {
-      "file": "phase1-r4/2e4f08c2-1bad-4a85-8aad-9bb34a5579b1.json",
-      "oracle_id": "2e4f08c2-1bad-4a85-8aad-9bb34a5579b1",
-      "record_sha256": "bddb3cba2291a77ad0c3e98a750ad496577ce8e08afd8f7d7360d693e4ae5dd9",
-      "source_sha256": "f6a82ca2fbf2a790df7937af53821035970030aa5043fe0abbbf4b41f153bc7d",
-      "ast_sha256": "e064bdb200e43e3f37e54351cac4ad5cdecce39f3e1ff72d7c5d4c4fe609c248",
-      "archive": "archive-manifest-phase1-r4.json",
-      "archive_line": 6872
-    },
-    {
       "file": "phase1-r4/543071da-fc89-4274-a2ae-d5d755d1f2a9.json",
       "oracle_id": "543071da-fc89-4274-a2ae-d5d755d1f2a9",
       "record_sha256": "6e72a9b92dd3ec73acee2271aa122cefb34570f20d2abb2c43991d4d81d2d774",

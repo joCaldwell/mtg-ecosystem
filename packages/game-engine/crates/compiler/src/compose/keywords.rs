@@ -57,7 +57,7 @@ pub(super) fn lower(
     Ok(lowered)
 }
 
-// CR 702.16a,g: each printed color is an independent protection ability.
+// CR 702.16a,g,h: each printed color is an independent protection ability.
 fn fixed_color_protection(
     kind: CardKind,
     from: &[SourceProtectionQuality],
