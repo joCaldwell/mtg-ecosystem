@@ -52,9 +52,9 @@ impl Walk<'_, '_> {
                 SetExpr::One {
                     object: Ref::Target { slot },
                 } => match self.domain(*slot)? {
-                    TargetDomain::BattlefieldCreature
-                    | TargetDomain::BlockingBattlefieldCreature
+                    TargetDomain::BlockingBattlefieldCreature
                     | TargetDomain::ControlledBattlefieldCreature => Ok(Cell::PumpTarget),
+                    _ if self.creature_target(*slot)? => Ok(Cell::PumpTarget),
                     _ => unaudited("pump target domain"),
                 },
                 // CR 613.4c: a P/T change applies to creatures; the set is
@@ -86,9 +86,7 @@ impl Walk<'_, '_> {
                 match what {
                     SetExpr::One {
                         object: Ref::Target { slot },
-                    } if self.domain(*slot)? == TargetDomain::BattlefieldCreature => {
-                        Ok(Cell::TargetKeywordsUntilEndOfTurn)
-                    }
+                    } if self.creature_target(*slot)? => Ok(Cell::TargetKeywordsUntilEndOfTurn),
                     SetExpr::Matching {
                         zone: ZoneExpr::Battlefield,
                         filter,

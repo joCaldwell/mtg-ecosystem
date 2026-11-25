@@ -12,6 +12,11 @@ pub(super) fn tap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Instr
             what: lower_board_set(&what, cx.context)?,
         }));
     }
+    if is_this_permanent(&what) && cx.context != Context::Spell {
+        return Ok(cx.act(Verb::Tap {
+            what: SetExpr::source(),
+        }));
+    }
     let slot = if is_creature_target(&what) {
         bind_creature_target(cx.program, cx.slots, &what)?
     } else {
@@ -27,6 +32,11 @@ pub(super) fn untap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Ins
     if is_set(&what) {
         return Ok(cx.act(Verb::Untap {
             what: lower_board_set(&what, cx.context)?,
+        }));
+    }
+    if is_this_permanent(&what) && cx.context != Context::Spell {
+        return Ok(cx.act(Verb::Untap {
+            what: SetExpr::source(),
         }));
     }
     Ok(Instruction::untap_target(

@@ -56,14 +56,41 @@ fn target_occurrences_name_their_qualifier() {
         bind_creature_target(&mut p, &mut slots, &target(json!({}))).unwrap(),
         0
     );
+    let mut optional = program();
+    bind_creature_target(
+        &mut optional,
+        &mut BTreeMap::new(),
+        &target(json!({"upTo":true})),
+    )
+    .unwrap();
+    assert!(optional.optional_target);
+    let mut controlled = program();
+    bind_creature_target(
+        &mut controlled,
+        &mut BTreeMap::new(),
+        &target(json!({"filter":{"types":["creature"],"control":"you"}})),
+    )
+    .unwrap();
+    assert_eq!(
+        controlled.targets[0].domain,
+        TargetDomain::ControlledBattlefieldPermanent
+    );
+    assert_eq!(
+        controlled.targets[0].filter.as_ref().unwrap().types,
+        [CardKind::Creature]
+    );
     for (extra, expected) in [
-        (json!({"upTo":true}), "operand:target:up_to"),
+        (json!({"upTo":false}), "operand:target:up_to"),
+        (
+            json!({"upTo":true,"count":{"amount":"fixed","value":2}}),
+            "operand:target:up_to",
+        ),
         (
             json!({"count":{"amount":"fixed","value":2}}),
             "operand:target:count",
         ),
         (
-            json!({"filter":{"types":["creature"],"control":"you"}}),
+            json!({"filter":{"types":["creature"],"control":"you","withoutAbility":["flying"]}}),
             "operand:creature_target:control",
         ),
     ] {

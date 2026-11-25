@@ -9,6 +9,7 @@ impl RulesTxn {
         program: &SpellProgram,
         entry: &StackInstance,
     ) -> bool {
-        self.bound_target_count(entry) == program.targets.len()
+        let count = self.bound_target_count(entry);
+        count == program.targets.len() || (program.optional_target && count == 0)
     }
 }

@@ -6,11 +6,14 @@ impl Walk<'_, '_> {
     pub(super) fn audit_tap(&self, what: &SetExpr) -> Result<Cell, KirError> {
         match what {
             SetExpr::One {
+                object: Ref::Source,
+            } => Ok(Cell::TapStatusSource),
+            SetExpr::One {
                 object: Ref::Target { slot },
             } => match self.domain(*slot)? {
-                TargetDomain::BattlefieldPermanent | TargetDomain::BattlefieldCreature => {
-                    Ok(Cell::TapTarget)
-                }
+                TargetDomain::BattlefieldPermanent
+                | TargetDomain::ControlledBattlefieldPermanent
+                | TargetDomain::BattlefieldCreature => Ok(Cell::TapTarget),
                 _ => unaudited("tap target domain"),
             },
             SetExpr::Matching {
@@ -26,9 +29,13 @@ impl Walk<'_, '_> {
     pub(super) fn audit_untap(&self, what: &SetExpr) -> Result<Cell, KirError> {
         match what {
             SetExpr::One {
+                object: Ref::Source,
+            } => Ok(Cell::TapStatusSource),
+            SetExpr::One {
                 object: Ref::Target { slot },
             } => match self.domain(*slot)? {
-                TargetDomain::BattlefieldPermanent => Ok(Cell::UntapTarget),
+                TargetDomain::BattlefieldPermanent
+                | TargetDomain::ControlledBattlefieldPermanent => Ok(Cell::UntapTarget),
                 _ => unaudited("untap target domain"),
             },
             what if *what == SetExpr::lands_you_control(self.env.context) => {

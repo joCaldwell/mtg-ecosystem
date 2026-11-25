@@ -450,7 +450,11 @@ impl RulesTxn {
                 }
                 TargetEntity::Player { player }
             }
-            Some(TargetDomain::BattlefieldCreature) => TargetEntity::Object {
+            Some(
+                TargetDomain::BattlefieldCreature
+                | TargetDomain::BattlefieldPermanent
+                | TargetDomain::ControlledBattlefieldPermanent,
+            ) => TargetEntity::Object {
                 object: *spell
                     .targets
                     .get(index)

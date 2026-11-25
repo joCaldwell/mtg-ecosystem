@@ -55,9 +55,9 @@ enum Route {
 /// (CR 115.1, 603.3d, 608.2b).
 fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
     Some(match domain {
-        TargetDomain::BattlefieldPermanent | TargetDomain::BattlefieldCreature => {
-            (Route::Object, ANY)
-        }
+        TargetDomain::BattlefieldPermanent
+        | TargetDomain::ControlledBattlefieldPermanent
+        | TargetDomain::BattlefieldCreature => (Route::Object, ANY),
         TargetDomain::AnyDamageTarget => (Route::Entity, ANY),
         TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer => {
             (Route::Player, SPELL | TRIGGERED)
@@ -72,7 +72,6 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
         TargetDomain::ControlledBattlefieldCreature => (Route::Object, ACTIVATED),
         TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
-        | TargetDomain::ControlledBattlefieldPermanent
         | TargetDomain::BlockingBattlefieldCreature
         | TargetDomain::ControlledCreatureSpell => return None,
     })
@@ -199,6 +198,29 @@ fn program(
 }
 
 fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
+    // CR 115.1d, 601.2c, 608.2b: zero targets is a legal announcement.
+    // A skipped occurrence can be read only by an independent leaf whose
+    // entire action applies to that one object.
+    if p.optional_target
+        && (!matches!(p.targets.as_slice(), [t] if matches!(t.domain,
+                TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
+                | TargetDomain::ControlledBattlefieldPermanent))
+            || p.instructions
+                .iter()
+                .any(|Instruction::Kernel { node, .. }| {
+                    !kir::target_slots(node).is_empty()
+                        && !matches!(node, kir::Node::Do(
+                        kir::Verb::Destroy { what, .. }
+                        | kir::Verb::Tap { what }
+                        | kir::Verb::Untap { what }
+                        | kir::Verb::Move { what, .. }
+                        | kir::Verb::PutCounters { on: what, .. }
+                        | kir::Verb::ModifyUntil { what, .. }
+                    ) if *what == kir::SetExpr::target(0))
+                }))
+    {
+        return cell("target", "up_to_one_requires_independent_object_leaves");
+    }
     let mut ids = BTreeSet::new();
     for (index, target) in p.targets.iter().enumerate() {
         if usize::try_from(target.slot).ok() != Some(index)
@@ -250,11 +272,16 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                     .iter()
                     .enumerate()
                     .any(|(i, k)| f.non_colors[..i].contains(k))
-                || (t.domain == TargetDomain::BattlefieldPermanent
-                    && f.types
-                        .iter()
-                        .chain(&f.non_types)
-                        .any(|k| matches!(k, CardKind::Instant | CardKind::Sorcery)))
+                || (t.domain == TargetDomain::ControlledBattlefieldPermanent && f.opponent)
+                || (matches!(
+                    t.domain,
+                    TargetDomain::BattlefieldPermanent
+                        | TargetDomain::ControlledBattlefieldPermanent
+                ) && f
+                    .types
+                    .iter()
+                    .chain(&f.non_types)
+                    .any(|k| matches!(k, CardKind::Instant | CardKind::Sorcery)))
             {
                 return Err("unsupported permanent/spell target filter".into());
             }
@@ -669,6 +696,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
         p.functioning_zone == FunctioningZone::Stack
             && p.timing == cast_timing
             && p.resolution == SpellResolution::Permanent
+            && !p.optional_target
             && (if c.subtypes == ["Aura"] {
                 enchant_target(&p.targets)
             } else {
@@ -1111,6 +1139,7 @@ mod tests {
             timing: SpellTiming::Instant,
             resolution: SpellResolution::Instructions,
             functioning_zone: FunctioningZone::Stack,
+            optional_target: false,
             targets,
             instructions,
         }
