@@ -28,8 +28,18 @@ mod tests;
 pub(super) struct Card<'a> {
     pub kind: CardKind,
     pub additional_types: &'a [CardKind],
+    pub subtypes: &'a [String],
 }
 impl Card<'_> {
+    /// CR 301.5, 303.4: an Equipment is attached as equipment and an Aura as
+    /// an enchantment; the reviewed host rows name a sole subtype.
+    pub fn attaches_as(&self, kind: kir::AttachmentKind) -> bool {
+        self.subtypes
+            == [match kind {
+                kir::AttachmentKind::Equipped => "Equipment",
+                kir::AttachmentKind::Enchanted => "Aura",
+            }]
+    }
     fn has_type(&self, kind: CardKind) -> bool {
         self.kind == kind || self.additional_types.contains(&kind)
     }
@@ -349,13 +359,11 @@ fn trigger(
         block,
         &mut BTreeMap::new(),
         Context::Triggered,
-        |typed| validate_trigger_damage_sources(&event, typed),
+        |typed| validate_trigger_damage_sources(&TriggerCondition::on(event.clone()), typed),
     )?;
     Ok(TriggeredAbility {
         functioning_zone: FunctioningZone::Battlefield,
-        condition: event,
-        intervening_if: None,
-        death_filter: None,
+        condition: TriggerCondition::on(event),
         program,
     })
 }
@@ -556,9 +564,11 @@ fn compose(
     let (mut definition, mut labels) =
         assemble::shell(archive, r, source, &result, types, ast_sha256)?;
     let additional_types = definition.characteristics.additional_types.clone();
+    let subtypes = definition.characteristics.subtypes.clone();
     let card = Card {
         kind,
         additional_types: &additional_types,
+        subtypes: &subtypes,
     };
     // CR 115.3: each printed block announces its own target occurrences.
     let mut slots = BTreeMap::new();

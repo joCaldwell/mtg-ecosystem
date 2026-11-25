@@ -1,4 +1,7 @@
 use super::*;
+use crate::query::{self, ObjectFacts, Tri};
+use mtg_contracts::kir::{self, Atom, EventPattern, PlayerExpr, Pred, Ref};
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -82,7 +85,9 @@ testkit_fields! {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TriggerEventWitness {
-    ControlledLandEntered {
+    /// CR 603.6a, 603.10: an entry whose pattern read the entering
+    /// permanent's characteristics, with the facts it was matched on.
+    Entered {
         movement: Option<MoveOutcome>,
         entrant: Box<ObjectBefore>,
     },
@@ -124,7 +129,7 @@ pub enum TriggerEventWitness {
 impl TriggerEventWitness {
     pub fn subject(&self) -> Option<ObjectId> {
         match self {
-            Self::ControlledLandEntered { entrant, .. } => Some(entrant.object),
+            Self::Entered { entrant, .. } => Some(entrant.object),
             Self::Moved { movement: m } => Some(if m.destination == Zone::Battlefield {
                 m.successor
             } else {
@@ -149,64 +154,116 @@ impl TriggerEventWitness {
     fn enters(&self) -> bool {
         matches!(
             self,
-            Self::TokenEntered { .. } | Self::ControlledLandEntered { .. }
+            Self::TokenEntered { .. } | Self::Entered { .. }
         ) || matches!(self, Self::Moved { movement: m } if m.destination == Zone::Battlefield && m.from != Zone::Battlefield)
     }
 }
-// CR 109.5/603.3a/603.10: an ordinary trigger observes its source's
-// controller at the occurrence, independently of the controller of the damage
-// invocation and of assignment-time source facts. Restore uses that frozen
-// trigger controller, never a later controller or current recipient liveness.
-// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-pub fn damage_matches(
-    condition: &TriggerCondition,
-    source: ObjectId,
-    controller: PlayerId,
-    kind: DamageKind,
-    damage: &ActualDamage,
-    match_source: Option<&ObjectBefore>,
-) -> bool {
-    let TriggerCondition::DamageDealt {
-        source: subject,
-        kind: required_kind,
-        recipient,
-    } = condition
-    else {
-        return false;
-    };
-    let subject_matches = match subject {
-        DamageTriggerSource::Source {} => match_source.is_none() && damage.source.object == source,
-        DamageTriggerSource::CreatureFilter {
-            controller: relation,
-            types,
-        } => {
-            // CR 109.2/109.5/603.10: "creature" describes a permanent at
-            // matching, not an absent assigned source or its earlier grants.
-            // This appearance freezes once collected, independently of later
-            // departures and of the damage invocation's controller.
-            match_source.is_some_and(|appearance| {
-                appearance.object == damage.source.object
-                    && appearance.zone == Zone::Battlefield
-                    && appearance.characteristics.has_type(CardKind::Creature)
-                    && types.matches(&appearance.characteristics)
-                    && match relation {
-                        DamageSourceRelation::Controller => appearance.controller == controller,
-                    }
-            })
-        }
-    };
-    subject_matches
-        && damage.amount > Quantity::zero()
-        && matches!(
-            (required_kind, kind),
-            (TriggerDamageKind::Any, _) | (TriggerDamageKind::Combat, DamageKind::Combat)
-        )
-        && matches!(damage.recipient, DamageRecipient::Player { player }
-        if match recipient {
-            DamageTriggerRecipient::Player => true,
-            DamageTriggerRecipient::OpponentPlayer => player != controller,
-        })
+/// CR 603.10: the facts an event froze for its object, read as the object
+/// was at that moment: the entering permanent, the declared attacker, the
+/// cast spell or the damage source's battlefield appearance.
+struct Frozen<'a> {
+    facts: &'a ObjectBefore,
+    token: bool,
+    live: bool,
 }
+
+impl ObjectFacts for Frozen<'_> {
+    fn zone(&self) -> Zone {
+        self.facts.zone
+    }
+    fn owner(&self) -> Option<PlayerId> {
+        Some(self.facts.owner)
+    }
+    fn controller(&self) -> PlayerId {
+        self.facts.controller
+    }
+    fn phased_out(&self) -> bool {
+        false
+    }
+    fn tapped(&self) -> bool {
+        self.facts.tapped
+    }
+    fn is_token(&self) -> bool {
+        self.token
+    }
+    fn copiable(&self) -> Option<Cow<'_, Characteristics>> {
+        Some(Cow::Borrowed(&self.facts.characteristics))
+    }
+    fn structural(&self) -> Option<Cow<'_, Characteristics>> {
+        Some(Cow::Borrowed(&self.facts.characteristics))
+    }
+    fn current(&self) -> Option<Cow<'_, Characteristics>> {
+        Some(Cow::Borrowed(&self.facts.characteristics))
+    }
+    fn derived(&self) -> Option<Cow<'_, Characteristics>> {
+        Some(Cow::Borrowed(&self.facts.characteristics))
+    }
+    fn has_keyword(&self, keyword: KeywordAbility) -> Tri {
+        self.facts.keywords.contains(&keyword).into()
+    }
+    fn controller_is_live(&self) -> Tri {
+        self.live.into()
+    }
+    fn attacking(&self) -> Tri {
+        Tri::Unknown
+    }
+    fn blocking(&self) -> Tri {
+        Tri::Unknown
+    }
+}
+
+/// CR 603.2: whether an event's object `subject` satisfies an event
+/// predicate for an ability controlled by `you`. `identity` resolves the
+/// source and its host; `facts` are the object's facts at the event, absent
+/// when only identity is compared.
+fn holds<F: ObjectFacts>(
+    pred: &Pred,
+    facts: Option<&F>,
+    you: PlayerId,
+    subject: ObjectId,
+    identity: &impl Fn(&Ref) -> Option<ObjectId>,
+) -> bool {
+    pred.0.iter().all(|atom| match atom {
+        Atom::Is { object } => identity(object) == Some(subject),
+        Atom::IsNot { object } => identity(object) != Some(subject),
+        Atom::AnyOf { alternatives } => alternatives
+            .iter()
+            .any(|p| holds(p, facts, you, subject, identity)),
+        _ => facts.is_some_and(|f| query::matches_atom(f, you, atom) == Tri::Yes),
+    })
+}
+
+/// The identity atoms alone: what a snapshot can recheck for an event that
+/// retained no facts for its object.
+fn identity_holds(
+    pred: &Pred,
+    subject: ObjectId,
+    identity: &impl Fn(&Ref) -> Option<ObjectId>,
+) -> bool {
+    pred.0.iter().all(|atom| match atom {
+        Atom::Is { object } => identity(object) == Some(subject),
+        Atom::IsNot { object } => identity(object) != Some(subject),
+        Atom::AnyOf { alternatives } => alternatives
+            .iter()
+            .any(|p| identity_holds(p, subject, identity)),
+        _ => true,
+    })
+}
+
+/// CR 109.5, 102.3, 800.4j: whether the event's player is in an event
+/// player expression. Each player also matches a turn without an active
+/// player; "you" and "an opponent" need that player.
+fn player_in(expr: &PlayerExpr, player: Option<PlayerId>, you: PlayerId) -> bool {
+    match expr {
+        PlayerExpr::EachPlayer => true,
+        PlayerExpr::EachOpponent => player.is_some_and(|p| p != you),
+        PlayerExpr::Is {
+            who: Ref::Controller { .. },
+        } => player == Some(you),
+        _ => false,
+    }
+}
+
 fn step_matches(step: BeginningStep, turn: &TurnState) -> bool {
     matches!(
         (step, turn.step),
@@ -216,75 +273,78 @@ fn step_matches(step: BeginningStep, turn: &TurnState) -> bool {
             | (BeginningStep::End, TurnStep::End)
     )
 }
-fn relation_matches(
-    relation: TurnRelation,
-    active: Option<PlayerId>,
-    controller: PlayerId,
-) -> bool {
-    // CR 800.4j: the turn continues without an active player. Unqualified
-    // "each upkeep" still matches; "your" and "opponent's" need that player.
-    match relation {
-        TurnRelation::AnyPlayer => true,
-        TurnRelation::Controller => active == Some(controller),
-        TurnRelation::Opponent => active.is_some_and(|p| p != controller),
-    }
-}
-fn caster_matches(relation: CasterRelation, caster: PlayerId, controller: PlayerId) -> bool {
-    match relation {
-        CasterRelation::AnyPlayer => true,
-        CasterRelation::Controller => caster == controller,
-        CasterRelation::Opponent => caster != controller,
-    }
-}
-// CR 603.10a: callers select the pre-event battlefield for a death and
-// the resulting battlefield for combat. Only the exact attached incarnation matches.
-fn attachment_subject(event: AttachmentEvent, witness: &TriggerEventWitness) -> Option<ObjectId> {
-    match (event, witness) {
-        (AttachmentEvent::Attacks, TriggerEventWitness::CreatureAttacked { attacker, .. }) => {
-            Some(attacker.object)
-        }
-        (AttachmentEvent::Dies, TriggerEventWitness::Moved { movement }) if witness.dies() => {
-            Some(movement.previous)
-        }
-        (
-            AttachmentEvent::CombatDamageToPlayer,
-            TriggerEventWitness::DamageDealt {
-                kind: DamageKind::Combat,
-                damage,
-                ..
-            },
-        ) if damage.amount > Quantity::zero()
-            && matches!(damage.recipient, DamageRecipient::Player { .. }) =>
-        {
-            Some(damage.source.object)
-        }
-        _ => None,
-    }
-}
 
-fn attack_matches(
-    predicate: &AttackSubject,
+// CR 109.5/603.3a/603.10: an ordinary trigger observes its source's
+// controller at the occurrence, independently of the controller of the damage
+// invocation and of assignment-time source facts. A pattern that reads the
+// source's characteristics reads its live, nontoken battlefield appearance;
+// one that only compares identity reads the actual damage source.
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub fn damage_matches(
+    condition: &TriggerCondition,
     source: ObjectId,
     controller: PlayerId,
-    attacker: &ObjectBefore,
+    kind: DamageKind,
+    damage: &ActualDamage,
+    match_source: Option<&ObjectBefore>,
 ) -> bool {
-    if !attacker.characteristics.has_type(CardKind::Creature) {
+    let EventPattern::DealsDamage {
+        source: pred,
+        combat,
+        recipient,
+    } = condition.pattern()
+    else {
         return false;
-    }
-    match predicate {
-        AttackSubject::Source {} => attacker.object == source,
-        AttackSubject::Filter {
-            controller: relation,
-            types,
-        } => {
-            (match relation {
-                AttackerRelation::AnyPlayer => true,
-                AttackerRelation::Controller => attacker.controller == controller,
-                AttackerRelation::Opponent => attacker.controller != controller,
-            }) && types.matches(&attacker.characteristics)
+    };
+    let identity = |r: &Ref| (*r == Ref::Source).then_some(source);
+    damage.amount > Quantity::zero()
+        && (!*combat || kind == DamageKind::Combat)
+        && matches!(damage.recipient, DamageRecipient::Player { player }
+            if player_in(recipient, Some(player), controller))
+        && if pred.reads_characteristics() {
+            match_source.is_some_and(|appearance| {
+                appearance.object == damage.source.object
+                    && appearance.zone == Zone::Battlefield
+                    && holds(
+                        pred,
+                        Some(&Frozen {
+                            facts: appearance,
+                            token: false,
+                            live: true,
+                        }),
+                        controller,
+                        appearance.object,
+                        &identity,
+                    )
+            })
+        } else {
+            match_source.is_none() && identity_holds(pred, damage.source.object, &identity)
         }
-    }
 }
+
+/// CR 603.10a: a trigger on an opponent's creature dying freezes that
+/// creature's last controller with the invocation.
+pub(crate) fn binds_death_controller(ability: &TriggeredAbility) -> bool {
+    *ability.condition.pattern() == EventPattern::opponent_creature_dies()
+}
+
+/// The entry evidence of an entering permanent whose characteristics a
+/// pattern read (CR 603.6a, 603.10).
+fn entry_witness(
+    entrant: &ObjectBefore,
+    witness: &TriggerEventWitness,
+) -> Result<TriggerEventWitness, String> {
+    let movement = match witness {
+        TriggerEventWitness::Moved { movement } => Some(movement.clone()),
+        TriggerEventWitness::TokenEntered { .. } => None,
+        _ => return Err("missing actual entry movement".into()),
+    };
+    Ok(TriggerEventWitness::Entered {
+        movement,
+        entrant: Box::new(entrant.clone()),
+    })
+}
+
 fn movement(outcome: &EventOutcome) -> Option<&MoveOutcome> {
     match outcome {
         EventOutcome::EnteredAttached { movement, .. }
@@ -313,7 +373,12 @@ impl RulesTxn {
                 .copiable_definition(object)?
                 .triggered
                 .iter()
-                .any(|ability| ability.condition == TriggerCondition::SelfBecomesTapped))
+                .any(|ability| {
+                    matches!(
+                        ability.condition.pattern(),
+                        EventPattern::BecomesTapped { .. }
+                    )
+                }))
         .then_some(TriggerEventWitness::Tapped {
             object,
             controller: current.controller,
@@ -590,11 +655,10 @@ impl RulesTxn {
         } else {
             &*self
         };
-        let creature = subject.is_some_and(|o| observers.target_is_creature(o));
         // Capture from the actual event's resulting game, including genuine
         // legacy leaves. Prepared damage retains assignment-time facts, while
-        // a creature filter requires this exact incarnation still on the
-        // battlefield under the continuous effects that exist now (603.10).
+        // a damage source's predicate reads this exact incarnation still on
+        // the battlefield under the continuous effects that exist now (603.10).
         let damage_match_source = match &witness {
             TriggerEventWitness::DamageDealt { damage, .. }
                 if observers
@@ -605,6 +669,18 @@ impl RulesTxn {
             }
             _ => None,
         };
+        // CR 700.4, 603.10a: a dying object is read on the battlefield
+        // immediately before the event.
+        let dying = if dies {
+            let subject = subject.ok_or("missing object trigger subject")?;
+            observers
+                .current(subject)
+                .ok()
+                .filter(|o| o.present_on_battlefield())
+        } else {
+            None
+        };
+        let token = |object: ObjectId| observers.state.rules.tokens.contains_key(&object.card);
         let mut matched = vec![];
         // Filled once per actual entry, only for observers that need its characteristics.
         let mut entry_facts = None;
@@ -616,6 +692,12 @@ impl RulesTxn {
             .filter(|o| o.present_on_battlefield())
             .filter(|o| !matches!(&witness, TriggerEventWitness::Tapped { object, .. } if o.id != *object))
         {
+            let you = object.controller;
+            let identity = |r: &Ref| match r {
+                Ref::Source => Some(object.id),
+                Ref::AttachedTo => object.attached_to,
+                _ => None,
+            };
             for (ability, definition) in observers
                 .copiable_definition(object.id)?
                 .triggered
@@ -623,90 +705,81 @@ impl RulesTxn {
                 .enumerate()
             {
                 let mut entry_witness = None;
-                let matches = match &definition.condition {
-                    TriggerCondition::AttachedCreature { event, .. } => object.attached_to.is_some_and(|host| {
-                        attachment_subject(*event, &witness) == Some(host) && observers.target_is_creature(host)
-                    }),
-                    TriggerCondition::ControlledLandEntersBattlefield => {
-                        if enters && entry_facts.is_none() {
-                            entry_facts = Some(observers.object_before(
-                                subject.ok_or("missing land entrant identity")?,
-                            )?);
-                        }
-                        if let Some(entrant) = &entry_facts
-                            && controlled_land_entry::matches(entrant, object.controller)
-                        {
-                            entry_witness = Some(controlled_land_entry::entry_witness(entrant, &witness)?);
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    TriggerCondition::DamageDealt { source, .. } => {
-                        let appearance = match source {
-                            DamageTriggerSource::Source {} => None,
-                            DamageTriggerSource::CreatureFilter { .. } => {
-                                damage_match_source.as_deref()
+                let pattern = definition.condition.pattern();
+                let matches = match pattern {
+                    EventPattern::Enters { object: pred } => enters && {
+                        let subject = subject.ok_or("missing entrant identity")?;
+                        if pred.reads_characteristics() {
+                            if entry_facts.is_none() {
+                                entry_facts = Some(observers.object_before(subject)?);
                             }
-                        };
-                        matches!(&witness, TriggerEventWitness::DamageDealt { kind, damage, .. }
-                            if damage_matches(&definition.condition, object.id, object.controller, *kind, damage, appearance))
+                            let entrant = entry_facts.as_ref().ok_or("missing entrant facts")?;
+                            let facts = Frozen {
+                                facts: entrant,
+                                token: token(subject),
+                                live: observers.is_live(entrant.controller),
+                            };
+                            let found = entrant.zone == Zone::Battlefield
+                                && holds(pred, Some(&facts), you, subject, &identity);
+                            if found {
+                                entry_witness = Some(self::entry_witness(entrant, &witness)?);
+                            }
+                            found
+                        } else {
+                            holds(pred, None::<&Frozen>, you, subject, &identity)
+                        }
+                    },
+                    EventPattern::Dies { object: pred } => dying.is_some_and(|dying| {
+                        holds(pred, Some(&observers.object_facts(dying)), you, dying.id, &identity)
+                    }),
+                    EventPattern::BecomesTapped { object: pred } => {
+                        matches!(&witness, TriggerEventWitness::Tapped { object: tapped, .. }
+                            if observers.current(*tapped).is_ok_and(|t| {
+                                holds(pred, Some(&observers.object_facts(t)), you, *tapped, &identity)
+                            }))
                     }
-                    TriggerCondition::CreatureAttacked {
-                        attacker: predicate,
-                    } => {
+                    EventPattern::Attacks { attacker: pred } => {
                         matches!(&witness, TriggerEventWitness::CreatureAttacked { attacker, .. }
-                            if attack_matches(predicate, object.id, object.controller, attacker))
+                            if holds(pred, Some(&Frozen {
+                                facts: attacker,
+                                token: token(attacker.object),
+                                live: observers.is_live(attacker.controller),
+                            }), you, attacker.object, &identity))
                     }
-                    TriggerCondition::SpellCast { caster, spell } => {
+                    EventPattern::Cast { caster, spell } => {
                         matches!(&witness, TriggerEventWitness::SpellCast { cast }
-                            if caster_matches(*caster, cast.caster, object.controller)
-                                && spell.matches(&cast.spell.characteristics))
+                            if player_in(caster, Some(cast.caster), you)
+                                && holds(spell, Some(&Frozen {
+                                    facts: &cast.spell,
+                                    token: false,
+                                    live: observers.is_live(cast.caster),
+                                }), you, cast.spell.object, &identity))
                     }
-                    TriggerCondition::StepBegan {
-                        step,
-                        turn_relation,
+                    EventPattern::StepBegins { step, active: player } => {
+                        matches!(&witness, TriggerEventWitness::StepBegan { turn, active, .. }
+                            if step_matches(*step, turn) && player_in(player, *active, you))
+                    }
+                    EventPattern::DealsDamage {
+                        source: pred,
+                        combat,
+                        recipient,
                     } => {
-                        matches!(&witness, TriggerEventWitness::StepBegan { turn, active, .. } if step_matches(*step, turn) && relation_matches(*turn_relation, *active, object.controller))
-                    }
-                    TriggerCondition::OpponentCreatureDies => {
-                        creature
-                            && dies
-                            && observers
-                                .current(subject.ok_or("missing object trigger subject")?)
-                                .is_ok_and(|s| s.controller != object.controller)
-                    }
-                    TriggerCondition::SelfDies => creature && dies && Some(object.id) == subject,
-                    TriggerCondition::SelfBecomesTapped => {
-                        matches!(&witness, TriggerEventWitness::Tapped { object: tapped, .. } if *tapped == object.id)
-                    }
-                    TriggerCondition::AnyCreatureDies => creature && dies,
-                    TriggerCondition::SelfEntersBattlefield => enters && Some(object.id) == subject,
-                    TriggerCondition::OtherCreatureEntersBattlefield => {
-                        creature && enters && Some(object.id) != subject
+                        matches!(&witness, TriggerEventWitness::DamageDealt { kind, damage, .. }
+                            if damage.amount > Quantity::zero()
+                                && (!*combat || *kind == DamageKind::Combat)
+                                && matches!(damage.recipient, DamageRecipient::Player { player }
+                                    if player_in(recipient, Some(player), you))
+                                && damage_match_source.as_deref().is_some_and(|appearance| {
+                                    appearance.object == damage.source.object
+                                        && appearance.zone == Zone::Battlefield
+                                        && holds(pred, Some(&Frozen {
+                                            facts: appearance,
+                                            token: token(appearance.object),
+                                            live: observers.is_live(appearance.controller),
+                                        }), you, appearance.object, &identity)
+                                }))
                     }
                 };
-                let matches = matches
-                    && definition.death_filter.as_ref().is_none_or(|f| {
-                        let Some(subject) = subject else {
-                            return false;
-                        };
-                        let Ok(dying) = observers.current(subject) else {
-                            return false;
-                        };
-                        let Ok(d) = observers.copiable_definition(subject) else {
-                            return false;
-                        };
-                        (!f.controlled || dying.controller == object.controller)
-                            && (!f.other || subject != object.id)
-                            && (!f.non_token
-                                || !observers.state.rules.tokens.contains_key(&subject.card))
-                            && !d
-                                .characteristics
-                                .subtypes
-                                .iter()
-                                .any(|s| f.non_subtypes.contains(s))
-                    });
                 if matches
                     && matches!((definition.functioning_zone, object.zone), (FunctioningZone::Battlefield, Zone::Battlefield) | (FunctioningZone::Stack, Zone::Stack))
                     && observers.is_live(object.controller)
@@ -715,20 +788,17 @@ impl RulesTxn {
                     if let TriggerEventWitness::DamageDealt { match_source, .. } =
                         &mut matched_witness
                     {
-                        *match_source = if matches!(
-                            definition.condition,
-                            TriggerCondition::DamageDealt {
-                                source: DamageTriggerSource::CreatureFilter { .. },
-                                ..
-                            }
-                        ) {
+                        // The appearance is evidence only when the pattern
+                        // read the source's characteristics.
+                        *match_source = if pattern.object().is_some_and(Pred::reads_characteristics) {
                             damage_match_source.clone()
                         } else {
                             None
                         };
                     }
+                    let intervening = choices::intervening(definition)?;
                     matched.push((
-                        if definition.condition == TriggerCondition::OpponentCreatureDies {
+                        if binds_death_controller(definition) {
                             Some(
                                 observers
                                     .current(subject.ok_or("missing object trigger subject")?)?
@@ -739,8 +809,7 @@ impl RulesTxn {
                         },
                         observers.object_before(object.id)?,
                         EffectiveTriggerAbility::Intrinsic { index: u32::try_from(ability).map_err(|_| "trigger ability index limit")? },
-                        definition
-                            .intervening_if
+                        intervening
                             .as_ref()
                             .map(|condition| {
                                 observers.check_intervening(
@@ -748,7 +817,7 @@ impl RulesTxn {
                                     object.controller,
                                     object.id,
                                     &observers.object_before(object.id)?,
-                                    if *condition == InterveningCondition::SourceCastByController {
+                                    if *condition == kir::Intervening::SourceCastByController {
                                         before.and_then(|(prior, cause)| prior.completed_entry_cast(cause, &witness))
                                     } else {
                                         None
@@ -1225,7 +1294,7 @@ impl RulesTxn {
             || fact.default_controller.0 >= 4
             || definition.functioning_zone != FunctioningZone::Battlefield
             || fact.zone != Zone::Battlefield
-            || (definition.condition == TriggerCondition::SelfEntersBattlefield
+            || (*definition.condition.pattern() == EventPattern::self_enters()
                 && fact.controller != controller)
             || handles.len() != 4
         {
@@ -1318,12 +1387,31 @@ impl RulesTxn {
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
         let definition = self.effective_trigger(source, ability)?;
-
-        let condition = &definition.condition;
+        let pattern = definition.condition.pattern();
         // The accepted-input journal authenticates the historical attachment;
-        // an observer can move to another creature before its ability resolves.
-        let host_match = matches!(condition, TriggerCondition::AttachedCreature { event, .. }
-            if attachment_subject(*event, witness).is_some_and(|host| host != source));
+        // an observer can move to another creature before its ability resolves,
+        // so a host is any object other than the source itself.
+        let identity = |subject: ObjectId| {
+            move |r: &Ref| match r {
+                Ref::Source => Some(source),
+                Ref::AttachedTo => (subject != source).then_some(subject),
+                _ => None,
+            }
+        };
+        let token = |object: ObjectId| self.state.rules.tokens.contains_key(&object.card);
+        let frozen = |facts| Frozen {
+            facts,
+            token: token(facts.object),
+            live: self.is_live(facts.controller),
+        };
+        // CR 700.4: a pattern that names a creature reviewed the dying or
+        // entering card as a creature card.
+        let creature_card = |pred: &Pred, object: ObjectId| -> Result<bool, String> {
+            Ok(!pred.0.contains(&Atom::Type {
+                kind: CardKind::Creature,
+            }) || self.copiable_definition(object)?.characteristics.kind == CardKind::Creature)
+        };
+        let binds = binds_death_controller(&definition);
         let valid = match witness {
             TriggerEventWitness::DamageDealt {
                 kind,
@@ -1365,15 +1453,18 @@ impl RulesTxn {
                         .get(&fact.object.card)
                         .is_some_and(|c| c.owner == fact.owner)
                     && matches!(damage.recipient, DamageRecipient::Player { player } if player.0 < 4)
-                    && ((host_match && match_source.is_none())
-                        || damage_matches(
-                            condition,
-                            source,
-                            controller,
-                            *kind,
-                            damage,
-                            match_source.as_deref(),
-                        ))
+                    && matches!(pattern, EventPattern::DealsDamage { source: pred, combat, recipient }
+                        if (!*combat || *kind == DamageKind::Combat)
+                            && matches!(damage.recipient, DamageRecipient::Player { player }
+                                if player_in(recipient, Some(player), controller))
+                            && match match_source {
+                                Some(appearance) => pred.reads_characteristics()
+                                    && appearance.zone == Zone::Battlefield
+                                    && holds(pred, Some(&frozen(appearance)), controller,
+                                        fact.object, &identity(fact.object)),
+                                None => !pred.reads_characteristics()
+                                    && identity_holds(pred, fact.object, &identity(fact.object)),
+                            })
                     && death_controller.is_none()
                 // No live source/recipient or current combat requirement. CR
                 // 113.7a/800.4 preserve a surviving controller's invocation.
@@ -1400,9 +1491,10 @@ impl RulesTxn {
                         .cards
                         .get(&attacker.object.card)
                         .is_some_and(|c| c.owner == attacker.owner)
-                    && (host_match
-                        || matches!(condition, TriggerCondition::CreatureAttacked { attacker: predicate }
-                        if attack_matches(predicate, source, controller, attacker)))
+                    && attacker.characteristics.has_type(CardKind::Creature)
+                    && matches!(pattern, EventPattern::Attacks { attacker: pred }
+                        if holds(pred, Some(&frozen(attacker)), controller, attacker.object,
+                            &identity(attacker.object)))
                     && death_controller.is_none()
                 // Deliberately no current combat/player-liveness requirement:
                 // CR 113.7a/800.4 preserve a surviving controller's invocation.
@@ -1410,9 +1502,11 @@ impl RulesTxn {
             }
             TriggerEventWitness::SpellCast { cast } => {
                 self.valid_cast_facts(cast)?
-                    && matches!(condition, TriggerCondition::SpellCast { caster, spell }
-                        if caster_matches(*caster, cast.caster, controller)
-                            && spell.matches(&cast.spell.characteristics))
+                    && matches!(pattern, EventPattern::Cast { caster, spell }
+                        if player_in(caster, Some(cast.caster), controller)
+                            && holds(spell, Some(&Frozen { facts: &cast.spell, token: false,
+                                live: self.is_live(cast.caster) }), controller,
+                                cast.spell.object, &identity(cast.spell.object)))
                     && death_controller.is_none()
             }
 
@@ -1425,7 +1519,8 @@ impl RulesTxn {
                     && turn.number <= self.state.rules.turn.number
                     && owner.0 < 4
                     && active.is_none_or(|p| p == *owner)
-                    && matches!(condition, TriggerCondition::StepBegan { step, turn_relation } if step_matches(*step, turn) && relation_matches(*turn_relation, *active, controller))
+                    && matches!(pattern, EventPattern::StepBegins { step, active: player }
+                        if step_matches(*step, turn) && player_in(player, *active, controller))
                     && death_controller.is_none()
             }
             TriggerEventWitness::TokenEntered { object } => {
@@ -1435,61 +1530,59 @@ impl RulesTxn {
                     .get(&object.card)
                     .is_some_and(|t| !t.is_copy())
                     && object.incarnation == 0
-                    && *condition == TriggerCondition::OtherCreatureEntersBattlefield
-                    && *object != source
+                    && matches!(pattern, EventPattern::Enters { object: pred }
+                        if !pred.reads_characteristics()
+                            && identity_holds(pred, *object, &identity(*object)))
+                    && death_controller.is_none()
             }
             TriggerEventWitness::Tapped {
                 object,
                 controller: at_tap,
             } => {
-                *condition == TriggerCondition::SelfBecomesTapped
+                matches!(pattern, EventPattern::BecomesTapped { object: pred }
+                    if pred.is_ref(Ref::Source) && identity_holds(pred, *object, &identity(*object)))
                     && *object == source
                     && *at_tap == controller
                     && death_controller.is_none()
             }
-            TriggerEventWitness::ControlledLandEntered { entrant, movement } => {
-                *condition == TriggerCondition::ControlledLandEntersBattlefield
-                    && death_controller.is_none()
+            TriggerEventWitness::Entered { entrant, movement } => {
+                death_controller.is_none()
                     && self.valid_entry_subject(entrant, movement.as_ref())?
-                    && controlled_land_entry::matches(entrant, controller)
+                    && entrant.zone == Zone::Battlefield
+                    && matches!(pattern, EventPattern::Enters { object: pred }
+                        if pred.reads_characteristics()
+                            && holds(pred, Some(&frozen(entrant)), controller, entrant.object,
+                                &identity(entrant.object)))
             }
             TriggerEventWitness::Moved { movement: m } => {
+                let subject = if witness.enters() {
+                    m.successor
+                } else {
+                    m.previous
+                };
                 self.state.rules.cards.contains_key(&m.previous.card)
                     && m.successor.card == m.previous.card
                     && m.previous.incarnation.checked_add(1) == Some(m.successor.incarnation)
-                    && (match condition {
-                        TriggerCondition::StepBegan { .. }
-                        | TriggerCondition::SpellCast { .. }
-                        | TriggerCondition::CreatureAttacked { .. }
-                        | TriggerCondition::DamageDealt { .. }
-                        | TriggerCondition::SelfBecomesTapped
-                        | TriggerCondition::ControlledLandEntersBattlefield => false,
-                        TriggerCondition::AttachedCreature { .. } => {
-                            host_match && death_controller.is_none()
-                        }
-                        TriggerCondition::SelfDies => witness.dies() && m.previous == source,
-                        TriggerCondition::OpponentCreatureDies => {
+                    && (match pattern {
+                        EventPattern::Dies { object: pred } => {
                             witness.dies()
-                                && death_controller.is_some_and(|p| p.0 < 4 && p != controller)
+                                && identity_holds(pred, subject, &identity(subject))
+                                && creature_card(pred, subject)?
+                                && if binds {
+                                    death_controller.is_some_and(|p| p.0 < 4 && p != controller)
+                                } else {
+                                    !pred.is_ref(Ref::AttachedTo) || death_controller.is_none()
+                                }
                         }
-                        TriggerCondition::AnyCreatureDies => witness.dies(),
-                        TriggerCondition::SelfEntersBattlefield => {
-                            witness.enters() && m.successor == source
+                        // An entry whose pattern read characteristics
+                        // retains them as `Entered`.
+                        EventPattern::Enters { object: pred } => {
+                            witness.enters()
+                                && !pred.reads_characteristics()
+                                && identity_holds(pred, subject, &identity(subject))
                         }
-                        TriggerCondition::OtherCreatureEntersBattlefield => {
-                            witness.enters() && m.successor != source
-                        }
+                        _ => false,
                     })
-                    && (*condition == TriggerCondition::SelfEntersBattlefield
-                        || self
-                            .copiable_definition(if witness.enters() {
-                                m.successor
-                            } else {
-                                m.previous
-                            })?
-                            .characteristics
-                            .kind
-                            == CardKind::Creature)
             }
         };
         if !valid {

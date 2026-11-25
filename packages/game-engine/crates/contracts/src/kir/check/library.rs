@@ -160,7 +160,8 @@ impl Walk<'_, '_> {
                 | Atom::NotKeyword { .. }
                 | Atom::ControlledBy { .. }
                 | Atom::OwnedBy { .. }
-                | Atom::IsNot { .. } => return unaudited("library card filter atom"),
+                | Atom::IsNot { .. }
+                | Atom::Is { .. } => return unaudited("library card filter atom"),
             }
         }
         Ok(())

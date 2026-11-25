@@ -1,6 +1,6 @@
 //! KIR checker cells: admitted and rejected verbs, operands, scopes and tags.
 use super::*;
-use crate::{BeginningStep, CasterRelation, PermanentFilter, TurnRelation, TypePredicate};
+use crate::{BeginningStep, PermanentFilter};
 
 fn spell<'a>(targets: &'a [TargetSpec]) -> Env<'a> {
     Env {
@@ -78,14 +78,15 @@ fn target_references_need_an_announced_slot_of_the_right_kind() {
 #[test]
 fn event_players_exist_only_for_events_that_supply_the_role() {
     let caster = gain(PlayerExpr::event(EventPlayerRole::Caster), Amount::fixed(1));
-    let cast = TriggerCondition::SpellCast {
-        caster: CasterRelation::AnyPlayer,
-        spell: TypePredicate::Any {},
-    };
-    let step = TriggerCondition::StepBegan {
+    let cast = TriggerCondition::on(EventPattern::Cast {
+        caster: PlayerExpr::EachPlayer,
+        spell: Pred::default(),
+    });
+    let step = TriggerCondition::on(EventPattern::StepBegins {
         step: BeginningStep::Upkeep,
-        turn_relation: TurnRelation::AnyPlayer,
-    };
+        active: PlayerExpr::EachPlayer,
+    });
+    let self_dies = TriggerCondition::on(EventPattern::self_dies());
     let triggered = |event| Env {
         context: Context::Triggered,
         targets: &[],
@@ -110,7 +111,7 @@ fn event_players_exist_only_for_events_that_supply_the_role() {
     );
     assert!(check(&active, &triggered(Some(&step))).is_ok());
     assert!(matches!(
-        check(&caster, &triggered(Some(&TriggerCondition::SelfDies))),
+        check(&caster, &triggered(Some(&self_dies))),
         Err(KirError::Scope(_))
     ));
     assert!(matches!(
@@ -1138,10 +1139,8 @@ fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
     // definition at executes, whatever its surfaces earned.
     bears.keywords.clear();
     bears.triggered.push(crate::TriggeredAbility {
-        death_filter: None,
         functioning_zone: crate::FunctioningZone::Battlefield,
-        condition: TriggerCondition::SelfEntersBattlefield,
-        intervening_if: None,
+        condition: TriggerCondition::on(EventPattern::self_enters()),
         program: crate::SpellProgram {
             optional_additional_costs: vec![],
             additional_sacrifice: None,

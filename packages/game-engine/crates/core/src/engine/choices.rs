@@ -69,14 +69,14 @@ impl InterveningCheck {
     }
     fn validates(
         &self,
-        condition: &InterveningCondition,
+        condition: &mtg_contracts::kir::Intervening,
         controller: PlayerId,
         source: ObjectId,
         hand_limit: u32,
     ) -> bool {
         match (condition, self) {
             (
-                InterveningCondition::SourceCastByController,
+                mtg_contracts::kir::Intervening::SourceCastByController,
                 Self::SourceCastByController {
                     entrant,
                     controller: checked,
@@ -92,7 +92,7 @@ impl InterveningCheck {
                     })
             }
             (
-                InterveningCondition::ControllerHandEmpty,
+                mtg_contracts::kir::Intervening::ControllerHandEmpty,
                 Self::ControllerHandEmpty {
                     controller: c,
                     hand_count,
@@ -100,7 +100,7 @@ impl InterveningCheck {
                 },
             ) => *c == controller && *hand_count <= hand_limit && *passed == (*hand_count == 0),
             (
-                InterveningCondition::SourceStatus { status },
+                mtg_contracts::kir::Intervening::SourceTapped { tapped: wanted },
                 Self::SourceStatus {
                     controller: c,
                     source: s,
@@ -112,11 +112,11 @@ impl InterveningCheck {
             ) => {
                 *c == controller
                     && *s == source
-                    && *expected == *status
-                    && *passed == status.matches(*tapped)
+                    && *expected == tap_status(*wanted)
+                    && *passed == (*wanted == *tapped)
             }
             (
-                InterveningCondition::ControllerHasCreatureWithPower { minimum_power },
+                mtg_contracts::kir::Intervening::ControllerHasCreatureWithPower { minimum_power },
                 Self::ControllerHasCreatureWithPower {
                     controller: c,
                     minimum_power: recorded,
@@ -131,6 +131,24 @@ impl InterveningCheck {
             }
             _ => false,
         }
+    }
+}
+/// CR 603.4: the audited intervening clause of a triggered ability, if any.
+pub(super) fn intervening(
+    definition: &TriggeredAbility,
+) -> Result<Option<mtg_contracts::kir::Intervening>, String> {
+    definition
+        .condition
+        .intervening_if()
+        .map(mtg_contracts::kir::Intervening::of)
+        .transpose()
+        .map_err(|e| format!("unaudited intervening condition: {e}"))
+}
+fn tap_status(tapped: bool) -> TapStatus {
+    if tapped {
+        TapStatus::Tapped
+    } else {
+        TapStatus::Untapped
     }
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -217,7 +235,7 @@ impl RulesTxn {
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(super) fn check_intervening(
         &self,
-        condition: &InterveningCondition,
+        condition: &mtg_contracts::kir::Intervening,
         controller: PlayerId,
         source: ObjectId,
         last_known: &ObjectBefore,
@@ -227,14 +245,14 @@ impl RulesTxn {
             return Err("intervening condition requested after controller departure".into());
         }
         Ok(match condition {
-            InterveningCondition::SourceCastByController => {
+            mtg_contracts::kir::Intervening::SourceCastByController => {
                 InterveningCheck::SourceCastByController {
                     entrant: source,
                     controller,
                     cast,
                 }
             }
-            InterveningCondition::ControllerHandEmpty => {
+            mtg_contracts::kir::Intervening::ControllerHandEmpty => {
                 let hand_count = u32::try_from(
                     self.state
                         .rules
@@ -250,7 +268,7 @@ impl RulesTxn {
                     passed: hand_count == 0,
                 }
             }
-            InterveningCondition::SourceStatus { status } => {
+            mtg_contracts::kir::Intervening::SourceTapped { tapped: wanted } => {
                 let (tapped, information) = match self.current(source) {
                     Ok(o) if o.zone == Zone::Battlefield => (o.tapped, SourceInformation::Current),
                     _ if last_known.object == source && last_known.zone == Zone::Battlefield => {
@@ -261,13 +279,13 @@ impl RulesTxn {
                 InterveningCheck::SourceStatus {
                     controller,
                     source,
-                    status: *status,
+                    status: tap_status(*wanted),
                     tapped,
                     information,
-                    passed: status.matches(tapped),
+                    passed: *wanted == tapped,
                 }
             }
-            InterveningCondition::ControllerHasCreatureWithPower { minimum_power } => {
+            mtg_contracts::kir::Intervening::ControllerHasCreatureWithPower { minimum_power } => {
                 let mut qualifying = None;
                 for object in self
                     .state
@@ -311,11 +329,11 @@ impl RulesTxn {
             return Ok(None);
         };
         let definition = self.effective_trigger(stack.source, *ability)?;
-        let Some(condition) = definition.intervening_if.as_ref() else {
+        let Some(condition) = intervening(&definition)? else {
             return Ok(None);
         };
         let check = self.check_intervening(
-            condition,
+            &condition,
             stack.controller,
             stack.source,
             stack
@@ -352,10 +370,10 @@ impl RulesTxn {
             _ => None,
         };
         let expected = match &definition {
-            Some(definition) => definition.intervening_if.as_ref(),
+            Some(definition) => intervening(definition)?,
             _ => None,
         };
-        if expected == Some(&InterveningCondition::SourceCastByController)
+        if expected == Some(mtg_contracts::kir::Intervening::SourceCastByController)
             && !matches!(&self.entry(frame.stack_id)?.kind, StackKind::Triggered { match_condition, .. }
                 if match_condition == &frame.condition_check)
         {
@@ -365,7 +383,7 @@ impl RulesTxn {
             (None, None) => Ok(()),
             (Some(condition), Some(check))
                 if check.validates(
-                    condition,
+                    &condition,
                     self.entry(frame.stack_id)?.controller,
                     self.entry(frame.stack_id)?.source,
                     self.prepared.config.owned_limit() as u32,
@@ -400,12 +418,12 @@ impl RulesTxn {
             return Err("cast-entry condition does not identify its completed movement".into());
         }
         let definition = self.effective_trigger(source, ability)?;
-        let expected = definition.intervening_if.as_ref();
+        let expected = intervening(&definition)?;
         match (expected, check) {
             (None, None) => Ok(()),
             (Some(condition), Some(check))
                 if check.validates(
-                    condition,
+                    &condition,
                     controller,
                     source,
                     self.prepared.config.owned_limit() as u32,

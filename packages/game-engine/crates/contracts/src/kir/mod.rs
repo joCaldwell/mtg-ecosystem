@@ -47,6 +47,7 @@ fn no_operands<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<(), 
 
 mod amount;
 mod check;
+mod events;
 mod nodes;
 mod pred;
 mod refs;
@@ -56,6 +57,7 @@ mod verbs;
 
 pub use amount::*;
 pub use check::*;
+pub use events::*;
 pub use nodes::*;
 pub use pred::*;
 pub use refs::*;

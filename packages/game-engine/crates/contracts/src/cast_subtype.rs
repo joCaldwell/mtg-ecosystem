@@ -10,12 +10,10 @@ pub(crate) fn subtype_spelling(s: &str) -> bool {
             .all(|b| b.is_ascii_alphabetic() || matches!(b, b'-' | b' '))
 }
 
-pub(super) fn restricted(p: &TypePredicate) -> bool {
-    match p {
-        TypePredicate::Subtype { .. } => true,
-        TypePredicate::All { terms } | TypePredicate::AnyOf { terms } => {
-            terms.iter().any(restricted)
-        }
+pub(super) fn restricted(p: &kir::Pred) -> bool {
+    p.0.iter().any(|atom| match atom {
+        kir::Atom::Subtype { .. } => true,
+        kir::Atom::AnyOf { alternatives } => alternatives.iter().any(restricted),
         _ => false,
-    }
+    })
 }

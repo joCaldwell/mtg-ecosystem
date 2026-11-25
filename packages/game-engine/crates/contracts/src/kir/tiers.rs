@@ -344,7 +344,6 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::AnyDamageTargetV1
         | C::NoncombatDamageV1
         | C::SelfDiesV1
-        | C::InterveningIfV1
         | C::ModalChoiceV1 => Tiers::SEARCH_HOSTING,
         C::CastArtifactV1
         | C::PermanentManaV1
@@ -436,7 +435,10 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::AnnouncedXEffectsV1
         | C::TargetPlayerDiscardV1
         | C::RandomPlayerDiscardV1
-        | C::GroupHandDiscardV1 => Tiers::EXECUTES,
+        | C::GroupHandDiscardV1
+        // CR 603.4: opened with its executor and rules tests; no review yet.
+        | C::InterveningIfV1
+        | C::EventTriggerV1 => Tiers::EXECUTES,
     }
 }
 

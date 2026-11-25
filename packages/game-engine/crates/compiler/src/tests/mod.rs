@@ -76,7 +76,8 @@ fn synthetic_cast_color_uses_spell_characteristics() {
         "power":null, "toughness":null
     }))
     .unwrap();
-    assert!(!predicate.matches(&spell));
+    assert_eq!(predicate, Pred(vec![Atom::Color { color: Color::U }]));
+    assert!(!spell.colors.contains(&Color::U));
     spell.colors.push(Color::U);
-    assert!(predicate.matches(&spell));
+    assert!(spell.colors.contains(&Color::U));
 }

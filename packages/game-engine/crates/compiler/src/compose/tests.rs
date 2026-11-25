@@ -5,6 +5,7 @@ fn card(kind: CardKind) -> Card<'static> {
     Card {
         kind,
         additional_types: &[],
+        subtypes: &[],
     }
 }
 
@@ -85,11 +86,11 @@ fn event_rows_only_add_self_entry_for_the_cards_own_type() {
     };
     assert_eq!(
         events::lower(&card(CardKind::Artifact), &enters("artifact")),
-        Some(TriggerCondition::SelfEntersBattlefield)
+        Some(EventPattern::self_enters())
     );
     assert_eq!(
         events::lower(&card(CardKind::Land), &enters("land")),
-        Some(TriggerCondition::SelfEntersBattlefield)
+        Some(EventPattern::self_enters())
     );
     // Another object's type is not a self reference.
     assert_eq!(
@@ -329,7 +330,7 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
     assert_eq!(marsh.static_abilities[0].effect, StaticEffect::EntersTapped);
     assert_eq!(
         marsh.triggered[0].condition,
-        TriggerCondition::SelfEntersBattlefield
+        TriggerCondition::on(EventPattern::self_enters())
     );
     assert_eq!(
         marsh.triggered[0].program.targets[0].domain,
@@ -360,7 +361,10 @@ fn composed_blocks_keep_their_printed_order_cost_and_operands() {
     // A creature's dies trigger on any noncreature permanent.
     let dragon = composed(DRAGON);
     assert_eq!(dragon.keywords, [KeywordAbility::Flying]);
-    assert_eq!(dragon.triggered[0].condition, TriggerCondition::SelfDies);
+    assert_eq!(
+        dragon.triggered[0].condition,
+        TriggerCondition::on(EventPattern::self_dies())
+    );
 }
 
 #[test]

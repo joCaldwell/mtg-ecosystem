@@ -289,7 +289,8 @@ impl RulesTxn {
             Atom::Power { .. }
             | Atom::Toughness { .. }
             | Atom::Keyword { .. }
-            | Atom::NotKeyword { .. } => false,
+            | Atom::NotKeyword { .. }
+            | Atom::Is { .. } => false,
         })
     }
 
@@ -443,7 +444,7 @@ impl RulesTxn {
                 .is_some_and(|active| self.static_player(player, source.controller, active)),
             Cond::Not { condition } => !self.static_condition(source, condition),
             Cond::All { conditions } => conditions.iter().all(|c| self.static_condition(source, c)),
-            Cond::CostPaid { .. } => false,
+            Cond::CostPaid { .. } | Cond::Satisfies { .. } | Cond::CastBy { .. } => false,
         }
     }
 

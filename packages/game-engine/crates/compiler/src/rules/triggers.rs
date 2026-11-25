@@ -68,22 +68,46 @@ pub(crate) fn validate_trigger_damage_sources(
     condition: &TriggerCondition,
     effects: &[Sentence],
 ) -> Result<(), Failure> {
-    let first_it_is_self = matches!(
-        condition,
-        TriggerCondition::SelfDies
-            | TriggerCondition::SelfEntersBattlefield
-            | TriggerCondition::CreatureAttacked {
-                attacker: AttackSubject::Source {}
-            }
-            | TriggerCondition::DamageDealt {
-                source: DamageTriggerSource::Source {},
-                ..
-            }
-    );
+    // The events whose first-step pronoun "it" is the source itself.
+    let pattern = condition.pattern();
+    let first_it_is_self = *pattern == EventPattern::self_dies()
+        || *pattern == EventPattern::self_enters()
+        || matches!(pattern, EventPattern::Attacks { attacker } if *attacker == Pred::source())
+        || matches!(pattern, EventPattern::DealsDamage { source, .. } if *source == Pred::source());
     validate_damage_sources(
         effects,
         DamageSourceBinding::Invocation { first_it_is_self },
     )
+}
+
+/// CR 700.4, 603.10a: a filtered creature death the reviewed row admits:
+/// a creature you control, optionally another, nontoken or non-Spirit one.
+fn creature_death(what: &TriggerObject) -> Option<(Pred, bool)> {
+    match what {
+        TriggerObject::Filter { filter: f, count }
+            if fixed_one(count)
+                && f.properties.is_none()
+                && f.types == ["creature"]
+                && f.control.as_deref() == Some("you")
+                && f.non_subtypes.iter().all(|s| s == "Spirit")
+                && f.non_subtypes.len() <= 1 =>
+        {
+            let mut atoms = vec![Atom::Type {
+                kind: CardKind::Creature,
+            }];
+            atoms.extend(f.non_subtypes.iter().map(|s| Atom::NotSubtype {
+                subtype: s.clone(),
+            }));
+            atoms.push(Atom::ControlledBy {
+                player: PlayerExpr::you(Context::Triggered),
+            });
+            if f.non_token {
+                atoms.push(Atom::NotToken);
+            }
+            Some((Pred(atoms), f.other))
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn lower_trigger(
@@ -103,41 +127,24 @@ pub(crate) fn lower_trigger(
     // ETB checks the resulting battlefield; dies checks the prior battlefield
     // (CR 603.6a/603.10/700.4). Runtime captures those event/source facts.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-    let filtered = |what: &TriggerObject| -> Option<DeathFilter> {
-        match what {
-            TriggerObject::Filter { filter: f, count }
-                if fixed_one(count)
-                    && f.properties.is_none()
-                    && f.types == ["creature"]
-                    && f.control.as_deref() == Some("you")
-                    && f.non_subtypes.iter().all(|s| s == "Spirit")
-                    && f.non_subtypes.len() <= 1 =>
-            {
-                Some(DeathFilter {
-                    controlled: true,
-                    other: f.other,
-                    non_token: f.non_token,
-                    non_subtypes: f.non_subtypes.clone(),
-                })
+    let creature_dies = match trigger {
+        SourceTrigger::Dies { what } => creature_death(what).map(|(mut pred, other)| {
+            if other {
+                pred.0.push(Atom::IsNot { object: Ref::Source });
             }
-            _ => None,
-        }
-    };
-    let death_filter = match trigger {
-        SourceTrigger::Dies { what } => filtered(what),
+            pred
+        }),
         SourceTrigger::AnyOf { events } if matches!(events.as_slice(), [SourceTrigger::Dies { what }, SourceTrigger::Dies { .. }] if is_source_creature(what)) =>
         {
             let SourceTrigger::Dies { what } = &events[1] else {
                 unreachable!()
             };
-            if let Some(mut f) = filtered(what) {
-                if !f.other || f.non_token || !f.non_subtypes.is_empty() {
-                    return Err(unsupported("trigger", "non-disjoint dies union"));
-                }
-                f.other = false;
-                Some(f)
-            } else {
-                None
+            match creature_death(what) {
+                // This creature or another creature you control: every
+                // creature you control.
+                Some((pred, true)) if pred.0.len() == 2 => Some(pred),
+                Some(_) => return Err(unsupported("trigger", "non-disjoint dies union")),
+                None => None,
             }
         }
         _ => None,
@@ -169,34 +176,35 @@ pub(crate) fn lower_trigger(
             "damage quantity requires a standalone draw sentence",
         ));
     }
-    let condition=match trigger {
+    let you = || PlayerExpr::you(Context::Triggered);
+    let creature = || Pred(vec![Atom::Type { kind: CardKind::Creature }]);
+    let pattern=match trigger {
         SourceTrigger::DealsDamage { what, combat: Some(true), to, grouping:None }
             if *to == serde_json::json!("any") => {
-            TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
-                kind: TriggerDamageKind::Combat, recipient: DamageTriggerRecipient::Player }
+            EventPattern::DealsDamage { source: lower_damage_subject(what)?,
+                combat: true, recipient: PlayerExpr::EachPlayer }
         },
         SourceTrigger::DealsDamage { what, combat: None, to, grouping:None }
             if *to == serde_json::json!({"player":"an-opponent"}) => {
-            TriggerCondition::DamageDealt { source: lower_damage_subject(what)?,
-                kind: TriggerDamageKind::Any, recipient: DamageTriggerRecipient::OpponentPlayer }
+            EventPattern::DealsDamage { source: lower_damage_subject(what)?,
+                combat: false, recipient: PlayerExpr::EachOpponent }
         },
         SourceTrigger::Attacks { what } => {
-            let attacker = lower_attack_subject(what)?;
-            TriggerCondition::CreatureAttacked { attacker }
+            EventPattern::Attacks { attacker: lower_attack_subject(what)? }
         },
         SourceTrigger::Cast { who, what, not_from } => {
             if who.selection_id.is_some() || who.of.is_some() { return Err(unsupported("trigger.who", "unsupported caster qualifier")); }
             let caster = match who.player.as_str() {
-                "you" => CasterRelation::Controller,
-                "a-player" => CasterRelation::AnyPlayer,
-                "an-opponent" => CasterRelation::Opponent,
+                "you" => you(),
+                "a-player" => PlayerExpr::EachPlayer,
+                "an-opponent" => PlayerExpr::EachOpponent,
                 _ => return Err(unsupported("trigger.who", "unsupported caster relation")),
             };
             let spell = lower_type_predicate(what, Some("spell"), true, 0)?;
             if not_from.is_some() {
                 return Err(unsupported("trigger.cast.origin", "unsupported cast-origin predicate"));
             }
-            TriggerCondition::SpellCast { caster, spell }
+            EventPattern::Cast { caster, spell }
         },
         SourceTrigger::Phase { phase, whose } => {
             let step = match phase.as_str() {
@@ -205,26 +213,30 @@ pub(crate) fn lower_trigger(
                 "end-step" => BeginningStep::End,
                 _ => return Err(unsupported("abilities.trigger.phase", "unsupported beginning step")),
             };
-            let turn_relation = match whose.as_str() {
-                Some("your") => TurnRelation::Controller,
-                Some("each-player") => TurnRelation::AnyPlayer,
-                Some("each-opponent") => TurnRelation::Opponent,
+            let active = match whose.as_str() {
+                Some("your") => you(),
+                Some("each-player") => PlayerExpr::EachPlayer,
+                Some("each-opponent") => PlayerExpr::EachOpponent,
                 _ => return Err(unsupported("abilities.trigger.whose", "unsupported turn relation")),
             };
-            TriggerCondition::StepBegan { step, turn_relation }
+            EventPattern::StepBegins { step, active }
         },
-        SourceTrigger::Dies { what: TriggerObject::Filter { filter, count } } if fixed_one(count) && filter.properties.is_none() && filter.types == ["creature"] && filter.control.as_deref() == Some("opponent") && !filter.other && !filter.non_token && filter.non_subtypes.is_empty() => TriggerCondition::OpponentCreatureDies,
-        _ if death_filter.is_some() => TriggerCondition::AnyCreatureDies,
-        SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment" => TriggerCondition::SelfEntersBattlefield,
-        SourceTrigger::Dies {what} if is_source_creature(what)=>TriggerCondition::SelfDies,
-        SourceTrigger::Enters {what} if is_source_creature(what)=>TriggerCondition::SelfEntersBattlefield,
-        SourceTrigger::Enters {what} if is_other_creature(what)=>TriggerCondition::OtherCreatureEntersBattlefield,
+        SourceTrigger::Dies { what: TriggerObject::Filter { filter, count } } if fixed_one(count) && filter.properties.is_none() && filter.types == ["creature"] && filter.control.as_deref() == Some("opponent") && !filter.other && !filter.non_token && filter.non_subtypes.is_empty() => EventPattern::opponent_creature_dies(),
+        _ if creature_dies.is_some() => EventPattern::Dies { object: creature_dies.clone().unwrap_or_default() },
+        SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment" => EventPattern::self_enters(),
+        SourceTrigger::Dies {what} if is_source_creature(what)=>EventPattern::self_dies(),
+        SourceTrigger::Enters {what} if is_source_creature(what)=>EventPattern::self_enters(),
+        SourceTrigger::Enters {what} if is_other_creature(what)=>EventPattern::other_creature_enters(),
+        // CR 700.4: this creature or another creature dying is every
+        // creature dying, once per actual move.
         SourceTrigger::AnyOf {events} if events.len()==2
             && events.iter().filter(|event|matches!(event,SourceTrigger::Dies {what} if is_source_creature(what))).count()==1
-            && events.iter().filter(|event|matches!(event,SourceTrigger::Dies {what} if is_other_creature(what))).count()==1 =>TriggerCondition::AnyCreatureDies,
+            && events.iter().filter(|event|matches!(event,SourceTrigger::Dies {what} if is_other_creature(what))).count()==1 =>EventPattern::Dies { object: creature() },
         _=>return Err(unsupported("abilities.trigger","unsupported complete event/source/other/alternative trigger binding")),
     };
+    let mut condition = TriggerCondition::on(pattern);
     validate_trigger_damage_sources(&condition, effects)?;
+    let pattern = condition.pattern().clone();
     let mut program = SpellProgram {
         optional_additional_costs: vec![],
         additional_sacrifice: None,
@@ -241,7 +253,7 @@ pub(crate) fn lower_trigger(
         source_block(block)?,
     ) {
         program.instructions.push(instruction);
-    } else if condition == TriggerCondition::SelfEntersBattlefield
+    } else if pattern == EventPattern::self_enters()
         && matches!(intervening, Some(SourceCondition::WasCast { .. }))
         && let [
             Sentence {
@@ -276,9 +288,9 @@ pub(crate) fn lower_trigger(
             &mut BTreeMap::new(),
             if let Some(role) = kir::event_player_role(&condition) {
                 PlayerBinding::EventPlayer(role)
-            } else if matches!(condition, TriggerCondition::DamageDealt { .. }) {
+            } else if matches!(pattern, EventPattern::DealsDamage { .. }) {
                 PlayerBinding::DamageRecipient
-            } else if condition == TriggerCondition::OpponentCreatureDies {
+            } else if pattern == EventPattern::opponent_creature_dies() {
                 PlayerBinding::DeathController
             } else {
                 PlayerBinding::Unbound
@@ -289,13 +301,13 @@ pub(crate) fn lower_trigger(
     let intervening_if = match intervening {
         None => None,
         Some(SourceCondition::WasCast { what, by })
-            if condition == TriggerCondition::SelfEntersBattlefield
+            if pattern == EventPattern::self_enters()
                 && *what == serde_json::json!({"ref":"it"})
                 && by.player == "you"
                 && by.of.is_none()
                 && by.selection_id.is_none() =>
         {
-            Some(InterveningCondition::SourceCastByController)
+            Some(kir::Intervening::SourceCastByController)
         }
         Some(SourceCondition::Control {
             who,
@@ -303,13 +315,13 @@ pub(crate) fn lower_trigger(
         }) if matches!(trigger, SourceTrigger::Enters { what: TriggerObject::This { noun } } if noun == "enchantment")
             && who.player == "you" =>
         {
-            Some(InterveningCondition::ControllerHasCreatureWithPower {
+            Some(kir::Intervening::ControllerHasCreatureWithPower {
                 minimum_power: power_entry_draw::minimum_power(filter, count)?,
             })
         }
         Some(SourceCondition::CardsInHand { who, comparison })
-            if (condition == TriggerCondition::SelfDies
-                || matches!(condition, TriggerCondition::StepBegan { .. }))
+            if (pattern == EventPattern::self_dies()
+                || matches!(pattern, EventPattern::StepBegins { .. }))
                 && who.player == "you"
                 && who.selection_id.is_none()
                 && who.of.is_none()
@@ -317,18 +329,20 @@ pub(crate) fn lower_trigger(
                 && comparison.value.amount == "fixed"
                 && comparison.value.value == 0 =>
         {
-            Some(InterveningCondition::ControllerHandEmpty)
+            Some(kir::Intervening::ControllerHandEmpty)
         }
         Some(SourceCondition::Status {
             what: TriggerObject::This { noun },
             status,
-        }) if matches!(condition, TriggerCondition::StepBegan { .. })
+        }) if matches!(pattern, EventPattern::StepBegins { .. })
             && matches!(
                 noun.as_str(),
                 "artifact" | "creature" | "enchantment" | "permanent"
             ) =>
         {
-            Some(InterveningCondition::SourceStatus { status: *status })
+            Some(kir::Intervening::SourceTapped {
+                tapped: *status == TapStatus::Tapped,
+            })
         }
         _ => {
             return Err(unsupported(
@@ -337,9 +351,11 @@ pub(crate) fn lower_trigger(
             ));
         }
     };
+    condition = TriggerCondition::Event {
+        pattern,
+        intervening_if: intervening_if.map(|i| i.condition()),
+    };
     Ok(TriggeredAbility {
-        death_filter,
-        intervening_if,
         functioning_zone: FunctioningZone::Battlefield,
         condition,
         program,

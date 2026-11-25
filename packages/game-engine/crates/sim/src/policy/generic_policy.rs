@@ -2,7 +2,7 @@
 //! coarse value estimates; only core decides legality and executes rules.
 use super::*;
 use mtg_contracts::{
-    ActivationCost, CasterRelation, Definition, FunctioningZone, Instruction as I, KeywordAbility,
+    ActivationCost, Definition, FunctioningZone, Instruction as I, KeywordAbility,
     ObjectSet, SacrificeFilter, SpellProgram, SpellResolution, SpellTiming, StaticEffect,
     TargetDomain, TargetSpec, TriggerCondition, announced_x, fixed, kernel,
     kir::{self, Context, SetExpr},
@@ -47,11 +47,14 @@ fn visible_event_player(
 ) -> Option<PlayerId> {
     let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &entry.triggered.as_ref()?.ability;
     match &d.triggered.get(*index as usize)?.condition {
-        TriggerCondition::StepBegan { .. } => v.active,
-        TriggerCondition::SpellCast {
-            caster: CasterRelation::Controller,
+        TriggerCondition::Event {
+            pattern: kir::EventPattern::StepBegins { .. },
             ..
-        } => Some(entry.controller),
+        } => v.active,
+        TriggerCondition::Event {
+            pattern: kir::EventPattern::Cast { caster, .. },
+            ..
+        } if caster.is_you() => Some(entry.controller),
         // A public stack row does not identify the caster of an arbitrary
         // spell that caused a trigger.
         _ => None,
@@ -1507,12 +1510,10 @@ impl Strategy<'_> {
         let engine_card = |d: &Definition| {
             !d.mana_abilities.is_empty()
                 || d.triggered.iter().any(|t| {
-                    matches!(
-                        t.condition,
-                        mtg_contracts::TriggerCondition::AnyCreatureDies
-                            | mtg_contracts::TriggerCondition::SelfDies
-                            | mtg_contracts::TriggerCondition::OpponentCreatureDies
-                    )
+                    // A creature dying, other than the host of an Aura
+                    // or Equipment.
+                    matches!(t.condition.pattern(), kir::EventPattern::Dies { object }
+                        if !object.is_ref(kir::Ref::AttachedTo))
                 })
         };
         for stage in 0..5 {

@@ -10,9 +10,15 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
-pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<TriggerCondition> {
-    use AttachmentEvent::{Attacks, CombatDamageToPlayer, Dies};
+pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<EventPattern> {
     use kir::AttachmentKind::{Enchanted, Equipped};
+    // CR 301.5, 303.4: the creature the source is attached to.
+    enum Host {
+        Attacks,
+        Dies,
+        CombatDamageToPlayer,
+    }
+    use Host::{Attacks, CombatDamageToPlayer, Dies};
     let host = match trigger {
         SourceTrigger::Attacks {
             what: SourceAttacker::Equipped { noun },
@@ -39,8 +45,20 @@ pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<TriggerC
         _ => None,
     };
     if let Some((attachment, event, noun)) = host {
-        return (noun == "creature")
-            .then_some(TriggerCondition::AttachedCreature { attachment, event });
+        // The printed host noun must match what the source attaches as.
+        if noun != "creature" || !card.attaches_as(attachment) {
+            return None;
+        }
+        let object = Pred::attached_creature();
+        return Some(match event {
+            Attacks => EventPattern::Attacks { attacker: object },
+            Dies => EventPattern::Dies { object },
+            CombatDamageToPlayer => EventPattern::DealsDamage {
+                source: object,
+                combat: true,
+                recipient: PlayerExpr::EachPlayer,
+            },
+        });
     }
     match trigger {
         SourceTrigger::Enters {
@@ -49,7 +67,7 @@ pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<TriggerC
             // The shared lowerer already owns these two spellings.
             && !matches!(noun.as_str(), "creature" | "enchantment") =>
         {
-            Some(TriggerCondition::SelfEntersBattlefield)
+            Some(EventPattern::self_enters())
         }
         SourceTrigger::Enters {
             what: TriggerObject::Filter { filter, count },
@@ -61,11 +79,11 @@ pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<TriggerC
             && filter.properties.is_none()
             && fixed_one(count) =>
         {
-            Some(TriggerCondition::ControlledLandEntersBattlefield)
+            Some(EventPattern::controlled_land_enters())
         }
         SourceTrigger::BecomesTapped {
             what: TriggerObject::This { noun },
-        } if card.is_self(noun) => Some(TriggerCondition::SelfBecomesTapped),
+        } if card.is_self(noun) => Some(EventPattern::self_becomes_tapped()),
         _ => None,
     }
 }

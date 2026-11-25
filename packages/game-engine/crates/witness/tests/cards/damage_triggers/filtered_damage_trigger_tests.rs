@@ -257,10 +257,14 @@ fn filtered_damage_creature_type_conjunction_control_and_actual_occurrence_negat
         ));
         if id == 1 || id == 3 {
             let mut pattern = original.clone();
-            let TriggerCondition::DamageDealt { kind, .. } = &mut pattern else {
+            let TriggerCondition::Event {
+                pattern: mtg_contracts::kir::EventPattern::DealsDamage { combat, .. },
+                ..
+            } = &mut pattern
+            else {
                 panic!("filter");
             };
-            *kind = TriggerDamageKind::Any;
+            *combat = false;
             assert_eq!(
                 triggers::damage_matches(
                     &pattern,
