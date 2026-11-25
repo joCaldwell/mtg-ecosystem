@@ -2267,11 +2267,16 @@ impl RulesTxn {
                 Some(&mtg_contracts::ObjectSet::ControllerPermanents),
             )
             && targets.iter().all(|id| {
-                self.state
-                    .rules
-                    .objects
-                    .get(&id.card)
-                    .is_none_or(|current| id.incarnation <= current.id.incarnation)
+                self.state.rules.objects.get(&id.card).map_or_else(
+                    || {
+                        self.state.rules.tokens.contains_key(&id.card)
+                            || !self.is_live(self.state.rules.cards[&id.card].owner)
+                    },
+                    |current| {
+                        id.incarnation < current.id.incarnation
+                            || (current.id == *id && current.zone == Zone::Battlefield)
+                    },
+                )
             })
             && match what {
                 SetExpr::One {
@@ -2283,7 +2288,7 @@ impl RulesTxn {
                 SetExpr::Matching {
                     zone: ZoneExpr::Battlefield,
                     ..
-                } => targets.windows(2).all(|w| w[0] < w[1]),
+                } => targets.windows(2).all(|w| w[0].card < w[1].card),
                 _ => false,
             }
     }
