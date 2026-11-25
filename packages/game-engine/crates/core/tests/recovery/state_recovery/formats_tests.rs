@@ -481,6 +481,7 @@ fn activation_condition_shapes() -> Vec<Game> {
                     once_each_turn: false,
                     condition: Some(controls(CardKind::Land)),
                 }),
+                modal: None,
                 program: SpellProgram::instructions(SpellTiming::Instant)
                     .with_instructions([Instruction::draw(you.clone(), 1.into(), 0)]),
             });

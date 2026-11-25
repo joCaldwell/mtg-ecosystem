@@ -185,6 +185,19 @@ impl RulesTxn {
             .ok_or("snapshot activation condition evidence invariant")?;
         self.validate_activation_condition_check(player, Some(condition), Some(&evidence.check))
     }
+    /// Every permanent receipt's condition evidence in one held list: a
+    /// spell's mana window, a resolution payment or a nested mana ability.
+    pub(super) fn validate_mana_receipt_conditions(
+        &self,
+        receipts: &[ManaActivationUndo],
+    ) -> Result<(), String> {
+        for r in receipts {
+            if let Some(p) = &r.permanent {
+                self.validate_mana_condition_receipt(r.player, r.object, p)?;
+            }
+        }
+        Ok(())
+    }
     pub(super) fn validate_mana_uses(&self) -> Result<(), String> {
         if self.state.rules.mana_ability_uses.len() > self.state.rules.objects.len() {
             return Err("mana use capacity invariant".into());
@@ -1392,6 +1405,18 @@ impl RulesTxn {
                 || a.receipts.iter().any(|r| r.player != a.player)
             {
                 return Err("nested mana snapshot invariant".into());
+            }
+            self.validate_mana_receipt_conditions(&a.receipts)?;
+            // The suspended ability's own receipt names this exact printed
+            // ability: it carries evidence exactly when that ability has a
+            // condition.
+            if let Some(paid) = &a.paid {
+                if a.ability.condition.is_some()
+                    != paid.condition.as_ref().is_some_and(|e| e.index == a.index)
+                {
+                    return Err("snapshot activation condition evidence invariant".into());
+                }
+                self.validate_mana_condition_receipt(a.player, a.source, paid)?;
             }
             f = self.saved_frame(a.resume)?;
         }

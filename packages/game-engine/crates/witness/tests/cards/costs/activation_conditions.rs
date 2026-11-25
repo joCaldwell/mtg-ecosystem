@@ -321,3 +321,134 @@ fn ghost_town_returns_only_on_another_players_turn() {
     assert!(!ok(0, 0));
     assert!(ok(1, 1));
 }
+
+const UNDERHANDED: &str = record!("870185fc-7b05-47d3-95ff-97fbf12796d4");
+
+/// A fork whose current frame has every recorded condition check replaced
+/// by `counts`; returns it with the number of checks replaced.
+fn forge_frame(g: &Game, counts: &[u32]) -> (Game, usize) {
+    fn walk(v: &mut serde_json::Value, with: &serde_json::Value) -> usize {
+        match v {
+            serde_json::Value::Object(m) => {
+                if let Some(check) = m.get_mut("check") {
+                    *check = with.clone();
+                    return 1;
+                }
+                m.values_mut().map(|x| walk(x, with)).sum()
+            }
+            serde_json::Value::Array(a) => a.iter_mut().map(|x| walk(x, with)).sum(),
+            _ => 0,
+        }
+    }
+    let mut frame = serde_json::to_value(&g.state.rules.frame).unwrap();
+    let n = walk(&mut frame, &serde_json::json!({ "counts": counts }));
+    let mut f = g.fork();
+    f.state.rules.frame = serde_json::from_value(frame).unwrap();
+    (f, n)
+}
+
+/// Every forged check in the current frame is rejected: counts that fail
+/// "you control an artifact", and the wrong number of counts.
+fn rejects_forged_checks(g: &Game) {
+    g.validate_state().unwrap();
+    for counts in [&[0][..], &[1, 1, 1]] {
+        let (f, n) = forge_frame(g, counts);
+        assert_eq!(n, 1, "{counts:?}");
+        assert!(f.validate_state().is_err(), "{counts:?}");
+    }
+}
+
+/// Spire of Industry's colored ability, chosen and paid from the decision
+/// `d` that offers it; `before_color` sees the suspended paid ability.
+fn play_spire(g: &mut Game, spire: ObjectId, before_color: impl Fn(&Game)) {
+    let d = Driver::request(g, u64::MAX);
+    let slot = d
+        .index(&Candidate::Action {
+            action: mana(spire),
+        })
+        .unwrap();
+    Driver::answer(
+        g,
+        u64::MAX,
+        Answer::Pay {
+            pay: PayAnswer::Activate { source: slot },
+        },
+    );
+    let d = Driver::request(g, u64::MAX);
+    let printed = Candidate::ManaAbility {
+        ability: ManaAbilityIdentity::Printed { index: 1 },
+    };
+    g.respond(d.player, d.id, d.pick_one(&printed).unwrap())
+        .unwrap();
+    let d = Driver::request(g, u64::MAX);
+    assert!(matches!(d.reason, Reason::ManaColor { .. }), "{d:?}");
+    // Paid but awaiting its color: the suspended ability's own receipt.
+    before_color(g);
+    let black = Candidate::Color { color: Color::B };
+    g.respond(d.player, d.id, d.pick_one(&black).unwrap())
+        .unwrap();
+}
+
+/// Underhanded Designs: "Whenever an artifact you control enters, you may pay
+/// {1}." Spire's conditioned mana pays it during resolution; the payment's
+/// held receipt and the suspended Spire activation both keep their evidence.
+#[test]
+fn resolution_payment_receipts_keep_condition_evidence() {
+    let prepared = board(&[(UNDERHANDED, CONDITIONED), (SPIRE, CONDITIONED)])
+        .permanent_or_hand("Underhanded Designs", 0, 0, false)
+        .permanent_or_hand("Spire of Industry", 0, 0, false)
+        .permanent_or_hand("Sol Ring", 0, 0, false)
+        .permanent_or_hand("Darksteel Relic", 0, 0, true)
+        .libraries("Forest", 3)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let spire = Driver::object(&g, 1);
+    let relic = Driver::object(&g, 3);
+    Driver::cast(&mut g, relic.card);
+    Driver::pay(&mut g, &[]);
+    loop {
+        let d = Driver::request(&mut g, u64::MAX);
+        if d.reason == Reason::OptionalEffect {
+            let accept = d.pick_one(&Candidate::Flag { flag: Flag::Accept }).unwrap();
+            g.respond(d.player, d.id, accept).unwrap();
+            break;
+        }
+        let pass = d
+            .pick_one(&Candidate::Action {
+                action: Action::Pass,
+            })
+            .unwrap();
+        g.respond(d.player, d.id, pass).unwrap();
+    }
+    play_spire(&mut g, spire, rejects_forged_checks);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Mana { .. }), "{d:?}");
+    assert!(matches!(
+        g.state.rules.frame,
+        Frame::ResolutionPayment { .. }
+    ));
+    rejects_forged_checks(&g);
+}
+
+/// Izzet Signet: "{1}, {T}: Add {U}{R}." Spire's conditioned mana pays the
+/// Signet's own mana cost; the Signet activation holds that receipt.
+#[test]
+fn nested_mana_ability_receipts_keep_condition_evidence() {
+    let prepared = board(&[(SPIRE, CONDITIONED)])
+        .permanent_or_hand("Izzet Signet", 0, 0, false)
+        .permanent_or_hand("Spire of Industry", 0, 0, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let signet = Driver::object(&g, 0);
+    let spire = Driver::object(&g, 1);
+    let answer = g.next_test_decision().activate_mana(signet);
+    Driver::answer(&mut g, u64::MAX, answer);
+    play_spire(&mut g, spire, rejects_forged_checks);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(
+        matches!(d.reason, Reason::Mana { source: Some(s) } if s == signet),
+        "{d:?}"
+    );
+    assert!(matches!(g.state.rules.frame, Frame::ManaAbility { .. }));
+    rejects_forged_checks(&g);
+}
