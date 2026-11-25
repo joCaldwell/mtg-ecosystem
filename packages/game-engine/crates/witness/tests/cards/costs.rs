@@ -1010,6 +1010,48 @@ fn corrosive_gale_locked_after_concession_keeps_its_announcements() {
     }
 }
 
+/// CR 601.2c, 601.2f: Tolarian Geyser's target is chosen before its cost
+/// locks, so a locked, unpaid Geyser whose game ended during mana payment
+/// keeps that target.
+#[test]
+fn locked_tolarian_geyser_keeps_its_target_after_concession() {
+    let prepared = board(&[(TOLARIAN_GEYSER, &[Cell::Kicker])])
+        .permanent_or_hand("Tolarian Geyser", 0, 0, true)
+        .permanent_or_hand("Island", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let d = expect(&mut g, 0, Reason::AdditionalCosts);
+    g.respond(
+        d.player,
+        d.id,
+        Answer::Pick {
+            picks: vec![vec![]],
+        },
+    )
+    .unwrap();
+    let bears = Driver::object(&g, 2);
+    Driver::pick_object(&mut g, bears);
+    let d = Driver::request(&mut g, u64::MAX);
+    assert!(matches!(d.reason, Reason::Mana { .. }), "{d:?}");
+    finish_by_concession(&mut g);
+    let mut forged = g.fork();
+    let entry = forged.state.rules.stack.last_mut().unwrap();
+    assert!(entry.cost_lock.is_some() && entry.paid.is_none());
+    assert!(!entry.targets.is_empty());
+    entry.targets.clear();
+    for announced in &mut entry.announced_targets {
+        announced.clear();
+    }
+    assert!(
+        forged
+            .validate_state()
+            .unwrap_err()
+            .contains("locked spell target")
+    );
+}
+
 /// CR 601.2f-h: payment follows the cost lock, so a paid Beast Attack
 /// without its lock fails validation even after the game ends.
 #[test]
