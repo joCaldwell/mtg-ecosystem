@@ -353,11 +353,13 @@ count permanents controlled by the incoming controller, using their current
 structural characteristics, or count that controller's live opponents. The
 entering permanent cannot contribute to its own count. Simultaneous entry
 uses the common prior battlefield and ordered entry sees earlier moves.
-The same replacement path applies to land plays and moves from other zones.
-A supported land may ask its incoming controller to pay a fixed life cost
-or enter tapped. The entry continuation suspends before mutation and commits
-the chosen payment and entry together. It omits the offer when the
-controller cannot pay (CR 119.4). A land play still requires a land in hand.
+Conditional tapped entry and entry counters apply to every move onto the
+battlefield. The life-payment offer runs through `begin_battlefield_entry`.
+Land plays use that continuation today, and future search and reanimation
+moves can use it. The continuation suspends before mutation and commits the
+chosen payment and entry together. It skips the offer when the controller
+cannot pay (CR 119.4) or the move already requires tapped entry. A land play
+still requires a land in hand.
 
 ## Keywords, attachments and temporary effects
 

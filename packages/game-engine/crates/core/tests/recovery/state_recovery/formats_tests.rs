@@ -283,6 +283,57 @@ fn suspended_battlefield_entry() -> Game {
 }
 
 #[test]
+fn suspended_land_play_rejects_rehashed_tampering() {
+    let game = suspended_battlefield_entry();
+    let raw = game.snapshot().unwrap();
+    let prepared = game.prepared.as_ref();
+    Game::restore(prepared.clone(), &raw).unwrap();
+    for (tamper, expected) in [
+        ("controller", "invalid suspended land play origin"),
+        (
+            "zone",
+            "invalid suspended land play: invalid or unsupported land play",
+        ),
+        ("cause", "invalid suspended battlefield entry cause"),
+        ("decision_id", "invalid suspended land play origin"),
+        ("resume", "invalid suspended land play origin"),
+        ("timing", "invalid suspended land play: land play requires"),
+        (
+            "allowance",
+            "invalid suspended land play: invalid or unsupported land play",
+        ),
+    ] {
+        let mut forged: Snapshot = strict_read(&raw).unwrap();
+        let object = Driver::object(&game, 0);
+        let mut frame = serde_json::to_value(&forged.state.rules.frame).unwrap();
+        match tamper {
+            "controller" => frame["entry"]["controller"] = serde_json::json!(PlayerId(1)),
+            "zone" => {
+                forged
+                    .state
+                    .rules
+                    .objects
+                    .get_mut(&object.card)
+                    .unwrap()
+                    .zone = Zone::Exile
+            }
+            "cause" => frame["entry"]["cause"] = serde_json::json!(BatchCause::Fixture),
+            "decision_id" => frame["entry"]["cause"]["decision_id"] = u64::MAX.into(),
+            "resume" => forged.state.rules.frames[0] = Frame::Transition,
+            "timing" => forged.state.rules.turn.step = TurnStep::Upkeep,
+            "allowance" => forged.state.rules.turn.lands_played = 1,
+            _ => unreachable!(),
+        }
+        forged.state.rules.frame = serde_json::from_value(frame).unwrap();
+        forged.state_sha256 = digest(&forged.state).unwrap();
+        let error = Game::restore(prepared.clone(), &canonical(&forged).unwrap())
+            .err()
+            .expect("tampered entry must not restore");
+        assert!(error.starts_with(expected), "{tamper}: {error}");
+    }
+}
+
+#[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
         .into_iter()

@@ -123,6 +123,37 @@ fn counters_are_present_on_the_new_incarnation() {
 }
 
 #[test]
+fn faithful_watchdog_resolves_and_survives_as_a_three_three() {
+    let board = Board::new(catalog(), "entry-counters-cast-witness")
+        .step(TurnStep::PrecombatMain)
+        .permanent_or_hand("Faithful Watchdog", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false);
+    let mut game = Game::new(board.libraries("Forest", 4).prepare());
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1, 2]);
+    assert_eq!(
+        game.current(Driver::object(&game, 0)).unwrap().zone,
+        Zone::Stack
+    );
+    for _ in 0..4 {
+        Driver::pass(&mut game);
+    }
+    let _ = Driver::request(&mut game, u64::MAX);
+    let object = Driver::object(&game, 0);
+    let watchdog = game.current(object).unwrap();
+    assert_eq!(watchdog.zone, Zone::Battlefield);
+    assert_eq!(watchdog.plus_one_counters, 3.into());
+    let stats = game.characteristics(object).unwrap();
+    assert_eq!(
+        (stats.power, stats.toughness),
+        (Some(3.into()), Some(3.into()))
+    );
+    game.validate_state().unwrap();
+    assert_recoverable(JournalCase::from(&game));
+}
+
+#[test]
 fn shockland_offer_is_recoverable_and_unpayable_entry_skips_the_offer() {
     for (life, answer, tapped, final_life) in [
         (20, Some(Flag::Accept), false, 18),

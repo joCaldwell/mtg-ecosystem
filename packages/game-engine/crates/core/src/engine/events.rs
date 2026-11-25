@@ -260,6 +260,12 @@ enum FactKey {
 // Ephemeral proof from validating a complete root group against the prior
 // state. Raw occurrence application receives no authority.
 #[derive(Clone, Copy)]
+pub(super) enum EntryOverride {
+    ForceTapped,
+    LifePayment { paid: bool },
+}
+
+#[derive(Clone, Copy)]
 enum BatchAuthority<'a> {
     Ordinary,
     SpellToStack(PlayerId),
@@ -269,9 +275,9 @@ enum BatchAuthority<'a> {
     ),
     CreateRegenerationShield,
     PlaceCounters,
-    EntryPayment {
+    BattlefieldEntry {
         object: ObjectId,
-        paid: bool,
+        entry: EntryOverride,
     },
 }
 fn independent_footprints(
@@ -1315,9 +1321,9 @@ impl RulesTxn {
         cause: BatchCause,
         group: EventGroup,
         object: ObjectId,
-        paid: bool,
+        entry: EntryOverride,
     ) -> Result<CommittedBatch, String> {
-        self.commit_batch_inner(cause, group, false, Some((object, paid)))
+        self.commit_batch_inner(cause, group, false, Some((object, entry)))
     }
 
     fn commit_batch_inner(
@@ -1325,7 +1331,7 @@ impl RulesTxn {
         cause: BatchCause,
         group: EventGroup,
         library_append: bool,
-        entry_payment: Option<(ObjectId, bool)>,
+        entry_override: Option<(ObjectId, EntryOverride)>,
     ) -> Result<CommittedBatch, String> {
         let replacement = self.prepare_graveyard_batch(&cause, &group)?;
         let mut events = vec![];
@@ -1401,8 +1407,8 @@ impl RulesTxn {
 
         let placing = matches!(&self.state.rules.frame, Frame::CounterPlacement { transaction } if transaction.cause == cause);
         let regeneration_members;
-        let authority = if let Some((object, paid)) = entry_payment {
-            BatchAuthority::EntryPayment { object, paid }
+        let authority = if let Some((object, entry)) = entry_override {
+            BatchAuthority::BattlefieldEntry { object, entry }
         } else if placing
             || events
                 .iter()
@@ -1699,6 +1705,7 @@ impl RulesTxn {
         destination: Zone,
         intended_controller: Option<PlayerId>,
         entry_state: Option<&Self>,
+        force_tapped: bool,
         entry_payment: Option<bool>,
     ) -> Result<EventOutcome, String> {
         let object = &object;
@@ -1793,7 +1800,11 @@ impl RulesTxn {
         // CR 614.1c/614.12: this source replacement modifies entry,
         // rather than tapping the permanent in a subsequent event.
         // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-        let enters_tapped = if *destination == Zone::Battlefield {
+        let enters_tapped = if *destination != Zone::Battlefield {
+            false
+        } else if force_tapped {
+            true
+        } else {
             let prior = entry_state.unwrap_or(self);
             let unpaid = if let Some(amount) = prior.entry_life_cost(*object)? {
                 match entry_payment {
@@ -1809,8 +1820,6 @@ impl RulesTxn {
                 false
             };
             unpaid || prior.entry_tapped(*object, controller)?
-        } else {
-            false
         };
         // CR 122.6 and 614.1c: entry counters exist on the successor from
         // the moment it enters, including for entry observers.
@@ -1991,7 +2000,7 @@ impl RulesTxn {
                 // private application; the batch/rule-step owns full rollback.
                 let (attachment_timestamp, next) = self.next_attachment_allocation()?;
                 let EventOutcome::Moved { movement } =
-                    self.apply_move(*object, Zone::Battlefield, None, entry_state, None)?
+                    self.apply_move(*object, Zone::Battlefield, None, entry_state, false, None)?
                 else {
                     return Err("attached entry movement invariant".into());
                 };
@@ -2787,14 +2796,24 @@ impl RulesTxn {
                     BatchAuthority::SpellToStack(player) => Some(player),
                     _ => None,
                 };
-                let payment = match authority {
-                    BatchAuthority::EntryPayment {
+                let (force_tapped, payment) = match authority {
+                    BatchAuthority::BattlefieldEntry {
                         object: entrant,
-                        paid,
-                    } if entrant == *object => Some(paid),
-                    _ => None,
+                        entry,
+                    } if entrant == *object => match entry {
+                        EntryOverride::ForceTapped => (true, None),
+                        EntryOverride::LifePayment { paid } => (false, Some(paid)),
+                    },
+                    _ => (false, None),
                 };
-                self.apply_move(*object, *destination, caster, entry_state, payment)?
+                self.apply_move(
+                    *object,
+                    *destination,
+                    caster,
+                    entry_state,
+                    force_tapped,
+                    payment,
+                )?
             }
         };
         self.update_library_position_memory(proposed, &actual);
