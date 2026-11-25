@@ -312,6 +312,29 @@ validated shape. Already-matching status emits no second event, combat membershi
 is preserved and source tap is paid first. Paid activations survive source
 departure.
 
+### Target and selection operands
+
+A battlefield target may name its controller: "you control" announces and
+rechecks against the invocation's controller (CR 109.5, 601.2c, 608.2b); "an
+opponent controls" keeps the permanent filter. A creature filter with that
+qualifier counts as a creature target for pump, keyword, damage, counter and
+library-top cells. Damage to "target creature" binds that announced object.
+"Up to one target" lets the sole object occurrence of a program announce zero
+objects (CR 115.1d, `optional_object_target_v1`). Only destroy, tap, untap,
+move, counter and until-end-of-turn leaves may read it; with zero targets they
+do nothing and untargeted instructions still happen. Mixed optional and
+required occurrences, larger counts and permanent spells reject.
+
+"This [permanent]" in an ability names the source: tap, untap, return to its
+owner's hand or put on top of its owner's library (`Cell::TapStatusSource`,
+`Cell::MoveSourceOwnerZone`). Only its current battlefield incarnation moves
+(CR 400.7); a commander offers the command zone (CR 903.9b). "Put a +1/+1
+counter on each [creature filter]" is one simultaneous placement on the
+members read when it is performed (CR 122.6, 608.2h, `Cell::PlusOneCountersSet`).
+These cells earn `Executes` only. "Return a land you control" and "untap up to
+seven lands" choose during resolution and still reject as
+`operand:target:ref_filter`: they need an interactive resolution choice.
+
 <a id="combat-damage-and-state-based-actions"></a>
 
 ## Combat, damage and life
@@ -641,7 +664,7 @@ Everything else rejects under `compose.control:<detail>`:
 - another condition, a nested leaf that needs persistent provenance
 - `forEach` amounts (CR 121.2a: a counted draw is one replaceable event)
 
-Modal steps (W14) and "up to N" targets also reject.
+Modal steps (W14) and "up to N" targets for N above one also reject.
 
 ## Derived capability tiers
 

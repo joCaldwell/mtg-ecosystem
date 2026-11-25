@@ -464,35 +464,47 @@ impl RulesTxn {
                 } => {
                     let program = self.program_for(self.entry(frame.stack_id)?)?;
                     let instruction = program.instructions.get(frame.cursor as usize);
-                    let (slot, expected_destination, expected_block) = match instruction {
+                    let (what, expected_destination, expected_block) = match instruction {
                         Some(
                             kernel!(Move {
-                                what: target_object!(target_slot),
-                                to: mtg_contracts::kir::Destination::OwnerHand
-                            } @ source_block),
-                        ) => (*target_slot, Zone::Hand { owner }, *source_block),
+                            what: mtg_contracts::kir::SetExpr::One { object: what },
+                            to: mtg_contracts::kir::Destination::OwnerHand
+                        } @ source_block),
+                        ) => (what, Zone::Hand { owner }, *source_block),
                         Some(
-                            kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerLibraryTop } @ source_block),
-                        ) => (*target_slot, Zone::Library { owner }, *source_block),
+                            kernel!(Move {
+                            what: mtg_contracts::kir::SetExpr::One { object: what },
+                            to: mtg_contracts::kir::Destination::OwnerLibraryTop
+                        } @ source_block),
+                        ) => (what, Zone::Library { owner }, *source_block),
                         _ => {
                             return Err(
                                 "snapshot commander instruction continuation invariant".into()
                             );
                         }
                     };
-                    let valid_target =
-                        { self.object_target_legal(self.entry(frame.stack_id)?, *object) };
-                    if !valid_target
+                    let entry = self.entry(frame.stack_id)?;
+                    // CR 400.7: a source move names the source's current
+                    // battlefield incarnation; a target move its legal target.
+                    let valid_object = match what {
+                        mtg_contracts::kir::Ref::Source => {
+                            entry.source == *object && current.present_on_battlefield()
+                        }
+                        mtg_contracts::kir::Ref::Target { slot } => {
+                            self.object_target_legal(entry, *object)
+                                && entry.paid.as_ref() == Some(&entry.total_cost)
+                                && entry.targets.len() == program.targets.len()
+                                && frame.legal_targets.len() == program.targets.len()
+                                && entry.targets.get(*slot as usize) == Some(object)
+                                && frame.legal_targets.get(*slot as usize) == Some(&true)
+                        }
+                        _ => false,
+                    };
+                    if !valid_object
                         || *destination != expected_destination
                         || *source_block != expected_block
                         || frame.stack_id.0 >= self.state.rules.next_stack_id
-                        || self.entry(frame.stack_id)?.paid.as_ref()
-                            != Some(&self.entry(frame.stack_id)?.total_cost)
-                        || self.entry(frame.stack_id)?.targets.len() != program.targets.len()
-                        || frame.legal_targets.len() != program.targets.len()
                         || frame.outcomes.len() != frame.cursor as usize
-                        || self.entry(frame.stack_id)?.targets.get(slot as usize) != Some(object)
-                        || frame.legal_targets.get(slot as usize) != Some(&true)
                     {
                         return Err("snapshot commander spell continuation invariant".into());
                     }

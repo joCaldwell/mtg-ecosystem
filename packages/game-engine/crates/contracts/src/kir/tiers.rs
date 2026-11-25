@@ -139,6 +139,7 @@ pub enum Cell {
     MovePermanentOwnerHand,
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
+    MoveSourceOwnerZone,
     ExileTargetGraveyard,
     ExileGraveyards,
     MoveSet,
@@ -146,6 +147,7 @@ pub enum Cell {
     Attachment,
     // CR 701.26: tap and untap.
     TapTarget,
+    TapStatusSource,
     TapSet,
     UntapTarget,
     UntapSet,
@@ -173,6 +175,7 @@ pub enum Cell {
     // CR 122: counters.
     PlusOneCountersSource,
     PlusOneCountersTarget,
+    PlusOneCountersSet,
     // CR 611.2c, 613: until end of turn.
     PumpSource,
     PumpTarget,
@@ -284,11 +287,13 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DestroySet
         | C::MoveTargetExile
         | C::MovePermanentOwnerHand
+        | C::MoveSourceOwnerZone
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
         | C::MoveSet
         | C::Attachment
         | C::TapTarget
+        | C::TapStatusSource
         | C::TapSet
         | C::UntapTarget
         | C::UntapSet
@@ -306,6 +311,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::PredefinedTokens
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
+        | C::PlusOneCountersSet
         | C::PumpSet
         | C::SourceKeywordsUntilEndOfTurn
         | C::TargetKeywordsUntilEndOfTurn
@@ -442,6 +448,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::TappedPermanentTargetV1
         | C::PowerFilteredRemovalV1
         | C::UntapPermanentV1
+        | C::OptionalObjectTargetV1
         | C::TapPermanentV1
         | C::ActivatedTapPermanentV1
         | C::ActivatedCreatureTapV1

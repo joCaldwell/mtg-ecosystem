@@ -186,30 +186,52 @@ impl RulesTxn {
                 {
                     self.finish_spell(stack.id, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
+                    let Instruction::Kernel { node, .. } = instruction;
+                    // CR 115.1d, 608.2b: choosing zero doesn't stop the spell
+                    // or ability. Only its independently targeted leaves do nothing.
+                    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                    if program.optional_target
+                        && frame.legal_targets.is_empty()
+                        && !mtg_contracts::kir::target_slots(node).is_empty()
+                    {
+                        self.finish_instruction(
+                            frame,
+                            InstructionOutcome::Effect { actual: None },
+                        )?;
+                        return Ok(());
+                    }
                     match instruction {
-                        kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerHand } @ source_block)
-                        | kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerLibraryTop } @ source_block) =>
+                        kernel!(Move { what: mtg_contracts::kir::SetExpr::One { object }, to: to @ (mtg_contracts::kir::Destination::OwnerHand | mtg_contracts::kir::Destination::OwnerLibraryTop) } @ source_block) =>
                         {
-                            let target = *self
-                                .bound_object_target(&stack, *target_slot as usize)
-                                .ok_or("missing return target")?;
-                            let outcome = if !frame.legal_targets[*target_slot as usize] {
+                            // CR 400.7, 608.2b: an announced target is rechecked;
+                            // the source moves only as its current battlefield
+                            // incarnation.
+                            // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                            let (target, legal) = match object {
+                                mtg_contracts::kir::Ref::Target { slot } => (
+                                    *self
+                                        .bound_object_target(&stack, *slot as usize)
+                                        .ok_or("missing return target")?,
+                                    frame.legal_targets[*slot as usize],
+                                ),
+                                mtg_contracts::kir::Ref::Source => (stack.source, true),
+                                _ => return Err("zone move requires a source or target".into()),
+                            };
+                            let outcome = if !legal {
                                 InstructionOutcome::IllegalTarget { target }
-                            } else if self.current(target).is_err() {
+                            } else if !self
+                                .current(target)
+                                .is_ok_and(|object| object.present_on_battlefield())
+                            {
                                 InstructionOutcome::ObjectNoLongerPresent { target }
                             } else {
                                 let owner = self.state.rules.cards[&target.card].owner;
-                                let destination = if matches!(
-                                    instruction,
-                                    kernel!(Move {
-                                        what: target_object!(_),
-                                        to: mtg_contracts::kir::Destination::OwnerLibraryTop
-                                    })
-                                ) {
-                                    Zone::Library { owner }
-                                } else {
-                                    Zone::Hand { owner }
-                                };
+                                let destination =
+                                    if *to == mtg_contracts::kir::Destination::OwnerLibraryTop {
+                                        Zone::Library { owner }
+                                    } else {
+                                        Zone::Hand { owner }
+                                    };
                                 if self.state.rules.commanders.history(target.card).is_some() {
                                     self.rules_mut().frame = Frame::CommanderReturn {
                                         object: target,

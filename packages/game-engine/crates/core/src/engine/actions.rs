@@ -127,6 +127,9 @@ impl RulesTxn {
         player: PlayerId,
         source: &Characteristics,
     ) -> bool {
+        if program.optional_target {
+            return true;
+        }
         match program.targets.first().map(|target| target.domain) {
             Some(TargetDomain::PlayerGraveyardCards { .. }) => false,
             None => true,

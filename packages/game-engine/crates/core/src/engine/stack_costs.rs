@@ -205,6 +205,7 @@ impl RulesTxn {
                     Frame::StackTargets { cast }
                 }
                 TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::ControlledBattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
                 | TargetDomain::BattlefieldPermanent => Frame::Targets { cast },
                 _ => Frame::EntityTargets { cast },
@@ -354,6 +355,7 @@ impl RulesTxn {
                     !matches!(
                         t.domain,
                         TargetDomain::ControlledBattlefieldCreature
+                            | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::BattlefieldPermanent
                     )

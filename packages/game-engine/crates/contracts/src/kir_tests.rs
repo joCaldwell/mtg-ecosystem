@@ -1147,6 +1147,7 @@ fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
             timing: crate::SpellTiming::Instant,
             resolution: crate::SpellResolution::Instructions,
             functioning_zone: crate::FunctioningZone::Stack,
+            optional_target: false,
             targets: vec![],
             instructions: vec![crate::Instruction::act(
                 Verb::GainLife {
