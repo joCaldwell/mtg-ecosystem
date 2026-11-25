@@ -120,6 +120,24 @@ impl Board {
         self
     }
 
+    /// Seed the board's library shuffles (CR 701.24a).
+    pub fn seed(mut self, seed: [u8; 32]) -> Self {
+        self.config.initial.seed = Some(seed);
+        self
+    }
+
+    /// One card on top of `owner`'s library, below any added before it.
+    pub fn library_card(self, name: &str, owner: u8) -> Self {
+        self.card(
+            name,
+            owner,
+            owner,
+            Zone::Library {
+                owner: PlayerId(owner),
+            },
+        )
+    }
+
     pub fn commander(mut self, id: CardId) -> Self {
         self.config.commanders.push(id);
         self

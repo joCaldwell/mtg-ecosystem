@@ -452,9 +452,14 @@ impl RulesTxn {
         }) {
             return true;
         }
-        // CR 701.20a-b: only this selected set is temporarily public; it
-        // remains in the library, without publishing positions or other candidates.
-
+        // CR 701.22a, 701.23a, 701.25a: only the player searching, scrying
+        // or surveiling sees the library cards of their own choice, while it
+        // waits; no position or other card is published.
+        if matches!(object.zone, Zone::Library { owner } if owner == viewer)
+            && self.library_choice_visible(viewer, object.id)
+        {
+            return true;
+        }
         if self.replacement_reveals(object.id) {
             return true;
         }

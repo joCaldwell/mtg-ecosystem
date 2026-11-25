@@ -3,6 +3,7 @@
 //! tokens, player actions) are dispatched by `execute_kernel` to it.
 mod draw;
 mod grant_keywords;
+mod library;
 mod life;
 mod set_move;
 mod tap;

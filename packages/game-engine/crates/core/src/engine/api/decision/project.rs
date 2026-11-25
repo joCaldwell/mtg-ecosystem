@@ -113,6 +113,11 @@ impl RulesTxn {
                 source: current(source)?,
             },
             Reason::ResolveDiscard => Reason::ResolveDiscard,
+            Reason::SearchLibrary => Reason::SearchLibrary,
+            Reason::ScryBottom => Reason::ScryBottom,
+            Reason::SurveilGraveyard => Reason::SurveilGraveyard,
+            Reason::OrderLibraryTop => Reason::OrderLibraryTop,
+            Reason::OrderLibraryBottom => Reason::OrderLibraryBottom,
         })
     }
 

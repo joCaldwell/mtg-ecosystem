@@ -189,6 +189,18 @@ pub enum Reason<S: Space> {
         source: Option<S::Object>,
     },
     ResolveDiscard,
+    /// CR 701.23a-d: the cards found in the decider's own library. The
+    /// shape's bounds say how many must be found.
+    SearchLibrary,
+    /// CR 701.22a: the looked-at cards to put on the bottom.
+    ScryBottom,
+    /// CR 701.25a: the looked-at cards to put into the graveyard.
+    SurveilGraveyard,
+    /// CR 701.22a, 701.25a: the cards going back on top, topmost first.
+    OrderLibraryTop,
+    /// CR 701.22a: the cards going to the bottom, in their final order from
+    /// the top of that group down.
+    OrderLibraryBottom,
 }
 
 impl<S: Space> Reason<S> {
@@ -220,6 +232,11 @@ impl<S: Space> Reason<S> {
             Self::ManaColor { .. } => 22,
             Self::SpendMana { .. } => 23,
             Self::ResolveDiscard => 24,
+            Self::SearchLibrary => 25,
+            Self::ScryBottom => 26,
+            Self::SurveilGraveyard => 27,
+            Self::OrderLibraryTop => 28,
+            Self::OrderLibraryBottom => 29,
         }
     }
 }

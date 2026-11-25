@@ -12,6 +12,7 @@ mod discard;
 mod draw;
 mod exile;
 mod gain_abilities;
+mod library;
 mod life;
 mod mill;
 mod move_zone;
@@ -71,7 +72,8 @@ pub(crate) fn append_spell_effects(
         if sentence.steps.is_empty() {
             return Err(invalid("effects.steps", "empty instruction group"));
         }
-        for s in &sentence.steps {
+        let mut at = 0;
+        while let Some(s) = sentence.steps.get(at) {
             if player_binding == PlayerBinding::Unbound
                 && matches!(s, Step::LoseLife { who, .. } if who.player == "that-player")
             {
@@ -85,8 +87,17 @@ pub(crate) fn append_spell_effects(
                 source_block,
                 counted,
             };
+            // CR 701.23a, 701.24a: a search run spans its reveal, move and
+            // shuffle steps.
+            if matches!(s, Step::Search { .. }) {
+                let (instructions, consumed) = library::search(&mut cx, &sentence.steps[at..])?;
+                program.instructions.extend(instructions);
+                at += consumed;
+                continue;
+            }
             let instruction = lower_step(&mut cx, s)?;
             program.instructions.push(instruction);
+            at += 1;
         }
     }
     Ok(())
@@ -137,7 +148,8 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
             to,
             order,
             tapped,
-        } => move_zone::lower(cx, what, to, order.as_deref(), *tapped),
+            who,
+        } => move_zone::lower(cx, what, to, order.as_deref(), *tapped, who.as_ref()),
         Step::Sacrifice {
             who,
             what,
@@ -150,12 +162,17 @@ fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
         Step::AdditionalLandPlays { .. } => Err(step("additional-land-plays", "unlowered")),
         Step::LookAt { .. } => Err(step("look-at", "unlowered")),
         Step::Simultaneous { .. } => Err(step("simultaneous", "unlowered")),
-        Step::Scry { .. } => Err(step("scry", "unlowered")),
-        Step::Surveil { .. } => Err(step("surveil", "unlowered")),
+        Step::Scry { amount } => library::look(cx, amount, false),
+        Step::Surveil { amount } => library::look(cx, amount, true),
         Step::AddMana { .. } => Err(step("add-mana", "unlowered")),
         Step::Reveal { .. } => Err(step("reveal", "unlowered")),
-        Step::Search { .. } => Err(step("search", "unlowered")),
-        Step::Shuffle { .. } => Err(step("shuffle", "unlowered")),
+        // A search run is lowered from its first step by the sentence loop.
+        Step::Search { .. } => Err(step("search", "run")),
+        Step::Shuffle {
+            who,
+            library,
+            optional,
+        } => library::shuffle(cx, who, library, *optional),
         Step::Modal { .. } => Err(step("modal", "unlowered")),
         Step::GainAbilities {
             what,

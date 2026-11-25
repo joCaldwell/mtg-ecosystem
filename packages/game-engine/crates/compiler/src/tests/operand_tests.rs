@@ -162,7 +162,7 @@ fn amounts_players_destinations_and_durations_are_typed() {
 #[test]
 fn verbs_without_a_module_name_their_effect_tag() {
     let sentence: Sentence = serde_json::from_value(json!({"steps":[
-        {"effect":"scry","amount":{"amount":"fixed","value":2}}]}))
+        {"effect":"lose-game","who":{"player":"you"}}]}))
     .unwrap();
     let failure = append_spell_effects(
         &mut program(),
@@ -173,7 +173,7 @@ fn verbs_without_a_module_name_their_effect_tag() {
         Context::Spell,
     )
     .unwrap_err();
-    assert_eq!(code(failure), "verb:scry:unlowered");
+    assert_eq!(code(failure), "verb:lose-game:unlowered");
 }
 
 #[test]

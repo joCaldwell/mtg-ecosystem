@@ -23,6 +23,36 @@ pub enum ProposedEvent {
         count: Quantity,
         cards: Vec<ObjectId>,
     },
+    /// CR 701.22a: `looked` is the library's top; `top` goes back on top in
+    /// that order and `bottom` beneath the rest in that order.
+    Scry {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        top: Vec<ObjectId>,
+        bottom: Vec<ObjectId>,
+    },
+    /// CR 701.25a: `graveyard` moves to its owner's graveyard and `top` goes
+    /// back on top in that order.
+    Surveil {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        top: Vec<ObjectId>,
+        graveyard: Vec<ObjectId>,
+    },
+    /// CR 701.24a: a whole resolving shuffle of one library.
+    ShuffleLibrary {
+        player: PlayerId,
+    },
+    /// CR 110.2, 614.1c: a searched card enters under its owner's control,
+    /// already tapped.
+    EnterTapped {
+        object: ObjectId,
+    },
+    /// CR 701.23e: the found cards, now in their owner's hand, were revealed.
+    RevealFound {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
+    },
 
     /// CR 303.4a/608.3c: entry and legal attachment are one occurrence.
     EnterAttached {
@@ -220,6 +250,20 @@ pub enum EventOutcome {
     Milled {
         player: PlayerId,
         movements: Vec<MoveOutcome>,
+    },
+    Scried {
+        player: PlayerId,
+        top: Vec<ObjectId>,
+        bottom: Vec<ObjectId>,
+    },
+    Surveilled {
+        player: PlayerId,
+        top: Vec<ObjectId>,
+        movements: Vec<MoveOutcome>,
+    },
+    FoundRevealed {
+        player: PlayerId,
+        objects: Vec<ObjectId>,
     },
 
     EnteredAttached {

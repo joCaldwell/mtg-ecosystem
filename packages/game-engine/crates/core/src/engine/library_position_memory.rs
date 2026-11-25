@@ -53,10 +53,16 @@ impl RulesTxn {
                 }
                 match event {
                     ProposedEvent::FinishLibraryShuffle { player }
+                    | ProposedEvent::ShuffleLibrary { player }
                     | ProposedEvent::ShuffleLibraryWord { player, .. } => player != owner,
 
                     // Scry can hide the size of the portion sent to the
                     // bottom. Opponents cannot update positions from that count.
+                    // Surveil reorders the kept cards secretly; positions of
+                    // that library are forgotten conservatively in both.
+                    ProposedEvent::Scry { player, .. } | ProposedEvent::Surveil { player, .. } => {
+                        player != owner
+                    }
 
                     // The chooser sees the reordered prefix. Other viewers
                     // can still track the untouched tail through these actions,

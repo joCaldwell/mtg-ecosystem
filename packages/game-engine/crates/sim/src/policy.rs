@@ -540,11 +540,22 @@ impl Strategy<'_> {
             (Reason::LegendRule { .. }, Shape::Pick { slots, .. }) => Answer::Pick {
                 picks: vec![vec![*slots[0].allowed.last().ok_or("empty legend slot")?]],
             },
+            // CR 701.23a: find as many of the offered library cards as
+            // allowed, in the offered order.
+            (Reason::SearchLibrary, Shape::Pick { slots, .. }) => Answer::Pick {
+                picks: slots
+                    .iter()
+                    .map(|s| s.allowed.iter().take(s.max as usize).copied().collect())
+                    .collect(),
+            },
+            // CR 701.22a, 701.25a: keep every looked-at card on top.
             (
                 Reason::Discard
                 | Reason::ResolveDiscard
                 | Reason::DamageEffect { .. }
-                | Reason::AdditionalCosts,
+                | Reason::AdditionalCosts
+                | Reason::ScryBottom
+                | Reason::SurveilGraveyard,
                 Shape::Pick { slots, .. },
             ) => Answer::Pick {
                 picks: slots

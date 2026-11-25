@@ -9,9 +9,12 @@
 //!
 //! * CR 608.2d: "may" is [`Node::Optional`]. Its chooser must be the
 //!   ability's controller: a departed non-controlling chooser would need the
-//!   CR 800.4g reassignment the continuation does not perform. Its body is
-//!   made of verbs whose feasibility the continuation decides before offering
-//!   the choice (CR 701.26a: tapping a tapped permanent is impossible).
+//!   CR 800.4g reassignment the continuation does not perform. A target's
+//!   controller may choose to search and shuffle their own library: that
+//!   library leaves with them (CR 800.4a), so no reassigned choice acts.
+//!   Its body is made of verbs whose feasibility the continuation decides
+//!   before offering the choice (CR 701.26a: tapping a tapped permanent is
+//!   impossible).
 //! * CR 118.12a: "unless [player] pays {N}" / "N life" is
 //!   [`Node::UnlessPays`].
 //! * CR 118.12, 608.2c: "[player] may pay [cost]. If they do/don't, ..."
@@ -276,7 +279,10 @@ impl Site<'_> {
                     Some(path) => self.player(path)?,
                     None => PlayerExpr::you(self.context),
                 };
-                if !chooser.is_you() {
+                // CR 800.4a, 800.4g: a departed chooser who would search
+                // or shuffle only their own library has none left, so any
+                // reassigned choice performs nothing.
+                if !chooser.is_you() && !own_library(&node, &chooser) {
                     return reject("optional_chooser");
                 }
                 if !decided(&node) {
@@ -442,6 +448,11 @@ fn decided(node: &Node) -> bool {
         Node::Do(
             Verb::Draw { .. } | Verb::GainLife { .. } | Verb::LoseLife { .. } | Verb::Mill { .. },
         ) => true,
+        // CR 701.23g, 701.24a, 701.22a, 701.25a: a live player can always
+        // search, shuffle, scry or surveil, even an empty library.
+        Node::Do(
+            Verb::Search { .. } | Verb::Shuffle { .. } | Verb::Scry { .. } | Verb::Surveil { .. },
+        ) => true,
         Node::Do(Verb::Tap { what } | Verb::Untap { what } | Verb::Move { what, .. }) => matches!(
             what,
             SetExpr::One {
@@ -456,6 +467,16 @@ fn decided(node: &Node) -> bool {
                 }
             )
         }
+        _ => false,
+    }
+}
+
+/// A body whose every verb searches or shuffles `player`'s own library.
+fn own_library(node: &Node, player: &PlayerExpr) -> bool {
+    use kir::Verb;
+    match node {
+        Node::Seq(nodes) => nodes.iter().all(|node| own_library(node, player)),
+        Node::Do(Verb::Search { player: p, .. } | Verb::Shuffle { player: p }) => p == player,
         _ => false,
     }
 }

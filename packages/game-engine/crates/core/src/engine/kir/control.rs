@@ -201,6 +201,15 @@ impl RulesTxn {
                 };
                 vec![*p]
             }
+            // CR 608.2h: a filtered target's current or last-known
+            // controller, captured by the resolving frame.
+            PlayerExpr::ControllerOf {
+                object: Ref::Target { .. },
+            } => match self.kernel_players(frame, expression)? {
+                Players::One(player) => vec![player],
+                Players::Nobody => vec![],
+                Players::EachOpponent => return Err("invalid target controller".into()),
+            },
             PlayerExpr::OwnerOf { object } | PlayerExpr::ControllerOf { object } => {
                 let objects = self.control_objects(task, &SetExpr::One { object: *object })?;
                 let [id] = objects.as_slice() else {

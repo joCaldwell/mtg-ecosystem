@@ -59,6 +59,31 @@ pub enum ResolutionChoice {
         count: usize,
         source_block: u32,
     },
+    /// CR 701.23a: `player` chooses the found cards of the admitted search.
+    Search {
+        player: PlayerId,
+        source_block: u32,
+    },
+    /// CR 701.22a: `player` looked at `looked` (top first), then chooses the
+    /// bottom cards, then the order of the top cards, then of the bottom.
+    Scry {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bottom: Option<Vec<ObjectId>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        top: Option<Vec<ObjectId>>,
+        source_block: u32,
+    },
+    /// CR 701.25a: `player` looked at `looked`, then chooses the graveyard
+    /// cards, then the order of the rest on top.
+    Surveil {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        graveyard: Option<Vec<ObjectId>>,
+        source_block: u32,
+    },
 }
 impl RulesTxn {
     pub(super) fn opponents(&self, player: PlayerId) -> Vec<PlayerId> {
@@ -343,10 +368,13 @@ impl RulesTxn {
     }
 
     pub(crate) fn actions_request(&self) -> Result<Option<Decision<Rules>>, String> {
-        let Frame::ResolutionChoice { choice, .. } = &self.state.rules.frame else {
+        let Frame::ResolutionChoice { choice, frame } = &self.state.rules.frame else {
             return Ok(None);
         };
         Ok(match choice {
+            ResolutionChoice::Search { .. }
+            | ResolutionChoice::Scry { .. }
+            | ResolutionChoice::Surveil { .. } => self.library_request(frame, choice)?,
             ResolutionChoice::OptionalEffect { player, .. } if self.is_live(*player) => {
                 Some(self.pick_flags(
                     *player,
@@ -403,10 +431,21 @@ impl RulesTxn {
                 {
                     return self.removal_choice_step(frame, player, target, source_block);
                 }
+                if matches!(
+                    choice,
+                    ResolutionChoice::Search { .. }
+                        | ResolutionChoice::Scry { .. }
+                        | ResolutionChoice::Surveil { .. }
+                ) {
+                    return self.library_choice_step(frame, choice);
+                }
 
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::OptionalEffect { .. } => unreachable!(),
+                        ResolutionChoice::OptionalEffect { .. }
+                        | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::Scry { .. }
+                        | ResolutionChoice::Surveil { .. } => unreachable!(),
                         ResolutionChoice::Sacrifice { player, .. } => {
                             InstructionOutcome::Sacrificed {
                                 player,
@@ -428,7 +467,10 @@ impl RulesTxn {
                     .take()
                     .ok_or("missing resolution choice")?;
                 let source_block = match choice {
-                    ResolutionChoice::OptionalEffect { .. } => unreachable!(),
+                    ResolutionChoice::OptionalEffect { .. }
+                    | ResolutionChoice::Search { .. }
+                    | ResolutionChoice::Scry { .. }
+                    | ResolutionChoice::Surveil { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
                     | ResolutionChoice::Discard { source_block, .. } => source_block,
                 };
@@ -1178,6 +1220,12 @@ impl RulesTxn {
                             && Quantity::from(*count as i64) <= *expected
                             && *source_block == block
                     }),
+                (
+                    ResolutionChoice::Search { .. }
+                    | ResolutionChoice::Scry { .. }
+                    | ResolutionChoice::Surveil { .. },
+                    _,
+                ) => self.valid_library_choice(frame, choice)?,
                 _ => self.valid_staples_choice(frame, choice, instruction),
             };
             if !valid {

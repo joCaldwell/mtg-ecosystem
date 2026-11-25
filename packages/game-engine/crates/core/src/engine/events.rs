@@ -294,6 +294,8 @@ fn changes_control_inputs(event: &ProposedEvent) -> bool {
         ProposedEvent::PhaseOutControlled { .. }
             | ProposedEvent::PhaseOutTarget { .. }
             | ProposedEvent::Move { .. }
+            | ProposedEvent::EnterTapped { .. }
+            | ProposedEvent::Surveil { .. }
             | ProposedEvent::DestroyPermanent { .. }
             | ProposedEvent::DestroyCreature { .. }
             | ProposedEvent::StateBasedGraveyard { .. }
@@ -340,7 +342,22 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             }
             (keys.clone(), keys)
         }
+        ProposedEvent::Scry { player, looked, .. }
+        | ProposedEvent::Surveil { player, looked, .. } => {
+            let mut read = BTreeSet::from([FactKey::Libraries, FactKey::Life(*player)]);
+            read.extend(looked.iter().map(|o| FactKey::Object(o.card)));
+            let mut write = BTreeSet::from([FactKey::Libraries]);
+            if let ProposedEvent::Surveil { graveyard, .. } = event {
+                write.extend(graveyard.iter().map(|o| FactKey::Object(o.card)));
+            }
+            (read, write)
+        }
+        ProposedEvent::RevealFound { objects, .. } => {
+            let keys: BTreeSet<_> = objects.iter().map(|o| FactKey::Object(o.card)).collect();
+            (keys, BTreeSet::new())
+        }
         ProposedEvent::FinishLibraryShuffle { .. }
+        | ProposedEvent::ShuffleLibrary { .. }
         | ProposedEvent::ShuffleLibraryWord { .. }
         | ProposedEvent::Setup { .. } => {
             let keys = BTreeSet::from([FactKey::Libraries, FactKey::Turn]);
@@ -485,7 +502,9 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
             let keys = BTreeSet::from([FactKey::Object(object.card), FactKey::Libraries]);
             (keys.clone(), keys)
         }
-        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
+        ProposedEvent::Move { object, .. }
+        | ProposedEvent::EnterTapped { object }
+        | ProposedEvent::LeaveGame { object, .. } => {
             let keys = BTreeSet::from([FactKey::Object(object.card)]);
             let mut reads = keys.clone();
             // Zone membership is authoritative (CR 400.7). A battlefield Aura
@@ -553,7 +572,9 @@ fn access(event: &ProposedEvent, game: &RulesTxn) -> (BTreeSet<FactKey>, BTreeSe
     // Use history is another incarnation-bound fact. Movement/reversal writes
     // are independent for distinct sources; turn entry clears the current set.
     let keys: Vec<_> = match event {
-        ProposedEvent::Move { object, .. } | ProposedEvent::LeaveGame { object, .. } => {
+        ProposedEvent::Move { object, .. }
+        | ProposedEvent::EnterTapped { object }
+        | ProposedEvent::LeaveGame { object, .. } => {
             vec![FactKey::ManaAbilityUse(object.card)]
         }
         ProposedEvent::ReversePermanentMana { receipt } => {
@@ -821,7 +842,21 @@ impl RulesTxn {
                         libraries.insert(owner);
                     }
                 }
+                ProposedEvent::Scry { player, looked, .. }
+                | ProposedEvent::Surveil { player, looked, .. } => {
+                    libraries.insert(*player);
+                    players.insert(*player);
+                    objects.extend(looked.iter().copied());
+                }
+                ProposedEvent::RevealFound {
+                    player,
+                    objects: found,
+                } => {
+                    players.insert(*player);
+                    objects.extend(found.iter().copied());
+                }
                 ProposedEvent::FinishLibraryShuffle { player }
+                | ProposedEvent::ShuffleLibrary { player }
                 | ProposedEvent::ShuffleLibraryWord { player, .. } => {
                     libraries.insert(*player);
                 }
@@ -1093,6 +1128,7 @@ impl RulesTxn {
                 ProposedEvent::Untap { object }
                 | ProposedEvent::Transform { object }
                 | ProposedEvent::Tap { object }
+                | ProposedEvent::EnterTapped { object }
                 | ProposedEvent::Move { object, .. } => {
                     objects.insert(*object);
                 }
@@ -1880,6 +1916,33 @@ impl RulesTxn {
                 cards,
             } => self.apply_mill(*player, count, cards, before, replacement)?,
 
+            ProposedEvent::Scry {
+                player,
+                looked,
+                top,
+                bottom,
+            } => self.apply_scry(*player, looked, top, bottom)?,
+            ProposedEvent::Surveil {
+                player,
+                looked,
+                top,
+                graveyard,
+            } => self.apply_surveil(*player, looked, top, graveyard, before)?,
+            ProposedEvent::ShuffleLibrary { player } => self.apply_library_shuffle(*player)?,
+            ProposedEvent::EnterTapped { object } => {
+                if self.current(*object)?.zone
+                    != (Zone::Library {
+                        owner: self.state.rules.cards[&object.card].owner,
+                    })
+                {
+                    return Err("tapped entry outside its owner's library".into());
+                }
+                let owner = self.state.rules.cards[&object.card].owner;
+                self.apply_move(*object, Zone::Battlefield, Some(owner), true)?
+            }
+            ProposedEvent::RevealFound { player, objects } => {
+                self.apply_found_reveal(*player, objects)?
+            }
             ProposedEvent::FinishLibraryShuffle { player } => {
                 let group_shuffle =
                     replacement.is_some() && self.publish_group_permutation(*player)?;

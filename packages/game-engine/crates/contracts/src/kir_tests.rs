@@ -1,6 +1,6 @@
 //! KIR checker cells: admitted and rejected verbs, operands, scopes and tags.
 use super::*;
-use crate::{BeginningStep, CasterRelation, TurnRelation, TypePredicate};
+use crate::{BeginningStep, CasterRelation, PermanentFilter, TurnRelation, TypePredicate};
 
 fn spell<'a>(targets: &'a [TargetSpec]) -> Env<'a> {
     Env {
@@ -1198,5 +1198,198 @@ fn tier_helpers_never_qualify_a_node_that_does_not_check() {
     assert!(definition_tiers(&spell).is_err());
     for tier in [T::Executes, T::HeadlessQualified, T::Search, T::Hosting] {
         assert!(unqualified(&spell, tier).is_err());
+    }
+}
+
+/// One filtered "target creature" whose controller the frame captures.
+fn filtered_creature_target() -> Vec<TargetSpec> {
+    let mut target = TargetSpec::new(0, "line:0:1", TargetDomain::BattlefieldPermanent);
+    target.filter = Some(PermanentFilter {
+        types: vec![CardKind::Creature],
+        non_types: vec![],
+        non_colors: vec![],
+        opponent: false,
+        tapped: false,
+        power: None,
+    });
+    vec![target]
+}
+
+fn search(player: PlayerExpr, filter: Pred, maximum: i64, to: Destination) -> Node {
+    Node::Do(Verb::Search {
+        player,
+        search: SearchSpec {
+            filter,
+            maximum: Amount::fixed(maximum),
+            to,
+            reveal: false,
+        },
+    })
+}
+
+#[test]
+fn library_cells_admit_own_library_searches_shuffles_and_looks() {
+    let cells = |node: &Node, env: &Env<'_>| check(node, env).map(|d| d.cells);
+    let you = PlayerExpr::you(Context::Spell);
+    let basic_land = Pred(vec![
+        Atom::Type {
+            kind: CardKind::Land,
+        },
+        Atom::Basic,
+    ]);
+    let battlefield = |controller: &PlayerExpr| Destination::Battlefield {
+        controller: controller.clone(),
+        tapped: true,
+    };
+    // CR 701.23a: your own library, into a public zone or your hand.
+    for to in [
+        battlefield(&you),
+        Destination::OwnerHand,
+        Destination::OwnerGraveyard,
+    ] {
+        assert_eq!(
+            cells(&search(you.clone(), basic_land.clone(), 1, to), &spell(&[])),
+            Ok(BTreeSet::from([Cell::SearchController]))
+        );
+    }
+    // CR 608.2h: a filtered target's last-known controller searches theirs.
+    let targets = filtered_creature_target();
+    let theirs = PlayerExpr::ControllerOf {
+        object: Ref::Target { slot: 0 },
+    };
+    assert_eq!(
+        cells(
+            &search(theirs.clone(), basic_land.clone(), 1, battlefield(&theirs)),
+            &spell(&targets)
+        ),
+        Ok(BTreeSet::from([Cell::SearchTargetController]))
+    );
+    assert_eq!(
+        cells(
+            &Node::Do(Verb::Shuffle {
+                player: theirs.clone()
+            }),
+            &spell(&targets)
+        ),
+        Ok(BTreeSet::from([Cell::ShuffleTargetController]))
+    );
+    // "Its controller may search": the chooser is that same player.
+    let optional = Node::Optional {
+        chooser: theirs.clone(),
+        node: Box::new(Node::Seq(vec![
+            search(theirs.clone(), basic_land.clone(), 1, battlefield(&theirs)),
+            Node::Do(Verb::Shuffle {
+                player: theirs.clone(),
+            }),
+        ])),
+    };
+    assert_eq!(
+        cells(&optional, &spell(&targets)),
+        Ok(BTreeSet::from([
+            Cell::Control,
+            Cell::SearchTargetController,
+            Cell::ShuffleTargetController
+        ]))
+    );
+    for (amount, surveil, cell) in [
+        (1, false, Cell::ScryController),
+        (2, true, Cell::SurveilController),
+    ] {
+        let node = Node::Do(if surveil {
+            Verb::Surveil {
+                player: you.clone(),
+                amount: Amount::fixed(amount),
+            }
+        } else {
+            Verb::Scry {
+                player: you.clone(),
+                amount: Amount::fixed(amount),
+            }
+        });
+        assert_eq!(cells(&node, &spell(&[])), Ok(BTreeSet::from([cell])));
+    }
+}
+
+#[test]
+fn library_cells_reject_other_libraries_destinations_and_filters() {
+    let you = PlayerExpr::you(Context::Spell);
+    let unaudited = |node: &Node, targets: &[TargetSpec]| {
+        matches!(check(node, &spell(targets)), Err(KirError::Unaudited(_)))
+    };
+    // An unfiltered target captures no controller facts.
+    let unfiltered = creature_target();
+    let theirs = PlayerExpr::ControllerOf {
+        object: Ref::Target { slot: 0 },
+    };
+    assert!(unaudited(
+        &Node::Do(Verb::Shuffle {
+            player: theirs.clone()
+        }),
+        &unfiltered
+    ));
+    assert!(unaudited(
+        &Node::Optional {
+            chooser: theirs,
+            node: Box::new(Node::Do(Verb::Draw {
+                player: you.clone(),
+                amount: Amount::fixed(1),
+            })),
+        },
+        &unfiltered
+    ));
+    // Each player and an announced player have no library cell.
+    for player in [PlayerExpr::EachPlayer, PlayerExpr::target(0)] {
+        assert!(unaudited(
+            &Node::Do(Verb::Shuffle { player }),
+            &player_target()
+        ));
+    }
+    assert!(unaudited(
+        &Node::Do(Verb::Scry {
+            player: PlayerExpr::target(0),
+            amount: Amount::fixed(1),
+        }),
+        &player_target()
+    ));
+    // Status, control and keyword atoms are not library-card qualities.
+    for atom in [
+        Atom::Tapped,
+        Atom::Token,
+        Atom::ControlledBy {
+            player: you.clone(),
+        },
+        Atom::Keyword {
+            keyword: KeywordAbility::Flying,
+        },
+    ] {
+        assert!(unaudited(
+            &search(you.clone(), Pred(vec![atom]), 1, Destination::OwnerHand),
+            &[]
+        ));
+    }
+    // A shuffle-free top-of-library or another player's battlefield.
+    for to in [
+        Destination::OwnerLibraryTop,
+        Destination::Exile,
+        Destination::Battlefield {
+            controller: PlayerExpr::EachOpponent,
+            tapped: false,
+        },
+    ] {
+        assert!(unaudited(&search(you.clone(), Pred(vec![]), 1, to), &[]));
+    }
+    // CR 701.22b: no zero or negative look; a search finds at least one.
+    for node in [
+        search(you.clone(), Pred(vec![]), 0, Destination::OwnerHand),
+        Node::Do(Verb::Scry {
+            player: you.clone(),
+            amount: Amount::fixed(0),
+        }),
+        Node::Do(Verb::Surveil {
+            player: you,
+            amount: Amount::fixed(-1),
+        }),
+    ] {
+        assert!(matches!(check(&node, &spell(&[])), Err(KirError::Type(_))));
     }
 }

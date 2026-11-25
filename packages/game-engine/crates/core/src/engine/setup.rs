@@ -162,6 +162,15 @@ impl MatchState {
         open.word > 0 && ordinal.and_then(|n| stream_id(domain, seat, n).ok()) == Some(open.stream)
     }
 
+    /// A private board's randomness: seeded library shuffles, no opening.
+    pub(super) fn scenario(seed: [u8; 32]) -> Self {
+        Self {
+            library_shuffles: [0; 4],
+            random: MatchRandom::new(seed),
+            setup: None,
+        }
+    }
+
     pub(super) fn new(c: &MatchConfig, initial_library_size: u32) -> Self {
         Self {
             library_shuffles: [0; 4],
@@ -722,6 +731,20 @@ impl RulesTxn {
     pub(super) fn validate_match_state(&self) -> Result<(), String> {
         match (&self.prepared.match_config, &self.state.rules.match_state) {
             (None, None) => Ok(()),
+            // A seeded private board shuffles libraries and has no opening.
+            (None, Some(s)) => {
+                if Some(s.random.seed) != self.prepared.config.initial.seed
+                    || s.random.version != 2
+                    || s.setup.is_some()
+                    || s.random.table != 0
+                    || s.random.seat_random != [0; 4]
+                    || s.library_shuffles.iter().any(|n| *n > ORDINAL_LIMIT)
+                    || s.random.open.is_some_and(|p| !s.valid_open_stream(p))
+                {
+                    return Err("snapshot scenario random identity".into());
+                }
+                Ok(())
+            }
             (Some(config), Some(s)) => {
                 if s.random.version != 2
                     || s.random.seed != config.seed

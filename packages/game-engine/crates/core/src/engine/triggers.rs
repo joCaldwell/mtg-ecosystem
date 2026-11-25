@@ -440,7 +440,8 @@ impl RulesTxn {
                     }]
                 }
 
-                EventOutcome::Milled { movements, .. } => movements
+                EventOutcome::Milled { movements, .. }
+                | EventOutcome::Surveilled { movements, .. } => movements
                     .iter()
                     .map(|movement| TriggerEventWitness::Moved {
                         movement: movement.clone(),

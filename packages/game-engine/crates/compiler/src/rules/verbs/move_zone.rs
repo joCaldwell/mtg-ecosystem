@@ -8,10 +8,14 @@ pub(super) fn lower(
     to: &serde_json::Value,
     order: Option<&str>,
     tapped: Option<bool>,
+    who: Option<&serde_json::Value>,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
     if tapped.is_some() || order.is_some() {
         return Err(step("move-zone", "entry_modifier"));
+    }
+    if who.is_some() {
+        return Err(step("move-zone", "mover"));
     }
     let to = lower_destination(to)?;
     let what = object(what)?;

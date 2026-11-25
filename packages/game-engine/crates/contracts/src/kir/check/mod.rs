@@ -7,6 +7,7 @@ mod damage;
 mod destroy;
 mod discard;
 mod draw;
+mod library;
 mod life;
 mod mana;
 mod mill;
@@ -471,7 +472,13 @@ impl Walk<'_, '_> {
                 object: Ref::Source | Ref::BoundVar { .. },
             } => Ok(()),
             PlayerExpr::EachPlayer | PlayerExpr::EachOpponent if !single => Ok(()),
-            // Object-derived players can need an absent object's last
+            // CR 608.2h: a filtered target's controller is the current or
+            // last-known controller the resolving frame captured for it,
+            // also after the target left its zone.
+            PlayerExpr::ControllerOf {
+                object: Ref::Target { slot },
+            } if self.target_controller_facts(*slot) => Ok(()),
+            // Other object-derived players can need an absent object's last
             // known information (CR 608.2h). The continuation has no such
             // lookup, and a target may already be illegal at resolution.
             _ => unaudited("control player expression"),
@@ -1036,11 +1043,12 @@ impl Walk<'_, '_> {
                 change,
                 until,
             } => self.audit_modify(what, *layer, change, *until),
-            Verb::Scry { .. }
-            | Verb::Surveil { .. }
-            | Verb::Regenerate { .. }
+            Verb::Search { player, search } => self.audit_search(player, search),
+            Verb::Shuffle { player } => self.audit_shuffle(player),
+            Verb::Scry { player, amount } => self.audit_look(player, amount, false),
+            Verb::Surveil { player, amount } => self.audit_look(player, amount, true),
+            Verb::Regenerate { .. }
             | Verb::AddMana { .. }
-            | Verb::Search { .. }
             | Verb::Counter { .. }
             | Verb::CopyStackObject { .. }
             | Verb::GainControl { .. }
@@ -1049,7 +1057,6 @@ impl Walk<'_, '_> {
             | Verb::PlayPermission { .. }
             | Verb::Transform { .. }
             | Verb::SetDesignation { .. }
-            | Verb::Shuffle { .. }
             | Verb::Builtin { .. } => unaudited("verb"),
         }
     }

@@ -1,0 +1,580 @@
+//! Track 3A waves W4 and W6: library search, shuffle, scry and surveil from
+//! exact frozen R4 source, on seeded private boards. Every choice is checked
+//! for state validity, an exact snapshot round trip and per-seat privacy;
+//! every finished resolution replays from its journal.
+//! Pinned CR 401.2, 608.2d, 608.2h, 701.22a, 701.23a-e, 701.24a, 701.25a,
+//! 800.4a: https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+use mtg_contracts::kir::{Cell, Tiers, definition_cells, definition_tiers};
+use mtg_core::testkit::*;
+
+macro_rules! record {
+    ($id:literal) => {
+        include_str!(concat!(
+            "../../../../tests/fixtures/phase1-r4/",
+            $id,
+            ".json"
+        ))
+    };
+}
+
+const RAMPANT_GROWTH: &str = record!("8539f295-5d58-4436-a73a-b9277c4c7795");
+const DEMONIC_TUTOR: &str = record!("82004860-e589-4e38-8d61-8c0210e4ea39");
+const EVOLVING_WILDS: &str = record!("a75445d3-1303-4bb5-89ad-26ea93fecd48");
+const TERRAMORPHIC_EXPANSE: &str = record!("1bd3e453-aa21-4ee6-95c2-d6d920ee8e7a");
+const FLOODED_STRAND: &str = record!("f3c7af78-a77d-4134-82a2-a5ce84285a84");
+const PATH_TO_EXILE: &str = record!("d683d985-9888-4d21-8b5f-69e69ce4a03b");
+const OPT: &str = record!("713332c1-5bd8-400f-bfff-c1ca0697a043");
+const PREORDAIN: &str = record!("ac641490-ca14-48d7-8cc4-b69ce984befa");
+const CONSIDER: &str = record!("4c9bcba6-87b5-4fb3-97ee-6fe5b739337d");
+const CULTIVATE: &str = record!("8b755881-a72d-4e21-a369-d2924eb4585a");
+
+const SEED: [u8; 32] = [7; 32];
+
+/// A seeded board whose catalog adds `cards`, each compiled from frozen
+/// source to `Executes` only and occupying the named cells.
+fn board(cards: &[(&str, &[Cell])]) -> Board {
+    let mut catalog = FixtureCatalog::Witness.get().clone();
+    for &(raw, cells) in cards {
+        let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
+        let mtg_compiler::CompileResult::Lowered { definition } = result else {
+            panic!("frozen library witness failed: {result:?}");
+        };
+        assert_eq!(definition_tiers(&definition).unwrap(), Tiers::EXECUTES);
+        let occupied = definition_cells(&definition).unwrap();
+        for cell in cells {
+            assert!(
+                occupied.contains(cell),
+                "{} lacks {cell:?}",
+                definition.name
+            );
+        }
+        catalog.definitions.push(*definition);
+    }
+    catalog
+        .definitions
+        .sort_by(|a, b| a.oracle_id.cmp(&b.oracle_id));
+    Board::new(catalog, "r4-library-witness")
+        .step(TurnStep::PrecombatMain)
+        .seats(2)
+        .seed(SEED)
+}
+
+/// State validation and an exact snapshot round trip.
+fn checked(g: &Game) {
+    g.validate_state().unwrap();
+    let snapshot = g.snapshot().unwrap();
+    let restored = Game::restore(g.prepared.as_ref().clone(), &snapshot).unwrap();
+    assert_eq!(restored.snapshot().unwrap(), snapshot);
+}
+
+fn observation(g: &Game, seat: u8) -> Observation {
+    let QueryResult::Complete(QueryValue::Observation(o)) =
+        g.observe(PlayerId(seat), Budget::unlimited())
+    else {
+        panic!("missing observation for seat {seat}");
+    };
+    o
+}
+
+/// CR 401.2: at the next decision, the chooser's observation holds exactly
+/// the library cards it chooses among; every other seat sees no library
+/// card and no decision.
+fn private_to(g: &mut Game, chooser: u8, cards: usize) {
+    let d = Driver::request(g, u64::MAX);
+    assert_eq!(d.player, PlayerId(chooser));
+    for seat in 0..2 {
+        let o = observation(g, seat);
+        let library = o
+            .view
+            .objects
+            .iter()
+            .filter(|object| matches!(object.zone, Zone::Library { .. }))
+            .count();
+        if seat == chooser {
+            assert_eq!(library, cards, "chooser sees its choice");
+            assert!(o.decision.is_some());
+        } else {
+            assert_eq!(library, 0, "seat {seat} learns no library card");
+            assert!(o.decision.is_none());
+        }
+    }
+}
+
+/// Pass priority until the next decision that is not priority.
+fn next_choice(g: &mut Game) -> Decision<Rules> {
+    for _ in 0..16 {
+        let d = Driver::request(g, 1);
+        if d.reason != Reason::Priority {
+            return d;
+        }
+        let pass = d
+            .pick_one(&Candidate::Action {
+                action: Action::Pass,
+            })
+            .unwrap();
+        g.respond(d.player, d.id, pass).unwrap();
+    }
+    panic!("no choice within 16 priority passes")
+}
+
+/// The pending decision is `seat`'s `reason`; answer it with `objects`.
+fn answer(g: &mut Game, seat: u8, reason: Reason<Rules>, objects: &[ObjectId]) -> Decision<Rules> {
+    let d = next_choice(g);
+    assert_eq!((d.player, &d.reason), (PlayerId(seat), &reason), "{d:?}");
+    checked(g);
+    let indices = objects
+        .iter()
+        .map(|object| d.index(&Candidate::Object { object: *object }).unwrap())
+        .collect();
+    let response = match d.shape {
+        Shape::Order { .. } => Answer::Order { order: indices },
+        _ => Answer::Pick {
+            picks: vec![indices],
+        },
+    };
+    g.respond(d.player, d.id, response).unwrap();
+    d
+}
+
+fn optional(g: &mut Game, seat: u8, accept: bool) {
+    let d = next_choice(g);
+    assert_eq!(
+        (d.player, &d.reason),
+        (PlayerId(seat), &Reason::OptionalEffect)
+    );
+    checked(g);
+    let flag = if accept { Flag::Accept } else { Flag::Decline };
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Flag { flag }).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Resolve to an empty stack, then prove replay from the journal.
+fn settle(g: &mut Game) {
+    for _ in 0..24 {
+        let d = Driver::request(g, 1);
+        assert_eq!(d.reason, Reason::Priority, "{d:?}");
+        if g.state.rules.stack.is_empty() {
+            checked(g);
+            assert_recoverable((&*g).into());
+            return;
+        }
+        let pass = d
+            .pick_one(&Candidate::Action {
+                action: Action::Pass,
+            })
+            .unwrap();
+        g.respond(d.player, d.id, pass).unwrap();
+    }
+    panic!("no empty-stack priority");
+}
+
+fn library(g: &Game, seat: u8) -> Vec<CardId> {
+    g.state.rules.libraries[&PlayerId(seat)].clone()
+}
+
+fn shuffles(g: &Game, seat: u8) -> u64 {
+    g.state.rules.match_state.as_ref().unwrap().library_shuffles[usize::from(seat)]
+}
+
+fn objects(g: &Game, ids: &[u32]) -> Vec<ObjectId> {
+    ids.iter().map(|id| Driver::object(g, *id)).collect()
+}
+
+/// Rampant Growth: "Search your library for a basic land card, put that card
+/// onto the battlefield tapped, then shuffle." Only basic lands are offered;
+/// finding none is allowed and the library is still shuffled (CR 701.23b).
+#[test]
+fn rampant_growth_offers_basic_lands_and_always_shuffles() {
+    for find in [true, false] {
+        let prepared = board(&[(
+            RAMPANT_GROWTH,
+            &[Cell::SearchController, Cell::ShuffleController],
+        )])
+        .permanent_or_hand("Rampant Growth", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .library_card("Grizzly Bears", 0)
+        .library_card("Island", 0)
+        .library_card("Grizzly Bears", 0)
+        .library_card("Plains", 0)
+        .library_card("Forest", 1)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2]);
+        let lands = objects(&g, &[4, 6]);
+        let d = next_choice(&mut g);
+        assert_eq!(d.reason, Reason::SearchLibrary);
+        let offered: Vec<_> = d
+            .candidates
+            .iter()
+            .map(|c| match c {
+                Candidate::Object { object } => *object,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(offered, lands);
+        let Shape::Pick { slots, .. } = &d.shape else {
+            panic!("{d:?}")
+        };
+        assert_eq!((slots[0].min, slots[0].max), (0, 1));
+        private_to(&mut g, 0, 2);
+        let island = lands[0];
+        answer(
+            &mut g,
+            0,
+            Reason::SearchLibrary,
+            &if find { vec![island] } else { vec![] },
+        );
+        settle(&mut g);
+        assert_eq!(shuffles(&g, 0), 1);
+        assert_eq!(shuffles(&g, 1), 0);
+        let island = g.current(Driver::object(&g, 4)).unwrap().clone();
+        if find {
+            assert_eq!(island.zone, Zone::Battlefield);
+            assert!(island.tapped);
+            assert_eq!(island.controller, PlayerId(0));
+            assert_eq!(library(&g, 0).len(), 3);
+        } else {
+            assert_eq!(island.zone, Zone::Library { owner: PlayerId(0) });
+            assert_eq!(library(&g, 0).len(), 4);
+        }
+        // The searched library holds exactly its remaining cards.
+        let mut remaining = library(&g, 0);
+        remaining.sort();
+        let expected: Vec<_> = [3, 4, 5, 6]
+            .into_iter()
+            .filter(|id| !find || *id != 4)
+            .map(CardId)
+            .collect();
+        assert_eq!(remaining, expected);
+        // The card left the choice: nobody keeps a library handle.
+        for seat in 0..2 {
+            assert!(
+                observation(&g, seat)
+                    .view
+                    .objects
+                    .iter()
+                    .all(|o| !matches!(o.zone, Zone::Library { .. }))
+            );
+        }
+    }
+}
+
+/// Demonic Tutor: "Search your library for a card, put that card into your
+/// hand, then shuffle." With no stated quality one card must be found
+/// (CR 701.23d); it is not revealed (CR 701.23e).
+#[test]
+fn demonic_tutor_must_find_one_card_and_keeps_it_hidden() {
+    let prepared = board(&[(DEMONIC_TUTOR, &[Cell::SearchController])])
+        .permanent_or_hand("Demonic Tutor", 0, 0, true)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .library_card("Grizzly Bears", 0)
+        .library_card("Island", 0)
+        .library_card("Lightning Bolt", 0)
+        .library_card("Forest", 1)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let d = next_choice(&mut g);
+    assert_eq!(d.reason, Reason::SearchLibrary);
+    assert_eq!(d.candidates.len(), 3);
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("{d:?}")
+    };
+    assert_eq!((slots[0].min, slots[0].max), (1, 1));
+    private_to(&mut g, 0, 3);
+    let bolt = Driver::object(&g, 5);
+    answer(&mut g, 0, Reason::SearchLibrary, &[bolt]);
+    settle(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 5)),
+        Some(Zone::Hand { owner: PlayerId(0) })
+    );
+    assert!(observation(&g, 1).view.known_searched_hand.is_empty());
+    assert_eq!(shuffles(&g, 0), 1);
+}
+
+/// Evolving Wilds, Terramorphic Expanse and Flooded Strand: the paid
+/// sacrifice survives the source's departure; the found land enters tapped
+/// for the first two and untapped for the Strand, which pays 1 life.
+#[test]
+fn fetch_lands_find_their_lands_after_sacrificing_themselves() {
+    for (name, raw, tapped, life) in [
+        ("Evolving Wilds", EVOLVING_WILDS, true, 0),
+        ("Terramorphic Expanse", TERRAMORPHIC_EXPANSE, true, 0),
+        ("Flooded Strand", FLOODED_STRAND, false, 1),
+    ] {
+        let prepared = board(&[(raw, &[Cell::SearchController, Cell::ShuffleController])])
+            .permanent_or_hand(name, 0, 0, false)
+            .library_card("Swamp", 0)
+            .library_card("Island", 0)
+            .library_card("Mountain", 0)
+            .library_card("Forest", 1)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let before = g.state.rules.players[0].life.clone();
+        let fetch = Driver::object(&g, 0);
+        Driver::action(
+            &mut g,
+            Action::ActivateAbility {
+                object: fetch,
+                ability: 0,
+            },
+        );
+        let island = Driver::object(&g, 2);
+        let d = answer(&mut g, 0, Reason::SearchLibrary, &[island]);
+        // The Strand finds a Plains or an Island; the others any basic land.
+        assert_eq!(d.candidates.len(), if life == 1 { 1 } else { 3 });
+        settle(&mut g);
+        assert_eq!(
+            g.zone(Driver::object(&g, 0)),
+            Some(Zone::Graveyard { owner: PlayerId(0) })
+        );
+        let island = g.current(Driver::object(&g, 2)).unwrap().clone();
+        assert_eq!((island.zone, island.tapped), (Zone::Battlefield, tapped));
+        let mut expected = before;
+        expected.add(&Quantity::from(-life));
+        assert_eq!(g.state.rules.players[0].life, expected);
+        assert_eq!(shuffles(&g, 0), 1);
+    }
+}
+
+/// Path to Exile: "Exile target creature. Its controller may search their
+/// library for a basic land card, put that card onto the battlefield
+/// tapped, then shuffle." The exiled creature's last-known controller makes
+/// the choice and searches their own library (CR 608.2d, 608.2h).
+#[test]
+fn path_to_exile_offers_the_exiled_creatures_controller_a_basic_land() {
+    for accept in [true, false] {
+        let prepared = board(&[(
+            PATH_TO_EXILE,
+            &[
+                Cell::Control,
+                Cell::SearchTargetController,
+                Cell::ShuffleTargetController,
+            ],
+        )])
+        .permanent_or_hand("Path to Exile", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .library_card("Forest", 0)
+        .library_card("Grizzly Bears", 1)
+        .library_card("Swamp", 1)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let target = Driver::object(&g, 2);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pick_object(&mut g, target);
+        Driver::pay(&mut g, &[1]);
+        optional(&mut g, 1, accept);
+        if accept {
+            private_to(&mut g, 1, 1);
+            let swamp = Driver::object(&g, 5);
+            answer(&mut g, 1, Reason::SearchLibrary, &[swamp]);
+        }
+        settle(&mut g);
+        assert_eq!(g.state.rules.objects[&target.card].zone, Zone::Exile);
+        let swamp = g.current(Driver::object(&g, 5)).unwrap().clone();
+        if accept {
+            assert_eq!(swamp.zone, Zone::Battlefield);
+            assert!(swamp.tapped);
+            assert_eq!(swamp.controller, PlayerId(1));
+        } else {
+            assert_eq!(swamp.zone, Zone::Library { owner: PlayerId(1) });
+        }
+        assert_eq!(shuffles(&g, 1), u64::from(accept));
+        assert_eq!(shuffles(&g, 0), 0);
+    }
+}
+
+/// CR 800.4a: when the exiled creature's controller leaves the game while
+/// their choice waits, the choice is withdrawn and nothing is searched.
+#[test]
+fn path_to_exile_choice_is_withdrawn_when_its_chooser_concedes() {
+    let prepared = board(&[(PATH_TO_EXILE, &[Cell::SearchTargetController])])
+        .seats(3)
+        .permanent_or_hand("Path to Exile", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .library_card("Swamp", 1)
+        .library_card("Forest", 2)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let target = Driver::object(&g, 2);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pick_object(&mut g, target);
+    Driver::pay(&mut g, &[1]);
+    let d = next_choice(&mut g);
+    assert_eq!(
+        (d.player, &d.reason),
+        (PlayerId(1), &Reason::OptionalEffect)
+    );
+    g.concede(PlayerId(1)).unwrap();
+    settle(&mut g);
+    assert!(!g.is_live(PlayerId(1)));
+    assert_eq!(shuffles(&g, 1), 0);
+
+    // Conceding during the search itself skips it as well.
+    let prepared = board(&[(PATH_TO_EXILE, &[Cell::SearchTargetController])])
+        .seats(3)
+        .permanent_or_hand("Path to Exile", 0, 0, true)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .library_card("Swamp", 1)
+        .library_card("Forest", 2)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    let target = Driver::object(&g, 2);
+    Driver::pick_object(&mut g, target);
+    Driver::pay(&mut g, &[1]);
+    optional(&mut g, 1, true);
+    let d = next_choice(&mut g);
+    assert_eq!(d.reason, Reason::SearchLibrary);
+    g.concede(PlayerId(1)).unwrap();
+    settle(&mut g);
+    assert_eq!(shuffles(&g, 1), 0);
+}
+
+/// Opt: "Scry 1. Draw a card." Bottoming the top card draws the next one.
+#[test]
+fn opt_scries_one_then_draws() {
+    for bottom in [true, false] {
+        let prepared = board(&[(OPT, &[Cell::ScryController])])
+            .permanent_or_hand("Opt", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .library_card("Grizzly Bears", 0)
+            .library_card("Island", 0)
+            .library_card("Swamp", 0)
+            .library_card("Forest", 1)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1]);
+        let bears = Driver::object(&g, 2);
+        private_to(&mut g, 0, 0);
+        let d = answer(
+            &mut g,
+            0,
+            Reason::ScryBottom,
+            &if bottom { vec![bears] } else { vec![] },
+        );
+        assert_eq!(d.candidates.len(), 1);
+        settle(&mut g);
+        let drawn = if bottom { 3 } else { 2 };
+        assert_eq!(
+            g.zone(Driver::object(&g, drawn)),
+            Some(Zone::Hand { owner: PlayerId(0) })
+        );
+        let expected = if bottom {
+            vec![CardId(4), CardId(2)]
+        } else {
+            vec![CardId(3), CardId(4)]
+        };
+        assert_eq!(library(&g, 0), expected);
+    }
+}
+
+/// Preordain: "Scry 2, then draw a card." Each partition asks only for the
+/// orders it needs; the final library is exactly the chosen order.
+#[test]
+fn preordain_orders_top_and_bottom_cards() {
+    let setup = || {
+        let prepared = board(&[(PREORDAIN, &[Cell::ScryController])])
+            .permanent_or_hand("Preordain", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .library_card("Grizzly Bears", 0)
+            .library_card("Lightning Bolt", 0)
+            .library_card("Swamp", 0)
+            .library_card("Forest", 1)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1]);
+        g
+    };
+    // Both stay on top, Bolt first: Bolt is drawn, Bears remains on top.
+    let mut g = setup();
+    let [bears, bolt] = [Driver::object(&g, 2), Driver::object(&g, 3)];
+    let d = answer(&mut g, 0, Reason::ScryBottom, &[]);
+    assert_eq!(d.candidates.len(), 2);
+    private_to(&mut g, 0, 2);
+    answer(&mut g, 0, Reason::OrderLibraryTop, &[bolt, bears]);
+    settle(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 3)),
+        Some(Zone::Hand { owner: PlayerId(0) })
+    );
+    assert_eq!(library(&g, 0), vec![CardId(2), CardId(4)]);
+
+    // Both to the bottom, Bears above Bolt: the Swamp is drawn.
+    let mut g = setup();
+    answer(&mut g, 0, Reason::ScryBottom, &[bolt, bears]);
+    answer(&mut g, 0, Reason::OrderLibraryBottom, &[bears, bolt]);
+    settle(&mut g);
+    assert_eq!(
+        g.zone(Driver::object(&g, 4)),
+        Some(Zone::Hand { owner: PlayerId(0) })
+    );
+    assert_eq!(library(&g, 0), vec![CardId(2), CardId(3)]);
+
+    // One of each needs no order.
+    let mut g = setup();
+    answer(&mut g, 0, Reason::ScryBottom, &[bears]);
+    settle(&mut g);
+    assert_eq!(library(&g, 0), vec![CardId(4), CardId(2)]);
+}
+
+/// Consider: "Surveil 1. Draw a card." The surveilled card goes to the
+/// graveyard as a public move.
+#[test]
+fn consider_surveils_into_the_graveyard_then_draws() {
+    for graveyard in [true, false] {
+        let prepared = board(&[(CONSIDER, &[Cell::SurveilController])])
+            .permanent_or_hand("Consider", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .library_card("Grizzly Bears", 0)
+            .library_card("Swamp", 0)
+            .library_card("Forest", 1)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1]);
+        let bears = Driver::object(&g, 2);
+        answer(
+            &mut g,
+            0,
+            Reason::SurveilGraveyard,
+            &if graveyard { vec![bears] } else { vec![] },
+        );
+        settle(&mut g);
+        let bears = g.current(Driver::object(&g, 2)).unwrap().zone;
+        if graveyard {
+            assert_eq!(bears, Zone::Graveyard { owner: PlayerId(0) });
+            assert_eq!(
+                g.zone(Driver::object(&g, 3)),
+                Some(Zone::Hand { owner: PlayerId(0) })
+            );
+        } else {
+            assert_eq!(bears, Zone::Hand { owner: PlayerId(0) });
+        }
+    }
+}
+
+/// Cultivate splits its found cards between two zones. That split has no
+/// executor, so the card rejects explicitly.
+#[test]
+fn cultivate_split_destination_rejects() {
+    let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, CULTIVATE);
+    let mtg_compiler::CompileResult::Unsupported { reason, .. } = result else {
+        panic!("split search must reject: {result:?}");
+    };
+    assert_eq!(reason, "verb:search:found_cards");
+}
