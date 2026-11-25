@@ -188,7 +188,8 @@ impl RulesTxn {
                 Frame::ResolutionChoice {
                     choice: ResolutionChoice::Search { .. }
                         | ResolutionChoice::Scry { .. }
-                        | ResolutionChoice::Surveil { .. },
+                        | ResolutionChoice::Surveil { .. }
+                        | ResolutionChoice::SearchEntry { .. },
                     ..
                 } | Frame::CommanderReturn {
                     continuation: CommanderContinuation::Search { .. },

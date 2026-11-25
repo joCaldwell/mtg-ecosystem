@@ -32,6 +32,11 @@ const ARMILLARY_SPHERE: &str = record!("3963140c-da67-43e6-9514-fe9dc0a43c4d");
 const CRYSTAL_BALL: &str = record!("bd85fe4d-1d62-416f-ac2d-e287911c84e3");
 const SINISTER_STARFISH: &str = record!("58321467-41d6-4419-bcb2-cd3e60f677b3");
 const TIME_OF_NEED: &str = record!("4f2adfd0-c8ab-4bcc-ae55-cb0e798aec7f");
+const FARSEEK: &str = record!("495e52e6-4c2b-4574-9474-eadbdcc8b4ac");
+const SKYSHROUD_CLAIM: &str = record!("376c9d3f-21d3-4251-bb6a-026fa9e1b0e1");
+const HALLOWED_FOUNTAIN: &str = record!("f1750962-a87c-49f6-b731-02ae971ac6ea");
+const TEMPLE_GARDEN: &str = record!("f413a83d-a40d-434c-b20a-4c707c0527fa");
+const BREEDING_POOL: &str = record!("20283c4a-f1f0-42f0-bc08-6da87474426b");
 
 const SEED: [u8; 32] = [7; 32];
 
@@ -1414,4 +1419,225 @@ fn search_commander_choice_keeps_its_saved_flag_rows() {
     assert!(g.validate_state().is_err(), "swapped commander flag rows");
     g.state.rules.pending = pending;
     g.validate_state().unwrap();
+}
+
+fn life(g: &Game, seat: u8) -> Quantity {
+    g.state.rules.players[usize::from(seat)].life.clone()
+}
+
+fn minus(mut life: Quantity, amount: i64) -> Quantity {
+    life.add(&Quantity::from(-amount));
+    life
+}
+
+/// Answer seat 0's pending entry life payment (CR 614.1c), checking the
+/// suspended state first.
+fn entry_payment(g: &mut Game, pay: bool) {
+    let d = next_choice(g);
+    assert_eq!(
+        (d.player, &d.reason),
+        (PlayerId(0), &Reason::OptionalEffect),
+        "{d:?}"
+    );
+    checked(g);
+    assert_recoverable((&*g).into());
+    let flag = if pay { Flag::Accept } else { Flag::Decline };
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Flag { flag }).unwrap(),
+    )
+    .unwrap();
+}
+
+/// Farseek: "Search your library for a Plains, Island, Swamp, or Mountain
+/// card, put it onto the battlefield tapped, then shuffle." CR 614.1c: a
+/// forced tapped entry makes Hallowed Fountain's payment moot, so none is
+/// offered.
+#[test]
+fn farseek_puts_a_shockland_onto_the_battlefield_tapped_without_an_offer() {
+    let prepared = board(&[
+        (FARSEEK, &[Cell::SearchController, Cell::ShuffleController]),
+        (HALLOWED_FOUNTAIN, &[]),
+    ])
+    .permanent_or_hand("Farseek", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .library_card("Hallowed Fountain", 0)
+    .library_card("Forest", 1)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let before = life(&g, 0);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2]);
+    let fountain = Driver::object(&g, 3);
+    answer(&mut g, 0, Reason::SearchLibrary, &[fountain]);
+    settle(&mut g);
+    let fountain = g.current(Driver::object(&g, 3)).unwrap().clone();
+    assert_eq!((fountain.zone, fountain.tapped), (Zone::Battlefield, true));
+    assert_eq!(life(&g, 0), before);
+    assert_eq!(shuffles(&g, 0), 1);
+}
+
+/// Flooded Strand finding Hallowed Fountain onto the battlefield untapped:
+/// CR 614.1c offers 2 life; paying enters untapped, declining tapped, and
+/// the search still shuffles.
+#[test]
+fn flooded_strand_finding_a_shockland_offers_its_life_payment() {
+    for pay in [true, false] {
+        let prepared = board(&[
+            (
+                FLOODED_STRAND,
+                &[Cell::SearchController, Cell::ShuffleController],
+            ),
+            (HALLOWED_FOUNTAIN, &[]),
+        ])
+        .permanent_or_hand("Flooded Strand", 0, 0, false)
+        .library_card("Hallowed Fountain", 0)
+        .library_card("Island", 0)
+        .library_card("Forest", 1)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let before = life(&g, 0);
+        let strand = Driver::object(&g, 0);
+        Driver::action(
+            &mut g,
+            Action::ActivateAbility {
+                object: strand,
+                ability: 0,
+            },
+        );
+        let fountain = Driver::object(&g, 1);
+        answer(&mut g, 0, Reason::SearchLibrary, &[fountain]);
+        // The searcher still sees the found card while deciding its entry.
+        assert!(library_view(&g, 0).contains(&identity_in(
+            &catalog(&[(HALLOWED_FOUNTAIN, &[])]),
+            "Hallowed Fountain"
+        )));
+        assert!(library_view(&g, 1).is_empty());
+        entry_payment(&mut g, pay);
+        settle(&mut g);
+        let fountain = g.current(Driver::object(&g, 1)).unwrap().clone();
+        assert_eq!((fountain.zone, fountain.tapped), (Zone::Battlefield, !pay));
+        assert_eq!(life(&g, 0), minus(before, if pay { 3 } else { 1 }));
+        assert_eq!(shuffles(&g, 0), 1);
+    }
+}
+
+/// Skyshroud Claim finding Temple Garden and Breeding Pool: CR 614.12 the
+/// two enter simultaneously; each payment is asked in object order, and a
+/// payment the remaining life no longer covers is not offered.
+#[test]
+fn skyshroud_claim_collects_each_shockland_payment_before_one_entry() {
+    for (starting, answers, untapped) in [
+        (40, &[true, true][..], [true, true]),
+        (40, &[true, false][..], [true, false]),
+        (40, &[false, true][..], [false, true]),
+        // 3 life covers one payment; the second is never asked.
+        (3, &[true][..], [true, false]),
+    ] {
+        let prepared = board(&[
+            (
+                SKYSHROUD_CLAIM,
+                &[Cell::SearchController, Cell::ShuffleController],
+            ),
+            (TEMPLE_GARDEN, &[]),
+            (BREEDING_POOL, &[]),
+        ])
+        .life(PlayerId(0), Quantity::from(starting))
+        .permanent_or_hand("Skyshroud Claim", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .library_card("Temple Garden", 0)
+        .library_card("Breeding Pool", 0)
+        .library_card("Grizzly Bears", 0)
+        .library_card("Forest", 1)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        Driver::pay(&mut g, &[1, 2, 3, 4]);
+        let found = objects(&g, &[5, 6]);
+        answer(&mut g, 0, Reason::SearchLibrary, &found);
+        for pay in answers {
+            entry_payment(&mut g, *pay);
+        }
+        settle(&mut g);
+        let paid = answers.iter().filter(|p| **p).count() as i64;
+        assert_eq!(life(&g, 0), minus(Quantity::from(starting), 2 * paid));
+        let mut batches = vec![];
+        for (card, untapped) in [5, 6].into_iter().zip(untapped) {
+            let land = g.current(Driver::object(&g, card)).unwrap().clone();
+            assert_eq!((land.zone, land.tapped), (Zone::Battlefield, !untapped));
+            batches.push(
+                g.events()
+                    .iter()
+                    .position(|e| matches!(e, Event::Committed { actual: EventOutcome::Moved { movement }, .. }
+                        if movement.previous.card == CardId(card) && movement.destination == Zone::Battlefield))
+                    .unwrap(),
+            );
+        }
+        // One entry batch: no event separates the two entries.
+        assert_eq!(batches[1].abs_diff(batches[0]), 1);
+        assert_eq!(shuffles(&g, 0), 1);
+    }
+}
+
+/// A suspended entry payment keeps its found set and asked prefix.
+#[test]
+fn search_entry_state_rejects_forged_entrants_and_answers() {
+    let prepared = board(&[
+        (
+            SKYSHROUD_CLAIM,
+            &[Cell::SearchController, Cell::ShuffleController],
+        ),
+        (TEMPLE_GARDEN, &[]),
+        (BREEDING_POOL, &[]),
+    ])
+    .permanent_or_hand("Skyshroud Claim", 0, 0, true)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .permanent_or_hand("Forest", 0, 0, false)
+    .library_card("Temple Garden", 0)
+    .library_card("Breeding Pool", 0)
+    .library_card("Forest", 1)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3, 4]);
+    let [garden, pool, theirs] = [5, 6, 7].map(|id| Driver::object(&g, id));
+    answer(&mut g, 0, Reason::SearchLibrary, &[garden, pool]);
+    assert_eq!(next_choice(&mut g).reason, Reason::OptionalEffect);
+    let Frame::ResolutionChoice { choice, .. } = g.state.rules.frame.clone() else {
+        panic!()
+    };
+    let ResolutionChoice::SearchEntry { source_block, .. } = choice else {
+        panic!("{choice:?}")
+    };
+    let forged =
+        |found: Vec<ObjectId>, paid: Vec<(ObjectId, bool)>| ResolutionChoice::SearchEntry {
+            player: PlayerId(0),
+            found,
+            paid,
+            source_block,
+        };
+    for (choice, what) in [
+        (
+            forged(vec![garden, theirs], vec![]),
+            "opponent's card found",
+        ),
+        (forged(vec![garden, garden], vec![]), "a card found twice"),
+        (
+            forged(vec![garden, pool], vec![(pool, true)]),
+            "answered out of order",
+        ),
+        (
+            forged(vec![garden, pool], vec![(garden, true), (pool, false)]),
+            "nothing left to ask",
+        ),
+    ] {
+        forged_choice_rejected(&mut g, &choice, what);
+    }
 }

@@ -363,6 +363,25 @@ physical departure is counted once, a public one consuming one copy of its
 identity and a hidden one one of each; a reversed cast restores the copy its
 announcement consumed (CR 601.2i).
 
+## Battlefield entry replacements
+
+A permanent's own entry replacement sets the tapped state or adds a fixed
+number of +1/+1 counters to the new incarnation before entry triggers and
+state-based checks (CR 122.6, 614.1c, 614.12). Conditional tapped entry can
+count permanents controlled by the incoming controller, using their current
+structural characteristics, or count that controller's live opponents. The
+entering permanent cannot contribute to its own count. Simultaneous entry
+uses the common prior battlefield and ordered entry sees earlier moves.
+Conditional tapped entry and entry counters apply to every move onto the
+battlefield. A land play's life-payment offer runs through
+`begin_battlefield_entry`; an untapped search onto the battlefield asks each
+payable found entrant in object order, counting life already committed, then
+commits the payments and one simultaneous entry batch with a per-entrant
+override. A forced tapped search entry asks nothing. Each continuation
+suspends before mutation and commits the chosen payment and entry together. It skips the offer when the controller
+cannot pay (CR 119.4) or the move already requires tapped entry. A land play
+still requires a land in hand.
+
 ## Keywords, attachments and temporary effects
 
 Battlefield static abilities use KIR scopes, predicates, conditions and
@@ -386,10 +405,9 @@ allowances add to existing plays per turn (CR 305.2), and hand-size effects
 use source timestamps at cleanup (CR 514.1, 613.11).
 
 This surface admits the source’s unconditional tapped entry. Conditional
-entry and entry choices belong to W2. General attached-to references belong
-to W1. Static control changes, characteristic-defining abilities, ability
-removal, and permissions to cast from additional zones require further
-admission. Paid invocations and resolved effects keep independent lifetimes.
+entry and entry choices belong to W2. Static control changes, characteristic-defining
+abilities, ability removal, and permissions to cast from additional zones
+require further admission. Paid invocations and resolved effects keep independent lifetimes.
 
 ### Attachment entry and ordering
 
@@ -403,7 +421,16 @@ from object IDs, map iteration or trace retention. Simultaneous competing
 attachments need the unimplemented ordering of CR 613.7m and reject explicitly.
 Timestamps and their allocator are canonical state and replay inputs.
 
-Signed attachment stats apply in the creature power and toughness layer.
+Equip announces one creature its controller controls at sorcery timing. Its
+KIR Attach instruction moves the Equipment if both incarnations remain legal.
+Enchant creature, artifact, land and permanent use the same predicate for spell
+targeting and ongoing attachment legality. Enchant player remains unsupported.
+Shroud and hexproof restrict new targets. Protection or an ineligible host
+sends an Aura to its owner's graveyard and detaches an Equipment (CR 704.5m/n).
+Attachment scopes apply keyword grants, combat restrictions and signed stats
+to the current host in their respective layers. Attack and combat-damage
+triggers match the host at the event. Dies triggers read the pre-event
+attachment (CR 603.10a). These attachment cells earn Executes.
 Fixed-color protection follows the current creature and affects targeting,
 blocking, damage prevention and attachment legality. Applied prevention keeps
 the protection facts captured when the damage was processed.

@@ -390,6 +390,45 @@ impl RulesTxn {
         }
     }
 
+    pub(super) fn entry_condition(
+        &self,
+        entrant: &Object,
+        condition: &mtg_contracts::kir::EntryCondition,
+    ) -> bool {
+        use mtg_contracts::kir::EntryCondition;
+        match condition {
+            EntryCondition::UnlessControlled { filter, cmp, count } => {
+                let actual = self
+                    .battlefield_static_sources(None)
+                    .filter(|target| {
+                        target.id != entrant.id
+                            && target.controller == entrant.controller
+                            && self.structural_characteristics(target.id).is_ok_and(
+                                |characteristics| {
+                                    self.static_predicate(
+                                        filter,
+                                        entrant,
+                                        target,
+                                        &characteristics,
+                                        target.controller,
+                                    )
+                                },
+                            )
+                    })
+                    .count();
+                !static_compare(&(actual as i64).into(), *cmp, count)
+            }
+            EntryCondition::UnlessOpponents { cmp, count } => {
+                let actual = self
+                    .live_players()
+                    .into_iter()
+                    .filter(|p| *p != entrant.controller)
+                    .count();
+                !static_compare(&(actual as i64).into(), *cmp, count)
+            }
+        }
+    }
+
     fn static_condition(&self, source: &Object, condition: &Cond) -> bool {
         match condition {
             Cond::Compare { left, cmp, right } => self

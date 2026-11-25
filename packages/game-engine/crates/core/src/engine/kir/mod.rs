@@ -181,6 +181,10 @@ impl RulesTxn {
             return self.kernel_library(frame, verb, source_block);
         }
         match verb {
+            Verb::Attach {
+                what: Ref::Source,
+                to: Ref::Target { slot: 0 },
+            } => self.kernel_equip(frame, source_block),
             Verb::GainLife { player, amount } => {
                 self.kernel_life(frame, true, &player, &amount, source_block)
             }

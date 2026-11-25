@@ -1052,6 +1052,14 @@ impl Walk<'_, '_> {
             Verb::Shuffle { player } => self.audit_shuffle(player),
             Verb::Scry { player, amount } => self.audit_look(player, amount, false),
             Verb::Surveil { player, amount } => self.audit_look(player, amount, true),
+            Verb::Attach {
+                what: Ref::Source,
+                to: Ref::Target { slot: 0 },
+            } if self.env.context == Context::Activated
+                && self.domain(0)? == TargetDomain::ControlledBattlefieldCreature =>
+            {
+                Ok(Cell::Attachment)
+            }
             Verb::Regenerate { .. }
             | Verb::AddMana { .. }
             | Verb::Counter { .. }

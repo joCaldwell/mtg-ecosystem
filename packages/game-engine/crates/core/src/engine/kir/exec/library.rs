@@ -297,7 +297,78 @@ impl RulesTxn {
             };
             return Ok(());
         }
-        self.commit_search(frame, player, found, &choices, source_block)
+        // CR 614.1c: an untapped entry onto the battlefield first collects
+        // each entrant's entry life payment.
+        if self.search_destination(&frame)?.1 == Some(Zone::Battlefield) {
+            return self.continue_search_entry(frame, player, found, vec![], source_block);
+        }
+        self.commit_search(frame, player, found, &choices, &[], source_block)
+    }
+
+    /// CR 119.4, 614.1c, 614.12: offer the next found entrant's entry life
+    /// payment, or enter them all once every payable entrant was asked.
+    fn continue_search_entry(
+        &mut self,
+        frame: Resolving,
+        player: PlayerId,
+        found: Vec<ObjectId>,
+        paid: Vec<(ObjectId, bool)>,
+        source_block: u32,
+    ) -> Result<(), String> {
+        if !self.is_live(player) {
+            return self
+                .finish_instruction(frame, InstructionOutcome::PlayerActionSkipped { player });
+        }
+        if self.next_entry_offer(player, &found, &paid)?.is_some() {
+            self.rules_mut().frame = Frame::ResolutionChoice {
+                frame,
+                choice: ResolutionChoice::SearchEntry {
+                    player,
+                    found,
+                    paid,
+                    source_block,
+                },
+            };
+            return Ok(());
+        }
+        self.commit_search(frame, player, found, &[], &paid, source_block)
+    }
+
+    /// CR 119.4, 614.1c: the next found entrant (object order) whose entry
+    /// life cost its controller can still pay after the payments already
+    /// chosen, or none. An entrant unpayable at its turn is never asked and
+    /// enters tapped. `paid` must be exactly the entrants asked so far.
+    pub(in crate::engine) fn next_entry_offer(
+        &self,
+        player: PlayerId,
+        found: &[ObjectId],
+        paid: &[(ObjectId, bool)],
+    ) -> Result<Option<ObjectId>, String> {
+        let mut committed = Quantity::zero();
+        let mut answered = paid.iter();
+        for object in found {
+            let Some(amount) = self.entry_life_cost(*object)? else {
+                continue;
+            };
+            let mut total = committed.clone();
+            total.add(&amount);
+            if !self.can_pay_entry_life(player, &total) {
+                continue;
+            }
+            match answered.next() {
+                Some((asked, pays)) if asked == object => {
+                    if *pays {
+                        committed = total;
+                    }
+                }
+                Some(_) => return Err("search entry payment order".into()),
+                None => return Ok(Some(*object)),
+            }
+        }
+        if answered.next().is_some() {
+            return Err("search entry payment without an entrant".into());
+        }
+        Ok(None)
     }
 
     /// CR 701.23a, e, 110.2, 903.9b: move the (already revealed, when
@@ -310,6 +381,7 @@ impl RulesTxn {
         player: PlayerId,
         found: Vec<ObjectId>,
         choices: &[(ObjectId, bool)],
+        paid: &[(ObjectId, bool)],
         source_block: u32,
     ) -> Result<(), String> {
         let (search, to) = self.search_destination(&frame)?;
@@ -340,15 +412,46 @@ impl RulesTxn {
                 }
             })
             .collect();
-        let batch = self.commit_batch(cause, EventGroup::Simultaneous { occurrences })?;
+        let entries = EventGroup::Simultaneous { occurrences };
+        // CR 614.1c, 614.12: entrants with an entry life cost enter paid or
+        // tapped as chosen; the payments precede the one simultaneous entry.
+        let mut overrides = vec![];
+        let mut payments = vec![];
+        if to == Some(Zone::Battlefield) {
+            for object in &found {
+                let Some(amount) = self.entry_life_cost(*object)? else {
+                    continue;
+                };
+                let pays = paid.iter().any(|(o, yes)| o == object && *yes);
+                if pays {
+                    payments.push(EventGroup::Occurrence {
+                        proposed: ProposedEvent::LoseLife { player, amount },
+                    });
+                }
+                overrides.push((*object, events::EntryOverride::LifePayment { paid: pays }));
+            }
+        }
+        let batch = if overrides.is_empty() {
+            self.commit_batch(cause, entries)?
+        } else {
+            payments.push(entries);
+            self.commit_entry_batch(
+                cause,
+                EventGroup::Ordered { children: payments },
+                &overrides,
+            )?
+        };
         let movements = batch
             .occurrences
             .iter()
-            .map(|occurrence| match &occurrence.actual {
-                EventOutcome::Moved { movement } => Ok(movement.clone()),
-                _ => Err("search movement invariant".to_string()),
+            .filter_map(|occurrence| match &occurrence.actual {
+                EventOutcome::Moved { movement } => Some(movement.clone()),
+                _ => None,
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
+        if movements.len() != found.len() {
+            return Err("search movement invariant".into());
+        }
         if search.reveal {
             let revealed: Vec<_> = movements
                 .iter()
@@ -432,6 +535,15 @@ impl RulesTxn {
                     bounds.maximum as u32,
                 ))
             }
+            // CR 119.4, 614.1c: pay the next entrant's entry life cost, or
+            // let it enter tapped.
+            ResolutionChoice::SearchEntry { player, .. } if self.is_live(*player) => {
+                Some(self.pick_flags(
+                    *player,
+                    Reason::OptionalEffect,
+                    &[Flag::Accept, Flag::Decline],
+                ))
+            }
             ResolutionChoice::Scry {
                 player,
                 looked,
@@ -507,6 +619,7 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let player = match &choice {
             ResolutionChoice::Search { player, .. }
+            | ResolutionChoice::SearchEntry { player, .. }
             | ResolutionChoice::Scry { player, .. }
             | ResolutionChoice::Surveil { player, .. } => *player,
             _ => return Err("not a library choice".into()),
@@ -523,6 +636,19 @@ impl RulesTxn {
             .ok_or("missing library choice")?;
         if input.player != player {
             return Err("library choice actor invariant".into());
+        }
+        if let ResolutionChoice::SearchEntry {
+            found,
+            mut paid,
+            source_block,
+            ..
+        } = choice
+        {
+            let entrant = self
+                .next_entry_offer(player, &found, &paid)?
+                .ok_or("search entry payment without an offer")?;
+            paid.push((entrant, input.flag(Flag::Accept)?));
+            return self.continue_search_entry(frame, player, found, paid, source_block);
         }
         let chosen = input.objects()?;
         match choice {
@@ -700,6 +826,10 @@ impl RulesTxn {
             | ResolutionChoice::Surveil { player, looked, .. } => {
                 *player == viewer && looked.contains(&object)
             }
+            // The searcher still sees the found cards whose entry it decides.
+            ResolutionChoice::SearchEntry { player, found, .. } => {
+                *player == viewer && found.contains(&object)
+            }
             // CR 701.23a: every card of the searched library, matching or
             // not; no position is published.
             ResolutionChoice::Search { player, .. } if *player == viewer => {
@@ -733,6 +863,11 @@ impl RulesTxn {
                 player,
                 source_block,
                 ..
+            }
+            | ResolutionChoice::SearchEntry {
+                player,
+                source_block,
+                ..
             } => (*player, *source_block),
             _ => return Ok(false),
         };
@@ -752,6 +887,29 @@ impl RulesTxn {
         // answers well formed, before the departure fast path accepts it.
         let staged = match (choice, &verb) {
             (ResolutionChoice::Search { .. }, Verb::Search { .. }) => true,
+            // Found cards of an untapped battlefield search: distinct cards
+            // of the searcher's own library, each asked at most once.
+            (ResolutionChoice::SearchEntry { found, paid, .. }, Verb::Search { search, .. }) => {
+                let maximum = search
+                    .maximum
+                    .as_fixed()
+                    .and_then(Quantity::to_u32)
+                    .ok_or("search maximum has no audited evaluation")?
+                    as usize;
+                let asked: Vec<_> = paid.iter().map(|(o, _)| *o).collect();
+                matches!(search.to, Destination::Battlefield { tapped: false, .. })
+                    && !found.is_empty()
+                    && found.len() <= maximum
+                    && found.iter().map(|o| o.card).collect::<BTreeSet<_>>().len() == found.len()
+                    && found.iter().all(|o| {
+                        self.state
+                            .rules
+                            .cards
+                            .get(&o.card)
+                            .is_some_and(|card| card.owner == player)
+                    })
+                    && Self::subset(found, &asked)
+            }
             (
                 ResolutionChoice::Scry {
                     looked,
@@ -798,6 +956,14 @@ impl RulesTxn {
         Ok(match (choice, &verb) {
             (ResolutionChoice::Search { .. }, Verb::Search { search, .. }) => {
                 self.search_bounds(player, search)?.needs_choice()
+            }
+            (ResolutionChoice::SearchEntry { found, paid, .. }, Verb::Search { search, .. }) => {
+                let bounds = self.search_bounds(player, search)?;
+                Self::subset(&bounds.candidates, found)
+                    && (bounds.minimum..=bounds.maximum).contains(&found.len())
+                    && self
+                        .next_entry_offer(player, found, paid)
+                        .is_ok_and(|next| next.is_some())
             }
             (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })
             | (ResolutionChoice::Surveil { looked, .. }, Verb::Surveil { amount, .. }) => {

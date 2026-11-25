@@ -75,6 +75,17 @@ pub enum ResolutionChoice {
         top: Option<Vec<ObjectId>>,
         source_block: u32,
     },
+    /// CR 614.1c, 614.12: the found cards of an untapped search onto the
+    /// battlefield wait while their controller chooses, entrant by entrant
+    /// in object order, whether to pay each entry life cost (`paid`); then
+    /// they all enter in one entry batch.
+    SearchEntry {
+        player: PlayerId,
+        found: Vec<ObjectId>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        paid: Vec<(ObjectId, bool)>,
+        source_block: u32,
+    },
     /// CR 701.25a: `player` looked at `looked`, then chooses the graveyard
     /// cards, then the order of the rest on top.
     Surveil {
@@ -374,7 +385,8 @@ impl RulesTxn {
         Ok(match choice {
             ResolutionChoice::Search { .. }
             | ResolutionChoice::Scry { .. }
-            | ResolutionChoice::Surveil { .. } => self.library_request(frame, choice)?,
+            | ResolutionChoice::Surveil { .. }
+            | ResolutionChoice::SearchEntry { .. } => self.library_request(frame, choice)?,
             ResolutionChoice::OptionalEffect { player, .. } if self.is_live(*player) => {
                 Some(self.pick_flags(
                     *player,
@@ -436,6 +448,7 @@ impl RulesTxn {
                     ResolutionChoice::Search { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. }
+                        | ResolutionChoice::SearchEntry { .. }
                 ) {
                     return self.library_choice_step(frame, choice);
                 }
@@ -445,7 +458,8 @@ impl RulesTxn {
                         ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
                         | ResolutionChoice::Scry { .. }
-                        | ResolutionChoice::Surveil { .. } => unreachable!(),
+                        | ResolutionChoice::Surveil { .. }
+                        | ResolutionChoice::SearchEntry { .. } => unreachable!(),
                         ResolutionChoice::Sacrifice { player, .. } => {
                             InstructionOutcome::Sacrificed {
                                 player,
@@ -470,7 +484,8 @@ impl RulesTxn {
                     ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
                     | ResolutionChoice::Scry { .. }
-                    | ResolutionChoice::Surveil { .. } => unreachable!(),
+                    | ResolutionChoice::Surveil { .. }
+                    | ResolutionChoice::SearchEntry { .. } => unreachable!(),
                     ResolutionChoice::Sacrifice { source_block, .. }
                     | ResolutionChoice::Discard { source_block, .. } => source_block,
                 };
@@ -1223,7 +1238,8 @@ impl RulesTxn {
                 (
                     ResolutionChoice::Search { .. }
                     | ResolutionChoice::Scry { .. }
-                    | ResolutionChoice::Surveil { .. },
+                    | ResolutionChoice::Surveil { .. }
+                    | ResolutionChoice::SearchEntry { .. },
                     _,
                 ) => self.valid_library_choice(frame, choice)?,
                 _ => self.valid_staples_choice(frame, choice, instruction),

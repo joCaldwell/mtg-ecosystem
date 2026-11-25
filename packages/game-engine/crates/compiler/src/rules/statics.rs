@@ -2,8 +2,8 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use kir::{
-    Allowance, Change, CombatRequirement, Cond, HandSizeChange, Scope, SpellCostChange, StaticRule,
-    ZoneExpr,
+    Allowance, Change, CombatRequirement, Cond, EntryCondition, HandSizeChange, Scope,
+    SpellCostChange, StaticRule, ZoneExpr,
 };
 
 fn gap(code: &str) -> Failure {
@@ -36,16 +36,22 @@ fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
     use ast::StaticEffect as S;
     let one = match effect {
         S::EntersTapped(x) => {
-            if x.condition.is_some() || x.condition_kind.is_some() {
-                return Err(gap("enters-tapped:conditional"));
-            }
             if !matches!(&*x.what, ast::ObjectRef::SelfObject(_))
                 && !matches!(&*x.what, ast::ObjectRef::This(x) if matches!(x.noun.as_str(),
                     "permanent" | "creature" | "artifact" | "enchantment" | "aura" | "land"))
             {
                 return Err(gap("enters-tapped:source"));
             }
-            ability(Battlefield, StaticEffect::EntersTapped)
+            let effect = match (x.condition.as_deref(), x.condition_kind) {
+                (None, None) => StaticEffect::EntersTapped,
+                (Some(condition), Some(ast::SentenceConditionKind::Unless)) => {
+                    StaticEffect::EntersTappedIf {
+                        condition: entry_condition(condition)?,
+                    }
+                }
+                _ => return Err(gap("enters-tapped:conditional")),
+            };
+            ability(Battlefield, effect)
         }
         S::Modify(x) => return modify(x),
         S::Conditional(x) => {
@@ -58,7 +64,16 @@ fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
                 let condition = match &mut a.effect {
                     StaticEffect::Continuous { condition, .. }
                     | StaticEffect::Rule { condition, .. } => condition,
+                    StaticEffect::EntersTappedIf { .. } => {
+                        return Err(gap("enters-tapped:nested-conditional"));
+                    }
                     StaticEffect::EntersTapped => return Err(gap("enters-tapped:conditional")),
+                    StaticEffect::PayLifeOrEnterTapped { .. } => {
+                        return Err(gap("entry-choice:conditional"));
+                    }
+                    StaticEffect::EntersWithPlusOneCounters { .. } => {
+                        return Err(gap("enters-with-counters:conditional"));
+                    }
                 };
                 *condition = and(condition.take(), Some(guard.clone()));
             }
@@ -151,7 +166,24 @@ fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
         S::AsEnters(_) => return Err(gap("entry-choice:as-enters")),
         S::AsTurnedFaceUp(_) => return Err(gap("as-turned-face-up")),
         S::AsTransforms(_) => return Err(gap("as-transforms")),
-        S::EntryChoice(_) => return Err(gap("entry-choice")),
+        S::EntryChoice(x) => {
+            let [ast::Cost::PayLife(cost)] = x.costs.as_slice() else {
+                return Err(gap("entry-choice:cost"));
+            };
+            if !matches!(&*x.what, ast::ObjectRef::SelfObject(_))
+                && !matches!(&*x.what, ast::ObjectRef::This(x) if x.noun == "land")
+            {
+                return Err(gap("entry-choice:source"));
+            }
+            if !matches!(&*x.who, ast::PlayerRef::You(_)) || cost.multiplier.is_some() {
+                return Err(gap("entry-choice:payer"));
+            }
+            let amount = fixed_nonnegative(&cost.amount)?;
+            if amount == Quantity::zero() {
+                return Err(gap("entry-choice:zero"));
+            }
+            ability(Battlefield, StaticEffect::PayLifeOrEnterTapped { amount })
+        }
         S::PreventDamage(_) => return Err(gap("prevent-damage")),
         S::RedirectDamage(_) => return Err(gap("redirect-damage")),
         S::Prohibit(_) => return Err(gap("prohibit")),
@@ -197,7 +229,29 @@ fn lower(effect: &ast::StaticEffect) -> Result<Vec<StaticAbility>, Failure> {
         S::EntersUnderControl(_) => return Err(gap("enters-under-control")),
         S::EntersWithAbilities(_) => return Err(gap("enters-with-abilities")),
         S::UntapStepSuppression(_) => return Err(gap("untap-step-suppression")),
-        S::EntersWithCounters(_) => return Err(gap("enters-with-counters")),
+        S::EntersWithCounters(x) => {
+            let source = matches!(&*x.what, ast::ObjectRef::SelfObject(_))
+                || matches!(&*x.what, ast::ObjectRef::This(x) if matches!(x.noun.as_str(),
+                    "permanent" | "creature" | "artifact" | "enchantment" | "aura" | "land"));
+            if !source
+                || x.counter.r#type != "+1/+1"
+                || x.additional.is_some()
+                || x.multiplier.is_some()
+                || x.condition.is_some()
+                || x.condition_kind.is_some()
+                || x.bindings.is_some()
+            {
+                return Err(gap("enters-with-counters"));
+            }
+            let count = fixed_nonnegative(&x.count)?;
+            if count == Quantity::zero() {
+                return Err(gap("enters-with-counters:zero"));
+            }
+            ability(
+                Battlefield,
+                StaticEffect::EntersWithPlusOneCounters { count },
+            )
+        }
         S::EntersWithCounterChoice(_) => return Err(gap("enters-with-counter-choice")),
         S::AttachmentLimit(_) => return Err(gap("attachment-limit")),
         S::PlayerCombatRule(_) => return Err(gap("player-combat-rule")),
@@ -222,6 +276,29 @@ fn scope(what: &ast::ObjectRef, spell: bool) -> Result<Scope, Failure> {
         R::SelfObject(_) => Ok(Scope::Source),
         R::Each(x) => matching(&x.filter, spell),
         R::All(x) => matching(&x.filter, spell),
+        R::Variant29(x) if !spell => {
+            let kind = match x.r#ref {
+                ast::ObjectRefVariant29Ref::Equipped => kir::AttachmentKind::Equipped,
+                ast::ObjectRefVariant29Ref::Enchanted => kir::AttachmentKind::Enchanted,
+            };
+            let atoms = match x.noun.as_str() {
+                "permanent" => vec![],
+                "land" => vec![kir::Atom::Type {
+                    kind: CardKind::Land,
+                }],
+                "artifact" => vec![kir::Atom::Type {
+                    kind: CardKind::Artifact,
+                }],
+                "creature" => vec![kir::Atom::Type {
+                    kind: CardKind::Creature,
+                }],
+                _ => return Err(gap("attachment-noun")),
+            };
+            Ok(Scope::Attachment {
+                kind,
+                filter: Pred(atoms),
+            })
+        }
         R::Variant29(_) | R::Fortified(_) => Err(unsupported("static", "ref:attached-to:static")),
         other => Err(gap(&format!("scope:{}", variant(other)))),
     }
@@ -304,7 +381,54 @@ fn qualified_condition(
     }
 }
 
-fn compare(left: Amount, cmp: &ast::Comparison) -> Result<Cond, Failure> {
+fn entry_condition(value: &ast::Condition) -> Result<EntryCondition, Failure> {
+    let controller = |who: &ast::PlayerRef| matches!(who, ast::PlayerRef::You(_));
+    let battlefield_filter = |filter: &ast::ObjectFilter| {
+        if filter.zone.is_some() {
+            return Err(gap("enters-tapped:control-zone"));
+        }
+        static_filter(filter)
+    };
+    match value {
+        ast::Condition::Control(x)
+            if controller(&x.who) && x.time.is_none() && x.as_of.is_none() =>
+        {
+            match &*x.what {
+                ast::ObjectRef::Filter(f)
+                    if fixed_value(&f.count)? == 1
+                        && f.up_to.is_none()
+                        && f.group_constraints.is_none()
+                        && f.random.is_none() =>
+                {
+                    Ok(EntryCondition::UnlessControlled {
+                        filter: battlefield_filter(&f.filter)?,
+                        cmp: Cmp::AtLeast,
+                        count: 1.into(),
+                    })
+                }
+                _ => Err(gap("enters-tapped:control")),
+            }
+        }
+        ast::Condition::ControlCount(x) if controller(&x.who) => {
+            let (cmp, count) = comparison(&x.comparison)?;
+            Ok(EntryCondition::UnlessControlled {
+                filter: battlefield_filter(&x.of)?,
+                cmp,
+                count: count.into(),
+            })
+        }
+        ast::Condition::OpponentCount(x) if controller(&x.who) => {
+            let (cmp, count) = comparison(&x.comparison)?;
+            Ok(EntryCondition::UnlessOpponents {
+                cmp,
+                count: count.into(),
+            })
+        }
+        _ => Err(gap("enters-tapped:conditional")),
+    }
+}
+
+fn comparison(cmp: &ast::Comparison) -> Result<(Cmp, i64), Failure> {
     let right = fixed_value(&cmp.value)?;
     let overflow = || gap("conditional:comparison-bound");
     let (cmp, right) = match cmp.op {
@@ -314,6 +438,11 @@ fn compare(left: Amount, cmp: &ast::Comparison) -> Result<Cond, Failure> {
         ast::ComparisonOp::Le => (Cmp::AtMost, right),
         ast::ComparisonOp::Lt => (Cmp::AtMost, right.checked_sub(1).ok_or_else(overflow)?),
     };
+    Ok((cmp, right))
+}
+
+fn compare(left: Amount, cmp: &ast::Comparison) -> Result<Cond, Failure> {
+    let (cmp, right) = comparison(cmp)?;
     Ok(Cond::Compare {
         left,
         cmp,

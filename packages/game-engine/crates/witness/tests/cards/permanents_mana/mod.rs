@@ -8,3 +8,5 @@ mod tap_source_untap_tests;
 mod tap_tests;
 mod tapped_target_tests;
 mod untap_tests;
+
+mod entry_replacement_tests;

@@ -157,6 +157,12 @@ pub(crate) enum SourceTrigger {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum SourceDamageObject {
+    Equipped {
+        noun: String,
+    },
+    Enchanted {
+        noun: String,
+    },
     This {
         noun: String,
     },
@@ -231,6 +237,12 @@ pub(crate) struct SourceTypeFilter {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum SourceAttacker {
+    Equipped {
+        noun: String,
+    },
+    Enchanted {
+        noun: String,
+    },
     This {
         noun: String,
     },
@@ -258,6 +270,8 @@ pub(crate) struct SourceAttackerFilter {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "ref", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum TriggerObject {
+    Equipped { noun: String },
+    Enchanted { noun: String },
     This { noun: String },
     Filter { filter: TriggerFilter, count: Count },
 }

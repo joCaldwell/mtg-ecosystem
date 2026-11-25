@@ -98,7 +98,12 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
     match (key, child) {
         ("optional", Value::Bool(true)) => found.may += 1,
         ("effect" | "static", Value::String(tag)) => match tag.as_str() {
-            "optional-group" | "grant-play-permission" | "additional-land-plays" => found.may += 1,
+            "optional-group"
+            | "grant-play-permission"
+            | "additional-land-plays"
+            | "entry-choice" => {
+                found.may += 1;
+            }
             "create-replacement" | "must-attack" | "must-block" => found.condition += 1,
             _ => {}
         },
@@ -113,6 +118,9 @@ fn member(key: &str, child: &Value, kind: Option<&str>, found: &mut Counts) {
             _ => {}
         },
         ("condition", Value::Object(_)) if kind.is_none() => found.condition += 1,
+        ("declined", Value::Object(fields)) if fields.get("tapped") == Some(&Value::Bool(true)) => {
+            found.condition += 1;
+        }
         ("countered", _) => found.condition += 1,
         ("rule", Value::String(rule)) if rule.ends_with("-requirement") => found.condition += 1,
         ("upTo", Value::Bool(true)) => found.limit += 1,
@@ -178,6 +186,24 @@ fn outcome_printed(text: &str, sentence: &Value) -> Result<(), Failure> {
     }
 }
 
+/// CR 614.1c: the tapped entrant is the outcome of declining the entry choice.
+fn entry_decline_printed(text: &str, ability: &Value) -> Result<(), Failure> {
+    if ability["effect"]["static"] != "entry-choice" {
+        return Ok(());
+    }
+    let mut sentences = text.split_terminator('.').map(str::trim);
+    let _ = sentences.next();
+    if matches!(
+        sentences.next(),
+        Some("if you don't, it enters tapped" | "if you don't, this land enters tapped")
+    ) && sentences.next().is_none()
+    {
+        Ok(())
+    } else {
+        Err(disagrees())
+    }
+}
+
 /// Every printed choice, limit and condition is carried by the AST exactly
 /// once, with its polarity, in the certified segment that prints it, and the
 /// AST carries no unprinted one. `segments` are the block's certified spans
@@ -190,7 +216,9 @@ pub(super) fn choices_printed(
     let statics = ability["kind"] == "static";
     let mut found = Counts::default();
     carriers(ability, &mut found);
-    if printed(&rules_text(line), statics) != found {
+    let text = rules_text(line);
+    entry_decline_printed(&text, ability)?;
+    if printed(&text, statics) != found {
         return Err(disagrees());
     }
     for (fields, start, end) in segments {
@@ -262,6 +290,25 @@ mod tests {
     fn span(line: &str, field: &str, text: &str) -> (Vec<String>, usize, usize) {
         let start = line.find(text).unwrap();
         (vec![field.to_owned()], start, start + text.len())
+    }
+
+    #[test]
+    fn entry_choice_requires_its_printed_decline_clause() {
+        let ability = json!({
+            "kind": "static",
+            "effect": {"static": "entry-choice", "declined": {"tapped": true}}
+        });
+        let prefix = "As this land enters, you may pay 2 life.";
+        for (end, valid) in [
+            (" If you don't, it enters tapped.", true),
+            (" If you do, it enters tapped.", false),
+            (" If you don't, it enters untapped.", false),
+            ("", false),
+        ] {
+            let line = format!("{prefix}{end}");
+            let spans = [(vec![String::new()], 0, line.len())];
+            assert_eq!(choices_printed(&line, &ability, &spans).is_ok(), valid);
+        }
     }
 
     #[test]

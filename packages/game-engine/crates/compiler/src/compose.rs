@@ -583,9 +583,29 @@ fn compose(
                     keywords,
                 } => {
                     ability_word(&word, &result.lines[block].text)?;
-                    definition
-                        .keywords
-                        .extend(keywords::lower(&card, &keywords)?);
+                    let text = &result.lines[block].text;
+                    match keywords.as_slice() {
+                        [one] if one.keyword == "equip" => {
+                            definition
+                                .activated
+                                .push(keywords::equip(&card, one, label, text)?);
+                            labels.activated.push(label);
+                        }
+                        [one] if one.keyword == "enchant" => {
+                            let spell = definition
+                                .spell
+                                .as_mut()
+                                .filter(|s| {
+                                    s.targets.is_empty()
+                                        && definition.characteristics.subtypes == ["Aura"]
+                                })
+                                .ok_or_else(|| unsupported("keyword", "keyword:enchant:source"))?;
+                            spell.targets.push(keywords::enchant(one, text)?);
+                        }
+                        _ => definition
+                            .keywords
+                            .extend(keywords::lower(&card, &keywords)?),
+                    }
                 }
                 Block::Static {
                     ability_word: word,

@@ -513,6 +513,20 @@ struct Site<'a> {
 }
 
 impl Site<'_> {
+    /// CR 614.12: the incoming controller binds the printed entry condition.
+    fn controller(&self) -> Option<ControllerRole> {
+        if self.kind == BlockKind::Static
+            && ((self.path.starts_with("/effect/condition/")
+                && self.ability["effect"]["static"] == "enters-tapped")
+                || (matches!(self.path, "/effect/who" | "/effect/costs/0/payer")
+                    && self.ability["effect"]["static"] == "entry-choice"))
+        {
+            Some(ControllerRole::EnteringController)
+        } else {
+            self.kind.controller()
+        }
+    }
+
     /// A resolving-effect operand, not the owner object of a relation.
     fn effects_operand(&self) -> bool {
         self.path.starts_with("/effects/") && !self.path.ends_with("/of")
@@ -550,11 +564,16 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
     // Rows every operand word shares: a printed selection is an announced
     // target, a bare "you" the block's controller, and a pronoun an
     // announced target or an earlier step's result (CR 601.2c, 608.2c).
+    if matches!(at.word(), Some("equipped" | "enchanted"))
+        && !matches!(resolved, Some(ResolvedRef::AttachedTo(_)))
+    {
+        return false;
+    }
     if at.selection() && !matches!(resolved, Some(ResolvedRef::Target(_))) {
         return false;
     }
     if at.you() {
-        return matches!(resolved, Some(ResolvedRef::Controller(c)) if Some(c.role) == at.kind.controller())
+        return matches!(resolved, Some(ResolvedRef::Controller(c)) if Some(c.role) == at.controller())
             && controller_row(resolved, at);
     }
     let word = at.word();
@@ -606,12 +625,15 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
                     && at.ability["trigger"]["trigger"] == trigger
             }) && word_row(word, at, |_| false)
         }
-        // Opened by their waves: attachments (W1), as-enters (W2) and
-        // trigger event objects (W7) have no lowering yet; the announced X
-        // is read by its amount operand only.
+        // CR 301.5 and 303.4: only host scopes and host event subjects bind here.
+        Some(ResolvedRef::AttachedTo(_)) => {
+            (at.kind == BlockKind::Static
+                || (at.kind == BlockKind::Triggered && at.path == "/trigger/what"))
+                && at.scope.is_none()
+                && matches!(word, Some("equipped" | "enchanted"))
+        }
         Some(
-            ResolvedRef::AttachedTo(_)
-            | ResolvedRef::EventObject(_)
+            ResolvedRef::EventObject(_)
             | ResolvedRef::EnteringObject(_)
             | ResolvedRef::AnnouncedX(_),
         ) => word_row(word, at, |_| false),
@@ -623,7 +645,7 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
 fn controller_row(resolved: Option<&ResolvedRef>, at: &Site<'_>) -> bool {
     match resolved {
         Some(ResolvedRef::Controller(c)) if at.scope.is_none() => {
-            at.kind.controller().is_none_or(|own| c.role == own)
+            at.controller().is_none_or(|own| c.role == own)
         }
         _ => true,
     }
