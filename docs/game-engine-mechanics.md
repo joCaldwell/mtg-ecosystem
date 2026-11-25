@@ -613,6 +613,14 @@ its host (CR 201.5, 301.5, 303.4):
 
 Same-kind alternatives ("this creature or another Elf you control") form one
 `AnyOf` predicate, so an occurrence triggers the ability once (CR 603.2).
+Two mixed alternatives can name only the source's own entry and its own
+death or declared attack. They share one ability index, and collection and
+recovery select the branch from the typed occurrence (CR 603.2c, 603.6a,
+603.10a, 508.3a). Recovery rejects duplicate instances for one occurrence
+or a second entry or death for the same source incarnation and ability.
+The attacker in the event witness supplies the controller of the source's
+own attack trigger (CR 603.3a). Mixed alternatives bind no event object or
+player operand.
 Player operands are "you", each opponent or each player. The reviewed narrow
 lowerers run first; the general event table lowers the remaining enters, dies,
 put-into-graveyard and attacks events term by term through the board filter.
@@ -621,9 +629,17 @@ put-into-graveyard and attacks events term by term through the board filter.
 `kir::Intervening::of` admits an intervening `kir::Cond` in exactly one audited
 form: "if you cast it", an empty hand, the source's tapped status, a creature
 with power N or greater, or a count of permanents "you" control matching a
-filter, possibly excluding the source (CR 603.4). Core checks it when the event
+filter, possibly excluding the source. Entry, attack and beginning-of-step
+triggers can also compare a fixed amount with the controller's life, hand
+size, or own graveyard card count. The graveyard filter admits all cards,
+one card type, or the supported permanent card types. Tokens are excluded
+(CR 111.6, 404). Core checks the clause when the event
 occurs and again as the ability resolves, recording `InterveningCheck`
-evidence. These earn `Executes` (`InterveningIfV1`, `EventTriggerV1`). An
+evidence (CR 603.4). Snapshots save the comparison's measured quantity and
+check its kind, controller, count bound, and result. A graveyard count's
+bound includes only owned physical cards that match the printed filter.
+These earn `Executes`
+(`InterveningIfV1`, `EventTriggerV1`). An
 opponent's creature dying freezes that creature's controller
 (`triggers::binds_death_controller`). Event-object pronouns ("it", "that
 creature") remain unaudited.

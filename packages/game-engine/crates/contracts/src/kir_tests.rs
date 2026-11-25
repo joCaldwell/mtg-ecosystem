@@ -1,5 +1,33 @@
 //! KIR checker cells: admitted and rejected verbs, operands, scopes and tags.
 use super::*;
+
+#[test]
+fn lane_d_mixed_events_admit_only_two_disjoint_source_events() {
+    let source = EventPattern::self_enters();
+    let pair = |first, second| EventPattern::AnyOf {
+        first: Box::new(first),
+        second: Box::new(second),
+    };
+    let attack = EventPattern::Attacks {
+        attacker: Pred::source(),
+    };
+    let valid = pair(source.clone(), attack.clone());
+    check_event(&valid, false).unwrap();
+    assert!(event_player_role(&TriggerCondition::on(valid.clone())).is_none());
+    for invalid in [
+        pair(source.clone(), source.clone()),
+        pair(attack, source.clone()),
+        pair(
+            source.clone(),
+            EventPattern::Dies {
+                object: Pred::creatures(),
+            },
+        ),
+        pair(source.clone(), valid),
+    ] {
+        assert!(check_event(&invalid, false).is_err(), "{invalid:?}");
+    }
+}
 use crate::{BeginningStep, PermanentFilter};
 
 fn spell<'a>(targets: &'a [TargetSpec]) -> Env<'a> {

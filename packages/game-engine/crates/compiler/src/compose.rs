@@ -376,7 +376,7 @@ fn trigger(
         }
     }
     // An intervening clause the reviewed lowerer does not read: lower the
-    // ability without it, then add the clause as a battlefield count.
+    // ability without it, then add the audited clause.
     if table.is_none()
         && let (Ok(t), Some(raw_condition)) = (&narrow, condition)
         && reviewed
@@ -396,7 +396,7 @@ fn trigger(
             .collect::<Result<_, _>>()?;
         match lower_trigger(t, &typed, None, block) {
             Ok(mut ability) => {
-                let intervening = events::board_intervening(raw_condition)?;
+                let intervening = events::intervening(raw_condition, ability.condition.pattern())?;
                 let TriggerCondition::Event { intervening_if, .. } = &mut ability.condition;
                 *intervening_if = Some(intervening.condition());
                 return Ok(ability);
@@ -436,7 +436,7 @@ fn trigger(
                 .map(|c| intervening_condition(narrow.as_ref().ok(), &event, Some(&c)))
             {
                 Some(Ok(Some(reviewed))) => Some(reviewed),
-                _ => Some(events::board_intervening(raw_condition)?),
+                _ => Some(events::intervening(raw_condition, &event)?),
             }
         }
     };
