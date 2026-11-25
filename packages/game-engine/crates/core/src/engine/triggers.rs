@@ -771,15 +771,24 @@ impl RulesTxn {
                                 && (!*combat || *kind == DamageKind::Combat)
                                 && matches!(damage.recipient, DamageRecipient::Player { player }
                                     if player_in(recipient, Some(player), you))
-                                && damage_match_source.as_deref().is_some_and(|appearance| {
-                                    appearance.object == damage.source.object
-                                        && appearance.zone == Zone::Battlefield
-                                        && holds(pred, Some(&Frozen {
-                                            facts: appearance,
-                                            token: token(appearance.object),
-                                            live: observers.is_live(appearance.controller),
-                                        }), you, appearance.object, &identity)
-                                }))
+                                // CR 609.7, 119.3: an identity-only source
+                                // ("a source other than ...") needs no
+                                // battlefield appearance; a spell, or an
+                                // ability whose source has left, still
+                                // deals the damage.
+                                && if pred.reads_characteristics() {
+                                    damage_match_source.as_deref().is_some_and(|appearance| {
+                                        appearance.object == damage.source.object
+                                            && appearance.zone == Zone::Battlefield
+                                            && holds(pred, Some(&Frozen {
+                                                facts: appearance,
+                                                token: token(appearance.object),
+                                                live: observers.is_live(appearance.controller),
+                                            }), you, appearance.object, &identity)
+                                    })
+                                } else {
+                                    identity_holds(pred, damage.source.object, &identity)
+                                })
                     }
                 };
                 if matches
@@ -1337,8 +1346,12 @@ impl RulesTxn {
                     && entrant.default_controller == entrant.owner
             }
         };
+        // The historical controller is a seat of this game, though that
+        // player may since have left it (CR 800.4a).
+        let seated = |p: PlayerId| self.state.rules.original_seating.contains(&p);
         Ok(actual_entry
-            && entrant.default_controller.0 < 4
+            && seated(entrant.controller)
+            && seated(entrant.default_controller)
             && entrant.marked_damage == Quantity::zero()
             && !entrant.deathtouch_damage
             && !entrant.attack_ready
@@ -1450,7 +1463,11 @@ impl RulesTxn {
                 transaction.is_none_or(|id| id.0 < self.state.rules.next_damage_transaction_id)
                     && (damage.id.0 as usize) < self.damage_limit()
                     && damage.amount > Quantity::zero()
-                    && fact.zone == Zone::Battlefield
+                    // CR 120.2, 510.1: combat damage comes from battlefield
+                    // creatures; noncombat damage may also come from a
+                    // resolving spell on the stack.
+                    && (fact.zone == Zone::Battlefield
+                        || (*kind != DamageKind::Combat && fact.zone == Zone::Stack))
                     // CR 510.1: only creatures deal combat damage.
                     && (*kind != DamageKind::Combat
                         || fact.characteristics.has_type(CardKind::Creature))

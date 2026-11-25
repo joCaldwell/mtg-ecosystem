@@ -544,6 +544,18 @@ fn shattered_angel_keeps_its_trigger_when_the_lands_controller_concedes() {
     checked(&g);
     g.concede(PlayerId(1)).unwrap();
     checked(&g);
+    // The departed player is still a seat of this game; a seat that never
+    // existed is not.
+    let mut forged = g.fork();
+    let StackKind::Triggered {
+        witness: TriggerEventWitness::Entered { entrant, .. },
+        ..
+    } = &mut forged.state.rules.stack[0].kind
+    else {
+        panic!("expected an entry witness");
+    };
+    entrant.controller = PlayerId(255);
+    assert!(forged.validate_state().is_err());
     settle(&mut g);
     assert_eq!(life(&g, 0), plus(&start, 3));
     assert_recoverable((&g).into());
@@ -615,6 +627,113 @@ fn noncreature_damage_sources_validate_for_an_admitted_observer() {
     assert!(observed > 0);
     settle(&mut g);
     assert!(hand(&g, 0) >= before - 1 + observed);
+    assert_recoverable((&g).into());
+}
+
+/// An observer of damage from "a source other than" itself (CR 609.7) reads
+/// only the source's identity, so damage from a spell on the stack or from
+/// an ability whose source has left the battlefield still triggers it.
+fn other_source_damage_observer(base: &Definition) -> Definition {
+    let mut d = enchantment_damage_observer(base);
+    d.triggered[0].condition = TriggerCondition::on(kir::EventPattern::DealsDamage {
+        source: kir::Pred(vec![kir::Atom::IsNot {
+            object: kir::Ref::Source,
+        }]),
+        combat: false,
+        recipient: PlayerExpr::EachOpponent,
+    });
+    d.capabilities = d.requirements();
+    d.validate().unwrap();
+    d
+}
+
+/// Lightning Bolt: "Lightning Bolt deals 3 damage to any target." Its
+/// damage comes from the spell on the stack.
+#[test]
+fn another_sources_spell_damage_triggers_an_identity_observer() {
+    let tremors = compiled(&[IMPACT_TREMORS], false).remove(0);
+    let prepared = prepare(
+        board_with(
+            vec![other_source_damage_observer(&tremors)],
+            TurnStep::PrecombatMain,
+        )
+        .permanent_or_hand("Private Tremor Observer", 0, 0, false)
+        .permanent_or_hand("Lightning Bolt", 0, 0, true)
+        .permanent_or_hand("Mountain", 0, 0, false),
+    );
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let before = hand(&g, 0);
+    let opponent = life(&g, 1);
+    Driver::cast(&mut g, CardId(1));
+    let d = Driver::request(&mut g, u64::MAX);
+    let a = d
+        .pick_one(&Candidate::Player {
+            player: PlayerId(1),
+        })
+        .unwrap();
+    g.respond(d.player, d.id, a).unwrap();
+    Driver::pay(&mut g, &[2]);
+    drive(&mut g, &[], triggered);
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(plus(&life(&g, 1), 3), opponent);
+    // Bolt left the hand; the observer drew one card.
+    assert_eq!(hand(&g, 0), before);
+    assert_recoverable((&g).into());
+}
+
+/// Impact Tremors is returned by Disperse ("Return target nonland permanent
+/// to its owner's hand.") before its trigger resolves; the damage it still
+/// deals (CR 113.7a) triggers the observer.
+#[test]
+fn a_departed_sources_damage_triggers_an_identity_observer() {
+    let tremors = compiled(&[IMPACT_TREMORS], false).remove(0);
+    let observer = other_source_damage_observer(&tremors);
+    let prepared = prepare(
+        board_with(vec![tremors, observer], TurnStep::PrecombatMain)
+            .permanent_or_hand("Impact Tremors", 0, 0, false)
+            .permanent_or_hand("Private Tremor Observer", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, true)
+            .permanent_or_hand("Disperse", 0, 0, true)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false)
+            .permanent_or_hand("Island", 0, 0, false),
+    );
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let opponent = life(&g, 1);
+    Driver::cast(&mut g, CardId(2));
+    Driver::pay(&mut g, &[4, 5]);
+    drive(&mut g, &[], triggered);
+    let tremors = Driver::object(&g, 0);
+    Driver::cast(&mut g, CardId(3));
+    Driver::pick_object(&mut g, tremors);
+    Driver::pay(&mut g, &[6, 7]);
+    // Stop at the observer's trigger, or at an empty stack if it never
+    // triggers.
+    drive(&mut g, &[], |g| {
+        g.state
+            .rules
+            .stack
+            .iter()
+            .any(|s| s.source.card == CardId(1))
+            || (g.state.rules.stack.is_empty()
+                && g.state.rules.pending_triggers.is_empty()
+                && matches!(g.state.rules.frame, Frame::Priority))
+    });
+    assert!(
+        g.state
+            .rules
+            .stack
+            .iter()
+            .any(|s| s.source.card == CardId(1)),
+        "the observer did not trigger"
+    );
+    checked(&g);
+    settle(&mut g);
+    assert_eq!(plus(&life(&g, 1), 1), opponent);
+    // The returned Impact Tremors and one draw per damaged opponent.
+    assert_eq!(hand(&g, 0), g.live_players().len());
     assert_recoverable((&g).into());
 }
 
