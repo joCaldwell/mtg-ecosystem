@@ -214,10 +214,7 @@ counts matching permanents once and credits its controller through a staged
 mana event. A zero count leaves the mana pool untouched.
 
 Cast observers can match a spell subtype or a disjunction of subtypes against
-its frozen paid cast event. A temporary creature combat restriction attaches to
-the resolved target incarnation, expires in cleanup, and applies when blockers
-are declared (CR 506.4a, 509.1b). Its paid source and ordered sibling instructions
-remain distinct.
+its frozen paid cast event.
 
 A library play window follows the face-up exile successors of one exact
 resolution. The beneficiary uses ordinary priority, timing, costs, and land
@@ -548,6 +545,24 @@ creature or a captured battlefield set. The existing activated-source form
 uses the same layer 6 rules. Grants follow their creation order, expire at
 cleanup, and affect only the selected incarnations (CR 400.7, 611.2c, 613.1f,
 613.7b). The newly admitted operand cells qualify for `Executes`.
+
+`RestrictCombat` is a rules effect, not a characteristic change (CR 611.2c,
+613.11). "Can't attack", "can't block", "can't attack or block" and "can't be
+blocked" this turn bind one announced creature's resolved incarnation. "Can't
+block" can also name all creatures, or creatures without flying. That class is
+read at each declaration, so a creature that later arrives or loses flying is
+covered. The effect expires in cleanup (CR 508.1c, 509.1b, 514.2). Other
+recipients, durations and "that creature" pronouns reject by name.
+
+Printed protection from one or two fixed colors, or from each color, lowers to
+separate per-color abilities on creatures (CR 702.16a, g, h). The printed
+keyword line must match those qualities exactly. Other qualities such as types,
+subtypes, players or everything reject by name. Static grants of hexproof,
+shroud or indestructible may name noncreature recipients (CR 702.11, 702.12,
+702.18). Other granted keywords still need a creature scope. Grant filters
+cannot test keywords and no ability removal is admitted. Layer 6 grants
+therefore have no dependencies and give the same result in any timestamp order
+(CR 613.7, 613.8).
 
 <a id="abilities-targets-and-triggers"></a>
 

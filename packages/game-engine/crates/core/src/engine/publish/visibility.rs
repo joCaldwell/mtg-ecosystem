@@ -756,12 +756,20 @@ impl RulesTxn {
         Ok(ObjectCore {
             keywords: if object.zone == Zone::Battlefield {
                 let keywords = self.current_keywords_with_sources(object.id, static_sources);
-                if self.target_is_creature(object.id)
-                    || keywords.contains(&KeywordAbility::Indestructible)
-                {
+                if self.target_is_creature(object.id) {
                     keywords
                 } else {
-                    vec![]
+                    keywords
+                        .into_iter()
+                        .filter(|keyword| {
+                            matches!(
+                                keyword,
+                                KeywordAbility::Hexproof
+                                    | KeywordAbility::Indestructible
+                                    | KeywordAbility::Shroud
+                            )
+                        })
+                        .collect()
                 }
             } else {
                 vec![]
@@ -771,6 +779,7 @@ impl RulesTxn {
                     .creature_restrictions_with_sources(object.id, static_sources)
                     .collect();
                 [
+                    CreatureRestriction::CantAttack,
                     CreatureRestriction::CantBeBlocked,
                     CreatureRestriction::CantAttackOrBlock,
                     CreatureRestriction::CantBlock,

@@ -8,8 +8,9 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{
-    Allowance, Amount, Atom, Change, Cmp, CombatRequirement, Cond, HandSizeChange, Layer,
-    PlayerExpr, Pred, Ref, Scope, SetExpr, SpellCostChange, StaticRule, ZoneExpr,
+    Allowance, Amount, Atom, Change, Cmp, CombatProhibitionScope, CombatRequirement, Cond,
+    HandSizeChange, Layer, PlayerExpr, Pred, Ref, Scope, SetExpr, SpellCostChange, StaticRule,
+    ZoneExpr,
 };
 
 macro_rules! effect_id {
@@ -113,6 +114,10 @@ pub enum ResolvedEffectKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
+    },
+    CombatProhibition {
+        affects: CombatProhibitionScope<ObjectId>,
+        restriction: CombatRequirement,
     },
 
     ModifyPowerToughness {
@@ -913,9 +918,11 @@ impl RulesTxn {
         };
         let target_handles = match &kind {
             ResolvedEffectKind::GrantKeywords { target, .. }
-            | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
-                self.capture_trigger_source_handles(*target)?
-            }
+            | ResolvedEffectKind::ModifyPowerToughness { target, .. }
+            | ResolvedEffectKind::CombatProhibition {
+                affects: CombatProhibitionScope::Target { target },
+                ..
+            } => self.capture_trigger_source_handles(*target)?,
 
             _ => vec![],
         };
@@ -1501,6 +1508,16 @@ impl RulesTxn {
                     .ok_or("effect instruction absent")?;
                 let valid = match (instruction, &effect.kind) {
                     (
+                        kernel!(RestrictCombat { affects, restriction, .. } @ source_block),
+                        kind @ ResolvedEffectKind::CombatProhibition { .. },
+                    ) => {
+                        *source_block == effect.origin.source_block
+                            && self
+                                .combat_prohibition_kind(frame, affects, *restriction)?
+                                .as_ref()
+                                == Some(kind)
+                    }
+                    (
                         i,
                         ResolvedEffectKind::PumpSet {
                             targets,
@@ -1593,7 +1610,11 @@ impl RulesTxn {
                             })
                     }
                     ResolvedEffectKind::GrantKeywords { target, .. }
-                    | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                    | ResolvedEffectKind::ModifyPowerToughness { target, .. }
+                    | ResolvedEffectKind::CombatProhibition {
+                        affects: CombatProhibitionScope::Target { target },
+                        ..
+                    } => {
                         effect.target_handles.len() == 4
                             && (0..4).all(|v| {
                                 self.object_handle_id(PlayerId(v), *target)
@@ -1834,6 +1855,33 @@ impl RulesTxn {
             let mut bound = false;
             for instruction in instructions {
                 bound |= match (instruction, &e.kind) {
+                    (
+                        kernel!(RestrictCombat { affects, restriction, .. } @ source_block),
+                        ResolvedEffectKind::CombatProhibition {
+                            affects: saved_scope,
+                            restriction: saved_restriction,
+                        },
+                    ) => {
+                        use CombatProhibitionScope as S;
+                        *source_block == e.origin.source_block
+                            && restriction == saved_restriction
+                            && match (affects, saved_scope) {
+                                (
+                                    S::Target {
+                                        target: Ref::Target { .. },
+                                    },
+                                    S::Target { target },
+                                ) => {
+                                    e.target_handles.len() == 4
+                                        && self.state.rules.cards.contains_key(&target.card)
+                                }
+                                (S::Creatures {}, S::Creatures {})
+                                | (S::CreaturesWithoutFlying {}, S::CreaturesWithoutFlying {}) => {
+                                    e.target_handles.is_empty()
+                                }
+                                _ => false,
+                            }
+                    }
                     (
                         kernel!(ModifyUntil { what: mtg_contracts::kir::SetExpr::Matching { .. }, change: mtg_contracts::kir::Change::PowerToughness { power: fixed!(power), toughness: fixed!(toughness) }, until: mtg_contracts::kir::Until::EndOfTurn, .. } @ source_block),
                         ResolvedEffectKind::PumpSet {
@@ -2183,6 +2231,25 @@ impl RulesTxn {
                 .collect()
         };
         Ok(match &e.kind {
+            ResolvedEffectKind::CombatProhibition {
+                affects,
+                restriction,
+            } => {
+                use CombatProhibitionScope as S;
+                VisibleEffect::CombatProhibition {
+                    handle,
+                    origin,
+                    affects: match affects {
+                        S::Target { target } => S::Target {
+                            target: target_view(*target)?,
+                        },
+                        S::Creatures {} => S::Creatures {},
+                        S::CreaturesWithoutFlying {} => S::CreaturesWithoutFlying {},
+                    },
+                    restriction: *restriction,
+                    expires_in_cleanup_of_turn: e.expires_in_cleanup_of_turn,
+                }
+            }
             ResolvedEffectKind::RegenerationShield => VisibleEffect::RegenerationShield {
                 handle,
                 origin,

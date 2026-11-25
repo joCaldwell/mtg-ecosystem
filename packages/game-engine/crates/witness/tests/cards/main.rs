@@ -1,4 +1,5 @@
 mod attachments;
+mod continuous;
 mod control;
 mod costs;
 mod damage_triggers;

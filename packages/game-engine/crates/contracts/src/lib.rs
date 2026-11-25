@@ -222,6 +222,7 @@ pub enum Capability {
     CastEnchantmentV1,
 
     TemporaryPowerToughnessV1,
+    TemporaryCombatProhibitionV1,
 
     CombatDamagePreventionV1,
     DamageBudgetPreventionV1,
@@ -1120,6 +1121,7 @@ pub struct StaticAbility {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CreatureRestriction {
+    CantAttack,
     CantBlock,
     CantBeBlocked,
     CantAttackOrBlock,

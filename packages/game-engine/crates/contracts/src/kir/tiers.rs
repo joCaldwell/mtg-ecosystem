@@ -183,6 +183,7 @@ pub enum Cell {
     SourceKeywordsUntilEndOfTurn,
     TargetKeywordsUntilEndOfTurn,
     SetKeywordsUntilEndOfTurn,
+    CombatProhibitionUntilEndOfTurn,
     // CR 701.22-701.25: library search, shuffle, scry and surveil.
     /// CR 701.23: the controller searches their library.
     SearchController,
@@ -316,6 +317,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SourceKeywordsUntilEndOfTurn
         | C::TargetKeywordsUntilEndOfTurn
         | C::SetKeywordsUntilEndOfTurn
+        | C::CombatProhibitionUntilEndOfTurn
         | C::SearchController
         | C::SearchTargetController
         | C::ShuffleController
@@ -437,6 +439,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::StepBeginningTriggerV1
         | C::ContinuousStaticsV1
         | C::RuleStaticsV1
+        | C::TemporaryCombatProhibitionV1
         | C::EntryPlusOneCountersV1
         | C::ConditionalEntryTappedV1
         | C::EntryLifePaymentV1
