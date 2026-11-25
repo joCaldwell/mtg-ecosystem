@@ -131,16 +131,14 @@ pub(super) fn general(
             };
         // Every other printed field (a grouping, an origin, an occurrence
         // count, a turn window) is a qualifier this table does not lower.
-        if object
-            .keys()
-            .any(|k| !matches!(k.as_str(), "trigger" | "what") && !extra.iter().any(|(f, _)| f == k))
-        {
+        if object.keys().any(|k| {
+            !matches!(k.as_str(), "trigger" | "what") && !extra.iter().any(|(f, _)| f == k)
+        }) {
             return Ok(None);
         }
         if !extra.is_empty()
             && (object.get("from") != Some(&serde_json::json!("battlefield"))
-                || object.get("to")
-                    != Some(&serde_json::json!({"zone":"graveyard","owner":"any"})))
+                || object.get("to") != Some(&serde_json::json!({"zone":"graveyard","owner":"any"})))
         {
             return Ok(None);
         }
@@ -196,7 +194,9 @@ pub(super) fn general(
 /// filtered object.
 fn subject(card: &Card<'_>, what: &ast::ObjectRef) -> Result<Pred, Failure> {
     match what {
-        ast::ObjectRef::This(this) if card.is_self(&this.noun) || card.names_own_subtype(&this.noun) => {
+        ast::ObjectRef::This(this)
+            if card.is_self(&this.noun) || card.names_own_subtype(&this.noun) =>
+        {
             Ok(Pred::source())
         }
         ast::ObjectRef::SelfObject(_) => Ok(Pred::source()),
@@ -218,7 +218,9 @@ fn subject(card: &Card<'_>, what: &ast::ObjectRef) -> Result<Pred, Failure> {
 /// CR 603.4, 109.5: an intervening "if you control a [filter]" or "if you
 /// control N or more [filter]" clause, read when the event occurs and again
 /// as the ability resolves. The filter may say "other" (CR 201.5).
-pub(super) fn board_intervening(condition: &serde_json::Value) -> Result<kir::Intervening, Failure> {
+pub(super) fn board_intervening(
+    condition: &serde_json::Value,
+) -> Result<kir::Intervening, Failure> {
     let reject = || {
         unsupported(
             "abilities.condition",

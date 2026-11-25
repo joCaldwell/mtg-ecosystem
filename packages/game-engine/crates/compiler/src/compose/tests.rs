@@ -1155,7 +1155,10 @@ fn a_certified_trigger_header_with_its_condition_reaches_the_trigger_decision() 
     // control, checked when the event occurs and on resolution.
     let scholar = composed(SCHOLAR_OF_STARS);
     assert_eq!(
-        scholar.triggered[0].condition.intervening_if().map(kir::Intervening::of),
+        scholar.triggered[0]
+            .condition
+            .intervening_if()
+            .map(kir::Intervening::of),
         Some(Ok(kir::Intervening::BattlefieldCount {
             filter: Pred(vec![
                 Atom::Type {

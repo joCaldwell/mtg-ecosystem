@@ -131,9 +131,7 @@ impl InterveningCheck {
                     count,
                     passed,
                 },
-            ) => {
-                *c == controller && *passed == board_compare(*count, *cmp, value)
-            }
+            ) => *c == controller && *passed == board_compare(*count, *cmp, value),
             (
                 mtg_contracts::kir::Intervening::ControllerHasCreatureWithPower { minimum_power },
                 Self::ControllerHasCreatureWithPower {

@@ -67,8 +67,7 @@ impl TypeTerm {
             match t {
                 TypeTerm::Color(_) => root,
                 TypeTerm::All(terms) | TypeTerm::AnyOf(terms) => {
-                    !terms.is_empty()
-                        && terms.iter().all(|t| visit(t, depth + 1, remaining, false))
+                    !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining, false))
                 }
                 _ => true,
             }
@@ -107,7 +106,10 @@ pub(crate) fn lower_type_predicate(
 ) -> Result<Pred, Failure> {
     let term = type_term(f, class, root, depth)?;
     if !term.bounded() {
-        return Err(unsupported("trigger.what", "type predicate structural bound"));
+        return Err(unsupported(
+            "trigger.what",
+            "type predicate structural bound",
+        ));
     }
     let mut atoms = vec![];
     term.atoms(&mut atoms);

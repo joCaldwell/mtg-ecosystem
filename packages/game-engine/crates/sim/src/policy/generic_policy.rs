@@ -2,9 +2,9 @@
 //! coarse value estimates; only core decides legality and executes rules.
 use super::*;
 use mtg_contracts::{
-    ActivationCost, Definition, FunctioningZone, Instruction as I, KeywordAbility,
-    ObjectSet, SacrificeFilter, SpellProgram, SpellResolution, SpellTiming, StaticEffect,
-    TargetDomain, TargetSpec, TriggerCondition, announced_x, fixed, kernel,
+    ActivationCost, Definition, FunctioningZone, Instruction as I, KeywordAbility, ObjectSet,
+    SacrificeFilter, SpellProgram, SpellResolution, SpellTiming, StaticEffect, TargetDomain,
+    TargetSpec, TriggerCondition, announced_x, fixed, kernel,
     kir::{self, Context, SetExpr},
     source_object, target_object, target_player,
 };

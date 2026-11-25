@@ -215,9 +215,9 @@ fn event_atom(atom: &Atom, depth: usize) -> Result<(), KirError> {
             crate::cast_subtype::subtype_spelling(subtype)
         }
         Atom::ControlledBy { player } => event_players(player),
-        Atom::Power { value, .. } | Atom::Toughness { value, .. } | Atom::ManaValue { value, .. } => {
-            value.as_fixed().is_some()
-        }
+        Atom::Power { value, .. }
+        | Atom::Toughness { value, .. }
+        | Atom::ManaValue { value, .. } => value.as_fixed().is_some(),
         Atom::Is { object } | Atom::IsNot { object } => {
             matches!(object, Ref::Source | Ref::AttachedTo)
         }

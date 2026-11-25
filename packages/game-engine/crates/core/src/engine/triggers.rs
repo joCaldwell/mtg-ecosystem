@@ -152,10 +152,8 @@ impl TriggerEventWitness {
         matches!(self, Self::Moved { movement: m } if m.from == Zone::Battlefield && matches!(m.destination, Zone::Graveyard { .. }))
     }
     fn enters(&self) -> bool {
-        matches!(
-            self,
-            Self::TokenEntered { .. } | Self::Entered { .. }
-        ) || matches!(self, Self::Moved { movement: m } if m.destination == Zone::Battlefield && m.from != Zone::Battlefield)
+        matches!(self, Self::TokenEntered { .. } | Self::Entered { .. })
+            || matches!(self, Self::Moved { movement: m } if m.destination == Zone::Battlefield && m.from != Zone::Battlefield)
     }
 }
 /// CR 603.10: the facts an event froze for its object, read as the object
@@ -283,6 +281,7 @@ fn step_matches(step: BeginningStep, turn: &TurnState) -> bool {
 // source's characteristics reads its live, nontoken battlefield appearance;
 // one that only compares identity reads the actual damage source.
 // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[cfg(feature = "testkit")]
 pub fn damage_matches(
     condition: &TriggerCondition,
     source: ObjectId,
@@ -1457,17 +1456,17 @@ impl RulesTxn {
                         .is_some_and(|c| c.owner == fact.owner)
                     && matches!(damage.recipient, DamageRecipient::Player { player } if player.0 < 4)
                     && matches!(pattern, EventPattern::DealsDamage { source: pred, combat, recipient }
-                        if (!*combat || *kind == DamageKind::Combat)
-                            && matches!(damage.recipient, DamageRecipient::Player { player }
-                                if player_in(recipient, Some(player), controller))
-                            && match match_source {
-                                Some(appearance) => pred.reads_characteristics()
-                                    && appearance.zone == Zone::Battlefield
-                                    && holds(pred, Some(&frozen(appearance)), controller,
-                                        fact.object, &identity(fact.object)),
-                                None => !pred.reads_characteristics()
-                                    && identity_holds(pred, fact.object, &identity(fact.object)),
-                            })
+                    if (!*combat || *kind == DamageKind::Combat)
+                        && matches!(damage.recipient, DamageRecipient::Player { player }
+                            if player_in(recipient, Some(player), controller))
+                        && match match_source {
+                            Some(appearance) => pred.reads_characteristics()
+                                && appearance.zone == Zone::Battlefield
+                                && holds(pred, Some(&frozen(appearance)), controller,
+                                    fact.object, &identity(fact.object)),
+                            None => !pred.reads_characteristics()
+                                && identity_holds(pred, fact.object, &identity(fact.object)),
+                        })
                     && death_controller.is_none()
                 // No live source/recipient or current combat requirement. CR
                 // 113.7a/800.4 preserve a surviving controller's invocation.

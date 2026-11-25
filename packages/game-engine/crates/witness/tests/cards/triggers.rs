@@ -157,14 +157,17 @@ fn intervening(g: &Game, source: ObjectId) -> Vec<(bool, bool)> {
 /// nonactive player's resolves first. Both draws go to the active player.
 #[test]
 fn howling_mines_trigger_in_apnap_order_for_the_active_player() {
-    let prepared = prepare(board(&[HOWLING_MINE], TurnStep::Upkeep)
-        .permanent_or_hand("Howling Mine", 0, 0, false)
-        .permanent_or_hand("Howling Mine", 1, 1, false)
-        );
+    let prepared = prepare(
+        board(&[HOWLING_MINE], TurnStep::Upkeep)
+            .permanent_or_hand("Howling Mine", 0, 0, false)
+            .permanent_or_hand("Howling Mine", 1, 1, false),
+    );
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let mines = [Driver::object(&g, 0), Driver::object(&g, 1)];
     assert!(matches!(
-        g.definition(CardId(0)).unwrap().triggered[0].condition.pattern(),
+        g.definition(CardId(0)).unwrap().triggered[0]
+            .condition
+            .pattern(),
         EventPattern::StepBegins { .. }
     ));
     drive(&mut g, &[], |g| g.state.rules.stack.len() == 2);
@@ -172,7 +175,12 @@ fn howling_mines_trigger_in_apnap_order_for_the_active_player() {
     let controllers: Vec<_> = g.state.rules.stack.iter().map(|s| s.controller).collect();
     assert_eq!(controllers, [PlayerId(0), PlayerId(1)]);
     assert_eq!(
-        g.state.rules.stack.iter().map(|s| s.source).collect::<Vec<_>>(),
+        g.state
+            .rules
+            .stack
+            .iter()
+            .map(|s| s.source)
+            .collect::<Vec<_>>(),
         mines
     );
     checked(&g);
@@ -222,7 +230,8 @@ fn howling_mine_rechecks_its_intervening_if_on_resolution() {
             assert!(g.current(mine).unwrap().tapped);
         }
         drive(&mut g, &[], |g| {
-            g.state.rules.turn.step == TurnStep::Draw && matches!(g.state.rules.frame, Frame::Priority)
+            g.state.rules.turn.step == TurnStep::Draw
+                && matches!(g.state.rules.frame, Frame::Priority)
         });
         if tap_before {
             assert!(g.state.rules.stack.is_empty());
@@ -244,14 +253,15 @@ fn howling_mine_rechecks_its_intervening_if_on_resolution() {
 /// (CR 603.6a, 201.5); casting it and then a Bears gains 2 life.
 #[test]
 fn bogwater_lumaret_sees_itself_and_another_creature_enter() {
-    let prepared = prepare(board(&[BOGWATER_LUMARET], TurnStep::PrecombatMain)
-        .permanent_or_hand("Bogwater Lumaret", 0, 0, true)
-        .permanent_or_hand("Grizzly Bears", 0, 0, true)
-        .permanent_or_hand("Swamp", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        .permanent_or_hand("Forest", 0, 0, false)
-        );
+    let prepared = prepare(
+        board(&[BOGWATER_LUMARET], TurnStep::PrecombatMain)
+            .permanent_or_hand("Bogwater Lumaret", 0, 0, true)
+            .permanent_or_hand("Grizzly Bears", 0, 0, true)
+            .permanent_or_hand("Swamp", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Forest", 0, 0, false),
+    );
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let start = life(&g, 0);
     Driver::cast(&mut g, CardId(0));
@@ -295,11 +305,17 @@ fn elemental_bond_reads_the_entering_creature_on_the_battlefield() {
         panic!("{entry:?}");
     };
     let dreadmaw = g.object_id(CardId(2)).unwrap();
-    assert!(matches!(witness, TriggerEventWitness::Entered { entrant, .. }
-        if entrant.object == dreadmaw && entrant.characteristics.power == Some(6.into())));
+    assert!(
+        matches!(witness, TriggerEventWitness::Entered { entrant, .. }
+        if entrant.object == dreadmaw && entrant.characteristics.power == Some(6.into()))
+    );
     checked(&g);
     settle(&mut g);
-    assert_eq!(hand(&g, 0), before - 1, "the Dreadmaw left the hand, its trigger drew");
+    assert_eq!(
+        hand(&g, 0),
+        before - 1,
+        "the Dreadmaw left the hand, its trigger drew"
+    );
     assert_recoverable((&g).into());
     // CR 109.5: an opponent's 6/6 is not a creature "you control".
     let entry = ProposedEvent::Move {
@@ -319,18 +335,21 @@ fn elemental_bond_reads_the_entering_creature_on_the_battlefield() {
 #[test]
 fn enchantments_put_into_a_graveyard_trigger_their_observers() {
     let prepared = prepare(
-        board(&[FEMEREF_ENCHANTRESS, REACH_FOR_THE_SKY], TurnStep::PrecombatMain)
-            .permanent_or_hand("Femeref Enchantress", 0, 0, false)
-            .permanent_or_hand("Grizzly Bears", 0, 0, false)
-            .permanent_or_hand("Reach for the Sky", 0, 0, true)
-            .permanent_or_hand("Murder", 0, 0, true)
-            .permanent_or_hand("Forest", 0, 0, false)
-            .permanent_or_hand("Forest", 0, 0, false)
-            .permanent_or_hand("Forest", 0, 0, false)
-            .permanent_or_hand("Forest", 0, 0, false)
-            .permanent_or_hand("Swamp", 0, 0, false)
-            .permanent_or_hand("Swamp", 0, 0, false)
-            .permanent_or_hand("Swamp", 0, 0, false),
+        board(
+            &[FEMEREF_ENCHANTRESS, REACH_FOR_THE_SKY],
+            TurnStep::PrecombatMain,
+        )
+        .permanent_or_hand("Femeref Enchantress", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Reach for the Sky", 0, 0, true)
+        .permanent_or_hand("Murder", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false),
     );
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let bears = Driver::object(&g, 1);
@@ -387,10 +406,11 @@ fn undead_augurs_dying_together_see_each_other() {
 /// as it attacks (CR 508.3a); a Bears attacking beside it is not.
 #[test]
 fn utvara_hellkite_triggers_once_per_attacking_dragon() {
-    let prepared = prepare(board(&[UTVARA_HELLKITE], TurnStep::BeginningCombat)
-        .permanent_or_hand("Utvara Hellkite", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        );
+    let prepared = prepare(
+        board(&[UTVARA_HELLKITE], TurnStep::BeginningCombat)
+            .permanent_or_hand("Utvara Hellkite", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 0, 0, false),
+    );
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let attackers = [Driver::object(&g, 0), Driver::object(&g, 1)];
     drive(&mut g, &attackers, |g| !g.state.rules.stack.is_empty());
@@ -407,10 +427,11 @@ fn utvara_hellkite_triggers_once_per_attacking_dragon() {
 /// beginning of combat step triggers it (CR 507.1).
 #[test]
 fn sinister_monolith_drains_at_its_controllers_beginning_of_combat() {
-    let prepared = prepare(board(&[SINISTER_MONOLITH], TurnStep::PrecombatMain)
-        .permanent_or_hand("Sinister Monolith", 0, 0, false)
-        .permanent_or_hand("Sinister Monolith", 1, 1, false)
-        );
+    let prepared = prepare(
+        board(&[SINISTER_MONOLITH], TurnStep::PrecombatMain)
+            .permanent_or_hand("Sinister Monolith", 0, 0, false)
+            .permanent_or_hand("Sinister Monolith", 1, 1, false),
+    );
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let start = [life(&g, 0), life(&g, 1)];
     drive(&mut g, &[], |g| !g.state.rules.stack.is_empty());
@@ -447,7 +468,9 @@ fn lagonna_band_elder_counts_enchantments_twice() {
         let start = life(&g, 0);
         Driver::cast(&mut g, CardId(0));
         Driver::pay(&mut g, &[3, 4, 5]);
-        drive(&mut g, &[], |g| g.state.rules.stack.is_empty() || triggered(g));
+        drive(&mut g, &[], |g| {
+            g.state.rules.stack.is_empty() || triggered(g)
+        });
         let source = g.object_id(CardId(0)).unwrap();
         if !own {
             settle(&mut g);

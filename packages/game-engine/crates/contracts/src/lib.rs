@@ -1652,34 +1652,32 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
     // non-Spirit) dying, any creature dying, or the host of this Aura or
     // Equipment dying.
     let creature_dies = |p: &Pred| {
-        *p == Pred::attached_creature()
-            || *p == Pred(vec![creature.clone()])
-            || {
-                let mut rest = p.0.as_slice();
-                let mut take = |atom: &Atom, required: bool| match rest.split_first() {
-                    Some((first, tail)) if first == atom => {
-                        rest = tail;
-                        true
-                    }
-                    _ => !required,
-                };
-                take(&creature, true)
-                    && take(
-                        &Atom::NotSubtype {
-                            subtype: "Spirit".into(),
-                        },
-                        false,
-                    )
-                    && take(&Atom::ControlledBy { player: you() }, true)
-                    && take(&Atom::NotToken, false)
-                    && take(
-                        &Atom::IsNot {
-                            object: kir::Ref::Source,
-                        },
-                        false,
-                    )
-                    && rest.is_empty()
-            }
+        *p == Pred::attached_creature() || *p == Pred(vec![creature.clone()]) || {
+            let mut rest = p.0.as_slice();
+            let mut take = |atom: &Atom, required: bool| match rest.split_first() {
+                Some((first, tail)) if first == atom => {
+                    rest = tail;
+                    true
+                }
+                _ => !required,
+            };
+            take(&creature, true)
+                && take(
+                    &Atom::NotSubtype {
+                        subtype: "Spirit".into(),
+                    },
+                    false,
+                )
+                && take(&Atom::ControlledBy { player: you() }, true)
+                && take(&Atom::NotToken, false)
+                && take(
+                    &Atom::IsNot {
+                        object: kir::Ref::Source,
+                    },
+                    false,
+                )
+                && rest.is_empty()
+        }
     };
     let event = match pattern {
         E::Enters { .. } if *pattern == E::self_enters() => Capability::SelfEntersBattlefieldV1,

@@ -95,9 +95,11 @@ fn creature_death(what: &TriggerObject) -> Option<(Pred, bool)> {
             let mut atoms = vec![Atom::Type {
                 kind: CardKind::Creature,
             }];
-            atoms.extend(f.non_subtypes.iter().map(|s| Atom::NotSubtype {
-                subtype: s.clone(),
-            }));
+            atoms.extend(
+                f.non_subtypes
+                    .iter()
+                    .map(|s| Atom::NotSubtype { subtype: s.clone() }),
+            );
             atoms.push(Atom::ControlledBy {
                 player: PlayerExpr::you(Context::Triggered),
             });
@@ -130,7 +132,9 @@ pub(crate) fn lower_trigger(
     let creature_dies = match trigger {
         SourceTrigger::Dies { what } => creature_death(what).map(|(mut pred, other)| {
             if other {
-                pred.0.push(Atom::IsNot { object: Ref::Source });
+                pred.0.push(Atom::IsNot {
+                    object: Ref::Source,
+                });
             }
             pred
         }),
@@ -177,7 +181,11 @@ pub(crate) fn lower_trigger(
         ));
     }
     let you = || PlayerExpr::you(Context::Triggered);
-    let creature = || Pred(vec![Atom::Type { kind: CardKind::Creature }]);
+    let creature = || {
+        Pred(vec![Atom::Type {
+            kind: CardKind::Creature,
+        }])
+    };
     let pattern=match trigger {
         SourceTrigger::DealsDamage { what, combat: Some(true), to, grouping:None }
             if *to == serde_json::json!("any") => {
