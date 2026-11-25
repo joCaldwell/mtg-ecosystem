@@ -3,7 +3,7 @@
 //! can be chosen are offered, and the chosen modes run in printed order.
 //! Every choice is checked for state validity and an exact snapshot round
 //! trip; every finished resolution replays from its journal.
-//! Pinned CR 601.2b-c, 608.2b-c, 700.2a, 700.2c-d, 700.2g:
+//! Pinned CR 601.2b-c, 608.2c, 700.2a, 700.2c-d:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::kir::{Tiers, definition_tiers};
