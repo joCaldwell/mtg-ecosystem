@@ -121,9 +121,8 @@ impl RulesTxn {
     pub(super) fn top_has_target_domain(&self) -> Result<bool, String> {
         let top = self.top()?;
         let source = self.targeting_characteristics(top)?;
-        if top.kind.is_spell()
-            && top.mode_mask.is_none()
-            && let Some(modal) = &self.copiable_definition(top.source)?.modal_spell
+        if top.mode_mask.is_none()
+            && let Some(modal) = self.modal_declaration(top)?
         {
             return Ok(self.modal_has_selection(modal, top.controller, &source));
         }
@@ -406,7 +405,12 @@ impl RulesTxn {
         {
             return Err("no payable chosen-object cost".into());
         }
-        if !self.has_target_domain(&ability.program, player, self.color_layer(object)?.as_ref()) {
+        let source = self.color_layer(object)?;
+        if !match &ability.modal {
+            // CR 700.2a: a modal ability needs one selection with legal targets.
+            Some(modal) => self.modal_has_selection(modal, player, &source),
+            None => self.has_target_domain(&ability.program, player, source.as_ref()),
+        } {
             return Err("no eligible ability targets".into());
         }
         Ok(())

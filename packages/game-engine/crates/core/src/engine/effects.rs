@@ -2811,8 +2811,8 @@ impl RulesTxn {
     fn catalog_verbs(&self) -> impl Iterator<Item = &mtg_contracts::kir::Verb> {
         self.prepared.catalog.definitions.iter().flat_map(|d| {
             d.spell_programs()
-                .chain(d.activated.iter().map(|ability| &ability.program))
-                .chain(d.triggered.iter().map(|ability| &ability.program))
+                .chain(d.activated.iter().flat_map(|ability| ability.programs()))
+                .chain(d.triggered.iter().flat_map(|ability| ability.programs()))
                 .flat_map(|p| &p.instructions)
                 .filter_map(Instruction::verb)
         })

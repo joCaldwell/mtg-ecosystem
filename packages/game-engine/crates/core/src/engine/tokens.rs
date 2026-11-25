@@ -503,8 +503,16 @@ impl RulesTxn {
                     // CR 111.1: any of the source's spell, activated or
                     // triggered programs may be the creating recipe.
                     if !source.spell_programs().any(|p| creates(p, spec))
-                        && !source.triggered.iter().any(|a| creates(&a.program, spec))
-                        && !source.activated.iter().any(|a| creates(&a.program, spec))
+                        && !source
+                            .triggered
+                            .iter()
+                            .flat_map(|a| a.programs())
+                            .any(|p| creates(p, spec))
+                        && !source
+                            .activated
+                            .iter()
+                            .flat_map(|a| a.programs())
+                            .any(|p| creates(p, spec))
                     {
                         return Err("snapshot token differs from creating instruction".into());
                     }

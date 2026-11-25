@@ -1167,6 +1167,7 @@ fn a_definition_earns_the_meet_over_its_surfaces_and_cells() {
     // definition at executes, whatever its surfaces earned.
     bears.keywords.clear();
     bears.triggered.push(crate::TriggeredAbility {
+        modal: None,
         functioning_zone: crate::FunctioningZone::Battlefield,
         condition: TriggerCondition::on(EventPattern::self_enters()),
         program: crate::SpellProgram {

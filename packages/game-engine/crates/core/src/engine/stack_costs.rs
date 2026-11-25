@@ -207,6 +207,23 @@ impl RulesTxn {
         self.commit_batch(cause, EventGroup::Ordered { children })?;
         Ok(())
     }
+    /// CR 602.2b, 601.2c: the announcement stage for an activation's first
+    /// target domain.
+    pub(super) fn activation_target_frame(domain: TargetDomain, cast: Casting) -> Frame {
+        match domain {
+            TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
+            TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
+                Frame::StackTargets { cast }
+            }
+            TargetDomain::ControlledBattlefieldCreature
+            | TargetDomain::ControlledBattlefieldPermanent
+            | TargetDomain::BattlefieldCreature
+            | TargetDomain::BattlefieldPermanent
+            | TargetDomain::OwnGraveyardCard
+            | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
+            _ => Frame::EntityTargets { cast },
+        }
+    }
     pub(crate) fn announce_ability(
         &mut self,
         player: PlayerId,
@@ -267,10 +284,10 @@ impl RulesTxn {
                 | ActivationCost::SacrificePermanent { mana: Some(_), .. }
         ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some())
             || matches!(&cost, ActivationCost::ChooseObjects(cost) if cost.mana.is_some());
-        let targeted = !self.copiable_definition(object)?.activated[ability as usize]
-            .program
-            .targets
-            .is_empty();
+        let activated = &self.copiable_definition(object)?.activated[ability as usize];
+        // CR 602.2b, 700.2a: modes are chosen first, then their targets.
+        let modal = activated.modal.is_some();
+        let targeted = !activated.program.targets.is_empty() || modal;
         let entry = StackInstance {
             mode_mask: None,
             hybrid_colors: vec![],
@@ -329,23 +346,16 @@ impl RulesTxn {
                 undo_mana: false,
                 revealed_hand_consumed: false,
             };
-            self.rules_mut().frame = match self.copiable_definition(object)?.activated
-                [ability as usize]
-                .program
-                .targets[0]
-                .domain
-            {
-                TargetDomain::AnyPlayer => Frame::PlayerTargets { cast },
-                TargetDomain::StackSpell | TargetDomain::StackActivatedOrTriggeredAbility => {
-                    Frame::StackTargets { cast }
-                }
-                TargetDomain::ControlledBattlefieldCreature
-                | TargetDomain::ControlledBattlefieldPermanent
-                | TargetDomain::BattlefieldCreature
-                | TargetDomain::BattlefieldPermanent
-                | TargetDomain::OwnGraveyardCard
-                | TargetDomain::OwnGraveyardCreatureCard => Frame::Targets { cast },
-                _ => Frame::EntityTargets { cast },
+            self.rules_mut().frame = if modal {
+                Frame::ChooseModes { cast }
+            } else {
+                Self::activation_target_frame(
+                    self.copiable_definition(object)?.activated[ability as usize]
+                        .program
+                        .targets[0]
+                        .domain,
+                    cast,
+                )
             };
         } else if mana {
             self.rules_mut().frame = Frame::Mana {

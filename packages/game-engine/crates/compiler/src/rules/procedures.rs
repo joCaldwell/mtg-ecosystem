@@ -165,6 +165,7 @@ pub(crate) mod land_entry_gain_life {
                 .map_err(|_| unsupported("amount", "entry life gain requires a fixed amount"))?,
         )?;
         Ok(Some(TriggeredAbility {
+            modal: None,
             functioning_zone: FunctioningZone::Battlefield,
             condition: TriggerCondition::on(EventPattern::self_enters()),
             program: SpellProgram {

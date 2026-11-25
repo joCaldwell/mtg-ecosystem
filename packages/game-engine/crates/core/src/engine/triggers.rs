@@ -1098,11 +1098,8 @@ impl RulesTxn {
                         .next_stack_id
                         .checked_add(1)
                         .ok_or("stack ID resource limit")?;
-                    let targeted = !self
-                        .effective_trigger(trigger.source, trigger.ability)?
-                        .program
-                        .targets
-                        .is_empty();
+                    let ability = self.effective_trigger(trigger.source, trigger.ability)?;
+                    let targeted = !ability.program.targets.is_empty() || ability.modal.is_some();
                     let zero = ManaCost {
                         generic: Quantity::zero(),
                         colored: vec![],
@@ -1204,6 +1201,9 @@ impl RulesTxn {
                     })?;
                     self.rules_mut().frame = Frame::TriggerOrder { placement };
                     return Ok(());
+                }
+                if self.unbound_modes(self.top()?)? {
+                    return self.bind_trigger_modes(placement, stack_id);
                 }
                 if self.program()?.targets.first().is_some_and(|t| {
                     matches!(

@@ -320,6 +320,7 @@ pub(crate) fn lower_trigger(
         intervening_if: intervening_if.map(|i| i.condition()),
     };
     Ok(TriggeredAbility {
+        modal: None,
         functioning_zone: FunctioningZone::Battlefield,
         condition,
         program,
