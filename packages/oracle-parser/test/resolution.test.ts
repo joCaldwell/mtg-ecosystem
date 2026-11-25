@@ -161,3 +161,142 @@ describe("announced counter division (CR 601.2c-d)", () => {
     }
   });
 });
+
+describe("printed number scopes", () => {
+  const divided = "This spell deals 2 damage divided as you choose among one or two targets.";
+  const castColors = "the number of colors of mana spent to cast this spell";
+  const multikicker = "Multikicker {2}";
+  const chargeEntry = "This artifact enters with a charge counter on it for each time it was kicked.";
+
+  function unresolvedQuantity(result: BlockResolution[], suffix: string) {
+    assert.ok(result.some(block => block.refs.some(entry => entry.path.endsWith(suffix) && "unresolved" in entry)),
+      JSON.stringify(result.map(block => block.refs)));
+  }
+
+  it("announces Electrolyze's count and damage division for the same targets", () => {
+    const text = "Electrolyze deals 2 damage divided as you choose among one or two targets.\nDraw a card.";
+    const result = parseOracleText(text, "Electrolyze", { typeLine: "Instant", includeSourceProvenance: true });
+    assert.ok(result.ok);
+    const input = { identity: "fixture", source: { name: "Electrolyze", layout: "normal", type_line: "Instant", mana_cost: "{1}{U}{R}" },
+      faces: [{ sourceFaceIndex: 0, result }] };
+    const analysis = analyzeCardBindings(input);
+    const division = analysis.nodes.find(node => node.node === "target-division");
+    const count = analysis.nodes.find(node => node.node === "target-count");
+    assert.ok(division?.node === "target-division" && count?.node === "target-count");
+    assert.equal(division.chooser, count.chooser);
+    assert.equal(division.scope, count.scope);
+    assert.deepEqual([count.minimum, count.maximum, division.total, division.minimumEach], [1, 2, 2, 1]);
+    const event = analysis.nodes.find(node => node.id === division.event);
+    assert.ok(event?.node === "event" && event.operation === "damage" && event.inputs.includes(division.targets));
+    const resolved = resolveCard(input, analysis);
+    assert.equal(resolved.complete, true);
+    assert.deepEqual(refs(resolved.faces[0].blocks![0])["/effects/0/steps/0/to/among"], { ref: { ref: "target", slot: 0 } });
+  });
+
+  it("keeps divided damage unbound when the producer is ambiguous, foreign, late, or quoted", () => {
+    for (const [text, typeLine] of [
+      [`${divided}\n${divided}`, "Instant"],
+      ["{X}, {T}: Scry X.\n{T}: This artifact deals X damage divided as you choose among one or two targets.", "Artifact"],
+      ["Roll a six-sided die. This spell deals X damage divided as you choose among one or two targets, where X is the result.", "Instant"],
+      ['This enchantment has "{T}: This enchantment deals 2 damage divided as you choose among one or two targets."', "Enchantment"],
+    ]) unresolvedQuantity(blocks(text, typeLine), "/to/among");
+  });
+
+  it("preserves the residual for Scroll Rack's resolution-time exile choice", () => {
+    const [rack] = blocks("{1}, {T}: Exile any number of cards from your hand face down. " +
+      "Put that many cards from the top of your library into your hand. " +
+      "Then look at the exiled cards and put them on top of your library in any order.", "Artifact", "{2}", "Scroll Rack");
+    assert.ok(rack.residuals.includes("diagnostic:unsupported-number-binding"));
+  });
+
+  it("uses Nature's Rhythm's cast X for both the spell and its Harmonize payment", () => {
+    const name = "Nature's Rhythm";
+    const typeLine = "Sorcery";
+    const spellText = "Search your library for a creature card with mana value X or less, put it onto the battlefield, then shuffle.";
+    const keywordText = "Harmonize {X}{G}{G}{G}{G} (You may cast this card from your graveyard for its harmonize cost. You may tap a creature you control to reduce that cost by an amount of generic mana equal to its power. Then exile this spell.)";
+    const amount = "/effects/0/steps/0/for/filter/properties/0/comparison/value";
+    const payment = "/keywords/0/cost/0/symbols/0";
+    for (const spellIndex of [0, 1]) {
+      const lines = spellIndex === 0 ? [spellText, keywordText] : [keywordText, spellText];
+      const result = parseOracleText(lines.join("\n"), name, { typeLine, includeSourceProvenance: true });
+      assert.ok(result.ok);
+      const input = { identity: "fixture", source: { name, layout: "normal", type_line: typeLine, mana_cost: "{X}{G}{G}" },
+        faces: [{ sourceFaceIndex: 0, result }] };
+      const analysis = analyzeCardBindings(input);
+      const announcement = analysis.nodes.filter(node => node.node === "announced-number");
+      const spellPath = `/faces/0/abilities/${spellIndex}`;
+      assert.deepEqual(announcement.map(node => [node.path, node.announcement]), [[spellPath, "cast"]]);
+      const references = analysis.references.filter(ref =>
+        ref.path === `${spellPath}${amount}` || ref.path === `/faces/0/abilities/${1 - spellIndex}${payment}`);
+      assert.deepEqual(references.map(ref => ref.binding === "bound" && ref.target), [announcement[0].id, announcement[0].id]);
+      const resolved = resolveCard(input, analysis).faces[0].blocks!;
+      assert.deepEqual(refs(resolved[spellIndex])[amount], { ref: { ref: "announced-x" } });
+      assert.deepEqual(refs(resolved[1 - spellIndex])[payment], { unresolved: "cross-block:announced-number" });
+    }
+  });
+
+  it("leaves Harmonize X unresolved with ambiguous, foreign, late, or quoted producers", () => {
+    for (const [text, typeLine, cost] of [
+      ["Scry X.\nHarmonize {X}{G}\nHarmonize {X}{U}", "Sorcery", "{X}{G}"],
+      ["{X}, {T}: Scry X.\nHarmonize {X}{G}", "Artifact", "{2}"],
+      ["Roll a six-sided die. Scry X, where X is the result.\nHarmonize {X}{G}", "Sorcery", "{X}{G}"],
+      ['Scry X.\nThis enchantment has "Harmonize {X}{G}."', "Sorcery", "{X}{G}"],
+    ]) unresolvedQuantity(blocks(text, typeLine, cost), "/keywords/0/cost/0/symbols/0");
+  });
+
+  it("uses the actual cast payment for both of Painful Truths' resolution amounts", () => {
+    const [spell] = blocks(`Converge — You draw X cards and lose X life, where X is ${castColors}.`,
+      "Sorcery", "{2}{B}", "Painful Truths");
+    const castX = { ref: { ref: "bound-var", id: "/effects/0/bindings/0" } };
+    assert.deepEqual(refs(spell)["/effects/0/bindings/0/value/what"], { ref: { ref: "source" } });
+    assert.deepEqual(refs(spell)["/effects/0/steps/0/amount"], castX);
+    assert.deepEqual(refs(spell)["/effects/0/steps/1/amount"], castX);
+    assert.ok(spell.engineFeatures.includes("event-history"));
+    assert.deepEqual(spell.residuals, []);
+  });
+
+  it("rejects ambiguous, foreign, and quoted cast payment and payment used in target announcement", () => {
+    for (const [text, typeLine] of [
+      [`You draw X cards, where X is ${castColors}. You lose X life, where X is ${castColors}.`, "Sorcery"],
+      [`{T}: Draw X cards, where X is ${castColors}.`, "Artifact"],
+      [`Destroy target creature with mana value X, where X is ${castColors}.`, "Sorcery"],
+      [`This artifact has "{T}: Draw X cards, where X is ${castColors}."`, "Artifact"],
+    ]) unresolvedQuantity(blocks(text, typeLine), "/value/what");
+    unresolvedQuantity(blocks(`You draw X cards, where X is ${castColors}.`, "Sorcery", "{X}{B}"), "/value/what");
+  });
+
+  it("uses Everflowing Chalice's own multikicker payment at its entry", () => {
+    const [, entry] = blocks(
+      `${multikicker} (You may pay an additional {2} any number of times as you cast this spell.)\n` +
+      `${chargeEntry}\n{T}: Add {C} for each charge counter on this artifact.`, "Artifact", "{0}", "Everflowing Chalice");
+    assert.deepEqual(refs(entry)["/effect/multiplier/of"], { ref: { ref: "source" } });
+    assert.ok(entry.engineFeatures.includes("event-history"));
+    assert.deepEqual(entry.residuals, []);
+  });
+
+  it("keeps ambiguous, granted and out-of-scope kicker counts unresolved", () => {
+    const cases = [
+      `${multikicker}\nMultikicker {1}\n${chargeEntry}`,
+      `This artifact has "${multikicker}."\n${chargeEntry}`,
+      `${multikicker}\nWhen this artifact enters, create a 2/2 green Wolf creature token for each time it was kicked.`,
+    ];
+    for (const text of cases) assert.ok(blocks(text, "Artifact").some(block =>
+      block.residuals.includes("diagnostic:unsupported-number-binding")), text);
+    const [, wolfs] = blocks("Multikicker {G} (You may pay an additional {G} any number of times as you cast this spell.)\n" +
+      "When this creature enters, create a 2/2 green Wolf creature token for each time it was kicked.",
+      "Creature — Elemental", "{2}{G}{G}", "Wolfbriar Elemental");
+    assert.ok(wolfs.residuals.includes("diagnostic:unsupported-number-binding"));
+  });
+
+  it("keeps Batroc's announced target count unresolved while binding his entry multiplier", () => {
+    const [, entry, trigger] = blocks(
+      "Multikicker {2} (You may pay an additional {2} any number of times as you cast this spell.)\n" +
+      "Batroc enters with a +1/+1 counter on him for each time he was kicked.\n" +
+      "When Batroc enters, he deals damage equal to his power to each of up to X targets, where X is the number of times he was kicked.",
+      "Legendary Creature — Human Villain", "{1}{R}", "Batroc the Leaper");
+    assert.deepEqual(refs(entry)["/effect/multiplier/of"], { ref: { ref: "source" } });
+    assert.deepEqual(entry.residuals, []);
+    assert.deepEqual(refs(trigger)["/effects/0/steps/0/to/ref/count"], { unresolved: "unresolved-dependency" });
+    assert.ok(trigger.residuals.includes("diagnostic:unsupported-number-binding"));
+  });
+});

@@ -7,6 +7,14 @@ pub(crate) struct SourceKeyword {
     pub(crate) keyword: String,
     pub(crate) cost: Option<Vec<SourceCost>>,
     pub(crate) filter: Option<serde_json::Value>,
+    pub(crate) protection_from: Option<Vec<SourceProtectionQuality>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(tag = "scope", rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) enum SourceProtectionQuality {
+    Color { color: String },
+    AllColors {},
 }
 
 impl<'de> Deserialize<'de> for SourceKeyword {
@@ -37,6 +45,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "cycling"
                 | "typecycling"
                 | "flashback"
+                | "protection"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
         {
@@ -48,6 +57,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             }
             "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
             "typecycling" => ["keyword", "cost", "filter"].as_slice(),
+            "protection" => ["keyword", "from"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
         if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {
@@ -63,10 +73,18 @@ impl<'de> Deserialize<'de> for SourceKeyword {
             .map(|c| serde_json::from_value(c.clone()).map_err(D::Error::custom))
             .transpose()?;
         let filter = object.get("filter").cloned();
+        let protection_from = object
+            .get("from")
+            .map(|from| {
+                serde_json::from_value(from.clone())
+                    .map_err(|_| D::Error::custom("keyword:protection:quality"))
+            })
+            .transpose()?;
         Ok(Self {
             keyword,
             cost,
             filter,
+            protection_from,
         })
     }
 }
@@ -435,6 +453,11 @@ pub(crate) enum Step {
     GainAbilities {
         what: serde_json::Value,
         abilities: Vec<serde_json::Value>,
+        duration: SourceDuration,
+    },
+    Cant {
+        what: Box<ast::ObjectRef>,
+        action: Box<ast::CantAction>,
         duration: SourceDuration,
     },
     Pump {

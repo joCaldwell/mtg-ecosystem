@@ -26,30 +26,70 @@ const TABLE: &[(&str, KeywordAbility)] = &[
 ];
 
 pub(super) fn lower(
-    _card: &Card<'_>,
+    kind: CardKind,
     keywords: &[SourceKeyword],
+    text: &str,
 ) -> Result<Vec<KeywordAbility>, Failure> {
     if keywords.is_empty() {
         return Err(unsupported("abilities.keywords", "empty keyword block"));
     }
-    keywords
-        .iter()
-        .map(|keyword| {
-            if keyword.cost.is_some() || keyword.filter.is_some() {
-                return Err(unsupported(
-                    "keyword",
-                    format!("keyword:{}:parameters", keyword.keyword),
-                ));
-            }
-            TABLE
+    let mut lowered = Vec::new();
+    for keyword in keywords {
+        if keyword.cost.is_some() || keyword.filter.is_some() {
+            return Err(unsupported(
+                "keyword",
+                format!("keyword:{}:parameters", keyword.keyword),
+            ));
+        }
+        if let Some(from) = &keyword.protection_from {
+            lowered.extend(fixed_color_protection(kind, from, text)?);
+        } else {
+            let ability = TABLE
                 .iter()
                 .find(|(name, _)| *name == keyword.keyword)
                 .map(|(_, ability)| *ability)
                 .ok_or_else(|| {
                     unsupported("abilities.keywords", format!("keyword:{}", keyword.keyword))
-                })
-        })
-        .collect()
+                })?;
+            lowered.push(ability);
+        }
+    }
+    Ok(lowered)
+}
+
+// CR 702.16a,g,h: each printed color is an independent protection ability.
+fn fixed_color_protection(
+    kind: CardKind,
+    from: &[SourceProtectionQuality],
+    text: &str,
+) -> Result<Vec<KeywordAbility>, Failure> {
+    use SourceProtectionQuality::{AllColors, Color};
+    use mtg_contracts::fixed_color_protection::{KEYWORDS, keyword_for_name};
+    let gap = |detail| unsupported("keyword", format!("keyword:protection:{detail}"));
+    if kind != CardKind::Creature {
+        return Err(gap("source"));
+    }
+    let (phrase, abilities) = match from {
+        [AllColors {}] => ("each color".to_owned(), KEYWORDS.to_vec()),
+        [Color { color }] => (
+            color.clone(),
+            vec![keyword_for_name(color).ok_or_else(|| gap("color"))?],
+        ),
+        [Color { color }, Color { color: other }] if color != other => (
+            format!("{color} and from {other}"),
+            vec![
+                keyword_for_name(color).ok_or_else(|| gap("color"))?,
+                keyword_for_name(other).ok_or_else(|| gap("color"))?,
+            ],
+        ),
+        _ => return Err(gap("quality_list")),
+    };
+    let text = text.to_ascii_lowercase();
+    let clause = format!("protection from {phrase}");
+    if text != clause && !text.ends_with(&format!(", {clause}")) {
+        return Err(gap("printed_quality"));
+    }
+    Ok(abilities)
 }
 
 /// The source's keyword list (Scryfall `keywords`) and the lowered intrinsic
@@ -71,6 +111,10 @@ pub(super) fn printed(
         if listed.contains(*name) != lowered.contains(ability) {
             return Err(mismatch());
         }
+    }
+    if listed.contains("protection") != lowered.iter().any(|k| k.fixed_protection_color().is_some())
+    {
+        return Err(mismatch());
     }
     Ok(())
 }
@@ -336,6 +380,7 @@ mod tests {
                 keyword: "enchant".into(),
                 cost: None,
                 filter: Some(filter),
+                protection_from: None,
             };
             let spec = enchant(&keyword, line).unwrap();
             assert_eq!(spec.domain, domain);
@@ -346,6 +391,7 @@ mod tests {
             keyword: "enchant".into(),
             cost: None,
             filter: Some(json!({"types":["creature"],"control":"you"})),
+            protection_from: None,
         };
         assert!(enchant(&constrained, "Enchant creature").is_err());
     }

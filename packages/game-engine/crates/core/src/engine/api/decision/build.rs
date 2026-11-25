@@ -240,7 +240,8 @@ impl RulesTxn {
         let entry = self.top()?;
         let mut candidates = vec![];
         let mut slots = vec![];
-        let specs = &self.program()?.targets;
+        let program = self.program()?;
+        let specs = &program.targets;
         for spec in specs {
             let allowed = match spec.domain {
                 TargetDomain::AnyDamageTarget => self
@@ -260,6 +261,7 @@ impl RulesTxn {
                     .map(|player| candidate_index(&mut candidates, Candidate::Player { player }))
                     .collect(),
                 TargetDomain::ControlledBattlefieldCreature
+                | TargetDomain::ControlledBattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
                 | TargetDomain::BattlefieldPermanent => self
                     .state
@@ -275,7 +277,7 @@ impl RulesTxn {
                 role: SlotRole::Target { spec: spec.slot },
                 subject: None,
                 allowed,
-                min: 1,
+                min: u32::from(!program.optional_target),
                 max: 1,
                 repeat: false,
             });

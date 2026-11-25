@@ -19,6 +19,13 @@ pub(super) fn lower(
     }
     let to = lower_destination(to)?;
     let what = object(what)?;
+    // CR 400.7: "this <permanent>" names the source's battlefield incarnation.
+    if is_this_permanent(&what) && cx.context != Context::Spell {
+        return Ok(cx.act(Verb::Move {
+            what: SetExpr::source(),
+            to,
+        }));
+    }
     Ok(Instruction::move_target(
         bind_creature_target(cx.program, cx.slots, &what)?,
         to,

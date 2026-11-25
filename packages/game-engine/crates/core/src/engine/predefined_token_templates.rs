@@ -80,6 +80,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
                 resolution: SpellResolution::Instructions,
                 optional_additional_costs: vec![],
                 additional_sacrifice: None,
+                optional_target: false,
                 targets: vec![],
                 instructions: vec![instruction],
             },

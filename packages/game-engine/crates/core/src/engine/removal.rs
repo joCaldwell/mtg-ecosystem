@@ -4,6 +4,7 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 use mtg_contracts::PermanentFilter;
+use mtg_contracts::kir::{Ref, SetExpr};
 
 // See docs/game-engine-mechanics.md#movement-sacrifice-and-board-wide-effects.
 // Historical derivations remain linked from docs/game-engine-evidence.md.
@@ -259,29 +260,36 @@ impl RulesTxn {
         instruction: Instruction,
     ) -> Result<(), String> {
         let (event, block) = match instruction {
-            kernel!(Untap { what: target_object!(target_slot) } @ source_block)
-            | kernel!(Tap { what: target_object!(target_slot) } @ source_block) => {
-                let tap = matches!(
-                    instruction,
-                    kernel!(Tap {
-                        what: target_object!(_)
-                    })
-                );
-                let target = self.entry(frame.stack_id)?.targets[target_slot as usize];
+            kernel!(Untap { what: SetExpr::One { object } } @ source_block)
+            | kernel!(Tap { what: SetExpr::One { object } } @ source_block) => {
+                let tap = matches!(instruction, kernel!(Tap { .. }));
+                let entry = self.entry(frame.stack_id)?;
                 // CR608.2b checks targeting once as resolution starts. The
                 // instruction still needs that same battlefield incarnation;
                 // no later incarnation or new targetability check replaces it.
-                if frame.legal_targets.get(target_slot as usize) != Some(&true) {
-                    return self
-                        .finish_instruction(frame, InstructionOutcome::IllegalTarget { target });
-                }
+                let target = match object {
+                    Ref::Source => entry.source,
+                    Ref::Target { slot } => {
+                        let target = *self
+                            .bound_object_target(entry, slot as usize)
+                            .ok_or("missing tap-status target")?;
+                        if frame.legal_targets.get(slot as usize) != Some(&true) {
+                            return self.finish_instruction(
+                                frame,
+                                InstructionOutcome::IllegalTarget { target },
+                            );
+                        }
+                        target
+                    }
+                    _ => return Err("tap status requires a source or target".into()),
+                };
                 let Ok(object) = self.current(target) else {
                     return self.finish_instruction(
                         frame,
                         InstructionOutcome::ObjectNoLongerPresent { target },
                     );
                 };
-                if object.zone != Zone::Battlefield {
+                if !object.present_on_battlefield() {
                     return self.finish_instruction(
                         frame,
                         InstructionOutcome::ObjectNoLongerPresent { target },

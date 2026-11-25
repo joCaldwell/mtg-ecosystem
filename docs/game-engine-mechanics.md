@@ -214,10 +214,7 @@ counts matching permanents once and credits its controller through a staged
 mana event. A zero count leaves the mana pool untouched.
 
 Cast observers can match a spell subtype or a disjunction of subtypes against
-its frozen paid cast event. A temporary creature combat restriction attaches to
-the resolved target incarnation, expires in cleanup, and applies when blockers
-are declared (CR 506.4a, 509.1b). Its paid source and ordered sibling instructions
-remain distinct.
+its frozen paid cast event.
 
 A library play window follows the face-up exile successors of one exact
 resolution. The beneficiary uses ordinary priority, timing, costs, and land
@@ -329,6 +326,29 @@ cast-entry land untap and owner-hand return each accept only their complete
 validated shape. Already-matching status emits no second event, combat membership
 is preserved and source tap is paid first. Paid activations survive source
 departure.
+
+### Target and selection operands
+
+A battlefield target may name its controller: "you control" announces and
+rechecks against the invocation's controller (CR 109.5, 601.2c, 608.2b); "an
+opponent controls" keeps the permanent filter. A creature filter with that
+qualifier counts as a creature target for pump, keyword, damage, counter and
+library-top cells. Damage to "target creature" binds that announced object.
+"Up to one target" lets the sole object occurrence of a program announce zero
+objects (CR 115.1d, `optional_object_target_v1`). Only destroy, tap, untap,
+move, counter and until-end-of-turn leaves may read it; with zero targets they
+do nothing and untargeted instructions still happen. Mixed optional and
+required occurrences, larger counts and permanent spells reject.
+
+"This [permanent]" in an ability names the source: tap, untap, return to its
+owner's hand or put on top of its owner's library (`Cell::TapStatusSource`,
+`Cell::MoveSourceOwnerZone`). Only its current battlefield incarnation moves
+(CR 400.7); a commander offers the command zone (CR 903.9b). "Put a +1/+1
+counter on each [creature filter]" is one simultaneous placement on the
+members read when it is performed (CR 122.6, 608.2h, `Cell::PlusOneCountersSet`).
+These cells earn `Executes` only. "Return a land you control" and "untap up to
+seven lands" choose during resolution and still reject as
+`operand:target:ref_filter`: they need an interactive resolution choice.
 
 <a id="combat-damage-and-state-based-actions"></a>
 
@@ -544,6 +564,24 @@ uses the same layer 6 rules. Grants follow their creation order, expire at
 cleanup, and affect only the selected incarnations (CR 400.7, 611.2c, 613.1f,
 613.7b). The newly admitted operand cells qualify for `Executes`.
 
+`RestrictCombat` is a rules effect, not a characteristic change (CR 611.2c,
+613.11). "Can't attack", "can't block", "can't attack or block" and "can't be
+blocked" this turn bind one announced creature's resolved incarnation. "Can't
+block" can also name all creatures, or creatures without flying. That class is
+read at each declaration, so a creature that later arrives or loses flying is
+covered. The effect expires in cleanup (CR 508.1c, 509.1b, 514.2). Other
+recipients, durations and "that creature" pronouns reject by name.
+
+Printed protection from one or two fixed colors, or from each color, lowers to
+separate per-color abilities on creatures (CR 702.16a, g, h). The printed
+keyword line must match those qualities exactly. Other qualities such as types,
+subtypes, players or everything reject by name. Static grants of hexproof,
+shroud or indestructible may name noncreature recipients (CR 702.11, 702.12,
+702.18). Other granted keywords still need a creature scope. Grant filters
+cannot test keywords and no ability removal is admitted. Layer 6 grants
+therefore have no dependencies and give the same result in any timestamp order
+(CR 613.7, 613.8).
+
 <a id="abilities-targets-and-triggers"></a>
 
 ## Trigger families and event witnesses
@@ -659,7 +697,7 @@ Everything else rejects under `compose.control:<detail>`:
 - another condition, a nested leaf that needs persistent provenance
 - `forEach` amounts (CR 121.2a: a counted draw is one replaceable event)
 
-Modal steps (W14) and "up to N" targets also reject.
+Modal steps (W14) and "up to N" targets for N above one also reject.
 
 ## Derived capability tiers
 

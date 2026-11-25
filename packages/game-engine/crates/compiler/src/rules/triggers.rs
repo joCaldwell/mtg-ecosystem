@@ -258,6 +258,7 @@ pub(crate) fn lower_trigger(
         timing: SpellTiming::Instant,
         resolution: SpellResolution::Instructions,
         functioning_zone: FunctioningZone::Stack,
+        optional_target: false,
         targets: vec![],
         instructions: vec![],
     };

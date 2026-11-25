@@ -83,10 +83,7 @@ impl RulesTxn {
         allocations: &[(ObjectId, Quantity)],
         cause: &BatchCause,
     ) -> Result<(), String> {
-        if allocations.len() > 2
-            || allocations.iter().any(|(_, n)| *n <= Quantity::zero())
-            || matches!(allocations, [(a, _), (b, _)] if a.card == b.card)
-        {
+        if allocations.iter().any(|(_, n)| *n <= Quantity::zero()) {
             return Err("invalid counter placement members".into());
         }
         let block = match self.counter_instruction(frame)? {
@@ -95,17 +92,25 @@ impl RulesTxn {
                 counter: mtg_contracts::kir::CounterKind::PlusOnePlusOne,
                 amount: fixed!(amount),
             } @ source_block) => {
-                let object = match on {
-                    source_object!() => Some(&self.entry(frame.stack_id)?.source),
-                    target_object!(target_slot)
-                        if frame.legal_targets.get(*target_slot as usize) == Some(&true) =>
-                    {
-                        self.bound_object_target(self.entry(frame.stack_id)?, *target_slot as usize)
+                let matches = match on {
+                    mtg_contracts::kir::SetExpr::Matching { zone, filter } => {
+                        let expected = self.kernel_set(frame, zone, filter)?.0;
+                        expected.len() == allocations.len()
+                            && expected
+                                .iter()
+                                .zip(allocations)
+                                .all(|(id, (object, n))| id == object && n == amount)
                     }
-                    _ => None,
+                    source_object!() => {
+                        matches!(allocations, [(id, n)] if *id == self.entry(frame.stack_id)?.source && n == amount)
+                    }
+                    target_object!(slot) => {
+                        frame.legal_targets.get(*slot as usize) == Some(&true)
+                            && matches!(allocations, [(id, n)] if Some(id) == self.bound_object_target(self.entry(frame.stack_id)?, *slot as usize) && n == amount)
+                    }
+                    _ => false,
                 };
-                if !matches!(allocations, [(id, original)] if Some(id) == object && original == amount)
-                {
+                if !matches {
                     return Err("fixed counter allocation mismatch".into());
                 }
                 source_block
@@ -138,13 +143,15 @@ impl RulesTxn {
                 amount: m.amount.clone(),
             })
             .collect();
-        if leaves.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(EventGroup::Occurrence {
+        Ok(match leaves.len() {
+            0 => None,
+            1 => Some(EventGroup::Occurrence {
                 proposed: leaves.remove(0),
-            }))
-        }
+            }),
+            _ => Some(EventGroup::Simultaneous {
+                occurrences: leaves,
+            }),
+        })
     }
 
     pub(super) fn authorize_counter_batch(

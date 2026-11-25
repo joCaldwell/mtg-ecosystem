@@ -950,7 +950,11 @@ impl RulesTxn {
                         | ResolvedEffectKind::GrantKeywordsSet { targets, .. }
                         | ResolvedEffectKind::ExileDamaged { targets } => objects.extend(targets),
                         ResolvedEffectKind::GrantKeywords { target, .. }
-                        | ResolvedEffectKind::ModifyPowerToughness { target, .. } => {
+                        | ResolvedEffectKind::ModifyPowerToughness { target, .. }
+                        | ResolvedEffectKind::CombatProhibition {
+                            affects: mtg_contracts::kir::CombatProhibitionScope::Target { target },
+                            ..
+                        } => {
                             objects.insert(*target);
                         }
 

@@ -24,15 +24,19 @@ impl Walk<'_, '_> {
                 who: Ref::Target { slot },
             } => {
                 let announced = Self::fixed_or_announced_x(amount, 1, "damage amount")?;
+                if self.creature_target(*slot)? {
+                    return Ok(if announced {
+                        Cell::DamageTargetX
+                    } else {
+                        Cell::DamageTarget
+                    });
+                }
                 match (self.domain(*slot)?, announced) {
-                    (TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature, true) => {
-                        Ok(Cell::DamageTargetX)
-                    }
-                    (TargetDomain::AnyDamageTarget | TargetDomain::BattlefieldCreature, false)
-                    | (
-                        TargetDomain::OpponentPlayer
-                        | TargetDomain::PlayerOrPlaneswalker
-                        | TargetDomain::BattlefieldPermanent,
+                    (TargetDomain::AnyDamageTarget, true) => Ok(Cell::DamageTargetX),
+                    (
+                        TargetDomain::AnyDamageTarget
+                        | TargetDomain::OpponentPlayer
+                        | TargetDomain::PlayerOrPlaneswalker,
                         false,
                     ) => Ok(Cell::DamageTarget),
                     _ => unaudited("damage target domain"),

@@ -23,6 +23,13 @@ pub(super) fn lower(
             to: Destination::OwnerHand,
         }));
     }
+    // CR 400.7: "this <permanent>" names the source's battlefield incarnation.
+    if is_this_permanent(&what) && cx.context != Context::Spell {
+        return Ok(cx.act(Verb::Move {
+            what: SetExpr::source(),
+            to: Destination::OwnerHand,
+        }));
+    }
     let slot = if is_permanent_target(&what) {
         bind_permanent_target(cx.program, cx.slots, &what)?
     } else {

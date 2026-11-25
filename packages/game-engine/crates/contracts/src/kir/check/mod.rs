@@ -171,6 +171,20 @@ impl Walk<'_, '_> {
         }
     }
 
+    // The permanent filter is checked at both target boundaries (CR 601.2c,
+    // 608.2b). A disjunction that includes another type cannot prove creature.
+    fn creature_target(&self, slot: u32) -> Result<bool, KirError> {
+        let domain = self.domain(slot)?;
+        Ok(domain == TargetDomain::BattlefieldCreature
+            || (matches!(
+                domain,
+                TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent
+            ) && self.env.targets[slot as usize]
+                .filter
+                .as_ref()
+                .is_some_and(|filter| filter.types == [CardKind::Creature])))
+    }
+
     fn reference(&mut self, reference: &Ref) -> Result<RefKind, KirError> {
         if self.scan {
             if let Ref::Target { slot } = reference {
@@ -670,6 +684,13 @@ impl Walk<'_, '_> {
                 self.expect(to, &[RefKind::Object], "attachment host")
                     .map(drop)
             }
+            Verb::RestrictCombat { affects, .. } => match affects {
+                CombatProhibitionScope::Target { target } => self
+                    .expect(target, &[RefKind::Object], "restricted creature")
+                    .map(drop),
+                CombatProhibitionScope::Creatures {}
+                | CombatProhibitionScope::CreaturesWithoutFlying {} => Ok(()),
+            },
             Verb::ModifyUntil {
                 what,
                 layer,
@@ -932,7 +953,7 @@ impl Walk<'_, '_> {
         match verb {
             // These executors authenticate against top-level instructions
             // after the temporary leaf program has been removed.
-            Verb::CreateTokens { .. } | Verb::ModifyUntil { .. } => {
+            Verb::CreateTokens { .. } | Verb::ModifyUntil { .. } | Verb::RestrictCombat { .. } => {
                 unaudited("nested leaf needs persistent provenance")
             }
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
@@ -1056,6 +1077,11 @@ impl Walk<'_, '_> {
                 change,
                 until,
             } => self.audit_modify(what, *layer, change, *until),
+            Verb::RestrictCombat {
+                affects,
+                restriction,
+                until,
+            } => self.audit_combat_prohibition(affects, *restriction, *until),
             Verb::Search { player, search } => self.audit_search(player, search),
             Verb::Shuffle { player } => self.audit_shuffle(player),
             Verb::Scry { player, amount } => self.audit_look(player, amount, false),
@@ -1155,6 +1181,9 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::CreateTokens { token, .. } => tokens::capabilities(token, out),
         Verb::PutCounters { counter, .. } => counters::capabilities(counter, out),
         Verb::ModifyUntil { what, change, .. } => modify::capabilities(what, change, out),
+        Verb::RestrictCombat { .. } => {
+            out.insert(Capability::TemporaryCombatProhibitionV1);
+        }
         Verb::Mill { amount, .. } => mill::capabilities(amount, out),
         Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
         Verb::Sacrifice { player, .. } => sacrifice::capabilities(player, out),
