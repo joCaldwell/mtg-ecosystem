@@ -1308,13 +1308,13 @@ impl RulesTxn {
         }
     }
     /// CR 608.2h/609.7c/702.2e/702.15b-c: damage-time properties use the
-    /// exact source's current public-zone appearance or its latest departure
-    /// LKI. Assignment facts separately preserve quantities and legality.
+    /// exact source's current public-zone appearance or its LKI when it has
+    /// left or phased out (702.26b). Assignment facts preserve quantities and legality.
     pub(super) fn damage_source_appearance(
         &self,
         damage: &PreparedDamage,
     ) -> Result<ObjectBefore, String> {
-        let appearance = if let Ok(current) = self.object_before(damage.source.object)
+        let appearance = if let Ok(current) = self.current_source_facts(damage.source.object)
             && current.zone == damage.source.zone
         {
             current
@@ -2811,8 +2811,8 @@ impl RulesTxn {
     fn catalog_verbs(&self) -> impl Iterator<Item = &mtg_contracts::kir::Verb> {
         self.prepared.catalog.definitions.iter().flat_map(|d| {
             d.spell_programs()
-                .chain(d.activated.iter().map(|ability| &ability.program))
-                .chain(d.triggered.iter().map(|ability| &ability.program))
+                .chain(d.activated.iter().flat_map(|ability| ability.programs()))
+                .chain(d.triggered.iter().flat_map(|ability| ability.programs()))
                 .flat_map(|p| &p.instructions)
                 .filter_map(Instruction::verb)
         })
@@ -3078,7 +3078,7 @@ impl RulesTxn {
                     "damage source keyword LKI outside admitted intrinsic/granted abilities".into(),
                 );
             }
-            if let Ok(current) = self.object_before(d.source.object)
+            if let Ok(current) = self.current_source_facts(d.source.object)
                 && !self.prepared_damage_source_matches(d, current)
             {
                 return Err("prepared damage source changed consumed facts".into());
@@ -3125,7 +3125,11 @@ impl RulesTxn {
                     .instructions
                     .get(frame.cursor as usize)
                     .ok_or("missing damage continuation instruction")?;
-                if instruction.set_damage().is_some() {
+                if let kernel!(Fight { first, second } @ source_block) = instruction {
+                    self.validate_fight_damage(tx, frame, first, second, *source_block)?;
+                } else if frame.fight.is_some() {
+                    return Err("fight facts outside a fight transaction".into());
+                } else if instruction.set_damage().is_some() {
                     self.validate_wipe_damage_transaction(tx, frame)?;
                 } else {
                     let (target_slot, amount, source_block, recipient) = match instruction {

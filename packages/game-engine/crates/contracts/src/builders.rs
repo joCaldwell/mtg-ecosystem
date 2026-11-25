@@ -17,6 +17,7 @@ impl PermanentFilter {
             opponent: false,
             tapped: false,
             power: None,
+            predicate: None,
         }
     }
     /// Adds alternative card types; a permanent of any listed type passes.
@@ -139,6 +140,7 @@ mod tests {
                 opponent: false,
                 tapped: false,
                 power: None,
+                predicate: None,
             },
         );
         let power = CreaturePowerFilter::AtLeast {
@@ -160,6 +162,7 @@ mod tests {
                 opponent: true,
                 tapped: true,
                 power: Some(power),
+                predicate: None,
             },
         );
         // The unrestricted filter keeps the archived wire shape: optional

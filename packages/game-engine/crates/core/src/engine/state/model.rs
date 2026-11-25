@@ -15,6 +15,10 @@ pub struct ObjectId {
 pub struct Player {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub life_frozen_until_next_turn: bool,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub poison_counters: Quantity,
+    #[serde(default, skip_serializing_if = "tokens::quantity_is_zero")]
+    pub energy_counters: Quantity,
     pub failed_draw: bool,
     pub life: Quantity,
     pub mana: BTreeMap<Color, Quantity>,

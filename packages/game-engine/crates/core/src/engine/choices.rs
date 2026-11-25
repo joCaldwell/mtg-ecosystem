@@ -470,6 +470,9 @@ impl RulesTxn {
         else {
             return Ok(None);
         };
+        if matches!(ability, EffectiveTriggerAbility::Followup { .. }) {
+            return Ok(None);
+        }
         let definition = self.effective_trigger(stack.source, stack.source_face, *ability)?;
         let Some(condition) = intervening(&definition)? else {
             return Ok(None);
@@ -507,9 +510,10 @@ impl RulesTxn {
     pub(crate) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
         let entry = self.entry(frame.stack_id)?;
         let definition = match entry.kind {
-            StackKind::Triggered { ability, .. } => {
-                Some(self.effective_trigger(entry.source, entry.source_face, ability)?)
-            }
+            StackKind::Triggered {
+                ability: ability @ EffectiveTriggerAbility::Intrinsic { .. },
+                ..
+            } => Some(self.effective_trigger(entry.source, entry.source_face, ability)?),
             _ => None,
         };
         let expected = match &definition {
@@ -600,6 +604,13 @@ impl RulesTxn {
         check: Option<&InterveningCheck>,
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
+        if matches!(ability, EffectiveTriggerAbility::Followup { .. }) {
+            return if check.is_none() {
+                Ok(())
+            } else {
+                Err("resolution trigger has an intervening condition".into())
+            };
+        }
         if let Some(InterveningCheck::SourceCastByController {
             entrant,
             cast: Some(cast),
@@ -645,16 +656,16 @@ impl RulesTxn {
     ) -> Result<Vec<&'a SpellProgram>, String> {
         let d = self.copiable_definition(origin.source)?;
         if let Some(index) = origin.activated_ability {
-            let root = &d
+            return Ok(d
                 .activated
                 .get(index as usize)
                 .ok_or("missing activated effect origin")?
-                .program;
-            return Ok(vec![root]);
+                .programs()
+                .collect());
         }
         Ok(d.spell_programs()
-            .chain(d.activated.iter().map(|a| &a.program))
-            .chain(d.triggered.iter().map(|a| &a.program))
+            .chain(d.activated.iter().flat_map(|a| a.programs()))
+            .chain(d.triggered.iter().flat_map(|a| a.programs()))
             .collect())
     }
 }

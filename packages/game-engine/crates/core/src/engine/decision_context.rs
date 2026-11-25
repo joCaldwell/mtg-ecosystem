@@ -3,16 +3,34 @@
 use super::*;
 
 impl RulesTxn {
+    /// `face`: the face the trigger came from (CR 113.7a, 712.18).
     pub(crate) fn trigger_source_label(
         &self,
         source: ObjectId,
+        face: CardFace,
         ability: EffectiveTriggerAbility,
     ) -> Option<&str> {
         let (source, index, is_static) = match ability {
             EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
+            EffectiveTriggerAbility::Followup { creator } => {
+                let block = self
+                    .resolution_trigger_program(creator)
+                    .ok()?
+                    .instructions
+                    .first()?
+                    .source_block();
+                return self
+                    .face_definition(source.card, self.resolution_trigger_face(creator).ok()?)
+                    .ok()?
+                    .source_labels
+                    .as_ref()?
+                    .blocks
+                    .get(block as usize)
+                    .map(String::as_str);
+            }
         };
         let labels = self
-            .copiable_definition(source)
+            .face_definition(source.card, face)
             .ok()?
             .source_labels
             .as_ref()?;
@@ -33,10 +51,26 @@ impl RulesTxn {
         kind: DecisionSourceKind,
         ability: Option<u32>,
     ) -> Option<DecisionSource> {
+        self.described_face_source(viewer, object, None, kind, ability)
+    }
+
+    /// `face` overrides the object's current face for an ability that was
+    /// activated or triggered from another face.
+    fn described_face_source(
+        &self,
+        viewer: PlayerId,
+        object: ObjectId,
+        face: Option<CardFace>,
+        kind: DecisionSourceKind,
+        ability: Option<u32>,
+    ) -> Option<DecisionSource> {
         if self.current(object).is_ok_and(|o| o.hideaway.is_some()) {
             return None;
         }
-        let definition = self.copiable_definition(object).ok()?;
+        let definition = match face {
+            Some(face) => self.face_definition(object.card, face).ok()?,
+            None => self.copiable_definition(object).ok()?,
+        };
         if kind == DecisionSourceKind::ManaAbility && definition.mana_abilities.is_empty() {
             // Use precisely the runtime's intrinsic CR 305.6 production query.
             // Never describe a permanent ability as intrinsic when its labels are missing.
@@ -91,8 +125,21 @@ impl RulesTxn {
                 ability: EffectiveTriggerAbility::Intrinsic { index },
                 ..
             } => (DecisionSourceKind::Triggered, Some(index)),
+            StackKind::Triggered { ability, .. } => {
+                return Some(DecisionSource {
+                    kind: DecisionSourceKind::Triggered,
+                    oracle_id: self.visible_ability_oracle_id(entry.source).ok()?.into(),
+                    object: self.handle_for(viewer, entry.source).ok(),
+                    ability: None,
+                    text: self
+                        .trigger_source_label(entry.source, entry.source_face, ability)?
+                        .into(),
+                });
+            }
         };
-        self.described_source(viewer, entry.source, kind, ability)
+        // CR 113.7a: an ability on the stack is described from its own face.
+        let face = (!entry.kind.is_spell()).then_some(entry.source_face);
+        self.described_face_source(viewer, entry.source, face, kind, ability)
     }
     pub(crate) fn permitted_decision_context(
         &self,

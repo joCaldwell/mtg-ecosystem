@@ -17,6 +17,12 @@ pub(super) fn tap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Instr
             what: SetExpr::source(),
         }));
     }
+    if let Some(count) = bind_optional_target_group(cx.program, cx.slots, &what)? {
+        return Ok(Instruction::Kernel {
+            node: kir::Node::TapTargets { count, tap: true },
+            source_block: cx.source_block,
+        });
+    }
     let slot = if is_creature_target(&what) {
         bind_creature_target(cx.program, cx.slots, &what)?
     } else {
@@ -38,6 +44,12 @@ pub(super) fn untap(cx: &mut StepCx<'_>, what: &serde_json::Value) -> Result<Ins
         return Ok(cx.act(Verb::Untap {
             what: SetExpr::source(),
         }));
+    }
+    if let Some(count) = bind_optional_target_group(cx.program, cx.slots, &what)? {
+        return Ok(Instruction::Kernel {
+            node: kir::Node::TapTargets { count, tap: false },
+            source_block: cx.source_block,
+        });
     }
     Ok(Instruction::untap_target(
         match continuous::followup_target(cx, &what) {

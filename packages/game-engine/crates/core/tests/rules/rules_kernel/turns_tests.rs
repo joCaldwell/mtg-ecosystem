@@ -1084,6 +1084,7 @@ fn flash_end_step_draw() {
     source.keywords = vec![KeywordAbility::Flash];
     source.spell.as_mut().unwrap().timing = SpellTiming::Instant;
     source.triggered = vec![TriggeredAbility {
+        modal: None,
         functioning_zone: FunctioningZone::Battlefield,
         condition: TriggerCondition::on(mtg_contracts::kir::EventPattern::StepBegins {
             step: BeginningStep::End,

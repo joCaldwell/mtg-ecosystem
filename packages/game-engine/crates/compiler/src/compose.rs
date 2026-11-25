@@ -21,6 +21,7 @@ mod events;
 mod keywords;
 mod modal;
 mod printed;
+pub(super) mod resolution_triggers;
 mod steps;
 #[cfg(test)]
 mod tests;
@@ -140,6 +141,8 @@ enum Block {
 enum Part {
     Typed(Sentence),
     Table(Vec<serde_json::Value>),
+    Reflexive(ManaCost, serde_json::Value),
+    Departure(SpellProgram),
 }
 
 fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
@@ -152,7 +155,9 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
                 && object.len() == 1
                 && let Some(steps) = object.get("steps").and_then(|s| s.as_array())
                 && !steps.is_empty()
-                && steps.iter().all(steps::claims)
+                && steps
+                    .iter()
+                    .all(|step| steps::claims(step) || resolution_triggers::is_delayed(step))
             {
                 return Ok(Part::Table(steps.clone()));
             }
@@ -248,7 +253,9 @@ fn append_effects(
             .into_iter()
             .map(|p| match p {
                 Part::Typed(s) => s,
-                Part::Table(_) => unreachable!("all parts are typed"),
+                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => {
+                    unreachable!("all parts are typed")
+                }
             })
             .collect();
         plain_sentences(&typed)?;
@@ -294,9 +301,19 @@ fn append_effects(
             }
             Part::Table(steps) => {
                 for step in &steps {
-                    let instruction = steps::lower(step, context, label)?;
+                    let instruction = if resolution_triggers::is_delayed(step) {
+                        resolution_triggers::delayed(step, program, context, label)?
+                    } else {
+                        steps::lower(step, context, label)?
+                    };
                     program.instructions.push(instruction);
                 }
+            }
+            Part::Reflexive(..) | Part::Departure(_) => {
+                return Err(unsupported(
+                    "compose.step",
+                    "reflexive trigger requires a parent trigger",
+                ));
             }
         }
     }
@@ -331,6 +348,7 @@ fn activation(
         },
     )?;
     Ok(ActivatedAbility {
+        modal: None,
         functioning_zone,
         restriction: None,
         cost,
@@ -356,7 +374,13 @@ fn trigger(
         .transpose();
     let table = narrow.as_ref().ok().and_then(|t| events::lower(card, t));
     let mut reviewed = None;
+    let reviewed_effects = !parts.iter().any(|part| match part {
+        Part::Typed(_) => false,
+        Part::Table(steps) => steps.iter().any(resolution_triggers::is_delayed),
+        Part::Reflexive(..) | Part::Departure(_) => true,
+    });
     if table.is_none()
+        && reviewed_effects
         && let (Ok(t), Ok(c)) = (&narrow, &narrow_condition)
     {
         let typed: Vec<Sentence> = parts
@@ -364,7 +388,7 @@ fn trigger(
             .into_iter()
             .map(|p| match p {
                 Part::Typed(s) => Ok(s),
-                Part::Table(_) => Err(unsupported(
+                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => Err(unsupported(
                     "compose.step",
                     "step table rows require a table event",
                 )),
@@ -378,6 +402,7 @@ fn trigger(
     // An intervening clause the reviewed lowerer does not read: lower the
     // ability without it, then add the audited clause.
     if table.is_none()
+        && reviewed_effects
         && let (Ok(t), Some(raw_condition)) = (&narrow, condition)
         && reviewed
             .as_ref()
@@ -388,7 +413,7 @@ fn trigger(
             .into_iter()
             .map(|p| match p {
                 Part::Typed(s) => Ok(s),
-                Part::Table(_) => Err(unsupported(
+                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => Err(unsupported(
                     "compose.step",
                     "step table rows require a table event",
                 )),
@@ -441,20 +466,35 @@ fn trigger(
         }
     };
     let mut program = SpellProgram::instructions(SpellTiming::Instant);
-    append_effects(
-        &mut program,
-        parts,
-        block,
-        &mut BTreeMap::new(),
-        Context::Triggered,
-        |typed| validate_trigger_damage_sources(&TriggerCondition::on(event.clone()), typed),
-    )?;
+    let condition = TriggerCondition::Event {
+        pattern: event,
+        intervening_if: intervening.map(|i| i.condition()),
+    };
+    if let [Part::Departure(parent)] = parts.as_slice() {
+        program = parent.clone();
+    } else if let [Part::Reflexive(payment, sentence)] = parts.as_slice() {
+        program
+            .instructions
+            .push(resolution_triggers::lower_reflexive(
+                payment.clone(),
+                sentence,
+                &condition,
+                source_block(block)?,
+            )?);
+    } else {
+        append_effects(
+            &mut program,
+            parts,
+            block,
+            &mut BTreeMap::new(),
+            Context::Triggered,
+            |typed| validate_trigger_damage_sources(&condition, typed),
+        )?;
+    }
     Ok(TriggeredAbility {
+        modal: None,
         functioning_zone: FunctioningZone::Battlefield,
-        condition: TriggerCondition::Event {
-            pattern: event,
-            intervening_if: intervening.map(|i| i.condition()),
-        },
+        condition,
         program,
     })
 }
@@ -683,6 +723,7 @@ fn compose_face(
             }
         }
         binding_gate(resolution.referenced(&printed), &mut deferred)?;
+        binding_gate(resolution.validate_delayed_returns(&printed), &mut deferred)?;
     }
     let types = type_line::parse(
         &source.type_line,
@@ -902,6 +943,43 @@ fn compose_face(
                     let mana_restriction = restriction
                         .filter(|r| r.once_each_turn && r.window.is_none())
                         .map(|_| SourceActivationRestriction::OnceEachTurn {});
+                    // CR 602.2b, 700.2: modes are chosen as the ability is
+                    // activated; a mana ability has no modes here.
+                    if modal::declared(&effects) {
+                        modal::reject_mana_modes(&effects)?;
+                        let text = &result.lines[block].text;
+                        let site = control::Site {
+                            resolution,
+                            index: block,
+                            printed: &printed[block],
+                            context: Context::Activated,
+                        };
+                        let (mut ability, modal) = modal::lower_ability(
+                            &effects,
+                            text,
+                            modal::Header::Activated,
+                            &site,
+                            |sentences| {
+                                activation(&card, &costs, parts(sentences)?, timing, block, text)
+                            },
+                            |a: &mut ActivatedAbility| &mut a.program,
+                        )?;
+                        if spell_kind {
+                            return Err(unsupported(
+                                "compose.block",
+                                "battlefield activation on a spell card",
+                            ));
+                        }
+                        ability.restriction = restriction;
+                        ability.modal = Some(modal);
+                        labels.activated.push(label);
+                        definition.activated.push(ability);
+                        return printed::choices_printed(
+                            text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        );
+                    }
                     let peeled = control::peel(&effects)?;
                     let core = parts(&peeled.sentences)?;
                     let parts = core;
@@ -911,7 +989,7 @@ fn compose_face(
                         .iter()
                         .map(|p| match p {
                             Part::Typed(s) => Some(s.clone()),
-                            Part::Table(_) => None,
+                            Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => None,
                         })
                         .collect();
                     // A mana ability has no resolution-time control (CR 605.3b).
@@ -1018,33 +1096,79 @@ fn compose_face(
                         &printed[block],
                         &resolution.segments(block)?,
                     )?;
-                    let peeled = control::peel(&effects)?;
-                    let lower = |sentences: &[serde_json::Value]| {
-                        trigger(&card, &event, parts(sentences)?, condition.as_ref(), block)
-                    };
-                    let mut ability = lower(&peeled.sentences)?;
+                    // CR 603.3c, 700.2: modes are chosen as the trigger is
+                    // put on the stack.
+                    if modal::declared(&effects) {
+                        let text = &result.lines[block].text;
+                        let site = control::Site {
+                            resolution,
+                            index: block,
+                            printed: &printed[block],
+                            context: Context::Triggered,
+                        };
+                        let (mut ability, modal) = modal::lower_ability(
+                            &effects,
+                            text,
+                            modal::Header::Triggered,
+                            &site,
+                            |sentences| {
+                                trigger(&card, &event, parts(sentences)?, condition.as_ref(), block)
+                            },
+                            |a: &mut TriggeredAbility| &mut a.program,
+                        )?;
+                        ability.modal = Some(modal);
+                        labels.triggered.push(label);
+                        definition.triggered.push(ability);
+                        return printed::choices_printed(
+                            text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        );
+                    }
                     let site = control::Site {
                         resolution,
                         index: block,
                         printed: &printed[block],
                         context: Context::Triggered,
                     };
-                    control::apply(
-                        &peeled,
-                        &site,
-                        &mut ability.program.instructions,
-                        0,
-                        |prefix| Ok(lower(prefix)?.program.instructions.len()),
-                    )?;
-                    control::admitted(
-                        &peeled,
-                        &ability.program.instructions,
-                        &control_env(
-                            Context::Triggered,
-                            &ability.program.targets,
-                            Some(&ability.condition),
-                        ),
-                    )?;
+                    let ability = if let Some(parent) =
+                        resolution_triggers::departure(&effects, &site, &result.lines[block].text)?
+                    {
+                        trigger(
+                            &card,
+                            &event,
+                            vec![Part::Departure(parent)],
+                            condition.as_ref(),
+                            block,
+                        )?
+                    } else if let Some(part) =
+                        resolution_triggers::reflexive(&effects, &site, &result.lines[block].text)?
+                    {
+                        trigger(&card, &event, vec![part], condition.as_ref(), block)?
+                    } else {
+                        let peeled = control::peel(&effects)?;
+                        let lower = |sentences: &[serde_json::Value]| {
+                            trigger(&card, &event, parts(sentences)?, condition.as_ref(), block)
+                        };
+                        let mut ability = lower(&peeled.sentences)?;
+                        control::apply(
+                            &peeled,
+                            &site,
+                            &mut ability.program.instructions,
+                            0,
+                            |prefix| Ok(lower(prefix)?.program.instructions.len()),
+                        )?;
+                        control::admitted(
+                            &peeled,
+                            &ability.program.instructions,
+                            &control_env(
+                                Context::Triggered,
+                                &ability.program.targets,
+                                Some(&ability.condition),
+                            ),
+                        )?;
+                        ability
+                    };
                     labels.triggered.push(label);
                     definition.triggered.push(ability);
                 }
@@ -1089,7 +1213,21 @@ fn compose_face(
                             .collect()
                     })
                     .unwrap_or_default();
-                resolution.target_slots(block, &printed[block], &targets)?;
+                let reflexive = program
+                    .and_then(|p| p.instructions.last())
+                    .and_then(|i| match i {
+                        Instruction::Kernel {
+                            node: kir::Node::Reflexive { program, .. },
+                            source_block,
+                        } if *source_block == label => Some(program.targets.as_slice()),
+                        _ => None,
+                    });
+                resolution.target_slots_with_reflexive(
+                    block,
+                    &printed[block],
+                    &targets,
+                    reflexive,
+                )?;
             }
             Ok(())
         })();

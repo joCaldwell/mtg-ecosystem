@@ -144,6 +144,8 @@ state_layout! {
         next_damage_transaction_id: u64,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pending_triggers: Vec<PendingTrigger>,
+        resolution_triggers: Shared<BTreeMap<StackId, resolution_triggers::ResolutionTrigger>>,
+        resolution_trigger_clock: resolution_triggers::ResolutionTriggerClock,
         #[serde(default, skip_serializing_if = "triggers::is_zero")]
         next_trigger_id: u64,
         libraries: Shared<BTreeMap<PlayerId, Vec<CardId>>>,

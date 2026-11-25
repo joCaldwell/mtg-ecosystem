@@ -161,6 +161,7 @@ pub(super) fn equip(
         }),
     });
     Ok(ActivatedAbility {
+        modal: None,
         functioning_zone: FunctioningZone::Battlefield,
         restriction: None,
         cost,
@@ -214,6 +215,7 @@ pub(super) fn cycling(
         block,
     ));
     Ok(ActivatedAbility {
+        modal: None,
         functioning_zone: FunctioningZone::Hand,
         restriction: None,
         cost: ActivationCost::DiscardSource { mana },
@@ -276,6 +278,7 @@ pub(super) fn typecycling(
         Instruction::act(Verb::Shuffle { player }, block),
     ];
     Ok(ActivatedAbility {
+        modal: None,
         functioning_zone: FunctioningZone::Hand,
         restriction: None,
         cost: ActivationCost::DiscardSource { mana },
@@ -337,6 +340,7 @@ pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec,
                 opponent: false,
                 tapped: false,
                 power: None,
+                predicate: None,
             }),
         ));
     }

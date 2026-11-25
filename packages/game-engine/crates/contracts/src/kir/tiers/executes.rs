@@ -116,7 +116,7 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         }
     }
     match node {
-        kir::Node::Do(_) => Ok(()),
+        kir::Node::Do(_) | kir::Node::ChooseObject { .. } | kir::Node::TapTargets { .. } => Ok(()),
         kir::Node::Seq(nodes) => nodes.iter().try_for_each(|n| cost_conditions(n, out)),
         kir::Node::If {
             condition,
@@ -141,15 +141,11 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) -> Result
         }
         kir::Node::Optional { node, .. }
         | kir::Node::UnlessPays { node, .. }
-        | kir::Node::IfPays { node, .. }
-        | kir::Node::Delayed { node, .. } => cost_conditions(node, out),
+        | kir::Node::IfPays { node, .. } => cost_conditions(node, out),
         kir::Node::ForEach { body, .. } | kir::Node::Choose { body, .. } => {
             cost_conditions(body, out)
         }
-        kir::Node::Reflexive { first, then } => {
-            cost_conditions(first, out)?;
-            cost_conditions(then, out)
-        }
+        kir::Node::Delayed { .. } | kir::Node::Reflexive { .. } => Ok(()),
     }
 }
 
@@ -200,6 +196,36 @@ fn program(
         event,
         announced_x,
     };
+    let followups: Vec<_> = p
+        .instructions
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| {
+            matches!(
+                i,
+                Instruction::Kernel {
+                    node: kir::Node::Delayed { .. } | kir::Node::Reflexive { .. },
+                    ..
+                }
+            )
+        })
+        .collect();
+    if let [(offset, Instruction::Kernel { node, source_block })] = followups.as_slice() {
+        let body = match node {
+            kir::Node::Delayed { program, .. } | kir::Node::Reflexive { program, .. } => program,
+            _ => unreachable!(),
+        };
+        if *offset + 1 != p.instructions.len()
+            || body
+                .instructions
+                .iter()
+                .any(|i| i.source_block() != *source_block)
+        {
+            return cell("program", "resolution_trigger_final_instruction_and_label");
+        }
+    } else if !followups.is_empty() {
+        return cell("program", "multiple_resolution_triggers");
+    }
     let mut used = BTreeSet::new();
     for Instruction::Kernel { node, .. } in &p.instructions {
         used.extend(kir::check(node, &env)?.target_slots);
@@ -210,14 +236,37 @@ fn program(
     Ok(())
 }
 
+pub(in crate::kir) fn validate_resolution_targets(p: &SpellProgram) -> Result<(), String> {
+    if p.targets
+        .iter()
+        .any(|t| t.chooser != Chooser::Controller || t.stage != EvaluationStage::Announcement)
+    {
+        return cell("target", "resolution_trigger_announcement");
+    }
+    validate_target_bindings(p)
+}
+
 fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
     // CR 115.1d, 601.2c, 608.2b: zero targets is a legal announcement.
     // A skipped occurrence can be read only by an independent leaf whose
     // entire action applies to that one object.
-    if p.optional_target
+    if p.targets.len() > 1 && p.optional_target {
+        let mut targeted =
+            p.instructions
+                .iter()
+                .filter_map(|Instruction::Kernel { node, .. }| {
+                    (!kir::target_slots(node).is_empty()).then_some(node)
+                });
+        if !matches!(targeted.next(), Some(kir::Node::TapTargets { count, .. }) if *count as usize == p.targets.len())
+            || targeted.next().is_some()
+        {
+            return cell("target", "up_to_many_requires_one_target_group");
+        }
+    } else if p.optional_target
         && (!matches!(p.targets.as_slice(), [t] if matches!(t.domain,
                 TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent
-                | TargetDomain::ControlledBattlefieldPermanent))
+                | TargetDomain::ControlledBattlefieldPermanent
+                | TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard))
             || p.instructions
                 .iter()
                 .any(|Instruction::Kernel { node, .. }| {
@@ -234,6 +283,13 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
     {
         return cell("target", "up_to_one_requires_independent_object_leaves");
     }
+    if !p.optional_target
+        && p.instructions
+            .iter()
+            .any(|Instruction::Kernel { node, .. }| matches!(node, kir::Node::TapTargets { .. }))
+    {
+        return cell("target", "target_group_requires_optional_announcement");
+    }
     let mut ids = BTreeSet::new();
     for (index, target) in p.targets.iter().enumerate() {
         if usize::try_from(target.slot).ok() != Some(index)
@@ -243,20 +299,24 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
             return Err("unbound, duplicate, or noncontiguous target occurrence".into());
         }
     }
-    if p.targets
-        .windows(2)
-        .any(|targets| targets[0].domain != targets[1].domain)
+    // CR 115.3, 601.2c: separate fight occurrences choose independently.
+    // This exception stays in the homogeneous object announcement route.
+    let fight_pair = matches!(p.targets.as_slice(), [_, _])
+        && p.instructions.iter().any(|i| {
+            matches!(
+                i.verb(),
+                Some(kir::Verb::Fight {
+                    first: kir::Ref::Target { slot: 0 },
+                    second: kir::Ref::Target { slot: 1 },
+                })
+            )
+        });
+    if !fight_pair
+        && p.targets
+            .windows(2)
+            .any(|pair| pair[0].domain != pair[1].domain || pair[0].filter != pair[1].filter)
     {
-        return Err("mixed target domains are unsupported".into());
-    }
-    // Requests expose one common candidate set, and execution uses that common
-    // predicate. Distinct per-slot filters need a different request contract;
-    // accepting them here would apply the first slot's restriction to all slots.
-    if p.targets
-        .windows(2)
-        .any(|targets| targets[0].filter != targets[1].filter)
-    {
-        return Err("mixed target filters are unsupported".into());
+        return Err("mixed target domains or filters are unsupported".into());
     }
     for t in &p.targets {
         if let Some(f) = &t.filter {
@@ -266,15 +326,33 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
                     | TargetDomain::ControlledBattlefieldPermanent
                     | TargetDomain::StackSpell
                     | TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
             ) || (matches!(
                 t.domain,
-                TargetDomain::StackSpell | TargetDomain::OwnGraveyardCard
-            ) && (f.types.is_empty()
+                TargetDomain::StackSpell
+                    | TargetDomain::OwnGraveyardCard
+                    | TargetDomain::OwnGraveyardCreatureCard
+            ) && ((f.types.is_empty() && f.predicate.is_none())
                 || !f.non_types.is_empty()
                 || !f.non_colors.is_empty()
                 || f.opponent
                 || f.power.is_some()
                 || f.tapped))
+                || (matches!(t.domain, TargetDomain::OwnGraveyardCreatureCard)
+                    && (!f.types.is_empty() || f.predicate.is_none()))
+                || f.predicate.as_ref().is_some_and(|predicate| {
+                    t.domain == TargetDomain::StackSpell
+                        || f.power.is_some()
+                        || kir::audit_target_predicate(
+                            predicate,
+                            matches!(
+                                t.domain,
+                                TargetDomain::OwnGraveyardCard
+                                    | TargetDomain::OwnGraveyardCreatureCard
+                            ),
+                        )
+                        .is_err()
+                })
                 || f.types
                     .iter()
                     .enumerate()
@@ -340,10 +418,9 @@ fn sacrifice_filter(f: &SacrificeFilter) -> bool {
 /// The cost row: complete costs the runtime pays for the given program's
 /// announcement route. CR 602.2b, 601.2f-h: costs are determined and paid
 /// after targets, and an unpayable combination is never admitted.
-fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), String> {
     let kind = d.characteristics.kind;
-    let route = a
-        .program
+    let route = p
         .targets
         .first()
         .and_then(|t| domain(t.domain))
@@ -456,11 +533,27 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    // CR 602.2b, 700.2: a modal activation is a battlefield ability whose
+    // every selection is checked below as its own program.
+    if let Some(modal) = &a.modal {
+        // The announcement after modes reuses the targeted activation
+        // route, which pays only these costs.
+        if a.functioning_zone != FunctioningZone::Battlefield
+            || matches!(
+                a.cost,
+                ActivationCost::TapPayLifeSacrificeSource { .. }
+                    | ActivationCost::DiscardSource { .. }
+            )
+        {
+            return cell("modal", "activation_source_or_cost");
+        }
+        modal_shape(&a.program, modal, true)?;
+    }
     if matches!(a.cost, ActivationCost::ExileSource { .. }) {
         if a.restriction.is_some() {
             return cell("activated", "off_battlefield_restriction");
         }
-        cost(d, a)?;
+        cost(d, a, &a.program)?;
         return program(&a.program, Context::Activated, None, false);
     }
     // CR 702.29a/e, 602.2a: cycling and typecycling use fixed mana and the
@@ -485,11 +578,11 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     }) {
         return cell("activated", "restriction");
     }
-    if a.program
-        .targets
-        .iter()
+    if a.programs()
+        .flat_map(|p| &p.targets)
         .any(|t| t.domain == TargetDomain::ControlledBattlefieldCreature)
-        && !(d.characteristics.subtypes == ["Equipment"]
+        && !(a.modal.is_none()
+            && d.characteristics.subtypes == ["Equipment"]
             && matches!(a.cost, ActivationCost::Mana { .. })
             && a.program.timing == SpellTiming::MainPhase
             && matches!(a.program.targets.as_slice(), [t] if t.filter.is_none())
@@ -506,8 +599,11 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     {
         return cell("activated", "equip");
     }
-    cost(d, a)?;
-    program(&a.program, Context::Activated, None, false)
+    for p in a.programs() {
+        cost(d, a, p)?;
+        program(p, Context::Activated, None, false)?;
+    }
+    Ok(())
 }
 
 /// CR 303.4a: the Aura's one announced target encodes the enchant predicate.
@@ -557,7 +653,13 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     {
         return cell("trigger", format!("{key}:source"));
     }
-    program(&a.program, Context::Triggered, Some(&a.condition), false)
+    if let Some(modal) = &a.modal {
+        modal_shape(&a.program, modal, true)?;
+    }
+    for p in a.programs() {
+        program(p, Context::Triggered, Some(&a.condition), false)?;
+    }
+    Ok(())
 }
 
 /// The mana row: a tap ability of a creature, artifact or land that adds
@@ -786,8 +888,8 @@ fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), Strin
             || labels.mana.len() != d.mana_abilities.len()
             || labels.statics.len() != d.static_abilities.len()
             || d.spell_programs()
-                .chain(d.activated.iter().map(|a| &a.program))
-                .chain(d.triggered.iter().map(|a| &a.program))
+                .chain(d.activated.iter().flat_map(ActivatedAbility::programs))
+                .chain(d.triggered.iter().flat_map(TriggeredAbility::programs))
                 .flat_map(|program| &program.instructions)
                 .any(|instruction| instruction.source_block() as usize >= labels.blocks.len())
             || !labels.spell_modes.is_empty())
@@ -958,7 +1060,11 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         if let Some(modal) = &d.modal_spell {
-            modal_spell(d.spell.as_ref().ok_or("missing spell program")?, modal)?;
+            modal_shape(
+                d.spell.as_ref().ok_or("missing spell program")?,
+                modal,
+                false,
+            )?;
         }
         for variant in d.spell_programs() {
             program(variant, Context::Spell, None, d.x_mana_cost)?;
@@ -990,9 +1096,11 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
 }
 
 /// CR 700.2a–d: a legal selection has every target the selected modes
-/// require. This row admits one target at most, using an existing casting
-/// decision with a mandatory slot.
-fn modal_spell(base: &SpellProgram, modal: &ModalSpell) -> Result<(), String> {
+/// require. This row admits one target at most, using an existing casting,
+/// activation or trigger-placement decision with a mandatory slot: a
+/// battlefield permanent or creature (possibly one its controller controls),
+/// a card in its controller's graveyard, any damage target or a player.
+fn modal_shape(base: &SpellProgram, modal: &ModalSpell, ability: bool) -> Result<(), String> {
     let count = modal.labels.len();
     if !(2..=ModalSpell::MAX_MODES).contains(&count)
         || modal.labels.iter().any(|label| label.trim().is_empty())
@@ -1026,12 +1134,17 @@ fn modal_spell(base: &SpellProgram, modal: &ModalSpell) -> Result<(), String> {
                 [] | [TargetSpec {
                     domain: TargetDomain::BattlefieldPermanent
                         | TargetDomain::BattlefieldCreature
+                        | TargetDomain::ControlledBattlefieldPermanent
+                        | TargetDomain::ControlledBattlefieldCreature
+                        | TargetDomain::OwnGraveyardCard
+                        | TargetDomain::OwnGraveyardCreatureCard
                         | TargetDomain::AnyDamageTarget
                         | TargetDomain::AnyPlayer
                         | TargetDomain::OpponentPlayer,
                     ..
                 }]
             )
+            || (ability && variant.optional_target)
         {
             return cell("modal", "selection_shape");
         }
@@ -1057,6 +1170,7 @@ mod tests {
     }
     fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
         ActivatedAbility {
+            modal: None,
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             cost,
@@ -1309,6 +1423,7 @@ mod tests {
         let trigger = |domain: TargetDomain, instruction: Instruction| {
             with(|d| {
                 d.triggered.push(TriggeredAbility {
+                    modal: None,
                     functioning_zone: FunctioningZone::Battlefield,
                     condition: TriggerCondition::on(kir::EventPattern::self_enters()),
                     program: program(vec![instruction], vec![target(domain)]),

@@ -144,18 +144,41 @@ impl RulesTxn {
                 Ok(definition.spell.as_ref().ok_or("missing spell program")?)
             }
             StackKind::Triggered { ability, .. } => match *ability {
-                EffectiveTriggerAbility::Intrinsic { index } => Ok(definition
-                    .triggered
-                    .get(index as usize)
-                    .map(|a| &a.program)
-                    .ok_or_else(|| "missing triggered program".to_string())?),
+                EffectiveTriggerAbility::Followup { creator } => {
+                    Ok(self.resolution_trigger_program(creator)?)
+                }
+                EffectiveTriggerAbility::Intrinsic { index } => {
+                    let ability = definition
+                        .triggered
+                        .get(index as usize)
+                        .ok_or_else(|| "missing triggered program".to_string())?;
+                    selected(&ability.program, ability.modal.as_ref(), stack.mode_mask)
+                }
             },
-            StackKind::Activated { ability, .. } => Ok(self
-                .stack_definition(stack)?
-                .activated
-                .get(*ability as usize)
-                .map(|ability| &ability.program)
-                .ok_or_else(|| "missing activated program".to_string())?),
+            StackKind::Activated { ability, .. } => {
+                let ability = definition
+                    .activated
+                    .get(*ability as usize)
+                    .ok_or_else(|| "missing activated program".to_string())?;
+                selected(&ability.program, ability.modal.as_ref(), stack.mode_mask)
+            }
         }
+    }
+}
+
+/// CR 700.2: a modal ability resolves its selected program; before modes
+/// are chosen it has only its timing-bearing base.
+fn selected<'a>(
+    base: &'a SpellProgram,
+    modal: Option<&'a mtg_contracts::ModalSpell>,
+    mask: Option<u8>,
+) -> Result<&'a SpellProgram, RuleError> {
+    match (modal, mask) {
+        (_, None) => Ok(base),
+        (Some(modal), Some(mask)) => modal
+            .selections
+            .get(&mask)
+            .ok_or_else(|| "missing selected ability program".into()),
+        (None, Some(_)) => Err("mode mask on a nonmodal ability".into()),
     }
 }

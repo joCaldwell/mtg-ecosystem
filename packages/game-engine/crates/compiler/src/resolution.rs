@@ -139,6 +139,57 @@ impl Resolution {
         Ok(())
     }
 
+    pub(super) fn validate_delayed_returns(&self, abilities: &Value) -> Result<(), Failure> {
+        for (ability, block) in abilities
+            .as_array()
+            .into_iter()
+            .flatten()
+            .zip(self.blocks()?)
+        {
+            for entry in &block.steps {
+                let StepEntry::Scope(scope) = entry else {
+                    continue;
+                };
+                if scope.ast_effect.as_str() != "create-delayed-trigger" {
+                    continue;
+                }
+                let path = format!("{}/effects/0/steps/0", scope.path);
+                let Some(step) = ability.pointer(&path) else {
+                    continue;
+                };
+                let departure = super::compose::resolution_triggers::is_departure_return(step);
+                if !departure && !super::compose::resolution_triggers::is_owner_return(step) {
+                    continue;
+                }
+                let what_path = format!("{path}/what");
+                let owner_path = format!("{path}/controller");
+                let from = block.refs.iter().find_map(|entry| match entry {
+                    RefEntry::Ref(r) if r.path == what_path => match &*r.r#ref {
+                        ResolvedRef::StepResult(result) => Some(result),
+                        _ => None,
+                    },
+                    _ => None,
+                });
+                if !from.is_some_and(|from| {
+                    (delayed_exile_producer(ability, &what_path, from)
+                        || (departure && delayed_dies_producer(ability, &what_path, from)))
+                        && block.refs.iter().any(|entry| {
+                            matches!(entry, RefEntry::Derived(d)
+                        if d.path == owner_path && d.derived.relation.as_str() == "owner"
+                            && matches!(&*d.derived.of, ResolvedRef::StepResult(owner)
+                                if owner.step == from.step && owner.role == from.role))
+                        })
+                }) {
+                    return Err(unsupported(
+                        "resolution",
+                        "delayed return must bind the preceding exile successor and its owner",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// CR 608.2c: every reference operand the AST prints (`{"ref":..}` or
     /// `{"player":..}`) carries its resolution entry; a deleted entry would
     /// otherwise leave the lowerer reading the operand by shape alone.
@@ -167,20 +218,73 @@ impl Resolution {
         ability: &Value,
         targets: &[TargetSpec],
     ) -> Result<(), Failure> {
+        self.target_slots_with_reflexive(index, ability, targets, None)
+    }
+
+    pub(super) fn target_slots_with_reflexive(
+        &self,
+        index: usize,
+        ability: &Value,
+        targets: &[TargetSpec],
+        reflexive: Option<&[TargetSpec]>,
+    ) -> Result<(), Failure> {
         let block = self
             .blocks()?
             .get(index)
             .ok_or_else(|| invalid("resolution", "missing block"))?;
         for entry in &block.refs {
             let RefEntry::Ref(r) = entry else { continue };
+            let expression = ability.pointer(&r.path);
             let ResolvedRef::Target(t) = &*r.r#ref else {
+                // CR 608.2b-c: the singular follow-up lowerers for these
+                // object effects consume only an announced antecedent.
+                if expression.is_some_and(|e| matches!(e["ref"].as_str(), Some("it" | "that")))
+                    && r.path.rsplit_once('/').is_some_and(|(step, operand)| {
+                        matches!(operand, "what" | "on")
+                            && ability.pointer(step).is_some_and(|s| {
+                                matches!(
+                                    s["effect"].as_str(),
+                                    Some(
+                                        "gain-abilities"
+                                            | "gain-control"
+                                            | "pump"
+                                            | "put-counters"
+                                            | "set-characteristics"
+                                            | "untap"
+                                    )
+                                )
+                            })
+                    })
+                {
+                    return Err(unsupported(
+                        "resolution",
+                        format!("object follow-up {} needs an announced target", r.path),
+                    ));
+                }
                 continue;
             };
-            let expression = ability.pointer(&r.path);
+            let targets = match (reflexive, r.scope.as_deref()) {
+                (Some(nested), Some("/effects/1/steps/0"))
+                    if r.path.starts_with("/effects/1/steps/0/effects/") =>
+                {
+                    nested
+                }
+                _ => targets,
+            };
+            let fight_antecedent = r.path.rsplit_once('/').is_some_and(|(parent, field)| {
+                field == "a"
+                    && ability.pointer(parent).is_some_and(|step| {
+                        step["effect"] == "fight"
+                            && matches!(step["a"]["ref"].as_str(), Some("it" | "that"))
+                    })
+            });
             let announced = match expression.and_then(|e| e["selectionId"].as_str()) {
                 Some(selection) => targets.iter().find(|s| s.selection_id == selection),
                 None => match targets {
                     [sole] => Some(sole),
+                    // The fight lowerer bound the preceding creature effect's
+                    // sole occurrence before it introduced the second fighter.
+                    [first, _] if fight_antecedent => Some(first),
                     _ => None,
                 },
             };
@@ -605,6 +709,26 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
             && controller_row(resolved, at);
     }
     let word = at.word();
+    let reflexive = at.ability.pointer("/effects/1/steps/0/effect")
+        == Some(&Value::from("create-reflexive-trigger"));
+    if let Some(ResolvedRef::EventObject(event)) = resolved {
+        let self_event = at
+            .ability
+            .pointer("/trigger/what/ref")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| matches!(kind, "this" | "self"));
+        let reflexive_source = reflexive
+            && at.path == "/effects/1/steps/0/effects/0/steps/0/source"
+            && at.ability.pointer("/trigger/trigger") == Some(&Value::from(event.role.as_str()))
+            && matches!(event.role.as_str(), "enters" | "dies" | "attacks")
+            && self_event;
+        let death_source = event.role.as_str() == "dies"
+            && at.path == "/effects/0/steps/0/what"
+            && delayed_dies_exile(at.ability);
+        if word == Some("it") && (reflexive_source || death_source) {
+            return true;
+        }
+    }
     if word.is_some_and(|w| PRONOUNS.contains(&w))
         && !matches!(
             resolved,
@@ -624,15 +748,23 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
         Some(ResolvedRef::Target(_)) => match word {
             None => true,
             Some("this") => false,
-            Some("target") => at.scope.is_none(),
+            Some("target") => {
+                at.scope.is_none()
+                    || (reflexive
+                        && at.scope == Some("/effects/1/steps/0")
+                        && at.path.starts_with("/effects/1/steps/0/effects/"))
+            }
             _ if shared_word(word, at) => true,
             _ => at.scope.is_none_or(|s| s.starts_with("/effects/")),
         },
         // CR 608.2c: "the rest" names exactly a remainder.
+        Some(ResolvedRef::StepResult(s)) if delayed_dies_producer(at.ability, at.path, s) => true,
         Some(ResolvedRef::StepResult(s)) => {
             word.is_none_or(|w| (w == "rest") == (s.role.as_str() == "remainder"))
                 && word_row(word, at, |at| {
-                    at.effects_operand() && step_producer(at.block, at.ability, at.path, s)
+                    at.effects_operand()
+                        && (step_producer(at.block, at.ability, at.path, s)
+                            || delayed_exile_producer(at.ability, at.path, s))
                 })
         }
         Some(ResolvedRef::BoundVar(v)) => word_row(word, at, |at| {
@@ -875,6 +1007,62 @@ fn collect_operands(value: &Value, path: String, out: &mut Vec<String>) {
 /// (`<step>/for`), objects are the nearest earlier look; a remainder is the
 /// rest of the consumer's own simultaneous member pool after an earlier
 /// sibling. Any other producer or role is not one the lowerer reads.
+fn delayed_dies_exile(ability: &Value) -> bool {
+    ability.pointer("/trigger/trigger") == Some(&Value::from("dies"))
+        && ability
+            .pointer("/trigger/what/ref")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| matches!(kind, "this" | "self"))
+        && ability
+            .pointer("/effects/0/steps/0")
+            .is_some_and(|step| step["effect"] == "exile" && step["what"]["ref"] == "it")
+        && ability.pointer("/effects/1/steps/0").is_some_and(|step| {
+            step["effect"] == "create-delayed-trigger" && step["trigger"]["trigger"] == "leaves"
+        })
+}
+
+fn delayed_dies_producer(
+    ability: &Value,
+    consumer: &str,
+    result: &crate::ast::ResolvedRefStepResult,
+) -> bool {
+    consumer == "/effects/1/steps/0/effects/0/steps/0/what"
+        && result.role.as_str() == "objects"
+        && result.step == "/effects/0/steps/0"
+        && delayed_dies_exile(ability)
+        && ability
+            .pointer("/effects/1/steps/0/effects/0/steps/0")
+            .is_some_and(super::compose::resolution_triggers::is_departure_return)
+}
+
+fn delayed_exile_producer(
+    ability: &Value,
+    consumer: &str,
+    result: &crate::ast::ResolvedRefStepResult,
+) -> bool {
+    let Some((sequence, index)) = consumer
+        .strip_prefix("/effects/")
+        .and_then(|p| p.split_once('/'))
+    else {
+        return false;
+    };
+    let Some(previous) = sequence
+        .parse::<usize>()
+        .ok()
+        .and_then(|index| index.checked_sub(1))
+    else {
+        return false;
+    };
+    index == "steps/0/effects/0/steps/0/what"
+        && result.role.as_str() == "objects"
+        && result.step == format!("/effects/{previous}/steps/0")
+        && ability.pointer(&format!("/effects/{sequence}/steps/0/effect"))
+            == Some(&Value::from("create-delayed-trigger"))
+        && ability
+            .pointer(&result.step)
+            .is_some_and(|step| step["effect"] == "exile" && step["what"]["ref"] == "target")
+}
+
 fn step_producer(
     block: &BlockResolution,
     ability: &Value,

@@ -71,6 +71,8 @@ pub struct Resolving {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_damage: Option<SetDamageFacts>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fight: Option<Box<[ObjectBefore; 2]>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition_check: Option<InterveningCheck>,
     pub stack_id: StackId,
     pub cursor: u32,

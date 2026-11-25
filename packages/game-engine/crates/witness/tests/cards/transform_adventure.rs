@@ -835,3 +835,112 @@ fn transform_ability_snapshot_rejects_impossible_faces() {
     };
     assert!(error.contains("impossible ability face"), "{error}");
 }
+
+const PIGEONS: &str = record!("2d30a634-43c6-4e78-ba10-7ef7ee17ac40");
+
+/// No frozen transforming card creates a delayed trigger at this checkpoint.
+/// This test-only layout pairs two exact R4 faces: Carrier Pigeons, whose
+/// enters trigger creates one, and Ulvenwald Abomination, which has none.
+fn delayed_transform_record() -> String {
+    use serde_json::{Value, json};
+    let mut card: Value = serde_json::from_str(PIGEONS).unwrap();
+    let captive: Value = serde_json::from_str(CAPTIVE).unwrap();
+    let mut front = card["source"].clone();
+    for key in ["layout", "card_faces"] {
+        front.as_object_mut().unwrap().remove(key);
+    }
+    let back = captive["source"]["card_faces"][1].clone();
+    let source = card["source"].as_object_mut().unwrap();
+    for key in ["oracle_text", "mana_cost", "power", "toughness", "colors"] {
+        source.remove(key);
+    }
+    source.insert("layout".into(), json!("transform"));
+    source.insert(
+        "name".into(),
+        json!("Carrier Pigeons // Ulvenwald Abomination"),
+    );
+    source.insert("card_faces".into(), json!([front, back]));
+    let mut back_parse = captive["faces"][1].clone();
+    back_parse["sourceFaceIndex"] = json!(1);
+    card["faces"].as_array_mut().unwrap().push(back_parse);
+    let mut back_resolution = captive["resolution"]["faces"][1].clone();
+    back_resolution["sourceFaceIndex"] = json!(1);
+    card["resolution"]["faces"]
+        .as_array_mut()
+        .unwrap()
+        .push(back_resolution);
+    let abilities = json!([
+        card["faces"][0]["result"]["abilities"],
+        card["faces"][1]["result"]["abilities"],
+    ]);
+    card["astSha256"] = json!(sha256(abilities.to_string().as_bytes()));
+    for (key, hash) in [
+        ("source", "sourceSha256"),
+        ("resolution", "resolutionSha256"),
+        ("binding", "bindingSha256"),
+    ] {
+        card[hash] = json!(sha256(card[key].to_string().as_bytes()));
+    }
+    card.to_string()
+}
+
+#[test]
+fn delayed_trigger_keeps_the_face_that_created_it() {
+    let raw = delayed_transform_record();
+    let printed = lower(&raw);
+    assert_eq!(printed.layout, FaceLayout::Transforming);
+    let mut setup = board(&[&raw])
+        .permanent_or_hand("Carrier Pigeons", 0, 0, true)
+        .libraries("Plains", 2);
+    for _ in 0..4 {
+        setup = setup.permanent_or_hand("Plains", 0, 0, false);
+    }
+    let mut game = Game::new(setup.prepare());
+    let card = Driver::object(&game, 0);
+    Driver::action(&mut game, Action::Cast { card });
+    Driver::pay(&mut game, &[5, 6, 7, 8]);
+    // Resolve the creature spell, then its enters trigger, which creates a
+    // delayed trigger for the next turn's upkeep (CR 603.7).
+    settle_stack(&mut game);
+    let pigeons = Driver::object(&game, 0);
+    assert_eq!(game.current(pigeons).unwrap().zone, Zone::Battlefield);
+    assert_eq!(game.state.rules.resolution_triggers.len(), 1);
+    // Private fixture action: no admitted ability transforms this test-only
+    // card. Turn it over before the delayed trigger fires (CR 712.18).
+    game.state
+        .rules
+        .objects
+        .get_mut(&pigeons.card)
+        .unwrap()
+        .transforms = 1;
+    assert_eq!(
+        game.copiable_definition(pigeons).unwrap().name,
+        "Ulvenwald Abomination"
+    );
+    // Replay cannot reproduce the fixture action; state validation checks
+    // the delayed trigger's recorded face and baseline instead.
+    game.validate_state().unwrap();
+    let hand = |game: &Game| {
+        game.state
+            .rules
+            .objects
+            .values()
+            .filter(|o| o.zone == Zone::Hand { owner: PlayerId(0) })
+            .count()
+    };
+    let before = hand(&game);
+    for _ in 0..64 {
+        let r = Driver::request(&mut game, u64::MAX);
+        if game.state.rules.turn.number == 2 && game.state.rules.turn.step == TurnStep::Draw {
+            break;
+        }
+        let answer = match &r.reason {
+            Reason::Attackers => r.attack(vec![]),
+            _ => mtg_witness::temporary::pass(&r),
+        };
+        game.respond(r.player, r.id, answer).unwrap();
+    }
+    // CR 113.7a: the front face's delayed draw still resolves for its creator.
+    assert_eq!(hand(&game), before + 1);
+    game.validate_state().unwrap();
+}

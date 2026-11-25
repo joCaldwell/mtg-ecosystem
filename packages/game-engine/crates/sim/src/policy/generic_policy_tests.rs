@@ -1457,6 +1457,7 @@ mod shared_query_tests {
                 opponent: true,
                 tapped: false,
                 power: Some(CreaturePowerFilter::AtLeast { value: 4.into() }),
+                predicate: None,
             }),
         };
         assert!(s.object_matches(&v, &large, &strong, false));

@@ -389,7 +389,7 @@ impl RulesTxn {
             .ok_or("missing pending trigger")?;
         Ok(VisiblePendingTrigger {
             label: self
-                .trigger_source_label(trigger.source, trigger.ability)
+                .trigger_source_label(trigger.source, trigger.source_face, trigger.ability)
                 .map(str::to_owned),
             handle: self
                 .state
@@ -417,6 +417,7 @@ impl RulesTxn {
             EffectiveTriggerAbility::Intrinsic { index } => {
                 VisibleTriggerAbility::Intrinsic { index }
             }
+            EffectiveTriggerAbility::Followup { .. } => VisibleTriggerAbility::Followup {},
         }
     }
     pub(crate) fn player_entity(
@@ -542,6 +543,8 @@ impl RulesTxn {
         let checked_count =
             |count| u32::try_from(count).map_err(|_| "zone count resource limit".to_string());
         Ok(VisiblePlayer {
+            poison_counters: p.poison_counters.clone(),
+            energy_counters: p.energy_counters.clone(),
             life_frozen_until_next_turn: p.life_frozen_until_next_turn,
             exile: vec![],
             library_shuffles: self

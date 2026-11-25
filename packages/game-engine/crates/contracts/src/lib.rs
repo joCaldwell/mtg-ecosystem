@@ -306,6 +306,9 @@ pub enum Capability {
     LifeLossV1,
     OpponentLifeDrainV1,
     KernelControlV1,
+    ResolutionObjectChoiceV1,
+    TargetCharacteristicsV1,
+    OptionalTargetGroupV1,
     TriggeredAbilityV1,
     SelfEntersBattlefieldV1,
     OtherCreatureEntersBattlefieldV1,
@@ -319,6 +322,7 @@ pub enum Capability {
     InterveningIfV1,
     /// CR 603.2: an admitted event pattern outside the reviewed event rows.
     EventTriggerV1,
+    ResolutionTriggerV1,
     CreatureOrPlaneswalkerTargetV1,
 
     ModalChoiceV1,
@@ -337,6 +341,10 @@ pub enum Capability {
     FirstStrikeV1,
     DoubleStrikeV1,
     MenaceV1,
+    FightV1,
+    PopulateV1,
+    PlayerCountersV1,
+    ProliferateV1,
     CreatureTokensV1,
     MultiTypeCreatureTokensV1,
     PlusOneCountersV1,
@@ -450,6 +458,9 @@ pub struct PermanentFilter {
     )]
     #[schemars(with = "CreaturePowerFilter")]
     pub power: Option<CreaturePowerFilter>,
+    /// Additional fixed characteristic tests at announcement and resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub predicate: Option<kir::Pred>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "comparison", rename_all = "snake_case", deny_unknown_fields)]
@@ -1193,9 +1204,10 @@ pub struct SpellProgram {
     pub instructions: Vec<Instruction>,
 }
 
-/// CR 601.2b and 700.2a–d: one announcement chooses distinct modes. Each
-/// admitted selection is an ordinary program in printed order with only its
-/// own target occurrences. Bit zero denotes the first printed mode.
+/// CR 601.2b, 602.2b, 603.3c and 700.2a–d: one announcement or placement
+/// chooses distinct modes. Each admitted selection is an ordinary program in
+/// printed order with only its own target occurrences. Bit zero denotes the
+/// first printed mode. Spells, activated and triggered abilities share it.
 /// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1407,6 +1419,17 @@ pub struct ActivatedAbility {
     pub restriction: Option<ActivationRestriction>,
     pub cost: ActivationCost,
     pub program: SpellProgram,
+    /// CR 602.2b, 700.2: a modal ability chooses its modes as it is
+    /// activated; `program` then carries timing only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal: Option<ModalSpell>,
+}
+impl ActivatedAbility {
+    /// Executable versions of this ability's program: its selections when
+    /// modal, otherwise the program itself.
+    pub fn programs(&self) -> impl Iterator<Item = &SpellProgram> {
+        modal_programs(&self.program, self.modal.as_ref())
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -1485,6 +1508,25 @@ pub struct TriggeredAbility {
     /// This mandatory stack program is placed by the rules, never cast or
     /// activated. Its existing Instant shape carries no timing permission.
     pub program: SpellProgram,
+    /// CR 603.3c, 700.2: a modal trigger's modes are chosen as it is put on
+    /// the stack; `program` then carries timing only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal: Option<ModalSpell>,
+}
+impl TriggeredAbility {
+    /// Executable versions of this ability's program: its selections when
+    /// modal, otherwise the program itself.
+    pub fn programs(&self) -> impl Iterator<Item = &SpellProgram> {
+        modal_programs(&self.program, self.modal.as_ref())
+    }
+}
+fn modal_programs<'a>(
+    base: &'a SpellProgram,
+    modal: Option<&'a ModalSpell>,
+) -> impl Iterator<Item = &'a SpellProgram> {
+    std::iter::once(base)
+        .filter(move |_| modal.is_none())
+        .chain(modal.into_iter().flat_map(|m| m.selections.values()))
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -1793,7 +1835,10 @@ impl Definition {
                 _ => {}
             }
         }
-        if self.modal_spell.is_some() {
+        if self.modal_spell.is_some()
+            || self.activated.iter().any(|a| a.modal.is_some())
+            || self.triggered.iter().any(|a| a.modal.is_some())
+        {
             set.insert(Capability::ModalChoiceV1);
         }
         for program in self.spell_programs() {
@@ -1807,20 +1852,21 @@ impl Definition {
             if activated_artifact_draw_ability(ability) {
                 set.insert(Capability::ActivatedArtifactDrawV1);
             }
-            if has_untap(&ability.program) {
+            if ability.programs().any(has_untap) {
                 set.insert(Capability::TapSourceUntapCreatureV1);
             }
-            if has_tap(&ability.program) {
+            if ability.programs().any(has_tap) {
                 set.insert(if self.characteristics.kind == CardKind::Creature {
                     Capability::ActivatedCreatureTapV1
                 } else {
                     Capability::ActivatedTapPermanentV1
                 });
             }
-            if has_permanent_owner_hand(&ability.program) {
+            if ability.programs().any(has_permanent_owner_hand) {
                 set.insert(Capability::ActivatedPermanentOwnerHandV1);
             }
-            if ability.cost == ActivationCost::TapSource && has_destroy_permanent(&ability.program)
+            if ability.cost == ActivationCost::TapSource
+                && ability.programs().any(has_destroy_permanent)
             {
                 set.insert(Capability::TapSourceDestroyV1);
             }
@@ -1850,12 +1896,16 @@ impl Definition {
                     Capability::SacrificeSourceCostV1,
                 ]);
             }
-            add_program_requirements(&mut set, &ability.program);
+            for program in ability.programs() {
+                add_program_requirements(&mut set, program);
+            }
         }
         for ability in &self.triggered {
             set.insert(Capability::TriggeredAbilityV1);
             set.extend(trigger_capabilities(ability));
-            add_program_requirements(&mut set, &ability.program);
+            for program in ability.programs() {
+                add_program_requirements(&mut set, program);
+            }
         }
         for keyword in &self.keywords {
             set.extend(intrinsic_keyword_capability(*keyword));
@@ -1935,7 +1985,7 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
             Capability::ControlledLandEntryV1
         }
         E::Dies { .. } if *pattern == E::self_dies() => {
-            if ability.program.instructions.iter().any(|i| {
+            if ability.programs().flat_map(|p| &p.instructions).any(|i| {
                 matches!(
                     i,
                     kernel!(CreateTokens {
@@ -1973,7 +2023,7 @@ fn trigger_capabilities(ability: &TriggeredAbility) -> Vec<Capability> {
             combat,
             recipient,
         } => {
-            if has_controller_discard(&ability.program) {
+            if ability.programs().any(has_controller_discard) {
                 caps.push(Capability::DamageControllerDiscardV1);
             }
             if !source.0.iter().any(|a| matches!(a, Atom::Is { .. })) {
@@ -2127,6 +2177,13 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         {
             set.insert(Capability::PowerFilteredRemovalV1);
         }
+        if target
+            .filter
+            .as_ref()
+            .is_some_and(|filter| filter.predicate.is_some())
+        {
+            set.insert(Capability::TargetCharacteristicsV1);
+        }
         if target.filter.as_ref().is_some_and(|filter| filter.tapped) {
             set.insert(Capability::TappedPermanentTargetV1);
         }
@@ -2155,6 +2212,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         let Instruction::Kernel { node, .. } = instruction;
         set.extend(kir::node_capabilities(node));
         add_kernel_leaf_requirements(set, &program.targets, node);
+        if let kir::Node::Delayed { program, .. } | kir::Node::Reflexive { program, .. } = node {
+            add_program_requirements(set, program);
+        }
     }
 }
 fn add_kernel_leaf_requirements(

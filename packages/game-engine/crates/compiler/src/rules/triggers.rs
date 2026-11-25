@@ -71,6 +71,7 @@ pub(crate) fn validate_trigger_damage_sources(
     // The events whose first-step pronoun "it" is the source itself.
     let pattern = condition.pattern();
     let first_it_is_self = *pattern == EventPattern::self_dies()
+        || matches!(pattern, EventPattern::Dies { object } if *object == Pred::source())
         || *pattern == EventPattern::self_enters()
         || matches!(pattern, EventPattern::Attacks { attacker } if *attacker == Pred::source())
         || matches!(pattern, EventPattern::DealsDamage { source, .. } if *source == Pred::source());
@@ -320,6 +321,7 @@ pub(crate) fn lower_trigger(
         intervening_if: intervening_if.map(|i| i.condition()),
     };
     Ok(TriggeredAbility {
+        modal: None,
         functioning_zone: FunctioningZone::Battlefield,
         condition,
         program,

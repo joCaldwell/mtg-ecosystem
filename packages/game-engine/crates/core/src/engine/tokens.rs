@@ -79,6 +79,9 @@ pub enum TokenTemplate {
     Predefined {
         kind: PredefinedToken,
     },
+    TokenCopy {
+        original: ObjectId,
+    },
     SpellCopy {
         original: ObjectId,
         stack_id: StackId,
@@ -100,6 +103,14 @@ impl TokenIdentity {
             (true, _) => matches!(object.id.incarnation, 1 | 2),
         }
     }
+}
+
+// CR 707.2: this is the immutable definition's copiable layer. It has no
+// counters, marked damage, temporary characteristics, controller or status.
+fn token_copy_definition(original: &Definition, id: CardId) -> Definition {
+    let mut definition = original.clone();
+    definition.oracle_id = format!("token:{}", id.0);
+    definition
 }
 
 fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> Definition {
@@ -395,6 +406,37 @@ impl RulesTxn {
         event: &ProposedEvent,
     ) -> Result<EventOutcome, String> {
         match event {
+            ProposedEvent::CreateTokenCopy {
+                controller,
+                source,
+                original,
+            } => {
+                if !self.is_live(*controller)
+                    || !self.is_controlled_creature_token(*controller, *original)
+                {
+                    return Err("invalid token copy source".into());
+                }
+                self.check_token_capacity(1)?;
+                let card = self.next_token_card()?;
+                let definition = token_copy_definition(self.copiable_definition(*original)?, card);
+                let object = self.insert_token_identity(
+                    card,
+                    *controller,
+                    Zone::Battlefield,
+                    TokenIdentity {
+                        source: *source,
+                        spec: TokenTemplate::TokenCopy {
+                            original: *original,
+                        },
+                        definition,
+                    },
+                );
+                Ok(EventOutcome::TokenCopied {
+                    object,
+                    controller: *controller,
+                    original: *original,
+                })
+            }
             ProposedEvent::CreatePredefinedTokens {
                 controller,
                 source,
@@ -496,35 +538,107 @@ impl RulesTxn {
             {
                 return Err("snapshot token physical identity invariant".into());
             }
-            let source = self.copiable_definition(t.source)?;
             fn creates(p: &SpellProgram, spec: &CreatureToken) -> bool {
                 p.instructions.iter().any(|i| matches!(i, kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Creature { spec: token }, .. }) if token == spec))
             }
-            let expected = match &t.spec {
-                TokenTemplate::Created(spec) => {
-                    spec.validate()?;
-                    // CR 111.1: any of the source's spell, activated or
-                    // triggered programs may be the creating recipe.
-                    if !source.spell_programs().any(|p| creates(p, spec))
-                        && !source.triggered.iter().any(|a| creates(&a.program, spec))
-                        && !source.activated.iter().any(|a| creates(&a.program, spec))
-                    {
-                        return Err("snapshot token differs from creating instruction".into());
+            let expected_for = |source: &Definition| -> Result<Definition, String> {
+                Ok(match &t.spec {
+                    TokenTemplate::Created(spec) => {
+                        spec.validate()?;
+                        // CR 111.1: any of the source's spell, activated or
+                        // triggered programs may be the creating recipe.
+                        if !source.spell_programs().any(|p| creates(p, spec))
+                            && !source
+                                .triggered
+                                .iter()
+                                .flat_map(|a| a.programs())
+                                .any(|p| creates(p, spec))
+                            && !source
+                                .activated
+                                .iter()
+                                .flat_map(|a| a.programs())
+                                .any(|p| creates(p, spec))
+                            && !self.resolution_trigger_created_token(t.source, &t.spec)?
+                        {
+                            return Err("snapshot token differs from creating instruction".into());
+                        }
+                        token_definition(source, *id, spec)
                     }
-                    token_definition(source, *id, spec)
-                }
-                TokenTemplate::Predefined { kind } => {
-                    if !predefined_token_templates::can_create(source, *kind) {
-                        return Err(
-                            "snapshot predefined token differs from creating instruction".into(),
-                        );
+                    TokenTemplate::Predefined { kind } => {
+                        if !predefined_token_templates::can_create(source, *kind)
+                            && !self.resolution_trigger_created_token(t.source, &t.spec)?
+                        {
+                            return Err(
+                                "snapshot predefined token differs from creating instruction"
+                                    .into(),
+                            );
+                        }
+                        predefined_token_templates::definition(source, *id, *kind)
                     }
-                    predefined_token_templates::definition(source, *id, *kind)
-                }
-                TokenTemplate::SpellCopy { .. } => {
-                    return Err("unsupported spell copy source".into());
-                }
+                    TokenTemplate::TokenCopy { original } => {
+                        let prior = self
+                            .state
+                            .rules
+                            .tokens
+                            .get(&original.card)
+                            .ok_or("snapshot copied token has no original")?;
+                        if original.card.0 >= id.0
+                            || original.face != CardFace::Front
+                            || original.incarnation != u32::from(prior.is_copy())
+                            || !self.historical_creature_possible(&prior.definition.characteristics)
+                            || self.state.rules.tokens.contains_key(&t.source.card)
+                                && t.source.card.0 >= id.0
+                            || !source
+                                .spell_programs()
+                                .chain(
+                                    source
+                                        .triggered
+                                        .iter()
+                                        .flat_map(|ability| ability.programs()),
+                                )
+                                .chain(
+                                    source
+                                        .activated
+                                        .iter()
+                                        .flat_map(|ability| ability.programs()),
+                                )
+                                .any(|program| {
+                                    program.instructions.iter().any(|i| {
+                                        matches!(
+                                            i.verb(),
+                                            Some(mtg_contracts::kir::Verb::Populate { .. })
+                                        )
+                                    })
+                                })
+                        {
+                            return Err("snapshot token copy provenance invariant".into());
+                        }
+                        token_copy_definition(&prior.definition, *id)
+                    }
+                    TokenTemplate::SpellCopy { .. } => {
+                        return Err("unsupported spell copy source".into());
+                    }
+                })
             };
+            // CR 712.18: a transforming creator may have turned over since it
+            // created the token; either face's program may be its recipe.
+            let creator = self.definition(t.source.card)?;
+            let faces: Vec<&Definition> = if creator.transforms() {
+                [CardFace::Front, CardFace::Back]
+                    .into_iter()
+                    .filter_map(|face| creator.face(face))
+                    .collect()
+            } else {
+                vec![self.copiable_definition(t.source)?]
+            };
+            let mut expected = Err(String::from("snapshot token has no creating face"));
+            for source in faces {
+                expected = expected_for(source);
+                if expected.as_ref().is_ok_and(|e| *e == t.definition) {
+                    break;
+                }
+            }
+            let expected = expected?;
             if t.definition != expected
                 || self
                     .state

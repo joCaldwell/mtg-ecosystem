@@ -92,6 +92,11 @@ pub enum ProposedEvent {
         player: PlayerId,
         index: u32,
     },
+    CreateTokenCopy {
+        controller: PlayerId,
+        source: ObjectId,
+        original: ObjectId,
+    },
     CreatePredefinedTokens {
         controller: PlayerId,
         source: ObjectId,
@@ -103,6 +108,11 @@ pub enum ProposedEvent {
         source: ObjectId,
         count: u32,
         token: Box<mtg_contracts::CreatureToken>,
+    },
+    GivePlayerCounters {
+        player: PlayerId,
+        poison: Quantity,
+        energy: Quantity,
     },
     PutPlusOneCounters {
         object: ObjectId,
@@ -319,6 +329,11 @@ pub enum EventOutcome {
         selected: Option<u32>,
         position: OpenStream,
     },
+    TokenCopied {
+        object: ObjectId,
+        controller: PlayerId,
+        original: ObjectId,
+    },
     PredefinedTokensCreated {
         objects: Vec<ObjectId>,
         controller: PlayerId,
@@ -330,6 +345,13 @@ pub enum EventOutcome {
         token: Box<mtg_contracts::CreatureToken>,
     },
 
+    PlayerCountersPlaced {
+        player: PlayerId,
+        poison: Quantity,
+        energy: Quantity,
+        previous_poison: Quantity,
+        previous_energy: Quantity,
+    },
     PlusOneCountersPlaced {
         object: ObjectId,
         amount: Quantity,

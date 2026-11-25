@@ -110,7 +110,7 @@ pub fn matches_permanent_filter(
     {
         return Tri::No;
     }
-    let typed = known(object.current(), |c| {
+    let mut typed = known(object.current(), |c| {
         !matches!(c.kind, CardKind::Instant | CardKind::Sorcery)
             && (filter.types.is_empty() || filter.types.iter().any(|kind| c.has_type(*kind)))
             && !filter.non_types.iter().any(|kind| c.has_type(*kind))
@@ -119,6 +119,9 @@ pub fn matches_permanent_filter(
                 .iter()
                 .any(|color| filter.non_colors.contains(color))
     });
+    if let Some(predicate) = &filter.predicate {
+        typed = typed.and(matches_pred(object, you, predicate));
+    }
     if typed == Tri::No {
         return Tri::No;
     }

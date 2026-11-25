@@ -21,6 +21,7 @@ use super::*;
 use crate::{ActivationCost, Capability, Definition, Instruction, SpellProgram, TriggerCondition};
 
 mod executes;
+pub(super) use executes::validate_resolution_targets;
 
 /// CR 113.3: the `Executes` tier of a definition: its card shell and every
 /// non-kernel surface has an executor ([`executes`]) and every kernel node
@@ -114,6 +115,8 @@ pub enum Cell {
     // CR 121: draw.
     DrawController,
     DrawControllerCounted,
+    /// CR 121.2, 608.2h: "draw a card for each [filter]", counted once.
+    DrawControllerPerObject,
     DrawAnnouncedX,
     DrawEachPlayer,
     DrawEventPlayer,
@@ -137,6 +140,7 @@ pub enum Cell {
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
     MoveSourceOwnerZone,
+    ChooseObjectOwnerHand,
     MoveOwnGraveyardTargetToHand,
     MoveOwnGraveyardCreatureToBattlefield,
     ExileTargetGraveyard,
@@ -146,6 +150,7 @@ pub enum Cell {
     Attachment,
     // CR 701.26: tap and untap.
     TapTarget,
+    TapTargetGroup,
     TapStatusSource,
     TapSet,
     UntapTarget,
@@ -170,6 +175,10 @@ pub enum Cell {
     SacrificeTargetOpponent,
     // CR 111: tokens.
     PredefinedTokens,
+    Fight,
+    Populate,
+    PlayerCounters,
+    Proliferate,
     CreatureTokens,
     MultiTypeCreatureTokens,
     TokensForTargetController,
@@ -205,6 +214,7 @@ pub enum Cell {
     /// CR 608.2c-d: a control node (sequence with a decision or result,
     /// condition, choice, repetition, payment) run by the continuation.
     Control,
+    ResolutionTrigger,
     // CR 106, 605: mana abilities beyond the tap-only fixed, any-color and
     // commander-color surface.
     /// CR 106.1a: N mana of one color chosen from a printed list.
@@ -291,6 +301,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::LifeCounted
         | C::Drain
         | C::DrawControllerCounted
+        | C::DrawControllerPerObject
         | C::DrawAnnouncedX
         | C::DrawEachPlayer
         | C::DrawEventPlayer
@@ -303,6 +314,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveTargetExile
         | C::MovePermanentOwnerHand
         | C::MoveSourceOwnerZone
+        | C::ChooseObjectOwnerHand
         | C::MoveOwnGraveyardTargetToHand
         | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
@@ -310,6 +322,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveSet
         | C::Attachment
         | C::TapTarget
+        | C::TapTargetGroup
         | C::TapStatusSource
         | C::TapSet
         | C::UntapTarget
@@ -327,6 +340,10 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeEachPlayer
         | C::SacrificeEachOpponent
         | C::PredefinedTokens
+        | C::Fight
+        | C::Populate
+        | C::PlayerCounters
+        | C::Proliferate
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::PlusOneCountersSet
@@ -346,6 +363,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ReorderLibraryTop
         | C::ScryController
         | C::SurveilController
+        | C::ResolutionTrigger
         | C::Control
         | C::ManaChoose
         | C::ManaLandsCouldProduce
@@ -502,11 +520,18 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::PlayerOrPlaneswalkerTargetV1
         | C::OpponentLifeDrainV1
         | C::KernelControlV1
+        | C::ResolutionObjectChoiceV1
+        | C::TargetCharacteristicsV1
+        | C::OptionalTargetGroupV1
         | C::EntryGraveyardExileV1
         | C::ControlledLandEntryV1
         | C::CreatureOrPlaneswalkerTargetV1
         | C::IndestructibleV1
         | C::ActivatedSourceKeywordGrantV1
+        | C::FightV1
+        | C::PopulateV1
+        | C::PlayerCountersV1
+        | C::ProliferateV1
         | C::MultiTypeCreatureTokensV1
         | C::OwnGraveyardCardReturnV1
         | C::PrivateLibraryReorderV1
@@ -524,6 +549,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::GroupHandDiscardV1
         // CR 603.4: opened with its executor and rules tests; no review yet.
         | C::InterveningIfV1
+        | C::ResolutionTriggerV1
         | C::EventTriggerV1 => Tiers::EXECUTES,
     }
 }
@@ -554,10 +580,14 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         add(p, Context::Spell, None)?;
     }
     for a in &d.activated {
-        add(&a.program, Context::Activated, None)?;
+        for p in a.programs() {
+            add(p, Context::Activated, None)?;
+        }
     }
     for a in &d.triggered {
-        add(&a.program, Context::Triggered, Some(&a.condition))?;
+        for p in a.programs() {
+            add(p, Context::Triggered, Some(&a.condition))?;
+        }
     }
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);
