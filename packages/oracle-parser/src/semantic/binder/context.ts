@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { Amount, CascadeExiledCards, Effect, ObjectFilter, ObjectRef, PlayerDesignation } from "../../ast.ts";
 import { isPluralPlayerRef } from "../../parser/refs.ts";
 import type { BindingCardinality, BindingPhase, ReferenceExpression } from "../types.ts";
-import { type ChoiceOrigin, type ResolutionCountOperation } from "./choices.ts";
+import type { ChoiceOrigin, ResolutionCountOperation } from "./choices.ts";
 import type { LinkedExileOrigin } from "./replacement-shapes.ts";
 
 export const RULES_URL = "https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt";

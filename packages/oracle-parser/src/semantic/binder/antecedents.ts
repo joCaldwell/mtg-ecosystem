@@ -4,7 +4,7 @@ import type { ObjectFilter, ObjectRef, PlayerRef } from "../../ast.ts";
 import { isPluralPlayerRef } from "../../parser/refs.ts";
 import type { BindingCardinality, ReferenceBinding, ReferenceExpression } from "../types.ts";
 import type { Analyzer } from "./analyzer.ts";
-import { type ChoiceReference } from "./choices.ts";
+import type { ChoiceReference } from "./choices.ts";
 import { ENTRY_CHOICE_RULES, child, combine, describes, description, domain, objectCardinality, referenceCardinality, type Candidate, type Context } from "./context.ts";
 import { isRecord } from "./predicates.ts";
 
