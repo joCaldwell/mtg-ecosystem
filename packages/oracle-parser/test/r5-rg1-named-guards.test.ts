@@ -71,6 +71,13 @@ describe("GG-delay: a created ability owns sentences that name objects only its 
     assert.deepEqual(reflexive.effects.map(sentence => sentence.steps[0].effect), ["exile", "play-card"]);
   });
 
+  it("resolves 'that player' in 'cards that player exiled this way' to the body's exiler", () => {
+    const [probe] = card("When an artifact enters this turn, target opponent exiles the top two cards of their library. You may cast a spell from among cards that player exiled this way without paying its mana cost.", "Probe", "Sorcery");
+    const delayed = effects(probe).flatMap(sentence => sentence.steps).find(step => step.effect === "create-delayed-trigger");
+    assert.ok(delayed?.effect === "create-delayed-trigger");
+    assert.deepEqual(delayed.effects.map(sentence => sentence.steps[0].effect), ["exile", "play-card"]);
+  });
+
   it("keeps the remaining library cards inside the delayed body (Devourer of Destiny, Codie)", () => {
     const devourer = card("You may reveal this card from your opening hand. If you do, at the beginning of your first upkeep, look at the top four cards of your library. You may put one of those cards back on top of your library. Exile the rest.\nWhen you cast this spell, exile target permanent that's one or more colors.", "Devourer of Destiny", "Creature — Eldrazi");
     assert.ok(JSON.stringify(devourer[0]).includes('"steps":[{"effect":"exile","what":{"ref":"rest"}}]'));
@@ -88,6 +95,8 @@ describe("GG-delay: a created ability owns sentences that name objects only its 
     rejects("When this enchantment enters, sacrifice a creature. When you do, you gain 3 life. If the sacrificed creature was a Hamster, draw a card.", "Enchantment");
     // Earthbender Ascension: the reflexive "if" would also govern the trample grant.
     rejects("Landfall — Whenever a land you control enters, put a quest counter on this enchantment. When you do, if it has four or more quest counters on it, put a +1/+1 counter on target creature you control. It gains trample until end of turn.", "Enchantment", "Earthbender Ascension");
+    // A reflexive body is held to the same actor check.
+    rejects("You may exile the top card of your library. When you do, target opponent exiles the top two cards of their library. Put that card from among cards you exiled this way into your hand.", "Sorcery");
     // "cards you exiled this way" names your exile, not the opponent's in the body.
     rejects("Exile the top two cards of your library. When an artifact enters this turn, target opponent exiles the top two cards of their library. You may cast a spell from among cards you exiled this way without paying its mana cost.", "Sorcery");
     // A look introduces no exiled cards: "the exiled cards" are the enclosing ability's.
@@ -123,14 +132,15 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
     assert.deepEqual(effects(dichotomancy)[1].steps.map(step => step.effect), ["move-zone", "shuffle"]);
   });
 
-  it("lets members read their controllers' libraries when those controllers differ (Chaos Mutation)", () => {
-    const [mutation] = card("Exile any number of target creatures controlled by different players. For each creature exiled this way, its controller reveals cards from the top of their library until they reveal a creature card, puts that card onto the battlefield, then puts the rest on the bottom of their library in a random order.", "Chaos Mutation", "Sorcery");
-    assert.deepEqual(only(effects(mutation)[1], "for-each").effects[0].steps.map(step => step.effect), ["scan-library", "move-zone", "move-zone"]);
-  });
-
   it("marks a standalone 'Then shuffle.' after member searches as their one shuffle", () => {
     const [probe] = card("For each creature you control, search your library for a creature card with the same name as that creature and put it into your hand. Then shuffle.", "Probe", "Sorcery");
     assert.equal(only(effects(probe)[1], "shuffle").coalesceEarlierLibrarySearches, true);
+    // No library was searched: the shuffle is independent and stays unflagged.
+    const [graveyard] = card("For each creature you control, search your graveyard for a creature card and put it into your hand. Then shuffle.", "Probe", "Sorcery");
+    assert.equal(only(effects(graveyard)[1], "shuffle").coalesceEarlierLibrarySearches, undefined);
+    // One search per member with no shuffle wording has nothing to record.
+    const [lands] = card("For each opponent, that player searches their library for a basic land card and puts it into their hand.", "Probe", "Sorcery");
+    assert.equal(effects(lands).length, 1);
   });
 
   it("shuffles every player who searched this way once (From the Ashes)", () => {
@@ -172,12 +182,20 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
     rejects("Destroy all nonbasic lands. For each land destroyed this way, at the beginning of the next end step, its controller may search their library for a basic land card and put it onto the battlefield. Then each player who searched their library this way shuffles.", "Sorcery");
     // Members may share a library: instruction-wise, all reveals would precede any exile.
     rejects("Destroy X target artifacts and/or creatures. For each permanent destroyed this way, its controller reveals cards from the top of their library until an artifact or creature card is revealed and exiles that card.", "Sorcery");
+    // Chaos Mutation: the AST has only instruction-wise processing, but the
+    // reveal/put sequence must run member by member (CR 608.2f), even with
+    // different controllers.
+    rejects("Exile any number of target creatures controlled by different players. For each creature exiled this way, its controller reveals cards from the top of their library until they reveal a creature card, puts that card onto the battlefield, then puts the rest on the bottom of their library in a random order.", "Sorcery", "Chaos Mutation");
+    // "their" names the target player's library, shared by every member.
+    rejects("For each opponent, target player reveals cards from the top of their library until they reveal a creature card, then exiles that card.", "Sorcery");
+    // Scrying then drawing reorders and draws from the same library each time.
+    rejects("For each creature you control, scry 1, then draw a card.", "Sorcery");
+    // The searchers' shuffle must include every searcher (you may be one of them).
+    rejects("Destroy all nonbasic lands. For each land destroyed this way, its controller may search their library for a basic land card and put it onto the battlefield. Then each opponent who searched their library this way shuffles.", "Sorcery");
     // Without "controlled by different players" two members may share a library.
     rejects("Exile any number of target creatures. For each creature exiled this way, its controller reveals cards from the top of their library until they reveal a creature card, puts that card onto the battlefield, then puts the rest on the bottom of their library in a random order.", "Sorcery");
     // Discover exiles cards (CR 701.57), so "exiled this way" could name it.
     rejects("Exile the top two cards of your library. For each land card exiled this way, discover 3. For each creature card exiled this way, draw a card.", "Sorcery");
-    // A member search with no single shuffle of that library afterwards.
-    rejects("For each creature you control, you may search your library for a creature card with the same name as that creature. Put those cards onto the battlefield.", "Sorcery");
     // An object loop's body never named "that player", so it may be a member's.
     rejects("For each creature target opponent controls, search your library for a card with the same name as that creature. Then that player shuffles.", "Sorcery");
   });
@@ -185,6 +203,10 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
 
 describe("GG-cond: a trailing condition after ', then' governs only the final instruction", () => {
   it("splits the sentence at 'then' (Swallowed by Leviathan, Phantasmal Sphere, Retraced Image)", () => {
+    // A fixed single library card is not a group.
+    const [top] = card("Draw a card, then exile the top card of your library if you control a Swamp.", "Probe", "Sorcery");
+    assert.deepEqual(effects(top).map(sentence => [sentence.steps.map(step => step.effect), sentence.conditionKind ?? null]),
+      [[["draw"], null], [["exile"], "if"]]);
     // Only the instruction after the last ", then" is conditional.
     const [several] = card("Draw a card, gain 2 life, then lose 1 life if you control a Swamp.", "Probe", "Sorcery");
     assert.deepEqual(effects(several).map(sentence => [sentence.steps.map(step => step.effect), sentence.conditionKind ?? null]),
@@ -218,6 +240,9 @@ describe("GG-cond: a trailing condition after ', then' governs only the final in
     // A player group acts per member; one sentence condition loses that partition.
     rejects("Each player reveals the top card of their library, then puts it onto the battlefield if it's a permanent card.", "Sorcery");
     rejects("Whenever Vaevictis Asmadi attacks, for each player, choose target permanent that player controls. Those players sacrifice those permanents. Each player who sacrificed a permanent this way reveals the top card of their library, then puts it onto the battlefield if it's a permanent card.", "Legendary Creature — Elder Dragon", "Vaevictis Asmadi, the Dire");
+    // A group anywhere in the instruction, here the damage source, may make
+    // the condition per member.
+    rejects("Each creature you control deals 1 damage to you, then gain 2 life if that creature is a Goblin.", "Sorcery");
     // A group in the conditional instruction: the condition may be per member.
     rejects("Draw a card, then this spell deals 2 damage to each opponent if that player controls a Swamp.", "Sorcery");
     // The split prefix is checked like any sentence: "one pile" needs a separation.
@@ -238,6 +263,10 @@ describe("GG-perm: static abilities that were only readable as resolving instruc
     rejects("This creature has hexproof unless you do.", "Creature — Human");
     rejects("This creature has hexproof unless you don't cast a spell this way.", "Creature — Human");
     rejects("This creature has hexproof unless you rolled 6.", "Creature — Human");
+    rejects("This creature has hexproof unless the amount of mana spent to cast it is greater than 2.", "Creature — Human");
+    // The current phase is a state.
+    const [phase] = card("This creature has hexproof unless it's your main phase.", "Probe", "Creature — Human");
+    assert.equal(staticOf(phase).static, "modify");
   });
 
   it("grants the linked-exile look and play permissions (Bane Alley Broker, Kheru Mind-Eater, Colfenor's Plans)", () => {

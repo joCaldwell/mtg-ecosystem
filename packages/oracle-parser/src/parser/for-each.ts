@@ -54,56 +54,30 @@ function independentOfLoop(tokens: Token[], earlierEvent?: string): boolean {
 
 type Loop = Extract<Effect, { effect: "for-each" }>;
 
-/** A step that reveals, exiles, looks at, mills or otherwise reads cards from
- * a library (searches are governed by CR 701.23h instead). */
+/** A step that reveals, exiles, looks at, mills, scries or otherwise reads or
+ * reorders cards of a library (searches are governed by CR 701.23h instead). */
 function readsLibrary(step: Effect): boolean {
-  if (step.effect === "scan-library" || step.effect === "mill") return true;
+  if (step.effect === "scan-library" || step.effect === "mill" || step.effect === "scry" || step.effect === "surveil") return true;
   return hasOwnNode(step, node => node.ref === "library-cards" || ("top" in node && "of" in node));
 }
 
-/** Loops whose members read their controllers' libraries: distinct only when
- * the preceding instruction chose the members with different controllers
- * (Chaos Mutation: "target creatures controlled by different players"). */
-const distinctLibrariesUnproven = new WeakSet<Loop>();
-
-function controllerLibrariesOnly(each: ObjectRef | PlayerRef, steps: Effect[]): boolean {
-  if (!("ref" in each) || each.ref !== "each") return false;
-  const controller = '{"player":"controller","of":{"ref":"it"}}';
-  return steps.filter(readsLibrary).every(step => {
-    let own = "who" in step && JSON.stringify(step.who) === controller;
-    hasOwnNode(step, node => {
-      if (node.zone === "library" && JSON.stringify(node.owner) !== '"their"') own = false;
-      return false;
-    });
-    return own;
-  });
-}
-
-/** The loop's members are the objects the preceding single instruction
- * acted on this way, chosen with pairwise different controllers. */
-function distinctControllers(loop: Loop, previous: Sentence | undefined): boolean {
-  if (!previous || previous.condition || previous.otherwise || previous.steps.length !== 1 || !("ref" in loop.each)) return false;
-  const [step] = previous.steps;
-  const relation = loop.each.ref === "each" ? loop.each.filter.relation : undefined;
-  if (relation?.relation !== "event-result" || relation.scope !== "this-way" || relation.who || relation.event !== step.effect) return false;
-  const what = "what" in step ? step.what as unknown : undefined;
-  return !!what && typeof what === "object" && JSON.stringify((what as { groupConstraints?: unknown }).groupConstraints) ===
-    '[{"constraint":"pairwise-different","property":"controller"}]';
-}
-
-/** Each member reads only its own library: a player loop whose library
- * reads all name that player's library. */
+/** CR 608.2f: a multi-step body that reads a library is processed
+ * instruction-wise only when no two members can touch the same library: a
+ * player loop in which each such step is that member's own action on that
+ * member's own library. Shared libraries would need member-wise processing,
+ * which the AST does not represent (Chaos Mutation, Indomitable Creativity). */
 function ownLibrariesOnly(each: ObjectRef | PlayerRef, steps: Effect[]): boolean {
   const reads = steps.filter(readsLibrary);
   if (!reads.length) return true;
   if (!("player" in each)) return false;
   return reads.every(step => {
+    const actor = "who" in step ? step.who : undefined;
+    if (!actor || !("player" in actor) || actor.player !== "that-player") return false;
     let own = true;
     hasOwnNode(step, node => {
       if (node.zone === "library" && JSON.stringify(node.owner) !== '"that-player"' && JSON.stringify(node.owner) !== '"their"') own = false;
       return false;
     });
-    if (step.effect === "mill" && !("player" in step.who && step.who.player === "that-player")) own = false;
     return own;
   });
 }
@@ -132,6 +106,10 @@ const EVENTLESS_EFFECTS = new Set<Effect["effect"]>(["create-token", "draw", "da
  * cannot refer to the loop, or forEachContinuationsScoped proved its scope.
  * Any other loop makes its sentence list fail there. */
 const settled = new WeakSet<Loop>();
+
+/** Independent loops of member searches whose following shuffle, if any,
+ * forEachContinuationsScoped must still match (CR 701.23h). */
+const shuffleScopeUnchecked = new WeakSet<Loop>();
 
 export function settleScopedContinuation(loop: Loop): void {
   settled.add(loop);
@@ -256,32 +234,61 @@ function shufflesSearchedLibrary(loop: Loop, next: Sentence): boolean {
 }
 
 /** CR 701.23h: members' searches of one library before a single later
- * shuffle of it are one search for all of those cards. The shuffle after the
- * loop records that (Doubling Chant, Haunting Echoes, From the Ashes). A
- * player loop whose body shuffles each member's own library searched it only
- * once (Jace, Architect of Thought). Any other member search has no
- * representable shuffle scope. */
+ * shuffle of it are one search for all of those cards; the shuffle records
+ * that. Accepted only when every member search is of exactly the library
+ * that shuffle shuffles: your library and your shuffle (Doubling Chant), the
+ * enclosing player's library and that player's shuffle in an object loop
+ * (Haunting Echoes), or each controller's library and "each player who
+ * searched their library this way" (From the Ashes). A player loop that
+ * shuffles each member's own library inside the body searched it once
+ * (Jace, Architect of Thought). With no shuffle after the loop, the wording
+ * has none to record. */
 function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
-  // A search inside an ability the body creates happens later, so no
-  // shuffle here can be its CR 701.23h shuffle.
-  if (!hasOwnNode(loop.effects, isSearch)) return !hasNode(loop.effects, isSearch);
-  if ("player" in loop.each && hasNode(loop.effects, node => node.effect === "shuffle")) {
-    const searches = hasNode(loop.effects, node => node.effect === "search" && !hasNode((node as { zones?: unknown }).zones,
-      zone => zone.zone === "library" && JSON.stringify(zone.owner) !== '"that-player"'));
-    return searches;
-  }
-  if (hasNode(loop.effects, node => node.effect === "shuffle")) return false;
   const shuffles = next.steps.filter(step => step.effect === "shuffle");
-  if (shuffles.length !== 1 || next.condition || next.otherwise) return false;
+  const searches = ownSearches(loop);
+  // A search inside an ability the body creates happens later; it is never
+  // the search of a shuffle made now.
+  if (!searches.length) return !hasNode(loop.effects, isSearch) || !shuffles.length;
+  if (hasOwnNode(loop.effects, node => node.effect === "shuffle")) {
+    if (shuffles.length || !("player" in loop.each)) return false;
+    return searches.every(search => librarySearched(search) === '"that-player"') &&
+      hasOwnNode(loop.effects, node => node.effect === "shuffle" && JSON.stringify(node.who) === '{"player":"that-player"}');
+  }
+  if (!shuffles.length) return true;
+  return markSearchShuffle(loop, next);
+}
+
+function ownSearches(loop: Loop): Extract<Effect, { effect: "search" }>[] {
+  const found: Extract<Effect, { effect: "search" }>[] = [];
+  hasOwnNode(loop.effects, node => { if (node.effect === "search") found.push(node as unknown as Extract<Effect, { effect: "search" }>); return false; });
+  return found;
+}
+
+/** The serialized owner of the one library a search covers, or null. */
+function librarySearched(search: Extract<Effect, { effect: "search" }>): string | null {
+  const zones = search.zones.of;
+  return zones.length === 1 && zones[0].zone === "library" ? JSON.stringify(zones[0].owner) : null;
+}
+
+function markSearchShuffle(loop: Loop, next: Sentence): boolean {
+  if (next.condition || next.otherwise) return false;
+  const shuffles = next.steps.filter(step => step.effect === "shuffle");
+  if (shuffles.length !== 1) return false;
   const [shuffle] = shuffles;
-  if (shuffle.effect !== "shuffle" || shuffle.optional || shuffle.forEach || shuffle.library.zone !== "library") return false;
-  // The searched library, as the body names it, for the shuffled library.
-  const owner = shuffle.library.owner;
-  const expected = typeof owner === "object" && owner.player === "you" ? "your"
-    : typeof owner === "object" && owner.player === "that-player" ? "that-player"
-    : typeof owner === "object" && owner.player === "filtered" && owner.filter.searched ? "their" : null;
-  if (!expected || hasOwnNode(loop.effects, node => node.effect === "search" && hasNode((node as { zones?: unknown }).zones,
-    zone => zone.zone === "library" && zone.owner !== expected))) return false;
+  if (shuffle.effect !== "shuffle" || shuffle.optional || shuffle.forEach || shuffle.library.zone !== "library" ||
+    JSON.stringify(shuffle.library.owner) !== JSON.stringify(shuffle.who)) return false;
+  const shuffler = JSON.stringify(shuffle.who);
+  const objectLoop = "ref" in loop.each;
+  const searchers = '{"player":"filtered","base":{"player":"each-player"},"filter":{"searched":{"zone":{"zone":"library","owner":"their"},"scope":"this-way"}}}';
+  const matches = ownSearches(loop).every(search => {
+    const library = librarySearched(search);
+    const who = JSON.stringify(search.who);
+    if (library === '"your"') return who === '{"player":"you"}' && shuffler === '{"player":"you"}';
+    if (library === '"that-player"') return objectLoop && shuffler === '{"player":"that-player"}';
+    if (library === '"their"') return objectLoop && who === '{"player":"controller","of":{"ref":"it"}}' && shuffler === searchers;
+    return false;
+  });
+  if (!matches) return false;
   shuffle.coalesceEarlierLibrarySearches = true;
   return true;
 }
@@ -457,13 +464,14 @@ export function parseGoadedCombatTrigger(
  * has no representation and fails. */
 export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
   for (let i = 0; i < sentences.length; i++) {
+    // An otherwise independent loop of member searches: a following shuffle
+    // must be exactly their CR 701.23h shuffle.
     for (const step of sentences[i].steps) {
-      if (step.effect !== "for-each" || !distinctLibrariesUnproven.has(step)) continue;
-      if (!distinctControllers(step, sentences[i - 1])) return false;
-      distinctLibrariesUnproven.delete(step);
+      if (step.effect !== "for-each" || !shuffleScopeUnchecked.has(step)) continue;
+      shuffleScopeUnchecked.delete(step);
+      const next = sentences[i + 1];
+      if (next && next.steps.some(later => later.effect === "shuffle") && !coalesceMemberSearches(step, next)) return false;
     }
-    // A shared-library loop anywhere else has no proof of distinct libraries.
-    if (hasNode(sentences[i].steps, node => node.effect === "for-each" && distinctLibrariesUnproven.has(node as unknown as Loop))) return false;
     for (const loop of unsettledLoops(sentences[i])) {
       const next = sentences[i + 1];
       if (loop !== sentences[i].steps.at(-1) || sentences[i].otherwise || !next) return false;
@@ -472,10 +480,7 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
         sentences.splice(i + 1, 1);
         continue;
       }
-      // "Then shuffle." after members' searches of that library (CR 701.23h).
-      const plainShuffle = next.steps.length === 1 && next.steps[0].effect === "shuffle" && !next.condition && !next.otherwise;
-      if ((plainShuffle && hasOwnNode(loop.effects, isSearch)) ||
-        shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) {
+      if (shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) {
         if (!coalesceMemberSearches(loop, next)) return false;
         settled.add(loop);
         continue;
@@ -529,14 +534,10 @@ export function parseForEach(c: Cursor, parseBody: (body: Cursor) => Sentence[] 
     // CR 608.2f: reading cards from a library and then acting on them cannot
     // be simultaneous when members may share that library; instruction-wise
     // processing would run every read before any later action.
-    const sharedLibrary = effects[0].steps.length > 1 && !ownLibrariesOnly(each, effects[0].steps);
-    if (sharedLibrary && !controllerLibrariesOnly(each, effects[0].steps))
+    if (effects[0].steps.length > 1 && !ownLibrariesOnly(each, effects[0].steps))
       return c.fail("member-wise processing of a library action");
-    // A member search must reach its CR 701.23h shuffle scope check, which
-    // forEachContinuationsScoped makes, unless the body shuffles itself.
-    const searches = hasOwnNode(effects, isSearch) && !hasOwnNode(effects, node => node.effect === "shuffle");
-    const independent = !searches && (!after || (after.kind === "word" && !after.possessive && after.value === "activate") ||
-      independentOfLoop(c.tokens.slice(end + 1), earlierEventParticiple(each, effects)));
+    const independent = !after || (after.kind === "word" && !after.possessive && after.value === "activate") ||
+      independentOfLoop(c.tokens.slice(end + 1), earlierEventParticiple(each, effects));
     // CR 608.2f (Soulfire Eruption example): a dependent action sequence for
     // each member of an established group is completed member by member when
     // it cannot be simultaneous. That is not instruction-wise processing, so
@@ -546,7 +547,10 @@ export function parseForEach(c: Cursor, parseBody: (body: Cursor) => Sentence[] 
     c.pos = end;
     const loop: Loop = { effect: "for-each", each, effects, processing: "instruction-wise" };
     if (independent) settled.add(loop);
-    if (sharedLibrary) distinctLibrariesUnproven.add(loop);
+    // A following shuffle may be the members' CR 701.23h shuffle.
+    // A search of no library at all is unrelated to any library shuffle.
+    if (independent && after && hasOwnNode(effects, node => node.effect === "search" &&
+      hasNode((node as { zones?: unknown }).zones, zone => zone.zone === "library"))) shuffleScopeUnchecked.add(loop);
     return loop;
   });
 }

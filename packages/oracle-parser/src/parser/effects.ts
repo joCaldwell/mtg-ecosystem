@@ -821,10 +821,10 @@ function thenPrefixSteps(c: Cursor, start: number, end: number, steps: Effect[],
     if (token.kind === "word" && !token.possessive && token.value === "then" && comma?.kind === "punct" && comma.value === ",") { then = i; break; }
   }
   if (then < 0) return null;
-  // A player group acts once per member, and a condition naming "it" or
-  // "they" would then be tested per member; the sentence-level condition
-  // cannot keep that partition (Vaevictis Asmadi, the Dire).
-  if (hasPlayerGroupActor(steps)) return null;
+  // Any group anywhere in the instruction (an actor, a source, a target, an
+  // affected set) may make the condition per member; the sentence-level
+  // condition cannot keep that partition (Vaevictis Asmadi, the Dire).
+  if (hasGroupReference(steps)) return null;
   const subject = ctx.lastSubject, player = ctx.lastPlayer;
   const body = new Cursor(c.tokens.slice(start, then - 1));
   const before = parseSteps(body, ctx);
@@ -833,27 +833,18 @@ function thenPrefixSteps(c: Cursor, start: number, end: number, steps: Effect[],
   return steps.slice(0, -1);
 }
 
-/** Any player group, or an object reference that may denote several objects. */
+/** Any player group, or an object reference that may denote several objects
+ * (a fixed count of exactly one, such as "the top card of your library", is
+ * not a group). */
 function hasGroupReference(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some(hasGroupReference);
   const node = value as Record<string, unknown>;
   if (typeof node.player === "string" && isPluralPlayerRef(node as PlayerRef)) return true;
-  if (node.ref === "each" || node.ref === "all" || node.ref === "them" || node.ref === "rest" || node.ref === "library-cards" ||
+  if (node.ref === "each" || node.ref === "all" || node.ref === "them" || node.ref === "rest" ||
     (node.ref !== undefined && (node.plural === true || node.number === "plural")) ||
     (node.ref !== undefined && node.count !== undefined && JSON.stringify(node.count) !== '{"amount":"fixed","value":1}')) return true;
   return Object.values(node).some(hasGroupReference);
-}
-
-function hasPlayerGroupActor(value: unknown): boolean {
-  if (!value || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some(hasPlayerGroupActor);
-  const node = value as Record<string, unknown>;
-  for (const key of ["who", "decidedBy"]) {
-    const actor = node[key];
-    if (actor && typeof actor === "object" && "player" in actor && isPluralPlayerRef(actor as PlayerRef)) return true;
-  }
-  return Object.values(node).some(hasPlayerGroupActor);
 }
 
 /** "as you cast this spell" / "as you activate this ability" (CR 601.2, 602.2). */

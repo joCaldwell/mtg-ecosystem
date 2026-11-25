@@ -28,6 +28,9 @@ function hasSupportedContinuations(sentences: Sentence[], reflexive = false): bo
     const previous = sentences[i - 1];
     const next = sentences[i];
     if (next.condition?.condition === "you-do" || next.condition?.condition === "you-dont") continue;
+    // "cards <player> exiled this way" must name an exile the body made by
+    // that player, whatever else would continue the body.
+    if (!exileActorsMatch(sentences.slice(0, i), next)) return false;
     if (reflexive && continuesReflexiveBody(previous, next)) continue;
     if (continuesBodyLocalObject(sentences.slice(0, i), next, reflexive)) continue;
     // "..., then exile … and copy them. You may cast the copies": the cast
@@ -113,26 +116,58 @@ function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: b
   // Each card anaphor needs the production that can be its antecedent:
   // "exiled this way" / "the exiled cards" an exile, "those cards" / "the
   // rest" a look, and a singular "that card" a chosen or found card.
-  // Who exiled them: "cards you exiled this way" names only your exile.
-  const exilers: string[] = [];
-  hasNode(body, node => {
-    if ((node.effect === "exile" && isLibraryCards(node.what)) || (node.effect === "scan-library" && node.operation === "exile"))
-      exilers.push(JSON.stringify(node.who ?? { player: "you" }));
-    return false;
-  });
+  const exilers = bodyExilers(body);
   const looked = hasNode(body, node => node.effect === "look-at");
   const chosen = hasNode(body, node => node.effect === "scan-library" || (node.effect === "choose-object" && isCardRef(node.what)));
   const cardAnaphor = (node: Record<string, unknown>): boolean => {
     const kind = cardAnaphorKind(node);
     if (kind !== "exiled") return kind === "looked" ? looked : kind === "chosen" ? chosen : false;
-    const actor = (node.relation as { who?: unknown } | undefined)?.who;
-    return actor === undefined ? exilers.length > 0 : exilers.includes(JSON.stringify(actor));
+    return exileActorMatches(body, exilers, node);
   };
   // A card anaphor with no matching production names something else.
   if (hasNode(next.steps, node => cardAnaphorKind(node) !== null && !cardAnaphor(node))) return false;
   return hasNode(next.steps, cardAnaphor) ||
     (objects && hasNode(next.steps, node => (node.ref === "it" || node.ref === "them" ||
       (node.ref === "that" && !isCardRef(node))) && cardAnaphorKind(node) === null));
+}
+
+/** Who made each of the body's library exiles (an elided actor is you). */
+function bodyExilers(body: Sentence[]): string[] {
+  const exilers: string[] = [];
+  hasNode(body, node => {
+    if ((node.effect === "exile" && isLibraryCards(node.what)) || (node.effect === "scan-library" && node.operation === "exile"))
+      exilers.push(JSON.stringify(node.who ?? { player: "you" }));
+    return false;
+  });
+  return exilers;
+}
+
+/** An "exiled this way" anaphor's stated actor resolved against the body:
+ * "that player" is the body's one other named player ("target opponent
+ * exiles … cards that player exiled this way"); with no stated actor any
+ * body exile qualifies. */
+function exileActorMatches(body: Sentence[], exilers: string[], node: Record<string, unknown>): boolean {
+  const actor = (node.relation as { who?: unknown } | undefined)?.who;
+  if (actor === undefined) return exilers.length > 0;
+  let resolved = JSON.stringify(actor);
+  if (resolved === '{"player":"that-player"}') {
+    const players = new Set<string>();
+    hasNode(body, candidate => {
+      if (typeof candidate.player === "string" && candidate.player !== "you" && candidate.player !== "that-player")
+        players.add(JSON.stringify(candidate));
+      return false;
+    });
+    if (players.size !== 1) return false;
+    resolved = [...players][0];
+  }
+  return exilers.includes(resolved);
+}
+
+/** No exile anaphor in `next` names an actor whose exile the body lacks. */
+function exileActorsMatch(body: Sentence[], next: Sentence): boolean {
+  const exilers = bodyExilers(body);
+  return !hasNode(next.steps, node => cardAnaphorKind(node) === "exiled" &&
+    (node.relation as { who?: unknown } | undefined)?.who !== undefined && !exileActorMatches(body, exilers, node));
 }
 
 function isLibraryCards(value: unknown): boolean {

@@ -581,7 +581,12 @@ function staticContinuationTokens(tokens: Token[], subject: ObjectRef, subjectTo
  * resolution outcome, not a state. */
 const STATE_CONDITIONS = new Set(["control", "count", "control-count", "status", "compare", "is-filter", "has-keyword",
   "cards-in-hand", "not", "any-of", "all-of", "designation", "most-common-color", "life-total", "completed-dungeon",
-  "player-counters", "your-turn", "not-your-turn", "day-night", "full-party", "paired", "opponent-count"]);
+  "player-counters", "your-turn", "not-your-turn", "day-night", "full-party", "paired", "opponent-count", "current-phase"]);
+/** Quantities of the current game state, never of an event, payment, choice
+ * or history (e.g. "the amount of mana spent to cast it"). */
+const STATE_AMOUNTS = new Set(["fixed", "count", "attribute", "attribute-extremum", "attribute-sum", "counter-count", "devotion",
+  "distinct-count", "life-total", "life-total-extremum", "opponent-count", "party-size", "player-count", "speed",
+  "starting-life-total", "plus", "minus", "half", "twice", "product", "per-player-extremum", "commander-color-identity-count"]);
 
 function isStatePredicate(condition: Condition): boolean {
   let state = true;
@@ -590,6 +595,7 @@ function isStatePredicate(condition: Condition): boolean {
     if (Array.isArray(value)) { value.forEach(visit); return; }
     const node = value as Record<string, unknown>;
     if (typeof node.condition === "string" && !STATE_CONDITIONS.has(node.condition)) state = false;
+    if (typeof node.amount === "string" && !STATE_AMOUNTS.has(node.amount)) state = false;
     if ("scope" in node || "roll" in node || "window" in node || "during" in node) state = false;
     Object.values(node).forEach(visit);
   };
