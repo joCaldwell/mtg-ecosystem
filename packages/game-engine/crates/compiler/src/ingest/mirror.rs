@@ -35,6 +35,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 | "kicker"
                 | "affinity"
                 | "cycling"
+                | "typecycling"
                 | "flashback"
         ) && serde_json::from_value::<KeywordAbility>(serde_json::Value::String(keyword.clone()))
             .is_err()
@@ -46,6 +47,7 @@ impl<'de> Deserialize<'de> for SourceKeyword {
                 ["keyword", "cost"].as_slice()
             }
             "enchant" | "affinity" => ["keyword", "filter"].as_slice(),
+            "typecycling" => ["keyword", "cost", "filter"].as_slice(),
             _ => ["keyword"].as_slice(),
         };
         if object.len() != allowed.len() || object.keys().any(|k| !allowed.contains(&k.as_str())) {
@@ -541,6 +543,10 @@ pub(crate) struct SourceCounter {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields, tag = "cost", rename_all = "kebab-case")]
 pub(crate) enum SourceCost {
+    Exile {
+        what: serde_json::Value,
+        from: Option<serde_json::Value>,
+    },
     RemoveCounters {
         counter: SourceCounter,
         count: Count,

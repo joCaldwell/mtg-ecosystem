@@ -318,6 +318,11 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         ActivationCost::Mana { cost } => {
             mana_ok(cost) && matches!(route, None | Some(Route::Object | Route::Stack))
         }
+        ActivationCost::ExileSource { mana } => {
+            matches!(a.functioning_zone, FunctioningZone::Hand | FunctioningZone::Graveyard)
+                && mana_ok(mana)
+                && matches!(route, None | Some(Route::Object | Route::Entity | Route::Stack))
+        }
         // CR 701.21a: only the exact source permanent pays this cost.
         ActivationCost::SacrificeSource => {
             kind == CardKind::Creature && route != Some(Route::Player)
@@ -386,10 +391,17 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
-    // CR 702.29a, 602.2a: cycling is the one hand activation, on any card
-    // type: its fixed mana and this exact hand card, then one draw.
+    if matches!(a.cost, ActivationCost::ExileSource { .. }) {
+        if a.restriction.is_some() {
+            return cell("activated", "off_battlefield_restriction");
+        }
+        cost(d, a)?;
+        return program(&a.program, Context::Activated, None, false);
+    }
+    // CR 702.29a/e, 602.2a: cycling and typecycling use fixed mana and the
+    // exact hand card, then draw one or search, reveal and shuffle.
     if a.functioning_zone == FunctioningZone::Hand {
-        if !hand_discard_draw_activation(a) {
+        if !hand_discard_activation(a) {
             return cell("activated", "hand");
         }
         return program(&a.program, Context::Activated, None, false);
@@ -401,6 +413,12 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         )
     {
         return cell("activated", "source");
+    }
+    if a.restriction.is_some_and(|r| {
+        r.window.is_none() && !r.once_each_turn
+            || r.window.is_some() && a.program.timing == SpellTiming::MainPhase
+    }) {
+        return cell("activated", "restriction");
     }
     if a.program
         .targets
@@ -728,7 +746,7 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && d.intrinsic_zone.is_none()
                 && d.activated
                     .iter()
-                    .all(|a| a.functioning_zone == FunctioningZone::Hand)
+                    .all(|a| matches!(a.functioning_zone, FunctioningZone::Hand | FunctioningZone::Graveyard))
                 && d.triggered.is_empty()
                 && d.mana_abilities.is_empty()
                 && d.spell.as_ref().is_some_and(|p| p.timing == cast_timing)
@@ -802,6 +820,7 @@ mod tests {
     fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
         ActivatedAbility {
             functioning_zone: FunctioningZone::Battlefield,
+            restriction: None,
             cost,
             program,
         }

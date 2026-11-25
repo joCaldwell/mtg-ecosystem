@@ -189,11 +189,12 @@ impl RulesTxn {
 
         let cost = stack.total_cost.clone();
         if let StackKind::Activated { ability, .. } = &stack.kind
+            && let activated = &self.copiable_definition(stack.source)?.activated[*ability as usize]
             && matches!(
-                self.copiable_definition(stack.source)?.activated[*ability as usize].cost,
-                ActivationCost::DiscardSource { .. }
+                activated.cost,
+                ActivationCost::DiscardSource { .. } | ActivationCost::ExileSource { .. }
             )
-            && !self.hand_activation_source_payable(stack.controller, stack.source)
+            && !self.zone_source_payable(activated.functioning_zone, stack.controller, stack.source)
         {
             return Ok(AnnouncementPayment::Unpayable);
         }
@@ -284,6 +285,28 @@ impl RulesTxn {
                 },
             )?;
         }
+        // CR 602.2b, 601.2h, 701.13a: after mana, exile exactly the
+        // preflighted source card from the zone its ability functions in.
+        if let StackKind::Activated { ability, .. } = &stack.kind
+            && matches!(
+                self.copiable_definition(stack.source)?.activated[*ability as usize].cost,
+                ActivationCost::ExileSource { .. }
+            )
+        {
+            self.commit(
+                ProposedEvent::Move {
+                    object: stack.source,
+                    destination: Zone::Exile,
+                },
+                BatchCause::AbilityActivation {
+                    stack_id: stack.id,
+                    player: stack.controller,
+                    source: stack.source,
+                    decision_id: self.state.rules.revision,
+                    ability: *ability,
+                },
+            )?;
+        }
         if let StackKind::Activated { ability, .. } = stack.kind
             && let ActivationCost::Composite { costs } =
                 self.copiable_definition(stack.source)?.activated[ability as usize]
@@ -335,12 +358,7 @@ impl RulesTxn {
                 stack.cast_from,
             )?;
         } else if let StackKind::Activated { ability, .. } = &stack.kind {
-            self.record_event(Event::AbilityActivated {
-                stack_id: stack.id,
-                source: stack.source,
-                player: stack.controller,
-                ability: *ability,
-            })?;
+            self.record_ability_activated(stack.id, stack.source, stack.controller, *ability)?;
         }
         Ok(AnnouncementPayment::Completed(AnnouncementCompleted {
             stack_id: stack.id,

@@ -124,6 +124,7 @@ impl Published {
     fn projects_same_rows(&self, rules: &RulesTables) -> bool {
         let RulesTables {
             mana_ability_uses,
+            activation_uses: _,
             tokens,
             retained_auxiliary_charge: _,
             typed_fault: _,

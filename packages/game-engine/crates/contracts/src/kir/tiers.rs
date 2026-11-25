@@ -19,7 +19,7 @@
 //! information), so a cell records each one it has passed.
 use super::*;
 use crate::{
-    ActivationCost, Capability, Definition, FunctioningZone, Instruction, SpellProgram,
+    ActivationCost, Capability, Definition, Instruction, SpellProgram,
     TriggerCondition,
 };
 
@@ -218,6 +218,10 @@ pub enum Cell {
     HybridManaCost,
     /// CR 702.29a: cycling, a hand activation discarding its own source.
     Cycling,
+    /// CR 702.29e-f: cycling pays for a qualified library search and shuffle.
+    Typecycling,
+    /// CR 602.5b-d: an activation's turn/step window or per-turn limit.
+    ActivationRestriction,
     /// CR 119.4, 602.2b: a stack activation paying life.
     ActivationPayLife,
     /// CR 122.1, 602.2b: a stack activation removing +1/+1 counters from
@@ -327,6 +331,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::XManaCost
         | C::HybridManaCost
         | C::Cycling
+        | C::Typecycling
+        | C::ActivationRestriction
         | C::ActivationPayLife
         | C::ActivationRemoveCounters
         | C::SacrificeCostChoice
@@ -455,6 +461,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ControlledCreatureSpellCopyV1
         | C::PayLifeCostV1
         | C::DiscardSourceCostV1
+        | C::ExileSourceCostV1
         | C::PlayerOrPlaneswalkerTargetV1
         | C::OpponentLifeDrainV1
         | C::KernelControlV1
@@ -540,8 +547,13 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         }
     }
     for a in &d.activated {
-        if a.functioning_zone == FunctioningZone::Hand {
+        if crate::cycling::typecycling_activation(a) {
+            cells.insert(Cell::Typecycling);
+        } else if crate::cycling::hand_discard_draw_activation(a) {
             cells.insert(Cell::Cycling);
+        }
+        if a.restriction.is_some() {
+            cells.insert(Cell::ActivationRestriction);
         }
         match &a.cost {
             ActivationCost::Composite { costs } => {

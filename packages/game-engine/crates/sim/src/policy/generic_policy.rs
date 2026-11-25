@@ -1295,6 +1295,7 @@ impl Strategy<'_> {
         let in_zone = match a.functioning_zone {
             FunctioningZone::Battlefield => o.zone == Zone::Battlefield && !o.phased_out,
             FunctioningZone::Hand => o.zone == (Zone::Hand { owner: v.viewer }),
+            FunctioningZone::Graveyard => o.zone == (Zone::Graveyard { owner: v.viewer }),
             _ => false,
         };
         let offered = Action::ActivateAbility {
@@ -1332,6 +1333,7 @@ impl Strategy<'_> {
                 }
                 (false, false, mana.clone())
             }
+            ActivationCost::ExileSource { mana } => (false, false, mana.clone()),
             ActivationCost::TapSource => (true, false, zero_cost()),
             ActivationCost::SacrificeSource => (false, true, zero_cost()),
             ActivationCost::Mana { cost } => (false, false, cost.clone()),

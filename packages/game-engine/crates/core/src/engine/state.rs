@@ -124,6 +124,8 @@ state_layout! {
     rules {
         #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
         mana_ability_uses: BTreeSet<mana_permanents::ManaAbilityUse>,
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        activation_uses: BTreeSet<stack_costs::ActivationUse>,
         #[serde(default, skip_serializing_if = "shared_map::is_empty", with = "shared_map")]
         tokens: Arc<BTreeMap<CardId, tokens::TokenIdentity>>,
         // Deterministic conservative charge for inputs and potential detailed

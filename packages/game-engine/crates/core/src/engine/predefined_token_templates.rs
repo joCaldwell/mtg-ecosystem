@@ -72,6 +72,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
         };
         d.activated.push(ActivatedAbility {
             functioning_zone: FunctioningZone::Battlefield,
+            restriction: None,
             cost: ActivationCost::Composite { costs },
             program: SpellProgram {
                 timing: SpellTiming::Instant,

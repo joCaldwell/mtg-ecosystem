@@ -275,7 +275,8 @@ impl RulesTxn {
                 // a mana window after targets.
                 ActivationCost::SacrificePermanent { mana: Some(_), .. }
                 | ActivationCost::Mana { .. }
-                | ActivationCost::DiscardSource { .. } => {
+                | ActivationCost::DiscardSource { .. }
+                | ActivationCost::ExileSource { .. } => {
                     self.rules_mut().frame = self.announcement_mana_frame(cast)?;
                     return Ok(());
                 }
@@ -325,12 +326,7 @@ impl RulesTxn {
             .last_mut()
             .ok_or("missing activated invocation")?
             .paid = Some(entry.total_cost);
-        self.record_event(Event::AbilityActivated {
-            stack_id: entry.id,
-            source: entry.source,
-            player: entry.controller,
-            ability,
-        })?;
+        self.record_ability_activated(entry.id, entry.source, entry.controller, ability)?;
         self.rules_mut().priority = entry.controller;
         self.rules_mut().frame = Frame::Priority;
         Ok(self.stabilize()?)
