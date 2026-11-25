@@ -133,8 +133,14 @@ pub enum TriggerEventWitness {
         object: ObjectId,
         controller: PlayerId,
     },
-    PermanentLeftGame { object: ObjectId, owner: PlayerId },
-    ResolutionPaid { player: PlayerId, cost: ManaCost },
+    PermanentLeftGame {
+        object: ObjectId,
+        owner: PlayerId,
+    },
+    ResolutionPaid {
+        player: PlayerId,
+        cost: ManaCost,
+    },
     StepBegan {
         turn: TurnState,
         owner: PlayerId,
@@ -150,7 +156,9 @@ impl TriggerEventWitness {
             } else {
                 m.previous
             }),
-            Self::TokenEntered { object } | Self::Tapped { object, .. } | Self::PermanentLeftGame { object, .. } => Some(*object),
+            Self::TokenEntered { object }
+            | Self::Tapped { object, .. }
+            | Self::PermanentLeftGame { object, .. } => Some(*object),
             Self::CreatureAttacked { attacker, .. } => Some(attacker.object),
             Self::DamageDealt { damage, .. } => Some(damage.source.object),
             Self::StepBegan { .. } | Self::SpellCast { .. } | Self::ResolutionPaid { .. } => None,
@@ -903,8 +911,14 @@ impl RulesTxn {
                     continue;
                 }
             }
-            self.enqueue_trigger(ability, source_facts.controller, source_facts, death_controller,
-                match_condition, (event.clone(), witness))?;
+            self.enqueue_trigger(
+                ability,
+                source_facts.controller,
+                source_facts,
+                death_controller,
+                match_condition,
+                (event.clone(), witness),
+            )?;
         }
         self.check_history_capacity()?;
         Ok(())
@@ -924,11 +938,24 @@ impl RulesTxn {
         let source = source_facts.object;
         let source_handles = self.capture_trigger_source_handles(source)?;
         self.rules_mut().pending_triggers.push(PendingTrigger {
-            death_controller, match_condition, id, source, controller, ability,
-            source_facts: source_facts.clone(), source_handles, event: occurrence.clone(), witness: witness.clone(),
+            death_controller,
+            match_condition,
+            id,
+            source,
+            controller,
+            ability,
+            source_facts: source_facts.clone(),
+            source_handles,
+            event: occurrence.clone(),
+            witness: witness.clone(),
         });
         self.record_event(Event::TriggerCollected {
-            trigger_id: id, source, player: controller, ability, occurrence, witness,
+            trigger_id: id,
+            source,
+            player: controller,
+            ability,
+            occurrence,
+            witness,
             source_facts: Box::new(source_facts),
         })?;
         Ok(id)
@@ -1096,8 +1123,14 @@ impl RulesTxn {
                         .checked_add(1)
                         .ok_or("stack ID resource limit")?;
                     let targeted = match trigger.ability {
-                        EffectiveTriggerAbility::Intrinsic { .. } => !self.effective_trigger(trigger.source, trigger.ability)?.program.targets.is_empty(),
-                        EffectiveTriggerAbility::Followup { creator } => !self.resolution_trigger_program(creator)?.targets.is_empty(),
+                        EffectiveTriggerAbility::Intrinsic { .. } => !self
+                            .effective_trigger(trigger.source, trigger.ability)?
+                            .program
+                            .targets
+                            .is_empty(),
+                        EffectiveTriggerAbility::Followup { creator } => {
+                            !self.resolution_trigger_program(creator)?.targets.is_empty()
+                        }
                     };
                     let zero = ManaCost {
                         generic: Quantity::zero(),
@@ -1322,7 +1355,9 @@ impl RulesTxn {
         handles: &[publish::StoredObjectHandle],
     ) -> Result<(), String> {
         let intrinsic = match ability {
-            EffectiveTriggerAbility::Intrinsic { .. } => Some(self.effective_trigger(source, ability)?),
+            EffectiveTriggerAbility::Intrinsic { .. } => {
+                Some(self.effective_trigger(source, ability)?)
+            }
             EffectiveTriggerAbility::Followup { .. } => None,
         };
         if controller.0 >= 4
@@ -1340,7 +1375,8 @@ impl RulesTxn {
             || intrinsic.is_some_and(|definition| {
                 definition.functioning_zone != FunctioningZone::Battlefield
                     || fact.zone != Zone::Battlefield
-                    || (*definition.condition.pattern() == EventPattern::self_enters() && fact.controller != controller)
+                    || (*definition.condition.pattern() == EventPattern::self_enters()
+                        && fact.controller != controller)
             })
             || handles.len() != 4
         {
@@ -1474,7 +1510,8 @@ impl RulesTxn {
             return Err("snapshot X/death LKI binding invariant".into());
         }
         let valid = match witness {
-            TriggerEventWitness::ResolutionPaid { .. } | TriggerEventWitness::PermanentLeftGame { .. } => false,
+            TriggerEventWitness::ResolutionPaid { .. }
+            | TriggerEventWitness::PermanentLeftGame { .. } => false,
             TriggerEventWitness::DamageDealt {
                 kind,
                 transaction,
@@ -1768,16 +1805,34 @@ impl RulesTxn {
             witness,
         )?;
         if let EffectiveTriggerAbility::Followup { creator } = *ability {
-            self.validate_resolution_trigger_invocation(creator, entry.source, entry.controller, *trigger_id, event, witness)?;
+            self.validate_resolution_trigger_invocation(
+                creator,
+                entry.source,
+                entry.controller,
+                *trigger_id,
+                event,
+                witness,
+            )?;
             if entry.death_controller.is_some() {
                 return Err("resolution trigger has death controller".into());
             }
         } else {
-            self.validate_trigger_witness(entry.source, *ability, entry.controller, entry.death_controller, witness)?;
+            self.validate_trigger_witness(
+                entry.source,
+                *ability,
+                entry.controller,
+                entry.death_controller,
+                witness,
+            )?;
         }
         if trigger_id.0 >= self.state.rules.next_trigger_id
             || !self.valid_trigger_occurrence(event, witness)
-            || entry.cast_from != entry.source_facts.as_ref().ok_or("missing trigger facts")?.zone
+            || entry.cast_from
+                != entry
+                    .source_facts
+                    .as_ref()
+                    .ok_or("missing trigger facts")?
+                    .zone
             || (!entry.targets.is_empty()
                 && self.program_for(entry)?.targets.first().is_none_or(|t| {
                     !matches!(
@@ -1830,12 +1885,25 @@ impl RulesTxn {
                 return Err("snapshot pending trigger identity invariant".into());
             }
             if let EffectiveTriggerAbility::Followup { creator } = trigger.ability {
-                self.validate_resolution_trigger_invocation(creator, trigger.source, trigger.controller, trigger.id, &trigger.event, &trigger.witness)?;
+                self.validate_resolution_trigger_invocation(
+                    creator,
+                    trigger.source,
+                    trigger.controller,
+                    trigger.id,
+                    &trigger.event,
+                    &trigger.witness,
+                )?;
                 if trigger.death_controller.is_some() {
                     return Err("resolution trigger has death controller".into());
                 }
             } else {
-                self.validate_trigger_witness(trigger.source, trigger.ability, trigger.controller, trigger.death_controller, &trigger.witness)?;
+                self.validate_trigger_witness(
+                    trigger.source,
+                    trigger.ability,
+                    trigger.controller,
+                    trigger.death_controller,
+                    &trigger.witness,
+                )?;
             }
             self.validate_alternative_occurrence(
                 trigger.source,
@@ -2016,7 +2084,9 @@ impl RulesTxn {
                 .get(index as usize)
                 .map(std::borrow::Cow::Borrowed)
                 .ok_or_else(|| "missing intrinsic triggered definition".into()),
-            EffectiveTriggerAbility::Followup { .. } => Err("follow-up trigger has no intrinsic definition".into()),
+            EffectiveTriggerAbility::Followup { .. } => {
+                Err("follow-up trigger has no intrinsic definition".into())
+            }
         }
     }
 }

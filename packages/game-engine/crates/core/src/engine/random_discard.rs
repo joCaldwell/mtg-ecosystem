@@ -33,16 +33,30 @@ impl RulesTxn {
                 let slot = *target_slot as usize;
                 if frame.legal_targets.get(slot) != Some(&true)
                     || !program.targets.get(slot).is_some_and(|spec| {
-                        matches!(spec.domain, TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)
+                        matches!(
+                            spec.domain,
+                            TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer
+                        )
                     })
                 {
                     return Err("random discard requires a legal player target".into());
                 }
-                *entry.player_targets.get(slot).ok_or("missing random discard target")?
+                *entry
+                    .player_targets
+                    .get(slot)
+                    .ok_or("missing random discard target")?
             }
-            you!() if matches!(entry.kind, StackKind::Triggered {
-                ability: EffectiveTriggerAbility::Followup { .. }, ..
-            }) => entry.controller,
+            you!()
+                if matches!(
+                    entry.kind,
+                    StackKind::Triggered {
+                        ability: EffectiveTriggerAbility::Followup { .. },
+                        ..
+                    }
+                ) =>
+            {
+                entry.controller
+            }
             _ => return Err("random discard recipient invariant".into()),
         };
         let count = match count {

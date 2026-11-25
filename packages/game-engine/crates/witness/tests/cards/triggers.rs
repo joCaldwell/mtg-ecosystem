@@ -10,7 +10,8 @@ use mtg_core::testkit::*;
 macro_rules! record {
     ($id:literal) => {
         include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/phase1-r4/",
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/phase1-r4/",
             $id,
             ".json"
         ))

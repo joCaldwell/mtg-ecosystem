@@ -642,7 +642,14 @@ impl RulesTxn {
                     }
                     Payment::Generic { amount } => {
                         let amount = self.control_amount(&task, amount)?;
-                        self.begin_kernel_payment(task, player, ManaCost { generic: amount, colored: vec![] })?;
+                        self.begin_kernel_payment(
+                            task,
+                            player,
+                            ManaCost {
+                                generic: amount,
+                                colored: vec![],
+                            },
+                        )?;
                     }
                 }
             }
@@ -772,16 +779,33 @@ impl RulesTxn {
         };
         let (node, block) = self.node_at(task)?;
         match node {
-            Node::Reflexive { payment, .. } => {
-                Ok((self.entry(self.kernel_root()?.stack_id)?.controller, block, payment.clone()))
+            Node::Reflexive { payment, .. } => Ok((
+                self.entry(self.kernel_root()?.stack_id)?.controller,
+                block,
+                payment.clone(),
+            )),
+            Node::UnlessPays {
+                payer,
+                payment: Payment::Generic { amount },
+                ..
             }
-            Node::UnlessPays { payer, payment: Payment::Generic { amount }, .. }
-            | Node::IfPays { payer, payment: Payment::Generic { amount }, .. } => {
+            | Node::IfPays {
+                payer,
+                payment: Payment::Generic { amount },
+                ..
+            } => {
                 let players = self.control_players(task, payer)?;
                 let [player] = players.as_slice() else {
                     return Err("invalid kernel payer".into());
                 };
-                Ok((*player, block, ManaCost { generic: self.control_amount(task, amount)?, colored: vec![] }))
+                Ok((
+                    *player,
+                    block,
+                    ManaCost {
+                        generic: self.control_amount(task, amount)?,
+                        colored: vec![],
+                    },
+                ))
             }
             _ => Err("invalid kernel payment parent".into()),
         }

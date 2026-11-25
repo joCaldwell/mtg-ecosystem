@@ -11,9 +11,20 @@ impl RulesTxn {
         let (source, index, is_static) = match ability {
             EffectiveTriggerAbility::Intrinsic { index } => (source, index, false),
             EffectiveTriggerAbility::Followup { creator } => {
-                let block = self.resolution_trigger_program(creator).ok()?.instructions.first()?.source_block();
-                return self.copiable_definition(source).ok()?.source_labels.as_ref()?.blocks
-                    .get(block as usize).map(String::as_str);
+                let block = self
+                    .resolution_trigger_program(creator)
+                    .ok()?
+                    .instructions
+                    .first()?
+                    .source_block();
+                return self
+                    .copiable_definition(source)
+                    .ok()?
+                    .source_labels
+                    .as_ref()?
+                    .blocks
+                    .get(block as usize)
+                    .map(String::as_str);
             }
         };
         let labels = self
@@ -96,13 +107,15 @@ impl RulesTxn {
                 ability: EffectiveTriggerAbility::Intrinsic { index },
                 ..
             } => (DecisionSourceKind::Triggered, Some(index)),
-            StackKind::Triggered { ability, .. } => return Some(DecisionSource {
-                kind: DecisionSourceKind::Triggered,
-                oracle_id: self.visible_ability_oracle_id(entry.source).ok()?.into(),
-                object: self.handle_for(viewer, entry.source).ok(),
-                ability: None,
-                text: self.trigger_source_label(entry.source, ability)?.into(),
-            }),
+            StackKind::Triggered { ability, .. } => {
+                return Some(DecisionSource {
+                    kind: DecisionSourceKind::Triggered,
+                    oracle_id: self.visible_ability_oracle_id(entry.source).ok()?.into(),
+                    object: self.handle_for(viewer, entry.source).ok(),
+                    ability: None,
+                    text: self.trigger_source_label(entry.source, ability)?.into(),
+                });
+            }
         };
         self.described_source(viewer, entry.source, kind, ability)
     }

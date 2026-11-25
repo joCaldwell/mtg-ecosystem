@@ -591,10 +591,15 @@ impl Walk<'_, '_> {
     fn delayed(&mut self, event: &DelayedEvent) -> Result<(), KirError> {
         match event {
             DelayedEvent::NextUpkeep { of } => self.player(of),
-            DelayedEvent::NextEndStepAfterExile { slot } | DelayedEvent::TargetLeavesAfterExilingSource { slot } => self.expect(&Ref::Target { slot: *slot }, &[RefKind::Object], "exile target").map(|_| ()),
-            _ => {
-                Ok(())
-            }
+            DelayedEvent::NextEndStepAfterExile { slot }
+            | DelayedEvent::TargetLeavesAfterExilingSource { slot } => self
+                .expect(
+                    &Ref::Target { slot: *slot },
+                    &[RefKind::Object],
+                    "exile target",
+                )
+                .map(|_| ()),
+            _ => Ok(()),
         }
     }
 
@@ -916,7 +921,9 @@ impl Walk<'_, '_> {
                 self.nested(node, true)
             }
             Node::Delayed { event, program } => {
-                if let DelayedEvent::NextEndStepAfterExile { slot } | DelayedEvent::TargetLeavesAfterExilingSource { slot } = event {
+                if let DelayedEvent::NextEndStepAfterExile { slot }
+                | DelayedEvent::TargetLeavesAfterExilingSource { slot } = event
+                {
                     self.out.target_slots.insert(*slot);
                 }
                 if self.scan {
@@ -964,7 +971,8 @@ impl Walk<'_, '_> {
                 if self.scan {
                     return Ok(());
                 }
-                if in_control || self.env.context != Context::Triggered
+                if in_control
+                    || self.env.context != Context::Triggered
                     || payment.generic.is_negative()
                     || payment.generic.to_u32().is_none_or(|n| n > 32)
                     || payment.colored.len() > 32
@@ -973,13 +981,23 @@ impl Walk<'_, '_> {
                     return unaudited("reflexive trigger payment");
                 }
                 let child = resolution_trigger_body(program)?;
-                if !matches!(child, Node::Do(
-                    Verb::Damage { .. } | Verb::PutCounters { .. } | Verb::Tap { .. }
-                    | Verb::Destroy { .. } | Verb::Draw { .. }
-                )) || program.targets.len() != 1
-                    || !matches!(program.targets[0].domain,
-                        TargetDomain::AnyDamageTarget | TargetDomain::AnyPlayer
-                        | TargetDomain::BattlefieldCreature | TargetDomain::BattlefieldPermanent)
+                if !matches!(
+                    child,
+                    Node::Do(
+                        Verb::Damage { .. }
+                            | Verb::PutCounters { .. }
+                            | Verb::Tap { .. }
+                            | Verb::Destroy { .. }
+                            | Verb::Draw { .. }
+                    )
+                ) || program.targets.len() != 1
+                    || !matches!(
+                        program.targets[0].domain,
+                        TargetDomain::AnyDamageTarget
+                            | TargetDomain::AnyPlayer
+                            | TargetDomain::BattlefieldCreature
+                            | TargetDomain::BattlefieldPermanent
+                    )
                 {
                     return unaudited("reflexive trigger body");
                 }
@@ -991,19 +1009,33 @@ impl Walk<'_, '_> {
     }
 
     fn resolution_trigger(&mut self) {
-        self.out.capabilities.insert(Capability::ResolutionTriggerV1);
+        self.out
+            .capabilities
+            .insert(Capability::ResolutionTriggerV1);
         self.out.cells.insert(Cell::ResolutionTrigger);
     }
 
-    fn resolution_trigger_child(&mut self, program: &SpellProgram, child: &Node) -> Result<(), KirError> {
+    fn resolution_trigger_child(
+        &mut self,
+        program: &SpellProgram,
+        child: &Node,
+    ) -> Result<(), KirError> {
         super::tiers::validate_resolution_targets(program).map_err(KirError::Unaudited)?;
-        let admitted = check(child, &Env {
-            context: Context::Triggered,
-            targets: &program.targets,
-            event: None,
-            announced_x: false,
-        })?;
-        if admitted.target_slots.iter().copied().ne(0..program.targets.len() as u32) {
+        let admitted = check(
+            child,
+            &Env {
+                context: Context::Triggered,
+                targets: &program.targets,
+                event: None,
+                announced_x: false,
+            },
+        )?;
+        if admitted
+            .target_slots
+            .iter()
+            .copied()
+            .ne(0..program.targets.len() as u32)
+        {
             return unaudited("resolution trigger target use");
         }
         self.out.cells.extend(admitted.cells);
@@ -1297,7 +1329,7 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         | Verb::GainControl { .. }
         | Verb::Attach { .. }
         | Verb::ReturnCapturedExile {}
-            | Verb::CreateDelayedTrigger { .. }
+        | Verb::CreateDelayedTrigger { .. }
         | Verb::PlayPermission { .. }
         | Verb::Transform { .. }
         | Verb::SetDesignation { .. }
@@ -1384,12 +1416,11 @@ pub fn visit_verbs<'a>(node: &'a Node, visit: &mut impl FnMut(&'a Verb)) {
                 visit_verbs(otherwise, visit);
             }
         }
-        Node::Optional { node, .. }
-        | Node::UnlessPays { node, .. }
-        | Node::IfPays { node, .. }
-        => visit_verbs(node, visit),
+        Node::Optional { node, .. } | Node::UnlessPays { node, .. } | Node::IfPays { node, .. } => {
+            visit_verbs(node, visit)
+        }
         Node::ForEach { body, .. } | Node::Choose { body, .. } => visit_verbs(body, visit),
-        Node::Delayed { .. } | Node::Reflexive { .. } => {},
+        Node::Delayed { .. } | Node::Reflexive { .. } => {}
     }
 }
 

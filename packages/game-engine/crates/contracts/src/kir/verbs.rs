@@ -183,9 +183,13 @@ pub enum DelayedEvent {
     #[serde(deserialize_with = "no_operands")]
     NextTurnUpkeep,
     /// CR 400.7j: exile this one announced creature and remember its successor.
-    NextEndStepAfterExile { slot: u32 },
-    /// CR 400.7j, 603.10a: exile this source's death successor and watch one permanent.
-    TargetLeavesAfterExilingSource { slot: u32 },
+    NextEndStepAfterExile {
+        slot: u32,
+    },
+    /// CR 400.7e/j, 603.10a: exile this source's death successor and watch one permanent.
+    TargetLeavesAfterExilingSource {
+        slot: u32,
+    },
     NextUpkeep {
         of: PlayerExpr,
     },

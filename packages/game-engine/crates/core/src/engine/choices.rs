@@ -510,9 +510,10 @@ impl RulesTxn {
     pub(crate) fn validate_condition_cache(&self, frame: &Resolving) -> Result<(), String> {
         let entry = self.entry(frame.stack_id)?;
         let definition = match entry.kind {
-            StackKind::Triggered { ability: ability @ EffectiveTriggerAbility::Intrinsic { .. }, .. } => {
-                Some(self.effective_trigger(entry.source, ability)?)
-            }
+            StackKind::Triggered {
+                ability: ability @ EffectiveTriggerAbility::Intrinsic { .. },
+                ..
+            } => Some(self.effective_trigger(entry.source, ability)?),
             _ => None,
         };
         let expected = match &definition {
@@ -603,7 +604,11 @@ impl RulesTxn {
         witness: &TriggerEventWitness,
     ) -> Result<(), String> {
         if matches!(ability, EffectiveTriggerAbility::Followup { .. }) {
-            return if check.is_none() { Ok(()) } else { Err("resolution trigger has an intervening condition".into()) };
+            return if check.is_none() {
+                Ok(())
+            } else {
+                Err("resolution trigger has an intervening condition".into())
+            };
         }
         if let Some(InterveningCheck::SourceCastByController {
             entrant,

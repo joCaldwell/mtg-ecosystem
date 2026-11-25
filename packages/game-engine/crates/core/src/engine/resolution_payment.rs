@@ -123,12 +123,14 @@ impl RulesTxn {
                 let spending = unrestricted.clone();
                 let batch = self.commit_batch(
                     self.instruction_cause(&frame, source_block)?,
-                    EventGroup::Occurrence { proposed: ProposedEvent::PayManaSelected {
-                        player: payment.payer,
-                        cost: payment.cost,
-                        spending,
-                        restricted: vec![],
-                    }},
+                    EventGroup::Occurrence {
+                        proposed: ProposedEvent::PayManaSelected {
+                            player: payment.payer,
+                            cost: payment.cost,
+                            spending,
+                            restricted: vec![],
+                        },
+                    },
                 )?;
                 return self.finish_kernel_payment(payment.resume, Some(&batch));
             }

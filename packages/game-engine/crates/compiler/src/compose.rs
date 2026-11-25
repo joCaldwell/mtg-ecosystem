@@ -155,7 +155,9 @@ fn parts(effects: &[serde_json::Value]) -> Result<Vec<Part>, Failure> {
                 && object.len() == 1
                 && let Some(steps) = object.get("steps").and_then(|s| s.as_array())
                 && !steps.is_empty()
-                && steps.iter().all(|step| steps::claims(step) || resolution_triggers::is_delayed(step))
+                && steps
+                    .iter()
+                    .all(|step| steps::claims(step) || resolution_triggers::is_delayed(step))
             {
                 return Ok(Part::Table(steps.clone()));
             }
@@ -251,7 +253,9 @@ fn append_effects(
             .into_iter()
             .map(|p| match p {
                 Part::Typed(s) => s,
-                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => unreachable!("all parts are typed"),
+                Part::Table(_) | Part::Reflexive(..) | Part::Departure(_) => {
+                    unreachable!("all parts are typed")
+                }
             })
             .collect();
         plain_sentences(&typed)?;
@@ -305,7 +309,12 @@ fn append_effects(
                     program.instructions.push(instruction);
                 }
             }
-            Part::Reflexive(..) | Part::Departure(_) => return Err(unsupported("compose.step", "reflexive trigger requires a parent trigger")),
+            Part::Reflexive(..) | Part::Departure(_) => {
+                return Err(unsupported(
+                    "compose.step",
+                    "reflexive trigger requires a parent trigger",
+                ));
+            }
         }
     }
     Ok(())
@@ -369,7 +378,8 @@ fn trigger(
         Part::Table(steps) => steps.iter().any(resolution_triggers::is_delayed),
         Part::Reflexive(..) | Part::Departure(_) => true,
     });
-    if table.is_none() && reviewed_effects
+    if table.is_none()
+        && reviewed_effects
         && let (Ok(t), Ok(c)) = (&narrow, &narrow_condition)
     {
         let typed: Vec<Sentence> = parts
@@ -390,7 +400,8 @@ fn trigger(
     }
     // An intervening clause the reviewed lowerer does not read: lower the
     // ability without it, then add the audited clause.
-    if table.is_none() && reviewed_effects
+    if table.is_none()
+        && reviewed_effects
         && let (Ok(t), Some(raw_condition)) = (&narrow, condition)
         && reviewed
             .as_ref()
@@ -461,12 +472,21 @@ fn trigger(
     if let [Part::Departure(parent)] = parts.as_slice() {
         program = parent.clone();
     } else if let [Part::Reflexive(payment, sentence)] = parts.as_slice() {
-        program.instructions.push(resolution_triggers::lower_reflexive(
-            payment.clone(), sentence, &condition, source_block(block)?,
-        )?);
+        program
+            .instructions
+            .push(resolution_triggers::lower_reflexive(
+                payment.clone(),
+                sentence,
+                &condition,
+                source_block(block)?,
+            )?);
     } else {
         append_effects(
-            &mut program, parts, block, &mut BTreeMap::new(), Context::Triggered,
+            &mut program,
+            parts,
+            block,
+            &mut BTreeMap::new(),
+            Context::Triggered,
             |typed| validate_trigger_damage_sources(&condition, typed),
         )?;
     }
@@ -963,9 +983,19 @@ fn compose(
                         printed: &printed[block],
                         context: Context::Triggered,
                     };
-                    let ability = if let Some(parent) = resolution_triggers::departure(&effects, &site, &result.lines[block].text)? {
-                        trigger(&card, &event, vec![Part::Departure(parent)], condition.as_ref(), block)?
-                    } else if let Some(part) = resolution_triggers::reflexive(&effects, &site, &result.lines[block].text)? {
+                    let ability = if let Some(parent) =
+                        resolution_triggers::departure(&effects, &site, &result.lines[block].text)?
+                    {
+                        trigger(
+                            &card,
+                            &event,
+                            vec![Part::Departure(parent)],
+                            condition.as_ref(),
+                            block,
+                        )?
+                    } else if let Some(part) =
+                        resolution_triggers::reflexive(&effects, &site, &result.lines[block].text)?
+                    {
                         trigger(&card, &event, vec![part], condition.as_ref(), block)?
                     } else {
                         let peeled = control::peel(&effects)?;
@@ -1035,13 +1065,21 @@ fn compose(
                             .collect()
                     })
                     .unwrap_or_default();
-                let reflexive = program.and_then(|p| p.instructions.last()).and_then(|i| {
-                    match i {
-                        Instruction::Kernel { node: kir::Node::Reflexive { program, .. }, source_block } if *source_block == label => Some(program.targets.as_slice()),
+                let reflexive = program
+                    .and_then(|p| p.instructions.last())
+                    .and_then(|i| match i {
+                        Instruction::Kernel {
+                            node: kir::Node::Reflexive { program, .. },
+                            source_block,
+                        } if *source_block == label => Some(program.targets.as_slice()),
                         _ => None,
-                    }
-                });
-                resolution.target_slots_with_reflexive(block, &printed[block], &targets, reflexive)?;
+                    });
+                resolution.target_slots_with_reflexive(
+                    block,
+                    &printed[block],
+                    &targets,
+                    reflexive,
+                )?;
             }
             Ok(())
         })();
