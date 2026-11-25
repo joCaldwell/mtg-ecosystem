@@ -25,6 +25,16 @@ pub enum DamageTo {
     },
 }
 
+/// CR 611.2c: a rules restriction can name one exact object or apply to a
+/// live class of creatures. It does not grant or remove an ability.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "scope", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CombatProhibitionScope<T> {
+    Target { target: T },
+    Creatures {},
+    CreaturesWithoutFlying {},
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "to", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Destination {
@@ -324,6 +334,12 @@ pub enum Verb {
         what: SetExpr,
         layer: Layer,
         change: Change,
+        until: Until,
+    },
+    /// CR 508.1c, 509.1b: a combat declaration restriction.
+    RestrictCombat {
+        affects: CombatProhibitionScope<Ref>,
+        restriction: CombatRequirement,
         until: Until,
     },
     /// CR 603.7.

@@ -120,11 +120,14 @@ impl RulesTxn {
     }
     pub(super) fn top_has_target_domain(&self) -> Result<bool, String> {
         let top = self.top()?;
-        Ok(self.has_target_domain(
-            self.program_for(top)?,
-            top.controller,
-            self.targeting_characteristics(top)?.as_ref(),
-        ))
+        let source = self.targeting_characteristics(top)?;
+        if top.kind.is_spell()
+            && top.mode_mask.is_none()
+            && let Some(modal) = &self.copiable_definition(top.source)?.modal_spell
+        {
+            return Ok(self.modal_has_selection(modal, top.controller, &source));
+        }
+        Ok(self.has_target_domain(self.program_for(top)?, top.controller, &source))
     }
 
     pub(crate) fn has_target_domain(
@@ -144,7 +147,9 @@ impl RulesTxn {
                     .into_iter()
                     .any(|p| self.targetable_player(p))
                     || self.state.rules.objects.values().any(|o| {
-                        self.is_battlefield_creature(o.id) && !self.protected_from(o.id, source)
+                        self.is_battlefield_creature(o.id)
+                            && self.targetable_by(o.id, player)
+                            && !self.protected_from(o.id, source)
                     })
             }
             Some(
@@ -325,6 +330,7 @@ impl RulesTxn {
     ) -> Result<(), String> {
         let source = self.current(object)?;
         let definition = self.copiable_definition(object)?;
+        let index = ability;
         let ability = definition
             .activated
             .get(ability as usize)
@@ -335,13 +341,22 @@ impl RulesTxn {
                     !source.present_on_battlefield() || source.controller != player
                 }
                 FunctioningZone::Hand => !self.hand_activation_source_payable(player, object),
+                FunctioningZone::Graveyard => {
+                    !self.graveyard_activation_source_payable(player, object)
+                }
                 FunctioningZone::Stack | FunctioningZone::Any => true,
             }
         {
             return Err("invalid activated ability source/permission".into());
         }
         if ability.program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
-            return Err("equip requires sorcery timing".into());
+            return Err("activation requires sorcery timing".into());
+        }
+        if ability
+            .restriction
+            .is_some_and(|r| !self.activation_restriction_allows(player, object, index, r))
+        {
+            return Err("activation restriction is not met".into());
         }
         if let ActivationCost::TapPayLifeSacrificeSource { life } = &ability.cost {
             self.validate_tap_life_sacrifice_source(player, object, life)?;

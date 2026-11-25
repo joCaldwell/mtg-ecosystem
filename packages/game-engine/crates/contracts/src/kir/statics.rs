@@ -389,16 +389,22 @@ impl crate::StaticAbility {
                                 && toughness.as_fixed().is_some()
                         }
                         Change::AddKeywords { keywords } => {
-                            creature_scope(affects, kind)
-                                && !keywords.is_empty()
+                            !keywords.is_empty()
                                 && keywords.iter().all(|k| {
-                                    !matches!(
-                                        k,
+                                    match k {
+                                        // CR 702.11, 702.12, 702.18: these work on
+                                        // noncreature permanents as well.
+                                        KeywordAbility::Hexproof
+                                        | KeywordAbility::Indestructible
+                                        | KeywordAbility::Shroud => true,
                                         KeywordAbility::Flash
-                                            | KeywordAbility::Defender
-                                            | KeywordAbility::ProtectionFromEverything
-                                            | KeywordAbility::ProtectionFromEachColor
-                                    ) && k.basic_landwalk_type().is_none()
+                                        | KeywordAbility::ProtectionFromEverything
+                                        | KeywordAbility::ProtectionFromEachColor => false,
+                                        _ => {
+                                            k.basic_landwalk_type().is_none()
+                                                && creature_scope(affects, kind)
+                                        }
+                                    }
                                 })
                         }
                         Change::RemoveKeywords { .. } | Change::Controller { .. } => false,

@@ -136,6 +136,14 @@ impl RulesTxn {
             return self
                 .execute_token_instruction(frame, Instruction::Kernel { node, source_block });
         }
+        if let Node::Do(Verb::RestrictCombat {
+            affects,
+            restriction,
+            ..
+        }) = &node
+        {
+            return self.kernel_restrict_combat(frame, affects, *restriction, source_block);
+        }
         // CR 611.2c, 613.4c, 613.1f: an end-of-turn change keeps the set,
         // source and target effect executors, whose captured members and
         // effect origins recovery re-derives.

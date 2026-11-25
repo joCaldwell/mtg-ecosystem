@@ -9,6 +9,50 @@ fn card(kind: CardKind) -> Card<'static> {
     }
 }
 
+#[test]
+fn lane_d_observed_triggers_require_complete_alternatives_and_intervening_operands() {
+    let creature = card(CardKind::Creature);
+    let source = json!({"ref":"this","noun":"creature"});
+    let enters = json!({"trigger":"enters","what":source});
+    let dies = json!({"trigger":"dies","what":source});
+    let pair = |a, b| json!({"trigger":"any-of","events":[a,b]});
+    let mixed = events::general(&creature, &pair(enters.clone(), dies.clone()))
+        .unwrap()
+        .unwrap();
+    assert!(matches!(mixed, EventPattern::AnyOf { .. }));
+    assert_eq!(
+        events::general(&creature, &pair(dies, enters.clone())).unwrap(),
+        Some(mixed.clone())
+    );
+    for bad in [
+        json!({"trigger":"attacks","what":source,"grouping":"one-or-more"}),
+        json!({"trigger":"dies","what":{"ref":"filter","filter":{"types":["creature"]},
+            "count":{"amount":"fixed","value":1}}}),
+        json!({"trigger":"phase","phase":"upkeep","whose":"your"}),
+    ] {
+        assert_eq!(
+            events::general(&creature, &pair(enters.clone(), bad)).unwrap(),
+            None
+        );
+    }
+
+    let count = json!({"condition":"count","of":{"cls":"card","types":["creature"],
+        "zone":{"zone":"graveyard","owner":"your"}},
+        "comparison":{"op":"ge","value":{"amount":"fixed","value":3}}});
+    assert!(events::intervening(&count, &EventPattern::self_enters()).is_ok());
+    assert!(events::intervening(&count, &mixed).is_err());
+    let mut wrong_owner = count.clone();
+    wrong_owner["of"]["zone"]["owner"] = json!("opponent");
+    let mut dropped_qualifier = count;
+    dropped_qualifier["of"]["control"] = json!("you");
+    for bad in [wrong_owner, dropped_qualifier] {
+        assert!(
+            events::intervening(&bad, &EventPattern::self_enters()).is_err(),
+            "{bad}"
+        );
+    }
+}
+
 fn costs(raw: serde_json::Value) -> Vec<SourceCost> {
     serde_json::from_value(raw).unwrap()
 }
@@ -164,24 +208,33 @@ fn event_rows_only_add_self_entry_for_the_cards_own_type() {
 fn keyword_rows_reject_parameters_and_unknown_keywords() {
     let keywords =
         |raw: serde_json::Value| -> Vec<SourceKeyword> { serde_json::from_value(raw).unwrap() };
-    let creature = card(CardKind::Creature);
+    let creature = CardKind::Creature;
     assert_eq!(
         keywords::lower(
-            &creature,
-            &keywords(json!([{"keyword":"flying"},{"keyword":"first-strike"}]))
+            creature,
+            &keywords(json!([{"keyword":"flying"},{"keyword":"first-strike"}])),
+            "Flying, first strike",
         )
         .unwrap(),
         [KeywordAbility::Flying, KeywordAbility::FirstStrike]
     );
-    assert!(keywords::lower(&creature, &[]).is_err());
+    assert!(keywords::lower(creature, &[], "").is_err());
     assert!(
         keywords::lower(
-            &creature,
-            &keywords(json!([{"keyword":"cycling","cost":[{"cost":"mana","symbols":["2"]}]}]))
+            creature,
+            &keywords(json!([{"keyword":"cycling","cost":[{"cost":"mana","symbols":["2"]}]}])),
+            "Cycling {2}",
         )
         .is_err()
     );
-    assert!(keywords::lower(&creature, &keywords(json!([{"keyword":"cascade"}]))).is_err());
+    assert!(
+        keywords::lower(
+            creature,
+            &keywords(json!([{"keyword":"cascade"}])),
+            "Cascade"
+        )
+        .is_err()
+    );
 }
 
 const R4: &str = include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json");
@@ -634,12 +687,61 @@ fn timing_table_lowers_printed_sorcery_speed() {
         composed(SEAL).activated[0].program.timing,
         SpellTiming::Instant
     );
+    let timing = |source: Option<serde_json::Value>, line: &str| {
+        activation_restrictions::lower(source, line)
+    };
     assert_eq!(
-        timing(Some(json!({"restriction":"sorcery"}))).unwrap().0,
-        SpellTiming::MainPhase
+        timing(
+            Some(json!({"restriction":"sorcery"})),
+            "{1}: X. Activate only as a sorcery."
+        )
+        .unwrap(),
+        (SpellTiming::MainPhase, None)
     );
-    assert_eq!(timing(None).unwrap().0, SpellTiming::Instant);
-    assert!(timing(Some(json!({"restriction":"sorcery","turn":"your"}))).is_err());
+    assert_eq!(
+        timing(None, "{1}: X.").unwrap(),
+        (SpellTiming::Instant, None)
+    );
+    // An unread printed restriction never lowers as an unrestricted ability.
+    assert!(timing(None, "{1}: X. Activate only during your turn.").is_err());
+    assert!(
+        timing(
+            Some(json!({"restriction":"sorcery","turn":"your"})),
+            "{1}: X."
+        )
+        .is_err()
+    );
+    // The structured restriction and the printed sentence must agree.
+    assert!(
+        timing(
+            Some(json!({"restriction":"sorcery"})),
+            "{1}: X. Activate only once each turn."
+        )
+        .is_err()
+    );
+    assert_eq!(
+        timing(
+            Some(json!({"restriction":"all-of","restrictions":[{"restriction":"sorcery"},{"restriction":"once-each-turn"}]})),
+            "{1}: X. Activate only as a sorcery and only once each turn."
+        )
+        .unwrap(),
+        (
+            SpellTiming::MainPhase,
+            Some(ActivationRestriction { window: None, once_each_turn: true })
+        )
+    );
+    assert_eq!(
+        timing(
+            Some(json!({"restriction":"timing","turn":"your","phase":"upkeep"})),
+            "{1}: X. Activate only during your upkeep."
+        )
+        .unwrap()
+        .1,
+        Some(ActivationRestriction {
+            window: Some(ActivationWindow::YourUpkeep),
+            once_each_turn: false
+        })
+    );
 }
 
 /// Archive R4 negative mutations: each changes the resolution, the printed

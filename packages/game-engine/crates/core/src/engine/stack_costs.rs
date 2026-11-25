@@ -13,7 +13,130 @@ impl AnnouncementOrigin {
     }
 }
 
+/// CR 602.5b-c, 400.7: a turn limit follows the ability slot of this
+/// incarnation through control changes. A zone change creates a new object.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActivationUse {
+    pub source: ObjectId,
+    pub ability: u32,
+}
+
 impl RulesTxn {
+    pub(super) fn activation_restriction_allows(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+        ability: u32,
+        restriction: ActivationRestriction,
+    ) -> bool {
+        let own_turn = self.state.rules.active == Some(player);
+        let step = self.state.rules.turn.step;
+        let in_window = match restriction.window {
+            None => true,
+            Some(ActivationWindow::YourTurn) => own_turn,
+            Some(ActivationWindow::YourUpkeep) => own_turn && step == TurnStep::Upkeep,
+            Some(ActivationWindow::YourTurnBeforeAttackers) => {
+                own_turn
+                    && matches!(
+                        step,
+                        TurnStep::Upkeep
+                            | TurnStep::Draw
+                            | TurnStep::PrecombatMain
+                            | TurnStep::BeginningCombat
+                    )
+            }
+        };
+        in_window
+            && (!restriction.once_each_turn
+                || !self
+                    .state
+                    .rules
+                    .activation_uses
+                    .contains(&ActivationUse { source, ability }))
+    }
+
+    pub(super) fn validate_activation_uses(&self) -> Result<(), String> {
+        for key in &self.state.rules.activation_uses {
+            if self.current(key.source)?.zone != Zone::Battlefield
+                || !self.activation_is_limited(key.source, key.ability)?
+            {
+                return Err("snapshot activation use invariant".into());
+            }
+        }
+        Ok(())
+    }
+
+    fn activation_is_limited(&self, source: ObjectId, ability: u32) -> Result<bool, String> {
+        Ok(self
+            .copiable_definition(source)?
+            .activated
+            .get(ability as usize)
+            .ok_or("missing limited activation slot")?
+            .restriction
+            .is_some_and(|r| r.once_each_turn))
+    }
+
+    /// CR 601.2i, 602.2b, 602.5b: only a successfully completed activation
+    /// uses the limit. A reversed announcement never used that ability.
+    pub(super) fn record_ability_activated(
+        &mut self,
+        stack_id: StackId,
+        source: ObjectId,
+        player: PlayerId,
+        ability: u32,
+    ) -> Result<(), String> {
+        if self.activation_is_limited(source, ability)?
+            && self.current(source).is_ok()
+            && !self
+                .rules_mut()
+                .activation_uses
+                .insert(ActivationUse { source, ability })
+        {
+            return Err("activation limit already used".into());
+        }
+        self.record_event(Event::AbilityActivated {
+            stack_id,
+            source,
+            player,
+            ability,
+        })
+    }
+
+    /// CR 602.2a, 113.6j: a graveyard card's activated ability is
+    /// activated by that card's owner, from that owner's own graveyard.
+    pub(super) fn graveyard_activation_source_payable(
+        &self,
+        player: PlayerId,
+        source: ObjectId,
+    ) -> bool {
+        self.is_live(player)
+            && self
+                .current(source)
+                .is_ok_and(|o| o.zone == (Zone::Graveyard { owner: player }))
+            && self
+                .state
+                .rules
+                .cards
+                .get(&source.card)
+                .is_some_and(|c| c.owner == player)
+    }
+
+    /// The off-battlefield source still sits where its cost moves it from.
+    pub(super) fn zone_source_payable(
+        &self,
+        zone: FunctioningZone,
+        player: PlayerId,
+        source: ObjectId,
+    ) -> bool {
+        match zone {
+            FunctioningZone::Hand => self.hand_activation_source_payable(player, source),
+            FunctioningZone::Graveyard => self.graveyard_activation_source_payable(player, source),
+            FunctioningZone::Battlefield | FunctioningZone::Stack | FunctioningZone::Any => false,
+        }
+    }
+
     // CR602.2/702.29a: a hand card's owner activates it. A stale battlefield
     // controller never supplies (or removes) permission outside battlefield.
     pub(super) fn hand_activation_source_payable(
@@ -120,7 +243,9 @@ impl RulesTxn {
                 mana.clone().unwrap_or_else(zero_mana_cost)
             }
             ActivationCost::Mana { cost } => cost.clone(),
-            ActivationCost::DiscardSource { mana } => mana.clone(),
+            ActivationCost::DiscardSource { mana } | ActivationCost::ExileSource { mana } => {
+                mana.clone()
+            }
             ActivationCost::Composite { costs } => {
                 costs.mana.clone().unwrap_or_else(zero_mana_cost)
             }
@@ -134,6 +259,7 @@ impl RulesTxn {
             cost,
             ActivationCost::Mana { .. }
                 | ActivationCost::DiscardSource { .. }
+                | ActivationCost::ExileSource { .. }
                 | ActivationCost::SacrificePermanent { mana: Some(_), .. }
         ) || matches!(&cost, ActivationCost::Composite { costs } if costs.mana.is_some());
         let targeted = !self.copiable_definition(object)?.activated[ability as usize]
@@ -141,6 +267,7 @@ impl RulesTxn {
             .targets
             .is_empty();
         let entry = StackInstance {
+            mode_mask: None,
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
@@ -175,6 +302,7 @@ impl RulesTxn {
                 && !matches!(
                     cost,
                     ActivationCost::Mana { .. }
+                        | ActivationCost::ExileSource { .. }
                         | ActivationCost::Composite { .. }
                         | ActivationCost::SacrificePermanent { .. }
                         | ActivationCost::SacrificeSource
@@ -278,6 +406,7 @@ impl RulesTxn {
                     | ActivationCost::Composite { .. }
                     | ActivationCost::Mana { .. }
                     | ActivationCost::DiscardSource { .. }
+                    | ActivationCost::ExileSource { .. }
                     | ActivationCost::SacrificePermanent { .. } => {
                         return Err("activated cost branch invariant".into());
                     }
@@ -293,12 +422,7 @@ impl RulesTxn {
                     },
                 )?;
             }
-            self.record_event(Event::AbilityActivated {
-                stack_id: id,
-                source: object,
-                player,
-                ability,
-            })?;
+            self.record_ability_activated(id, object, player, ability)?;
             self.rules_mut().priority = player;
             self.stabilize()?;
         }
@@ -321,7 +445,9 @@ impl RulesTxn {
                 mana.clone().unwrap_or_else(zero_mana_cost)
             }
             ActivationCost::Mana { cost } => cost.clone(),
-            ActivationCost::DiscardSource { mana } => mana.clone(),
+            ActivationCost::DiscardSource { mana } | ActivationCost::ExileSource { mana } => {
+                mana.clone()
+            }
             ActivationCost::Composite { costs } => {
                 costs.mana.clone().unwrap_or_else(zero_mana_cost)
             }
@@ -331,6 +457,15 @@ impl RulesTxn {
             },
         };
         let program = self.program_for(entry)?;
+        if activated.restriction.is_some_and(|r| r.once_each_turn)
+            && self.current(entry.source).is_ok()
+            && (self.state.rules.activation_uses.contains(&ActivationUse {
+                source: entry.source,
+                ability,
+            }) != entry.paid.is_some())
+        {
+            return Err("snapshot activation payment/use invariant".into());
+        }
         let announcing = match self.underlying_mana_frame(&self.state.rules.frame)? {
             Frame::Targets { cast }
             | Frame::PlayerTargets { cast }
@@ -381,6 +516,9 @@ impl RulesTxn {
                     FunctioningZone::Hand => Zone::Hand {
                         owner: entry.controller,
                     },
+                    FunctioningZone::Graveyard => Zone::Graveyard {
+                        owner: entry.controller,
+                    },
                     FunctioningZone::Battlefield => Zone::Battlefield,
                     FunctioningZone::Stack | FunctioningZone::Any => {
                         return Err("invalid activation functioning zone".into());
@@ -394,6 +532,7 @@ impl RulesTxn {
                             activated.cost,
                             ActivationCost::Mana { .. }
                                 | ActivationCost::DiscardSource { .. }
+                                | ActivationCost::ExileSource { .. }
                                 | ActivationCost::Composite { .. }
                                 | ActivationCost::SacrificePermanent { .. }
                                 | ActivationCost::SacrificeSource
@@ -404,17 +543,33 @@ impl RulesTxn {
             return Err("snapshot activated invocation invariant".into());
         }
 
-        if activated.functioning_zone == FunctioningZone::Hand {
+        if matches!(
+            activated.functioning_zone,
+            FunctioningZone::Hand | FunctioningZone::Graveyard
+        ) {
             let fact = entry
                 .source_facts
                 .as_ref()
                 .ok_or("missing hand activation source facts")?;
-            if !hand_discard_draw_activation(activated)
+            // CR 602.2b, 601.2h: the source card is the cost, so an unpaid
+            // entry keeps it in place and a paid entry has moved it away.
+            let shape = match activated.cost {
+                ActivationCost::ExileSource { .. } => {
+                    activated.functioning_zone == FunctioningZone::Graveyard
+                }
+                ActivationCost::DiscardSource { .. } => hand_discard_activation(activated),
+                _ => false,
+            };
+            if !shape
                 || fact.object != entry.source
                 || fact.owner != entry.controller
                 || fact.zone != entry.cast_from
                 || (entry.paid.is_none()
-                    && !self.hand_activation_source_payable(entry.controller, entry.source))
+                    && !self.zone_source_payable(
+                        activated.functioning_zone,
+                        entry.controller,
+                        entry.source,
+                    ))
                 || (entry.paid.is_some() && self.current(entry.source).is_ok())
             {
                 return Err("snapshot hand activation cost/source invariant".into());
@@ -456,6 +611,7 @@ impl RulesTxn {
                 return Err("snapshot spell casting origin invariant".into());
             }
         }
+        self.validate_modes(entry)?;
         self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
@@ -469,7 +625,7 @@ impl RulesTxn {
         // announced before X, so X stays unbound through those stages.
         let before_x = announcing_x
             || matches!(&self.state.rules.frame,
-                Frame::AdditionalCosts { cast } | Frame::HybridCost { cast } if cast.stack_id == entry.id);
+                Frame::ChooseModes { cast } | Frame::AdditionalCosts { cast } | Frame::HybridCost { cast } if cast.stack_id == entry.id);
         let x_bound = x_spell && !before_x;
         // A game can end (CR 104.2a) while a spell is still being announced;
         // its unpaid entry then keeps whatever it had announced.

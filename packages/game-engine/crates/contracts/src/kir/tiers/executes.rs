@@ -361,6 +361,14 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         ActivationCost::Mana { cost } => {
             mana_ok(cost) && matches!(route, None | Some(Route::Object | Route::Stack))
         }
+        ActivationCost::ExileSource { mana } => {
+            a.functioning_zone == FunctioningZone::Graveyard
+                && mana_ok(mana)
+                && matches!(
+                    route,
+                    None | Some(Route::Object | Route::Entity | Route::Stack)
+                )
+        }
         // CR 701.21a: only the exact source permanent pays this cost.
         ActivationCost::SacrificeSource => {
             kind == CardKind::Creature && route != Some(Route::Player)
@@ -429,10 +437,17 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
-    // CR 702.29a, 602.2a: cycling is the one hand activation, on any card
-    // type: its fixed mana and this exact hand card, then one draw.
+    if matches!(a.cost, ActivationCost::ExileSource { .. }) {
+        if a.restriction.is_some() {
+            return cell("activated", "off_battlefield_restriction");
+        }
+        cost(d, a)?;
+        return program(&a.program, Context::Activated, None, false);
+    }
+    // CR 702.29a/e, 602.2a: cycling and typecycling use fixed mana and the
+    // exact hand card, then draw one or search, reveal and shuffle.
     if a.functioning_zone == FunctioningZone::Hand {
-        if !hand_discard_draw_activation(a) {
+        if !hand_discard_activation(a) {
             return cell("activated", "hand");
         }
         return program(&a.program, Context::Activated, None, false);
@@ -444,6 +459,12 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
         )
     {
         return cell("activated", "source");
+    }
+    if a.restriction.is_some_and(|r| {
+        r.window.is_none() && !r.once_each_turn
+            || r.window.is_some() && a.program.timing == SpellTiming::MainPhase
+    }) {
+        return cell("activated", "restriction");
     }
     if a.program
         .targets
@@ -586,6 +607,12 @@ fn keyword(d: &Definition, k: KeywordAbility) -> bool {
                 | K::Lifelink
                 | K::Deathtouch
                 | K::Indestructible
+                // CR 702.16a-f: printed protection from one fixed color.
+                | K::ProtectionFromWhite
+                | K::ProtectionFromBlue
+                | K::ProtectionFromBlack
+                | K::ProtectionFromRed
+                | K::ProtectionFromGreen
         ),
         CardKind::Artifact | CardKind::Enchantment => matches!(k, K::Flash | K::Indestructible),
         CardKind::Land => k == K::Indestructible,
@@ -630,8 +657,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
             || labels.triggered.len() != d.triggered.len()
             || labels.mana.len() != d.mana_abilities.len()
             || labels.statics.len() != d.static_abilities.len()
-            || d.spell
-                .iter()
+            || d.spell_programs()
                 .chain(d.activated.iter().map(|a| &a.program))
                 .chain(d.triggered.iter().map(|a| &a.program))
                 .flat_map(|program| &program.instructions)
@@ -770,9 +796,12 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && c.power.is_none()
                 && c.toughness.is_none()
                 && d.intrinsic_zone.is_none()
-                && d.activated
-                    .iter()
-                    .all(|a| a.functioning_zone == FunctioningZone::Hand)
+                && d.activated.iter().all(|a| {
+                    matches!(
+                        a.functioning_zone,
+                        FunctioningZone::Hand | FunctioningZone::Graveyard
+                    )
+                })
                 && d.triggered.is_empty()
                 && d.mana_abilities.is_empty()
                 && d.spell.as_ref().is_some_and(|p| p.timing == cast_timing)
@@ -780,6 +809,9 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     };
     if !shell {
         return cell("shell", name(&c.kind));
+    }
+    if d.modal_spell.is_some() && !matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
+        return cell("modal", "nonspell");
     }
     // CR 702.34a: flashback is a fixed mana alternative cost of an instant
     // or sorcery whose own cost announces no X or hybrid choice.
@@ -793,14 +825,12 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
         return cell("keyword", "flashback");
     }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
-        program(
-            d.spell.as_ref().ok_or("missing spell program")?,
-            Context::Spell,
-            None,
-            // CR 107.3a: X in a spell's text is the value announced for its
-            // own cost; an ability's X is not announced (CR 107.3).
-            d.x_mana_cost,
-        )?;
+        if let Some(modal) = &d.modal_spell {
+            modal_spell(d.spell.as_ref().ok_or("missing spell program")?, modal)?;
+        }
+        for variant in d.spell_programs() {
+            program(variant, Context::Spell, None, d.x_mana_cost)?;
+        }
     }
     if d.static_abilities
         .iter()
@@ -827,6 +857,56 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     Ok(())
 }
 
+/// CR 700.2a–d: a legal selection has every target the selected modes
+/// require. This row admits one target at most, using an existing casting
+/// decision with a mandatory slot.
+fn modal_spell(base: &SpellProgram, modal: &ModalSpell) -> Result<(), String> {
+    let count = modal.labels.len();
+    if !(2..=ModalSpell::MAX_MODES).contains(&count)
+        || modal.labels.iter().any(|label| label.trim().is_empty())
+        || modal.min == 0
+        || modal.min > modal.max
+        || modal.max as usize > count
+        || !modal
+            .selections
+            .keys()
+            .copied()
+            .eq(ModalSpell::masks(count, modal.min, modal.max))
+        || base.functioning_zone != FunctioningZone::Stack
+        || base.resolution != SpellResolution::Instructions
+        || !base.targets.is_empty()
+        || !base.instructions.is_empty()
+        || base.additional_sacrifice.is_some()
+        || !base.optional_additional_costs.is_empty()
+    {
+        return cell("modal", "announcement_shape");
+    }
+    for variant in modal.selections.values() {
+        if variant.timing != base.timing
+            || variant.additional_sacrifice.is_some()
+            || !variant.optional_additional_costs.is_empty()
+            || variant
+                .instructions
+                .iter()
+                .any(|i| i.source_block() != modal.source_block)
+            || !matches!(
+                variant.targets.as_slice(),
+                [] | [TargetSpec {
+                    domain: TargetDomain::BattlefieldPermanent
+                        | TargetDomain::BattlefieldCreature
+                        | TargetDomain::AnyDamageTarget
+                        | TargetDomain::AnyPlayer
+                        | TargetDomain::OpponentPlayer,
+                    ..
+                }]
+            )
+        {
+            return cell("modal", "selection_shape");
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -846,6 +926,7 @@ mod tests {
     fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
         ActivatedAbility {
             functioning_zone: FunctioningZone::Battlefield,
+            restriction: None,
             cost,
             program,
         }

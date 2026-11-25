@@ -1,4 +1,5 @@
 use super::*;
+use mtg_contracts::kir::{CombatProhibitionScope, CombatRequirement};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct EffectHandle(pub String);
@@ -63,6 +64,17 @@ macro_rules! effect_field {
     ($value:ident, handles) => {
         $value.iter().map(P::from).collect()
     };
+    ($value:ident, combat_scope) => {
+        match $value {
+            CombatProhibitionScope::Target { target } => CombatProhibitionScope::Target {
+                target: target.convert(),
+            },
+            CombatProhibitionScope::Creatures {} => CombatProhibitionScope::Creatures {},
+            CombatProhibitionScope::CreaturesWithoutFlying {} => {
+                CombatProhibitionScope::CreaturesWithoutFlying {}
+            }
+        }
+    };
 }
 macro_rules! visible_effects {
     ($( $variant:ident $(($handle:ident))? {
@@ -124,6 +136,12 @@ visible_effects! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         modifier: Option<CreatureStatModifier>,
         keywords: Vec<KeywordAbility>,
+        expires_in_cleanup_of_turn: u64,
+    },
+    CombatProhibition(handle) {
+        origin: VisibleEffectSource<O> => nested,
+        affects: CombatProhibitionScope<VisibleTarget<O>> => combat_scope,
+        restriction: CombatRequirement,
         expires_in_cleanup_of_turn: u64,
     },
     ModifyPowerToughness(handle) {

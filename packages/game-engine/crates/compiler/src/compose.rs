@@ -14,10 +14,12 @@
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
 
+mod activation_restrictions;
 mod control;
 mod costs;
 mod events;
 mod keywords;
+mod modal;
 mod printed;
 mod steps;
 #[cfg(test)]
@@ -301,23 +303,6 @@ fn append_effects(
     Ok(())
 }
 
-/// CR 602.5d: "Activate only as a sorcery" restricts when the ability may be
-/// activated; the runtime checks the program's announcement timing. Every
-/// other restriction keeps the shared typed mirror.
-fn timing(
-    restriction: Option<serde_json::Value>,
-) -> Result<(SpellTiming, Option<SourceActivationRestriction>), Failure> {
-    match restriction {
-        None => Ok((SpellTiming::Instant, None)),
-        Some(value) if value == serde_json::json!({"restriction":"sorcery"}) => {
-            Ok((SpellTiming::MainPhase, None))
-        }
-        Some(value) => serde_json::from_value(value)
-            .map(|typed| (SpellTiming::Instant, Some(typed)))
-            .map_err(|_| unsupported("restriction", "unsupported activation restriction")),
-    }
-}
-
 fn activation(
     card: &Card<'_>,
     costs: &[SourceCost],
@@ -327,7 +312,10 @@ fn activation(
     printed: &str,
 ) -> Result<ActivatedAbility, Failure> {
     costs::printed(costs, printed)?;
-    let cost = costs::lower(card, costs)?;
+    let (cost, functioning_zone) = match costs::exile_source(card, costs)? {
+        Some(exile) => exile,
+        None => (costs::lower(card, costs)?, FunctioningZone::Battlefield),
+    };
     // CR 608.2c: only sacrificing this exact source proves a first pronoun.
     let first_it_is_self = matches!(cost, ActivationCost::SacrificeSource)
         || matches!(&cost, ActivationCost::Composite { costs } if costs.sacrifice);
@@ -343,7 +331,8 @@ fn activation(
         },
     )?;
     Ok(ActivatedAbility {
-        functioning_zone: FunctioningZone::Battlefield,
+        functioning_zone,
+        restriction: None,
         cost,
         program,
     })
@@ -387,7 +376,7 @@ fn trigger(
         }
     }
     // An intervening clause the reviewed lowerer does not read: lower the
-    // ability without it, then add the clause as a battlefield count.
+    // ability without it, then add the audited clause.
     if table.is_none()
         && let (Ok(t), Some(raw_condition)) = (&narrow, condition)
         && reviewed
@@ -407,7 +396,7 @@ fn trigger(
             .collect::<Result<_, _>>()?;
         match lower_trigger(t, &typed, None, block) {
             Ok(mut ability) => {
-                let intervening = events::board_intervening(raw_condition)?;
+                let intervening = events::intervening(raw_condition, ability.condition.pattern())?;
                 let TriggerCondition::Event { intervening_if, .. } = &mut ability.condition;
                 *intervening_if = Some(intervening.condition());
                 return Ok(ability);
@@ -447,7 +436,7 @@ fn trigger(
                 .map(|c| intervening_condition(narrow.as_ref().ok(), &event, Some(&c)))
             {
                 Some(Ok(Some(reviewed))) => Some(reviewed),
-                _ => Some(events::board_intervening(raw_condition)?),
+                _ => Some(events::intervening(raw_condition, &event)?),
             }
         }
     };
@@ -709,6 +698,12 @@ fn compose(
                                 .push(keywords::cycling(one, label, text)?);
                             labels.activated.push(label);
                         }
+                        [one] if one.keyword == "typecycling" => {
+                            definition
+                                .activated
+                                .push(keywords::typecycling(one, label, text)?);
+                            labels.activated.push(label);
+                        }
                         // CR 702.33a: kicker is an optional additional cost
                         // the caster declares while casting this spell.
                         [one] if one.keyword == "kicker" => {
@@ -742,7 +737,7 @@ fn compose(
                         }
                         _ => definition
                             .keywords
-                            .extend(keywords::lower(&card, &keywords)?),
+                            .extend(keywords::lower(card.kind, &keywords, text)?),
                     }
                 }
                 Block::Static {
@@ -760,6 +755,32 @@ fn compose(
                 } if spell_kind => {
                     ability_word(&word, &result.lines[block].text)?;
                     slots.clear();
+                    let site = control::Site {
+                        resolution: &resolution,
+                        index: block,
+                        printed: &printed[block],
+                        context: Context::Spell,
+                    };
+                    if modal::declared(&effects) {
+                        if definition.modal_spell.is_some() {
+                            return Err(unsupported(
+                                "compose.effects",
+                                "multiple modal declarations",
+                            ));
+                        }
+                        let program = definition.spell.as_ref().expect("spell program");
+                        definition.modal_spell = Some(modal::lower(
+                            &effects,
+                            program.timing,
+                            &result.lines[block].text,
+                            &site,
+                        )?);
+                        return printed::choices_printed(
+                            &result.lines[block].text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        );
+                    }
                     let peeled = control::peel(&effects)?;
                     let program = definition.spell.as_mut().expect("spell program");
                     let (before, before_slots) = (program.clone(), slots.clone());
@@ -776,12 +797,6 @@ fn compose(
                         )
                     };
                     lower(program, &mut slots, &peeled.sentences)?;
-                    let site = control::Site {
-                        resolution: &resolution,
-                        index: block,
-                        printed: &printed[block],
-                        context: Context::Spell,
-                    };
                     let base = before.instructions.len();
                     control::apply(&peeled, &site, &mut program.instructions, base, |prefix| {
                         let (mut scratch, mut scratch_slots) =
@@ -800,9 +815,13 @@ fn compose(
                     restriction,
                     costs,
                     effects,
-                } if !spell_kind => {
+                } => {
                     ability_word(&word, &result.lines[block].text)?;
-                    let (timing, restriction) = timing(restriction)?;
+                    let (timing, restriction) =
+                        activation_restrictions::lower(restriction, &result.lines[block].text)?;
+                    let mana_restriction = restriction
+                        .filter(|r| r.once_each_turn && r.window.is_none())
+                        .map(|_| SourceActivationRestriction::OnceEachTurn {});
                     let peeled = control::peel(&effects)?;
                     let core = parts(&peeled.sentences)?;
                     let parts = core;
@@ -821,7 +840,7 @@ fn compose(
                         Some(typed) => lower_mana_ability(
                             &costs,
                             typed,
-                            restriction.as_ref(),
+                            mana_restriction.as_ref(),
                             block,
                             kind,
                             &|noun| card.is_self(noun),
@@ -829,7 +848,10 @@ fn compose(
                         None => None,
                     };
                     if let Some(mana) = mana {
-                        if timing != SpellTiming::Instant {
+                        if spell_kind
+                            || timing != SpellTiming::Instant
+                            || restriction.is_some_and(|r| r.window.is_some())
+                        {
                             return Err(unsupported(
                                 "restriction",
                                 "timing restriction on a mana ability",
@@ -837,11 +859,6 @@ fn compose(
                         }
                         labels.mana.push(label);
                         definition.mana_abilities.push(mana);
-                    } else if restriction.is_some() {
-                        return Err(unsupported(
-                            "restriction",
-                            "activation restriction outside the block tables",
-                        ));
                     } else {
                         let lower = |parts| {
                             activation(
@@ -854,6 +871,13 @@ fn compose(
                             )
                         };
                         let mut ability = lower(parts)?;
+                        if spell_kind && ability.functioning_zone == FunctioningZone::Battlefield {
+                            return Err(unsupported(
+                                "compose.block",
+                                "battlefield activation on a spell card",
+                            ));
+                        }
+                        ability.restriction = restriction;
                         let site = control::Site {
                             resolution: &resolution,
                             index: block,

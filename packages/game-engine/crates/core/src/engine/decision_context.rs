@@ -161,6 +161,7 @@ impl RulesTxn {
                 ManaAbilityIdentity::Printed { index } => format!("Mana ability {}", index + 1),
             },
             Candidate::AdditionalCost { id, .. } => id.clone(),
+            Candidate::Modes { labels, .. } => labels.join(" / "),
             Candidate::HybridPayment { payment } => match payment {
                 HybridPayment::Mana(color) => format!("{{{color:?}}}"),
                 HybridPayment::PayTwoLife => "Pay 2 life".into(),
@@ -241,6 +242,7 @@ impl RulesTxn {
             (
                 _,
                 Reason::HybridCost
+                | Reason::ChooseModes
                 | Reason::AnnounceX
                 | Reason::Targets { .. }
                 | Reason::Mana { .. }

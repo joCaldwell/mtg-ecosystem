@@ -23,3 +23,18 @@ pub fn color_name(color: Color) -> Option<&'static str> {
         .iter()
         .find_map(|(c, name, _)| (*c == color).then_some(*name))
 }
+
+/// The five separate qualities used by protection from each color (CR 702.16g).
+pub const KEYWORDS: [KeywordAbility; 5] = [
+    COLORS[0].2,
+    COLORS[1].2,
+    COLORS[2].2,
+    COLORS[3].2,
+    COLORS[4].2,
+];
+
+pub fn keyword_for_name(name: &str) -> Option<KeywordAbility> {
+    COLORS
+        .iter()
+        .find_map(|(_, color_name, keyword)| (*color_name == name).then_some(*keyword))
+}

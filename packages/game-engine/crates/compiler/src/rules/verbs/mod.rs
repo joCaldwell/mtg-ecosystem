@@ -5,6 +5,7 @@
 //! under its own code (`verb:<effect>:<detail>` or `operand:<kind>:<shape>`).
 use super::*;
 
+mod combat;
 mod counters;
 mod damage;
 mod destroy;
@@ -113,6 +114,11 @@ pub(crate) fn append_spell_effects(
 /// mirror; a tag without a verb module rejects under its own name.
 fn lower_step(cx: &mut StepCx<'_>, s: &Step) -> Result<Instruction, Failure> {
     match s {
+        Step::Cant {
+            what,
+            action,
+            duration,
+        } => combat::lower(cx, what, action, duration),
         Step::Exile { what } => exile::lower(cx, what),
         Step::Untap { what } => tap::untap(cx, what),
         Step::Tap { what } => tap::tap(cx, what),

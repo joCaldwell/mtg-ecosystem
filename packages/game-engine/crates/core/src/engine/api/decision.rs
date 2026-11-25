@@ -64,6 +64,7 @@ impl RulesTxn {
             Frame::StackTargets { .. } => {
                 return Err("stack targets outside admitted decision algebra".into());
             }
+            Frame::ChooseModes { .. } => return self.mode_decision(),
             Frame::AdditionalCosts { .. } => {
                 let candidates: Vec<_> = self
                     .program()?

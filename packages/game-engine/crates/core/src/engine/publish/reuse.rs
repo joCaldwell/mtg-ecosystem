@@ -55,6 +55,7 @@ impl Frame {
                     groups: _,
                     kept: _,
                 }
+                | Frame::ChooseModes { cast: _ }
                 | Frame::AdditionalCosts { cast: _ }
                 | Frame::AnnounceX { cast: _ }
                 | Frame::HybridCost { cast: _ }
@@ -124,6 +125,7 @@ impl Published {
     fn projects_same_rows(&self, rules: &RulesTables) -> bool {
         let RulesTables {
             mana_ability_uses,
+            activation_uses: _,
             tokens,
             retained_auxiliary_charge: _,
             typed_fault: _,

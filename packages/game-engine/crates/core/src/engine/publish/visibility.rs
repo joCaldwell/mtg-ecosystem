@@ -450,7 +450,7 @@ impl RulesTxn {
                 && entry.cast_from == object.zone
                 && matches!(entry.cast_from, Zone::Hand { owner } if owner == entry.controller)
                 && matches!(&entry.kind, StackKind::Activated { ability, .. }
-                    if self.definition(object.id.card).is_ok_and(|d| d.activated.get(*ability as usize).is_some_and(hand_discard_draw_activation)))
+                    if self.definition(object.id.card).is_ok_and(|d| d.activated.get(*ability as usize).is_some_and(hand_discard_activation)))
         }) {
             return true;
         }
@@ -756,12 +756,20 @@ impl RulesTxn {
         Ok(ObjectCore {
             keywords: if object.zone == Zone::Battlefield {
                 let keywords = self.current_keywords_with_sources(object.id, static_sources);
-                if self.target_is_creature(object.id)
-                    || keywords.contains(&KeywordAbility::Indestructible)
-                {
+                if self.target_is_creature(object.id) {
                     keywords
                 } else {
-                    vec![]
+                    keywords
+                        .into_iter()
+                        .filter(|keyword| {
+                            matches!(
+                                keyword,
+                                KeywordAbility::Hexproof
+                                    | KeywordAbility::Indestructible
+                                    | KeywordAbility::Shroud
+                            )
+                        })
+                        .collect()
                 }
             } else {
                 vec![]
@@ -771,6 +779,7 @@ impl RulesTxn {
                     .creature_restrictions_with_sources(object.id, static_sources)
                     .collect();
                 [
+                    CreatureRestriction::CantAttack,
                     CreatureRestriction::CantBeBlocked,
                     CreatureRestriction::CantAttackOrBlock,
                     CreatureRestriction::CantBlock,
@@ -933,6 +942,7 @@ impl RulesTxn {
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(VisibleStackEntry {
+            mode_mask: instance.mode_mask,
             selected_additional_costs: instance.selected_additional_costs.clone(),
             x: instance.x.clone(),
             hybrid_colors: instance.hybrid_colors.clone(),

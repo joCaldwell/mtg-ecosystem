@@ -82,6 +82,10 @@ pub enum Candidate<S: Space> {
         id: String,
         mana: ManaCost,
     },
+    Modes {
+        mask: u8,
+        labels: Vec<String>,
+    },
     HybridPayment {
         payment: HybridPayment,
     },
@@ -178,6 +182,7 @@ pub enum Reason<S: Space> {
         previous: Vec<S::Object>,
     },
     AdditionalCosts,
+    ChooseModes,
     HybridCost,
     ManaAbility {
         source: S::Object,
@@ -241,6 +246,7 @@ impl<S: Space> Reason<S> {
             Self::OrderLibraryTop => 28,
             Self::OrderLibraryBottom => 29,
             Self::EntryAttachment => 30,
+            Self::ChooseModes => 31,
         }
     }
 }

@@ -18,10 +18,7 @@
 //! independent of one another (a hosting review says nothing about hidden
 //! information), so a cell records each one it has passed.
 use super::*;
-use crate::{
-    ActivationCost, Capability, Definition, FunctioningZone, Instruction, SpellProgram,
-    TriggerCondition,
-};
+use crate::{ActivationCost, Capability, Definition, Instruction, SpellProgram, TriggerCondition};
 
 mod executes;
 
@@ -185,6 +182,7 @@ pub enum Cell {
     SourceKeywordsUntilEndOfTurn,
     TargetKeywordsUntilEndOfTurn,
     SetKeywordsUntilEndOfTurn,
+    CombatProhibitionUntilEndOfTurn,
     // CR 701.22-701.25: library search, shuffle, scry and surveil.
     /// CR 701.23: the controller searches their library.
     SearchController,
@@ -225,6 +223,12 @@ pub enum Cell {
     HybridManaCost,
     /// CR 702.29a: cycling, a hand activation discarding its own source.
     Cycling,
+    /// CR 702.29e-f: cycling pays for a qualified library search and shuffle.
+    Typecycling,
+    /// CR 602.5b-d: an activation's turn/step window or per-turn limit.
+    ActivationRestriction,
+    /// CR 113.6j, 602.2b, 701.13a: a graveyard activation exiling its source.
+    GraveyardExileSource,
     /// CR 119.4, 602.2b: a stack activation paying life.
     ActivationPayLife,
     /// CR 122.1, 602.2b: a stack activation removing +1/+1 counters from
@@ -322,6 +326,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SourceKeywordsUntilEndOfTurn
         | C::TargetKeywordsUntilEndOfTurn
         | C::SetKeywordsUntilEndOfTurn
+        | C::CombatProhibitionUntilEndOfTurn
         | C::SearchController
         | C::SearchLibraryTop
         | C::SearchTargetController
@@ -341,6 +346,9 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::XManaCost
         | C::HybridManaCost
         | C::Cycling
+        | C::Typecycling
+        | C::ActivationRestriction
+        | C::GraveyardExileSource
         | C::ActivationPayLife
         | C::ActivationRemoveCounters
         | C::SacrificeCostChoice
@@ -397,8 +405,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ManaActivationCostV1
         | C::AnyDamageTargetV1
         | C::NoncombatDamageV1
-        | C::SelfDiesV1
-        | C::ModalChoiceV1 => Tiers::SEARCH_HOSTING,
+        | C::SelfDiesV1 => Tiers::SEARCH_HOSTING,
+        C::ModalChoiceV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1
@@ -445,6 +453,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::StepBeginningTriggerV1
         | C::ContinuousStaticsV1
         | C::RuleStaticsV1
+        | C::TemporaryCombatProhibitionV1
         | C::EntryPlusOneCountersV1
         | C::ConditionalEntryTappedV1
         | C::EntryLifePaymentV1
@@ -470,6 +479,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ControlledCreatureSpellCopyV1
         | C::PayLifeCostV1
         | C::DiscardSourceCostV1
+        | C::ExileSourceCostV1
         | C::PlayerOrPlaneswalkerTargetV1
         | C::OpponentLifeDrainV1
         | C::KernelControlV1
@@ -521,7 +531,7 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         }
         Ok(())
     };
-    if let Some(p) = &d.spell {
+    for p in d.spell_programs() {
         add(p, Context::Spell, None)?;
     }
     for a in &d.activated {
@@ -557,8 +567,16 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         }
     }
     for a in &d.activated {
-        if a.functioning_zone == FunctioningZone::Hand {
+        if crate::cycling::typecycling_activation(a) {
+            cells.insert(Cell::Typecycling);
+        } else if crate::cycling::hand_discard_draw_activation(a) {
             cells.insert(Cell::Cycling);
+        }
+        if a.restriction.is_some() {
+            cells.insert(Cell::ActivationRestriction);
+        }
+        if matches!(a.cost, ActivationCost::ExileSource { .. }) {
+            cells.insert(Cell::GraveyardExileSource);
         }
         match &a.cost {
             ActivationCost::Composite { costs } => {

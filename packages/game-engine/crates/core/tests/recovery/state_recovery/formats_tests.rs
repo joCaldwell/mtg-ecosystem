@@ -19,15 +19,15 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
-    59,
-    "f9339952c54a0a4cad68f46af2db23e41d752c08a8c20362f921bf8a89a38b75",
+    61,
+    "03327c1a794125ac0eeaedb6acd613816f4972d1147037fa8fa62f8c88275d00",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    90,
-    "5f237b8f88542a20f282cc921276ef230aaec775d730d1ae5ae0b4c0241692ca",
+    94,
+    "0a8d414e630141811a74b7e24c1d9ddeaff2bfa9b1dd3b3da979a42081e16146",
 );
 const WORK_PIN: (u32, &str) = (
-    53,
+    54,
     "b33a47e5d01c6830ba59d896dd6b8a6cefaee639ad545e4ca709fe29258e78db",
 );
 
@@ -336,7 +336,7 @@ fn suspended_land_play_rejects_rehashed_tampering() {
 /// Wire shapes no fixture board suspends in: a battlefield search's entry
 /// choice with a chosen Aura host and a payment (CR 303.4f, 614.1c), and a
 /// forced tapped entry that still offers its payment, and a private
-/// top-order choice. Only their JSON shape is fingerprinted.
+/// top-order choice and outcome. Only their JSON shape is fingerprinted.
 fn library_entry_shapes() -> Vec<String> {
     let game = mid_resolution();
     let object = Driver::object(&game, 0);
@@ -361,10 +361,46 @@ fn library_entry_shapes() -> Vec<String> {
             source_block: 0,
         })
         .unwrap();
-    [search, entry, reorder]
+    let Frame::ResolutionChoice { frame, .. } = &game.state.rules.frame else {
+        unreachable!("fixture has a resolving choice")
+    };
+    let mut frame = frame.clone();
+    frame.cursor = 1;
+    frame.outcomes = vec![InstructionOutcome::Effect {
+        actual: Some(EventOutcome::LibraryTopReordered {
+            player: PlayerId(0),
+            looked: vec![object],
+            top: vec![object],
+        }),
+    }];
+    let mut completed = search.clone();
+    completed["state"]["rules"]["frame"] = serde_json::to_value(Frame::Resolve { frame }).unwrap();
+    [search, entry, reorder, completed]
         .iter()
         .map(|value| serde_json::to_string(value).unwrap())
         .collect()
+}
+
+/// Intervening comparisons carry one of three measured values in the saved
+/// resolution check. Substitute each variant to fingerprint its wire shape.
+fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
+    let mut sample: Value = serde_json::from_str(&mid_resolution().snapshot().unwrap()).unwrap();
+    [
+        ControllerMeasurement::Life(5.into()),
+        ControllerMeasurement::HandCount(7),
+        ControllerMeasurement::GraveyardCount(3),
+    ]
+    .into_iter()
+    .map(move |observed| {
+        sample["state"]["rules"]["frame"]["frame"]["condition_check"] =
+            serde_json::to_value(InterveningCheck::ControllerComparison {
+                controller: PlayerId(0),
+                observed,
+                passed: true,
+            })
+            .unwrap();
+        serde_json::to_string(&sample).unwrap()
+    })
 }
 
 #[test]
@@ -379,6 +415,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .chain(mana_riders())
         .map(|g| g.snapshot().unwrap())
         .chain(library_entry_shapes())
+        .chain(intervening_comparison_shapes())
         .collect::<Vec<_>>();
     for raw in &samples {
         let value: Value = serde_json::from_str(raw).unwrap();

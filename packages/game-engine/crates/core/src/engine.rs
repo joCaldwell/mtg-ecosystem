@@ -21,6 +21,7 @@ pub mod state_digest;
 pub use advance_report::*;
 pub use match_admission::*;
 pub mod commander_policy;
+mod modal;
 pub mod optional_costs;
 pub mod phasing;
 pub use commander_policy::policy_digest;

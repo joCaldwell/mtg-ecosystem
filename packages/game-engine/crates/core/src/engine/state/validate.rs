@@ -155,6 +155,7 @@ impl RulesTxn {
         self.validate_tokens_state()?;
         self.validate_counter_placement_state()?;
         self.validate_mana_uses()?;
+        self.validate_activation_uses()?;
         self.validate_trigger_state()?;
         self.validate_library_position_memory()?;
         self.validate_effect_state()?;
@@ -218,6 +219,7 @@ impl RulesTxn {
                 && (matches!(
                     self.underlying_mana_frame(&s.rules.frame)?,
                     Frame::TriggerTargets { .. }
+                        | Frame::ChooseModes { .. }
                         | Frame::AdditionalCosts { .. }
                         | Frame::HybridCost { .. }
                         | Frame::AnnounceX { .. }
@@ -272,7 +274,8 @@ impl RulesTxn {
             self.validate_resolution_payment(frame, payment)?;
         }
         match self.underlying_mana_frame(&s.rules.frame)? {
-            Frame::AdditionalCosts { cast }
+            Frame::ChooseModes { cast }
+            | Frame::AdditionalCosts { cast }
             | Frame::HybridCost { cast }
             | Frame::AnnounceX { cast }
             | Frame::EntityTargets { cast }
@@ -317,7 +320,8 @@ impl RulesTxn {
                     })
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame)?,
-                        Frame::AdditionalCosts { .. }
+                        Frame::ChooseModes { .. }
+                            | Frame::AdditionalCosts { .. }
                             | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
                             | Frame::EntityTargets { .. }
@@ -343,7 +347,8 @@ impl RulesTxn {
                 if (target_stage
                     || matches!(
                         stage,
-                        Frame::AdditionalCosts { .. }
+                        Frame::ChooseModes { .. }
+                            | Frame::AdditionalCosts { .. }
                             | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
                     ))
