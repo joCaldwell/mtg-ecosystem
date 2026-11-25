@@ -383,25 +383,17 @@ other graveyards, self-exile from hand and chosen-object mana abilities remain
 outside these cells.
 
 Printed restrictions are permission gates. "As a sorcery" is main-phase
-timing. "During your turn", "during your upkeep", "during your turn, before
-attackers are declared", "during combat", "during the end of combat step" and
-"if it's not your turn" are typed windows. "Only once each turn" records a use
-for the source incarnation and ability when the activation completes; a
-reversed announcement uses nothing. The record survives control changes and
-clears on a zone change or a new turn (CR 400.7, 602.5b-d). Validation rejects
-a use off the battlefield, on an unlimited ability, or disagreeing with whether
-its stack entry is paid.
-
-"Activate only if" is read once, from current state, as the activation begins
-(CR 602.1b, 602.5, 605.3a), on stack and mana abilities. One audited
-`kir::ActivationCondition` admits counts of permanents you control, cards in
-your graveyard or hand, and the source's combat status or power, under "and"
-and "or". One measurement decides both the offer and the start of an
-activation; the stack entry or mana receipt keeps the counts it read, and
-restore rejects missing, failing or impossible counts. The printed sentence
-must equal the one the AST renders; other conditions, conditioned mana
-abilities with a mana cost, and "N times each turn" reject. The simulator's
-mana planner skips conditioned sources. Each of these surfaces is its own
+timing; your turn, your upkeep, your turn before attackers, combat, end of
+combat and not your turn are typed windows. "Only once each turn" records a
+use per source incarnation and ability when the activation completes; a
+reversal uses nothing. It survives control changes, clearing on a zone change
+or new turn (CR 400.7, 602.5b-d). Validation rejects a use off the
+battlefield, on an unlimited ability, or disagreeing with whether its stack
+entry is paid. "Activate only if" is read once, as activation begins (CR
+602.5, 605.3a): an audited `kir::ActivationCondition` counts permanents you
+control, your graveyard or hand, or the source's facts. Offer and start share
+it; stack entries and mana receipts keep its counts, which restore checks.
+Simulator mana plans need public proof. Others reject. Each of these surfaces is its own
 `Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Typecycling`,
 `Kicker`, `Flashback`, `SpellAdditionalSacrifice`, `ActivationPayLife`,
 `ActivationRemoveCounters`, `SacrificeCostChoice`, `SacrificeCostTap`,

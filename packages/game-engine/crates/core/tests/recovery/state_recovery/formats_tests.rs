@@ -23,8 +23,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "6f3c99f1cffb0c62216551ce4985e87b56b4fa6f2c1dbfa25dc7083bca6dd101",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    101,
-    "a2ca5fafcb3f74dbbc3958bbb304e77c46c1ba50cc01c36903913ad505037e94",
+    103,
+    "c734a2efd6a7688f1bae62dd40d38982814d22df92c34a82f0e4c12c81d2db8e",
 );
 const WORK_PIN: (u32, &str) = (
     56,

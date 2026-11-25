@@ -162,9 +162,87 @@ fn usable_printed(
             .as_ref()
             .is_none_or(|n| object.plus_one_counters >= *n)
         && !(ability.restriction.is_some() && object.mana_ability_used == Some(true))
-        // CR 602.5: the view does not prove an "Activate only if" condition;
-        // the plan never names a source the payment window may not offer.
-        && ability.condition.is_none()
+}
+
+/// CR 602.5: whether an "Activate only if" condition provably holds in the
+/// permitted view, read the way the rules core reads it. Each counted object
+/// must be decided from public facts; an undecided object or an unaudited
+/// condition leaves the source out, so a plan never names a source the
+/// payment window may not offer.
+fn condition_holds(
+    view: &PermittedView,
+    source: &mtg_core::VisibleObject,
+    condition: Option<&mtg_contracts::kir::Cond>,
+) -> bool {
+    use mtg_contracts::kir::ActivationCondition as C;
+    use mtg_core::query::{Tri, in_view, matches_battlefield_pred, matches_pred};
+    let Some(condition) = condition else {
+        return true;
+    };
+    let Ok(form) = C::of(condition) else {
+        return false;
+    };
+    // The plan's own taps would change a count that reads tapped status.
+    fn reads_tapped(atoms: &[mtg_contracts::kir::Atom]) -> bool {
+        use mtg_contracts::kir::Atom;
+        atoms.iter().any(|a| match a {
+            Atom::Tapped | Atom::Untapped => true,
+            Atom::AnyOf { alternatives } => alternatives.iter().any(|p| reads_tapped(&p.0)),
+            _ => false,
+        })
+    }
+    if form.leaves().into_iter().any(|leaf| match leaf {
+        C::Controlled { filter, .. } | C::GraveyardCards { filter, .. } | C::Source { filter } => {
+            reads_tapped(&filter.0)
+        }
+        _ => false,
+    }) {
+        return false;
+    }
+    let you = view.viewer;
+    let decided = |answers: Vec<Tri>| -> Option<u32> {
+        let mut count = 0u32;
+        for answer in answers {
+            match answer {
+                Tri::Yes => count = count.checked_add(1)?,
+                Tri::No => {}
+                Tri::Unknown => return None,
+            }
+        }
+        Some(count)
+    };
+    let count = |leaf: &C| -> Option<u32> {
+        match leaf {
+            C::Controlled { filter, .. } => decided(
+                view.objects
+                    .iter()
+                    .filter(|o| o.zone == Zone::Battlefield)
+                    .map(|o| matches_battlefield_pred(&in_view(view, o), you, filter))
+                    .collect(),
+            ),
+            C::GraveyardCards { filter, .. } => decided(
+                view.objects
+                    .iter()
+                    .filter(|o| o.zone == (Zone::Graveyard { owner: you }) && o.token.is_none())
+                    .map(|o| matches_pred(&in_view(view, o), you, filter))
+                    .collect(),
+            ),
+            C::HandCards { .. } => view
+                .players
+                .iter()
+                .find(|p| p.player == you)
+                .map(|p| p.hand_count),
+            C::Source { filter } => {
+                decided(vec![matches_pred(&in_view(view, source), you, filter)])
+            }
+            C::All(_) | C::Any(_) => None,
+        }
+    };
+    form.leaves()
+        .into_iter()
+        .map(count)
+        .collect::<Option<Vec<_>>>()
+        .is_some_and(|counts| form.passes(&counts))
 }
 
 /// The colors one ability of a permanent `controller` controls produces.
@@ -306,7 +384,9 @@ pub(super) fn plan_for(
             .map(|p| p.life.clone())
             .unwrap_or_default();
         for (index, ability) in d.mana_abilities.iter().enumerate() {
-            if !usable_printed(ability, o, &life) {
+            if !usable_printed(ability, o, &life)
+                || !condition_holds(view, o, ability.condition.as_ref())
+            {
                 continue;
             }
             let colors = production_colors(catalog, view, &ability.production, view.viewer);
@@ -503,6 +583,47 @@ mod tests {
             production_colors(&c, &v, &ManaProduction::CommanderColor, PlayerId(0)),
             vec![Color::B]
         );
+    }
+
+    /// Temple of the False God: "{T}: Add {C}{C}. Activate only if you
+    /// control five or more lands." The plan names it exactly when the public
+    /// board proves the condition (CR 602.5).
+    #[test]
+    fn temple_of_the_false_god_is_planned_only_with_five_lands() {
+        let mtg_compiler::CompileResult::Lowered { definition } = mtg_compiler::compile(
+            include_str!("../../../../tests/fixtures/archive-manifest-phase1-r4.json"),
+            include_str!(
+                "../../../../tests/fixtures/phase1-r4/cfdd5dc6-593e-495a-8cfe-3a56b3c4c7df.json"
+            ),
+        ) else {
+            panic!("frozen Temple of the False God lowers");
+        };
+        let mut c = mtg_compiler::catalog::embedded_catalog("match").unwrap();
+        c.definitions.push(*definition);
+        let generic = |n: i64| ManaCost {
+            generic: n.into(),
+            colored: vec![],
+        };
+        for lands in [4usize, 5] {
+            let mut v = view();
+            v.objects.push(land(&c, "Temple of the False God", 3));
+            for i in 1..lands {
+                let mut forest = land(&c, "Forest", 3);
+                forest.handle = ObjectHandle(format!("Forest-{i}"));
+                v.objects.push(forest);
+            }
+            // Every land, with the Temple's two: lands + 1 mana.
+            let all = plan_for(&c, &v, &generic(lands as i64 + 1), None);
+            assert_eq!(all.is_some(), lands == 5, "{lands}");
+            if let Some(plan) = all {
+                assert!(plan.iter().any(|p| p.source == v.objects[0].handle));
+            }
+            // Without the condition the Forests alone still pay what they can.
+            if lands == 4 {
+                let forests = plan_for(&c, &v, &generic(3), None).unwrap();
+                assert!(forests.iter().all(|p| p.source != v.objects[0].handle));
+            }
+        }
     }
 
     #[test]
