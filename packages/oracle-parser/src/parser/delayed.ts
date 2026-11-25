@@ -31,7 +31,9 @@ function hasSupportedContinuations(sentences: Sentence[], reflexive = false): bo
     // that player, whatever else would continue the body.
     if (!exileActorsMatch(sentences.slice(0, i), next)) return false;
     if (next.condition?.condition === "you-do" || next.condition?.condition === "you-dont") continue;
-    if (reflexive && continuesReflexiveBody(previous, next)) continue;
+    // A quoted ability has its own references; it never ties a sentence to
+    // the created body, through any shortcut.
+    if (reflexive && !hasNode(next.steps, node => node.gained === "quoted") && continuesReflexiveBody(previous, next)) continue;
     if (continuesBodyLocalObject(sentences.slice(0, i), next, reflexive)) continue;
     // "..., then exile … and copy them. You may cast the copies": the cast
     // refers to the copies the sentence's final step made.
@@ -117,8 +119,7 @@ function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: b
   // A reflexive ability's intervening condition (603.4) is recorded on its
   // first sentence only; it cannot also govern a continuation.
   if (reflexive && body.some(sentence => sentence.condition)) return false;
-  const objects = reflexive && hasTarget(body) ||
-    hasOwnNode(body, node => node.effect === "create-token" || (node.effect === "choose-object" && !isCardRef(node.what)));
+  const produced = producedObjects(body, reflexive);
   // Each card anaphor needs the production that can be its antecedent:
   // "exiled this way" / "the exiled cards" an exile, "those cards" / "the
   // rest" a look, and a singular "that card" a chosen or found card.
@@ -135,9 +136,44 @@ function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: b
   if (hasNode(next.steps, node => node.gained === "quoted")) return false;
   // A card anaphor with no matching production names something else.
   if (hasNode(next.steps, node => cardAnaphorKind(node) !== null && !cardAnaphor(node))) return false;
-  return hasNode(next.steps, cardAnaphor) ||
-    (objects && hasNode(next.steps, node => (node.ref === "it" || node.ref === "them" ||
-      (node.ref === "that" && !isCardRef(node))) && cardAnaphorKind(node) === null));
+  // Every other anaphor must name a produced object of a matching type and
+  // number: "Untap that creature" after a reflexive target creature, "It
+  // gains haste" after one such target, "Sacrifice them" after two tokens.
+  // "Untap that artifact" after creating a Rat has no such antecedent.
+  const anaphors: Record<string, unknown>[] = [];
+  hasNode(next.steps, node => {
+    if ((node.ref === "it" || node.ref === "them" || (node.ref === "that" && !isCardRef(node))) && cardAnaphorKind(node) === null) anaphors.push(node);
+    return false;
+  });
+  // With a card anaphor, nothing else may need an antecedent.
+  if (hasNode(next.steps, cardAnaphor)) return anaphors.length === 0;
+  return anaphors.length > 0 && anaphors.every(node => {
+    if (node.ref === "it") return produced.length === 1 && !produced[0].plural;
+    if (node.ref === "them") return produced.length === 1 && produced[0].plural;
+    const types = ((node.filter as { types?: unknown } | undefined)?.types ?? []) as string[];
+    const filterKeys = Object.keys((node.filter ?? {}) as object);
+    return !node.plural && types.length === 1 && filterKeys.length === 1 &&
+      produced.filter(object => object.types.includes(types[0])).length === 1 &&
+      produced.some(object => !object.plural && object.types.includes(types[0]));
+  });
+}
+
+/** The objects a body produces at its own level: created tokens and, for a
+ * reflexive ability, its targets (CR 603.12), with their card types. */
+function producedObjects(body: Sentence[], reflexive: boolean): { types: string[]; plural: boolean }[] {
+  const produced: { types: string[]; plural: boolean }[] = [];
+  hasOwnNode(body, node => {
+    if (node.effect === "create-token") {
+      const token = node.token as { types?: string[] } | undefined;
+      produced.push({ types: token?.types ?? [], plural: JSON.stringify(node.count) !== '{"amount":"fixed","value":1}' });
+    }
+    if (reflexive && node.ref === "target") {
+      const filter = node.filter as { types?: string[] } | undefined;
+      produced.push({ types: filter?.types ?? [], plural: JSON.stringify(node.count) !== '{"amount":"fixed","value":1}' });
+    }
+    return false;
+  });
+  return produced;
 }
 
 /** Who made each of the body's library exiles (an elided actor is you). */

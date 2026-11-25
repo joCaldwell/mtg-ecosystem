@@ -328,6 +328,9 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
         // antecedent checks as any other, before the conditional half does.
         if (!clashOutcomeHasClash(sentences, thenPrefix, containsEffect) || !voteReferencesResolved(sentences, thenPrefix) ||
           !pileReferencesResolved(sentences, thenPrefix)) return c.fail("resolved references before a conditional final instruction");
+        // "the chosen spell/permanent" needs exactly one earlier choice of one object.
+        if (JSON.stringify(s.steps).includes('"ref":"choice-result"') && !singleEarlierChoice(sentences))
+          return c.fail("one chosen object before a conditional final instruction");
         const withPrefix = [...sentences, thenPrefix];
         if (!clashOutcomeHasClash(withPrefix, s, containsEffect) || !voteReferencesResolved(withPrefix, s) ||
           !pileReferencesResolved(withPrefix, s)) return c.fail("resolved references before a conditional final instruction");
@@ -844,6 +847,14 @@ const isFixed = (amount: unknown) => !!amount && typeof amount === "object" && (
 const isSelf = (ref: unknown) => !!ref && typeof ref === "object" && ["self", "this"].includes((ref as { ref?: unknown }).ref as string) &&
   Object.keys(ref).every(key => key === "ref" || key === "noun");
 
+/** Exactly one earlier instruction chose objects, and it chose exactly one. */
+function singleEarlierChoice(sentences: Sentence[]): boolean {
+  const choices = sentences.flatMap(sentence => sentence.steps).filter(step => step.effect === "declare-target" || step.effect === "choose-object");
+  if (choices.length !== 1) return false;
+  const what = (choices[0] as { what?: unknown }).what as { count?: unknown; upTo?: unknown } | undefined;
+  return !!what && JSON.stringify(what.count) === '{"amount":"fixed","value":1}' && !what.upTo;
+}
+
 const isChosen = (what: unknown) => !!what && typeof what === "object" && (what as { ref?: unknown }).ref === "choice-result" &&
   (what as { number?: unknown }).number === "singular";
 const forYou = (step: Effect, kinds: Effect["effect"][]) => kinds.includes(step.effect) &&
@@ -878,9 +889,26 @@ function isAllowlistedSplit(prefix: Effect[], conditional: Effect[], condition: 
     step.effect === "move-zone" && keysAre(step, ["effect", "what", "to"]) && json(step.what) === '{"ref":"that","filter":{"cls":"card"}}' &&
     json(step.to) === '{"zone":"battlefield"}') return true;
   if (only && forYou(only, ["mill"]) && step.effect === "destroy" && keysAre(step, ["effect", "what"]) && isChosen(step.what)) return true;
-  // Rows whose condition may name nothing in the sentence.
-  const pronoun = JSON.stringify(condition).match(/"ref":"(it|that|them|those|rest|choice-result)"|"player":"(that-player|those-players|they)"/);
-  if (pronoun) return false;
+  // Rows whose condition may name nothing in the sentence: only you and
+  // quantified descriptions ("you control a Swamp"), never another player,
+  // an object, or a relation to one ("its owner", "its controller").
+  let names = false;
+  const visit = (value: unknown): void => {
+    if (names || !value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    const node = value as Record<string, unknown>;
+    if (typeof node.player === "string" && node.player !== "you") names = true;
+    if (typeof node.ref === "string" && node.ref !== "filter") names = true;
+    if ("of" in node && typeof node.of === "object" && node.of && "ref" in node.of) names = true;
+    // Zone and control relations: "its owner's hand", "that player controls".
+    for (const key of ["owner", "control", "controller"]) {
+      const relation = node[key];
+      if (typeof relation === "string" && relation !== "your" && relation !== "you") names = true;
+    }
+    Object.values(node).forEach(visit);
+  };
+  visit(condition);
+  if (names) return false;
   return prefix.every(earlier => forYou(earlier, ["draw", "gain-life", "mill"]) || isLook(earlier)) &&
     (forYou(step, ["lose-life", "gain-life", "draw"]) || (step.effect === "exile" && keysAre(step, ["effect", "what"]) &&
       json(step.what) === '{"ref":"library-cards","position":"top","count":{"amount":"fixed","value":1},"of":{"zone":"library","owner":"your"}}'));

@@ -236,8 +236,6 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
           });
           if (unless) {
             modifier.condition = { condition: "not", of: unless };
-            if ((what.ref === "each" || what.ref === "all") && JSON.stringify(unless).includes('{"ref":"it"}'))
-              modifier.conditionScope = "each-affected-object";
             continue;
           }
         }
@@ -481,6 +479,10 @@ function parseStaticGroup(c: Cursor): StaticEffect | null {
       const rightCursor = new Cursor(remaining);
       const right = parseStaticUnbound(rightCursor);
       if (!right || !rightCursor.done() || (entry ? right.static !== "as-enters" : !clause(right))) continue;
+      // A conditional sentence accepted only at the sentence boundary may
+      // name no second singular object: "As long as this Equipment is
+      // tapped, it doesn't untap …" leaves "it" ambiguous.
+      if (!entry && !isUngovernedStaticClause(right) && namesAnotherObject(tail)) continue;
       if (entry && right.static === "as-enters" && JSON.stringify(right.what) !== JSON.stringify(subject)) continue;
       // "..., where X is ..." can bind the preceding instruction as well.
       // Do not assign a final binding solely to the right clause when a left
@@ -519,6 +521,18 @@ function isUngovernedStaticClause(effect: StaticEffect): boolean {
   // A trailing condition could govern the whole conjunction. Keep those
   // forms unsupported until their scope has an explicit representation.
   return !hasOuterCondition(effect);
+}
+
+/** Unquoted words that introduce or name a singular object other than the
+ * continued subject. */
+function namesAnotherObject(tokens: Token[]): boolean {
+  let quoted = false;
+  return tokens.some(token => {
+    if (token.kind === "punct" && token.value === '"') { quoted = !quoted; return false; }
+    if (quoted) return false;
+    if (token.kind === "selfref") return true;
+    return token.kind === "word" && ["this", "that", "target", "another", "enchanted", "equipped"].includes(token.value);
+  });
 }
 
 /** A complete static sentence whose own condition, leading or trailing,

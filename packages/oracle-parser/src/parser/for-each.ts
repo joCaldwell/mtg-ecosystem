@@ -110,9 +110,15 @@ const EVENTLESS_EFFECTS = new Set<Effect["effect"]>(["create-token", "draw", "da
  * Any other loop makes its sentence list fail there. */
 const settled = new WeakSet<Loop>();
 
-/** Any instruction that shuffles a library: "shuffle", and "shuffle …
- * into your library" (CR 701.24c), both end a CR 701.23h search window. */
-const shufflesLibrary = (step: Effect) => step.effect === "shuffle" || step.effect === "shuffle-into-library";
+/** Every library-shuffling instruction in the steps ("shuffle", and
+ * "shuffle … into your library", CR 701.24c), also inside groups, options
+ * and conditional branches, but never inside a created ability. Each ends a
+ * CR 701.23h search window. */
+function libraryShuffles(steps: Effect[]): Effect[] {
+  const found: Effect[] = [];
+  hasOwnNode(steps, node => { if (node.effect === "shuffle" || node.effect === "shuffle-into-library") found.push(node as unknown as Effect); return false; });
+  return found;
+}
 
 function laterShuffle(sentences: Sentence[], from: number): boolean {
   return sentences.slice(from).some(sentence => hasOwnNode(sentence.steps, node => node.effect === "shuffle" || node.effect === "shuffle-into-library"));
@@ -255,7 +261,7 @@ function shufflesSearchedLibrary(loop: Loop, next: Sentence): boolean {
  * (Jace, Architect of Thought). With no shuffle after the loop, the wording
  * has none to record. */
 function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
-  const shuffles = next.steps.filter(shufflesLibrary);
+  const shuffles = libraryShuffles(next.steps);
   const searches = ownSearches(loop);
   // A search inside an ability the body creates happens later; it is never
   // the search of a shuffle made now.
@@ -310,6 +316,25 @@ function isAllowlistedSearchBody(loop: Loop): boolean {
   return false;
 }
 
+/** "its controller may search their library for a basic land card, put it
+ * onto the battlefield [tapped], then shuffle" in an object loop: each
+ * controller's searches of their own library all precede their shuffle, so
+ * they are one search (CR 701.23h) whichever members share a controller. */
+function controllerSearchesOwnLibrary(each: ObjectRef | PlayerRef, effects: Sentence[]): boolean {
+  if (!("ref" in each) || effects.length !== 1) return false;
+  const [body] = effects;
+  if (body.condition || body.otherwise || body.bindings || body.steps.length !== 1) return false;
+  const [group] = body.steps;
+  const controller = '{"player":"controller","of":{"ref":"it"}}';
+  if (group.effect !== "optional-group" || JSON.stringify(group.who) !== controller || group.steps.length !== 3) return false;
+  const [search, put, shuffle] = group.steps;
+  return search.effect === "search" && JSON.stringify(search.who) === controller &&
+    JSON.stringify(search.zones) === '{"selection":"all","of":[{"zone":"library","owner":"their"}]}' &&
+    put.effect === "move-zone" && JSON.stringify(put.what) === '{"ref":"it"}' && JSON.stringify(put.to) === '{"zone":"battlefield"}' &&
+    shuffle.effect === "shuffle" && JSON.stringify(shuffle.who) === controller &&
+    JSON.stringify(shuffle.library) === `{"zone":"library","owner":${controller}}`;
+}
+
 function ownSearches(loop: Loop): Extract<Effect, { effect: "search" }>[] {
   const found: Extract<Effect, { effect: "search" }>[] = [];
   hasOwnNode(loop.effects, node => { if (node.effect === "search") found.push(node as unknown as Extract<Effect, { effect: "search" }>); return false; });
@@ -324,8 +349,9 @@ function librarySearched(search: Extract<Effect, { effect: "search" }>): string 
 
 function markSearchShuffle(loop: Loop, next: Sentence): boolean {
   if (next.condition || next.otherwise) return false;
-  const shuffles = next.steps.filter(shufflesLibrary);
-  if (shuffles.length !== 1) return false;
+  // Exactly one shuffle, and it is a direct instruction of that sentence.
+  const shuffles = libraryShuffles(next.steps);
+  if (shuffles.length !== 1 || !next.steps.includes(shuffles[0])) return false;
   const [shuffle] = shuffles;
   if (shuffle.effect !== "shuffle" || shuffle.optional || shuffle.forEach || shuffle.library.zone !== "library" ||
     JSON.stringify(shuffle.library.owner) !== JSON.stringify(shuffle.who)) return false;
@@ -523,7 +549,7 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
       shuffleScopeUnchecked.delete(step);
       const next = sentences[i + 1];
       if (laterShuffle(sentences, i + 2)) return false;
-      if (next && next.steps.some(shufflesLibrary) && !coalesceMemberSearches(step, next)) return false;
+      if (next && libraryShuffles(next.steps).length && !coalesceMemberSearches(step, next)) return false;
     }
     for (const loop of unsettledLoops(sentences[i])) {
       const next = sentences[i + 1];
@@ -591,6 +617,12 @@ export function parseForEach(c: Cursor, parseBody: (body: Cursor) => Sentence[] 
     // be simultaneous when members may share that library; instruction-wise
     // processing would run every read before any later action.
     if (effects[0].steps.length > 1 && !ownLibrariesOnly(each, effects[0].steps))
+      return c.fail("member-wise processing of a library action");
+    // A member search shuffled inside the body: only the proven shapes, in
+    // which each searcher searches and shuffles their own library (Jace,
+    // Architect of Thought; Krenko's Buzzcrusher).
+    if (hasOwnNode(effects, isSearch) && libraryShuffles(effects[0].steps).length &&
+      !isAllowlistedSearchBody({ effect: "for-each", each, effects, processing: "instruction-wise" }) && !controllerSearchesOwnLibrary(each, effects))
       return c.fail("member-wise processing of a library action");
     const independent = !after || (after.kind === "word" && !after.possessive && after.value === "activate") ||
       independentOfLoop(c.tokens.slice(end + 1), earlierEventParticiple(each, effects));

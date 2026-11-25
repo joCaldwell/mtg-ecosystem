@@ -95,6 +95,10 @@ describe("GG-delay: a created ability owns sentences that name objects only its 
     rejects("When this enchantment enters, sacrifice a creature. When you do, you gain 3 life. If the sacrificed creature was a Hamster, draw a card.", "Enchantment");
     // Earthbender Ascension: the reflexive "if" would also govern the trample grant.
     rejects("Landfall — Whenever a land you control enters, put a quest counter on this enchantment. When you do, if it has four or more quest counters on it, put a +1/+1 counter on target creature you control. It gains trample until end of turn.", "Enchantment", "Earthbender Ascension");
+    // Every reference must name a body product of the same type: the Rat is no artifact.
+    rejects("{T}: Tap target noncreature artifact. When a nonartifact creature enters this turn, create a 1/1 black Rat creature token. Untap that artifact.", "Artifact");
+    // The reflexive shortcut never attaches through a pronoun inside a quotation.
+    rejects("You may sacrifice a creature. When you do, put a +1/+1 counter on target creature. This creature gains \"Whenever a creature attacks, untap it.\"", "Creature — Human");
     // A quoted ability's references never tie a sentence to the delayed body.
     rejects("{T}: When an artifact enters this turn, create a 1/1 black Rat creature token. This artifact gains \"Whenever a creature you control attacks, untap it.\"", "Artifact");
     // "That player" must be exactly one player at the body's own level.
@@ -146,6 +150,12 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
     // One search per member with no shuffle wording has nothing to record.
     const [lands] = card("For each opponent, that player searches their library for a basic land card and puts it into their hand.", "Probe", "Sorcery");
     assert.equal(effects(lands).length, 1);
+  });
+
+  it("keeps each controller's search and shuffle of their own library in the body (Krenko's Buzzcrusher)", () => {
+    const abilities = card("Flying, trample\nWhen this creature enters, for each player, destroy up to one nonbasic land that player controls. For each land destroyed this way, its controller may search their library for a basic land card, put it onto the battlefield tapped, then shuffle.", "Krenko's Buzzcrusher", "Creature — Insect");
+    const loop = only(effects(abilities[1])[1], "for-each");
+    assert.deepEqual(only(loop.effects[0], "optional-group").steps.map(step => step.effect), ["search", "move-zone", "shuffle"]);
   });
 
   it("shuffles every player who searched this way once (From the Ashes)", () => {
@@ -200,6 +210,10 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
     // Shuffling a card into the library also shuffles it (CR 701.24c), so it
     // must be an allowlisted CR 701.23h shuffle too.
     rejects("For each creature you control, search your library for a basic land card. Put those cards onto the battlefield, then shuffle this spell into your library.", "Sorcery");
+    // A shuffle nested in an optional group is still a library shuffle.
+    rejects("For each creature you control, search your library for a basic land card. Put those cards onto the battlefield, then you may shuffle this spell into your library and draw a card.", "Sorcery");
+    // A member search shuffled inside an instruction-wise body (only Jace's shape is proven).
+    rejects("For each creature you control, search your library for a basic land card and shuffle it into your library.", "Sorcery");
     // A shuffle two sentences after the loop is never checked as the members' shuffle.
     rejects("For each creature you control, you may search your library for a creature card with the same name as that creature. Put those cards onto the battlefield. Then shuffle.", "Sorcery");
     // The member's scry and your draw touch different libraries in every iteration.
@@ -251,6 +265,10 @@ describe("GG-cond: a trailing condition after ', then' governs only the final in
     // could be the drawn card, and "that card" has no singular antecedent.
     rejects("{T}: Draw a card, then sacrifice this creature if it's tapped.", "Creature — Human");
     rejects("Draw two cards, then put that card onto the battlefield if it's a creature card.", "Sorcery");
+    // A for-you row's condition may name no object or player ("its owner").
+    rejects("Target opponent reveals a card in their hand. Gain 1 life, then draw a card if there are five or more cards in its owner's hand.", "Sorcery");
+    // "the chosen spell" needs exactly one earlier single choice.
+    rejects("Choose two target spells. Surveil 2, then counter the chosen spell unless its controller pays {1}.", "Instant");
     // Only allowlisted instruction shapes split; here the top card of each player's library.
     rejects("Draw a card, then exile the top card of each player's library if it's a creature card.", "Sorcery");
     rejects("Counter target activated ability from an artifact source and destroy that artifact if it's on the battlefield.", "Instant");
@@ -330,6 +348,8 @@ describe("GG-perm: static abilities that were only readable as resolving instruc
   });
 
   it("still rejects a pronoun that disagrees with the preceding subject", () => {
+    // A second singular object in the conditional sentence makes "it" ambiguous.
+    rejects("Equipped creature gets +1/+1. As long as this Equipment is tapped, it doesn't untap during your untap step.", "Artifact — Equipment");
     rejects("Creatures you control get +1/+1. As long as you control a Swamp, it has vigilance.", "Enchantment");
     rejects("Equipped creature gets +1/+1. As long as it's red, they have trample.", "Artifact — Equipment");
   });
