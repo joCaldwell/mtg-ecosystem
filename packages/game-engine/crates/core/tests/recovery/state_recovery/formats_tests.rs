@@ -448,7 +448,9 @@ fn activation_condition_shapes() -> Vec<Game> {
         left: Amount::Count {
             set: SetExpr::battlefield(mtg_contracts::kir::Pred(vec![
                 mtg_contracts::kir::Atom::Type { kind },
-                mtg_contracts::kir::Atom::ControlledBy { player: you.clone() },
+                mtg_contracts::kir::Atom::ControlledBy {
+                    player: you.clone(),
+                },
             ])),
         },
         cmp: mtg_contracts::kir::Cmp::AtLeast,
@@ -470,9 +472,8 @@ fn activation_condition_shapes() -> Vec<Game> {
                     once_each_turn: false,
                     condition: Some(controls(CardKind::Land)),
                 }),
-                program: SpellProgram::instructions(SpellTiming::Instant).with_instructions([
-                    Instruction::draw(you.clone(), 1.into(), 0),
-                ]),
+                program: SpellProgram::instructions(SpellTiming::Instant)
+                    .with_instructions([Instruction::draw(you.clone(), 1.into(), 0)]),
             });
         } else if d.name == "Sol Ring" {
             d.mana_abilities[0].condition = Some(controls(CardKind::Artifact));

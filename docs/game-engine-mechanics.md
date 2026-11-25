@@ -382,16 +382,26 @@ after the mana window. Random and whole-hand discard, variable counts,
 other graveyards, self-exile from hand and chosen-object mana abilities remain
 outside these cells.
 
-Printed restrictions are permission gates. "As a sorcery" is the program's
-main-phase timing. "During your turn", "during your upkeep" and "during your
-turn, before attackers are declared" (upkeep through beginning of combat) are
-typed windows. "Only once each turn" records a use for the source incarnation
-and ability when the activation completes; a reversed announcement uses
-nothing. The record survives control changes and clears on a zone change or a
-new turn (CR 400.7, 602.5b-d). Validation rejects a use outside the
-battlefield, on an unlimited ability, or that disagrees with whether its stack
-entry is paid. A printed restriction the compiler cannot read rejects; mana
-abilities admit only once each turn. Each of these surfaces is its own
+Printed restrictions are permission gates. "As a sorcery" is main-phase
+timing. "During your turn", "during your upkeep", "during your turn, before
+attackers are declared", "during combat", "during the end of combat step" and
+"if it's not your turn" are typed windows. "Only once each turn" records a use
+for the source incarnation and ability when the activation completes; a
+reversed announcement uses nothing. The record survives control changes and
+clears on a zone change or a new turn (CR 400.7, 602.5b-d). Validation rejects
+a use off the battlefield, on an unlimited ability, or disagreeing with whether
+its stack entry is paid.
+
+"Activate only if" is read once, from current state, as the activation begins
+(CR 602.1b, 602.5, 605.3a), on stack and mana abilities. One audited
+`kir::ActivationCondition` admits counts of permanents you control, cards in
+your graveyard or hand, and the source's combat status or power, under "and"
+and "or". One measurement decides both the offer and the start of an
+activation; the stack entry or mana receipt keeps the counts it read, and
+restore rejects missing, failing or impossible counts. The printed sentence
+must equal the one the AST renders; other conditions, conditioned mana
+abilities with a mana cost, and "N times each turn" reject. The simulator's
+mana planner skips conditioned sources. Each of these surfaces is its own
 `Executes`-only cell (`XManaCost`, `HybridManaCost`, `Cycling`, `Typecycling`,
 `Kicker`, `Flashback`, `SpellAdditionalSacrifice`, `ActivationPayLife`,
 `ActivationRemoveCounters`, `SacrificeCostChoice`, `SacrificeCostTap`,

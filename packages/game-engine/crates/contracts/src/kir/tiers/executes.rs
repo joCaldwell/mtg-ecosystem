@@ -518,7 +518,9 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     if let Some(r) = &a.restriction
         && (r.window.is_none() && !r.once_each_turn && r.condition.is_none()
             || r.window.is_some() && a.program.timing == SpellTiming::MainPhase
-            || r.condition.as_ref().is_some_and(|c| kir::ActivationCondition::of(c).is_err()))
+            || r.condition
+                .as_ref()
+                .is_some_and(|c| kir::ActivationCondition::of(c).is_err()))
     {
         return cell("activated", "restriction");
     }
@@ -641,9 +643,10 @@ fn mana_ability(d: &Definition, a: &ManaAbility) -> Result<(), String> {
     }
     // A mana cost would pay nested mana after the condition was read; no
     // admitted conditioned mana ability needs that order.
-    if a.condition.as_ref().is_some_and(|c| {
-        kir::ActivationCondition::of(c).is_err() || a.costs.mana.is_some()
-    }) {
+    if a.condition
+        .as_ref()
+        .is_some_and(|c| kir::ActivationCondition::of(c).is_err() || a.costs.mana.is_some())
+    {
         return cell("mana", "condition");
     }
     Ok(())

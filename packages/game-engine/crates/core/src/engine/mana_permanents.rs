@@ -171,8 +171,14 @@ impl RulesTxn {
         let Some(evidence) = &receipt.condition else {
             return Ok(());
         };
-        let condition = self
-            .definition(source.card)?
+        // A token that ceased to exist after its activation keeps no
+        // definition to compare with; any other source does.
+        let definition = match self.copiable_definition(source) {
+            Ok(definition) => definition,
+            Err(_) if self.current(source).is_err() => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        let condition = definition
             .mana_abilities
             .get(evidence.index as usize)
             .and_then(|a| a.condition.as_ref())

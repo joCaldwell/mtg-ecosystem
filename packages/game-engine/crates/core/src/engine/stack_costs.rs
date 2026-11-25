@@ -168,9 +168,7 @@ impl RulesTxn {
             Some(ActivationWindow::YourUpkeep) => own_turn && step == TurnStep::Upkeep,
             Some(ActivationWindow::Combat) => step.phase() == Phase::Combat,
             Some(ActivationWindow::EndOfCombat) => step == TurnStep::EndCombat,
-            Some(ActivationWindow::NotYourTurn) => {
-                self.state.rules.active.is_some() && !own_turn
-            }
+            Some(ActivationWindow::NotYourTurn) => self.state.rules.active.is_some() && !own_turn,
             Some(ActivationWindow::YourTurnBeforeAttackers) => {
                 own_turn
                     && matches!(
@@ -614,7 +612,10 @@ impl RulesTxn {
             },
         };
         let program = self.program_for(entry)?;
-        if activated.restriction.as_ref().is_some_and(|r| r.once_each_turn)
+        if activated
+            .restriction
+            .as_ref()
+            .is_some_and(|r| r.once_each_turn)
             && self.current(entry.source).is_ok()
             && (self.state.rules.activation_uses.contains(&ActivationUse {
                 source: entry.source,

@@ -175,9 +175,10 @@ impl ActivationCondition {
         let unaudited = || KirError::Unaudited("activation condition".into());
         let candidate = match condition {
             Cond::Compare {
-                left: Amount::Count {
-                    set: SetExpr::Matching { zone, filter },
-                },
+                left:
+                    Amount::Count {
+                        set: SetExpr::Matching { zone, filter },
+                    },
                 cmp,
                 right: Amount::Fixed { value },
             } if !value.is_negative() => match zone {
@@ -212,12 +213,9 @@ impl ActivationCondition {
             } if !filter.0.is_empty() && filter.0.iter().all(source_atom) => Self::Source {
                 filter: filter.clone(),
             },
-            Cond::All { conditions } if conditions.len() >= 2 => Self::All(
-                conditions
-                    .iter()
-                    .map(Self::of)
-                    .collect::<Result<_, _>>()?,
-            ),
+            Cond::All { conditions } if conditions.len() >= 2 => {
+                Self::All(conditions.iter().map(Self::of).collect::<Result<_, _>>()?)
+            }
             Cond::Not { condition } => match &**condition {
                 Cond::All { conditions } if conditions.len() >= 2 => Self::Any(
                     conditions

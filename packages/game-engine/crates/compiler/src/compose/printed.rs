@@ -237,7 +237,9 @@ pub(super) fn choices_printed(
     for (index, (fields, ..)) in segments.iter().enumerate() {
         // A segment naming the whole block is the whole-block check above.
         if fields.iter().any(String::is_empty)
-            || segments[..index].iter().any(|(earlier, ..)| earlier == fields)
+            || segments[..index]
+                .iter()
+                .any(|(earlier, ..)| earlier == fields)
         {
             continue;
         }

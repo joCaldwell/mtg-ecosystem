@@ -101,7 +101,9 @@ fn term_phrases(
         terms.once_each_turn = true;
         return Ok(vec!["once each turn".into()]);
     }
-    if *term == json!({"restriction": "sorcery"}) && terms.timing.is_none() && terms.window.is_none()
+    if *term == json!({"restriction": "sorcery"})
+        && terms.timing.is_none()
+        && terms.window.is_none()
     {
         terms.timing = Some(SpellTiming::MainPhase);
         return Ok(vec!["as a sorcery".into()]);
@@ -147,7 +149,8 @@ fn term_phrases(
     }
     let object = term.as_object().ok_or_else(reject)?;
     if term["restriction"] == "condition" && object.len() == 2 && terms.condition.is_none() {
-        let (condition, phrases) = condition(&format!("{path}/condition"), &term["condition"], player)?;
+        let (condition, phrases) =
+            condition(&format!("{path}/condition"), &term["condition"], player)?;
         terms.condition = Some(condition);
         return Ok(phrases.into_iter().map(|p| format!("if {p}")).collect());
     }
@@ -269,7 +272,9 @@ fn condition(
                 return Err(reject());
             }
             let (cmp, n) = control::comparison(&value["comparison"])?;
-            let bound = (0..=20).find(|&i| n == Quantity::from(i)).ok_or_else(reject)?;
+            let bound = (0..=20)
+                .find(|&i| n == Quantity::from(i))
+                .ok_or_else(reject)?;
             if cmp != Cmp::AtLeast {
                 return Err(reject());
             }
@@ -298,7 +303,10 @@ fn condition(
                 return Err(reject());
             };
             let filter = kir::Pred(vec![Atom::AnyOf {
-                alternatives: vec![kir::Pred(vec![first.clone()]), kir::Pred(vec![second.clone()])],
+                alternatives: vec![
+                    kir::Pred(vec![first.clone()]),
+                    kir::Pred(vec![second.clone()]),
+                ],
             }]);
             (source(filter), vec![format!("this creature is {a} or {b}")])
         }
@@ -464,7 +472,10 @@ fn noun(filter: &Value, card: bool) -> Result<(Vec<String>, String, String), Fai
     }
     let subtypes = strings("subtypes")?;
     let types = strings("types")?;
-    let cls = object.get("cls").map(|c| c.as_str().ok_or_else(reject)).transpose()?;
+    let cls = object
+        .get("cls")
+        .map(|c| c.as_str().ok_or_else(reject))
+        .transpose()?;
     if !matches!(cls, None | Some("permanent")) || card && cls.is_some() {
         return Err(reject());
     }
@@ -488,7 +499,11 @@ fn noun(filter: &Value, card: bool) -> Result<(Vec<String>, String, String), Fai
         tail.push_str(" with flying");
     }
     if let Some(properties) = object.get("properties") {
-        let [property] = properties.as_array().map(Vec::as_slice).ok_or_else(reject)? else {
+        let [property] = properties
+            .as_array()
+            .map(Vec::as_slice)
+            .ok_or_else(reject)?
+        else {
             return Err(reject());
         };
         let (cmp, n) = control::comparison(&property["comparison"])?;
@@ -496,9 +511,7 @@ fn noun(filter: &Value, card: bool) -> Result<(Vec<String>, String, String), Fai
             Some(stat @ ("power" | "toughness")) => stat,
             _ => return Err(reject()),
         };
-        if cmp != Cmp::AtLeast
-            || property.as_object().map(Map::len) != Some(2)
-            || !tail.is_empty()
+        if cmp != Cmp::AtLeast || property.as_object().map(Map::len) != Some(2) || !tail.is_empty()
         {
             return Err(reject());
         }
@@ -532,7 +545,11 @@ fn singular(filter: &Value, card: bool) -> Result<String, Failure> {
             .join(" or "));
     }
     let (lead, head, tail) = noun(filter, card)?;
-    let words: Vec<_> = lead.iter().map(String::as_str).chain([head.as_str()]).collect();
+    let words: Vec<_> = lead
+        .iter()
+        .map(String::as_str)
+        .chain([head.as_str()])
+        .collect();
     let phrase = words.join(" ");
     Ok(format!("{} {phrase}{tail}", article(&phrase)))
 }

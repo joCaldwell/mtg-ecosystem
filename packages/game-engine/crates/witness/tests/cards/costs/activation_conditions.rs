@@ -147,9 +147,13 @@ fn printed_mana_choices_follow_their_conditions() {
         ability: ManaAbilityIdentity::Printed { index },
     };
     for with in [false, true] {
-        let mut b = board(&[(SPIRE, CONDITIONED), (VERGE, CONDITIONED), (TOME, CONDITIONED)])
-            .permanent_or_hand("Spire of Industry", 0, 0, false)
-            .permanent_or_hand("Gloomlake Verge", 0, 0, false);
+        let mut b = board(&[
+            (SPIRE, CONDITIONED),
+            (VERGE, CONDITIONED),
+            (TOME, CONDITIONED),
+        ])
+        .permanent_or_hand("Spire of Industry", 0, 0, false)
+        .permanent_or_hand("Gloomlake Verge", 0, 0, false);
         if with {
             // Fool's Tome is the artifact; the Swamp satisfies the Verge.
             b = b
@@ -164,7 +168,11 @@ fn printed_mana_choices_follow_their_conditions() {
             let answer = f.next_test_decision().activate_mana(source);
             Driver::answer(&mut f, u64::MAX, answer);
             let d = Driver::request(&mut f, u64::MAX);
-            let expected: Vec<_> = if with { vec![printed(0), printed(1)] } else { vec![printed(0)] };
+            let expected: Vec<_> = if with {
+                vec![printed(0), printed(1)]
+            } else {
+                vec![printed(0)]
+            };
             assert_eq!(d.candidates, expected, "{d:?}");
         }
         if !with {
@@ -176,7 +184,11 @@ fn printed_mana_choices_follow_their_conditions() {
         Driver::action(&mut g, activate(tome, 0));
         for (source, index, color) in [(spire, 1, Color::G), (verge, 1, Color::B)] {
             let d = Driver::request(&mut g, u64::MAX);
-            let slot = d.index(&Candidate::Action { action: mana(source) }).unwrap();
+            let slot = d
+                .index(&Candidate::Action {
+                    action: mana(source),
+                })
+                .unwrap();
             Driver::answer(
                 &mut g,
                 u64::MAX,
@@ -185,11 +197,16 @@ fn printed_mana_choices_follow_their_conditions() {
                 },
             );
             let d = Driver::request(&mut g, u64::MAX);
-            g.respond(d.player, d.id, d.pick_one(&printed(index)).unwrap()).unwrap();
+            g.respond(d.player, d.id, d.pick_one(&printed(index)).unwrap())
+                .unwrap();
             if color == Color::G {
                 let d = Driver::request(&mut g, u64::MAX);
-                g.respond(d.player, d.id, d.pick_one(&Candidate::Color { color }).unwrap())
-                    .unwrap();
+                g.respond(
+                    d.player,
+                    d.id,
+                    d.pick_one(&Candidate::Color { color }).unwrap(),
+                )
+                .unwrap();
             }
         }
         // Back in the Tome's mana window.

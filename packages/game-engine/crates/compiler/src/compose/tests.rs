@@ -836,8 +836,17 @@ fn timing_table_lowers_printed_sorcery_speed() {
         ),
     ] {
         let printed = format!("{{T}}: Add {{C}}. Activate only {line}.");
-        assert!(timing(Some(control(filter.clone())), &printed).is_ok(), "{line}");
-        assert!(timing(Some(control(filter)), "{T}: Add {C}. Activate only if you control a Forest.").is_err());
+        assert!(
+            timing(Some(control(filter.clone())), &printed).is_ok(),
+            "{line}"
+        );
+        assert!(
+            timing(
+                Some(control(filter)),
+                "{T}: Add {C}. Activate only if you control a Forest."
+            )
+            .is_err()
+        );
     }
     // Terms the core cannot read exactly reject by name.
     assert!(
