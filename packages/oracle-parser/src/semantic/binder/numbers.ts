@@ -18,9 +18,9 @@ function printedNumberScope(analyzer: Analyzer, path: string, context: Context) 
   if (ability) return { root, face, ability };
 }
 
-function faceAbilities(analyzer: Analyzer, face: string): Ability[] {
+function faceAbilities(analyzer: Analyzer, face: string) {
   return [...analyzer.abilityAsts].flatMap(([path, ability]) =>
-    path.startsWith(`${face}/abilities/`) ? [ability as Ability] : []);
+    path.startsWith(`${face}/abilities/`) ? [{ path, ability: ability as Ability }] : []);
 }
 
 /** CR 107.3a, 601.2b, 702.180a: Harmonize's alternative cost uses the
@@ -41,16 +41,14 @@ function harmonizeX(analyzer: Analyzer, path: string, context: Context): boolean
   const face = analyzer.result.nodes.find(node => node.id === context.face);
   if (face?.node !== "face" || !face.manaCost?.includes("{X}")) return false;
   const abilities = faceAbilities(analyzer, scope.face);
-  const spells = abilities.filter(ability => ability.kind === "spell");
-  if (spells.length !== 1 || definesX(spells[0]) ||
-      abilities.filter(ability => ability.kind === "keywords").flatMap(ability => ability.keywords)
+  const spells = abilities.filter(({ ability }) => ability.kind === "spell");
+  if (spells.length !== 1 || definesX(spells[0].ability) ||
+      abilities.flatMap(({ ability }) => ability.kind === "keywords" ? ability.keywords : [])
         .filter(candidate => candidate.keyword === "harmonize" || costHasX(candidate)).length !== 1 ||
-      abilities.some(ability => ability.kind === "additional-cost" && costHasX(ability.costs))) return false;
+      abilities.some(({ ability }) => ability.kind === "additional-cost" && costHasX(ability.costs))) return false;
   const rules = ["107.3a", "601.2b", "702.180a"];
-  const at = `${scope.root}/keywords/${index}`;
-  const announced = analyzer.node({ id: analyzer.id(at, "announced-x"), path: at, node: "announced-number",
-    scope: context.ability, chooser: context.you, announcement: "cast", rules });
-  analyzer.bound({ amount: "x" }, path, announced, rules);
+  // The printed spell block owns this node even when it follows the keyword.
+  analyzer.bound({ amount: "x" }, path, analyzer.id(spells[0].path, "announced-x"), rules);
   return true;
 }
 
@@ -65,8 +63,8 @@ function ownCastColors(analyzer: Analyzer, quantity: Extract<Amount, { amount: "
   const scope = printedNumberScope(analyzer, path, context);
   if (scope?.ability.kind !== "spell" || scope.ability.effects.length !== 1 || analyzer.xFaces.has(context.face)) return false;
   const abilities = faceAbilities(analyzer, scope.face);
-  if (abilities.filter(ability => ability.kind === "spell").length !== 1 ||
-      abilities.some(ability => {
+  if (abilities.filter(({ ability }) => ability.kind === "spell").length !== 1 ||
+      abilities.some(({ ability }) => {
         if (ability.kind === "keywords") return costHasX(ability.keywords);
         return ability.kind === "static" && (ability.effect.static === "alternative-cost" || ability.effect.static === "play-permission") &&
           costHasX(ability.effect);
@@ -103,8 +101,8 @@ function entryKickerCount(analyzer: Analyzer, quantity: Extract<Amount, { amount
       !isDeepStrictEqual(quantity, { amount: "kicker-count", of: what }) ||
       !isDeepStrictEqual(entry, { static: "enters-with-counters", what, counter: entry.counter,
         count: { amount: "fixed", value: 1 }, multiplier: quantity })) return false;
-  const kickers = faceAbilities(analyzer, scope.face).filter(ability => ability.kind === "keywords")
-    .flatMap(ability => ability.keywords).filter(keyword => keyword.keyword === "kicker" || keyword.keyword === "multikicker");
+  const kickers = faceAbilities(analyzer, scope.face).flatMap(({ ability }) => ability.kind === "keywords" ? ability.keywords : [])
+    .filter(keyword => keyword.keyword === "kicker" || keyword.keyword === "multikicker");
   if (kickers.length !== 1 || kickers[0].keyword !== "multikicker") return false;
   const rules = ["400.7d", "614.12", "702.33c", "702.33d", "702.33e"];
   analyzer.bound(quantity.of, child(path, "of"), context.source, rules);
@@ -239,7 +237,7 @@ function bindDamageDivision(analyzer: Analyzer, effect: Extract<Effect, { effect
   if (sentence?.steps[Number(direct[2])] !== effect || !isDeepStrictEqual(sentence, { steps: sentence.steps }) ||
       !isDeepStrictEqual(effect, { effect: "damage", source: effect.source, amount: effect.amount, to: effect.to })) return false;
   const producers = scope.ability.kind === "spell"
-    ? faceAbilities(analyzer, scope.face).filter(ability => ability.kind === "spell") : scope.ability;
+    ? faceAbilities(analyzer, scope.face).flatMap(({ ability }) => ability.kind === "spell" ? [ability] : []) : scope.ability;
   if (countDamageDivisions(producers) !== 1) return false;
   const at = child(path, "to");
   const scoped = { ...context, [divisionTarget]: among };

@@ -210,14 +210,29 @@ describe("printed number scopes", () => {
   });
 
   it("uses Nature's Rhythm's cast X for both the spell and its Harmonize payment", () => {
-    const [spell, harmonize] = blocks(
-      "Search your library for a creature card with mana value X or less, put it onto the battlefield, then shuffle.\n" +
-      "Harmonize {X}{G}{G}{G}{G} (You may cast this card from your graveyard for its harmonize cost. You may tap a creature you control to reduce that cost by an amount of generic mana equal to its power. Then exile this spell.)",
-      "Sorcery", "{X}{G}{G}", "Nature's Rhythm");
-    const castX = { ref: { ref: "announced-x" } };
-    assert.deepEqual(refs(spell)["/effects/0/steps/0/for/filter/properties/0/comparison/value"], castX);
-    assert.deepEqual(refs(harmonize)["/keywords/0/cost/0/symbols/0"], castX);
-    assert.deepEqual([spell.residuals, harmonize.residuals], [[], []]);
+    const name = "Nature's Rhythm";
+    const typeLine = "Sorcery";
+    const spellText = "Search your library for a creature card with mana value X or less, put it onto the battlefield, then shuffle.";
+    const keywordText = "Harmonize {X}{G}{G}{G}{G} (You may cast this card from your graveyard for its harmonize cost. You may tap a creature you control to reduce that cost by an amount of generic mana equal to its power. Then exile this spell.)";
+    const amount = "/effects/0/steps/0/for/filter/properties/0/comparison/value";
+    const payment = "/keywords/0/cost/0/symbols/0";
+    for (const spellIndex of [0, 1]) {
+      const lines = spellIndex === 0 ? [spellText, keywordText] : [keywordText, spellText];
+      const result = parseOracleText(lines.join("\n"), name, { typeLine, includeSourceProvenance: true });
+      assert.ok(result.ok);
+      const input = { identity: "fixture", source: { name, layout: "normal", type_line: typeLine, mana_cost: "{X}{G}{G}" },
+        faces: [{ sourceFaceIndex: 0, result }] };
+      const analysis = analyzeCardBindings(input);
+      const announcement = analysis.nodes.filter(node => node.node === "announced-number");
+      const spellPath = `/faces/0/abilities/${spellIndex}`;
+      assert.deepEqual(announcement.map(node => [node.path, node.announcement]), [[spellPath, "cast"]]);
+      const references = analysis.references.filter(ref =>
+        ref.path === `${spellPath}${amount}` || ref.path === `/faces/0/abilities/${1 - spellIndex}${payment}`);
+      assert.deepEqual(references.map(ref => ref.binding === "bound" && ref.target), [announcement[0].id, announcement[0].id]);
+      const resolved = resolveCard(input, analysis).faces[0].blocks!;
+      assert.deepEqual(refs(resolved[spellIndex])[amount], { ref: { ref: "announced-x" } });
+      assert.deepEqual(refs(resolved[1 - spellIndex])[payment], { unresolved: "cross-block:announced-number" });
+    }
   });
 
   it("leaves Harmonize X unresolved with ambiguous, foreign, late, or quoted producers", () => {
@@ -271,5 +286,17 @@ describe("printed number scopes", () => {
       "When this creature enters, create a 2/2 green Wolf creature token for each time it was kicked.",
       "Creature — Elemental", "{2}{G}{G}", "Wolfbriar Elemental");
     assert.ok(wolfs.residuals.includes("diagnostic:unsupported-number-binding"));
+  });
+
+  it("keeps Batroc's announced target count unresolved while binding his entry multiplier", () => {
+    const [, entry, trigger] = blocks(
+      "Multikicker {2} (You may pay an additional {2} any number of times as you cast this spell.)\n" +
+      "Batroc enters with a +1/+1 counter on him for each time he was kicked.\n" +
+      "When Batroc enters, he deals damage equal to his power to each of up to X targets, where X is the number of times he was kicked.",
+      "Legendary Creature — Human Villain", "{1}{R}", "Batroc the Leaper");
+    assert.deepEqual(refs(entry)["/effect/multiplier/of"], { ref: { ref: "source" } });
+    assert.deepEqual(entry.residuals, []);
+    assert.deepEqual(refs(trigger)["/effects/0/steps/0/to/ref/count"], { unresolved: "unresolved-dependency" });
+    assert.ok(trigger.residuals.includes("diagnostic:unsupported-number-binding"));
   });
 });
