@@ -414,6 +414,19 @@ impl Site<'_> {
                     right: kir::Amount::Fixed { value },
                 })
             }
+            // CR 702.33d: "if this spell was kicked" reads the spell's own
+            // declared kicker cost.
+            Some("kicked")
+                if fields == 3
+                    && self.context == Context::Spell
+                    && condition["what"] == serde_json::json!({"ref": "this", "noun": "spell"})
+                    && condition["comparison"]
+                        == serde_json::json!({"op": "ge", "value": {"amount": "fixed", "value": 1}}) =>
+            {
+                Ok(Cond::CostPaid {
+                    identity: super::keywords::KICKER.into(),
+                })
+            }
             Some("you-do" | "you-dont") => reject("you_do"),
             Some(other) => Err(unsupported("compose.control", format!("condition:{other}"))),
             None => reject("condition_shape"),

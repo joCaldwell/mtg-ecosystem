@@ -2354,10 +2354,13 @@ impl RulesTxn {
                         .get(&source.card)
                         .ok_or("missing countered spell physical card")?
                         .owner;
-                    let destination = replacement
-                        .and_then(|proof| proof.get(&source))
-                        .copied()
-                        .unwrap_or(Zone::Graveyard { owner });
+                    let destination = self.stack_departure(
+                        entry,
+                        replacement
+                            .and_then(|proof| proof.get(&source))
+                            .copied()
+                            .unwrap_or(Zone::Graveyard { owner }),
+                    );
                     let EventOutcome::Moved { movement } = self.apply_nested_leaf(
                         &ProposedEvent::Move {
                             object: source,

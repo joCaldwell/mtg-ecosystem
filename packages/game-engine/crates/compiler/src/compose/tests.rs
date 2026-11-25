@@ -61,14 +61,66 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
             ..
         }
     ));
+    // CR 602.2b: the source tap is paid with the chosen sacrifice; "another"
+    // excludes the source and a count chooses several (CR 109.1, 701.21a).
+    let others = json!({"cost":"sacrifice","what":{"ref":"filter",
+        "filter":{"types":["artifact"],"other":true},"count":{"amount":"fixed","value":2}}});
+    assert_eq!(
+        costs::lower(&artifact, &costs(json!([{"cost":"tap-self"},others]))).unwrap(),
+        ActivationCost::SacrificePermanent {
+            count: 2,
+            filter: SacrificeFilter {
+                types: vec![CardKind::Artifact],
+                subtypes: vec![],
+            },
+            mana: None,
+            tap: true,
+            another: true,
+        }
+    );
+    let life = json!({"cost":"pay-life","amount":{"amount":"fixed","value":1}});
+    let counter = |noun: &str, kind: &str| {
+        json!({"cost":"remove-counters","counter":{"type":kind},
+        "count":{"amount":"fixed","value":1},"from":{"ref":"this","noun":noun}})
+    };
+    // CR 119.4, 122.1: life and the source's +1/+1 counters are paid with the
+    // other source terms.
+    assert_eq!(
+        costs::lower(
+            &card(CardKind::Creature),
+            &costs(
+                json!([{"cost":"mana","symbols":["B"]},life.clone(),counter("creature","+1/+1")])
+            )
+        )
+        .unwrap(),
+        ActivationCost::Composite {
+            costs: PermanentActivationCosts {
+                remove_source_plus_one_counters: Some(1.into()),
+                tap: false,
+                mana: Some(mana_cost("{B}").unwrap()),
+                sacrifice: false,
+                pay_life: Some(1.into()),
+            }
+        }
+    );
+    assert_eq!(
+        costs::lower(
+            &artifact,
+            &costs(json!([{"cost":"tap-self"},life.clone(),this("artifact")]))
+        )
+        .unwrap(),
+        ActivationCost::TapPayLifeSacrificeSource { life: 1.into() }
+    );
     for unsupported in [
         json!([]),
         json!([{"cost":"tap-self"},{"cost":"tap-self"}]),
         json!([{"cost":"mana","symbols":["1"]},{"cost":"mana","symbols":["1"]}]),
         json!([{"cost":"mana","symbols":["C"]}]),
         json!([{"cost":"mana","symbols":["{1}"]}]),
-        json!([{"cost":"tap-self"},another]),
-        json!([{"cost":"tap-self"},{"cost":"pay-life","amount":{"amount":"fixed","value":1}}]),
+        json!([this("artifact"), another]),
+        json!([life.clone(), another]),
+        json!([counter("creature", "+1/+1")]),
+        json!([counter("creature", "-1/-1")]),
     ] {
         assert!(
             costs::lower(&artifact, &costs(unsupported.clone())).is_err(),
@@ -502,10 +554,38 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
         row["faces"][0]["result"]["abilities"][1]["costs"][0] =
             json!({"cost":"mana","symbols":["1"]});
     })));
-    // Variable costs have no block table row.
-    assert!(rejected(
-        &changed(PIE, |row| row["source"]["mana_cost"] = json!("{X}{B}"))
-    ));
+    // CR 107.3, 107.4e-f: one leading X and two-color hybrid or Phyrexian
+    // symbols are announced; several X, monocolored hybrid and colorless
+    // Phyrexian symbols have no runtime cost.
+    match compile(
+        R4,
+        &changed(PIE, |row| {
+            row["source"]["mana_cost"] = json!("{X}{B/G}{B/P}")
+        }),
+    ) {
+        CompileResult::Lowered { definition, .. } => {
+            assert!(definition.x_mana_cost);
+            assert_eq!(definition.characteristics.mana_cost.colored, vec![]);
+            assert_eq!(
+                definition.characteristics.hybrid_mana,
+                vec![
+                    ColorHybridSymbol {
+                        colors: [HybridPayment::Mana(Color::B), HybridPayment::Mana(Color::G)],
+                    },
+                    ColorHybridSymbol {
+                        colors: [HybridPayment::Mana(Color::B), HybridPayment::PayTwoLife],
+                    },
+                ]
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    for cost in ["{X}{X}{B}", "{B}{X}", "{2/B}", "{C/P}", "{B/G/P}"] {
+        assert!(
+            rejected(&changed(PIE, |row| row["source"]["mana_cost"] = json!(cost))),
+            "{cost}"
+        );
+    }
     // An intervening condition on a table event.
     assert!(rejected(&changed(MARSH, |row| {
         row["faces"][0]["result"]["abilities"][1]["condition"] = json!({"condition":"cards-in-hand","who":{"player":"you"},

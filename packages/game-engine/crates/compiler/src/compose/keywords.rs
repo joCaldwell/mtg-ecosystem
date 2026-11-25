@@ -1,7 +1,8 @@
 //! Keyword table: evergreen keywords that are complete without parameters.
 //!
-//! CR 702.2-702.21 (pinned 2026-09-25). Parameterized or linked keywords
-//! (cycling, kicker, cascade, bestow, affinity) reject;
+//! CR 702.2-702.21 (pinned 2026-09-25). Cycling, kicker and flashback with
+//! their reviewed cost shapes lower to their own rows below; other
+//! parameterized or linked keywords (cascade, bestow, affinity) reject;
 //! adding one here means adding one row and its runtime.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
@@ -119,6 +120,80 @@ pub(super) fn equip(
         functioning_zone: FunctioningZone::Battlefield,
         cost,
         program,
+    })
+}
+
+/// The printed mana symbols of a keyword cost, as written.
+fn printed_mana(symbols: &[String]) -> String {
+    symbols.iter().map(|s| format!("{{{s}}}")).collect()
+}
+
+/// A keyword's single fixed mana cost, printed exactly as `"{Name} {cost}"`
+/// (CR 702.29a, 702.33a, 702.34a). Hybrid, X, Phyrexian and nonmana costs
+/// reject under `keyword:{name}:cost`.
+fn keyword_mana(keyword: &SourceKeyword, name: &str, text: &str) -> Result<ManaCost, Failure> {
+    let costs = keyword.cost.as_deref().unwrap_or_default();
+    let reject = || unsupported("keyword", format!("keyword:{}:cost", keyword.keyword));
+    let [SourceCost::Mana { symbols }] = costs else {
+        return Err(reject());
+    };
+    if keyword.filter.is_some()
+        || symbols.is_empty()
+        || symbols
+            .iter()
+            .any(|s| s.is_empty() || s.contains(['{', '}']))
+        || text != format!("{name} {}", printed_mana(symbols))
+    {
+        return Err(reject());
+    }
+    let mana = mana_cost(&printed_mana(symbols)).map_err(|_| reject())?;
+    if mana.colored.contains(&Color::C) {
+        return Err(reject());
+    }
+    Ok(mana)
+}
+
+/// CR 702.29a: "Cycling [cost]" means "[Cost], Discard this card: Draw a
+/// card." It functions only while the card is in its owner's hand
+/// (CR 113.6, 602.2a) and is activated at instant speed.
+pub(super) fn cycling(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<ActivatedAbility, Failure> {
+    let mana = keyword_mana(keyword, "Cycling", text)?;
+    let mut program = SpellProgram::instructions(SpellTiming::Instant);
+    program.instructions.push(Instruction::draw(
+        kir::PlayerExpr::you(Context::Activated),
+        Quantity::from(1),
+        block,
+    ));
+    Ok(ActivatedAbility {
+        functioning_zone: FunctioningZone::Hand,
+        cost: ActivationCost::DiscardSource { mana },
+        program,
+    })
+}
+
+/// CR 702.34a: "Flashback [cost]" with one fixed mana cost.
+pub(super) fn flashback(keyword: &SourceKeyword, text: &str) -> Result<ManaCost, Failure> {
+    keyword_mana(keyword, "Flashback", text)
+}
+
+/// The one kicker identity a spell declares; "if this spell was kicked"
+/// reads it (CR 702.33d).
+pub(super) const KICKER: &str = "kicker";
+
+/// CR 702.33a: "Kicker [cost]" is an optional additional cost of this spell.
+pub(super) fn kicker(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<OptionalAdditionalManaCost, Failure> {
+    Ok(OptionalAdditionalManaCost {
+        identity: KICKER.into(),
+        source_block: block,
+        mana: keyword_mana(keyword, "Kicker", text)?,
     })
 }
 

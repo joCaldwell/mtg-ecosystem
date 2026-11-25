@@ -13,8 +13,9 @@ struct Terms {
     tap: bool,
     mana: Option<ManaCost>,
     sacrifice_source: bool,
-    sacrifice_other: Option<SacrificeFilter>,
+    sacrifice_other: Option<SacrificeOther>,
     life: Option<Quantity>,
+    counters: Option<Quantity>,
 }
 
 fn duplicate() -> Failure {
@@ -25,15 +26,52 @@ fn duplicate() -> Failure {
 /// or of any type in a printed union. The runtime reads the candidate's
 /// derived types (CR 701.21a, 205.2a); `types` is a union and a subtype is a
 /// conjunction, so a multi-type conjunction is rejected rather than widened.
-fn sacrifice_filter(what: &serde_json::Value) -> Result<SacrificeFilter, Failure> {
+struct SacrificeOther {
+    count: u32,
+    filter: SacrificeFilter,
+    another: bool,
+}
+
+fn sacrifice_filter(what: &serde_json::Value) -> Result<SacrificeOther, Failure> {
     let unsupported_filter = || unsupported("cost", "unsupported complete sacrifice filter");
     let object = what.as_object().ok_or_else(unsupported_filter)?;
-    if object.len() != 3
-        || what["ref"] != "filter"
-        || what["count"] != serde_json::json!({"amount":"fixed","value":1})
-    {
+    // CR 701.21a: "Sacrifice N [filter]" chooses N distinct permanents.
+    let count = match what["count"].as_object() {
+        Some(count) if count.len() == 2 && count.get("amount") == Some(&"fixed".into()) => count
+            .get("value")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| *n > 0)
+            .ok_or_else(unsupported_filter)?,
+        _ => return Err(unsupported_filter()),
+    };
+    if object.len() != 3 || what["ref"] != "filter" {
         return Err(unsupported_filter());
     }
+    // CR 109.1: "another" is any permanent other than the ability's source.
+    let mut quality = what["filter"].clone();
+    let another = quality
+        .as_object_mut()
+        .and_then(|o| o.remove("other"))
+        .map(|other| {
+            if other == true {
+                Ok(true)
+            } else {
+                Err(unsupported_filter())
+            }
+        })
+        .transpose()?
+        .unwrap_or(false);
+    sacrifice_quality(&quality).map(|filter| SacrificeOther {
+        count,
+        filter,
+        another,
+    })
+}
+
+/// The quality a sacrificed permanent must have.
+pub(super) fn sacrifice_quality(filter: &serde_json::Value) -> Result<SacrificeFilter, Failure> {
+    let unsupported_filter = || unsupported("cost", "unsupported complete sacrifice filter");
     let kind = |value: &serde_json::Value| -> Result<CardKind, Failure> {
         match serde_json::from_value(value.clone()) {
             Ok(
@@ -51,9 +89,14 @@ fn sacrifice_filter(what: &serde_json::Value) -> Result<SacrificeFilter, Failure
             _ => Err(unsupported_filter()),
         }
     };
-    let filter = what["filter"].as_object().ok_or_else(unsupported_filter)?;
+    let filter = filter.as_object().ok_or_else(unsupported_filter)?;
     let keys: Vec<&str> = filter.keys().map(String::as_str).collect();
     match keys.as_slice() {
+        // CR 110.1: "a permanent" is any permanent its controller controls.
+        ["cls"] if filter["cls"] == "permanent" => Ok(SacrificeFilter {
+            types: vec![],
+            subtypes: vec![],
+        }),
         ["types"] => Ok(SacrificeFilter {
             types: vec![kind(&one(&filter["types"])?)?],
             subtypes: vec![],
@@ -156,11 +199,28 @@ fn term(card: &Card<'_>, terms: &mut Terms, cost: &SourceCost) -> Result<(), Fai
                 return Err(duplicate());
             }
         }
-        SourceCost::RemoveCounters { .. } => {
-            return Err(unsupported(
-                "compose.cost",
-                "counter costs outside the block tables",
-            ));
+        // CR 122.1, 602.1a: "Remove N +1/+1 counters from this [permanent]".
+        SourceCost::RemoveCounters {
+            counter,
+            count,
+            from,
+        } => {
+            let this = from.as_object().is_some_and(|o| o.len() == 2)
+                && from["ref"] == "this"
+                && from["noun"].as_str().is_some_and(|noun| card.is_self(noun));
+            if !this || counter.r#type != "+1/+1" || count.amount != "fixed" || count.value == 0 {
+                return Err(unsupported(
+                    "compose.cost",
+                    "counter costs outside the block tables",
+                ));
+            }
+            if terms
+                .counters
+                .replace(Quantity::from(i64::from(count.value)))
+                .is_some()
+            {
+                return Err(duplicate());
+            }
         }
     }
     Ok(())
@@ -216,28 +276,56 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
         sacrifice_source,
         sacrifice_other,
         life,
+        counters,
     } = terms;
-    if let Some(life) = life {
-        // CR 602.2b, 118.3: "{T}, Pay N life, Sacrifice [this]" is the one
-        // life-paying term set the runtime pays as an atomic ordered batch.
-        return match (tap, mana, sacrifice_source, sacrifice_other) {
-            (true, None, true, None) => Ok(ActivationCost::TapPayLifeSacrificeSource { life }),
-            _ => Err(unsupported(
+    if life.is_some() || counters.is_some() {
+        if sacrifice_other.is_some() {
+            return Err(unsupported(
                 "compose.cost",
-                "life payment combines only with tapping and sacrificing the source",
-            )),
-        };
+                "life or counter payment with another sacrificed permanent",
+            ));
+        }
+        // CR 602.2b, 118.3: "{T}, Pay N life, Sacrifice [this]" keeps its
+        // atomic ordered batch; every other source-bound term set is paid
+        // by the composite cost after its mana (CR 601.2h, 119.4, 122.1).
+        return Ok(match (tap, mana, sacrifice_source, life, counters) {
+            (true, None, true, Some(life), None) => {
+                ActivationCost::TapPayLifeSacrificeSource { life }
+            }
+            (tap, mana, sacrifice, pay_life, counters) => ActivationCost::Composite {
+                costs: PermanentActivationCosts {
+                    remove_source_plus_one_counters: counters,
+                    tap,
+                    mana,
+                    sacrifice,
+                    pay_life,
+                },
+            },
+        });
     }
     Ok(match (tap, mana, sacrifice_source, sacrifice_other) {
-        (false, mana, false, Some(filter)) => ActivationCost::SacrificePermanent {
-            count: 1,
+        // CR 602.2b: tapping the source and mana are paid with the chosen
+        // sacrifice as one complete cost.
+        (
+            tap,
+            mana,
+            false,
+            Some(SacrificeOther {
+                count,
+                filter,
+                another,
+            }),
+        ) => ActivationCost::SacrificePermanent {
+            count,
             filter,
             mana,
+            tap,
+            another,
         },
         (_, _, _, Some(_)) => {
             return Err(unsupported(
                 "compose.cost",
-                "sacrificing another permanent combines only with mana",
+                "sacrificing another permanent and the source",
             ));
         }
         (true, None, false, None) => ActivationCost::TapSource,
@@ -255,4 +343,39 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
             },
         },
     })
+}
+
+/// CR 601.2b, 601.2f-h, 701.21a: "As an additional cost to cast this spell,
+/// sacrifice a/an [quality]." The caster chooses the permanent after mana
+/// and sacrifices it as part of the total cost; every other additional cost
+/// has no runtime row and rejects.
+pub(super) fn spell_additional(
+    costs: &[serde_json::Value],
+    line: &str,
+    spell: &mut SpellProgram,
+) -> Result<(), Failure> {
+    let reject =
+        |detail: &str| unsupported("additional-cost", format!("kind:additional-cost:{detail}"));
+    let [cost] = costs else {
+        return Err(reject("terms"));
+    };
+    let what = match serde_json::from_value::<SourceCost>(cost.clone()) {
+        Ok(SourceCost::Sacrifice { what }) => what,
+        _ => return Err(reject(cost["cost"].as_str().unwrap_or("cost"))),
+    };
+    if !line.starts_with("As an additional cost to cast this spell, sacrifice ")
+        || spell.additional_sacrifice.is_some()
+    {
+        return Err(reject("printed"));
+    }
+    let SacrificeOther {
+        count,
+        filter,
+        another,
+    } = sacrifice_filter(&what).map_err(|_| reject("sacrifice-filter"))?;
+    if count != 1 || another {
+        return Err(reject("sacrifice_count"));
+    }
+    spell.additional_sacrifice = Some(filter);
+    Ok(())
 }

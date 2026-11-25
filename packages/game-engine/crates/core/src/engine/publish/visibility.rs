@@ -951,6 +951,8 @@ impl RulesTxn {
             controller: instance.controller,
             cast_complete: instance.paid.is_some(),
             spell_copy: self.is_spell_copy(instance),
+            flashback: instance.kind.is_spell()
+                && matches!(instance.cast_from, Zone::Graveyard { .. }),
             targets,
         })
     }
