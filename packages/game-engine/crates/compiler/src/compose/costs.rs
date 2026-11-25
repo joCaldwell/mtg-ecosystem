@@ -344,3 +344,38 @@ pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationC
         },
     })
 }
+
+/// CR 601.2b, 601.2f-h, 701.21a: "As an additional cost to cast this spell,
+/// sacrifice a/an [quality]." The caster chooses the permanent after mana
+/// and sacrifices it as part of the total cost; every other additional cost
+/// has no runtime row and rejects.
+pub(super) fn spell_additional(
+    costs: &[serde_json::Value],
+    line: &str,
+    spell: &mut SpellProgram,
+) -> Result<(), Failure> {
+    let reject =
+        |detail: &str| unsupported("additional-cost", format!("kind:additional-cost:{detail}"));
+    let [cost] = costs else {
+        return Err(reject("terms"));
+    };
+    let what = match serde_json::from_value::<SourceCost>(cost.clone()) {
+        Ok(SourceCost::Sacrifice { what }) => what,
+        _ => return Err(reject(cost["cost"].as_str().unwrap_or("cost"))),
+    };
+    if !line.starts_with("As an additional cost to cast this spell, sacrifice ")
+        || spell.additional_sacrifice.is_some()
+    {
+        return Err(reject("printed"));
+    }
+    let SacrificeOther {
+        count,
+        filter,
+        another,
+    } = sacrifice_filter(&what).map_err(|_| reject("sacrifice-filter"))?;
+    if count != 1 || another {
+        return Err(reject("sacrifice_count"));
+    }
+    spell.additional_sacrifice = Some(filter);
+    Ok(())
+}

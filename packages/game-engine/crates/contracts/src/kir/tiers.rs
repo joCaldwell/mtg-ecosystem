@@ -230,6 +230,10 @@ pub enum Cell {
     SacrificeCostTap,
     /// CR 109.1, 701.21a: "Sacrifice another ...", excluding the source.
     SacrificeCostAnother,
+    /// CR 601.2b, 701.21a: a spell's additional sacrifice cost.
+    SpellAdditionalSacrifice,
+    /// CR 702.33a, d: a spell's kicker cost and the conditions reading it.
+    Kicker,
 }
 
 /// The tiers each kernel cell has earned. A cell's tiers are those of the
@@ -324,7 +328,9 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::ActivationRemoveCounters
         | C::SacrificeCostChoice
         | C::SacrificeCostTap
-        | C::SacrificeCostAnother => Tiers::EXECUTES,
+        | C::SacrificeCostAnother
+        | C::SpellAdditionalSacrifice
+        | C::Kicker => Tiers::EXECUTES,
     }
 }
 
@@ -515,6 +521,14 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     if !d.characteristics.hybrid_mana.is_empty() {
         cells.insert(Cell::HybridManaCost);
+    }
+    if let Some(p) = &d.spell {
+        if p.additional_sacrifice.is_some() {
+            cells.insert(Cell::SpellAdditionalSacrifice);
+        }
+        if !p.optional_additional_costs.is_empty() {
+            cells.insert(Cell::Kicker);
+        }
     }
     for a in &d.activated {
         if a.functioning_zone == FunctioningZone::Hand {

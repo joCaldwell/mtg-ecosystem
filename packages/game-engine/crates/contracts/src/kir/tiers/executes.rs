@@ -78,6 +78,62 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
     })
 }
 
+/// CR 601.2b, 601.2f-h: a spell's own additional costs: one chosen
+/// sacrifice of a reviewed quality, and optional fixed mana costs with
+/// distinct identities (CR 702.33a). No ability declares either.
+fn spell_costs(p: &SpellProgram, context: Context) -> bool {
+    let mana_ok = |m: &ManaCost| !m.generic.is_negative() && !m.colored.contains(&Color::C);
+    (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
+        || (context == Context::Spell
+            && p.additional_sacrifice.as_ref().is_none_or(sacrifice_filter)
+            && p.optional_additional_costs.iter().enumerate().all(|(n, c)| {
+                !c.identity.is_empty()
+                    && mana_ok(&c.mana)
+                    && (c.mana.generic > Quantity::zero() || !c.mana.colored.is_empty())
+                    && !p.optional_additional_costs[..n]
+                        .iter()
+                        .any(|o| o.identity == c.identity)
+            }))
+}
+
+/// The optional-cost identities a node's conditions read.
+fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
+    fn cond<'a>(c: &'a kir::Cond, out: &mut Vec<&'a String>) {
+        match c {
+            kir::Cond::CostPaid { identity } => out.push(identity),
+            kir::Cond::Not { condition } => cond(condition, out),
+            kir::Cond::All { conditions } => conditions.iter().for_each(|c| cond(c, out)),
+            kir::Cond::Compare { .. } | kir::Cond::Exists { .. } | kir::Cond::ActivePlayer { .. } => {}
+        }
+    }
+    match node {
+        kir::Node::Do(_) => {}
+        kir::Node::Seq(nodes) => nodes.iter().for_each(|n| cost_conditions(n, out)),
+        kir::Node::If {
+            condition,
+            then,
+            otherwise,
+        } => {
+            cond(condition, out);
+            cost_conditions(then, out);
+            if let Some(otherwise) = otherwise {
+                cost_conditions(otherwise, out);
+            }
+        }
+        kir::Node::Optional { node, .. }
+        | kir::Node::UnlessPays { node, .. }
+        | kir::Node::IfPays { node, .. }
+        | kir::Node::Delayed { node, .. } => cost_conditions(node, out),
+        kir::Node::ForEach { body, .. } | kir::Node::Choose { body, .. } => {
+            cost_conditions(body, out)
+        }
+        kir::Node::Reflexive { first, then } => {
+            cost_conditions(first, out);
+            cost_conditions(then, out);
+        }
+    }
+}
+
 /// One ordinary instruction program of any context.
 fn program(
     p: &SpellProgram,
@@ -88,12 +144,22 @@ fn program(
     if p.functioning_zone != FunctioningZone::Stack
         || p.resolution != SpellResolution::Instructions
         || p.instructions.is_empty()
-        || p.additional_sacrifice.is_some()
-        || !p.optional_additional_costs.is_empty()
+        || !spell_costs(p, context)
         // CR 602.5d: only an activated ability may carry sorcery timing.
         || (context == Context::Triggered && p.timing != SpellTiming::Instant)
     {
         return cell("program", "extra_costs_or_resolution");
+    }
+    // CR 702.33d: a "kicked" condition reads a cost this spell declares.
+    let mut paid = vec![];
+    for Instruction::Kernel { node, .. } in &p.instructions {
+        cost_conditions(node, &mut paid);
+    }
+    if paid
+        .iter()
+        .any(|id| !p.optional_additional_costs.iter().any(|c| c.identity == **id))
+    {
+        return cell("program", "undeclared_cost_condition");
     }
     let bit = match context {
         Context::Spell => SPELL,
@@ -619,7 +685,8 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 p.targets.is_empty()
             })
             && p.instructions.is_empty()
-            && p.additional_sacrifice.is_none()
+            // CR 601.2b: a permanent spell may require one sacrifice.
+            && p.additional_sacrifice.as_ref().is_none_or(sacrifice_filter)
             && p.optional_additional_costs.is_empty()
     };
     let shell = match c.kind {

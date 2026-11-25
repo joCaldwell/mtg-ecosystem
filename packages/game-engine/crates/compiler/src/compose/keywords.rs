@@ -173,6 +173,23 @@ pub(super) fn cycling(
     })
 }
 
+/// The one kicker identity a spell declares; "if this spell was kicked"
+/// reads it (CR 702.33d).
+pub(super) const KICKER: &str = "kicker";
+
+/// CR 702.33a: "Kicker [cost]" is an optional additional cost of this spell.
+pub(super) fn kicker(
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<OptionalAdditionalManaCost, Failure> {
+    Ok(OptionalAdditionalManaCost {
+        identity: KICKER.into(),
+        source_block: block,
+        mana: keyword_mana(keyword, "Kicker", text)?,
+    })
+}
+
 // CR 303.4a and 702.5: the spell target also records the ongoing enchant restriction.
 pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec, Failure> {
     let f = keyword
