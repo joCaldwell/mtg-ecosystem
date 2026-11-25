@@ -139,6 +139,7 @@ pub enum Cell {
     MovePermanentOwnerHand,
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
+    MoveSourceOwnerZone,
     ExileTargetGraveyard,
     ExileGraveyards,
     MoveSet,
@@ -286,6 +287,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::DestroySet
         | C::MoveTargetExile
         | C::MovePermanentOwnerHand
+        | C::MoveSourceOwnerZone
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
         | C::MoveSet

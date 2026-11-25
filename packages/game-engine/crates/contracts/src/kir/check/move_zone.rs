@@ -4,6 +4,15 @@ use super::*;
 impl Walk<'_, '_> {
     pub(super) fn audit_move(&self, what: &SetExpr, to: &Destination) -> Result<Cell, KirError> {
         match (what, to) {
+            // CR 400.7, 608.2h: the source's current battlefield incarnation
+            // to its owner's hand or library top; a new object is unaffected.
+            // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+            (
+                SetExpr::One {
+                    object: Ref::Source,
+                },
+                Destination::OwnerHand | Destination::OwnerLibraryTop,
+            ) if self.env.context != Context::Spell => Ok(Cell::MoveSourceOwnerZone),
             // CR 400.3, 400.7, 608.2b: one announced permanent to exile, its
             // owner's hand or the top of its owner's library.
             (
