@@ -64,6 +64,12 @@ pub enum ResolutionChoice {
         player: PlayerId,
         source_block: u32,
     },
+    /// CR 701.20e: `player` privately looks at and orders this prefix.
+    ReorderLibraryTop {
+        player: PlayerId,
+        looked: Vec<ObjectId>,
+        source_block: u32,
+    },
     /// CR 701.22a: `player` looked at `looked` (top first), then chooses the
     /// bottom cards, then the order of the top cards, then of the bottom.
     Scry {
@@ -164,14 +170,11 @@ impl RulesTxn {
                 !self.protected_from(o.id, source)
                     && self.permanent_target_legal(o.id, player, &program.targets[0])
             }),
-            Some(
-                domain @ (TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard),
-            ) => self
-                .state
-                .rules
-                .objects
-                .values()
-                .any(|object| self.graveyard_target_legal(object, player, domain)),
+            Some(TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard) => {
+                self.state.rules.objects.values().any(|object| {
+                    self.graveyard_target_legal_for(object, player, &program.targets[0])
+                })
+            }
             Some(TargetDomain::BlockingBattlefieldCreature) => {
                 self.state.rules.blocking_creatures.iter().any(|o| {
                     self.is_blocking_creature(*o)
@@ -424,6 +427,7 @@ impl RulesTxn {
         };
         Ok(match choice {
             ResolutionChoice::Search { .. }
+            | ResolutionChoice::ReorderLibraryTop { .. }
             | ResolutionChoice::Scry { .. }
             | ResolutionChoice::Surveil { .. }
             | ResolutionChoice::SearchEntry { .. } => self.library_request(frame, choice)?,
@@ -486,6 +490,7 @@ impl RulesTxn {
                 if matches!(
                     choice,
                     ResolutionChoice::Search { .. }
+                        | ResolutionChoice::ReorderLibraryTop { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::SearchEntry { .. }
@@ -497,6 +502,7 @@ impl RulesTxn {
                     let outcome = match choice {
                         ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
+                        | ResolutionChoice::ReorderLibraryTop { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::SearchEntry { .. } => unreachable!(),
@@ -523,6 +529,7 @@ impl RulesTxn {
                 let source_block = match choice {
                     ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
+                    | ResolutionChoice::ReorderLibraryTop { .. }
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::SearchEntry { .. } => unreachable!(),
@@ -736,6 +743,14 @@ impl RulesTxn {
                     GroupDiscardScope::EachOpponent
                 };
                 self.group_discard_step(frame, scope, count, source_block)
+            }
+            kernel!(Discard {
+                player: target_player!(slot),
+                ..
+            }) if frame.legal_targets.get(slot as usize) != Some(&true) => {
+                // CR 608.2b: another legal target can keep the program
+                // resolving while this discard's target is illegal.
+                self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
             kernel!(Discard {
                 player: target_player!(_),
@@ -1169,6 +1184,9 @@ impl RulesTxn {
         {
             return Err("snapshot resolving invocation invariant".into());
         }
+        for (instruction, outcome) in program.instructions.iter().zip(&frame.outcomes) {
+            self.validate_library_reorder_outcome(frame, Some(instruction), outcome)?;
+        }
         if self
             .state
             .rules
@@ -1308,6 +1326,7 @@ impl RulesTxn {
                     }),
                 (
                     ResolutionChoice::Search { .. }
+                    | ResolutionChoice::ReorderLibraryTop { .. }
                     | ResolutionChoice::Scry { .. }
                     | ResolutionChoice::Surveil { .. }
                     | ResolutionChoice::SearchEntry { .. },

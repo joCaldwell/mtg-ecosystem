@@ -23,8 +23,8 @@ const OBSERVATION_PIN: (u32, &str) = (
     "03327c1a794125ac0eeaedb6acd613816f4972d1147037fa8fa62f8c88275d00",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
-    93,
-    "37d24f98a2a0d9c80fc03176fd7304964410de630a91ecd94604ddfe0528ce70",
+    94,
+    "0a8d414e630141811a74b7e24c1d9ddeaff2bfa9b1dd3b3da979a42081e16146",
 );
 const WORK_PIN: (u32, &str) = (
     54,
@@ -335,8 +335,8 @@ fn suspended_land_play_rejects_rehashed_tampering() {
 
 /// Wire shapes no fixture board suspends in: a battlefield search's entry
 /// choice with a chosen Aura host and a payment (CR 303.4f, 614.1c), and a
-/// forced tapped entry that still offers its payment. Substituted into
-/// real snapshots; only their JSON shape is fingerprinted.
+/// forced tapped entry that still offers its payment, and a private
+/// top-order choice and outcome. Only their JSON shape is fingerprinted.
 fn library_entry_shapes() -> Vec<String> {
     let game = mid_resolution();
     let object = Driver::object(&game, 0);
@@ -353,7 +353,29 @@ fn library_entry_shapes() -> Vec<String> {
     let mut entry: Value =
         serde_json::from_str(&suspended_battlefield_entry().snapshot().unwrap()).unwrap();
     entry["state"]["rules"]["frame"]["entry"]["force_tapped"] = true.into();
-    [search, entry]
+    let mut reorder = search.clone();
+    reorder["state"]["rules"]["frame"]["choice"] =
+        serde_json::to_value(ResolutionChoice::ReorderLibraryTop {
+            player: PlayerId(0),
+            looked: vec![object],
+            source_block: 0,
+        })
+        .unwrap();
+    let Frame::ResolutionChoice { frame, .. } = &game.state.rules.frame else {
+        unreachable!("fixture has a resolving choice")
+    };
+    let mut frame = frame.clone();
+    frame.cursor = 1;
+    frame.outcomes = vec![InstructionOutcome::Effect {
+        actual: Some(EventOutcome::LibraryTopReordered {
+            player: PlayerId(0),
+            looked: vec![object],
+            top: vec![object],
+        }),
+    }];
+    let mut completed = search.clone();
+    completed["state"]["rules"]["frame"] = serde_json::to_value(Frame::Resolve { frame }).unwrap();
+    [search, entry, reorder, completed]
         .iter()
         .map(|value| serde_json::to_string(value).unwrap())
         .collect()

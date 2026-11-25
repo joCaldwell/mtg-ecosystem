@@ -263,7 +263,9 @@ impl RulesTxn {
                 TargetDomain::ControlledBattlefieldCreature
                 | TargetDomain::ControlledBattlefieldPermanent
                 | TargetDomain::BattlefieldCreature
-                | TargetDomain::BattlefieldPermanent => self
+                | TargetDomain::BattlefieldPermanent
+                | TargetDomain::OwnGraveyardCard
+                | TargetDomain::OwnGraveyardCreatureCard => self
                     .state
                     .rules
                     .objects

@@ -187,6 +187,7 @@ impl RulesTxn {
                 &self.state.rules.frame,
                 Frame::ResolutionChoice {
                     choice: ResolutionChoice::Search { .. }
+                        | ResolutionChoice::ReorderLibraryTop { .. }
                         | ResolutionChoice::Scry { .. }
                         | ResolutionChoice::Surveil { .. }
                         | ResolutionChoice::SearchEntry { .. },

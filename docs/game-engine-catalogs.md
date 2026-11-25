@@ -152,12 +152,12 @@ Every flat effect is a kernel verb; the audited cells are:
 | `gain_life`, `lose_life` | Controller (fixed or X), each opponent, one announced player (fixed or X), or the caster/active event player; the standalone drain pair uses a dedicated executor |
 | `draw` | Controller, every player, one announced player (fixed or X), or the caster/active event player |
 | `damage` | From the source: one announced target (fixed or X for any target or creature), the controller, a mana ability's activator, or creature sets plus optionally each player (fixed, X, creature count or other casts' mana value) |
-| `destroy`, `move`, `tap`, `untap` | One announced target by domain (destroy; exile, owner's hand, top of owner's library; tap; untap), an optional target destroy, matching battlefield sets, your lands (untap), one player's graveyard or every graveyard (exile) |
+| `destroy`, `move`, `tap`, `untap` | One announced target by domain (destroy; exile, owner's hand, top of owner's library; tap; untap), an optional target destroy, matching battlefield sets, your lands (untap), one player's graveyard or every graveyard (exile), one card from your graveyard (hand), or one creature card from your graveyard (battlefield) |
 | `mill`, `discard`, `sacrifice` | Controller or one announced player (mill; X for the player); controller, damaged player, announced player (random or X), each player or each opponent (discard); damaged player, target opponent, each player or each opponent sacrifices one creature |
 | `create_tokens`, `put_counters` | Positive fixed tokens you create (predefined or creature recipe); positive fixed +1/+1 counters on the source or one announced creature |
 | `modify_until` | End-of-turn fixed P/T change of the source, one announced creature or a matching battlefield set; the source's own keyword grant |
-| `search`, `shuffle` | The controller's own library, or that of a filtered target's captured controller: up to a fixed number of cards with printed type, supertype, subtype, color or fixed stat qualities, optionally revealed, onto the searcher's battlefield (optionally tapped) or into the owner's hand or graveyard; the shuffle of that library |
-| `scry`, `surveil` | The controller, a fixed positive number |
+| `search`, `shuffle` | The controller's own library, or that of a filtered target's captured controller: up to a fixed number of cards with printed type, supertype, subtype, color or fixed stat qualities, optionally revealed, onto the searcher's battlefield (optionally tapped) or into the owner's hand or graveyard; the shuffle of that library, or a singleton to the top after shuffling the remainder |
+| `scry`, `surveil`, `reorder_library_top` | The controller, a fixed positive number |
 
 The interpreter routes admitted leaves through the shared rules operations.
 Board-wide sets evaluate through the battlefield and graveyard queries.
@@ -188,6 +188,10 @@ leaves can read each player or each opponent. Target owners, object controllers
 and life totals can require missing or last-known facts the continuation cannot
 always read. Object stats and cast-history amounts remain outside the control
 cells.
+
+The spell's program supplies its announcement targets. Branches gated by
+an optional-cost condition cannot supply targets until cost-dependent
+target declarations are supported (CR 601.2c).
 
 Every branch and leaf needs its own audited cell. Non-life leaves use the flat
 executor without task bindings, with a single announced target when they read a

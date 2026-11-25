@@ -129,6 +129,7 @@ impl RulesTxn {
         let player = match &verb {
             Verb::Search { player, .. }
             | Verb::Shuffle { player }
+            | Verb::ReorderLibraryTop { player, .. }
             | Verb::Scry { player, .. }
             | Verb::Surveil { player, .. } => player.clone(),
             _ => return Err("not a library verb".into()),
@@ -164,6 +165,23 @@ impl RulesTxn {
                     frame,
                     choice: ResolutionChoice::Search {
                         player: actor,
+                        source_block,
+                    },
+                };
+                Ok(())
+            }
+            Verb::ReorderLibraryTop { ref amount, .. } => {
+                let looked = self.library_prefix(actor, &self.kernel_amount(&frame, amount)?)?;
+                if looked.is_empty() {
+                    return self
+                        .finish_instruction(frame, InstructionOutcome::Effect { actual: None });
+                }
+                // Even a one-card prefix has a mandatory private look.
+                self.rules_mut().frame = Frame::ResolutionChoice {
+                    frame,
+                    choice: ResolutionChoice::ReorderLibraryTop {
+                        player: actor,
+                        looked,
                         source_block,
                     },
                 };
@@ -266,7 +284,9 @@ impl RulesTxn {
         // One canonical order for every continuation that saves the set.
         let mut found = found;
         found.sort();
-        let (search, _) = self.search_destination(&frame)?;
+        let (Verb::Search { search, .. }, _) = self.library_verb(&frame)? else {
+            return Err("missing search instruction".into());
+        };
         if search.reveal && !found.is_empty() {
             self.commit(
                 ProposedEvent::RevealFound {
@@ -275,6 +295,26 @@ impl RulesTxn {
                 },
                 self.instruction_cause(&frame, source_block)?,
             )?;
+        }
+        if search.to == Destination::OwnerLibraryTop {
+            let top = match found.as_slice() {
+                [] => None,
+                [object] => Some(*object),
+                _ => return Err("a library-top search finds at most one card".into()),
+            };
+            let actual = self.commit(
+                ProposedEvent::ShuffleLibraryToTop { player, found: top },
+                self.instruction_cause(&frame, source_block)?,
+            )?;
+            if let Some(object) = top.filter(|_| search.reveal) {
+                self.remember_revealed_library_top(object);
+            }
+            return self.finish_instruction(
+                frame,
+                InstructionOutcome::Effect {
+                    actual: Some(actual),
+                },
+            );
         }
         let remaining = self.found_commanders(&frame, &found)?;
         self.continue_search(frame, player, found, remaining, vec![], source_block)
@@ -863,6 +903,9 @@ impl RulesTxn {
                     }
                     EntryQuestion::Pay { entrant } => self.entry_payment_decision(*player, entrant),
                 }),
+            ResolutionChoice::ReorderLibraryTop { player, looked, .. } if self.is_live(*player) => {
+                Some(self.order(*player, Reason::OrderLibraryTop, objects(looked), looked.len() as u32))
+            }
             ResolutionChoice::Scry {
                 player,
                 looked,
@@ -939,6 +982,7 @@ impl RulesTxn {
         let player = match &choice {
             ResolutionChoice::Search { player, .. }
             | ResolutionChoice::SearchEntry { player, .. }
+            | ResolutionChoice::ReorderLibraryTop { player, .. }
             | ResolutionChoice::Scry { player, .. }
             | ResolutionChoice::Surveil { player, .. } => *player,
             _ => return Err("not a library choice".into()),
@@ -998,6 +1042,19 @@ impl RulesTxn {
         }
         let chosen = input.objects()?;
         match choice {
+            ResolutionChoice::ReorderLibraryTop {
+                looked,
+                source_block,
+                ..
+            } => self.commit_look(
+                frame,
+                ProposedEvent::ReorderLibraryTop {
+                    player,
+                    looked,
+                    top: chosen,
+                },
+                source_block,
+            ),
             ResolutionChoice::Search { source_block, .. } => {
                 self.complete_search(frame, player, chosen, source_block)
             }
@@ -1168,7 +1225,8 @@ impl RulesTxn {
             return false;
         };
         match choice {
-            ResolutionChoice::Scry { player, looked, .. }
+            ResolutionChoice::ReorderLibraryTop { player, looked, .. }
+            | ResolutionChoice::Scry { player, looked, .. }
             | ResolutionChoice::Surveil { player, looked, .. } => {
                 *player == viewer && looked.contains(&object)
             }
@@ -1200,6 +1258,11 @@ impl RulesTxn {
                 player,
                 source_block,
             }
+            | ResolutionChoice::ReorderLibraryTop {
+                player,
+                source_block,
+                ..
+            }
             | ResolutionChoice::Scry {
                 player,
                 source_block,
@@ -1219,6 +1282,7 @@ impl RulesTxn {
         };
         let expected = match &verb {
             Verb::Search { player, .. }
+            | Verb::ReorderLibraryTop { player, .. }
             | Verb::Scry { player, .. }
             | Verb::Surveil { player, .. } => match self.kernel_players(frame, player)? {
                 Players::One(player) => player,
@@ -1233,6 +1297,10 @@ impl RulesTxn {
         // answers well formed, before the departure fast path accepts it.
         let staged = match (choice, &verb) {
             (ResolutionChoice::Search { .. }, Verb::Search { .. }) => true,
+            (
+                ResolutionChoice::ReorderLibraryTop { looked, .. },
+                Verb::ReorderLibraryTop { amount, .. },
+            ) => self.valid_looked(frame, player, looked, amount)?,
             // A battlefield search's saved answers, checked before the
             // departure fast path accepts them.
             (
@@ -1310,13 +1378,88 @@ impl RulesTxn {
                         .next_entry_question(player, found, hosts, paid)
                         .is_ok_and(|next| next.is_some())
             }
-            (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })
+            (
+                ResolutionChoice::ReorderLibraryTop { looked, .. },
+                Verb::ReorderLibraryTop { amount, .. },
+            )
+            | (ResolutionChoice::Scry { looked, .. }, Verb::Scry { amount, .. })
             | (ResolutionChoice::Surveil { looked, .. }, Verb::Surveil { amount, .. }) => {
                 let amount = self.kernel_amount(frame, amount)?;
                 self.library_prefix(player, &amount)? == *looked
             }
             _ => false,
         })
+    }
+
+    /// CR 401.2, 701.20e: the completed reorder retains the exact private
+    /// prefix so that state validation can check the permutation after
+    /// later instructions change that library.
+    pub(in crate::engine) fn validate_library_reorder_outcome(
+        &self,
+        frame: &Resolving,
+        instruction: Option<&Instruction>,
+        outcome: &InstructionOutcome,
+    ) -> Result<(), String> {
+        let invalid = || "snapshot completed library reorder invariant".to_owned();
+        let result = match outcome {
+            InstructionOutcome::Effect {
+                actual:
+                    Some(EventOutcome::LibraryTopReordered {
+                        player,
+                        looked,
+                        top,
+                    }),
+            } => Some((player, looked, top)),
+            InstructionOutcome::Damage {
+                actual: Some(EventOutcome::LibraryTopReordered { .. }),
+            }
+            | InstructionOutcome::Life {
+                actual: Some(EventOutcome::LibraryTopReordered { .. }),
+            } => return Err(invalid()),
+            InstructionOutcome::Kernel { outcomes } => {
+                for child in outcomes {
+                    self.validate_library_reorder_outcome(frame, None, child)?;
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(Verb::ReorderLibraryTop { amount, .. }) =
+            instruction.and_then(Instruction::verb)
+        {
+            let controller = self.entry(frame.stack_id)?.controller;
+            if let Some((player, looked, top)) = result {
+                if *player == controller
+                    && self.valid_looked(frame, *player, looked, amount)?
+                    && Self::same_cards(looked, top)
+                    && looked.iter().all(|id| {
+                        self.state.rules.objects.get(&id.card).map_or_else(
+                            || !self.is_live(*player),
+                            |current| {
+                                // A later move can create a successor. If the
+                                // same incarnation lives, it still belongs to
+                                // this library (CR 400.7).
+                                current.id.incarnation > id.incarnation
+                                    || (current.id == *id
+                                        && current.zone == (Zone::Library { owner: *player }))
+                            },
+                        )
+                    })
+                {
+                    return Ok(());
+                }
+            } else if matches!(outcome, InstructionOutcome::Effect { actual: None })
+                || matches!(outcome, InstructionOutcome::PlayerActionSkipped { player }
+                    if *player == controller && !self.is_live(*player))
+            {
+                return Ok(());
+            }
+            return Err(invalid());
+        }
+        if result.is_some() {
+            return Err(invalid());
+        }
+        Ok(())
     }
 
     /// CR 701.22a, 701.25a: the looked-at cards are distinct cards of the

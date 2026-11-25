@@ -1280,6 +1280,19 @@ fn library_cells_admit_own_library_searches_shuffles_and_looks() {
             Ok(BTreeSet::from([Cell::SearchController]))
         );
     }
+    // CR 701.24b: a singleton library-top search includes the shuffle.
+    assert_eq!(
+        cells(
+            &search(
+                you.clone(),
+                basic_land.clone(),
+                1,
+                Destination::OwnerLibraryTop
+            ),
+            &spell(&[])
+        ),
+        Ok(BTreeSet::from([Cell::SearchLibraryTop]))
+    );
     // CR 608.2h: a filtered target's last-known controller searches theirs.
     let targets = filtered_creature_target();
     let theirs = PlayerExpr::ControllerOf {
@@ -1436,9 +1449,21 @@ fn library_cells_reject_other_libraries_destinations_and_filters() {
             &[]
         ));
     }
-    // A shuffle-free top-of-library or another player's battlefield.
+    // Only the controller's singleton search may put its find on top.
+    assert!(unaudited(
+        &search(you.clone(), Pred(vec![]), 2, Destination::OwnerLibraryTop),
+        &[]
+    ));
+    assert!(unaudited(
+        &search(
+            theirs.clone(),
+            Pred(vec![]),
+            1,
+            Destination::OwnerLibraryTop
+        ),
+        &filtered
+    ));
     for to in [
-        Destination::OwnerLibraryTop,
         Destination::Exile,
         Destination::Battlefield {
             controller: PlayerExpr::EachOpponent,

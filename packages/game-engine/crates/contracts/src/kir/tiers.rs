@@ -137,6 +137,8 @@ pub enum Cell {
     MoveTargetOwnerHand,
     MoveTargetOwnerLibraryTop,
     MoveSourceOwnerZone,
+    MoveOwnGraveyardTargetToHand,
+    MoveOwnGraveyardCreatureToBattlefield,
     ExileTargetGraveyard,
     ExileGraveyards,
     MoveSet,
@@ -184,12 +186,14 @@ pub enum Cell {
     // CR 701.22-701.25: library search, shuffle, scry and surveil.
     /// CR 701.23: the controller searches their library.
     SearchController,
+    SearchLibraryTop,
     /// CR 701.23, 608.2h: a target's last-known controller searches theirs.
     SearchTargetController,
     /// CR 701.24a.
     ShuffleController,
     ShuffleTargetController,
     /// CR 701.22a.
+    ReorderLibraryTop,
     ScryController,
     /// CR 701.25a.
     SurveilController,
@@ -292,6 +296,8 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::MoveTargetExile
         | C::MovePermanentOwnerHand
         | C::MoveSourceOwnerZone
+        | C::MoveOwnGraveyardTargetToHand
+        | C::MoveOwnGraveyardCreatureToBattlefield
         | C::ExileTargetGraveyard
         | C::ExileGraveyards
         | C::MoveSet
@@ -322,9 +328,11 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SetKeywordsUntilEndOfTurn
         | C::CombatProhibitionUntilEndOfTurn
         | C::SearchController
+        | C::SearchLibraryTop
         | C::SearchTargetController
         | C::ShuffleController
         | C::ShuffleTargetController
+        | C::ReorderLibraryTop
         | C::ScryController
         | C::SurveilController
         | C::Control
@@ -482,6 +490,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ActivatedSourceKeywordGrantV1
         | C::MultiTypeCreatureTokensV1
         | C::OwnGraveyardCardReturnV1
+        | C::PrivateLibraryReorderV1
+        | C::SearchLibraryTopV1
         | C::PermanentRemovalV1
         | C::SacrificeV1
         | C::FixedArtifactSacrificeCostV1

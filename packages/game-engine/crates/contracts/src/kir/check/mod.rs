@@ -599,6 +599,7 @@ impl Walk<'_, '_> {
             | Verb::LoseLife { player, amount }
             | Verb::Mill { player, amount }
             | Verb::Discard { player, amount, .. }
+            | Verb::ReorderLibraryTop { player, amount }
             | Verb::Scry { player, amount }
             | Verb::Surveil { player, amount } => {
                 self.player(player)?;
@@ -959,6 +960,11 @@ impl Walk<'_, '_> {
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
                 unaudited("nested set damage leaves top-level cursor facts")
             }
+            // The completed reorder is validated against its own fixed
+            // amount at the resolving instruction's cursor.
+            Verb::ReorderLibraryTop { .. } => {
+                unaudited("library reorder needs a top-level instruction")
+            }
             // CR 121.2: counted draws retain attempt progress and finish
             // with an outcome that must match a top-level draw instruction.
             Verb::Draw { player, amount } if !single_draw(player, amount) => {
@@ -1084,8 +1090,13 @@ impl Walk<'_, '_> {
             } => self.audit_combat_prohibition(affects, *restriction, *until),
             Verb::Search { player, search } => self.audit_search(player, search),
             Verb::Shuffle { player } => self.audit_shuffle(player),
-            Verb::Scry { player, amount } => self.audit_look(player, amount, false),
-            Verb::Surveil { player, amount } => self.audit_look(player, amount, true),
+            Verb::ReorderLibraryTop { player, amount } => {
+                self.audit_look(player, amount, Cell::ReorderLibraryTop)
+            }
+            Verb::Scry { player, amount } => self.audit_look(player, amount, Cell::ScryController),
+            Verb::Surveil { player, amount } => {
+                self.audit_look(player, amount, Cell::SurveilController)
+            }
             Verb::Attach {
                 what: Ref::Source,
                 to: Ref::Target { slot: 0 },
@@ -1187,6 +1198,12 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
         Verb::Mill { amount, .. } => mill::capabilities(amount, out),
         Verb::Discard { player, random, .. } => discard::capabilities(player, *random, out),
         Verb::Sacrifice { player, .. } => sacrifice::capabilities(player, out),
+        Verb::Search { search, .. } if search.to == Destination::OwnerLibraryTop => {
+            out.insert(Capability::SearchLibraryTopV1);
+        }
+        Verb::ReorderLibraryTop { .. } => {
+            out.insert(Capability::PrivateLibraryReorderV1);
+        }
         Verb::Scry { .. }
         | Verb::Surveil { .. }
         | Verb::Regenerate { .. }

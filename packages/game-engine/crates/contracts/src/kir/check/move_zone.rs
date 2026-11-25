@@ -21,6 +21,16 @@ impl Walk<'_, '_> {
                 },
                 to,
             ) => match (to, self.domain(*slot)?) {
+                (
+                    Destination::OwnerHand,
+                    TargetDomain::OwnGraveyardCard | TargetDomain::OwnGraveyardCreatureCard,
+                ) => Ok(Cell::MoveOwnGraveyardTargetToHand),
+                (
+                    Destination::Battlefield { controller, .. },
+                    TargetDomain::OwnGraveyardCreatureCard,
+                ) if controller == &PlayerExpr::you(self.env.context) => {
+                    Ok(Cell::MoveOwnGraveyardCreatureToBattlefield)
+                }
                 (Destination::Exile, TargetDomain::BattlefieldPermanent) => {
                     Ok(Cell::MoveTargetExile)
                 }
@@ -94,6 +104,7 @@ pub(super) fn capabilities(what: &SetExpr, to: &Destination, out: &mut BTreeSet<
             out.insert(match to {
                 Destination::OwnerHand => Capability::OwnerHandMoveV1,
                 Destination::OwnerLibraryTop => Capability::OwnerLibraryTopMoveV1,
+                Destination::Battlefield { .. } => Capability::GraveyardRecursionV1,
                 _ => Capability::PermanentRemovalV1,
             });
         }
