@@ -1,6 +1,6 @@
 // The recursive AST walk, its scope barriers and branch contexts.
 import { isDeepStrictEqual } from "node:util";
-import type { Amount, CharacteristicRelation, Condition, Cost, Effect, GainedAbility, LookPermission, ObjectRef, PlayerDesignation, PlayerRef, StaticEffect } from "../../ast.ts";
+import type { Ability, Amount, CharacteristicRelation, Condition, Cost, Effect, GainedAbility, LookPermission, ObjectFilter, ObjectRef, PlayerDesignation, PlayerRef, Sentence, StaticEffect } from "../../ast.ts";
 import type { Analyzer } from "./analyzer.ts";
 import { chosenRange, type ChoiceReference } from "./choices.ts";
 import { DESIGNATION_RULES, child, combine, impliesPermanent, unambiguousPluralRecipient, type Candidate, type Context } from "./context.ts";
@@ -573,7 +573,8 @@ export function walk(this: Analyzer, value: unknown, path: string, context: Cont
         path !== context.sourceExclusionPath ? ["201.5"]
           : context.phase === "replacement-match" ? ["201.5", "615.1a"]
             : context.phase === "payment" ? ["201.5", "602.2b", "701.21a"] : ["201.5", "608.2h"]);
-    else this.diagnostic("unsupported-reference", child(path, "other"), "The excluded antecedent of other/another is unresolved.", ["201.5"]);
+    else if (!bindOther(this, value, path, context))
+      this.diagnostic("unsupported-reference", child(path, "other"), "The excluded antecedent of other/another is unresolved.", ["201.5"]);
   }
   // CR 702.33e: "kicked" refers to the kicker ability printed on the object;
   // with one kicker ability (or the kicker cost it names) that link is fixed.
@@ -739,6 +740,192 @@ export function walk(this: Analyzer, value: unknown, path: string, context: Cont
     this.diagnostic("unsupported-reference", path, "This ownership rule requires a bound affected-object scope.", ["109.5"]);
   }
 }
+const YOUR_GRAVEYARD = { zone: "graveyard", owner: "your" } as const;
+const ONE = { amount: "fixed", value: 1 } as const;
+
+function onlyFields(value: object, ...keys: string[]): boolean {
+  return Object.entries(value).every(([key, field]) => field === undefined || keys.includes(key));
+}
+
+function bindOther(analyzer: Analyzer, filter: Record<string, unknown>, path: string, context: Context): boolean {
+  const root = context.lexicalAbilityPath;
+  if (context.barrier || !root || context.source !== analyzer.id("/source", "object") ||
+      context.ability !== analyzer.id(root, "ability")) return false;
+  // Only printed face abilities are registered here. A quote or a created
+  // ability cannot supply either end of the exclusion (CR 113.7a, 113.10).
+  const ability = analyzer.abilityAsts.get(root) as Ability | undefined;
+  const at = child(path, "other");
+  if (context.phase === "payment" && ability?.kind === "activated" && context.permanentSource &&
+      !context.sourceMoved && sourcePaymentFilter(ability.costs, path, root) === filter) {
+    analyzer.bound({ ref: "self" }, at, context.source, ["201.5", "602.2b", "601.2h"]);
+    return true;
+  }
+  if (context.phase !== "resolution") return false;
+  if (ability?.kind === "triggered" && path === `${root}/effects/0/steps/0/what/filter` &&
+      ownDiesReturnFilter(ability) === filter) {
+    // This is the same graveyard exclusion as the existing view, with one
+    // definite death event and its already-exported successor (CR 400.7e,
+    // 603.6c). Excluding the battlefield incarnation would be ineffective.
+    const successor = context.sourceSuccessor;
+    if (successor?.id === analyzer.id(`${root}/trigger`, "successor") && successor.cardinality === "one" &&
+        successor.triggerSuccessor && context.objects.length === 1 && context.objects[0].id === successor.id) {
+      analyzer.bound({ ref: "that", filter: { cls: "card" } }, at, successor.id, ["400.7e", "603.3d", "603.6c", "608.2b"]);
+      return true;
+    }
+  }
+  if (ability?.kind !== "spell") return false;
+  const origin = spellExclusionOrigin(ability.effects, root, path, filter);
+  if (!origin) return false;
+  const [originPath, target] = origin;
+  const previous = analyzer.at(originPath);
+  const node = analyzer.result.nodes.find(entry => entry.id === previous?.id);
+  if (node?.node !== "selection" || node.selection !== "target" || node.scope !== context.ability ||
+      node.path !== originPath || node.expression !== target || node.cardinality !== "one" || node.perMember) return false;
+  analyzer.bound(target, at, node.id, ["115.3", "601.2c", "608.2b", "608.2c"]);
+  return true;
+}
+
+function sourcePaymentFilter(costs: Cost[], path: string, root: string): ObjectFilter | undefined {
+  // One object payment alongside only mana or the source's own tap symbol.
+  // In particular, a second object payment cannot suggest an exclusion.
+  const payments = costs.flatMap((cost, index) =>
+    (cost.cost === "mana" && onlyFields(cost, "cost", "symbols")) || (cost.cost === "tap-self" && onlyFields(cost, "cost"))
+      ? [] : [{ cost, path: `${root}/costs/${index}` }]);
+  if (payments.length !== 1) return;
+  const [{ cost, path: payment }] = payments;
+  if (cost.cost === "tap-objects" && path === `${payment}/what/filter` &&
+      cost.what.ref === "filter" && cost.what.count.amount === "fixed" && onlyFields(cost.what, "ref", "filter", "count")) {
+    const { types, subtypes, ...rest } = cost.what.filter;
+    if ((types?.length === 1 && !subtypes || subtypes?.length === 1 && !types) &&
+        isDeepStrictEqual(rest, { other: true, status: ["untapped"], control: "you" })) return cost.what.filter;
+  }
+  if (cost.cost === "exile" && path === `${payment}/what/filter` && onlyFields(cost, "cost", "what") &&
+      cost.what.ref === "filter" && cost.what.count.amount === "fixed" && onlyFields(cost.what, "ref", "filter", "count")) {
+    const { types, ...rest } = cost.what.filter;
+    if ((types === undefined || isDeepStrictEqual(types, ["creature"])) &&
+        isDeepStrictEqual(rest, { other: true, cls: "card", zone: YOUR_GRAVEYARD })) return cost.what.filter;
+  }
+  if (cost.cost === "remove-counters" && cost.count !== "all" && cost.count.amount === "fixed" &&
+      path === `${payment}/from/filter`) {
+    const from = cost.from;
+    if (from.ref === "filter" && cost.count.value === 1 && cost.distributed === undefined &&
+        isDeepStrictEqual(from, { ref: "filter", count: ONE, filter: { cls: "permanent", control: "you", other: true } }))
+      return from.filter;
+    if (from.ref === "each" && cost.distributed && isDeepStrictEqual(from, { ref: "each", filter: {
+      other: true, allOf: [{ anyOf: [{ types: ["artifact"] }, { types: ["creature"] }, { types: ["planeswalker"] }] }], control: "you",
+    } })) return from.filter;
+  }
+}
+
+type Target = Extract<ObjectRef, { ref: "target" }>;
+function singleTarget(ref: ObjectRef): ref is Target {
+  return ref.ref === "target" && !!ref.selectionId && isDeepStrictEqual(ref.count, ONE) &&
+    onlyFields(ref, "ref", "selectionId", "count", "filter");
+}
+
+function ownDiesReturnFilter(ability: Extract<Ability, { kind: "triggered" }>): ObjectFilter | undefined {
+  const sentence = ability.effects[0];
+  const step = sentence?.steps[0];
+  if (!onlyFields(ability, "kind", "abilityWord", "trigger", "effects") ||
+      !(isDeepStrictEqual(ability.trigger, { trigger: "dies", what: { ref: "this", noun: "creature" } }) ||
+        isDeepStrictEqual(ability.trigger, { trigger: "dies", what: { ref: "self" } })) ||
+      !sentence || !onlyFields(sentence, "steps") || sentence.steps.length !== 1 ||
+      step?.effect !== "return-to-hand" || step.to !== "your" || !onlyFields(step, "effect", "what", "to") ||
+      !singleTarget(step.what)) return;
+  const { types, subtypes, ...filter } = step.what.filter;
+  if ((types?.length === 1 && !subtypes || subtypes?.length === 1 && !types) &&
+      isDeepStrictEqual(filter, { cls: "card", zone: YOUR_GRAVEYARD, other: true })) return step.what.filter;
+}
+
+function simpleSpellSubject(step: Effect | undefined): ObjectRef | undefined {
+  if (!step) return;
+  switch (step.effect) {
+    case "declare-target": case "destroy":
+      if ("ref" in step.what && onlyFields(step, "effect", "what")) return step.what;
+      break;
+    case "return-to-hand":
+      if (onlyFields(step, "effect", "what", "to") && (step.to === "your" || step.to === "owner")) return step.what;
+      break;
+    case "pump":
+      if (onlyFields(step, "effect", "what", "power", "toughness", "duration") &&
+          step.power.amount.amount === "fixed" && step.toughness.amount.amount === "fixed" &&
+          isDeepStrictEqual(step.duration, { duration: "end-of-turn" })) return step.what;
+      break;
+    case "put-counters":
+      if ("ref" in step.on && onlyFields(step, "effect", "on", "counter", "count") &&
+          step.count.amount === "fixed" && onlyFields(step.counter, "type")) return step.on;
+      break;
+  }
+}
+
+function spellExclusionOrigin(sentences: Sentence[], root: string, path: string,
+  filter: Record<string, unknown>): [string, Target] | undefined {
+  const location = /^\/effects\/(\d+)\/steps\/(\d+)\/(.+)\/filter$/.exec(path.slice(root.length));
+  if (!path.startsWith(`${root}/`) || !location) return;
+  const [, sentenceIndex, stepIndex, operand] = location;
+  const si = Number(sentenceIndex), ti = Number(stepIndex);
+  const sentence = sentences[si];
+  const step = sentence?.steps[ti];
+  if (!sentence || !step) return;
+  const plain = onlyFields(sentence, "steps");
+  const kicked = onlyFields(sentence, "steps", "condition", "conditionKind") && sentence.conditionKind === "if" &&
+    isDeepStrictEqual(sentence.condition, { condition: "kicked", what: { ref: "this", noun: "spell" },
+      comparison: { op: "ge", value: ONE } });
+  const stepPath = `${root}/effects/${si}/steps/${ti}`;
+
+  // An explicit pair of operands of the same instruction. For damage the
+  // power pronoun is the source's characteristic, not a second participant.
+  if (si === 0 && ti === 0 && plain) {
+    let pair: [string, ObjectRef, ObjectRef] | undefined;
+    if (step.effect === "fight" && operand === "b" && onlyFields(step, "effect", "a", "b")) pair = ["a", step.a, step.b];
+    if (step.effect === "move-counters" && operand === "to" && onlyFields(step, "effect", "counter", "count", "from", "to") &&
+        (step.count === "all" || step.count.amount === "fixed")) pair = ["from", step.from, step.to];
+    if (step.effect === "damage" && onlyFields(step, "effect", "source", "amount", "to") && !Array.isArray(step.source) &&
+        isDeepStrictEqual(step.amount, { amount: "attribute", attribute: "power", of: { ref: "it" } })) {
+      if (operand === "to/ref" && step.to.to === "object") pair = ["source", step.source, step.to.ref];
+      if (operand === "to/refs/0" && step.to.to === "each" && step.to.refs.length === 2 &&
+          isDeepStrictEqual(step.to.refs[1], { player: "each-opponent" }) && "ref" in step.to.refs[0])
+        pair = ["source", step.source, step.to.refs[0]];
+    }
+    if (pair && singleTarget(pair[1]) && excludesSpellTarget(pair[2], filter, pair[1]))
+      return [child(stepPath, pair[0]), pair[1]];
+  }
+
+  // The initial instruction is the sole earlier object operand. A fixed life
+  // gain in between reads no objects. Kicker only gates the second target.
+  const first = sentences[0];
+  const producer = first?.steps[0];
+  const prior = simpleSpellSubject(producer);
+  if (!first || !producer || !prior || !singleTarget(prior) || !onlyFields(first, "steps") ||
+      (operand !== "what" && operand !== "on")) return;
+  const immediatelyAfter = (si === 0 && ti === 1) || (si === 1 && ti === 0 && first.steps.length === 1);
+  const middle = sentences[1];
+  const life = middle?.steps[0];
+  const afterLife = si === 2 && ti === 0 && first.steps.length === 1 && middle?.steps.length === 1 &&
+    onlyFields(middle, "steps") && life?.effect === "gain-life" && onlyFields(life, "effect", "who", "amount") &&
+    isDeepStrictEqual(life.who, { player: "you" }) && life.amount.amount === "fixed";
+  const current = simpleSpellSubject(step);
+  if ((plain || kicked) && (immediatelyAfter || afterLife) && current &&
+      operand === (step.effect === "put-counters" ? "on" : "what") && excludesSpellTarget(current, filter, prior))
+    return [`${root}/effects/0/steps/0/${producer.effect === "put-counters" ? "on" : "what"}`, prior];
+}
+
+function excludesSpellTarget(ref: ObjectRef, filter: Record<string, unknown>, prior: Target): boolean {
+  if ((ref.ref !== "target" && ref.ref !== "each") || ref.filter !== filter) return false;
+  if (ref.ref === "target" && (!ref.selectionId || ref.selectionId === prior.selectionId || !isDeepStrictEqual(ref.count, ONE) ||
+      !onlyFields(ref, "ref", "filter", "selectionId", "count", "upTo"))) return false;
+  if (ref.ref === "each" && !onlyFields(ref, "ref", "filter")) return false;
+  const creatures = [{ types: ["creature"] }, { types: ["creature"], control: "you" }];
+  if (creatures.some(description => isDeepStrictEqual(prior.filter, description)) &&
+      creatures.some(description => isDeepStrictEqual(filter, { ...description, other: true }))) return true;
+  const lands = [{ types: ["land"] }, { nonTypes: ["land"], cls: "permanent" }];
+  if (lands.some(description => isDeepStrictEqual(prior.filter, description) &&
+      isDeepStrictEqual(filter, { ...description, other: true }))) return true;
+  return ref.ref === "target" &&
+    isDeepStrictEqual(prior.filter, { types: ["creature"], cls: "card", zone: YOUR_GRAVEYARD }) &&
+    isDeepStrictEqual(filter, { cls: "card", permanent: true, zone: YOUR_GRAVEYARD, other: true });
+}
+
 /** Walk a node's children, binding `what` (or a player recipient) before
  * the abilities it is given, so a granted ability knows its recipient. */
 export function walkWithRecipient(this: Analyzer, value: Record<string, unknown>, path: string, context: Context): void {
