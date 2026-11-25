@@ -114,7 +114,7 @@ fn reference_table_rows_name_the_role_and_block_they_reject() {
         code(you("entering-controller")),
         Some("ref:controller:entering-controller:activated".into())
     );
-    // W1 opens this row: an Aura's or Equipment's host has no lowering yet.
+    // An attachment host must be printed as enchanted/equipped. A pronoun cannot stand in.
     let attached = reference_block("/effect/what", json!({"ref":"attached-to"}))
         .references(&pump(json!({"ref":"it"})));
     assert_eq!(code(attached), Some("ref:attached-to:static".into()));

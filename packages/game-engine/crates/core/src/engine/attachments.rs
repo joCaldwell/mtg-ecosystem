@@ -53,16 +53,34 @@ impl RulesTxn {
     ) -> Result<bool, String> {
         let definition = self.copiable_definition(source)?;
         let target_characteristics = self.structural_characteristics(target)?;
-        if definition
-            .characteristics
-            .subtypes
-            .iter()
-            .any(|s| s == "Equipment" || s == "Aura")
-        {
-            Ok(target_characteristics.has_type(CardKind::Creature))
-        } else {
-            Ok(false)
+        if definition.characteristics.subtypes == ["Equipment"] {
+            return Ok(!self
+                .structural_characteristics(source)?
+                .has_type(CardKind::Creature)
+                && target_characteristics.has_type(CardKind::Creature));
         }
+        if definition.characteristics.subtypes == ["Aura"] {
+            return Ok(definition
+                .spell
+                .as_ref()
+                .and_then(|p| p.targets.first())
+                .is_some_and(|spec| match spec.domain {
+                    TargetDomain::BattlefieldCreature => {
+                        target_characteristics.has_type(CardKind::Creature)
+                    }
+                    TargetDomain::BattlefieldPermanent => {
+                        spec.filter.as_ref().is_some_and(|filter| {
+                            filter.types.is_empty()
+                                || filter
+                                    .types
+                                    .iter()
+                                    .any(|kind| target_characteristics.has_type(*kind))
+                        })
+                    }
+                    _ => false,
+                }));
+        }
+        Ok(false)
     }
 
     pub(crate) fn validate_attachment_state(&self) -> Result<(), String> {
@@ -105,9 +123,17 @@ impl RulesTxn {
                     .iter()
                     .any(|s| s == "Equipment" || s == "Aura")
                 || !known_target
-                || !self.attachment_target_type_valid(o.id, target)?
             {
                 return Err("snapshot attachment invariant".into());
+            }
+        }
+        // Illegal attachments may exist during resolution. A priority request
+        // proves stabilization finished, so every applicable SBA was applied.
+        if matches!(self.state.rules.frame, Frame::Priority) {
+            let mut pending = Vec::new();
+            self.attachment_sbas(&mut pending)?;
+            if !pending.is_empty() {
+                return Err("unstabilized attachment at priority".into());
             }
         }
         Ok(())
@@ -296,8 +322,7 @@ impl RulesTxn {
             .values()
             .filter(|o| o.present_on_battlefield())
         {
-            let source = self.color_layer(o.id)?;
-            let subtypes = &source.subtypes;
+            let subtypes = &self.copiable_definition(o.id)?.characteristics.subtypes;
             let legal = match o.attached_to {
                 Some(target) => {
                     target != o.id
@@ -305,7 +330,7 @@ impl RulesTxn {
                             .current(target)
                             .is_ok_and(|t| t.present_on_battlefield() && self.is_live(t.controller))
                         && self.attachment_target_type_valid(o.id, target)?
-                        && !self.protected_from(target, &source)
+                        && !self.protected_from(target, self.color_layer(o.id)?.as_ref())
                 }
                 None => false,
             };

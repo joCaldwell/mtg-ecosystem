@@ -69,10 +69,10 @@ fn domain(domain: TargetDomain) -> Option<(Route, u8)> {
             (Route::Stack, SPELL | ACTIVATED)
         }
         TargetDomain::PlayerOrPlaneswalker => (Route::Player, SPELL),
+        TargetDomain::ControlledBattlefieldCreature => (Route::Object, ACTIVATED),
         TargetDomain::CreatureOrPlaneswalker
         | TargetDomain::PlayerGraveyardCards { .. }
         | TargetDomain::ControlledBattlefieldPermanent
-        | TargetDomain::ControlledBattlefieldCreature
         | TargetDomain::BlockingBattlefieldCreature
         | TargetDomain::ControlledCreatureSpell => return None,
     })
@@ -305,8 +305,55 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     {
         return cell("activated", "source");
     }
+    if a.program
+        .targets
+        .iter()
+        .any(|t| t.domain == TargetDomain::ControlledBattlefieldCreature)
+        && !(d.characteristics.subtypes == ["Equipment"]
+            && matches!(a.cost, ActivationCost::Mana { .. })
+            && a.program.timing == SpellTiming::MainPhase
+            && matches!(a.program.targets.as_slice(), [t] if t.filter.is_none())
+            && matches!(
+                a.program.instructions.as_slice(),
+                [Instruction::Kernel {
+                    node: kir::Node::Do(kir::Verb::Attach {
+                        what: kir::Ref::Source,
+                        to: kir::Ref::Target { slot: 0 }
+                    }),
+                    ..
+                }]
+            ))
+    {
+        return cell("activated", "equip");
+    }
     cost(d, a)?;
     program(&a.program, Context::Activated, None)
+}
+
+/// CR 303.4a: the Aura's one announced target encodes the enchant predicate.
+fn enchant_target(targets: &[TargetSpec]) -> bool {
+    let [t] = targets else { return false };
+    if t.slot != 0
+        || t.selection_id.is_empty()
+        || t.stage != EvaluationStage::Announcement
+        || t.chooser != Chooser::Controller
+    {
+        return false;
+    }
+    match t.domain {
+        TargetDomain::BattlefieldCreature => t.filter.is_none(),
+        TargetDomain::BattlefieldPermanent => t.filter.as_ref().is_some_and(|f| {
+            matches!(
+                f.types.as_slice(),
+                [] | [CardKind::Artifact | CardKind::Land]
+            ) && f.non_types.is_empty()
+                && f.non_colors.is_empty()
+                && !f.opponent
+                && !f.tapped
+                && f.power.is_none()
+        }),
+        _ => false,
+    }
 }
 
 /// The event row: conditions whose detection needs no program-specific data.
@@ -314,6 +361,10 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     let kind = d.characteristics.kind;
     let creature = d.characteristics.has_type(CardKind::Creature);
     let event = match &a.condition {
+        TriggerCondition::AttachedCreature { attachment, .. } => match attachment {
+            kir::AttachmentKind::Equipped => d.characteristics.subtypes == ["Equipment"],
+            kir::AttachmentKind::Enchanted => d.characteristics.subtypes == ["Aura"],
+        },
         TriggerCondition::SelfEntersBattlefield => true,
         // CR 700.4: "dies" is defined for creatures; the runtime witness
         // reads the primary card type.
@@ -497,7 +548,7 @@ pub(crate) fn validate(d: &Definition) -> Result<(), String> {
 pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     let c = &d.characteristics;
     // Whole-card characteristics the composition tables do not describe
-    // reject: second faces, hybrid and X costs, snow, attachments and Sagas.
+    // reject: second faces, hybrid and X costs, snow and Sagas.
     // CR 205.4: the basic supertype is admitted only on a land, whose shell
     // below then requires the land's intrinsic mana (CR 305.6).
     if !c.hybrid_mana.is_empty()
@@ -506,7 +557,9 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
         || (c.basic && c.kind != CardKind::Land)
         || c.subtypes.iter().any(|s| {
             unsupported_rules_subtype(s)
-                || matches!(s.as_str(), "Aura" | "Equipment")
+                || (s == "Aura" && (c.kind != CardKind::Enchantment || c.subtypes != ["Aura"]))
+                || (s == "Equipment"
+                    && (c.kind != CardKind::Artifact || c.subtypes != ["Equipment"]))
                 || (c.kind != CardKind::Land && basic_land_color(s).is_some())
         })
         || c.subtypes.iter().collect::<BTreeSet<_>>().len() != c.subtypes.len()
@@ -539,7 +592,11 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
         p.functioning_zone == FunctioningZone::Stack
             && p.timing == cast_timing
             && p.resolution == SpellResolution::Permanent
-            && p.targets.is_empty()
+            && (if c.subtypes == ["Aura"] {
+                enchant_target(&p.targets)
+            } else {
+                p.targets.is_empty()
+            })
             && p.instructions.is_empty()
             && p.additional_sacrifice.is_none()
             && p.optional_additional_costs.is_empty()
@@ -912,7 +969,7 @@ mod tests {
             .is_err()
         );
 
-        // Shell: attachments, snow, hybrid and basic nonland cards reject.
+        // Shell: an Aura on the wrong type, snow, hybrid and basic nonland cards reject.
         let aura = with(|d| {
             d.activated.push(tap_gain());
             d.characteristics.subtypes = vec!["Aura".into()];

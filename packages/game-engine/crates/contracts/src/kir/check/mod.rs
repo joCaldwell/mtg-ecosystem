@@ -1036,6 +1036,14 @@ impl Walk<'_, '_> {
                 change,
                 until,
             } => self.audit_modify(what, *layer, change, *until),
+            Verb::Attach {
+                what: Ref::Source,
+                to: Ref::Target { slot: 0 },
+            } if self.env.context == Context::Activated
+                && self.domain(0)? == TargetDomain::ControlledBattlefieldCreature =>
+            {
+                Ok(Cell::Attachment)
+            }
             Verb::Scry { .. }
             | Verb::Surveil { .. }
             | Verb::Regenerate { .. }

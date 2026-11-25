@@ -1,7 +1,7 @@
 //! Keyword table: evergreen keywords that are complete without parameters.
 //!
 //! CR 702.2-702.21 (pinned 2026-09-25). Parameterized or linked keywords
-//! (equip, enchant, cycling, kicker, cascade, bestow, affinity) reject;
+//! (cycling, kicker, cascade, bestow, affinity) reject;
 //! adding one here means adding one row and its runtime.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
@@ -72,4 +72,142 @@ pub(super) fn printed(
         }
     }
     Ok(())
+}
+
+fn target(domain: TargetDomain, filter: Option<PermanentFilter>) -> TargetSpec {
+    TargetSpec {
+        slot: 0,
+        selection_id: "attachment-host".into(),
+        chooser: Chooser::Controller,
+        stage: EvaluationStage::Announcement,
+        domain,
+        filter,
+    }
+}
+
+// CR 702.6a: the implicit target and timing belong to the equip activation.
+pub(super) fn equip(
+    card: &Card<'_>,
+    keyword: &SourceKeyword,
+    block: u32,
+    text: &str,
+) -> Result<ActivatedAbility, Failure> {
+    let costs = keyword.cost.as_deref().unwrap_or_default();
+    let [SourceCost::Mana { symbols }] = costs else {
+        return Err(unsupported("keyword", "keyword:equip:cost"));
+    };
+    let printed = symbols
+        .iter()
+        .map(|s| format!("{{{s}}}"))
+        .collect::<String>();
+    if text != format!("Equip {printed}") || keyword.filter.is_some() {
+        return Err(unsupported("keyword", "keyword:equip:qualification"));
+    }
+    let cost = costs::lower(card, costs)?;
+    let mut program = SpellProgram::instructions(SpellTiming::MainPhase);
+    program
+        .targets
+        .push(target(TargetDomain::ControlledBattlefieldCreature, None));
+    program.instructions.push(Instruction::Kernel {
+        source_block: block,
+        node: kir::Node::Do(kir::Verb::Attach {
+            what: kir::Ref::Source,
+            to: kir::Ref::Target { slot: 0 },
+        }),
+    });
+    Ok(ActivatedAbility {
+        functioning_zone: FunctioningZone::Battlefield,
+        cost,
+        program,
+    })
+}
+
+// CR 303.4a and 702.5: the spell target also records the ongoing enchant restriction.
+pub(super) fn enchant(keyword: &SourceKeyword, text: &str) -> Result<TargetSpec, Failure> {
+    let f = keyword
+        .filter
+        .as_ref()
+        .ok_or_else(|| unsupported("keyword", "keyword:enchant:filter"))?;
+    for (noun, kind) in [
+        ("creature", Some(CardKind::Creature)),
+        ("artifact", Some(CardKind::Artifact)),
+        ("land", Some(CardKind::Land)),
+        ("permanent", None),
+    ] {
+        if text != format!("Enchant {noun}") || keyword.cost.is_some() {
+            continue;
+        }
+        if (kind.is_some() && *f != serde_json::json!({"types":[noun]}))
+            || (kind.is_none() && *f != serde_json::json!({"cls":"permanent"}))
+        {
+            continue;
+        }
+        if kind == Some(CardKind::Creature) {
+            return Ok(target(TargetDomain::BattlefieldCreature, None));
+        }
+        return Ok(target(
+            TargetDomain::BattlefieldPermanent,
+            Some(PermanentFilter {
+                types: kind.into_iter().collect(),
+                non_types: vec![],
+                non_colors: vec![],
+                opponent: false,
+                tapped: false,
+                power: None,
+            }),
+        ));
+    }
+    Err(unsupported("keyword", "keyword:enchant:filter"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn enchant_consumes_the_entire_printed_filter() {
+        for (line, filter, domain, types) in [
+            (
+                "Enchant creature",
+                json!({"types":["creature"]}),
+                TargetDomain::BattlefieldCreature,
+                None,
+            ),
+            (
+                "Enchant artifact",
+                json!({"types":["artifact"]}),
+                TargetDomain::BattlefieldPermanent,
+                Some(vec![CardKind::Artifact]),
+            ),
+            (
+                "Enchant land",
+                json!({"types":["land"]}),
+                TargetDomain::BattlefieldPermanent,
+                Some(vec![CardKind::Land]),
+            ),
+            (
+                "Enchant permanent",
+                json!({"cls":"permanent"}),
+                TargetDomain::BattlefieldPermanent,
+                Some(vec![]),
+            ),
+        ] {
+            let keyword = SourceKeyword {
+                keyword: "enchant".into(),
+                cost: None,
+                filter: Some(filter),
+            };
+            let spec = enchant(&keyword, line).unwrap();
+            assert_eq!(spec.domain, domain);
+            assert_eq!(spec.filter.map(|f| f.types), types);
+            assert!(enchant(&keyword, "Enchant player").is_err());
+        }
+        let constrained = SourceKeyword {
+            keyword: "enchant".into(),
+            cost: None,
+            filter: Some(json!({"types":["creature"],"control":"you"})),
+        };
+        assert!(enchant(&constrained, "Enchant creature").is_err());
+    }
 }
