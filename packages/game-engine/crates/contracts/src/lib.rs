@@ -6,7 +6,7 @@ mod color_hybrid_cost;
 pub use color_hybrid_cost::{ColorHybridSymbol, HybridPayment, color_hybrid_cost};
 mod cycling;
 
-pub use cycling::hand_discard_draw_activation;
+pub use cycling::hand_discard_activation;
 
 pub mod mana_spend;
 
@@ -275,6 +275,7 @@ pub enum Capability {
     ManaActivationCostV1,
 
     DiscardSourceCostV1,
+    ExileSourceCostV1,
     AnyDamageTargetV1,
 
     PlayerOrPlaneswalkerTargetV1,
@@ -352,6 +353,7 @@ pub enum Capability {
 #[serde(rename_all = "snake_case")]
 pub enum FunctioningZone {
     Hand,
+    Graveyard,
     Battlefield,
     Stack,
     /// Reserved for the source card's own graveyard-move replacement.
@@ -1180,6 +1182,10 @@ pub enum ActivationCost {
     DiscardSource {
         mana: ManaCost,
     },
+    /// The exact source card is exiled from its functioning zone after mana.
+    ExileSource {
+        mana: ManaCost,
+    },
     SacrificePermanent {
         #[serde(
             default = "single_sacrifice",
@@ -1279,10 +1285,30 @@ pub struct ManaAbility {
 pub enum ManaActivationRestriction {
     OnceEachTurn,
 }
+/// CR 602.5b-d (2026-09-25): restrictions on an individual printed stack
+/// activation. Sorcery timing uses the program's existing timing field.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ActivationRestriction {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<ActivationWindow>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub once_each_turn: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivationWindow {
+    YourTurn,
+    YourUpkeep,
+    YourTurnBeforeAttackers,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActivatedAbility {
     pub functioning_zone: FunctioningZone,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restriction: Option<ActivationRestriction>,
     pub cost: ActivationCost,
     pub program: SpellProgram,
 }
@@ -1612,6 +1638,7 @@ impl Definition {
             }
             set.insert(match ability.cost {
                 ActivationCost::DiscardSource { .. } => Capability::DiscardSourceCostV1,
+                ActivationCost::ExileSource { .. } => Capability::ExileSourceCostV1,
                 ActivationCost::SacrificePermanent { .. } => Capability::SacrificeV1,
                 ActivationCost::SacrificeSource => Capability::SacrificeSourceCostV1,
                 ActivationCost::TapSource => Capability::TapSourceCostV1,

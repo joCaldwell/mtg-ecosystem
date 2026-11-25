@@ -139,7 +139,7 @@ impl RulesTxn {
             if controlled && self.validate_mana_activation(player, id).is_ok() {
                 actions.push(Action::ActivateMana { object: id });
             }
-            if priority && (controlled || hand) && obj.hideaway.is_none() {
+            if priority && (controlled || hand || graveyard) && obj.hideaway.is_none() {
                 for (index, _) in self.copiable_definition(id)?.activated.iter().enumerate() {
                     let ability =
                         u32::try_from(index).map_err(|_| "activated ability index limit")?;

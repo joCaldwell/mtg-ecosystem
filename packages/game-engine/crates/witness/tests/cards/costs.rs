@@ -1121,3 +1121,302 @@ fn beast_attack_rejects_every_impossible_casting_origin() {
     }
     settle(&mut g);
 }
+
+// Lane E: typecycling, a graveyard source exiled as its cost, and printed
+// activation restrictions. Pinned CR 113.6j, 307.5, 508.1, 602.2a-b,
+// 602.5b-d, 701.13a, 702.29a/e-f:
+// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+const ASH_BARRENS: &str = record!("58257464-278e-45fa-8e0b-bcd9a7500bc1");
+const SHORELINE_RANGER: &str = record!("606fbf99-d3e3-4131-b991-3cb71c003834");
+const ETERNAL_STUDENT: &str = record!("140cb5cf-8aa2-457c-9d65-5acefea00195");
+const RUBBLEBELT_MAVERICK: &str = record!("1ba59349-a162-4444-b3e0-cddfc01ef03b");
+const DRAKE_HATCHLING: &str = record!("bd55bcc4-f0c5-4c09-8b3b-2e25e9fbd9ee");
+const GATE_TO_PHYREXIA: &str = record!("bbb005de-bbba-458e-87c1-912a004e80da");
+const SHU_FARMER: &str = record!("0d059577-0790-4033-b719-a74b6a62262e");
+const STEADFAST_UNICORN: &str = record!("c823d38c-e73c-4e09-ab20-c5e7de1f1c64");
+
+/// Pass priority until a non-priority choice is pending.
+fn next_choice(g: &mut Game) -> Decision<Rules> {
+    for _ in 0..16 {
+        let d = Driver::request(g, 1);
+        if d.reason != Reason::Priority {
+            checked(g);
+            return d;
+        }
+        let pass = d
+            .pick_one(&Candidate::Action {
+                action: Action::Pass,
+            })
+            .unwrap();
+        g.respond(d.player, d.id, pass).unwrap();
+    }
+    panic!("no choice within 16 priority passes")
+}
+
+fn offered_objects(d: &Decision<Rules>) -> Vec<ObjectId> {
+    d.candidates
+        .iter()
+        .map(|c| match c {
+            Candidate::Object { object } => *object,
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+fn shuffles(g: &Game, seat: u8) -> u64 {
+    g.state.rules.match_state.as_ref().unwrap().library_shuffles[usize::from(seat)]
+}
+
+fn activate(object: ObjectId, ability: u32) -> Action<Rules> {
+    Action::ActivateAbility { object, ability }
+}
+
+/// Ash Barrens: "Basic landcycling {1}" and Shoreline Ranger: "Islandcycling
+/// {2}". Each discards itself from hand after mana, then searches for one
+/// matching card, reveals it, puts it into hand and always shuffles
+/// (CR 702.29a, 702.29e, 701.23a-b).
+#[test]
+fn typecycling_searches_only_its_land_type_and_always_shuffles() {
+    for (raw, name, cost, expected) in [
+        (ASH_BARRENS, "Ash Barrens", &[1u32][..], &[3u32, 5][..]),
+        (SHORELINE_RANGER, "Shoreline Ranger", &[1, 2][..], &[3][..]),
+    ] {
+        for find in [true, false] {
+            let prepared = board(&[(raw, &[Cell::Typecycling])])
+                .seed([7; 32])
+                .permanent_or_hand(name, 0, 0, true)
+                .permanent_or_hand("Island", 0, 0, false)
+                .permanent_or_hand("Island", 0, 0, false)
+                .library_card("Island", 0)
+                .library_card("Grizzly Bears", 0)
+                .library_card("Forest", 0)
+                .library_card("Island", 1)
+                .prepare();
+            let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+            let source = Driver::object(&g, 0);
+            // Only the hand ability is offered; the land's mana ability is not
+            // a hand activation.
+            assert!(actions(&mut g).contains(&activate(source, 0)));
+            Driver::action(&mut g, activate(source, 0));
+            checked(&g);
+            Driver::pay(&mut g, cost);
+            assert_eq!(zone(&g, 0), Some(Zone::Graveyard { owner: PlayerId(0) }));
+            let d = next_choice(&mut g);
+            assert_eq!((d.player, &d.reason), (PlayerId(0), &Reason::SearchLibrary));
+            let lands: Vec<_> = expected.iter().map(|id| Driver::object(&g, *id)).collect();
+            assert_eq!(offered_objects(&d), lands, "{name}");
+            let picks = if find {
+                vec![d.index(&Candidate::Object { object: lands[0] }).unwrap()]
+            } else {
+                vec![]
+            };
+            g.respond(d.player, d.id, Answer::Pick { picks: vec![picks] })
+                .unwrap();
+            settle(&mut g);
+            assert_eq!(shuffles(&g, 0), 1);
+            assert_eq!(shuffles(&g, 1), 0);
+            assert_eq!(
+                zone(&g, 3),
+                Some(if find {
+                    Zone::Hand { owner: PlayerId(0) }
+                } else {
+                    Zone::Library { owner: PlayerId(0) }
+                })
+            );
+            assert_eq!(hand_size(&g, 0), usize::from(find));
+        }
+    }
+}
+
+/// Eternal Student: "{1}{B}, Exile this card from your graveyard: Create two
+/// 1/1 white and black Inkling creature tokens with flying." Only the owner
+/// activates it from that owner's graveyard; mana is paid, then the card is
+/// exiled as the cost (CR 113.6j, 602.2a-b, 701.13a).
+#[test]
+fn eternal_student_exiles_itself_from_its_owners_graveyard() {
+    let prepared = board(&[(ETERNAL_STUDENT, &[Cell::GraveyardExileSource])])
+        .card(
+            "Eternal Student",
+            0,
+            0,
+            Zone::Graveyard { owner: PlayerId(0) },
+        )
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .permanent_or_hand("Swamp", 0, 0, false)
+        .card(
+            "Eternal Student",
+            1,
+            1,
+            Zone::Graveyard { owner: PlayerId(1) },
+        )
+        .permanent_or_hand("Eternal Student", 0, 0, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let student = Driver::object(&g, 0);
+    let theirs = Driver::object(&g, 3);
+    let in_play = Driver::object(&g, 4);
+    let offered = actions(&mut g);
+    assert!(offered.contains(&activate(student, 0)));
+    // Another owner's graveyard and the battlefield are not where it works.
+    assert!(!offered.contains(&activate(theirs, 0)));
+    assert!(!offered.contains(&activate(in_play, 0)));
+    assert!(g.validate_activation(PlayerId(1), theirs, 0).is_ok());
+    assert!(g.validate_activation(PlayerId(0), theirs, 0).is_err());
+    let before = g
+        .state
+        .rules
+        .objects
+        .values()
+        .filter(|o| o.zone == Zone::Battlefield)
+        .count();
+    Driver::action(&mut g, activate(student, 0));
+    Driver::request(&mut g, u64::MAX);
+    checked(&g);
+    // Unpaid: the source stays in the graveyard until the cost is paid.
+    assert_eq!(zone(&g, 0), Some(Zone::Graveyard { owner: PlayerId(0) }));
+    let mut forged = g.fork();
+    forged.state.rules.stack[0].cast_from = Zone::Hand { owner: PlayerId(0) };
+    assert!(forged.validate_state().is_err());
+    Driver::pay(&mut g, &[1, 2]);
+    assert_eq!(zone(&g, 0), Some(Zone::Exile));
+    // A paid entry whose source is still in the graveyard is impossible.
+    let mut forged = g.fork();
+    forged.state.rules.stack[0].paid = None;
+    assert!(forged.validate_state().is_err());
+    settle(&mut g);
+    let after = g
+        .state
+        .rules
+        .objects
+        .values()
+        .filter(|o| o.zone == Zone::Battlefield)
+        .count();
+    assert_eq!(after, before + 2);
+}
+
+/// Rubblebelt Maverick: "{G}, Exile this card from your graveyard: Put a
+/// +1/+1 counter on target creature. Activate only as a sorcery." The target
+/// is chosen before mana and the exile (CR 601.2c, 602.2b, 602.5d).
+#[test]
+fn rubblebelt_maverick_targets_then_exiles_itself_at_sorcery_speed() {
+    for step in [TurnStep::PrecombatMain, TurnStep::Upkeep] {
+        let prepared = board(&[(RUBBLEBELT_MAVERICK, &[Cell::GraveyardExileSource])])
+            .step(step)
+            .card(
+                "Rubblebelt Maverick",
+                0,
+                0,
+                Zone::Graveyard { owner: PlayerId(0) },
+            )
+            .permanent_or_hand("Forest", 0, 0, false)
+            .permanent_or_hand("Grizzly Bears", 1, 1, false)
+            .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        let maverick = Driver::object(&g, 0);
+        let bears = Driver::object(&g, 2);
+        if step == TurnStep::Upkeep {
+            assert!(!actions(&mut g).contains(&activate(maverick, 0)));
+            continue;
+        }
+        Driver::action(&mut g, activate(maverick, 0));
+        Driver::pick_object(&mut g, bears);
+        assert_eq!(zone(&g, 0), Some(Zone::Graveyard { owner: PlayerId(0) }));
+        Driver::pay(&mut g, &[1]);
+        assert_eq!(zone(&g, 0), Some(Zone::Exile));
+        settle(&mut g);
+        assert_eq!(
+            g.current(bears).unwrap().plus_one_counters,
+            Quantity::from(1)
+        );
+    }
+}
+
+/// Drake Hatchling: "{U}: This creature gets +1/+0 until end of turn.
+/// Activate only once each turn." A completed activation uses the limit for
+/// this object; it is not offered again that turn (CR 602.5b).
+#[test]
+fn drake_hatchling_activates_only_once_each_turn() {
+    let prepared = board(&[
+        (DRAKE_HATCHLING, &[Cell::ActivationRestriction]),
+        (SHU_FARMER, &[Cell::ActivationRestriction]),
+    ])
+    .permanent_or_hand("Drake Hatchling", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Shu Farmer", 0, 0, false)
+    .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    let drake = Driver::object(&g, 0);
+    let farmer = Driver::object(&g, 3);
+    let pump = activate(drake, 0);
+    assert!(actions(&mut g).contains(&pump));
+    Driver::action(&mut g, pump.clone());
+    Driver::request(&mut g, u64::MAX);
+    assert_eq!(g.state.rules.stack.len(), 1);
+    // Announced but unpaid: the limit is not used yet.
+    assert!(g.state.rules.activation_uses.is_empty());
+    Driver::pay(&mut g, &[1]);
+    assert_eq!(g.state.rules.activation_uses.len(), 1);
+    // A paid limited activation without its recorded use is impossible.
+    let mut forged = g.fork();
+    forged.state.rules.activation_uses.clear();
+    assert!(forged.validate_state().is_err());
+    // A use recorded for an unlimited ability is impossible.
+    let mut forged = g.fork();
+    let mut wrong = *forged.state.rules.activation_uses.iter().next().unwrap();
+    wrong.source = farmer;
+    forged.state.rules.activation_uses.insert(wrong);
+    assert!(forged.validate_state().is_err());
+    assert!(!actions(&mut g).contains(&pump));
+    settle(&mut g);
+    assert!(!actions(&mut g).contains(&pump));
+    assert!(g.validate_activation(PlayerId(0), drake, 0).is_err());
+}
+
+/// Gate to Phyrexia: "Sacrifice a creature: Destroy target artifact.
+/// Activate only during your upkeep and only once each turn." Shu Farmer:
+/// "{T}: You gain 1 life. Activate only during your turn, before attackers
+/// are declared." Steadfast Unicorn: "Activate only during your turn."
+/// (CR 602.5b, 307.5, 508.1)
+#[test]
+fn printed_windows_gate_activation_by_turn_and_step() {
+    let cases = [
+        (TurnStep::Upkeep, [true, true, true]),
+        (TurnStep::PrecombatMain, [false, true, true]),
+        (TurnStep::BeginningCombat, [false, true, true]),
+        (TurnStep::PostcombatMain, [false, false, true]),
+    ];
+    for (step, [gate_ok, farmer_ok, unicorn_ok]) in cases {
+        let prepared = board(&[
+            (GATE_TO_PHYREXIA, &[Cell::ActivationRestriction]),
+            (SHU_FARMER, &[Cell::ActivationRestriction]),
+            (STEADFAST_UNICORN, &[Cell::ActivationRestriction]),
+        ])
+        .step(step)
+        .permanent_or_hand("Gate to Phyrexia", 0, 0, false)
+        .permanent_or_hand("Shu Farmer", 0, 0, false)
+        .permanent_or_hand("Steadfast Unicorn", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Plains", 0, 0, false)
+        .permanent_or_hand("Shu Farmer", 1, 1, false)
+        .permanent_or_hand("Steadfast Unicorn", 1, 1, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Gate to Phyrexia", 1, 1, false)
+        .permanent_or_hand("Sol Ring", 1, 1, false)
+        .prepare();
+        let g = Game::with_trace(prepared, TraceMode::Detailed);
+        let ok = |card, seat| {
+            g.validate_activation(PlayerId(seat), Driver::object(&g, card), 0)
+                .is_ok()
+        };
+        assert_eq!(
+            [ok(0, 0), ok(1, 0), ok(2, 0)],
+            [gate_ok, farmer_ok, unicorn_ok],
+            "{step:?}"
+        );
+        // Never on another player's turn, at any step.
+        assert!(!ok(7, 1) && !ok(8, 1), "{step:?}");
+    }
+}

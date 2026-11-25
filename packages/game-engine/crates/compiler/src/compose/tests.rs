@@ -643,12 +643,61 @@ fn timing_table_lowers_printed_sorcery_speed() {
         composed(SEAL).activated[0].program.timing,
         SpellTiming::Instant
     );
+    let timing = |source: Option<serde_json::Value>, line: &str| {
+        activation_restrictions::lower(source, line)
+    };
     assert_eq!(
-        timing(Some(json!({"restriction":"sorcery"}))).unwrap().0,
-        SpellTiming::MainPhase
+        timing(
+            Some(json!({"restriction":"sorcery"})),
+            "{1}: X. Activate only as a sorcery."
+        )
+        .unwrap(),
+        (SpellTiming::MainPhase, None)
     );
-    assert_eq!(timing(None).unwrap().0, SpellTiming::Instant);
-    assert!(timing(Some(json!({"restriction":"sorcery","turn":"your"}))).is_err());
+    assert_eq!(
+        timing(None, "{1}: X.").unwrap(),
+        (SpellTiming::Instant, None)
+    );
+    // An unread printed restriction never lowers as an unrestricted ability.
+    assert!(timing(None, "{1}: X. Activate only during your turn.").is_err());
+    assert!(
+        timing(
+            Some(json!({"restriction":"sorcery","turn":"your"})),
+            "{1}: X."
+        )
+        .is_err()
+    );
+    // The structured restriction and the printed sentence must agree.
+    assert!(
+        timing(
+            Some(json!({"restriction":"sorcery"})),
+            "{1}: X. Activate only once each turn."
+        )
+        .is_err()
+    );
+    assert_eq!(
+        timing(
+            Some(json!({"restriction":"all-of","restrictions":[{"restriction":"sorcery"},{"restriction":"once-each-turn"}]})),
+            "{1}: X. Activate only as a sorcery and only once each turn."
+        )
+        .unwrap(),
+        (
+            SpellTiming::MainPhase,
+            Some(ActivationRestriction { window: None, once_each_turn: true })
+        )
+    );
+    assert_eq!(
+        timing(
+            Some(json!({"restriction":"timing","turn":"your","phase":"upkeep"})),
+            "{1}: X. Activate only during your upkeep."
+        )
+        .unwrap()
+        .1,
+        Some(ActivationRestriction {
+            window: Some(ActivationWindow::YourUpkeep),
+            once_each_turn: false
+        })
+    );
 }
 
 /// Archive R4 negative mutations: each changes the resolution, the printed

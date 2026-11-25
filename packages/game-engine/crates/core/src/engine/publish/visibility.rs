@@ -450,7 +450,7 @@ impl RulesTxn {
                 && entry.cast_from == object.zone
                 && matches!(entry.cast_from, Zone::Hand { owner } if owner == entry.controller)
                 && matches!(&entry.kind, StackKind::Activated { ability, .. }
-                    if self.definition(object.id.card).is_ok_and(|d| d.activated.get(*ability as usize).is_some_and(hand_discard_draw_activation)))
+                    if self.definition(object.id.card).is_ok_and(|d| d.activated.get(*ability as usize).is_some_and(hand_discard_activation)))
         }) {
             return true;
         }
