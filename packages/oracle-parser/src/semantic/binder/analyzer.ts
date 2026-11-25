@@ -135,6 +135,8 @@ export class Analyzer {
           : node.node === "eligible-target-group" ? this.invalidNodes.has(node.template)
           : node.node === "filtered-result-group" ? this.invalidNodes.has(node.pool)
           : node.node === "result-union" ? node.from.some(id => this.invalidNodes.has(id))
+          // "The rest" is no better established than its pool or the pick it excludes.
+          : node.node === "remainder" ? this.invalidNodes.has(node.pool) || this.invalidNodes.has(node.excluding)
           : node.node === "destroyed-permanents" ? this.invalidNodes.has(node.event)
           : node.node === "derived-player" ? this.invalidNodes.has(node.of)
           : node.node === "selection" || node.node === "defined-number"

@@ -117,6 +117,62 @@ describe("library dig picks and the rest (B01)", () => {
     assert.deepEqual(refs(again)["/effects/3/steps/0/what"], remainder("/effects/3/steps/0"));
   });
 
+  it("counts an unconditional reveal-until scan's revealed cards as a competing pool", () => {
+    const { blocks: [block] } = card("Look at the top five cards of your library. Put up to two creature cards from among them onto the battlefield. Reveal cards from the top of your library until you reveal a creature card. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(block)["/effects/3/steps/0/what"], { unresolved: "unsupported-reference" });
+  });
+
+  it("treats a later move from the pool's zone as an unaccounted pick", () => {
+    const { blocks: [milled] } = card("Mill five cards. Exile a creature card from among them. Exile a card from your graveyard. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(milled)["/effects/3/steps/0/what"], { unresolved: "unsupported-reference" });
+    const look = "Look at the top five cards of your library. Put a creature card from among them into your hand. ";
+    const { blocks: [top] } = card(look + "Exile the top card of your library. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(top)["/effects/3/steps/0/what"], { unresolved: "unsupported-reference" });
+    // A move from another zone is provably disjoint from the looked-at cards.
+    const { blocks: [hand] } = card(look + "Exile a card from your hand. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(hand.residuals, []);
+    assert.deepEqual(refs(hand)["/effects/3/steps/0/what"], remainder("/effects/3/steps/0"));
+    // So is a permanent on the battlefield.
+    const { blocks: [battlefield] } = card(look + "Sacrifice a creature. Put the rest on the bottom of your library in any order.", "Sorcery");
+    assert.deepEqual(refs(battlefield)["/effects/3/steps/0/what"], remainder("/effects/3/steps/0"));
+  });
+
+  it("leaves the rest unresolved when the pick it excludes is unresolved (Forging the Anchor)", () => {
+    const { blocks: [block] } = card("Look at the top five cards of your library. You may reveal any number of artifact cards from among them and put the revealed cards into your hand. Put the rest on the bottom of your library in a random order.", "Sorcery", "{2}{U}", "Forging the Anchor");
+    assert.ok("unresolved" in refs(block)["/effects/2/steps/0/what"]);
+    const { blocks: [tavern] } = card("Choose one —\n• Form a Party — Look at the top five cards of your library. You may reveal any number of creature cards from among them and put them into your hand. Put the rest on the bottom of your library in a random order.\n• Start a Brawl — Creatures you control get +2/+2 until end of turn.", "Sorcery", "{3}{G}", "You Meet in a Tavern");
+    assert.ok("unresolved" in refs(tavern)["/effects/0/steps/0/options/0/effects/2/steps/0/what"]);
+  });
+
+  it("marks only a pick that may take nothing as leaving the whole pool", () => {
+    // Declining the look skips both placements; given the look, the one-card pick is mandatory.
+    const cream = card("Whenever a creature you control enters, you may look at the top X cards of your library, where X is that creature's power. If you do, put one of those cards on top of your library and the rest on the bottom of your library in any order.", "Enchantment", "{1}{G}", "Cream of the Crop");
+    assert.deepEqual(cream.blocks[0].residuals, []);
+    assert.deepEqual(cream.binding.engineFeatures, []);
+    assert.equal(cream.binding.fullyBound, true);
+    // "Up to one" may take nothing.
+    const thicket = card("This land enters tapped.\nWhen this land enters, you may look at the top five cards of your library. If you do, reveal up to one basic land card from among them, then put that card on top of your library and the rest on the bottom in any order.\n{T}: Add {G}.", "Land", "", "Fertile Thicket");
+    assert.deepEqual(thicket.blocks[1].residuals, []);
+    assert.deepEqual(thicket.binding.engineFeatures.map(need => need.feature), ["optional-look-remainder"]);
+  });
+
+  it("binds the same-sentence form only for one proven player's pool", () => {
+    const { blocks: [one] } = card("Target opponent reveals the top three cards of their library. Put one of them into your hand and the rest into their graveyard.", "Sorcery");
+    assert.deepEqual(refs(one)["/effects/1/steps/0/steps/1/what"], remainder("/effects/1/steps/0/steps/1"));
+    const { blocks: [each] } = card("Each opponent reveals the top three cards of their library. Put one of them into your hand and the rest into their graveyard.", "Sorcery");
+    assert.deepEqual(refs(each)["/effects/1/steps/0/steps/1/what"], { unresolved: "unsupported-reference" });
+  });
+
+  it("keeps a searched pool's one-of-them remainder (Cultivate) and the rest in both branches (Nine-Fingers Keene)", () => {
+    const cultivate = card("Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.", "Sorcery", "{2}{G}", "Cultivate");
+    assert.deepEqual(cultivate.blocks[0].residuals, []);
+    assert.ok(cultivate.binding.nodes.some(node => node.node === "remainder"));
+    const keene = card("Menace\nWard\u2014Pay 9 life.\nWhenever Nine-Fingers Keene deals combat damage to a player, look at the top nine cards of your library. You may put a Gate card from among them onto the battlefield. Then if you control nine or more Gates, put the rest into your hand. Otherwise, put the rest on the bottom of your library in a random order.", "Legendary Creature \u2014 Human Rogue", "{1}{B}{G}{U}", "Nine-Fingers Keene");
+    const remainders = keene.binding.nodes.filter(node => node.node === "remainder");
+    assert.equal(remainders.length, 2);
+    assert.ok(keene.blocks.every(block => !block.residuals.some(residual => residual.includes("unsupported-reference"))));
+  });
+
   it("keeps a plural pronoun after an any-number pick from a plural pool unresolved", () => {
     const { blocks: [block] } = card("Choose one —\n• Form a Party — Look at the top five cards of your library. You may reveal any number of creature cards from among them and put them into your hand. Put the rest on the bottom of your library in a random order.\n• Start a Brawl — Creatures you control get +2/+2 until end of turn.", "Sorcery", "{3}{G}", "You Meet in a Tavern");
     assert.deepEqual(refs(block)["/effects/0/steps/0/options/0/effects/1/steps/0/steps/1/what"], { unresolved: "ambiguous-antecedent" });
