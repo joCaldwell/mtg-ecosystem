@@ -64,15 +64,15 @@ function earlierEventParticiple(each: ObjectRef | PlayerRef, body: Sentence[]): 
   if (relation?.relation !== "event-result" || relation.scope !== "this-way" || relation.who) return undefined;
   const participle = PARTICIPLES[relation.event];
   if (!participle) return undefined;
-  const performs = (value: unknown): boolean => {
-    if (!value || typeof value !== "object") return false;
-    if (Array.isArray(value)) return value.some(performs);
-    const node = value as Record<string, unknown>;
-    if (node.effect === relation.event || node.operation === relation.event || node.event === relation.event) return true;
-    return Object.values(node).some(performs);
-  };
-  return performs(body) ? undefined : participle;
+  // Only bodies made of instructions that can never exile, reveal, destroy,
+  // sacrifice, discard or mill anything (a keyword action such as discover,
+  // CR 701.57, exiles cards) leave the earlier event as the sole antecedent.
+  const steps = body.flatMap(sentence => sentence.condition || sentence.otherwise ? [null] : sentence.steps);
+  return steps.every(step => step && EVENTLESS_EFFECTS.has(step.effect) && !JSON.stringify(step).includes('"effects"'))
+    ? participle : undefined;
 }
+
+const EVENTLESS_EFFECTS = new Set<Effect["effect"]>(["create-token", "draw", "damage", "gain-life", "lose-life", "put-counters", "pump", "gain-abilities"]);
 
 /** Loops whose following text needs no scope proof: nothing follows, it
  * cannot refer to the loop, or forEachContinuationsScoped proved its scope.
@@ -92,7 +92,7 @@ function memberResult(loop: Loop): MemberResult | null {
   const body = loop.effects[0];
   if (loop.effects.length !== 1 || body.condition || body.otherwise) return null;
   const one = (count: unknown) => JSON.stringify(count) === '{"amount":"fixed","value":1}';
-  const searched = searchResult(loop, one) ?? scanResult(loop, one);
+  const searched = searchResult(loop, one);
   if (searched) return searched;
   if (body.steps.length !== 1) return null;
   const step = body.steps[0];
@@ -142,18 +142,6 @@ function isMemberActor(who: PlayerRef): boolean {
   return who.player === "that-player" || (who.player === "controller" && "of" in who && who.of.ref === "it");
 }
 
-/** CR 701.20: reveal cards until one matching card is revealed, then exile
- * "that card": at most one exiled card per member (Indomitable Creativity). */
-function scanResult(loop: Loop, one: (count: unknown) => boolean): MemberResult | null {
-  const steps = loop.effects[0].steps;
-  if (steps.length !== 2) return null;
-  const [scan, exile] = steps;
-  if (scan.effect !== "scan-library" || scan.operation !== "reveal" || !scan.until || !one(scan.until.count) || scan.optional || scan.forEach ||
-    exile.effect !== "exile" || exile.optional || exile.forEach || exile.what.ref !== "that" || exile.what.plural ||
-    exile.what.filter.cls !== "card" || Object.keys(exile.what.filter).length !== 1) return null;
-  return { nouns: new Set(["card"]), events: ["exile"], ...(isMemberActor(scan.who) ? { memberActors: true } : {}) };
-}
-
 /** "If a spell cast this way would be put into a graveyard, exile it
  * instead." after a loop of casts watches every spell any member's cast
  * made, so it is created once, after the loop (Diluvian Primordial). */
@@ -197,6 +185,35 @@ function shufflesSearchedLibrary(loop: Loop, next: Sentence): boolean {
     JSON.stringify(shuffle.library.owner) !== JSON.stringify(shuffle.who)) return false;
   return hasNode(loop.effects, node => node.effect === "search" && hasNode((node as { zones?: unknown }).zones,
     zone => zone.zone === "library" && JSON.stringify(zone.owner) === '"that-player"'));
+}
+
+/** CR 701.23h: members' searches of one library before a single later
+ * shuffle of it are one search for all of those cards. The shuffle after the
+ * loop records that (Doubling Chant, Haunting Echoes, From the Ashes). A
+ * player loop whose body shuffles each member's own library searched it only
+ * once (Jace, Architect of Thought). Any other member search has no
+ * representable shuffle scope. */
+function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
+  if (!hasNode(loop.effects, node => node.effect === "search")) return true;
+  if ("player" in loop.each && hasNode(loop.effects, node => node.effect === "shuffle")) {
+    const searches = hasNode(loop.effects, node => node.effect === "search" && !hasNode((node as { zones?: unknown }).zones,
+      zone => zone.zone === "library" && JSON.stringify(zone.owner) !== '"that-player"'));
+    return searches;
+  }
+  if (hasNode(loop.effects, node => node.effect === "shuffle")) return false;
+  const shuffles = next.steps.filter(step => step.effect === "shuffle");
+  if (shuffles.length !== 1 || next.condition || next.otherwise) return false;
+  const [shuffle] = shuffles;
+  if (shuffle.effect !== "shuffle" || shuffle.optional || shuffle.forEach || shuffle.library.zone !== "library") return false;
+  // The searched library, as the body names it, for the shuffled library.
+  const owner = shuffle.library.owner;
+  const expected = typeof owner === "object" && owner.player === "you" ? "your"
+    : typeof owner === "object" && owner.player === "that-player" ? "that-player"
+    : typeof owner === "object" && owner.player === "filtered" && owner.filter.searched ? "their" : null;
+  if (!expected || hasNode(loop.effects, node => node.effect === "search" && hasNode((node as { zones?: unknown }).zones,
+    zone => zone.zone === "library" && zone.owner !== expected))) return false;
+  shuffle.coalesceEarlierLibrarySearches = true;
+  return true;
 }
 
 /** "Then each player who searched their library this way shuffles." names
@@ -377,11 +394,16 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
         sentences.splice(i + 1, 1);
         continue;
       }
-      if (shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) { settled.add(loop); continue; }
+      if (shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) {
+        if (!coalesceMemberSearches(loop, next)) return false;
+        settled.add(loop);
+        continue;
+      }
       const result = memberResult(loop);
       if (!result) return false;
       const chose = loop.effects[0].steps[0].effect === "choose-object" || loop.effects[0].steps[0].effect === "declare-target";
       if (!refersToAllResults(next, result, chose, namesEnclosingPlayer(loop), "player" in loop.each)) return false;
+      if (!coalesceMemberSearches(loop, next)) return false;
       settled.add(loop);
     }
   }

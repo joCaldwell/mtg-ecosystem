@@ -110,11 +110,22 @@ function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: b
   if (reflexive && body.some(sentence => sentence.condition)) return false;
   const objects = reflexive && hasTarget(body) ||
     hasNode(body, node => node.effect === "create-token" || (node.effect === "choose-object" && !isCardRef(node.what)));
-  const cards = hasNode(body, node => node.effect === "look-at" || node.effect === "scan-library" ||
-    (node.effect === "exile" && isLibraryCards(node.what)) || (node.effect === "choose-object" && isCardRef(node.what)));
-  return (cards && hasNode(next.steps, isCardAnaphor)) ||
+  // Each card anaphor needs the production that can be its antecedent:
+  // "exiled this way" / "the exiled cards" an exile, "those cards" / "the
+  // rest" a look, and a singular "that card" a chosen or found card.
+  const exiled = hasNode(body, node => (node.effect === "exile" && isLibraryCards(node.what)) ||
+    (node.effect === "scan-library" && node.operation === "exile"));
+  const looked = hasNode(body, node => node.effect === "look-at");
+  const chosen = hasNode(body, node => node.effect === "scan-library" || (node.effect === "choose-object" && isCardRef(node.what)));
+  const cardAnaphor = (node: Record<string, unknown>): boolean => {
+    const kind = cardAnaphorKind(node);
+    return kind === "exiled" ? exiled : kind === "looked" ? looked : kind === "chosen" ? chosen : false;
+  };
+  // A card anaphor with no matching production names something else.
+  if (hasNode(next.steps, node => cardAnaphorKind(node) !== null && !cardAnaphor(node))) return false;
+  return hasNode(next.steps, cardAnaphor) ||
     (objects && hasNode(next.steps, node => (node.ref === "it" || node.ref === "them" ||
-      (node.ref === "that" && !isCardRef(node))) && !isCardAnaphor(node)));
+      (node.ref === "that" && !isCardRef(node))) && cardAnaphorKind(node) === null));
 }
 
 function isLibraryCards(value: unknown): boolean {
@@ -127,15 +138,16 @@ function isCardRef(value: unknown): boolean {
   return !!filter && typeof filter === "object" && (filter as { cls?: unknown }).cls === "card";
 }
 
-/** "that card", "those cards", "the rest", "each other card exiled this
- * way" and "the exiled cards": references to the cards the body produced. */
-function isCardAnaphor(node: Record<string, unknown>): boolean {
-  if (node.ref === "rest") return true;
-  if (node.ref === "that" && isCardRef(node)) return true;
+/** "that card" (chosen), "those cards" and "the rest" (looked at), "each
+ * other card exiled this way" and "the exiled cards" (exiled): references
+ * to the cards a body produced, by the production that can introduce them. */
+function cardAnaphorKind(node: Record<string, unknown>): "exiled" | "looked" | "chosen" | null {
+  if (node.ref === "rest") return "looked";
+  if (node.ref === "that" && isCardRef(node)) return node.plural ? "looked" : "chosen";
   const relation = node.relation as { relation?: unknown; event?: unknown; scope?: unknown } | undefined;
   return (node.cls === "card" || (node.ref === "related" && isCardRef(node))) &&
     relation?.relation === "event-result" && relation.event === "exile" &&
-    (relation.scope === "this-way" || relation.scope === "contextual");
+    (relation.scope === "this-way" || relation.scope === "contextual") ? "exiled" : null;
 }
 
 function hasTarget(value: unknown): boolean {

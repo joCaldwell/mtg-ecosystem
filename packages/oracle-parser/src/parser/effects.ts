@@ -324,6 +324,13 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       const thenPrefix = thenPrefixes.get(s);
       if (thenPrefix) {
         if (tokenDefinition) return c.fail("complete copiable token definition");
+        // The prefix is a sentence of its own: it must pass the same
+        // antecedent checks as any other, before the conditional half does.
+        if (!clashOutcomeHasClash(sentences, thenPrefix, containsEffect) || !voteReferencesResolved(sentences, thenPrefix) ||
+          !pileReferencesResolved(sentences, thenPrefix)) return c.fail("resolved references before a conditional final instruction");
+        const withPrefix = [...sentences, thenPrefix];
+        if (!clashOutcomeHasClash(withPrefix, s, containsEffect) || !voteReferencesResolved(withPrefix, s) ||
+          !pileReferencesResolved(withPrefix, s)) return c.fail("resolved references before a conditional final instruction");
         sentences.push(thenPrefix, s);
         continue;
       }
@@ -776,6 +783,8 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
         if (!c.punct(",") || !c.words("where", "x", "is")) return null;
         return parseAmount(c);
       });
+      // After a ", then" split the definition could serve either half.
+      if (lateBinding && prefix) return c.fail("one instruction for a trailing X definition");
       if (lateBinding) sentence.bindings = [{ variable: "x", value: lateBinding }];
     }
 
@@ -806,12 +815,27 @@ function thenPrefixSteps(c: Cursor, start: number, end: number, steps: Effect[],
     if (token.kind === "word" && !token.possessive && token.value === "then" && comma?.kind === "punct" && comma.value === ",") { then = i; break; }
   }
   if (then < 0) return null;
+  // A player group acts once per member, and a condition naming "it" or
+  // "they" would then be tested per member; the sentence-level condition
+  // cannot keep that partition (Vaevictis Asmadi, the Dire).
+  if (hasPlayerGroupActor(steps)) return null;
   const subject = ctx.lastSubject, player = ctx.lastPlayer;
   const body = new Cursor(c.tokens.slice(start, then - 1));
   const before = parseSteps(body, ctx);
   ctx.lastSubject = subject; ctx.lastPlayer = player;
   if (!before || !body.done() || JSON.stringify(before) !== JSON.stringify(steps.slice(0, -1))) return null;
   return steps.slice(0, -1);
+}
+
+function hasPlayerGroupActor(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasPlayerGroupActor);
+  const node = value as Record<string, unknown>;
+  for (const key of ["who", "decidedBy"]) {
+    const actor = node[key];
+    if (actor && typeof actor === "object" && "player" in actor && isPluralPlayerRef(actor as PlayerRef)) return true;
+  }
+  return Object.values(node).some(hasPlayerGroupActor);
 }
 
 /** "as you cast this spell" / "as you activate this ability" (CR 601.2, 602.2). */

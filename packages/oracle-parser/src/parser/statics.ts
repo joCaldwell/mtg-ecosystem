@@ -224,7 +224,10 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
           const unless = c.attempt((c): Condition | null => {
             if (c.word("unless") === null) return null;
             const condition = parseCondition(c, { purpose: "unless" });
-            return condition && condition.condition !== "pays" && !JSON.stringify(condition).includes('"condition":"pays"') ? condition : null;
+            // Only a continuously checkable state: never a payment, "you do",
+            // or the outcome of some resolving event ("this way").
+            const text = JSON.stringify(condition);
+            return condition && !/"condition":"(pays|you-do|you-dont)"|"scope":"(this-way|contextual)"/.test(text) ? condition : null;
           });
           if (unless) {
             modifier.condition = { condition: "not", of: unless };
