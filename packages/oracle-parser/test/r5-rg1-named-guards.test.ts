@@ -95,6 +95,8 @@ describe("GG-delay: a created ability owns sentences that name objects only its 
     rejects("When this enchantment enters, sacrifice a creature. When you do, you gain 3 life. If the sacrificed creature was a Hamster, draw a card.", "Enchantment");
     // Earthbender Ascension: the reflexive "if" would also govern the trample grant.
     rejects("Landfall — Whenever a land you control enters, put a quest counter on this enchantment. When you do, if it has four or more quest counters on it, put a +1/+1 counter on target creature you control. It gains trample until end of turn.", "Enchantment", "Earthbender Ascension");
+    // A quoted ability's references never tie a sentence to the delayed body.
+    rejects("{T}: When an artifact enters this turn, create a 1/1 black Rat creature token. This artifact gains \"Whenever a creature you control attacks, untap it.\"", "Artifact");
     // "That player" must be exactly one player at the body's own level.
     rejects("When an artifact enters this turn, each opponent exiles the top two cards of their library. You may cast a spell from among cards that player exiled this way without paying its mana cost.", "Sorcery");
     rejects("When an artifact enters this turn, target creature gains \"{T}: Target opponent exiles the top two cards of their library.\" You may cast a spell from among cards that player exiled this way without paying its mana cost.", "Sorcery");
@@ -195,6 +197,9 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
     rejects("For each creature you control, scry 1, then draw a card.", "Sorcery");
     // Several players may search one library: not one searcher's repeated search (CR 701.23h).
     rejects("Target opponent reveals their hand. For each creature, its controller searches that player's library for a basic land card and puts it into their hand. Then that player shuffles.", "Sorcery");
+    // Shuffling a card into the library also shuffles it (CR 701.24c), so it
+    // must be an allowlisted CR 701.23h shuffle too.
+    rejects("For each creature you control, search your library for a basic land card. Put those cards onto the battlefield, then shuffle this spell into your library.", "Sorcery");
     // A shuffle two sentences after the loop is never checked as the members' shuffle.
     rejects("For each creature you control, you may search your library for a creature card with the same name as that creature. Put those cards onto the battlefield. Then shuffle.", "Sorcery");
     // The member's scry and your draw touch different libraries in every iteration.
@@ -242,6 +247,10 @@ describe("GG-cond: a trailing condition after ', then' governs only the final in
   });
 
   it("still rejects 'and' coordination, a leading condition, and per-step conditions", () => {
+    // The condition's pronoun must have the row's one antecedent: here "it"
+    // could be the drawn card, and "that card" has no singular antecedent.
+    rejects("{T}: Draw a card, then sacrifice this creature if it's tapped.", "Creature — Human");
+    rejects("Draw two cards, then put that card onto the battlefield if it's a creature card.", "Sorcery");
     // Only allowlisted instruction shapes split; here the top card of each player's library.
     rejects("Draw a card, then exile the top card of each player's library if it's a creature card.", "Sorcery");
     rejects("Counter target activated ability from an artifact source and destroy that artifact if it's on the battlefield.", "Instant");
@@ -275,6 +284,9 @@ describe("GG-perm: static abilities that were only readable as resolving instruc
     rejects("This creature has hexproof unless you don't cast a spell this way.", "Creature — Human");
     rejects("This creature has hexproof unless you rolled 6.", "Creature — Human");
     rejects("This creature has hexproof unless the amount of mana spent to cast it is greater than 2.", "Creature — Human");
+    // "it" after a group subject could be any member or the source.
+    rejects("Each creature you control has flying unless this creature is tapped or it's attacking.", "Creature — Human");
+    rejects("Creatures you control have hexproof unless it's attacking.", "Enchantment");
     // The current phase is a state.
     const [phase] = card("This creature has hexproof unless it's your main phase.", "Probe", "Creature — Human");
     assert.equal(staticOf(phase).static, "modify");

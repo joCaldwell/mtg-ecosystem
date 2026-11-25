@@ -130,6 +130,9 @@ function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: b
     if (kind !== "exiled") return kind === "looked" ? looked : kind === "chosen" ? chosen : false;
     return exileActorMatches(body, exilers, node);
   };
+  // A quoted ability has its own references; nothing inside a quotation is
+  // evidence of a dependency on this body.
+  if (hasNode(next.steps, node => node.gained === "quoted")) return false;
   // A card anaphor with no matching production names something else.
   if (hasNode(next.steps, node => cardAnaphorKind(node) !== null && !cardAnaphor(node))) return false;
   return hasNode(next.steps, cardAnaphor) ||

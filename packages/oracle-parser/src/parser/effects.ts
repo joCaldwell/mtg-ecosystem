@@ -2,7 +2,7 @@
 // and activated-ability bodies.
 
 import type {
-  Ability, AbilityRemoval, Amount, AnnouncementTime, CantAction, CounterSpec, DamageTarget, Duration, Effect, GainedAbility,
+  Ability, AbilityRemoval, Amount, AnnouncementTime, CantAction, Condition, CounterSpec, DamageTarget, Duration, Effect, GainedAbility,
   ObjectFilter, ObjectRef, PlayerRef, Sentence, SignedAmount,
   ZoneRef, SpecifiedTokenSpec, TokenSpec,
 } from "../ast.ts";
@@ -770,8 +770,6 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     // condition could be meant for each member ("… deals 2 damage to each
     // opponent if that player controls a Swamp"), which one sentence-level
     // condition cannot state.
-    if (prefix && !(prefix.steps.every(isSplitPrefixStep) && sentence.steps.every(isSplitConditionalStep)))
-      return c.fail("unambiguous conditional instruction scope");
     if (tailCondition) {
       const condition = (tailCondition === "unless" ? parseUnlessPayment(c) ?? parseUnlessDamage(c) : null) ??
         parseCondition(c, tailCondition === "unless" ? { purpose: "unless" } : { outcomes: true });
@@ -795,6 +793,8 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
       if (lateBinding) sentence.bindings = [{ variable: "x", value: lateBinding }];
     }
 
+    if (prefix && !isAllowlistedSplit(prefix.steps, sentence.steps, sentence.condition))
+      return c.fail("unambiguous conditional instruction scope");
     if (!c.punct(".") && !c.done()) return null;
     if (prefix) thenPrefixes.set(sentence, prefix);
     return sentence;
@@ -844,37 +844,46 @@ const isFixed = (amount: unknown) => !!amount && typeof amount === "object" && (
 const isSelf = (ref: unknown) => !!ref && typeof ref === "object" && ["self", "this"].includes((ref as { ref?: unknown }).ref as string) &&
   Object.keys(ref).every(key => key === "ref" || key === "noun");
 
-function isSplitPrefixStep(step: Effect): boolean {
-  switch (step.effect) {
-    case "draw": case "gain-life": case "mill":
-      return keysAre(step, ["effect", "who", "amount"]) && json(step.who) === YOU && isFixed(step.amount);
-    case "surveil": case "scry":
-      return (keysAre(step, ["effect", "amount"]) || (keysAre(step, ["effect", "who", "amount"]) && json(step.who) === YOU)) && isFixed(step.amount);
-    case "put-counters":
-      return keysAre(step, ["effect", "on", "counter", "count"]) && isSelf(step.on) && isFixed(step.count);
-    case "reveal":
-      return keysAre(step, ["effect", "who", "what"]) && json(step.who) === YOU &&
-        json(step.what) === '{"ref":"filter","filter":{"cls":"card","zone":{"zone":"hand","owner":"your"}},"count":{"amount":"fixed","value":1}}';
-    default: return false;
-  }
-}
+const isChosen = (what: unknown) => !!what && typeof what === "object" && (what as { ref?: unknown }).ref === "choice-result" &&
+  (what as { number?: unknown }).number === "singular";
+const forYou = (step: Effect, kinds: Effect["effect"][]) => kinds.includes(step.effect) &&
+  keysAre(step, ["effect", "who", "amount"]) && json((step as { who?: unknown }).who) === YOU && isFixed((step as { amount?: unknown }).amount);
+const isLook = (step: Effect) => (step.effect === "surveil" || step.effect === "scry") && isFixed(step.amount) &&
+  (keysAre(step, ["effect", "amount"]) || (keysAre(step, ["effect", "who", "amount"]) && json(step.who) === YOU));
 
-function isSplitConditionalStep(step: Effect): boolean {
-  const chosen = (what: unknown) => !!what && typeof what === "object" && (what as { ref?: unknown }).ref === "choice-result" &&
-    (what as { number?: unknown }).number === "singular";
-  switch (step.effect) {
-    case "counter": case "destroy": return keysAre(step, ["effect", "what"]) && chosen(step.what);
-    case "sacrifice": return keysAre(step, ["effect", "who", "what"]) && json(step.who) === YOU && isSelf(step.what);
-    case "lose-life": case "gain-life": case "draw":
-      return keysAre(step, ["effect", "who", "amount"]) && json(step.who) === YOU && isFixed(step.amount);
-    case "move-zone":
-      return keysAre(step, ["effect", "what", "to"]) && json(step.what) === '{"ref":"that","filter":{"cls":"card"}}' &&
-        json(step.to) === '{"zone":"battlefield"}';
-    case "exile":
-      return keysAre(step, ["effect", "what"]) &&
-        json(step.what) === '{"ref":"library-cards","position":"top","count":{"amount":"fixed","value":1},"of":{"zone":"library","owner":"your"}}';
-    default: return false;
-  }
+/** Exact rows, each pairing the instruction before ", then", the conditional
+ * instruction, and what the condition may refer to (CR 608.2c). A pronoun
+ * in the condition ("it", "its controller", "that …") is allowed only in a
+ * row whose single antecedent is fixed by the shapes themselves:
+ * - Swallowed by Leviathan: surveil, then counter the chosen spell; "its" is
+ *   that spell (surveil introduces no single object).
+ * - Phantasmal Sphere: a counter on this creature, then sacrifice this
+ *   creature; "it" is this creature.
+ * - Retraced Image: reveal a card from your hand, then put that card onto the
+ *   battlefield; "that card" and "it" are the revealed card.
+ * - Quag Feast: mill a fixed number of cards, then destroy the chosen
+ *   permanent; "its" is the chosen permanent.
+ * Otherwise only instructions for you, with no object or player pronoun in
+ * the condition: draw / gain life / mill / scry / surveil, then lose or gain
+ * life, draw, or exile your top card. */
+function isAllowlistedSplit(prefix: Effect[], conditional: Effect[], condition: Condition | undefined): boolean {
+  if (conditional.length !== 1 || !condition) return false;
+  const [step] = conditional;
+  const only = prefix.length === 1 ? prefix[0] : undefined;
+  if (only && isLook(only) && step.effect === "counter" && keysAre(step, ["effect", "what"]) && isChosen(step.what)) return true;
+  if (only?.effect === "put-counters" && keysAre(only, ["effect", "on", "counter", "count"]) && isSelf(only.on) && isFixed(only.count) &&
+    step.effect === "sacrifice" && keysAre(step, ["effect", "who", "what"]) && json(step.who) === YOU && json(step.what) === json(only.on)) return true;
+  if (only?.effect === "reveal" && keysAre(only, ["effect", "who", "what"]) && json(only.who) === YOU &&
+    json(only.what) === '{"ref":"filter","filter":{"cls":"card","zone":{"zone":"hand","owner":"your"}},"count":{"amount":"fixed","value":1}}' &&
+    step.effect === "move-zone" && keysAre(step, ["effect", "what", "to"]) && json(step.what) === '{"ref":"that","filter":{"cls":"card"}}' &&
+    json(step.to) === '{"zone":"battlefield"}') return true;
+  if (only && forYou(only, ["mill"]) && step.effect === "destroy" && keysAre(step, ["effect", "what"]) && isChosen(step.what)) return true;
+  // Rows whose condition may name nothing in the sentence.
+  const pronoun = JSON.stringify(condition).match(/"ref":"(it|that|them|those|rest|choice-result)"|"player":"(that-player|those-players|they)"/);
+  if (pronoun) return false;
+  return prefix.every(earlier => forYou(earlier, ["draw", "gain-life", "mill"]) || isLook(earlier)) &&
+    (forYou(step, ["lose-life", "gain-life", "draw"]) || (step.effect === "exile" && keysAre(step, ["effect", "what"]) &&
+      json(step.what) === '{"ref":"library-cards","position":"top","count":{"amount":"fixed","value":1},"of":{"zone":"library","owner":"your"}}'));
 }
 
 /** Any player group, or an object reference that may denote several objects

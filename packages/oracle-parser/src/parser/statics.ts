@@ -226,7 +226,13 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
             const condition = parseCondition(c, { purpose: "unless" });
             // Only a continuously checkable game state, never a payment,
             // an action outcome, a roll or any event history.
-            return condition && isStatePredicate(condition) && isAllowlistedUnlessState(condition) ? condition : null;
+            if (!condition || !isStatePredicate(condition) || !isAllowlistedUnlessState(condition)) return null;
+            // "it" must provably name the one subject: "this creature …
+            // unless it's attacking". After a group subject ("Creatures you
+            // control …", "Each creature …") it could be each member or the
+            // source, so it is rejected.
+            if (JSON.stringify(condition).includes('"ref":"it"') && what.ref !== "self" && what.ref !== "this") return null;
+            return condition;
           });
           if (unless) {
             modifier.condition = { condition: "not", of: unless };

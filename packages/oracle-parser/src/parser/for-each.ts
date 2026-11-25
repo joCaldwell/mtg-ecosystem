@@ -110,8 +110,12 @@ const EVENTLESS_EFFECTS = new Set<Effect["effect"]>(["create-token", "draw", "da
  * Any other loop makes its sentence list fail there. */
 const settled = new WeakSet<Loop>();
 
+/** Any instruction that shuffles a library: "shuffle", and "shuffle …
+ * into your library" (CR 701.24c), both end a CR 701.23h search window. */
+const shufflesLibrary = (step: Effect) => step.effect === "shuffle" || step.effect === "shuffle-into-library";
+
 function laterShuffle(sentences: Sentence[], from: number): boolean {
-  return sentences.slice(from).some(sentence => hasOwnNode(sentence.steps, node => node.effect === "shuffle"));
+  return sentences.slice(from).some(sentence => hasOwnNode(sentence.steps, node => node.effect === "shuffle" || node.effect === "shuffle-into-library"));
 }
 
 /** Independent loops of member searches whose following shuffle, if any,
@@ -251,7 +255,7 @@ function shufflesSearchedLibrary(loop: Loop, next: Sentence): boolean {
  * (Jace, Architect of Thought). With no shuffle after the loop, the wording
  * has none to record. */
 function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
-  const shuffles = next.steps.filter(step => step.effect === "shuffle");
+  const shuffles = next.steps.filter(shufflesLibrary);
   const searches = ownSearches(loop);
   // A search inside an ability the body creates happens later; it is never
   // the search of a shuffle made now.
@@ -320,7 +324,7 @@ function librarySearched(search: Extract<Effect, { effect: "search" }>): string 
 
 function markSearchShuffle(loop: Loop, next: Sentence): boolean {
   if (next.condition || next.otherwise) return false;
-  const shuffles = next.steps.filter(step => step.effect === "shuffle");
+  const shuffles = next.steps.filter(shufflesLibrary);
   if (shuffles.length !== 1) return false;
   const [shuffle] = shuffles;
   if (shuffle.effect !== "shuffle" || shuffle.optional || shuffle.forEach || shuffle.library.zone !== "library" ||
@@ -519,7 +523,7 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
       shuffleScopeUnchecked.delete(step);
       const next = sentences[i + 1];
       if (laterShuffle(sentences, i + 2)) return false;
-      if (next && next.steps.some(later => later.effect === "shuffle") && !coalesceMemberSearches(step, next)) return false;
+      if (next && next.steps.some(shufflesLibrary) && !coalesceMemberSearches(step, next)) return false;
     }
     for (const loop of unsettledLoops(sentences[i])) {
       const next = sentences[i + 1];
