@@ -79,14 +79,18 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
         }
     );
     let life = json!({"cost":"pay-life","amount":{"amount":"fixed","value":1}});
-    let counter = |noun: &str, kind: &str| json!({"cost":"remove-counters","counter":{"type":kind},
-        "count":{"amount":"fixed","value":1},"from":{"ref":"this","noun":noun}});
+    let counter = |noun: &str, kind: &str| {
+        json!({"cost":"remove-counters","counter":{"type":kind},
+        "count":{"amount":"fixed","value":1},"from":{"ref":"this","noun":noun}})
+    };
     // CR 119.4, 122.1: life and the source's +1/+1 counters are paid with the
     // other source terms.
     assert_eq!(
         costs::lower(
             &card(CardKind::Creature),
-            &costs(json!([{"cost":"mana","symbols":["B"]},life.clone(),counter("creature","+1/+1")]))
+            &costs(
+                json!([{"cost":"mana","symbols":["B"]},life.clone(),counter("creature","+1/+1")])
+            )
         )
         .unwrap(),
         ActivationCost::Composite {
@@ -100,8 +104,11 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
         }
     );
     assert_eq!(
-        costs::lower(&artifact, &costs(json!([{"cost":"tap-self"},life.clone(),this("artifact")])))
-            .unwrap(),
+        costs::lower(
+            &artifact,
+            &costs(json!([{"cost":"tap-self"},life.clone(),this("artifact")]))
+        )
+        .unwrap(),
         ActivationCost::TapPayLifeSacrificeSource { life: 1.into() }
     );
     for unsupported in [
@@ -110,10 +117,10 @@ fn cost_terms_select_one_complete_runtime_cost_and_never_drop_a_term() {
         json!([{"cost":"mana","symbols":["1"]},{"cost":"mana","symbols":["1"]}]),
         json!([{"cost":"mana","symbols":["C"]}]),
         json!([{"cost":"mana","symbols":["{1}"]}]),
-        json!([this("artifact"),another]),
-        json!([life.clone(),another]),
-        json!([counter("creature","+1/+1")]),
-        json!([counter("creature","-1/-1")]),
+        json!([this("artifact"), another]),
+        json!([life.clone(), another]),
+        json!([counter("creature", "+1/+1")]),
+        json!([counter("creature", "-1/-1")]),
     ] {
         assert!(
             costs::lower(&artifact, &costs(unsupported.clone())).is_err(),
@@ -550,7 +557,12 @@ fn changed_sources_reject_instead_of_dropping_or_guessing() {
     // CR 107.3, 107.4e-f: one leading X and two-color hybrid or Phyrexian
     // symbols are announced; several X, monocolored hybrid and colorless
     // Phyrexian symbols have no runtime cost.
-    match compile(R4, &changed(PIE, |row| row["source"]["mana_cost"] = json!("{X}{B/G}{B/P}"))) {
+    match compile(
+        R4,
+        &changed(PIE, |row| {
+            row["source"]["mana_cost"] = json!("{X}{B/G}{B/P}")
+        }),
+    ) {
         CompileResult::Lowered { definition, .. } => {
             assert!(definition.x_mana_cost);
             assert_eq!(definition.characteristics.mana_cost.colored, vec![]);

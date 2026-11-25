@@ -615,9 +615,7 @@ fn compose(
                             let spell = definition
                                 .spell
                                 .as_mut()
-                                .filter(|s| {
-                                    spell_kind && s.optional_additional_costs.is_empty()
-                                })
+                                .filter(|s| spell_kind && s.optional_additional_costs.is_empty())
                                 .ok_or_else(|| unsupported("keyword", "keyword:kicker:source"))?;
                             spell
                                 .optional_additional_costs

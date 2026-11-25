@@ -86,14 +86,17 @@ fn spell_costs(p: &SpellProgram, context: Context) -> bool {
     (p.additional_sacrifice.is_none() && p.optional_additional_costs.is_empty())
         || (context == Context::Spell
             && p.additional_sacrifice.as_ref().is_none_or(sacrifice_filter)
-            && p.optional_additional_costs.iter().enumerate().all(|(n, c)| {
-                !c.identity.is_empty()
-                    && mana_ok(&c.mana)
-                    && (c.mana.generic > Quantity::zero() || !c.mana.colored.is_empty())
-                    && !p.optional_additional_costs[..n]
-                        .iter()
-                        .any(|o| o.identity == c.identity)
-            }))
+            && p.optional_additional_costs
+                .iter()
+                .enumerate()
+                .all(|(n, c)| {
+                    !c.identity.is_empty()
+                        && mana_ok(&c.mana)
+                        && (c.mana.generic > Quantity::zero() || !c.mana.colored.is_empty())
+                        && !p.optional_additional_costs[..n]
+                            .iter()
+                            .any(|o| o.identity == c.identity)
+                }))
 }
 
 /// The optional-cost identities a node's conditions read.
@@ -103,7 +106,9 @@ fn cost_conditions<'a>(node: &'a kir::Node, out: &mut Vec<&'a String>) {
             kir::Cond::CostPaid { identity } => out.push(identity),
             kir::Cond::Not { condition } => cond(condition, out),
             kir::Cond::All { conditions } => conditions.iter().for_each(|c| cond(c, out)),
-            kir::Cond::Compare { .. } | kir::Cond::Exists { .. } | kir::Cond::ActivePlayer { .. } => {}
+            kir::Cond::Compare { .. }
+            | kir::Cond::Exists { .. }
+            | kir::Cond::ActivePlayer { .. } => {}
         }
     }
     match node {
@@ -155,10 +160,11 @@ fn program(
     for Instruction::Kernel { node, .. } in &p.instructions {
         cost_conditions(node, &mut paid);
     }
-    if paid
-        .iter()
-        .any(|id| !p.optional_additional_costs.iter().any(|c| c.identity == **id))
-    {
+    if paid.iter().any(|id| {
+        !p.optional_additional_costs
+            .iter()
+            .any(|c| c.identity == **id)
+    }) {
         return cell("program", "undeclared_cost_condition");
     }
     let bit = match context {
@@ -339,7 +345,10 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
                 .remove_source_plus_one_counters
                 .as_ref()
                 .is_none_or(|n| *n > Quantity::zero())
-                && costs.pay_life.as_ref().is_none_or(|n| *n > Quantity::zero())
+                && costs
+                    .pay_life
+                    .as_ref()
+                    .is_none_or(|n| *n > Quantity::zero())
                 && costs.mana.as_ref().is_none_or(mana_ok)
                 && (costs.tap
                     || costs.sacrifice
@@ -889,11 +898,7 @@ mod tests {
         assert!(!tiers.admits(kir::ExecutionTier::Hosting));
         // A zero life payment is no printed cost and earns no tier.
         let zero = tap(Some(0.into()));
-        assert!(
-            zero.validate()
-                .unwrap_err()
-                .contains("cell:cost:composite")
-        );
+        assert!(zero.validate().unwrap_err().contains("cell:cost:composite"));
         assert!(kir::definition_cells(&zero).is_err());
     }
 

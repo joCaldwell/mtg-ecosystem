@@ -354,7 +354,10 @@ impl RulesTxn {
                 ActivationCost::TapPayLifeSacrificeSource { .. }
             )
             || matches!(&ability.cost, ActivationCost::Composite { costs } if costs.tap)
-            || matches!(&ability.cost, ActivationCost::SacrificePermanent { tap: true, .. });
+            || matches!(
+                &ability.cost,
+                ActivationCost::SacrificePermanent { tap: true, .. }
+            );
         if tap
             && (source.tapped
                 || (self.characteristics(object)?.kind == CardKind::Creature

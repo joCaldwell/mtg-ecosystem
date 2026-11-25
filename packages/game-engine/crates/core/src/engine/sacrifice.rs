@@ -364,7 +364,9 @@ impl RulesTxn {
                 }
                 self.validate_characteristic_identity(f.object, &f.characteristics)?;
             }
-            let count = self.invocation_sacrifice(e).map_or(0, |(_, count, _)| count);
+            let count = self
+                .invocation_sacrifice(e)
+                .map_or(0, |(_, count, _)| count);
             if self.stack_entry_complete(e) && count == 1 && e.sacrificed.is_none() {
                 return Err("snapshot missing sacrifice cost facts".into());
             }

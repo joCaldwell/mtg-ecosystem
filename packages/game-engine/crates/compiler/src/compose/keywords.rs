@@ -139,7 +139,9 @@ fn keyword_mana(keyword: &SourceKeyword, name: &str, text: &str) -> Result<ManaC
     };
     if keyword.filter.is_some()
         || symbols.is_empty()
-        || symbols.iter().any(|s| s.is_empty() || s.contains(['{', '}']))
+        || symbols
+            .iter()
+            .any(|s| s.is_empty() || s.contains(['{', '}']))
         || text != format!("{name} {}", printed_mana(symbols))
     {
         return Err(reject());
