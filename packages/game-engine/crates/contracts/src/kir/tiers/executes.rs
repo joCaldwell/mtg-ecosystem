@@ -793,7 +793,11 @@ fn modal_spell(base: &SpellProgram, modal: &ModalSpell) -> Result<(), String> {
         || modal.min == 0
         || modal.min > modal.max
         || modal.max as usize > count
-        || !modal.selections.keys().copied().eq(ModalSpell::masks(count, modal.min, modal.max))
+        || !modal
+            .selections
+            .keys()
+            .copied()
+            .eq(ModalSpell::masks(count, modal.min, modal.max))
         || base.functioning_zone != FunctioningZone::Stack
         || base.resolution != SpellResolution::Instructions
         || !base.targets.is_empty()
@@ -807,12 +811,18 @@ fn modal_spell(base: &SpellProgram, modal: &ModalSpell) -> Result<(), String> {
         if variant.timing != base.timing
             || variant.additional_sacrifice.is_some()
             || !variant.optional_additional_costs.is_empty()
-            || variant.instructions.iter().any(|i| i.source_block() != modal.source_block)
+            || variant
+                .instructions
+                .iter()
+                .any(|i| i.source_block() != modal.source_block)
             || !matches!(
                 variant.targets.as_slice(),
                 [] | [TargetSpec {
-                    domain: TargetDomain::BattlefieldPermanent | TargetDomain::BattlefieldCreature
-                        | TargetDomain::AnyDamageTarget | TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer,
+                    domain: TargetDomain::BattlefieldPermanent
+                        | TargetDomain::BattlefieldCreature
+                        | TargetDomain::AnyDamageTarget
+                        | TargetDomain::AnyPlayer
+                        | TargetDomain::OpponentPlayer,
                     ..
                 }]
             )

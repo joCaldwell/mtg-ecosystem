@@ -137,7 +137,10 @@ fn hand_size(g: &Game, seat: u8) -> usize {
 /// artifacts and enchantments." Only the chosen mode is performed.
 #[test]
 fn cleansing_nova_performs_only_the_chosen_mode() {
-    for (mask, bears, ring) in [(0b01, graveyard(1), Some(Zone::Battlefield)), (0b10, Some(Zone::Battlefield), graveyard(1))] {
+    for (mask, bears, ring) in [
+        (0b01, graveyard(1), Some(Zone::Battlefield)),
+        (0b10, Some(Zone::Battlefield), graveyard(1)),
+    ] {
         let mut b = board(&[CLEANSING_NOVA]).permanent_or_hand("Cleansing Nova", 0, 0, true);
         for _ in 0..5 {
             b = b.permanent_or_hand("Plains", 0, 0, false);
@@ -173,12 +176,21 @@ fn austere_command_offers_each_distinct_pair_and_performs_both() {
             .prepare(),
     );
     // Artifacts, and creatures with mana value 3 or less.
-    cast_modes(&mut g, &[0b0011, 0b0101, 0b0110, 0b1001, 0b1010, 0b1100], 0b0101);
+    cast_modes(
+        &mut g,
+        &[0b0011, 0b0101, 0b0110, 0b1001, 0b1010, 0b1100],
+        0b0101,
+    );
     Driver::pay(&mut g, &[1, 2, 3, 4, 5, 6]);
     settle(&mut g);
     assert_eq!(
         [7, 8, 9, 10].map(|card| zone(&g, card)),
-        [graveyard(1), Some(Zone::Battlefield), graveyard(1), Some(Zone::Battlefield)]
+        [
+            graveyard(1),
+            Some(Zone::Battlefield),
+            graveyard(1),
+            Some(Zone::Battlefield)
+        ]
     );
 }
 
@@ -194,7 +206,11 @@ fn grixis_charm_offers_only_targetable_modes_and_targets_after_them() {
             .permanent_or_hand("Mountain", 0, 0, false)
     };
     // No creature: only the permanent bounce and the anthem remain.
-    let mut g = Game::new(lands(board(&[GRIXIS_CHARM])).libraries("Island", 2).prepare());
+    let mut g = Game::new(
+        lands(board(&[GRIXIS_CHARM]))
+            .libraries("Island", 2)
+            .prepare(),
+    );
     Driver::cast(&mut g, CardId(0));
     let d = expect(&mut g, 0, Reason::ChooseModes);
     assert_eq!(offered(&d), [0b001, 0b100]);
@@ -217,13 +233,13 @@ fn grixis_charm_offers_only_targetable_modes_and_targets_after_them() {
         panic!("missing observation");
     };
     assert_eq!(o.view.stack.last().unwrap().mode_mask, Some(0b010));
-    assert_eq!(
-        d.candidates,
-        [Candidate::Object { object: bears }],
-        "{d:?}"
-    );
-    g.respond(d.player, d.id, d.pick_one(&Candidate::Object { object: bears }).unwrap())
-        .unwrap();
+    assert_eq!(d.candidates, [Candidate::Object { object: bears }], "{d:?}");
+    g.respond(
+        d.player,
+        d.id,
+        d.pick_one(&Candidate::Object { object: bears }).unwrap(),
+    )
+    .unwrap();
     Driver::pay(&mut g, &[1, 2, 3]);
     settle(&mut g);
     assert_eq!(zone(&g, 4), graveyard(1));
@@ -234,7 +250,8 @@ fn grixis_charm_offers_only_targetable_modes_and_targets_after_them() {
 #[test]
 fn thorins_last_stand_performs_a_whole_mode() {
     let base = |artifact: bool| {
-        let mut b = board(&[THORINS_LAST_STAND]).permanent_or_hand("Thorin's Last Stand", 0, 0, true);
+        let mut b =
+            board(&[THORINS_LAST_STAND]).permanent_or_hand("Thorin's Last Stand", 0, 0, true);
         for _ in 0..4 {
             b = b.permanent_or_hand("Plains", 0, 0, false);
         }
@@ -271,7 +288,12 @@ fn farewell_offers_every_nonempty_set_of_modes() {
     let mut g = Game::new(
         b.permanent_or_hand("Grizzly Bears", 1, 1, false)
             .permanent_or_hand("Sol Ring", 1, 1, false)
-            .card("Lightning Bolt", 1, 1, Zone::Graveyard { owner: PlayerId(1) })
+            .card(
+                "Lightning Bolt",
+                1,
+                1,
+                Zone::Graveyard { owner: PlayerId(1) },
+            )
             .libraries("Island", 2)
             .prepare(),
     );
@@ -281,7 +303,11 @@ fn farewell_offers_every_nonempty_set_of_modes() {
     settle(&mut g);
     assert_eq!(
         [7, 8, 9].map(|card| zone(&g, card)),
-        [Some(Zone::Exile), Some(Zone::Battlefield), Some(Zone::Exile)]
+        [
+            Some(Zone::Exile),
+            Some(Zone::Battlefield),
+            Some(Zone::Exile)
+        ]
     );
 }
 
@@ -322,7 +348,11 @@ fn invoke_the_firemind_announces_modes_before_x() {
         damaged.add(&Quantity::from(-2));
         assert_eq!(
             (hand_size(&g, 0), g.state.rules.players[1].life.clone()),
-            if mask == 0b01 { (hand + 1, life) } else { (hand - 1, damaged) }
+            if mask == 0b01 {
+                (hand + 1, life)
+            } else {
+                (hand - 1, damaged)
+            }
         );
     }
 }
@@ -374,7 +404,12 @@ fn resolve_every_selection(raw: &str) -> Vec<u8> {
                 .permanent_or_hand("Colossal Dreadmaw", 1, 1, false)
                 .permanent_or_hand("Sol Ring", 1, 1, false)
                 .permanent_or_hand("Glorious Anthem", 1, 1, false)
-                .card("Lightning Bolt", 1, 1, Zone::Graveyard { owner: PlayerId(1) })
+                .card(
+                    "Lightning Bolt",
+                    1,
+                    1,
+                    Zone::Graveyard { owner: PlayerId(1) },
+                )
                 .libraries("Forest", 4)
                 .seed([7; 32])
                 .prepare(),
@@ -393,7 +428,14 @@ fn resolve_every_selection(raw: &str) -> Vec<u8> {
             match &d.reason {
                 Reason::Priority if g.state.rules.stack.is_empty() => break,
                 Reason::Priority => g
-                    .respond(d.player, d.id, d.pick_one(&Candidate::Action { action: Action::Pass }).unwrap())
+                    .respond(
+                        d.player,
+                        d.id,
+                        d.pick_one(&Candidate::Action {
+                            action: Action::Pass,
+                        })
+                        .unwrap(),
+                    )
                     .unwrap(),
                 Reason::Mana { .. } => Driver::pay(&mut g, &paid),
                 Reason::AnnounceX => g
@@ -404,7 +446,10 @@ fn resolve_every_selection(raw: &str) -> Vec<u8> {
                     .unwrap(),
             }
         }
-        assert!(g.state.rules.stack.is_empty(), "{name} {mask:#b} did not resolve");
+        assert!(
+            g.state.rules.stack.is_empty(),
+            "{name} {mask:#b} did not resolve"
+        );
         assert_eq!(zone(&g, 0), graveyard(0), "{name} {mask:#b}");
         assert_recoverable((&g).into());
     }

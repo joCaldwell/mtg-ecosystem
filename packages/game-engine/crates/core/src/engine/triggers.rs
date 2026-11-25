@@ -1076,7 +1076,7 @@ impl RulesTxn {
                         colored: vec![],
                     };
                     self.rules_mut().stack.push(StackInstance {
-            mode_mask: None,
+                        mode_mask: None,
                         hybrid_colors: vec![],
                         cost_lock: None,
                         selected_additional_costs: None,

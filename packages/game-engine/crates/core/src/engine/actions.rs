@@ -115,16 +115,13 @@ impl RulesTxn {
     pub(super) fn top_has_target_domain(&self) -> Result<bool, String> {
         let top = self.top()?;
         let source = self.targeting_characteristics(top)?;
-        if top.kind.is_spell() && top.mode_mask.is_none()
+        if top.kind.is_spell()
+            && top.mode_mask.is_none()
             && let Some(modal) = &self.copiable_definition(top.source)?.modal_spell
         {
             return Ok(self.modal_has_selection(modal, top.controller, &source));
         }
-        Ok(self.has_target_domain(
-            self.program_for(top)?,
-            top.controller,
-            &source,
-        ))
+        Ok(self.has_target_domain(self.program_for(top)?, top.controller, &source))
     }
 
     pub(crate) fn has_target_domain(

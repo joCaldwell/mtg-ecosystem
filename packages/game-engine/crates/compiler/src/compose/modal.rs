@@ -39,14 +39,20 @@ pub(super) fn lower(
     let [sentence] = effects else {
         return Err(unsupported_modal("siblings"));
     };
-    let Some(steps) = sentence["steps"].as_array().filter(|_| sentence.as_object().is_some_and(|s| s.len() == 1)) else {
+    let Some(steps) = sentence["steps"]
+        .as_array()
+        .filter(|_| sentence.as_object().is_some_and(|s| s.len() == 1))
+    else {
         return Err(unsupported_modal("sentence"));
     };
     let [step] = steps.as_slice() else {
         return Err(unsupported_modal("siblings"));
     };
-    let Declaration { effect, count, options } = serde_json::from_value(step.clone())
-        .map_err(|_| unsupported_modal("declaration"))?;
+    let Declaration {
+        effect,
+        count,
+        options,
+    } = serde_json::from_value(step.clone()).map_err(|_| unsupported_modal("declaration"))?;
     let len = options.len();
     if effect != "modal" || !(2..=ModalSpell::MAX_MODES).contains(&len) {
         return Err(unsupported_modal("option_count"));
@@ -70,8 +76,12 @@ pub(super) fn lower(
     let segments = site.resolution.segments(site.index)?;
     for (index, label) in labels.iter().enumerate() {
         let path = format!("/effects/0/steps/0/options/{index}");
-        let mut covered = segments.iter().filter(|(fields, ..)| fields.as_slice() == [path.as_str()]);
-        if !covered.next().is_some_and(|(_, start, end)| text.get(*start..*end) == Some(*label))
+        let mut covered = segments
+            .iter()
+            .filter(|(fields, ..)| fields.as_slice() == [path.as_str()]);
+        if !covered
+            .next()
+            .is_some_and(|(_, start, end)| text.get(*start..*end) == Some(*label))
             || covered.next().is_some()
         {
             return Err(unsupported_modal("uncertified_option"));
@@ -102,7 +112,8 @@ pub(super) fn lower(
         }
         modes.push(mode);
     }
-    site.resolution.target_slots(site.index, site.printed, &archive_targets)?;
+    site.resolution
+        .target_slots(site.index, site.printed, &archive_targets)?;
 
     let mut selections = BTreeMap::new();
     for mask in ModalSpell::masks(len, min, max) {

@@ -50,7 +50,8 @@ impl RulesTxn {
         {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
-        if let Some(reason) = self.spell_proposal_obstacle(program, player, &definition.characteristics)
+        if let Some(reason) =
+            self.spell_proposal_obstacle(program, player, &definition.characteristics)
         {
             return Err(reason.into());
         }

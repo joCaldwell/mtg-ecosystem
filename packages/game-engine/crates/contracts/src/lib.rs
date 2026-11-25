@@ -43,7 +43,10 @@ use kir::{Context, PlayerExpr, SetExpr, Verb};
 
 use serde::{Deserialize, Serialize, de};
 use sha2::{Digest, Sha256};
-use std::{collections::{BTreeMap, BTreeSet}, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 mod archives;
 pub use archives::*;
@@ -1555,7 +1558,11 @@ impl Definition {
         self.spell
             .iter()
             .filter(|_| self.modal_spell.is_none())
-            .chain(self.modal_spell.iter().flat_map(|modal| modal.selections.values()))
+            .chain(
+                self.modal_spell
+                    .iter()
+                    .flat_map(|modal| modal.selections.values()),
+            )
     }
 
     pub fn requirements(&self) -> BTreeSet<Capability> {

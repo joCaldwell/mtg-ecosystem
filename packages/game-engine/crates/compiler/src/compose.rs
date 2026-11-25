@@ -769,14 +769,22 @@ fn compose(
                     };
                     if modal::declared(&effects) {
                         if definition.modal_spell.is_some() {
-                            return Err(unsupported("compose.effects", "multiple modal declarations"));
+                            return Err(unsupported(
+                                "compose.effects",
+                                "multiple modal declarations",
+                            ));
                         }
                         let program = definition.spell.as_ref().expect("spell program");
                         definition.modal_spell = Some(modal::lower(
-                            &effects, program.timing, &result.lines[block].text, &site,
+                            &effects,
+                            program.timing,
+                            &result.lines[block].text,
+                            &site,
                         )?);
                         return printed::choices_printed(
-                            &result.lines[block].text, &printed[block], &resolution.segments(block)?,
+                            &result.lines[block].text,
+                            &printed[block],
+                            &resolution.segments(block)?,
                         );
                     }
                     let peeled = control::peel(&effects)?;

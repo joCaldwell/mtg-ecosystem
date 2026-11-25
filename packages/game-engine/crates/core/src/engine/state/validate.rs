@@ -319,7 +319,8 @@ impl RulesTxn {
                     })
                     || (matches!(
                         self.underlying_mana_frame(&s.rules.frame)?,
-                        Frame::ChooseModes { .. } | Frame::AdditionalCosts { .. }
+                        Frame::ChooseModes { .. }
+                            | Frame::AdditionalCosts { .. }
                             | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
                             | Frame::EntityTargets { .. }
@@ -345,7 +346,8 @@ impl RulesTxn {
                 if (target_stage
                     || matches!(
                         stage,
-                        Frame::ChooseModes { .. } | Frame::AdditionalCosts { .. }
+                        Frame::ChooseModes { .. }
+                            | Frame::AdditionalCosts { .. }
                             | Frame::HybridCost { .. }
                             | Frame::AnnounceX { .. }
                     ))
