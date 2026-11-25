@@ -6,7 +6,7 @@
 //! trip; every finished resolution replays from its journal.
 //! Pinned CR 109.5, 115.1d, 122.6, 400.7, 601.2c, 608.2b/h, 701.26, 903.9a:
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
-use mtg_contracts::kir::{Cell, definition_cells};
+use mtg_contracts::kir::{Cell, Tiers, definition_cells, definition_tiers};
 use mtg_core::testkit::*;
 
 macro_rules! record {
@@ -31,10 +31,12 @@ const FENCER_CLIQUE: &str = record!("58374ee4-0497-4d12-847c-0f67555f8399");
 const SELENIA: &str = record!("3db1ac09-e35a-4f50-97c4-f65dbc28daef");
 
 /// A two-seat main-phase board whose catalog adds `cards`, each compiled
-/// from frozen source and occupying the named cells.
-fn board(cards: &[(&str, &[Cell])]) -> Board {
+/// from frozen source, occupying the named cells and earning `tiers`. A new
+/// cell or a filtered or optional target earns `Executes` only; damage to an
+/// unfiltered target creature reuses the reviewed `DamageTarget` route.
+fn board(cards: &[(&str, &[Cell], Tiers)]) -> Board {
     let mut catalog = FixtureCatalog::Witness.get().clone();
-    for &(raw, cells) in cards {
+    for &(raw, cells, tiers) in cards {
         let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
         let mtg_compiler::CompileResult::Lowered { definition } = result else {
             panic!("frozen target witness failed: {result:?}");
@@ -47,6 +49,12 @@ fn board(cards: &[(&str, &[Cell])]) -> Board {
                 definition.name
             );
         }
+        assert_eq!(
+            definition_tiers(&definition).unwrap(),
+            tiers,
+            "{}",
+            definition.name
+        );
         catalog.definitions.push(*definition);
     }
     catalog
@@ -131,6 +139,7 @@ fn blossoming_defense_targets_only_a_creature_you_control() {
     let prepared = board(&[(
         BLOSSOMING_DEFENSE,
         &[Cell::PumpTarget, Cell::TargetKeywordsUntilEndOfTurn],
+        Tiers::EXECUTES,
     )])
     .permanent_or_hand("Blossoming Defense", 0, 0, true)
     .permanent_or_hand("Forest", 0, 0, false)
@@ -163,14 +172,18 @@ fn blossoming_defense_targets_only_a_creature_you_control() {
 /// opponent's creature (CR 109.5, 603.3d).
 #[test]
 fn exclusion_mage_returns_only_an_opponents_creature() {
-    let prepared = board(&[(EXCLUSION_MAGE, &[Cell::MovePermanentOwnerHand])])
-        .permanent_or_hand("Exclusion Mage", 0, 0, true)
-        .permanent_or_hand("Island", 0, 0, false)
-        .permanent_or_hand("Island", 0, 0, false)
-        .permanent_or_hand("Island", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 0, 0, false)
-        .permanent_or_hand("Grizzly Bears", 1, 1, false)
-        .prepare();
+    let prepared = board(&[(
+        EXCLUSION_MAGE,
+        &[Cell::MovePermanentOwnerHand],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Exclusion Mage", 0, 0, true)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Island", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 0, 0, false)
+    .permanent_or_hand("Grizzly Bears", 1, 1, false)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     let (mine, theirs) = (Driver::object(&g, 4), Driver::object(&g, 5));
     Driver::cast(&mut g, CardId(0));
@@ -191,7 +204,7 @@ fn exclusion_mage_returns_only_an_opponents_creature() {
 /// 704.5g).
 #[test]
 fn breath_of_fire_deals_two_damage_to_a_target_creature() {
-    let prepared = board(&[(BREATH_OF_FIRE, &[Cell::DamageTarget])])
+    let prepared = board(&[(BREATH_OF_FIRE, &[Cell::DamageTarget], Tiers::SEARCH_HOSTING)])
         .permanent_or_hand("Breath of Fire", 0, 0, true)
         .permanent_or_hand("Mountain", 0, 0, false)
         .permanent_or_hand("Mountain", 0, 0, false)
@@ -217,7 +230,7 @@ fn breath_of_fire_deals_two_damage_to_a_target_creature() {
 /// (CR 122.6, 608.2h); the opponent's creature is unaffected.
 #[test]
 fn titanias_boon_counters_each_creature_you_control() {
-    let prepared = board(&[(TITANIAS_BOON, &[Cell::PlusOneCountersSet])])
+    let prepared = board(&[(TITANIAS_BOON, &[Cell::PlusOneCountersSet], Tiers::EXECUTES)])
         .permanent_or_hand("Titania's Boon", 0, 0, true)
         .permanent_or_hand("Forest", 0, 0, false)
         .permanent_or_hand("Forest", 0, 0, false)
@@ -247,10 +260,14 @@ fn titanias_boon_counters_each_creature_you_control() {
 /// object in the hand and does nothing (CR 400.7).
 #[test]
 fn blinking_spirit_returns_its_own_battlefield_incarnation_once() {
-    let prepared = board(&[(BLINKING_SPIRIT, &[Cell::MoveSourceOwnerZone])])
-        .permanent_or_hand("Blinking Spirit", 0, 0, false)
-        .libraries("Plains", 2)
-        .prepare();
+    let prepared = board(&[(
+        BLINKING_SPIRIT,
+        &[Cell::MoveSourceOwnerZone],
+        Tiers::EXECUTES,
+    )])
+    .permanent_or_hand("Blinking Spirit", 0, 0, false)
+    .libraries("Plains", 2)
+    .prepare();
     let mut g = Game::with_trace(prepared, TraceMode::Detailed);
     for _ in 0..2 {
         activate(&mut g, 0, 0);
@@ -273,7 +290,7 @@ fn blinking_spirit_returns_its_own_battlefield_incarnation_once() {
 /// it (CR 701.26b).
 #[test]
 fn horseshoe_crab_untaps_itself() {
-    let prepared = board(&[(HORSESHOE_CRAB, &[Cell::TapStatusSource])])
+    let prepared = board(&[(HORSESHOE_CRAB, &[Cell::TapStatusSource], Tiers::EXECUTES)])
         .permanent_or_hand("Horseshoe Crab", 0, 0, false)
         .permanent_or_hand("Icy Manipulator", 0, 0, false)
         .permanent_or_hand("Island", 0, 0, false)
@@ -295,7 +312,7 @@ fn horseshoe_crab_untaps_itself() {
 /// Fencer Clique: "{U}: Put this creature on top of its owner's library."
 #[test]
 fn fencer_clique_puts_itself_on_top_of_its_library() {
-    let prepared = board(&[(FENCER_CLIQUE, &[Cell::MoveSourceOwnerZone])])
+    let prepared = board(&[(FENCER_CLIQUE, &[Cell::MoveSourceOwnerZone], Tiers::EXECUTES)])
         .permanent_or_hand("Fencer Clique", 0, 0, false)
         .permanent_or_hand("Island", 0, 0, false)
         .libraries("Plains", 2)
@@ -318,7 +335,7 @@ fn fencer_clique_puts_itself_on_top_of_its_library() {
 #[test]
 fn selenia_returning_itself_offers_the_command_zone() {
     for to_command in [true, false] {
-        let prepared = board(&[(SELENIA, &[Cell::MoveSourceOwnerZone])])
+        let prepared = board(&[(SELENIA, &[Cell::MoveSourceOwnerZone], Tiers::EXECUTES)])
             .permanent_or_hand("Selenia, Dark Angel", 0, 0, false)
             .commander(CardId(0))
             .prepare();
@@ -365,13 +382,17 @@ fn selenia_returning_itself_offers_the_command_zone() {
 #[test]
 fn the_art_of_tea_may_announce_zero_targets() {
     for chosen in [false, true] {
-        let prepared = board(&[(THE_ART_OF_TEA, &[Cell::PlusOneCountersTarget])])
-            .permanent_or_hand("The Art of Tea", 0, 0, true)
-            .permanent_or_hand("Forest", 0, 0, false)
-            .permanent_or_hand("Forest", 0, 0, false)
-            .permanent_or_hand("Grizzly Bears", 0, 0, false)
-            .permanent_or_hand("Grizzly Bears", 1, 1, false)
-            .prepare();
+        let prepared = board(&[(
+            THE_ART_OF_TEA,
+            &[Cell::PlusOneCountersTarget],
+            Tiers::EXECUTES,
+        )])
+        .permanent_or_hand("The Art of Tea", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .prepare();
         let mut g = Game::with_trace(prepared, TraceMode::Detailed);
         let (mine, theirs) = (Driver::object(&g, 3), Driver::object(&g, 4));
         Driver::cast(&mut g, CardId(0));
@@ -395,7 +416,7 @@ fn the_art_of_tea_may_announce_zero_targets() {
 /// permanent type the caster controls is offered; the opponent's is not.
 #[test]
 fn rescue_returns_a_permanent_you_control() {
-    let prepared = board(&[(RESCUE, &[Cell::MovePermanentOwnerHand])])
+    let prepared = board(&[(RESCUE, &[Cell::MovePermanentOwnerHand], Tiers::EXECUTES)])
         .permanent_or_hand("Rescue", 0, 0, true)
         .permanent_or_hand("Island", 0, 0, false)
         .permanent_or_hand("Sol Ring", 0, 0, false)
