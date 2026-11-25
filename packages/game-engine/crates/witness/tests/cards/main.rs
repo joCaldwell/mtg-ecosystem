@@ -6,4 +6,5 @@ mod keywords;
 mod library;
 mod permanents_mana;
 mod removal_wipes;
+mod triggers;
 mod verb_operands;

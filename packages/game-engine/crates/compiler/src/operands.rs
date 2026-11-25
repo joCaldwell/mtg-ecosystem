@@ -2,43 +2,38 @@
 //! player, filter, amount, target) to its IR operand, or an explicit rejection.
 use super::*;
 
-pub(crate) fn lower_damage_subject(
-    what: &SourceDamageObject,
-) -> Result<DamageTriggerSource, Failure> {
+pub(crate) fn lower_damage_subject(what: &SourceDamageObject) -> Result<Pred, Failure> {
     match what {
-        SourceDamageObject::This { noun } if noun == "creature" => {
-            Ok(DamageTriggerSource::Source {})
-        }
+        SourceDamageObject::This { noun } if noun == "creature" => Ok(Pred::source()),
         SourceDamageObject::Filter { filter, count }
             if fixed_one(count)
                 && filter.types.iter().any(|t| t == "creature")
                 && filter.properties.is_none() =>
         {
-            let controller = match filter.control.as_deref() {
-                Some("you") => DamageSourceRelation::Controller,
-                _ => {
-                    return Err(unsupported(
-                        "trigger.what.filter.control",
-                        "unsupported damage source controller",
-                    ));
-                }
-            };
-            Ok(DamageTriggerSource::CreatureFilter {
-                controller,
-                types: lower_type_predicate(
-                    &SourceTypeFilter {
-                        colors: None,
-                        cls: None,
-                        types: Some(filter.types.clone()),
-                        non_types: filter.non_types.clone(),
-                        all_of: filter.all_of.clone(),
-                        any_of: filter.any_of.clone(),
-                    },
-                    None,
-                    true,
-                    0,
-                )?,
-            })
+            // CR 109.5: a creature "you control" deals the damage.
+            if filter.control.as_deref() != Some("you") {
+                return Err(unsupported(
+                    "trigger.what.filter.control",
+                    "unsupported damage source controller",
+                ));
+            }
+            let mut pred = lower_type_predicate(
+                &SourceTypeFilter {
+                    colors: None,
+                    cls: None,
+                    types: Some(filter.types.clone()),
+                    non_types: filter.non_types.clone(),
+                    all_of: filter.all_of.clone(),
+                    any_of: filter.any_of.clone(),
+                },
+                None,
+                true,
+                0,
+            )?;
+            pred.0.push(Atom::ControlledBy {
+                player: PlayerExpr::you(Context::Triggered),
+            });
+            Ok(pred)
         }
         _ => Err(unsupported(
             "trigger.what",
@@ -47,12 +42,87 @@ pub(crate) fn lower_damage_subject(
     }
 }
 
+/// The type tree of a printed event filter before it becomes a [`Pred`]:
+/// fields conjunctive, `allOf` conjunctive and `anyOf` disjunctive
+/// (packages/oracle-parser/src/ast.ts ObjectFilter; CR 205.2b, 601.2i).
+enum TypeTerm {
+    /// The empty conjunction: any object.
+    Any,
+    Color(Color),
+    Type(CardKind),
+    NotType(CardKind),
+    All(Vec<TypeTerm>),
+    AnyOf(Vec<TypeTerm>),
+}
+
+impl TypeTerm {
+    /// The structural bound of a printed type predicate: depth 8 and 32
+    /// terms in all; a color stands alone at the root.
+    fn bounded(&self) -> bool {
+        fn visit(t: &TypeTerm, depth: usize, remaining: &mut usize, root: bool) -> bool {
+            if depth > 8 || *remaining == 0 {
+                return false;
+            }
+            *remaining -= 1;
+            match t {
+                TypeTerm::Color(_) => root,
+                TypeTerm::All(terms) | TypeTerm::AnyOf(terms) => {
+                    !terms.is_empty() && terms.iter().all(|t| visit(t, depth + 1, remaining, false))
+                }
+                _ => true,
+            }
+        }
+        visit(self, 0, &mut 32, true)
+    }
+    fn atoms(self, out: &mut Vec<Atom>) {
+        match self {
+            Self::Any => {}
+            Self::Color(color) => out.push(Atom::Color { color }),
+            Self::Type(kind) => out.push(Atom::Type { kind }),
+            Self::NotType(kind) => out.push(Atom::NotType { kind }),
+            Self::All(terms) => terms.into_iter().for_each(|t| t.atoms(out)),
+            Self::AnyOf(terms) => out.push(Atom::AnyOf {
+                alternatives: terms
+                    .into_iter()
+                    .map(|t| {
+                        let mut alternative = vec![];
+                        t.atoms(&mut alternative);
+                        Pred(alternative)
+                    })
+                    .collect(),
+            }),
+        }
+    }
+}
+
+/// CR 205.2b, 601.2i: the type and color terms of an event's filtered
+/// object as one predicate, its fields conjunctive and `anyOf` an
+/// alternative.
 pub(crate) fn lower_type_predicate(
     f: &SourceTypeFilter,
     class: Option<&str>,
     root: bool,
     depth: usize,
-) -> Result<TypePredicate, Failure> {
+) -> Result<Pred, Failure> {
+    let term = type_term(f, class, root, depth)?;
+    if !term.bounded() {
+        return Err(unsupported(
+            "trigger.what",
+            "type predicate structural bound",
+        ));
+    }
+    let mut atoms = vec![];
+    term.atoms(&mut atoms);
+    Ok(Pred(atoms))
+}
+
+/// The type tree of one filter.
+fn type_term(
+    f: &SourceTypeFilter,
+    class: Option<&str>,
+    root: bool,
+    depth: usize,
+) -> Result<TypeTerm, Failure> {
     if depth > 8
         || (root && f.cls.as_deref() != class)
         || (f.cls.is_some() && f.cls.as_deref() != class)
@@ -81,7 +151,7 @@ pub(crate) fn lower_type_predicate(
             "green" => Color::G,
             _ => return Err(unsupported("trigger.what.colors", "unknown spell color")),
         };
-        return Ok(TypePredicate::SpellColor { color });
+        return Ok(TypeTerm::Color(color));
     }
     let kind = |s: &str| match s {
         "creature" => Ok(CardKind::Creature),
@@ -101,9 +171,9 @@ pub(crate) fn lower_type_predicate(
             for t in values {
                 let kind = kind(t)?;
                 terms.push(if negative {
-                    TypePredicate::NotType { kind }
+                    TypeTerm::NotType(kind)
                 } else {
-                    TypePredicate::Type { kind }
+                    TypeTerm::Type(kind)
                 });
             }
         }
@@ -115,32 +185,32 @@ pub(crate) fn lower_type_predicate(
             }
             let children = children
                 .iter()
-                .map(|c| lower_type_predicate(c, class, false, depth + 1))
+                .map(|c| type_term(c, class, false, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
             terms.push(if disjunction {
-                TypePredicate::AnyOf { terms: children }
+                TypeTerm::AnyOf(children)
             } else {
-                TypePredicate::All { terms: children }
+                TypeTerm::All(children)
             });
         }
     }
-    let p = match terms.len() {
-        0 => TypePredicate::Any {},
+    Ok(match terms.len() {
+        0 => TypeTerm::Any,
         1 => terms.remove(0),
-        _ => TypePredicate::All { terms },
-    };
-    p.validate().map_err(|e| unsupported("trigger.what", &e))?;
-    Ok(p)
+        _ => TypeTerm::All(terms),
+    })
 }
 
-pub(crate) fn lower_attack_subject(what: &SourceAttacker) -> Result<AttackSubject, Failure> {
+/// CR 508.3a: the attacking creature an attack event names: this creature
+/// or a typed creature by its controller's relation to "you".
+pub(crate) fn lower_attack_subject(what: &SourceAttacker) -> Result<Pred, Failure> {
     match what {
-        SourceAttacker::This { noun } if noun == "creature" => Ok(AttackSubject::Source {}),
+        SourceAttacker::This { noun } if noun == "creature" => Ok(Pred::source()),
         SourceAttacker::Filter { filter, count } if fixed_one(count) => {
             let controller = match filter.control.as_deref() {
-                None => AttackerRelation::AnyPlayer,
-                Some("you") => AttackerRelation::Controller,
-                Some("opponent") => AttackerRelation::Opponent,
+                None => None,
+                Some("you") => Some(PlayerExpr::you(Context::Triggered)),
+                Some("opponent") => Some(PlayerExpr::EachOpponent),
                 _ => {
                     return Err(unsupported(
                         "trigger.what.filter.control",
@@ -148,22 +218,23 @@ pub(crate) fn lower_attack_subject(what: &SourceAttacker) -> Result<AttackSubjec
                     ));
                 }
             };
-            Ok(AttackSubject::Filter {
-                controller,
-                types: lower_type_predicate(
-                    &SourceTypeFilter {
-                        colors: None,
-                        cls: None,
-                        types: filter.types.clone(),
-                        non_types: filter.non_types.clone(),
-                        all_of: filter.all_of.clone(),
-                        any_of: filter.any_of.clone(),
-                    },
-                    None,
-                    true,
-                    0,
-                )?,
-            })
+            let mut pred = lower_type_predicate(
+                &SourceTypeFilter {
+                    colors: None,
+                    cls: None,
+                    types: filter.types.clone(),
+                    non_types: filter.non_types.clone(),
+                    all_of: filter.all_of.clone(),
+                    any_of: filter.any_of.clone(),
+                },
+                None,
+                true,
+                0,
+            )?;
+            if let Some(player) = controller {
+                pred.0.push(Atom::ControlledBy { player });
+            }
+            Ok(pred)
         }
         _ => Err(unsupported(
             "trigger.what",
@@ -595,6 +666,43 @@ pub(crate) fn lower_static_filter(filter: &ast::ObjectFilter) -> Result<Pred, Fa
         let alternatives = children
             .iter()
             .map(lower_static_filter)
+            .collect::<Result<_, _>>()?;
+        pred.0.push(Atom::AnyOf { alternatives });
+    }
+    if other.is_some() {
+        pred.0.push(Atom::IsNot {
+            object: kir::Ref::Source,
+        });
+    }
+    Ok(pred)
+}
+
+/// CR 603.2, 109.5, 201.5: the object a trigger event names, relative to
+/// the ability's controller; "other" is not the source itself.
+pub(crate) fn lower_event_filter(filter: &ast::ObjectFilter) -> Result<Pred, Failure> {
+    let mut plain = filter.clone();
+    let each = plain.all_of.take();
+    let any = plain.any_of.take();
+    let other = plain.other.take();
+    if other == Some(false) {
+        return Err(operand("filter", "other:false"));
+    }
+    let mut pred = lower_filter_for(&plain, PlayerExpr::you(Context::Triggered))?;
+    if let Some(children) = each {
+        if children.is_empty() {
+            return Err(operand("filter", "all_of:empty"));
+        }
+        for child in &children {
+            pred.0.extend(lower_event_filter(child)?.0);
+        }
+    }
+    if let Some(children) = any {
+        if children.is_empty() {
+            return Err(operand("filter", "any_of:empty"));
+        }
+        let alternatives = children
+            .iter()
+            .map(lower_event_filter)
             .collect::<Result<_, _>>()?;
         pred.0.push(Atom::AnyOf { alternatives });
     }

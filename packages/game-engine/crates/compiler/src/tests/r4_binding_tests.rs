@@ -31,18 +31,18 @@ fn kernel_event_players_belong_to_the_trigger_that_supplies_them() {
         (
             "active-player",
             "phase",
-            TriggerCondition::StepBegan {
+            TriggerCondition::on(EventPattern::StepBegins {
                 step: BeginningStep::Upkeep,
-                turn_relation: TurnRelation::AnyPlayer,
-            },
+                active: PlayerExpr::EachPlayer,
+            }),
         ),
         (
             "caster",
             "cast",
-            TriggerCondition::SpellCast {
-                caster: CasterRelation::Opponent,
-                spell: TypePredicate::Any {},
-            },
+            TriggerCondition::on(EventPattern::Cast {
+                caster: PlayerExpr::EachOpponent,
+                spell: Pred::default(),
+            }),
         ),
     ] {
         let (kernel, supplier) = resolution::kernel_event_player(role).unwrap();

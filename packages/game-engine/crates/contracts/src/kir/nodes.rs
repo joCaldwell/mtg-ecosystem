@@ -24,6 +24,18 @@ pub enum Cond {
     CostPaid {
         identity: String,
     },
+    /// CR 608.2h: the referenced object satisfies `filter`, using its last
+    /// known information once it has left its zone.
+    Satisfies {
+        object: Ref,
+        filter: Pred,
+    },
+    /// CR 603.4, 400.7: the referenced permanent entered the battlefield
+    /// from a spell `caster` cast.
+    CastBy {
+        object: Ref,
+        caster: PlayerExpr,
+    },
     Not {
         condition: Box<Cond>,
     },
