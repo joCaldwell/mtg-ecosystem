@@ -37,12 +37,24 @@ impl RulesTxn {
             None => true,
             Some(ActivationWindow::YourTurn) => own_turn,
             Some(ActivationWindow::YourUpkeep) => own_turn && step == TurnStep::Upkeep,
-            Some(ActivationWindow::YourTurnBeforeAttackers) => own_turn
-                && matches!(step, TurnStep::Upkeep | TurnStep::Draw | TurnStep::PrecombatMain | TurnStep::BeginningCombat),
-            Some(ActivationWindow::Combat) => step.phase() == Phase::Combat,
+            Some(ActivationWindow::YourTurnBeforeAttackers) => {
+                own_turn
+                    && matches!(
+                        step,
+                        TurnStep::Upkeep
+                            | TurnStep::Draw
+                            | TurnStep::PrecombatMain
+                            | TurnStep::BeginningCombat
+                    )
+            }
         };
-        in_window && (!restriction.once_each_turn
-            || !self.state.rules.activation_uses.contains(&ActivationUse { source, ability }))
+        in_window
+            && (!restriction.once_each_turn
+                || !self
+                    .state
+                    .rules
+                    .activation_uses
+                    .contains(&ActivationUse { source, ability }))
     }
 
     pub(super) fn validate_activation_uses(&self) -> Result<(), String> {
@@ -57,7 +69,9 @@ impl RulesTxn {
     }
 
     fn activation_is_limited(&self, source: ObjectId, ability: u32) -> Result<bool, String> {
-        Ok(self.copiable_definition(source)?.activated
+        Ok(self
+            .copiable_definition(source)?
+            .activated
             .get(ability as usize)
             .ok_or("missing limited activation slot")?
             .restriction
@@ -75,11 +89,19 @@ impl RulesTxn {
     ) -> Result<(), String> {
         if self.activation_is_limited(source, ability)?
             && self.current(source).is_ok()
-            && !self.rules_mut().activation_uses.insert(ActivationUse { source, ability })
+            && !self
+                .rules_mut()
+                .activation_uses
+                .insert(ActivationUse { source, ability })
         {
             return Err("activation limit already used".into());
         }
-        self.record_event(Event::AbilityActivated { stack_id, source, player, ability })
+        self.record_event(Event::AbilityActivated {
+            stack_id,
+            source,
+            player,
+            ability,
+        })
     }
 
     /// CR 602.2a, 113.6j: a graveyard card's activated ability is
@@ -525,7 +547,9 @@ impl RulesTxn {
             // CR 602.2b, 601.2h: the source card is the cost, so an unpaid
             // entry keeps it in place and a paid entry has moved it away.
             let shape = match activated.cost {
-                ActivationCost::ExileSource { .. } => true,
+                ActivationCost::ExileSource { .. } => {
+                    activated.functioning_zone == FunctioningZone::Graveyard
+                }
                 ActivationCost::DiscardSource { .. } => hand_discard_activation(activated),
                 _ => false,
             };

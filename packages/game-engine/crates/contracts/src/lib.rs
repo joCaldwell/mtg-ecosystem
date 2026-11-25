@@ -1296,7 +1296,6 @@ pub enum ActivationWindow {
     YourTurn,
     YourUpkeep,
     YourTurnBeforeAttackers,
-    Combat,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

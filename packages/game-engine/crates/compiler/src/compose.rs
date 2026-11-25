@@ -827,7 +827,8 @@ fn compose(
                         None => None,
                     };
                     if let Some(mana) = mana {
-                        if spell_kind || timing != SpellTiming::Instant
+                        if spell_kind
+                            || timing != SpellTiming::Instant
                             || restriction.is_some_and(|r| r.window.is_some())
                         {
                             return Err(unsupported(
@@ -850,7 +851,10 @@ fn compose(
                         };
                         let mut ability = lower(parts)?;
                         if spell_kind && ability.functioning_zone == FunctioningZone::Battlefield {
-                            return Err(unsupported("compose.block", "battlefield activation on a spell card"));
+                            return Err(unsupported(
+                                "compose.block",
+                                "battlefield activation on a spell card",
+                            ));
                         }
                         ability.restriction = restriction;
                         let site = control::Site {

@@ -18,10 +18,7 @@
 //! independent of one another (a hosting review says nothing about hidden
 //! information), so a cell records each one it has passed.
 use super::*;
-use crate::{
-    ActivationCost, Capability, Definition, Instruction, SpellProgram,
-    TriggerCondition,
-};
+use crate::{ActivationCost, Capability, Definition, Instruction, SpellProgram, TriggerCondition};
 
 mod executes;
 
@@ -222,6 +219,8 @@ pub enum Cell {
     Typecycling,
     /// CR 602.5b-d: an activation's turn/step window or per-turn limit.
     ActivationRestriction,
+    /// CR 113.6j, 602.2b, 701.13a: a graveyard activation exiling its source.
+    GraveyardExileSource,
     /// CR 119.4, 602.2b: a stack activation paying life.
     ActivationPayLife,
     /// CR 122.1, 602.2b: a stack activation removing +1/+1 counters from
@@ -333,6 +332,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::Cycling
         | C::Typecycling
         | C::ActivationRestriction
+        | C::GraveyardExileSource
         | C::ActivationPayLife
         | C::ActivationRemoveCounters
         | C::SacrificeCostChoice
@@ -554,6 +554,9 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         }
         if a.restriction.is_some() {
             cells.insert(Cell::ActivationRestriction);
+        }
+        if matches!(a.cost, ActivationCost::ExileSource { .. }) {
+            cells.insert(Cell::GraveyardExileSource);
         }
         match &a.cost {
             ActivationCost::Composite { costs } => {

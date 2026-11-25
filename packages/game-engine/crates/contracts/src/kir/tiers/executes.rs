@@ -319,9 +319,12 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
             mana_ok(cost) && matches!(route, None | Some(Route::Object | Route::Stack))
         }
         ActivationCost::ExileSource { mana } => {
-            matches!(a.functioning_zone, FunctioningZone::Hand | FunctioningZone::Graveyard)
+            a.functioning_zone == FunctioningZone::Graveyard
                 && mana_ok(mana)
-                && matches!(route, None | Some(Route::Object | Route::Entity | Route::Stack))
+                && matches!(
+                    route,
+                    None | Some(Route::Object | Route::Entity | Route::Stack)
+                )
         }
         // CR 701.21a: only the exact source permanent pays this cost.
         ActivationCost::SacrificeSource => {
@@ -744,9 +747,12 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
                 && c.power.is_none()
                 && c.toughness.is_none()
                 && d.intrinsic_zone.is_none()
-                && d.activated
-                    .iter()
-                    .all(|a| matches!(a.functioning_zone, FunctioningZone::Hand | FunctioningZone::Graveyard))
+                && d.activated.iter().all(|a| {
+                    matches!(
+                        a.functioning_zone,
+                        FunctioningZone::Hand | FunctioningZone::Graveyard
+                    )
+                })
                 && d.triggered.is_empty()
                 && d.mana_abilities.is_empty()
                 && d.spell.as_ref().is_some_and(|p| p.timing == cast_timing)

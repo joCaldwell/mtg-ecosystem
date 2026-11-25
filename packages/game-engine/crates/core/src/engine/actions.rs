@@ -341,9 +341,10 @@ impl RulesTxn {
         if ability.program.timing == SpellTiming::MainPhase && !self.main_phase_action(player) {
             return Err("activation requires sorcery timing".into());
         }
-        if ability.restriction.is_some_and(|r| {
-            !self.activation_restriction_allows(player, object, index, r)
-        }) {
+        if ability
+            .restriction
+            .is_some_and(|r| !self.activation_restriction_allows(player, object, index, r))
+        {
             return Err("activation restriction is not met".into());
         }
         if let ActivationCost::TapPayLifeSacrificeSource { life } = &ability.cost {

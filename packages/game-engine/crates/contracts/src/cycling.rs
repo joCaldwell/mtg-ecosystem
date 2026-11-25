@@ -25,15 +25,27 @@ pub(crate) fn hand_discard_draw_activation(a: &ActivatedAbility) -> bool {
 pub(crate) fn typecycling_activation(a: &ActivatedAbility) -> bool {
     use kir::{Amount, Atom, Destination, Node, PlayerExpr, SearchSpec, Verb};
     let player = PlayerExpr::you(kir::Context::Activated);
-    let [Instruction::Kernel {
-        node: Node::Do(Verb::Search { player: searcher, search: SearchSpec {
-            filter, maximum: Amount::Fixed { value }, to: Destination::OwnerHand, reveal: true,
-        } }),
-        source_block: search_block,
-    }, Instruction::Kernel {
-        node: Node::Do(Verb::Shuffle { player: shuffler }),
-        source_block: shuffle_block,
-    }] = a.program.instructions.as_slice() else {
+    let [
+        Instruction::Kernel {
+            node:
+                Node::Do(Verb::Search {
+                    player: searcher,
+                    search:
+                        SearchSpec {
+                            filter,
+                            maximum: Amount::Fixed { value },
+                            to: Destination::OwnerHand,
+                            reveal: true,
+                        },
+                }),
+            source_block: search_block,
+        },
+        Instruction::Kernel {
+            node: Node::Do(Verb::Shuffle { player: shuffler }),
+            source_block: shuffle_block,
+        },
+    ] = a.program.instructions.as_slice()
+    else {
         return false;
     };
     cycling_cost(a)
@@ -42,9 +54,23 @@ pub(crate) fn typecycling_activation(a: &ActivatedAbility) -> bool {
         && search_block == shuffle_block
         && *value == Quantity::from(1)
         && match filter.0.as_slice() {
-            [Atom::Type { kind: CardKind::Land }, Atom::Basic] => true,
-            [Atom::Subtype { subtype }] => matches!(subtype.as_str(),
-                "Plains" | "Island" | "Swamp" | "Mountain" | "Forest" | "Halfling" | "Sliver" | "Wizard"),
+            [
+                Atom::Type {
+                    kind: CardKind::Land,
+                },
+                Atom::Basic,
+            ] => true,
+            [Atom::Subtype { subtype }] => matches!(
+                subtype.as_str(),
+                "Plains"
+                    | "Island"
+                    | "Swamp"
+                    | "Mountain"
+                    | "Forest"
+                    | "Halfling"
+                    | "Sliver"
+                    | "Wizard"
+            ),
             _ => false,
         }
 }

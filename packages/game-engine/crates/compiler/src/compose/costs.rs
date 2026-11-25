@@ -255,11 +255,10 @@ pub(super) fn printed(costs: &[SourceCost], line: &str) -> Result<(), Failure> {
             SourceCost::Sacrifice { .. } => term.starts_with("Sacrifice "),
             SourceCost::PayLife { .. } => term.starts_with("Pay "),
             SourceCost::RemoveCounters { .. } => term.starts_with("Remove "),
-            SourceCost::Exile { from, .. } => match from.as_ref().and_then(|z| z["zone"].as_str()) {
-                Some("graveyard") => term == "Exile this card from your graveyard",
-                Some("hand") => term == "Exile this card from your hand",
-                _ => false,
-            },
+            SourceCost::Exile { from, .. } => {
+                from.as_ref().and_then(|z| z["zone"].as_str()) == Some("graveyard")
+                    && term == "Exile this card from your graveyard"
+            }
         };
         if !same {
             return Err(mismatch());
@@ -269,38 +268,49 @@ pub(super) fn printed(costs: &[SourceCost], line: &str) -> Result<(), Failure> {
 }
 
 fn exile_gap() -> Failure {
-    unsupported("compose.cost", "activation exile cost outside the block tables")
+    unsupported(
+        "compose.cost",
+        "activation exile cost outside the block tables",
+    )
 }
 
 /// CR 113.6j, 602.2a-b, 701.13a: the cost defines which zone this
 /// activation comes from. Only one fixed mana term and the exact source
-/// card in its owner's hand or graveyard are admitted.
+/// card in its owner's graveyard are admitted; a hand exile cost rejects.
 pub(super) fn exile_source(
     card: &Card<'_>,
     costs: &[SourceCost],
 ) -> Result<Option<(ActivationCost, FunctioningZone)>, Failure> {
     use serde_json::json;
-    if !costs.iter().any(|term| matches!(term, SourceCost::Exile { .. })) {
+    if !costs
+        .iter()
+        .any(|term| matches!(term, SourceCost::Exile { .. }))
+    {
         return Ok(None);
     }
-    let [mana @ SourceCost::Mana { .. }, SourceCost::Exile { what, from: Some(from) }] = costs
+    let [
+        mana @ SourceCost::Mana { .. },
+        SourceCost::Exile {
+            what,
+            from: Some(from),
+        },
+    ] = costs
     else {
         return Err(exile_gap());
     };
     if *what != json!({"ref":"this","noun":"card"}) {
         return Err(exile_gap());
     }
-    let zone = if *from == json!({"zone":"graveyard","owner":"your"}) {
-        FunctioningZone::Graveyard
-    } else if *from == json!({"zone":"hand","owner":"your"}) {
-        FunctioningZone::Hand
-    } else {
+    if *from != json!({"zone":"graveyard","owner":"your"}) {
         return Err(exile_gap());
-    };
+    }
     let ActivationCost::Mana { cost } = lower(card, std::slice::from_ref(mana))? else {
         return Err(exile_gap());
     };
-    Ok(Some((ActivationCost::ExileSource { mana: cost }, zone)))
+    Ok(Some((
+        ActivationCost::ExileSource { mana: cost },
+        FunctioningZone::Graveyard,
+    )))
 }
 
 pub(super) fn lower(card: &Card<'_>, costs: &[SourceCost]) -> Result<ActivationCost, Failure> {

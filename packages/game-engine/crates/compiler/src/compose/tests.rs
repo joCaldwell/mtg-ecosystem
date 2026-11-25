@@ -638,16 +638,34 @@ fn timing_table_lowers_printed_sorcery_speed() {
         activation_restrictions::lower(source, line)
     };
     assert_eq!(
-        timing(Some(json!({"restriction":"sorcery"})), "{1}: X. Activate only as a sorcery.")
-            .unwrap(),
+        timing(
+            Some(json!({"restriction":"sorcery"})),
+            "{1}: X. Activate only as a sorcery."
+        )
+        .unwrap(),
         (SpellTiming::MainPhase, None)
     );
-    assert_eq!(timing(None, "{1}: X.").unwrap(), (SpellTiming::Instant, None));
+    assert_eq!(
+        timing(None, "{1}: X.").unwrap(),
+        (SpellTiming::Instant, None)
+    );
     // An unread printed restriction never lowers as an unrestricted ability.
     assert!(timing(None, "{1}: X. Activate only during your turn.").is_err());
-    assert!(timing(Some(json!({"restriction":"sorcery","turn":"your"})), "{1}: X.").is_err());
+    assert!(
+        timing(
+            Some(json!({"restriction":"sorcery","turn":"your"})),
+            "{1}: X."
+        )
+        .is_err()
+    );
     // The structured restriction and the printed sentence must agree.
-    assert!(timing(Some(json!({"restriction":"sorcery"})), "{1}: X. Activate only once each turn.").is_err());
+    assert!(
+        timing(
+            Some(json!({"restriction":"sorcery"})),
+            "{1}: X. Activate only once each turn."
+        )
+        .is_err()
+    );
     assert_eq!(
         timing(
             Some(json!({"restriction":"all-of","restrictions":[{"restriction":"sorcery"},{"restriction":"once-each-turn"}]})),
@@ -666,7 +684,10 @@ fn timing_table_lowers_printed_sorcery_speed() {
         )
         .unwrap()
         .1,
-        Some(ActivationRestriction { window: Some(ActivationWindow::YourUpkeep), once_each_turn: false })
+        Some(ActivationRestriction {
+            window: Some(ActivationWindow::YourUpkeep),
+            once_each_turn: false
+        })
     );
 }
 

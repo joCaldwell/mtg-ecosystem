@@ -1,4 +1,4 @@
-//! CR 602.5b-d, 302.6, 307.5 and 507.2 (2026-09-25). The printed
+//! CR 602.5b-d, 307.5 and 508.1 (2026-09-25). The printed
 //! restriction is a permission gate, separate from the cost and effect.
 //! https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
 use super::*;
@@ -48,11 +48,6 @@ pub(super) fn lower(
                     ActivationWindow::YourTurnBeforeAttackers,
                     "during your turn, before attackers are declared",
                 ),
-                (
-                    json!({"restriction":"timing","phase":"combat"}),
-                    ActivationWindow::Combat,
-                    "during combat",
-                ),
             ]
             .into_iter()
             .find_map(|(shape, window, phrase)| (*primary == shape).then_some((window, phrase)))
@@ -66,12 +61,18 @@ pub(super) fn lower(
     {
         return Err(reject());
     }
-    let extra = if combined { " and only once each turn" } else { "" };
+    let extra = if combined {
+        " and only once each turn"
+    } else {
+        ""
+    };
     if !line.ends_with(&format!("Activate only {phrase}{extra}.")) {
         return Err(reject());
     }
     let once_each_turn = combined || phrase == "once each turn";
-    let restriction =
-        (window.is_some() || once_each_turn).then_some(ActivationRestriction { window, once_each_turn });
+    let restriction = (window.is_some() || once_each_turn).then_some(ActivationRestriction {
+        window,
+        once_each_turn,
+    });
     Ok((timing, restriction))
 }

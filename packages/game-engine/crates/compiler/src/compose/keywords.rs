@@ -190,27 +190,45 @@ pub(super) fn typecycling(
     let filter = keyword.filter.as_ref().ok_or_else(reject)?;
     let basic = json!({"types":["land"],"supertypes":["basic"]});
     let (name, atoms) = if *filter == basic {
-        ("Basic landcycling".into(), vec![Atom::Type { kind: CardKind::Land }, Atom::Basic])
+        (
+            "Basic landcycling".into(),
+            vec![
+                Atom::Type {
+                    kind: CardKind::Land,
+                },
+                Atom::Basic,
+            ],
+        )
     } else {
-        let subtype = ["Plains", "Island", "Swamp", "Mountain", "Forest", "Halfling", "Sliver", "Wizard"]
-            .into_iter()
-            .find(|subtype| *filter == json!({"subtypes":[subtype]}))
-            .ok_or_else(reject)?;
-        (format!("{subtype}cycling"), vec![Atom::Subtype { subtype: subtype.into() }])
+        let subtype = [
+            "Plains", "Island", "Swamp", "Mountain", "Forest", "Halfling", "Sliver", "Wizard",
+        ]
+        .into_iter()
+        .find(|subtype| *filter == json!({"subtypes":[subtype]}))
+        .ok_or_else(reject)?;
+        (
+            format!("{subtype}cycling"),
+            vec![Atom::Subtype {
+                subtype: subtype.into(),
+            }],
+        )
     };
     let mana = keyword_mana(keyword, &name, text)?;
     let player = kir::PlayerExpr::you(Context::Activated);
     let mut program = SpellProgram::instructions(SpellTiming::Instant);
     program.instructions = vec![
-        Instruction::act(Verb::Search {
-            player: player.clone(),
-            search: SearchSpec {
-                filter: Pred(atoms),
-                maximum: Amount::Fixed { value: 1.into() },
-                to: Destination::OwnerHand,
-                reveal: true,
+        Instruction::act(
+            Verb::Search {
+                player: player.clone(),
+                search: SearchSpec {
+                    filter: Pred(atoms),
+                    maximum: Amount::Fixed { value: 1.into() },
+                    to: Destination::OwnerHand,
+                    reveal: true,
+                },
             },
-        }, block),
+            block,
+        ),
         Instruction::act(Verb::Shuffle { player }, block),
     ];
     Ok(ActivatedAbility {
