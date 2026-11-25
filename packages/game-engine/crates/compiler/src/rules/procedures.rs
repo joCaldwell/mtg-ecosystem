@@ -173,6 +173,7 @@ pub(crate) mod land_entry_gain_life {
                 resolution: SpellResolution::Instructions,
                 optional_additional_costs: vec![],
                 additional_sacrifice: None,
+                optional_target: false,
                 targets: vec![],
                 instructions: vec![Instruction::act(
                     Verb::GainLife {

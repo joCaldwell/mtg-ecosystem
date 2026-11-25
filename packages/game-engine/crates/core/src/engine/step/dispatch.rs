@@ -186,6 +186,20 @@ impl RulesTxn {
                 {
                     self.finish_spell(stack.id, false)?;
                 } else if let Some(instruction) = program.instructions.get(frame.cursor as usize) {
+                    let Instruction::Kernel { node, .. } = instruction;
+                    // CR 115.1d, 608.2b: choosing zero doesn't stop the spell
+                    // or ability. Only its independently targeted leaves do nothing.
+                    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+                    if program.optional_target
+                        && frame.legal_targets.is_empty()
+                        && !mtg_contracts::kir::target_slots(node).is_empty()
+                    {
+                        self.finish_instruction(
+                            frame,
+                            InstructionOutcome::Effect { actual: None },
+                        )?;
+                        return Ok(());
+                    }
                     match instruction {
                         kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerHand } @ source_block)
                         | kernel!(Move { what: target_object!(target_slot), to: mtg_contracts::kir::Destination::OwnerLibraryTop } @ source_block) =>

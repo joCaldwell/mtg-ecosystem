@@ -171,6 +171,20 @@ impl Walk<'_, '_> {
         }
     }
 
+    // The permanent filter is checked at both target boundaries (CR 601.2c,
+    // 608.2b). A disjunction that includes another type cannot prove creature.
+    fn creature_target(&self, slot: u32) -> Result<bool, KirError> {
+        let domain = self.domain(slot)?;
+        Ok(domain == TargetDomain::BattlefieldCreature
+            || (matches!(
+                domain,
+                TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent
+            ) && self.env.targets[slot as usize]
+                .filter
+                .as_ref()
+                .is_some_and(|filter| filter.types == [CardKind::Creature])))
+    }
+
     fn reference(&mut self, reference: &Ref) -> Result<RefKind, KirError> {
         if self.scan {
             if let Ref::Target { slot } = reference {

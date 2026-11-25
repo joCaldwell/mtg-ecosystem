@@ -240,6 +240,7 @@ pub enum Capability {
     TappedPermanentTargetV1,
     PowerFilteredRemovalV1,
     UntapPermanentV1,
+    OptionalObjectTargetV1,
     TapPermanentV1,
     ActivatedTapPermanentV1,
     ActivatedCreatureTapV1,
@@ -1157,6 +1158,9 @@ pub struct SpellProgram {
     pub timing: SpellTiming,
     pub resolution: SpellResolution,
     pub functioning_zone: FunctioningZone,
+    /// CR 115.1d, 601.2c: the sole announced battlefield occurrence may be omitted.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub optional_target: bool,
     pub targets: Vec<TargetSpec>,
     pub instructions: Vec<Instruction>,
 }
@@ -1876,6 +1880,9 @@ fn intrinsic_keyword_capability(keyword: KeywordAbility) -> Option<Capability> {
 // One primitive mapping for targeted and set grants, including schema closure.
 
 fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgram) {
+    if program.optional_target {
+        set.insert(Capability::OptionalObjectTargetV1);
+    }
     for target in &program.targets {
         if target.filter.is_some() {
             set.insert(Capability::PermanentRemovalV1);

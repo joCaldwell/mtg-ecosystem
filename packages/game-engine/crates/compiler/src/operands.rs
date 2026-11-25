@@ -990,10 +990,10 @@ pub(crate) fn lower_creature_token(token: &SourceToken) -> Result<CreatureToken,
     Ok(token)
 }
 
-/// CR 601.2c, 115.1: one printed target occurrence: exactly one object,
-/// chosen by the controller at announcement, with its selection identity.
-/// Returns its filter and selection identity.
-fn target_occurrence(what: &ast::ObjectRef) -> Result<(&ast::ObjectFilter, &str), Failure> {
+/// CR 115.1d, 601.2c: one printed target occurrence. The controller
+/// announces one object, or zero if the text allows up to one.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+fn target_occurrence(what: &ast::ObjectRef) -> Result<(&ast::ObjectFilter, &str, bool), Failure> {
     let ast::ObjectRef::Target(target) = what else {
         return Err(operand("target", format!("ref_{}", variant(what))));
     };
@@ -1007,7 +1007,7 @@ fn target_occurrence(what: &ast::ObjectRef) -> Result<(&ast::ObjectFilter, &str)
         selection_id,
     } = &**target;
     for (field, present) in [
-        ("up_to", up_to.is_some()),
+        ("up_to", *up_to == Some(false)),
         ("group_constraints", group_constraints.is_some()),
         ("random", random.is_some()),
         ("chosen_by", chosen_by.is_some()),
@@ -1017,12 +1017,15 @@ fn target_occurrence(what: &ast::ObjectRef) -> Result<(&ast::ObjectFilter, &str)
         }
     }
     if !matches!(&**count, ast::Amount::Fixed(n) if n.value == 1) {
-        return Err(operand("target", "count"));
+        return Err(operand(
+            "target",
+            if up_to.is_some() { "up_to" } else { "count" },
+        ));
     }
     let selection = selection_id
         .as_deref()
         .ok_or_else(|| operand("target", "selection_id"))?;
-    Ok((filter, selection))
+    Ok((filter, selection, *up_to == Some(true)))
 }
 
 /// CR 601.2c, 608.2b: the permanent criteria of a target. `types` lists
@@ -1030,7 +1033,9 @@ fn target_occurrence(what: &ast::ObjectRef) -> Result<(&ast::ObjectFilter, &str)
 /// (oracle-parser/src/ast.ts), so a printed conjunction rejects rather than
 /// widening the criteria (CR 205.2b). CR 110.5: a status term tests the
 /// permanent's current tapped status.
-pub(crate) fn lower_target_filter(filter: &ast::ObjectFilter) -> Result<PermanentFilter, Failure> {
+fn lower_target_filter(
+    filter: &ast::ObjectFilter,
+) -> Result<(TargetDomain, PermanentFilter), Failure> {
     const TERMS: [&str; 7] = [
         "cls",
         "types",
@@ -1085,9 +1090,15 @@ pub(crate) fn lower_target_filter(filter: &ast::ObjectFilter) -> Result<Permanen
             )),
         })
         .collect::<Result<_, _>>()?;
-    let opponent = match &filter.control {
-        None => false,
-        Some(ast::ObjectFilterControl::Opponent) => true,
+    // CR 109.5, 601.2c, 608.2b: the invocation's controller supplies "you"
+    // both when announcing a target and when rechecking it.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    let (domain, opponent) = match &filter.control {
+        None => (TargetDomain::BattlefieldPermanent, false),
+        Some(ast::ObjectFilterControl::Opponent) => (TargetDomain::BattlefieldPermanent, true),
+        Some(ast::ObjectFilterControl::You) => {
+            (TargetDomain::ControlledBattlefieldPermanent, false)
+        }
         Some(other) => {
             return Err(operand(
                 "target_filter",
@@ -1100,20 +1111,23 @@ pub(crate) fn lower_target_filter(filter: &ast::ObjectFilter) -> Result<Permanen
         Some([status]) if status == "tapped" => true,
         Some(_) => return Err(operand("target_filter", "status")),
     };
-    Ok(PermanentFilter {
-        power: None,
-        types,
-        non_types,
-        non_colors,
-        opponent,
-        tapped,
-    })
+    Ok((
+        domain,
+        PermanentFilter {
+            power: None,
+            types,
+            non_types,
+            non_colors,
+            opponent,
+            tapped,
+        },
+    ))
 }
 
 /// "target creature": a target occurrence whose only term is the creature
 /// type (CR 601.2c/608.2b); controller, blocking or other qualifiers reject.
-fn creature_target(what: &ast::ObjectRef) -> Result<&str, Failure> {
-    let (filter, selection) = target_occurrence(what)?;
+fn creature_target(what: &ast::ObjectRef) -> Result<(&str, bool), Failure> {
+    let (filter, selection, optional) = target_occurrence(what)?;
     if let Some(field) = present_fields(filter)
         .into_iter()
         .find(|field| *field != "types")
@@ -1121,7 +1135,7 @@ fn creature_target(what: &ast::ObjectRef) -> Result<&str, Failure> {
         return Err(operand("creature_target", field));
     }
     match filter.types.as_deref() {
-        Some([kind]) if kind == "creature" => Ok(selection),
+        Some([kind]) if kind == "creature" => Ok((selection, optional)),
         _ => Err(operand("creature_target", "types")),
     }
 }
@@ -1134,7 +1148,7 @@ pub(crate) fn is_creature_target(what: &ast::ObjectRef) -> bool {
 /// True when the target occurrence's class is "permanent".
 pub(crate) fn is_permanent_target(what: &ast::ObjectRef) -> bool {
     target_occurrence(what)
-        .is_ok_and(|(filter, _)| filter.cls == Some(ast::ObjectFilterCls::Permanent))
+        .is_ok_and(|(filter, ..)| filter.cls == Some(ast::ObjectFilterCls::Permanent))
 }
 
 pub(crate) fn bind_creature_target(
@@ -1142,8 +1156,23 @@ pub(crate) fn bind_creature_target(
     slots: &mut BTreeMap<String, u32>,
     what: &ast::ObjectRef,
 ) -> Result<u32, Failure> {
-    let selection = creature_target(what)?;
-    bind_target(program, slots, selection, TargetDomain::BattlefieldCreature)
+    let (filter, ..) = target_occurrence(what)?;
+    if matches!(filter.types.as_deref(), Some([kind]) if kind == "creature")
+        && present_fields(filter)
+            .into_iter()
+            .all(|field| matches!(field, "types" | "control"))
+        && filter.control.is_some()
+    {
+        return bind_permanent_target(program, slots, what);
+    }
+    let (selection, optional) = creature_target(what)?;
+    bind_object_target(
+        program,
+        slots,
+        selection,
+        TargetDomain::BattlefieldCreature,
+        optional,
+    )
 }
 
 pub(crate) fn bind_permanent_target(
@@ -1151,19 +1180,32 @@ pub(crate) fn bind_permanent_target(
     slots: &mut BTreeMap<String, u32>,
     what: &ast::ObjectRef,
 ) -> Result<u32, Failure> {
-    let (filter, selection) = target_occurrence(what)?;
-    let filter = lower_target_filter(filter)?;
-    let slot = bind_target(
-        program,
-        slots,
-        selection,
-        TargetDomain::BattlefieldPermanent,
-    )?;
+    let (filter, selection, optional) = target_occurrence(what)?;
+    let (domain, filter) = lower_target_filter(filter)?;
+    let slot = bind_object_target(program, slots, selection, domain, optional)?;
     let target = &mut program.targets[slot as usize];
     if target.filter.as_ref().is_some_and(|old| *old != filter) {
         return Err(operand("target_filter", "conflicting"));
     }
     target.filter = Some(filter);
+    Ok(slot)
+}
+
+fn bind_object_target(
+    program: &mut SpellProgram,
+    slots: &mut BTreeMap<String, u32>,
+    selection: &str,
+    domain: TargetDomain,
+    optional: bool,
+) -> Result<u32, Failure> {
+    if (optional || program.optional_target)
+        && !program.targets.is_empty()
+        && !(program.optional_target == optional && slots.contains_key(selection))
+    {
+        return Err(operand("target", "up_to:mixed_occurrences"));
+    }
+    let slot = bind_target(program, slots, selection, domain)?;
+    program.optional_target = optional;
     Ok(slot)
 }
 
@@ -1437,6 +1479,14 @@ pub(crate) fn object(what: &serde_json::Value) -> Result<ast::ObjectRef, Failure
 /// CR 201.5: "this creature", the exact source.
 pub(crate) fn is_this_creature(what: &ast::ObjectRef) -> bool {
     matches!(what, ast::ObjectRef::This(this) if this.noun == "creature")
+}
+
+/// CR 201.5: these nouns identify the ability's source incarnation. They
+/// impose no current type requirement when the effect is performed.
+/// https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+pub(crate) fn is_this_permanent(what: &ast::ObjectRef) -> bool {
+    matches!(what, ast::ObjectRef::This(this) if matches!(this.noun.as_str(),
+        "creature" | "artifact" | "enchantment" | "land" | "permanent" | "Aura" | "aura"))
 }
 
 /// An "all"/"each" set operand.

@@ -15,14 +15,16 @@ impl Walk<'_, '_> {
                 (Destination::Exile, TargetDomain::BattlefieldPermanent) => {
                     Ok(Cell::MoveTargetExile)
                 }
-                (Destination::OwnerHand, TargetDomain::BattlefieldPermanent) => {
-                    Ok(Cell::MovePermanentOwnerHand)
-                }
+                (
+                    Destination::OwnerHand,
+                    TargetDomain::BattlefieldPermanent
+                    | TargetDomain::ControlledBattlefieldPermanent,
+                ) => Ok(Cell::MovePermanentOwnerHand),
                 (
                     Destination::OwnerHand,
                     TargetDomain::BattlefieldCreature | TargetDomain::CreatureOrPlaneswalker,
                 ) => Ok(Cell::MoveTargetOwnerHand),
-                (Destination::OwnerLibraryTop, TargetDomain::BattlefieldCreature) => {
+                (Destination::OwnerLibraryTop, _) if self.creature_target(*slot)? => {
                     Ok(Cell::MoveTargetOwnerLibraryTop)
                 }
                 _ => unaudited("move target destination"),

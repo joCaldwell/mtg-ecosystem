@@ -1175,6 +1175,7 @@ impl RulesTxn {
                     matches!(
                         t.domain,
                         TargetDomain::BattlefieldPermanent
+                            | TargetDomain::ControlledBattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
                             | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
