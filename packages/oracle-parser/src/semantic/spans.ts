@@ -50,9 +50,10 @@ export function blockSpans(line: ParsedLine): BlockSpans {
   const header = source.lines.find(l => l.role === "header");
   if (!header || source.lines[0] !== header) return { unsupported: "block has no header line" };
 
-  // CR 207.2c-d: "Label — " opens the block. An unspaced dash is never an
-  // ability word: it separates a keyword from a nonmana cost (CR 702.47a
-  // "Splice onto Arcane—An opponent gains 5 life"), so it stays unsupported.
+  // CR 207.2c-d: "Label — " opens the block. Certification requires the
+  // spaced dash: an unspaced one usually separates a keyword from a nonmana
+  // cost (CR 702.47a "Splice onto Arcane—An opponent gains 5 life"), and the
+  // rare unspaced ability word (Noyd's "Void—") stays unsupported too.
   const label = "abilityWord" in ability ? ability.abilityWord : undefined;
   if (label !== undefined) {
     const dash = (from: number) => header.text.startsWith(`${label} — `, from) ? label.length + 2 : undefined;
