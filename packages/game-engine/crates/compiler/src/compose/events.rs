@@ -91,7 +91,8 @@ pub(super) fn lower(card: &Card<'_>, trigger: &SourceTrigger) -> Option<EventPat
 /// The general event table: an enters, dies, put-into-a-graveyard-from-the-
 /// battlefield or attacks event whose object is this permanent, its named
 /// self, or one filtered object, and the same-kind alternatives of such
-/// events ("this creature or another Elf you control"). The object filter
+/// events ("this creature or another Elf you control"), or the source's
+/// entry or attack/death. The object filter
 /// lowers term by term to a [`Pred`]; a printed term with no atom rejects.
 /// `None` leaves the trigger to the reviewed lowerers' own rejection.
 ///
@@ -110,6 +111,15 @@ pub(super) fn general(
         Enters,
         Dies,
         Attacks,
+    }
+    impl Kind {
+        fn pattern(self, object: Pred) -> EventPattern {
+            match self {
+                Self::Enters => EventPattern::Enters { object },
+                Self::Dies => EventPattern::Dies { object },
+                Self::Attacks => EventPattern::Attacks { attacker: object },
+            }
+        }
     }
     fn event(card: &Card<'_>, raw: &serde_json::Value) -> Result<Option<(Kind, Pred)>, Failure> {
         let Some(object) = raw.as_object() else {
@@ -172,7 +182,21 @@ pub(super) fn general(
     };
     let kind = parts[0].0;
     if parts.iter().any(|(k, _)| *k != kind) {
-        return Ok(None);
+        let [(a, a_subject), (b, b_subject)] = parts.as_slice() else {
+            return Ok(None);
+        };
+        if *a_subject != Pred::source() || *b_subject != Pred::source() {
+            return Ok(None);
+        }
+        let other = match (a, b) {
+            (Kind::Enters, Kind::Dies | Kind::Attacks) => *b,
+            (Kind::Dies | Kind::Attacks, Kind::Enters) => *a,
+            _ => return Ok(None),
+        };
+        return Ok(Some(EventPattern::AnyOf {
+            first: Box::new(EventPattern::self_enters()),
+            second: Box::new(other.pattern(Pred::source())),
+        }));
     }
     let object = if parts.len() == 1 {
         parts.remove(0).1
@@ -183,11 +207,7 @@ pub(super) fn general(
             alternatives: parts.into_iter().map(|(_, p)| p).collect(),
         }])
     };
-    Ok(Some(match kind {
-        Kind::Enters => EventPattern::Enters { object },
-        Kind::Dies => EventPattern::Dies { object },
-        Kind::Attacks => EventPattern::Attacks { attacker: object },
-    }))
+    Ok(Some(kind.pattern(object)))
 }
 
 /// The object an event names: the source (by "this" noun or by name) or one
@@ -215,18 +235,74 @@ fn subject(card: &Card<'_>, what: &ast::ObjectRef) -> Result<Pred, Failure> {
     }
 }
 
+/// CR 603.4, 109.5: "you" is the frozen ability controller. A graveyard
+/// comparison reads only cards in that player's own graveyard (CR 404).
+pub(super) fn intervening(
+    condition: &serde_json::Value,
+    pattern: &EventPattern,
+) -> Result<kir::Intervening, Failure> {
+    use kir::ControllerMeasure;
+    let shape = condition["condition"].as_str();
+    let fields = condition.as_object().map(|o| o.len());
+    let you = serde_json::json!({"player": "you"});
+    let measure = match shape {
+        Some("life-total" | "cards-in-hand") if fields == Some(3) && condition["who"] == you => {
+            if shape == Some("life-total") {
+                ControllerMeasure::Life
+            } else {
+                ControllerMeasure::HandCount
+            }
+        }
+        Some("count") if fields == Some(3) => {
+            let of = &condition["of"];
+            let zone = &of["zone"];
+            if of["cls"] != "card"
+                || zone.as_object().map(|o| o.len()) != Some(2)
+                || zone["zone"] != "graveyard"
+                || !(zone["owner"] == "your" || zone["owner"] == you)
+            {
+                return Err(unsupported_intervening());
+            }
+            let filter = match of.as_object().map(|o| o.len()) {
+                Some(2) => Pred::default(),
+                Some(3) if of["permanent"] == true => ControllerMeasure::permanent_cards(),
+                Some(3) if let Some([kind]) = of["types"].as_array().map(Vec::as_slice) => {
+                    let kind = kind.as_str().ok_or_else(unsupported_intervening)?;
+                    Pred(vec![Atom::Type {
+                        kind: card_kind(kind, "abilities.condition")?,
+                    }])
+                }
+                _ => return Err(unsupported_intervening()),
+            };
+            ControllerMeasure::GraveyardCount(filter)
+        }
+        _ => return board_intervening(condition),
+    };
+    let (cmp, value) =
+        control::comparison(&condition["comparison"]).map_err(|_| unsupported_intervening())?;
+    let candidate = kir::Intervening::ControllerComparison {
+        measure,
+        cmp,
+        value,
+    };
+    kir::Intervening::of(&candidate.condition())
+        .ok()
+        .filter(|intervening| intervening.admits(pattern))
+        .ok_or_else(unsupported_intervening)
+}
+
+fn unsupported_intervening() -> Failure {
+    unsupported(
+        "abilities.condition",
+        "unsupported complete intervening-if condition",
+    )
+}
+
 /// CR 603.4, 109.5: an intervening "if you control a [filter]" or "if you
 /// control N or more [filter]" clause, read when the event occurs and again
 /// as the ability resolves. The filter may say "other" (CR 201.5).
-pub(super) fn board_intervening(
-    condition: &serde_json::Value,
-) -> Result<kir::Intervening, Failure> {
-    let reject = || {
-        unsupported(
-            "abilities.condition",
-            "unsupported complete intervening-if condition",
-        )
-    };
+fn board_intervening(condition: &serde_json::Value) -> Result<kir::Intervening, Failure> {
+    let reject = unsupported_intervening;
     let fields = condition.as_object().map(|o| o.len()).unwrap_or(0);
     if condition.get("who") != Some(&serde_json::json!({"player": "you"})) {
         return Err(reject());

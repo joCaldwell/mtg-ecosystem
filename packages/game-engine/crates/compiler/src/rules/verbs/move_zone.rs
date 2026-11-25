@@ -11,6 +11,23 @@ pub(super) fn lower(
     who: Option<&serde_json::Value>,
 ) -> Result<Instruction, Failure> {
     uncounted(cx)?;
+    // CR 110.2a and 614.1c: a creature card from your graveyard enters
+    // under your control, tapped when the move specifies it.
+    // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
+    if *to == serde_json::json!({"zone": "battlefield"}) {
+        if order.is_some() || who.is_some() || tapped == Some(false) {
+            return Err(step("move-zone", "battlefield_entry_modifier"));
+        }
+        let slot = bind_own_graveyard_target(cx.program, cx.slots, &object(what)?, true)?;
+        return Ok(Instruction::move_target(
+            slot,
+            Destination::Battlefield {
+                controller: PlayerExpr::you(cx.context),
+                tapped: tapped == Some(true),
+            },
+            cx.source_block,
+        ));
+    }
     if tapped.is_some() || order.is_some() {
         return Err(step("move-zone", "entry_modifier"));
     }

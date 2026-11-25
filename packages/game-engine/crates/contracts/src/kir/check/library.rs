@@ -80,6 +80,13 @@ impl Walk<'_, '_> {
             // battlefield, under their own control.
             Destination::Battlefield { controller, .. } if controller == player => {}
             Destination::OwnerHand | Destination::OwnerGraveyard => {}
+            // CR 701.24b: this search includes the shuffle of everything
+            // except its one found card, followed by positioning that card.
+            Destination::OwnerLibraryTop
+                if !target_controller && search.maximum.as_fixed() == Some(&Quantity::from(1)) =>
+            {
+                return Ok(Cell::SearchLibraryTop);
+            }
             _ => return unaudited("search destination"),
         }
         Ok(if target_controller {
@@ -98,13 +105,13 @@ impl Walk<'_, '_> {
         })
     }
 
-    /// CR 701.22a, 701.25a: the controller scries or surveils a fixed
-    /// positive number. CR 701.22b: scry 0 is no event and is never printed.
+    /// CR 701.20e, 701.22a, 701.25a: the controller privately looks at a
+    /// fixed positive number for an audited library procedure.
     pub(super) fn audit_look(
         &self,
         player: &PlayerExpr,
         amount: &Amount,
-        surveil: bool,
+        cell: Cell,
     ) -> Result<Cell, KirError> {
         if self.library_player(player)? {
             return unaudited("look player");
@@ -113,11 +120,7 @@ impl Walk<'_, '_> {
         if amount.as_fixed().is_some_and(|n| n.to_u32().is_none()) {
             return kind("look amount exceeds the card bound");
         }
-        Ok(if surveil {
-            Cell::SurveilController
-        } else {
-            Cell::ScryController
-        })
+        Ok(cell)
     }
 
     /// The printed characteristics of a library card the core evaluates:

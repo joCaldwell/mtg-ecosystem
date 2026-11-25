@@ -184,7 +184,11 @@ impl RulesTxn {
         // CR 701.22-701.25: library verbs and their private choices.
         if matches!(
             verb,
-            Verb::Search { .. } | Verb::Shuffle { .. } | Verb::Scry { .. } | Verb::Surveil { .. }
+            Verb::Search { .. }
+                | Verb::Shuffle { .. }
+                | Verb::ReorderLibraryTop { .. }
+                | Verb::Scry { .. }
+                | Verb::Surveil { .. }
         ) {
             return self.kernel_library(frame, verb, source_block);
         }
@@ -212,6 +216,13 @@ impl RulesTxn {
                 what: SetExpr::Matching { zone, filter },
                 ..
             } => self.kernel_set_move(frame, &zone, &filter, None, source_block),
+            Verb::Move {
+                what: SetExpr::One { object },
+                to:
+                    to @ (Destination::OwnerHand
+                    | Destination::OwnerLibraryTop
+                    | Destination::Battlefield { .. }),
+            } => self.kernel_single_move(frame, object, to, source_block),
             Verb::Move {
                 what: SetExpr::Matching { zone, filter },
                 to,

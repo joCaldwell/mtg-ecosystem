@@ -1,5 +1,33 @@
 //! KIR checker cells: admitted and rejected verbs, operands, scopes and tags.
 use super::*;
+
+#[test]
+fn lane_d_mixed_events_admit_only_two_disjoint_source_events() {
+    let source = EventPattern::self_enters();
+    let pair = |first, second| EventPattern::AnyOf {
+        first: Box::new(first),
+        second: Box::new(second),
+    };
+    let attack = EventPattern::Attacks {
+        attacker: Pred::source(),
+    };
+    let valid = pair(source.clone(), attack.clone());
+    check_event(&valid, false).unwrap();
+    assert!(event_player_role(&TriggerCondition::on(valid.clone())).is_none());
+    for invalid in [
+        pair(source.clone(), source.clone()),
+        pair(attack, source.clone()),
+        pair(
+            source.clone(),
+            EventPattern::Dies {
+                object: Pred::creatures(),
+            },
+        ),
+        pair(source.clone(), valid),
+    ] {
+        assert!(check_event(&invalid, false).is_err(), "{invalid:?}");
+    }
+}
 use crate::{BeginningStep, PermanentFilter};
 
 fn spell<'a>(targets: &'a [TargetSpec]) -> Env<'a> {
@@ -1252,6 +1280,19 @@ fn library_cells_admit_own_library_searches_shuffles_and_looks() {
             Ok(BTreeSet::from([Cell::SearchController]))
         );
     }
+    // CR 701.24b: a singleton library-top search includes the shuffle.
+    assert_eq!(
+        cells(
+            &search(
+                you.clone(),
+                basic_land.clone(),
+                1,
+                Destination::OwnerLibraryTop
+            ),
+            &spell(&[])
+        ),
+        Ok(BTreeSet::from([Cell::SearchLibraryTop]))
+    );
     // CR 608.2h: a filtered target's last-known controller searches theirs.
     let targets = filtered_creature_target();
     let theirs = PlayerExpr::ControllerOf {
@@ -1408,9 +1449,21 @@ fn library_cells_reject_other_libraries_destinations_and_filters() {
             &[]
         ));
     }
-    // A shuffle-free top-of-library or another player's battlefield.
+    // Only the controller's singleton search may put its find on top.
+    assert!(unaudited(
+        &search(you.clone(), Pred(vec![]), 2, Destination::OwnerLibraryTop),
+        &[]
+    ));
+    assert!(unaudited(
+        &search(
+            theirs.clone(),
+            Pred(vec![]),
+            1,
+            Destination::OwnerLibraryTop
+        ),
+        &filtered
+    ));
     for to in [
-        Destination::OwnerLibraryTop,
         Destination::Exile,
         Destination::Battlefield {
             controller: PlayerExpr::EachOpponent,

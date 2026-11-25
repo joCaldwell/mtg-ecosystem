@@ -4,8 +4,19 @@ impl RulesTxn {
     pub(crate) fn update_library_position_memory(
         &mut self,
         event: &ProposedEvent,
-        _actual: &EventOutcome,
+        actual: &EventOutcome,
     ) {
+        // A found card can leave from an unknown position. Publishing an
+        // observed shift would disclose where the hidden selection was.
+        let disturbed_library = match actual {
+            EventOutcome::Moved { movement } | EventOutcome::EnteredAttached { movement, .. } => {
+                match movement.from {
+                    Zone::Library { owner } => Some(owner),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
         let objects = &self.state.rules.objects;
         for knowledge in &mut self.state.knowledge.visibility {
             knowledge.public_tucked_cards.retain(|id| {
@@ -17,13 +28,20 @@ impl RulesTxn {
                 else {
                     return false;
                 };
-                if current != id {
+                if current != id || disturbed_library == Some(*owner) {
                     return false;
                 }
                 match event {
                     ProposedEvent::FinishLibraryShuffle { player }
                     | ProposedEvent::ShuffleLibrary { player }
+                    | ProposedEvent::ShuffleLibraryToTop { player, .. }
                     | ProposedEvent::ShuffleLibraryWord { player, .. } => player != owner,
+
+                    // The unchanged tail keeps its known positions. Every
+                    // permutation of the private prefix is possible to observers.
+                    ProposedEvent::ReorderLibraryTop { looked, .. } => {
+                        looked.len() <= 1 || !looked.contains(id)
+                    }
 
                     // Scry can hide the size of the portion sent to the
                     // bottom. Opponents cannot update positions from that count.
@@ -40,6 +58,14 @@ impl RulesTxn {
                     _ => true,
                 }
             });
+        }
+    }
+
+    /// Only an explicit reveal establishes public knowledge of a found
+    /// card's position. The CR 701.24b shuffle excludes it.
+    pub(super) fn remember_revealed_library_top(&mut self, object: ObjectId) {
+        for knowledge in &mut self.state.knowledge.visibility {
+            knowledge.public_tucked_cards.insert(object);
         }
     }
 
@@ -81,6 +107,13 @@ impl RulesTxn {
     }
 
     pub(super) fn validate_library_position_memory(&self) -> Result<(), String> {
+        let views = &self.state.knowledge.visibility;
+        if views
+            .iter()
+            .any(|view| view.public_tucked_cards != views[0].public_tucked_cards)
+        {
+            return Err("public library positions differ between seats".into());
+        }
         for seat in 0..4 {
             self.publicly_searched_hand(PlayerId(seat))?;
             self.known_library_positions(PlayerId(seat))?;

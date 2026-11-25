@@ -28,7 +28,8 @@ impl Walk<'_, '_> {
             } if matches!(
                 self.player_target(player)?,
                 Some(TargetDomain::AnyPlayer | TargetDomain::OpponentPlayer)
-            ) && (random || !announced) =>
+            ) && ((!random && !announced)
+                || (random && self.env.context == Context::Spell)) =>
             {
                 if !announced {
                     Self::fixed_at_least(amount, 1, "discard count")?;
