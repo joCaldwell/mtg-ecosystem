@@ -163,7 +163,7 @@ impl RulesTxn {
         cast: Casting,
         selected: &[ObjectId],
     ) -> Result<(), String> {
-        match self.pay_announcement_with_objects(&cast, selected)? {
+        match self.pay_announcement_costs(&cast, selected)? {
             AnnouncementPayment::Completed(completed) => {
                 self.rules_mut().priority = completed.controller;
                 self.rules_mut().frame = Frame::Priority;
@@ -188,13 +188,6 @@ impl RulesTxn {
     // owned resolving continuation. Payment itself never supplies permission.
     // https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt
     pub(crate) fn pay_announcement_costs(
-        &mut self,
-        cast: &Casting,
-    ) -> Result<AnnouncementPayment, String> {
-        self.pay_announcement_with_objects(cast, &[])
-    }
-
-    fn pay_announcement_with_objects(
         &mut self,
         cast: &Casting,
         selected: &[ObjectId],
