@@ -8,12 +8,12 @@ use super::*;
 /// blocks have not yet lowered, with its source labels.
 pub(crate) fn shell(
     archive: &AcceptedArchive,
-    r: Record,
-    source: Source,
+    card: &CardSource,
+    source: SourceFace,
     result: &ParseResult,
     types: type_line::ParsedTypes,
-    ast_sha256: String,
 ) -> Result<(Definition, SourceLabels), Failure> {
+    let r = &card.record;
     let kind = types.kind;
     // CR 118.6: an absent mana cost is not {0}.
     if kind != CardKind::Land && source.mana_cost.is_empty() {
@@ -39,11 +39,12 @@ pub(crate) fn shell(
         ..SourceLabels::default()
     };
     let definition = Definition {
+        modal_back: None,
         source_labels: None,
         composed: true,
         x_mana_cost: printed_cost.x,
         flashback: None,
-        oracle_id: r.oracle_identity,
+        oracle_id: r.oracle_identity.clone(),
         name: source.name,
         characteristics: Characteristics {
             kind,
@@ -55,7 +56,7 @@ pub(crate) fn shell(
             hybrid_mana: printed_cost.hybrid,
             mana_cost: printed_cost.base,
             colors: source.colors,
-            color_identity: source.color_identity,
+            color_identity: card.source.color_identity.clone(),
             power,
             toughness,
         },
@@ -76,11 +77,11 @@ pub(crate) fn shell(
         keywords: vec![],
         capabilities: BTreeSet::new(),
         provenance: SourceProvenance {
-            printing_id: source.id,
+            printing_id: card.source.id.clone(),
             source_index: r.source_index,
-            source_sha256: r.source_sha256,
-            ast_sha256,
-            binding_sha256: r.binding_sha256,
+            source_sha256: r.source_sha256.clone(),
+            ast_sha256: card.ast_sha256.clone(),
+            binding_sha256: r.binding_sha256.clone(),
             archive_manifest_sha256: archive.manifest_sha256.clone(),
             parser_sha256: archive.parser_source_sha256.clone(),
             source_json: r.source.get().into(),
@@ -93,10 +94,7 @@ pub(crate) fn shell(
 /// CR 702.8: Flash lets the spell be cast any time its controller could cast
 /// an instant. The completed definition is admitted only by the composition
 /// contract (`mtg_contracts::composition`).
-pub(crate) fn admit(
-    mut definition: Definition,
-    labels: SourceLabels,
-) -> Result<Definition, Failure> {
+pub(crate) fn finish(mut definition: Definition, labels: SourceLabels) -> Definition {
     if definition.keywords.contains(&KeywordAbility::Flash)
         && let Some(spell) = definition.spell.as_mut()
     {
@@ -105,9 +103,6 @@ pub(crate) fn admit(
     definition.source_labels = Some(labels);
     definition.capabilities = definition.requirements();
     definition
-        .validate()
-        .map_err(|e| unsupported("composition", e))?;
-    Ok(definition)
 }
 
 /// A printed mana cost: its fixed symbols, its ordered two-color hybrid and

@@ -357,6 +357,7 @@ impl SampleBuildWork {
                 .pop_first()
                 .ok_or_else(|| invalid("definition count exceeds original deck"))?;
             let object = ObjectId {
+                face: Default::default(),
                 card: id,
                 incarnation: 0,
             };
@@ -506,6 +507,12 @@ impl RootHandleMap {
                     card: object(card)?,
                 },
                 Action::PlayLand { object: id } => Action::PlayLand {
+                    object: object(id)?,
+                },
+                Action::CastBackFace { card } => Action::CastBackFace {
+                    card: object(card)?,
+                },
+                Action::PlayLandBackFace { object: id } => Action::PlayLandBackFace {
                     object: object(id)?,
                 },
                 Action::ActivateMana { object: id } => Action::ActivateMana {

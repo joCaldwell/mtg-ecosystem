@@ -104,6 +104,7 @@ impl TokenIdentity {
 
 fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> Definition {
     let mut d = source.clone();
+    d.modal_back = None;
     d.oracle_id = format!("token:{}", id.0);
     d.name = format!("{} Token", token.subtypes.join(" "));
     d.characteristics = token.characteristics();
@@ -220,6 +221,7 @@ impl RulesTxn {
         identity: TokenIdentity,
     ) -> ObjectId {
         let id = ObjectId {
+            face: CardFace::Front,
             card,
             incarnation: 0,
         };

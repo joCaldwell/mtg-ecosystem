@@ -518,7 +518,12 @@ impl RulesTxn {
                 .current(target)
                 .is_ok_and(|object| object.zone == Zone::Exile)
             && !self.state.rules.tokens.contains_key(&target.card)
-        {
+            // CR 712.14b: a modal card returning from exile uses its
+            // front face. An instant or sorcery front stays in exile.
+            && !matches!(
+                self.copiable_definition(target)?.characteristics.kind,
+                CardKind::Instant | CardKind::Sorcery
+            ) {
             let movement = self.move_object_for(
                 target,
                 Zone::Battlefield,
@@ -723,6 +728,7 @@ impl RulesTxn {
                                         owner: row.source_facts.owner,
                                     })
                                     && capture.target.card == row.source.card
+                                    && capture.target.face.is_front()
                                     && row.source.incarnation.checked_add(1)
                                         == Some(capture.target.incarnation)
                             }
@@ -732,17 +738,19 @@ impl RulesTxn {
                             || movement.previous != capture.target
                             || movement.destination != Zone::Exile
                             || movement.successor.card != capture.target.card
+                            || !movement.successor.face.is_front()
                             || capture.target.incarnation.checked_add(1)
                                 != Some(movement.successor.incarnation)
-                            || !rules.cards.contains_key(&capture.target.card)
+                            || self.copiable_definition(capture.target).is_err()
                             || self.current(movement.previous).is_ok()
                             || rules
                                 .objects
                                 .get(&capture.target.card)
                                 .is_some_and(|object| {
                                     object.id.incarnation < movement.successor.incarnation
-                                        || (object.id == movement.successor
-                                            && object.zone != Zone::Exile)
+                                        || (object.id.incarnation == movement.successor.incarnation
+                                            && (object.id != movement.successor
+                                                || object.zone != Zone::Exile))
                                 })
                         {
                             return Err("resolution trigger captured incarnation invariant".into());
@@ -829,7 +837,7 @@ impl RulesTxn {
         slot: u32,
     ) -> Result<(), String> {
         let rules = &self.state.rules;
-        if !rules.cards.contains_key(&watched.card)
+        if self.copiable_definition(watched).is_err()
             || self
                 .entry(creator)
                 .is_ok_and(|e| e.targets.get(slot as usize) != Some(&watched))
@@ -843,6 +851,7 @@ impl RulesTxn {
                         && movement.from == Zone::Battlefield
                         && movement.destination != Zone::Battlefield
                         && movement.previous.card == movement.successor.card
+                        && movement.successor.face.is_front()
                         && watched.incarnation.checked_add(1)
                             == Some(movement.successor.incarnation)
                 }

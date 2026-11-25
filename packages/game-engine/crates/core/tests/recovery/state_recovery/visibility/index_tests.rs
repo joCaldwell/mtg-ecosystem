@@ -2,6 +2,7 @@ use super::*;
 
 fn object(card: u32, incarnation: u32) -> ObjectId {
     ObjectId {
+        face: Default::default(),
         card: CardId(card),
         incarnation,
     }
@@ -93,6 +94,7 @@ fn indexed_visibility_refresh_keeps_handles_until_visibility_or_incarnation_chan
     let revealed = game.handle_for(other, id).unwrap();
     assert_ne!(revealed, old);
     let next = ObjectId {
+        face: Default::default(),
         incarnation: id.incarnation + 1,
         ..id
     };

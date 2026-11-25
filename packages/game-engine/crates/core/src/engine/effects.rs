@@ -721,18 +721,22 @@ impl RulesTxn {
 
     pub(super) fn static_cost_changes(
         &self,
-        card: CardId,
+        proposed: ObjectId,
         caster: PlayerId,
     ) -> Result<Vec<SpellCostChange>, String> {
         let object = self
             .state
             .rules
             .objects
-            .get(&card)
+            .get(&proposed.card)
             .ok_or("missing spell object")?;
-        let characteristics = &self.copiable_definition(object.id)?.characteristics;
+        let object = Object {
+            id: proposed,
+            ..object.clone()
+        };
+        let characteristics = &self.copiable_definition(proposed)?.characteristics;
         let mut changes = Vec::new();
-        for (source, rule) in self.spell_static_rules(object) {
+        for (source, rule) in self.spell_static_rules(&object) {
             let StaticRule::SpellCost {
                 affects,
                 caster: who,
@@ -743,7 +747,7 @@ impl RulesTxn {
                 continue;
             };
             if self.static_player(who, source.controller, caster)
-                && self.static_matches(affects, source, object, characteristics, caster)
+                && self.static_matches(affects, source, &object, characteristics, caster)
             {
                 let mut change = change.clone();
                 if let Some(amount) = multiplier {
@@ -763,13 +767,18 @@ impl RulesTxn {
     pub(super) fn has_flash_permission(
         &self,
         object: &Object,
+        face: CardFace,
         caster: PlayerId,
     ) -> Result<bool, String> {
+        let object = Object {
+            id: ObjectId { face, ..object.id },
+            ..object.clone()
+        };
         let characteristics = &self.copiable_definition(object.id)?.characteristics;
-        Ok(self.spell_static_rules(object).any(|(source, rule)| {
+        Ok(self.spell_static_rules(&object).any(|(source, rule)| {
             matches!(rule, StaticRule::CastAsThoughFlash { affects, caster: who }
                 if self.static_player(who, source.controller, caster)
-                    && self.static_matches(affects, source, object, characteristics, caster))
+                    && self.static_matches(affects, source, &object, characteristics, caster))
         }))
     }
 }

@@ -86,7 +86,7 @@ impl RulesTxn {
 
     pub(super) fn cost_lock_inputs(
         &self,
-        card: CardId,
+        source: ObjectId,
         caster: PlayerId,
         from: Zone,
     ) -> Result<CostLock, String> {
@@ -94,11 +94,11 @@ impl RulesTxn {
             if from != (Zone::Command { owner: caster }) {
                 return Err("unsupported command-zone casting permission".into());
             }
-            self.state.rules.commanders.tax(card, caster)?
+            self.state.rules.commanders.tax(source.card, caster)?
         } else {
             Quantity::zero()
         };
-        let static_changes = self.static_cost_changes(card, caster)?;
+        let static_changes = self.static_cost_changes(source, caster)?;
         Ok(CostLock {
             increases,
             static_changes,
@@ -106,10 +106,13 @@ impl RulesTxn {
     }
     pub(super) fn validate_hybrid_colors(
         &self,
-        card: CardId,
+        source: ObjectId,
         colors: &[HybridPayment],
     ) -> Result<(), String> {
-        let symbols = &self.definition(card)?.characteristics.hybrid_mana;
+        let symbols = &self
+            .copiable_definition(source)?
+            .characteristics
+            .hybrid_mana;
         if symbols.is_empty()
             || symbols.len() != colors.len()
             || !symbols
@@ -123,14 +126,14 @@ impl RulesTxn {
     }
     pub(super) fn construct_spell_cost(
         &self,
-        card: CardId,
+        source: ObjectId,
         from: Zone,
         x: Option<&Quantity>,
         selected: &[String],
         hybrid: Option<&[HybridPayment]>,
         lock: &CostLock,
     ) -> Result<ManaCost, String> {
-        let definition = self.definition(card)?;
+        let definition = self.copiable_definition(source)?;
         let program = definition
             .spell
             .as_ref()
@@ -170,7 +173,7 @@ impl RulesTxn {
                     _ => definition.characteristics.mana_cost.clone(),
                 };
                 if let Some(colors) = hybrid {
-                    self.validate_hybrid_colors(card, colors)?;
+                    self.validate_hybrid_colors(source, colors)?;
                     cost.colored
                         .extend(colors.iter().filter_map(|choice| choice.color()));
                 }
@@ -197,11 +200,11 @@ impl RulesTxn {
             .hybrid_mana
             .is_empty()
         {
-            self.validate_hybrid_colors(entry.source.card, &entry.hybrid_colors)?;
+            self.validate_hybrid_colors(entry.source, &entry.hybrid_colors)?;
         }
-        let lock = self.cost_lock_inputs(entry.source.card, entry.controller, entry.cast_from)?;
+        let lock = self.cost_lock_inputs(entry.source, entry.controller, entry.cast_from)?;
         let total = self.construct_spell_cost(
-            entry.source.card,
+            entry.source,
             entry.cast_from,
             entry.x.as_ref(),
             entry.selected_additional_costs.as_deref().unwrap_or(&[]),
@@ -253,7 +256,7 @@ impl RulesTxn {
             return Err("hybrid announcement binding invariant".into());
         }
         if !entry.hybrid_colors.is_empty() {
-            self.validate_hybrid_colors(entry.source.card, &entry.hybrid_colors)?;
+            self.validate_hybrid_colors(entry.source, &entry.hybrid_colors)?;
         }
         if !entry.kind.is_spell() {
             return if entry.cost_lock.is_none() {
@@ -289,7 +292,7 @@ impl RulesTxn {
                 && lock.increases != Quantity::zero())
                 || entry.total_cost
                     != self.construct_spell_cost(
-                        entry.source.card,
+                        entry.source,
                         entry.cast_from,
                         entry.x.as_ref(),
                         entry.selected_additional_costs.as_deref().unwrap_or(&[]),

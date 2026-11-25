@@ -155,6 +155,7 @@ fn invalid_reversal_or_conflicting_group_preserves_state_trace_and_tokens() {
         .mana
         .insert(Color::U, Quantity::from(1));
     let stale = ObjectId {
+        face: Default::default(),
         incarnation: land.incarnation + 1,
         ..land
     };

@@ -78,6 +78,19 @@ fn resolution_created_blink_uses_the_next_end_step_and_exile_incarnation() {
         .contains("captured incarnation")
     );
 
+    assert!(
+        forge(&g, |s| {
+            let row = s["resolution_triggers"]
+                .as_object_mut()
+                .unwrap()
+                .values_mut()
+                .next()
+                .unwrap();
+            row["capture"]["actual"]["successor"]["face"] = "back".into();
+        })
+        .contains("captured incarnation")
+    );
+
     // Leave exile, reenter and get exiled again before the old timer fires.
     // A separate fixture-only fork probes the exact identity without changing
     // the accepted-input replay witness.

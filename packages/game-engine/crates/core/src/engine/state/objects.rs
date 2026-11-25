@@ -347,7 +347,7 @@ mod tests {
         let json = serde_json::json!({
             "marked_damage": Quantity::zero(),
             "attack_ready": false,
-            "id": ObjectId { card: CardId(card), incarnation },
+            "id": ObjectId { face: Default::default(), card: CardId(card), incarnation },
             "controller": PlayerId(0),
             "default_controller": PlayerId(0),
             "zone": Zone::Exile,

@@ -347,6 +347,7 @@ impl EventSink for AnalyticsSink<'_> {
                                 stack_id,
                                 player,
                                 source,
+                                ..
                             } = batch.cause
                                 && movement.destination == Zone::Stack
                                 && movement.previous == source

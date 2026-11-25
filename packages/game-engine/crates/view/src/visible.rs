@@ -122,11 +122,22 @@ impl<O> VisiblePlayer<O> {
         }
     }
 }
+/// Available only when the viewer can identify the card (CR 712.6-7).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisibleModalFaces {
+    pub front_name: String,
+    pub back_name: String,
+    pub active_face: CardFace,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[schemars(rename = "VisibleObject")]
 #[serde(bound(deserialize = "H: Deserialize<'de>"))]
 pub struct VisibleObject<H = ObjectHandle> {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal_faces: Option<VisibleModalFaces>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub face_down: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -164,6 +175,7 @@ pub struct VisibleObject<H = ObjectHandle> {
 impl<H> VisibleObject<H> {
     pub fn map_handles<T>(self, mut convert: impl FnMut(H) -> T) -> VisibleObject<T> {
         VisibleObject {
+            modal_faces: self.modal_faces,
             face_down: self.face_down,
             exiled_by: self.exiled_by.map(&mut convert),
             phased_out: self.phased_out,

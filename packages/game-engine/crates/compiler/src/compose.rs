@@ -605,18 +605,67 @@ fn compose(
     record: &str,
     mut deferred: Option<&mut Blockers>,
 ) -> Result<Definition, Failure> {
-    // Integrity: the exact record, source, parse and AST hashes.
-    let SingleFace {
-        record: r,
-        shape,
-        source,
-        result,
-        ast_sha256,
-    } = ingest::read_single_face(record)?;
-    // Archive R4: the parser's resolution, not the diagnostic graph, says how
-    // every reference, step and printed token of each block is accounted for.
-    let resolution =
+    let mut card = ingest::read_card(record)?;
+    let r = &card.record;
+    let mut resolution =
         resolution::Resolution::read(r.resolution.as_deref(), r.resolution_sha256.as_deref())?;
+    if resolution.face_count() != card.faces.len() {
+        return Err(invalid("resolution", "missing or duplicated resolved face"));
+    }
+    binding_gate(resolution.complete(), &mut deferred)?;
+    let mut lowered = Vec::new();
+    for (index, face) in std::mem::take(&mut card.faces).into_iter().enumerate() {
+        resolution.select_face(index)?;
+        let result = compose_face(archive, &card, face, &resolution, deferred.as_deref_mut());
+        match result {
+            Ok(face) => lowered.push(face),
+            Err(failure)
+                if deferred.is_some()
+                    && failure.path == "compose"
+                    && failure.reason == BLOCKS_FAILED => {}
+            Err(failure) => return Err(failure),
+        }
+    }
+    if deferred
+        .as_ref()
+        .is_some_and(|found| !found.blocks.is_empty())
+    {
+        return Err(unsupported("compose", BLOCKS_FAILED));
+    }
+    let back = if lowered.len() == 2 {
+        lowered.pop().map(Box::new)
+    } else {
+        None
+    };
+    let mut front = lowered
+        .pop()
+        .ok_or_else(|| invalid("faces", "no lowered face"))?;
+    if let Some(back) = back {
+        let keywords: Vec<_> = front
+            .keywords
+            .iter()
+            .chain(&back.keywords)
+            .copied()
+            .collect();
+        keywords::printed(&card.shape, &keywords)?;
+        front.modal_back = Some(back);
+        front.capabilities = front.requirements();
+    } else {
+        keywords::printed(&card.shape, &front.keywords)?;
+    }
+    front
+        .validate()
+        .map_err(|e| unsupported("composition", e))?;
+    Ok(front)
+}
+
+fn compose_face(
+    archive: &AcceptedArchive,
+    card_source: &CardSource,
+    (source, result): (SourceFace, ParseResult),
+    resolution: &resolution::Resolution,
+    mut deferred: Option<&mut Blockers>,
+) -> Result<Definition, Failure> {
     let printed: serde_json::Value = decode(result.abilities.get(), "abilities")?;
     // The generated AST and the lowering mirror both read an explicit `null`
     // as an absent term; the archive never prints one, so a `null` anywhere
@@ -629,7 +678,6 @@ fn compose(
     // untagged-enum failure further down.
     decode::<Vec<ast::Ability>>(result.abilities.get(), "abilities")?;
     {
-        binding_gate(resolution.complete(), &mut deferred)?;
         binding_gate(resolution.references(&printed), &mut deferred)?;
         // Every unaccounted step is its own binding blocker; `lower`
         // rejects at the first.
@@ -647,7 +695,7 @@ fn compose(
         binding_gate(resolution.referenced(&printed), &mut deferred)?;
         binding_gate(resolution.validate_delayed_returns(&printed), &mut deferred)?;
     }
-    let types = type_line::parse_source(&source.type_line, &source.layout)?;
+    let types = type_line::parse(&source.type_line)?;
     let kind = types.kind;
     let noun = match kind {
         CardKind::Creature => "creature",
@@ -690,9 +738,10 @@ fn compose(
             return Err(invalid("lines", "line and aggregate ability disagree"));
         }
     }
+    let block_offset = resolution.block_offset();
     let spell_kind = matches!(kind, CardKind::Instant | CardKind::Sorcery);
     let (mut definition, mut labels) =
-        assemble::shell(archive, r, source, &result, types, ast_sha256)?;
+        assemble::shell(archive, card_source, source, &result, types)?;
     let additional_types = definition.characteristics.additional_types.clone();
     let subtypes = definition.characteristics.subtypes.clone();
     let card = Card {
@@ -795,7 +844,7 @@ fn compose(
                     ability_word(&word, &result.lines[block].text)?;
                     slots.clear();
                     let site = control::Site {
-                        resolution: &resolution,
+                        resolution,
                         index: block,
                         printed: &printed[block],
                         context: Context::Spell,
@@ -918,7 +967,7 @@ fn compose(
                         }
                         ability.restriction = restriction;
                         let site = control::Site {
-                            resolution: &resolution,
+                            resolution,
                             index: block,
                             printed: &printed[block],
                             context: Context::Activated,
@@ -978,7 +1027,7 @@ fn compose(
                         &resolution.segments(block)?,
                     )?;
                     let site = control::Site {
-                        resolution: &resolution,
+                        resolution,
                         index: block,
                         printed: &printed[block],
                         context: Context::Triggered,
@@ -1085,17 +1134,18 @@ fn compose(
         })();
         if let Err(failure) = lowered {
             match deferred.as_deref_mut() {
-                Some(found) => found.blocks.push((block, failure)),
+                Some(found) => found.blocks.push((block_offset + block, failure)),
                 None => return Err(failure),
             }
         }
     }
-    if deferred
-        .as_ref()
-        .is_some_and(|found| !found.blocks.is_empty())
-    {
+    if deferred.as_ref().is_some_and(|found| {
+        found
+            .blocks
+            .last()
+            .is_some_and(|(index, _)| *index >= block_offset)
+    }) {
         return Err(unsupported("compose", BLOCKS_FAILED));
     }
-    keywords::printed(&shape, &definition.keywords)?;
-    assemble::admit(definition, labels)
+    Ok(assemble::finish(definition, labels))
 }
