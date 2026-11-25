@@ -79,6 +79,9 @@ pub enum TokenTemplate {
     Predefined {
         kind: PredefinedToken,
     },
+    TokenCopy {
+        original: ObjectId,
+    },
     SpellCopy {
         original: ObjectId,
         stack_id: StackId,
@@ -100,6 +103,14 @@ impl TokenIdentity {
             (true, _) => matches!(object.id.incarnation, 1 | 2),
         }
     }
+}
+
+// CR 707.2: this is the immutable definition's copiable layer. It has no
+// counters, marked damage, temporary characteristics, controller or status.
+fn token_copy_definition(original: &Definition, id: CardId) -> Definition {
+    let mut definition = original.clone();
+    definition.oracle_id = format!("token:{}", id.0);
+    definition
 }
 
 fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> Definition {
@@ -390,6 +401,37 @@ impl RulesTxn {
         event: &ProposedEvent,
     ) -> Result<EventOutcome, String> {
         match event {
+            ProposedEvent::CreateTokenCopy {
+                controller,
+                source,
+                original,
+            } => {
+                if !self.is_live(*controller)
+                    || !self.is_controlled_creature_token(*controller, *original)
+                {
+                    return Err("invalid token copy source".into());
+                }
+                self.check_token_capacity(1)?;
+                let card = self.next_token_card()?;
+                let definition = token_copy_definition(self.copiable_definition(*original)?, card);
+                let object = self.insert_token_identity(
+                    card,
+                    *controller,
+                    Zone::Battlefield,
+                    TokenIdentity {
+                        source: *source,
+                        spec: TokenTemplate::TokenCopy {
+                            original: *original,
+                        },
+                        definition,
+                    },
+                );
+                Ok(EventOutcome::TokenCopied {
+                    object,
+                    controller: *controller,
+                    original: *original,
+                })
+            }
             ProposedEvent::CreatePredefinedTokens {
                 controller,
                 source,
@@ -515,6 +557,36 @@ impl RulesTxn {
                         );
                     }
                     predefined_token_templates::definition(source, *id, *kind)
+                }
+                TokenTemplate::TokenCopy { original } => {
+                    let prior = self
+                        .state
+                        .rules
+                        .tokens
+                        .get(&original.card)
+                        .ok_or("snapshot copied token has no original")?;
+                    if original.card.0 >= id.0
+                        || original.incarnation != u32::from(prior.is_copy())
+                        || !prior
+                            .definition
+                            .characteristics
+                            .has_type(CardKind::Creature)
+                        || !source
+                            .spell_programs()
+                            .chain(source.triggered.iter().map(|ability| &ability.program))
+                            .chain(source.activated.iter().map(|ability| &ability.program))
+                            .any(|program| {
+                                program.instructions.iter().any(|i| {
+                                    matches!(
+                                        i.verb(),
+                                        Some(mtg_contracts::kir::Verb::Populate { .. })
+                                    )
+                                })
+                            })
+                    {
+                        return Err("snapshot token copy provenance invariant".into());
+                    }
+                    token_copy_definition(&prior.definition, *id)
                 }
                 TokenTemplate::SpellCopy { .. } => {
                     return Err("unsupported spell copy source".into());

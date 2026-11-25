@@ -4,7 +4,9 @@
 mod attach;
 mod combat;
 mod draw;
+mod fight;
 mod grant_keywords;
+mod keyword_actions;
 mod library;
 mod life;
 mod set_move;

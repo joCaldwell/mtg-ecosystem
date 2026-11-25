@@ -243,20 +243,24 @@ fn validate_target_bindings(p: &SpellProgram) -> Result<(), String> {
             return Err("unbound, duplicate, or noncontiguous target occurrence".into());
         }
     }
-    if p.targets
-        .windows(2)
-        .any(|targets| targets[0].domain != targets[1].domain)
+    // CR 115.3, 601.2c: separate fight occurrences choose independently.
+    // This exception stays in the homogeneous object announcement route.
+    let fight_pair = matches!(p.targets.as_slice(), [_, _])
+        && p.instructions.iter().any(|i| {
+            matches!(
+                i.verb(),
+                Some(kir::Verb::Fight {
+                    first: kir::Ref::Target { slot: 0 },
+                    second: kir::Ref::Target { slot: 1 },
+                })
+            )
+        });
+    if !fight_pair
+        && p.targets
+            .windows(2)
+            .any(|pair| pair[0].domain != pair[1].domain || pair[0].filter != pair[1].filter)
     {
-        return Err("mixed target domains are unsupported".into());
-    }
-    // Requests expose one common candidate set, and execution uses that common
-    // predicate. Distinct per-slot filters need a different request contract;
-    // accepting them here would apply the first slot's restriction to all slots.
-    if p.targets
-        .windows(2)
-        .any(|targets| targets[0].filter != targets[1].filter)
-    {
-        return Err("mixed target filters are unsupported".into());
+        return Err("mixed target domains or filters are unsupported".into());
     }
     for t in &p.targets {
         if let Some(f) = &t.filter {

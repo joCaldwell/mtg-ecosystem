@@ -193,6 +193,18 @@ impl RulesTxn {
             return self.kernel_library(frame, verb, source_block);
         }
         match verb {
+            Verb::GiveCounters {
+                player,
+                counter,
+                amount,
+            } => self.give_counters(frame, &player, counter, &amount, source_block),
+            Verb::Populate { .. } => self.begin_keyword_choice(frame, ResolutionChoice::Populate),
+            Verb::Proliferate { .. } => {
+                self.begin_keyword_choice(frame, ResolutionChoice::Proliferate)
+            }
+            Verb::Fight { first, second } => {
+                self.execute_fight(frame, &first, &second, source_block)
+            }
             Verb::Attach {
                 what: Ref::Source,
                 to: Ref::Target { slot: 0 },

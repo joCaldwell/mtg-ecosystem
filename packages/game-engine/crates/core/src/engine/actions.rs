@@ -44,6 +44,8 @@ impl StackKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "choice", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ResolutionChoice {
+    Populate,
+    Proliferate,
     OptionalEffect {
         player: PlayerId,
         target: ObjectId,
@@ -139,10 +141,9 @@ impl RulesTxn {
         if program.optional_target {
             return true;
         }
-        match program.targets.first().map(|target| target.domain) {
-            Some(TargetDomain::PlayerGraveyardCards { .. }) => false,
-            None => true,
-            Some(TargetDomain::AnyDamageTarget) => {
+        program.targets.iter().all(|spec| match spec.domain {
+            TargetDomain::PlayerGraveyardCards { .. } => false,
+            TargetDomain::AnyDamageTarget => {
                 self.live_players()
                     .into_iter()
                     .any(|p| self.targetable_player(p))
@@ -152,51 +153,48 @@ impl RulesTxn {
                             && !self.protected_from(o.id, source)
                     })
             }
-            Some(
-                domain @ (TargetDomain::AnyPlayer
-                | TargetDomain::PlayerOrPlaneswalker
-                | TargetDomain::OpponentPlayer),
-            ) => !self.eligible_players(domain, player).is_empty(),
-            Some(
-                TargetDomain::StackSpell
-                | TargetDomain::ControlledCreatureSpell
-                | TargetDomain::StackActivatedOrTriggeredAbility,
-            ) => !self
-                .eligible_stack_targets_for(&program.targets[0], player, None)
+            domain @ (TargetDomain::AnyPlayer
+            | TargetDomain::PlayerOrPlaneswalker
+            | TargetDomain::OpponentPlayer) => !self.eligible_players(domain, player).is_empty(),
+            TargetDomain::StackSpell
+            | TargetDomain::ControlledCreatureSpell
+            | TargetDomain::StackActivatedOrTriggeredAbility => !self
+                .eligible_stack_targets_for(spec, player, None)
                 .is_empty(),
-            Some(
-                TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent,
-            ) => self.state.rules.objects.values().any(|o| {
-                !self.protected_from(o.id, source)
-                    && self.permanent_target_legal(o.id, player, &program.targets[0])
-            }),
-            Some(TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard) => {
-                self.state.rules.objects.values().any(|object| {
-                    self.graveyard_target_legal_for(object, player, &program.targets[0])
+            TargetDomain::BattlefieldPermanent | TargetDomain::ControlledBattlefieldPermanent => {
+                self.state.rules.objects.values().any(|o| {
+                    !self.protected_from(o.id, source)
+                        && self.permanent_target_legal(o.id, player, spec)
                 })
             }
-            Some(TargetDomain::BlockingBattlefieldCreature) => {
+            TargetDomain::OwnGraveyardCreatureCard | TargetDomain::OwnGraveyardCard => self
+                .state
+                .rules
+                .objects
+                .values()
+                .any(|object| self.graveyard_target_legal_for(object, player, spec)),
+            TargetDomain::BlockingBattlefieldCreature => {
                 self.state.rules.blocking_creatures.iter().any(|o| {
                     self.is_blocking_creature(*o)
                         && self.targetable_by(*o, player)
                         && !self.protected_from(*o, source)
                 })
             }
-            Some(
-                domain @ (TargetDomain::CreatureOrPlaneswalker
-                | TargetDomain::BattlefieldCreature
-                | TargetDomain::ControlledBattlefieldCreature),
-            ) => self.state.rules.objects.values().any(|o| {
-                (if domain == TargetDomain::CreatureOrPlaneswalker {
-                    self.creature_or_planeswalker(o.id)
-                } else {
-                    self.is_battlefield_creature(o.id)
-                }) && self.targetable_by(o.id, player)
-                    && !self.protected_from(o.id, source)
-                    && (domain != TargetDomain::ControlledBattlefieldCreature
-                        || o.controller == player)
-            }),
-        }
+            domain @ (TargetDomain::CreatureOrPlaneswalker
+            | TargetDomain::BattlefieldCreature
+            | TargetDomain::ControlledBattlefieldCreature) => {
+                self.state.rules.objects.values().any(|o| {
+                    (if domain == TargetDomain::CreatureOrPlaneswalker {
+                        self.creature_or_planeswalker(o.id)
+                    } else {
+                        self.is_battlefield_creature(o.id)
+                    }) && self.targetable_by(o.id, player)
+                        && !self.protected_from(o.id, source)
+                        && (domain != TargetDomain::ControlledBattlefieldCreature
+                            || o.controller == player)
+                })
+            }
+        })
     }
     pub(crate) fn announced_target_legality(&self, entry: &StackInstance) -> Vec<bool> {
         if !entry.entity_targets.is_empty() {
@@ -230,7 +228,14 @@ impl RulesTxn {
             entry
                 .targets
                 .iter()
-                .map(|target| self.object_target_legal(entry, *target))
+                .enumerate()
+                .map(|(slot, target)| {
+                    self.program_for(entry).is_ok_and(|program| {
+                        program.targets.get(slot).is_some_and(|spec| {
+                            self.object_target_legal_for(entry, *target, Some(spec))
+                        })
+                    })
+                })
                 .collect()
         }
     }
@@ -431,6 +436,9 @@ impl RulesTxn {
             return Ok(None);
         };
         Ok(match choice {
+            ResolutionChoice::Populate | ResolutionChoice::Proliferate => {
+                self.keyword_action_request(frame, choice)?
+            }
             ResolutionChoice::Search { .. }
             | ResolutionChoice::ReorderLibraryTop { .. }
             | ResolutionChoice::Scry { .. }
@@ -484,6 +492,12 @@ impl RulesTxn {
                 }
             }
             Frame::ResolutionChoice { mut frame, choice } => {
+                if matches!(
+                    choice,
+                    ResolutionChoice::Populate | ResolutionChoice::Proliferate
+                ) {
+                    return self.keyword_action_step(frame, choice);
+                }
                 if let ResolutionChoice::OptionalEffect {
                     player,
                     target,
@@ -505,7 +519,9 @@ impl RulesTxn {
 
                 let Some(request) = self.actions_request()? else {
                     let outcome = match choice {
-                        ResolutionChoice::OptionalEffect { .. }
+                        ResolutionChoice::Populate
+                        | ResolutionChoice::Proliferate
+                        | ResolutionChoice::OptionalEffect { .. }
                         | ResolutionChoice::Search { .. }
                         | ResolutionChoice::ReorderLibraryTop { .. }
                         | ResolutionChoice::Scry { .. }
@@ -532,7 +548,9 @@ impl RulesTxn {
                     .take()
                     .ok_or("missing resolution choice")?;
                 let source_block = match choice {
-                    ResolutionChoice::OptionalEffect { .. }
+                    ResolutionChoice::Populate
+                    | ResolutionChoice::Proliferate
+                    | ResolutionChoice::OptionalEffect { .. }
                     | ResolutionChoice::Search { .. }
                     | ResolutionChoice::ReorderLibraryTop { .. }
                     | ResolutionChoice::Scry { .. }
@@ -644,6 +662,7 @@ impl RulesTxn {
             return Err("cannot advance an unfinished counted draw".into());
         }
         frame.entrant_draw = None;
+        frame.fight = None;
         frame.outcomes.push(outcome);
         frame.cursor = frame
             .cursor
@@ -1178,6 +1197,16 @@ impl RulesTxn {
         if frame.entrant_draw.is_some() {
             return Err("unsupported resolving entrant choice".into());
         }
+        if frame.fight.is_some()
+            && !matches!(
+                frame::retained_effect_frame(&self.state.rules.frames, &self.state.rules.frame),
+                Frame::DamageEffects { transaction } if matches!(
+                    &transaction.continuation, DamageContinuation::Instruction { frame: saved } if saved.as_ref() == frame
+                )
+            )
+        {
+            return Err("snapshot fight facts outside their damage frame".into());
+        }
         self.validate_damage_bindings(entry)?;
         if entry.id != frame.stack_id
             || entry.id.0 >= self.state.rules.next_stack_id
@@ -1337,6 +1366,8 @@ impl RulesTxn {
                     | ResolutionChoice::SearchEntry { .. },
                     _,
                 ) => self.valid_library_choice(frame, choice)?,
+                (ResolutionChoice::Populate, kernel!(Populate { .. }))
+                | (ResolutionChoice::Proliferate, kernel!(Proliferate { .. })) => true,
                 _ => self.valid_staples_choice(frame, choice, instruction),
             };
             if !valid {

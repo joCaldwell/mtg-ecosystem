@@ -1,4 +1,8 @@
 use super::*;
+
+fn is_zero_quantity(value: &Quantity) -> bool {
+    *value == Quantity::zero()
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisibleCommanderReturnChoice {
@@ -99,6 +103,10 @@ pub struct VisiblePlayer<O = ObjectHandle> {
     pub exile: Vec<O>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub library_shuffles: u64,
+    #[serde(default, skip_serializing_if = "is_zero_quantity")]
+    pub poison_counters: Quantity,
+    #[serde(default, skip_serializing_if = "is_zero_quantity")]
+    pub energy_counters: Quantity,
     pub player: PlayerId,
     pub status: PlayerStatus,
     pub life: Quantity,
@@ -112,6 +120,8 @@ impl<O> VisiblePlayer<O> {
             life_frozen_until_next_turn: self.life_frozen_until_next_turn,
             exile: self.exile.iter().map(T::from).collect(),
             library_shuffles: self.library_shuffles,
+            poison_counters: self.poison_counters,
+            energy_counters: self.energy_counters,
             player: self.player,
             status: self.status,
             life: self.life,

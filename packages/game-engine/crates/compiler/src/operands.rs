@@ -257,13 +257,36 @@ pub(crate) fn bind_target(
     id: &str,
     domain: TargetDomain,
 ) -> Result<u32, Failure> {
-    if id.is_empty() || program.targets.iter().any(|target| target.domain != domain) {
+    let battlefield_creature_route = |domain| {
+        matches!(
+            domain,
+            TargetDomain::BattlefieldCreature
+                | TargetDomain::BattlefieldPermanent
+                | TargetDomain::ControlledBattlefieldPermanent
+        )
+    };
+    // Fight's separate creature slots share the object announcement frame
+    // but can use different filters. Definition admission limits that mix
+    // to the audited fight program.
+    if id.is_empty()
+        || program.targets.iter().any(|target| {
+            target.domain != domain
+                && !(battlefield_creature_route(domain)
+                    && battlefield_creature_route(target.domain))
+        })
+    {
         return Err(unsupported(
             "targets",
             "empty selection or mixed creature/player target domains",
         ));
     }
     if let Some(slot) = slots.get(id) {
+        if program.targets[*slot as usize].domain != domain {
+            return Err(unsupported(
+                "targets",
+                "conflicting target occurrence domain",
+            ));
+        }
         return Ok(*slot);
     }
     let slot = u32::try_from(program.targets.len())
@@ -745,7 +768,7 @@ fn only_field(filter: &ast::ObjectFilter) -> Option<&'static str> {
 /// Every printed term of a filter, by field name. Exhaustive over
 /// `ast::ObjectFilter`: a field the parser adds fails to compile here until
 /// it is named.
-fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
+pub(crate) fn present_fields(filter: &ast::ObjectFilter) -> Vec<&'static str> {
     let ast::ObjectFilter {
         characteristic_relations,
         all_of,

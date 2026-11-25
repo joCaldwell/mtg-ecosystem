@@ -590,6 +590,44 @@ Creation stages the new objects together. The normal mana and activation paths
 pay the printed token costs. Restore reconstructs the template from its creating
 source and token identity, including after the token ceases to exist.
 
+### Keyword actions and counters
+
+Investigate creates one predefined Clue through the ordinary token entry path
+(CR 701.16a, 111.10f). Its controller can activate the printed draw ability
+by paying two mana and sacrificing it.
+
+Populate reads controlled creature tokens at resolution, including a token
+created by an earlier instruction of the same spell. It creates one token
+with the selected token's immutable copiable values (CR 701.36, 707.2).
+Counters, damage, status, and temporary characteristic changes stay on the
+original. The new token enters under the resolving controller and can cause
+entry triggers. Its saved identity binds the creating source and an earlier
+physical token. Restore reconstructs the copy from that token's definition,
+including after the original ceases to exist.
+
+Proliferate offers any number of present permanents and living players with
+counters. The choice bypasses targeting restrictions. One simultaneous placement adds one of
+each kind already on each chosen recipient (CR 701.34a, 122.6). The audited
+inventory consists of +1/+1 counters on permanents and poison and energy on
+players. Fixed printed poison and energy awards to the controller or each
+opponent use the same placement transaction. Counts use exact nonnegative
+quantities, and a player with ten or more poison counters loses when
+state-based actions are checked (CR 704.5c). Resolution choices rederive
+eligible recipients and restore checks the accepted answer against them.
+Other counter kinds, counter movement, and costs paid with energy require
+their own audited cells.
+
+Fight reads the exact two battlefield creatures and their current powers when
+performed. One noncombat damage transaction handles both directions, with one
+double-power occurrence for self-fight (CR 701.14). An absent, noncreature,
+or illegal targeted participant prevents the entire fight. Each target slot
+has its own announcement and resolution predicate. Source-relative fights and
+a preceding same-block creature pump or counter placement can supply a fighter.
+Dependent "another target" restrictions require further admission.
+
+The new fight, player counter, populate and proliferate cells earn
+`Executes`. Investigate earns the predefined artifact token tier.
+
 ### Continuous permanent control
 
 Kernel control grants determine control in layer 2; the latest supported grant

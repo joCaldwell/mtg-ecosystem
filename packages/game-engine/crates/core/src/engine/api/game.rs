@@ -156,6 +156,8 @@ impl RulesTxn {
                 players: (0..4)
                     .map(|p| Player {
                         life_frozen_until_next_turn: false,
+                        poison_counters: Quantity::zero(),
+                        energy_counters: Quantity::zero(),
                         failed_draw: false,
                         life: prepared.config.initial_life(PlayerId(p)),
                         mana: BTreeMap::new(),

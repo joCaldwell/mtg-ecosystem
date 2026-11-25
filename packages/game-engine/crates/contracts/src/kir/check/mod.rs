@@ -7,6 +7,7 @@ mod damage;
 mod destroy;
 mod discard;
 mod draw;
+mod keyword_actions;
 mod library;
 mod life;
 mod mana;
@@ -596,6 +597,7 @@ impl Walk<'_, '_> {
         match verb {
             Verb::Draw { player, amount }
             | Verb::GainLife { player, amount }
+            | Verb::GiveCounters { player, amount, .. }
             | Verb::LoseLife { player, amount }
             | Verb::Mill { player, amount }
             | Verb::Discard { player, amount, .. }
@@ -605,6 +607,12 @@ impl Walk<'_, '_> {
                 self.player(player)?;
                 self.amount(amount)
             }
+            Verb::Fight { first, second } => {
+                self.expect(first, &[RefKind::Object], "first fighter")?;
+                self.expect(second, &[RefKind::Object], "second fighter")
+                    .map(|_| ())
+            }
+            Verb::Populate { player } | Verb::Proliferate { player } => self.player(player),
             Verb::Damage { source, to, amount } => {
                 // CR 120.1: a spell can deal damage as its own source. This
                 // attribution does not select the spell as a permanent.
@@ -957,6 +965,12 @@ impl Walk<'_, '_> {
             Verb::CreateTokens { .. } | Verb::ModifyUntil { .. } | Verb::RestrictCombat { .. } => {
                 unaudited("nested leaf needs persistent provenance")
             }
+            Verb::Fight { .. }
+            | Verb::Populate { .. }
+            | Verb::Proliferate { .. }
+            | Verb::GiveCounters { .. } => {
+                unaudited("keyword action needs a top-level instruction")
+            }
             Verb::Damage { to, .. } if !matches!(to, DamageTo::Ref { .. }) => {
                 unaudited("nested set damage leaves top-level cursor facts")
             }
@@ -1048,6 +1062,10 @@ impl Walk<'_, '_> {
                 self.audit_life(player, amount)
             }
             Verb::Draw { player, amount } => self.audit_draw(player, amount),
+            Verb::GiveCounters { player, amount, .. } => self.audit_player_counters(player, amount),
+            Verb::Fight { first, second } => self.audit_fight(first, second),
+            Verb::Populate { player } => Self::audit_keyword_player(player, Cell::Populate),
+            Verb::Proliferate { player } => Self::audit_keyword_player(player, Cell::Proliferate),
             Verb::Damage { source, to, amount } => self.audit_damage(source, to, amount),
             Verb::Destroy {
                 what,
@@ -1184,6 +1202,18 @@ fn verb_capabilities(verb: &Verb, out: &mut BTreeSet<Capability>) {
             life::capabilities(matches!(verb, Verb::GainLife { .. }), player, out)
         }
         Verb::Draw { player, amount } => draw::capabilities(player, amount, out),
+        Verb::GiveCounters { .. } => {
+            out.insert(Capability::PlayerCountersV1);
+        }
+        Verb::Fight { .. } => {
+            out.extend([Capability::FightV1, Capability::NoncombatDamageV1]);
+        }
+        Verb::Populate { .. } => {
+            out.insert(Capability::PopulateV1);
+        }
+        Verb::Proliferate { .. } => {
+            out.insert(Capability::ProliferateV1);
+        }
         Verb::Damage { to, amount, .. } => damage::capabilities(to, amount, out),
         Verb::Destroy { what, .. } => destroy::capabilities(what, out),
         Verb::Move { what, to } => move_zone::capabilities(what, to, out),

@@ -541,6 +541,8 @@ impl RulesTxn {
         let checked_count =
             |count| u32::try_from(count).map_err(|_| "zone count resource limit".to_string());
         Ok(VisiblePlayer {
+            poison_counters: p.poison_counters.clone(),
+            energy_counters: p.energy_counters.clone(),
             life_frozen_until_next_turn: p.life_frozen_until_next_turn,
             exile: vec![],
             library_shuffles: self
