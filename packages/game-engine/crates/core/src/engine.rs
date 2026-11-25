@@ -22,6 +22,7 @@ pub use advance_report::*;
 pub use match_admission::*;
 pub mod commander_policy;
 pub mod optional_costs;
+mod modal;
 pub mod phasing;
 pub use commander_policy::policy_digest;
 pub use phasing::{PhaseReturn, PhasingSchedule};

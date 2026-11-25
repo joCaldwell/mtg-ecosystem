@@ -114,10 +114,16 @@ impl RulesTxn {
     }
     pub(super) fn top_has_target_domain(&self) -> Result<bool, String> {
         let top = self.top()?;
+        let source = self.targeting_characteristics(top)?;
+        if top.kind.is_spell() && top.mode_mask.is_none()
+            && let Some(modal) = &self.copiable_definition(top.source)?.modal_spell
+        {
+            return Ok(self.modal_has_selection(modal, top.controller, &source));
+        }
         Ok(self.has_target_domain(
             self.program_for(top)?,
             top.controller,
-            self.targeting_characteristics(top)?.as_ref(),
+            &source,
         ))
     }
 
@@ -135,7 +141,9 @@ impl RulesTxn {
                     .into_iter()
                     .any(|p| self.targetable_player(p))
                     || self.state.rules.objects.values().any(|o| {
-                        self.is_battlefield_creature(o.id) && !self.protected_from(o.id, source)
+                        self.is_battlefield_creature(o.id)
+                            && self.targetable_by(o.id, player)
+                            && !self.protected_from(o.id, source)
                     })
             }
             Some(

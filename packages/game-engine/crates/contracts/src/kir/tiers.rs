@@ -383,8 +383,8 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::ManaActivationCostV1
         | C::AnyDamageTargetV1
         | C::NoncombatDamageV1
-        | C::SelfDiesV1
-        | C::ModalChoiceV1 => Tiers::SEARCH_HOSTING,
+        | C::SelfDiesV1 => Tiers::SEARCH_HOSTING,
+        C::ModalChoiceV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1
@@ -504,7 +504,7 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         }
         Ok(())
     };
-    if let Some(p) = &d.spell {
+    for p in d.spell_programs() {
         add(p, Context::Spell, None)?;
     }
     for a in &d.activated {

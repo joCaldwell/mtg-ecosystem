@@ -80,6 +80,8 @@ impl Object {
 #[serde(deny_unknown_fields)]
 pub struct StackInstance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_mask: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_lock: Option<costs::CostLock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hybrid_colors: Vec<HybridPayment>,

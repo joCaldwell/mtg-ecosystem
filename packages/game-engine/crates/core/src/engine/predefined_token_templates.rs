@@ -28,6 +28,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
     };
     d.intrinsic_zone = None;
     d.spell = None;
+    d.modal_spell = None;
     d.activated.clear();
     d.mana_abilities.clear();
     d.triggered.clear();
@@ -96,5 +97,5 @@ pub(super) fn can_create(source: &Definition, kind: PredefinedToken) -> bool {
     // CR 111.10: a resolving spell may be the creating recipe as well.
     source.triggered.iter().any(|a| program(&a.program))
         || source.activated.iter().any(|a| program(&a.program))
-        || source.spell.as_ref().is_some_and(program)
+        || source.spell_programs().any(program)
 }

@@ -141,6 +141,7 @@ impl RulesTxn {
             .targets
             .is_empty();
         let entry = StackInstance {
+            mode_mask: None,
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
@@ -450,6 +451,7 @@ impl RulesTxn {
                 return Err("snapshot spell casting origin invariant".into());
             }
         }
+        self.validate_modes(entry)?;
         self.validate_cost_lock(entry)?;
         self.validate_damage_bindings(entry)?;
         self.validate_additional_cost_entry(entry)?;
@@ -463,7 +465,7 @@ impl RulesTxn {
         // announced before X, so X stays unbound through those stages.
         let before_x = announcing_x
             || matches!(&self.state.rules.frame,
-                Frame::AdditionalCosts { cast } | Frame::HybridCost { cast } if cast.stack_id == entry.id);
+                Frame::ChooseModes { cast } | Frame::AdditionalCosts { cast } | Frame::HybridCost { cast } if cast.stack_id == entry.id);
         let x_bound = x_spell && !before_x;
         // A game can end (CR 104.2a) while a spell is still being announced;
         // its unpaid entry then keeps whatever it had announced.

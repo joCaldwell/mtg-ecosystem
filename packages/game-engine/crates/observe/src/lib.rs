@@ -358,6 +358,7 @@ pub fn encode(
                 0,
             ),
             Candidate::Flag { flag } => (8, -1, -1, *flag as i32, 0),
+            Candidate::Modes { mask, .. } => (14, -1, -1, i32::from(*mask), 0),
             Candidate::Action { action } => match action {
                 Action::Pass => (9, -1, -1, 0, 0),
                 Action::PlayLand { object: h } => (10, object(h), -1, 0, 0),

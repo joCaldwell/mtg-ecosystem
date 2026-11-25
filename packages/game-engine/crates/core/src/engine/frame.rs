@@ -102,7 +102,8 @@ macro_rules! frame_walk {
                     groups: _,
                     kept: _,
                 } => {},
-                Frame::AdditionalCosts { cast: _ }
+                Frame::ChooseModes { cast: _ }
+                | Frame::AdditionalCosts { cast: _ }
                 | Frame::AnnounceX { cast: _ }
                 | Frame::HybridCost { cast: _ }
                 | Frame::SacrificeCost { cast: _ }
@@ -268,6 +269,7 @@ macro_rules! frame_parent {
 
 
 
+            | Self::ChooseModes { .. }
             | Self::AdditionalCosts { .. }
             | Self::AnnounceX { .. }
             | Self::HybridCost { .. }
@@ -361,7 +363,8 @@ impl Frame {
     /// activation stage. Every variant is named.
     pub fn announcement(&self) -> Option<&Casting> {
         match self {
-            Frame::AdditionalCosts { cast }
+            Frame::ChooseModes { cast }
+            | Frame::AdditionalCosts { cast }
             | Frame::AnnounceX { cast }
             | Frame::HybridCost { cast }
             | Frame::SacrificeCost { cast }

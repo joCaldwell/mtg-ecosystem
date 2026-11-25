@@ -102,6 +102,7 @@ impl RulesTxn {
                 previous: previous.into_iter().map(object).collect::<Result<_, _>>()?,
             },
             Reason::AdditionalCosts => Reason::AdditionalCosts,
+            Reason::ChooseModes => Reason::ChooseModes,
             Reason::HybridCost => Reason::HybridCost,
             Reason::ManaAbility { source } => Reason::ManaAbility {
                 source: object(source)?,
@@ -156,6 +157,7 @@ impl RulesTxn {
                 }
             }
             Candidate::HybridPayment { payment } => Candidate::HybridPayment { payment },
+            Candidate::Modes { mask, labels } => Candidate::Modes { mask, labels },
             Candidate::Flag { flag } => Candidate::Flag { flag },
             Candidate::Action { action } => Candidate::Action {
                 action: match action {

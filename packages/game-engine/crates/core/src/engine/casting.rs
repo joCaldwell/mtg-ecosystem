@@ -50,10 +50,14 @@ impl RulesTxn {
         {
             return Err("main-phase spell casting requires active-player main-phase priority and empty stack".into());
         }
-        if let Some(reason) =
-            self.spell_proposal_obstacle(program, player, &definition.characteristics)
+        if let Some(reason) = self.spell_proposal_obstacle(program, player, &definition.characteristics)
         {
             return Err(reason.into());
+        }
+        if let Some(modal) = &definition.modal_spell
+            && !self.modal_has_selection(modal, player, &definition.characteristics)
+        {
+            return Err("no legal mode selection for this proposal".into());
         }
         Ok(SpellAnnouncement {
             player,
@@ -136,6 +140,7 @@ impl RulesTxn {
         let effect_source_handles = self.capture_trigger_source_handles(source)?;
         let source_facts = self.object_before(source)?;
         let entry = StackInstance {
+            mode_mask: None,
             hybrid_colors: vec![],
             cost_lock: None,
             selected_additional_costs: None,
@@ -186,6 +191,9 @@ impl RulesTxn {
             return Err("spell announcement binding invariant".into());
         }
         let definition = self.copiable_definition(stack.source)?;
+        if definition.modal_spell.is_some() && stack.mode_mask.is_none() {
+            return Ok(Frame::ChooseModes { cast });
+        }
         if !definition
             .spell
             .as_ref()

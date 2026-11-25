@@ -55,6 +55,7 @@ impl Frame {
                     groups: _,
                     kept: _,
                 }
+                | Frame::ChooseModes { cast: _ }
                 | Frame::AdditionalCosts { cast: _ }
                 | Frame::AnnounceX { cast: _ }
                 | Frame::HybridCost { cast: _ }

@@ -109,6 +109,7 @@ fn token_definition(source: &Definition, id: CardId, token: &CreatureToken) -> D
     d.characteristics = token.characteristics();
     d.intrinsic_zone = None;
     d.spell = None;
+    d.modal_spell = None;
     d.activated.clear();
     d.mana_abilities.clear();
     d.triggered.clear();
@@ -490,7 +491,7 @@ impl RulesTxn {
                     spec.validate()?;
                     // CR 111.1: any of the source's spell, activated or
                     // triggered programs may be the creating recipe.
-                    if !source.spell.as_ref().is_some_and(|p| creates(p, spec))
+                    if !source.spell_programs().any(|p| creates(p, spec))
                         && !source.triggered.iter().any(|a| creates(&a.program, spec))
                         && !source.activated.iter().any(|a| creates(&a.program, spec))
                     {
