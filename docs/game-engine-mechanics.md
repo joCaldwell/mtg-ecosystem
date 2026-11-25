@@ -629,35 +629,17 @@ source and token identity, including after the token ceases to exist.
 
 ### Keyword actions and counters
 
-Investigate creates a predefined Clue (CR 701.16a, 111.10f). Paying two mana
-and sacrificing it activates its draw ability.
-
-Populate chooses a controlled creature token at resolution, including one
-created earlier in the same invocation (CR 701.36). The copy enters under
-the chooser's control with the original token's copiable values (CR 707.2).
-Counters, damage, status and temporary characteristics stay on the original.
-Restore authenticates the copy's definition against the earlier token's
-retained identity, including after that token ceases to exist.
-
-Proliferate chooses any number of present permanents and living players with
-counters, bypassing targeting restrictions (CR 701.34a). One placement adds
-one of each existing kind simultaneously. The audited kinds are +1/+1 on
-permanents and poison and energy on players. Fixed poison and energy awards
-to the controller or each opponent use the same placement. Counts are exact
-nonnegative quantities. A player with at least ten poison counters loses
-at the next state-based check (CR 704.5c). Restore checks each accepted choice
-against the eligible recipients. Counter movement and energy costs require
-further admission.
-
-Fight reads both exact battlefield creatures and their current powers.
-A single noncombat damage transaction handles both directions, including
-double power in self-fight (CR 701.14). An absent, noncreature or illegal
-targeted participant prevents the fight. Each target slot has its own
-predicate. A source or the target of an immediately preceding same-block
-creature pump or counter placement can supply a fighter. Dependent "another
-target" restrictions require further admission.
-
-These cells earn `Executes`. Investigate uses the predefined token cell.
+- Investigate creates a Clue with its two-mana sacrifice-and-draw ability
+  (CR 701.16a, 111.10f).
+- Populate copies a controlled creature token's copiable values. Animation
+  can qualify the original. Restore reconstructs the copy from retained token
+  data (CR 701.36, 707.2).
+- Proliferate chooses any number of permanents and players with counters,
+  adding one per existing kind simultaneously. Supported kinds are permanent
+  +1/+1 and player poison and energy. At least ten poison counters cause
+  a loss (CR 701.34a, 704.5c).
+- Fight uses current power for simultaneous noncombat damage. Both participants
+  must be legal battlefield creatures. Self-fight deals double power (CR 701.14).
 
 ### Continuous permanent control
 
@@ -830,6 +812,31 @@ the creature that dealt the damage. The instruction retains that battlefield
 incarnation, including when the source also has supported intrinsic keywords
 (CR 400.7, 603.3a, 608.2h). A returning card cannot receive the old trigger's
 counters.
+
+### Delayed and reflexive triggers
+
+The final instruction can create one trigger with the invocation’s source
+and controller (CR 603.7, 603.12).
+
+| Actual occurrence | Admitted body |
+| --- | --- |
+| Next end step begins | Draw, create fixed tokens, or return the creature card exiled by the parent under its owner’s control. |
+| Next turn’s upkeep begins | Controller draws fixed cards. |
+| Controller’s next upkeep begins | Controller draws or randomly discards a fixed count. |
+| Chosen creature leaves | Return the card the parent exiled after its own death, under its owner’s control. |
+| Optional fixed mana payment completes | Announce one target for the separate reflexive ability. |
+
+Step transitions govern timing (CR 513.2). Captures bind exact incarnations
+(CR 400.7, 603.7c). Watchers see actual departures including SBAs, replacement
+moves and concession exile (CR 603.6c, 614.6, 800.4a/c). Mana undo restores
+watchers of reversed sacrifices (CR 733.1). Phased-out sources use the
+parent’s last-known facts (CR 608.2h, 702.26b). Stabilization and APNAP
+placement precede priority (CR 117.5, 603.3b–d).
+
+Recovery checks creator, controller, capture and firing evidence. Step
+watermarks and retired receipts prevent duplicate firings. These one-shot rows
+earn `Executes` under `ResolutionTriggerV1`.
+[Pinned Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)
 
 ### Printed choices, payments and conditions
 

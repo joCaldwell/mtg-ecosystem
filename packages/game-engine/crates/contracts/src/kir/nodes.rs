@@ -1,5 +1,6 @@
 //! Control nodes: sequencing, guards, choices and repetition.
 use super::*;
+use crate::{ManaCost, SpellProgram};
 
 // ---------------------------------------------------------------------------
 // Control
@@ -108,12 +109,12 @@ pub enum Node {
     /// CR 603.7: perform `node` when the delayed event next occurs.
     Delayed {
         event: DelayedEvent,
-        node: Box<Node>,
+        program: Box<SpellProgram>,
     },
-    /// CR 603.12: "when you do": `then` is a reflexive trigger of `first`.
+    /// CR 603.12: paying this optional fixed cost creates a separate trigger.
     Reflexive {
-        first: Box<Node>,
-        then: Box<Node>,
+        payment: ManaCost,
+        program: Box<SpellProgram>,
     },
 }
 
@@ -169,7 +170,8 @@ impl Node {
             | Self::Choose { .. }
             | Self::UnlessPays { .. }
             | Self::IfPays { .. } => true,
-            Self::Do(_) | Self::Delayed { .. } | Self::Reflexive { .. } => false,
+            Self::Reflexive { .. } => true,
+            Self::Do(_) | Self::Delayed { .. } => false,
         }
     }
 }

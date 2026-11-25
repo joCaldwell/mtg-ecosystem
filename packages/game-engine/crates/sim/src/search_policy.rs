@@ -14,7 +14,9 @@ fn selected_program<'a>(
 ) -> Option<&'a SpellProgram> {
     let entry = observation.view.stack.last()?;
     let program = if let Some(trigger) = &entry.triggered {
-        let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &trigger.ability;
+        let mtg_core::VisibleTriggerAbility::Intrinsic { index } = &trigger.ability else {
+            return None;
+        };
         &search_candidates::definition(catalog, &trigger.oracle_id)
             .ok()?
             .triggered

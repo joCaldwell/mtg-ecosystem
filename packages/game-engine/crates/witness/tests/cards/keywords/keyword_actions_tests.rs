@@ -182,6 +182,11 @@ fn announce_fight(game: &mut Game, spell: &str) -> (ObjectId, ObjectId) {
     cast(game, spell, 0);
     let decision = Driver::request(game, 1);
     assert!(matches!(decision.reason, Reason::Targets { .. }));
+    let entry = game.top().unwrap();
+    assert!(game.object_target_legal(entry, 0, mine));
+    assert!(game.object_target_legal(entry, 1, theirs));
+    assert!(!game.object_target_legal(entry, 0, theirs));
+    assert!(!game.object_target_legal(entry, 1, mine));
     let own = decision.index(&Candidate::Object { object: mine }).unwrap();
     let opposing = decision
         .index(&Candidate::Object { object: theirs })

@@ -86,6 +86,11 @@ impl RulesTxn {
     pub(crate) fn retain_source_facts(&mut self, fact: &ObjectBefore) {
         let object = fact.object;
         let rules = self.rules_mut();
+        if !rules.resolution_triggers.is_empty() {
+            for row in rules.resolution_triggers.values_mut() {
+                row.refresh_source(fact);
+            }
+        }
         for trigger in &mut rules.pending_triggers {
             if trigger.source == object {
                 trigger.source_facts = fact.clone();
@@ -116,17 +121,17 @@ impl RulesTxn {
                 frame::HeldMut::Damage(entries) => update_source_appearances(entries, fact),
             });
     }
-    pub(crate) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
-        if self
-            .current(entry.source)
-            .is_ok_and(|o| o.phased_out.is_some())
-        {
-            return entry
-                .source_facts
-                .clone()
-                .ok_or("missing phased-out source facts".into());
+    /// CR 608.2h/702.26b: a phased-out source is unavailable even though
+    /// its incarnation still has a battlefield row. Read LKI at the caller.
+    pub(super) fn current_source_facts(&self, source: ObjectId) -> Result<ObjectBefore, String> {
+        if self.current(source)?.phased_out.is_some() {
+            return Err("phased-out source has no current facts".into());
         }
-        self.object_before(entry.source).or_else(|_| {
+        self.object_before(source)
+    }
+
+    pub(crate) fn source_facts(&self, entry: &StackInstance) -> Result<ObjectBefore, String> {
+        self.current_source_facts(entry.source).or_else(|_| {
             entry
                 .source_facts
                 .clone()
@@ -679,7 +684,7 @@ impl RulesTxn {
                         .source_facts(entry)
                         .is_ok_and(|source| source == damage.source)
             });
-        match self.object_before(damage.source.object) {
+        match self.current_source_facts(damage.source.object) {
             Ok(current)
                 if current == damage.source
                     && (damage.controller == damage.source.controller || bound) => {}

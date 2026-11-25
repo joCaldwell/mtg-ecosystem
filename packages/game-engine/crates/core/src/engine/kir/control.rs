@@ -642,7 +642,14 @@ impl RulesTxn {
                     }
                     Payment::Generic { amount } => {
                         let amount = self.control_amount(&task, amount)?;
-                        self.begin_kernel_payment(task, player, amount)?;
+                        self.begin_kernel_payment(
+                            task,
+                            player,
+                            ManaCost {
+                                generic: amount,
+                                colored: vec![],
+                            },
+                        )?;
                     }
                 }
             }
@@ -683,7 +690,15 @@ impl RulesTxn {
                 self.return_kernel(task.resume)?;
             }
             Node::Do(_) => self.begin_kernel_leaf(task)?,
-            Node::Delayed { .. } | Node::Reflexive { .. } => {
+            Node::Reflexive { payment, .. } => {
+                let player = self.entry(self.kernel_root()?.stack_id)?.controller;
+                if self.is_live(player) {
+                    self.begin_kernel_payment(task, player, payment.clone())?;
+                } else {
+                    self.return_kernel(task.resume)?;
+                }
+            }
+            Node::Delayed { .. } => {
                 return Err("unsupported kernel trigger control".into());
             }
         }
@@ -758,11 +773,17 @@ impl RulesTxn {
     pub(in crate::engine) fn kernel_payment_terms(
         &self,
         resume: FrameLink,
-    ) -> Result<(PlayerId, u32, Quantity), String> {
+    ) -> Result<(PlayerId, u32, ManaCost), String> {
         let Frame::Kernel { task } = self.saved_frame(resume)? else {
             return Err("missing kernel payment parent".into());
         };
-        let (
+        let (node, block) = self.node_at(task)?;
+        match node {
+            Node::Reflexive { payment, .. } => Ok((
+                self.entry(self.kernel_root()?.stack_id)?.controller,
+                block,
+                payment.clone(),
+            )),
             Node::UnlessPays {
                 payer,
                 payment: Payment::Generic { amount },
@@ -772,30 +793,40 @@ impl RulesTxn {
                 payer,
                 payment: Payment::Generic { amount },
                 ..
-            },
-            block,
-        ) = self.node_at(task)?
-        else {
-            return Err("invalid kernel payment parent".into());
-        };
-        let players = self.control_players(task, payer)?;
-        let [player] = players.as_slice() else {
-            return Err("invalid kernel payer".into());
-        };
-        // CR 118.12: the generic amount the admitted node names.
-        Ok((*player, block, self.control_amount(task, amount)?))
+            } => {
+                let players = self.control_players(task, payer)?;
+                let [player] = players.as_slice() else {
+                    return Err("invalid kernel payer".into());
+                };
+                Ok((
+                    *player,
+                    block,
+                    ManaCost {
+                        generic: self.control_amount(task, amount)?,
+                        colored: vec![],
+                    },
+                ))
+            }
+            _ => Err("invalid kernel payment parent".into()),
+        }
     }
 
     pub(in crate::engine) fn finish_kernel_payment(
         &mut self,
         resume: FrameLink,
-        paid: bool,
+        payment: Option<&CommittedBatch>,
     ) -> Result<(), String> {
         let Frame::Kernel { task } = self.saved_frame(resume)?.clone() else {
             return Err("invalid kernel payment parent".into());
         };
         let node = self.node_at(&task)?.0.clone();
-        self.paid(*task, &node, paid)
+        if let Node::Reflexive { payment: cost, .. } = node {
+            if let Some(batch) = payment {
+                self.collect_reflexive_payment(&cost, batch)?;
+            }
+            return self.return_kernel(task.resume);
+        }
+        self.paid(*task, &node, payment.is_some())
     }
 
     /// CR 118.12, 118.12a: continue a payment node once the payer has paid

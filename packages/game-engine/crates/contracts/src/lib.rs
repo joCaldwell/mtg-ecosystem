@@ -305,6 +305,7 @@ pub enum Capability {
     InterveningIfV1,
     /// CR 603.2: an admitted event pattern outside the reviewed event rows.
     EventTriggerV1,
+    ResolutionTriggerV1,
     CreatureOrPlaneswalkerTargetV1,
 
     ModalChoiceV1,
@@ -2092,6 +2093,9 @@ fn add_program_requirements(set: &mut BTreeSet<Capability>, program: &SpellProgr
         let Instruction::Kernel { node, .. } = instruction;
         set.extend(kir::node_capabilities(node));
         add_kernel_leaf_requirements(set, &program.targets, node);
+        if let kir::Node::Delayed { program, .. } | kir::Node::Reflexive { program, .. } = node {
+            add_program_requirements(set, program);
+        }
     }
 }
 fn add_kernel_leaf_requirements(

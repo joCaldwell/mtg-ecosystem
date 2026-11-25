@@ -1,8 +1,8 @@
 use super::*;
 
-// Frozen flat-State oracle from 364cbdc, before ownership groups and persistent
-// audit arrays. Its independent field/default policy detects wire changes in
-// the production layout macro; this is not a second runtime representation.
+// Flat-State oracle based on 364cbdc, before ownership groups and persistent
+// audit arrays. Update its independent layout for deliberate snapshot changes
+// so it still detects an accidental nesting, default or encoding change.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FlatStateReference {
@@ -24,6 +24,8 @@ struct FlatStateReference {
     next_damage_transaction_id: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pending_triggers: Vec<PendingTrigger>,
+    resolution_triggers: BTreeMap<StackId, serde_json::Value>,
+    resolution_trigger_clock: FlatResolutionTriggerClock,
     #[serde(default, skip_serializing_if = "triggers::is_zero")]
     next_trigger_id: u64,
     libraries: BTreeMap<PlayerId, Vec<CardId>>,
@@ -69,6 +71,20 @@ struct FlatStateReference {
     journal: Vec<AcceptedInput>,
     next_batch_id: u64,
     next_event_sequence: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FlatResolutionTriggerClock {
+    end: Option<FlatStepStamp>,
+    upkeep: [Option<FlatStepStamp>; 4],
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FlatStepStamp {
+    batch: u64,
+    turn: u64,
 }
 
 fn game() -> Game {
@@ -147,7 +163,14 @@ fn flat_state_decoder_rejects_unknown_duplicate_and_missing_group_fields() {
             "accepted {added}"
         );
     }
-    for required in ["players", "visibility", "journal", "external_inputs"] {
+    for required in [
+        "players",
+        "visibility",
+        "journal",
+        "external_inputs",
+        "resolution_triggers",
+        "resolution_trigger_clock",
+    ] {
         let mut value: serde_json::Value = serde_json::from_str(&encoded).unwrap();
         value.as_object_mut().unwrap().remove(required);
         assert!(

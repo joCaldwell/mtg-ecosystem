@@ -229,13 +229,7 @@ impl RulesTxn {
                 .targets
                 .iter()
                 .enumerate()
-                .map(|(slot, target)| {
-                    self.program_for(entry).is_ok_and(|program| {
-                        program.targets.get(slot).is_some_and(|spec| {
-                            self.object_target_legal_for(entry, *target, Some(spec))
-                        })
-                    })
-                })
+                .map(|(slot, target)| self.object_target_legal(entry, slot, *target))
                 .collect()
         }
     }
@@ -777,7 +771,7 @@ impl RulesTxn {
                 self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
             }
             kernel!(Discard {
-                player: target_player!(_),
+                player: target_player!(_) | you!(),
                 random: true,
                 ..
             }) => self.random_discard_step(frame),

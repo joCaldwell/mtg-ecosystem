@@ -321,7 +321,7 @@ pub trait GameTestkit {
     fn next_turn_state(&self) -> Result<(TurnState, PlayerId), String>;
     fn object_before(&self, object: ObjectId) -> Result<ObjectBefore, String>;
     fn object_facts<'a>(&'a self, object: &'a Object) -> DerivedObject<'a>;
-    fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool;
+    fn object_target_legal(&self, entry: &StackInstance, slot: usize, object: ObjectId) -> bool;
     fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId>;
     fn observation_work_units(&self, viewer: PlayerId) -> Result<u64, String>;
     fn offer_commander_sba(&mut self, resume: Frame) -> Result<bool, String>;
@@ -909,8 +909,8 @@ impl GameTestkit for Game {
     fn object_facts<'a>(&'a self, object: &'a Object) -> DerivedObject<'a> {
         RulesTxn::object_facts(self, object)
     }
-    fn object_target_legal(&self, entry: &StackInstance, object: ObjectId) -> bool {
-        RulesTxn::object_target_legal(self, entry, object)
+    fn object_target_legal(&self, entry: &StackInstance, slot: usize, object: ObjectId) -> bool {
+        RulesTxn::object_target_legal(self, entry, slot, object)
     }
     // CR 109.5, 205.2b, 608.2h, 806.1: current control, and every card type.
     fn objects_in_set(&self, set: &ObjectSet, controller: PlayerId) -> Vec<ObjectId> {

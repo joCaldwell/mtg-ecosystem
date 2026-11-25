@@ -333,12 +333,10 @@ impl RulesTxn {
                     .bound_object_target(self.entry(frame.stack_id)?, target_slot as usize)
                     .ok_or("missing removal target")?;
                 if frame.legal_targets.get(target_slot as usize) != Some(&true)
-                    || !self.object_target_legal_for(
+                    || !self.object_target_legal(
                         self.entry(frame.stack_id)?,
+                        target_slot as usize,
                         target,
-                        self.program_for(self.entry(frame.stack_id)?)?
-                            .targets
-                            .get(target_slot as usize),
                     )
                 {
                     return self
@@ -432,29 +430,27 @@ impl RulesTxn {
         if !perform {
             return self.finish_instruction(frame, InstructionOutcome::Effect { actual: None });
         }
-        let actual = match self
-            .program_for(self.entry(frame.stack_id)?)?
+        let entry = self.entry(frame.stack_id)?;
+        let Some((slot, true, ..)) = self
+            .program_for(entry)?
             .instructions
             .get(frame.cursor as usize)
-        {
-            Some(i) if i.target_destroy().is_some_and(|(_, optional, ..)| optional) => {
-                if self.object_target_legal(self.entry(frame.stack_id)?, target) {
-                    return self.complete_graveyard_group(
-                        self.instruction_cause(&frame, block)?,
-                        EventGroup::Occurrence {
-                            proposed: ProposedEvent::DestroyPermanent { object: target },
-                        },
-                        GroupFinish::Instruction {
-                            frame,
-                            result: GroupResult::ActualEffect,
-                        },
-                    );
-                } else {
-                    None
-                }
-            }
-            _ => return Err("optional target instruction invariant".into()),
+            .and_then(Instruction::target_destroy)
+        else {
+            return Err("optional target instruction invariant".into());
         };
-        self.finish_instruction(frame, InstructionOutcome::Effect { actual })
+        if self.object_target_legal(entry, slot as usize, target) {
+            return self.complete_graveyard_group(
+                self.instruction_cause(&frame, block)?,
+                EventGroup::Occurrence {
+                    proposed: ProposedEvent::DestroyPermanent { object: target },
+                },
+                GroupFinish::Instruction {
+                    frame,
+                    result: GroupResult::ActualEffect,
+                },
+            );
+        }
+        self.finish_instruction(frame, InstructionOutcome::Effect { actual: None })
     }
 }

@@ -144,6 +144,9 @@ impl RulesTxn {
                 Ok(definition.spell.as_ref().ok_or("missing spell program")?)
             }
             StackKind::Triggered { ability, .. } => match *ability {
+                EffectiveTriggerAbility::Followup { creator } => {
+                    Ok(self.resolution_trigger_program(creator)?)
+                }
                 EffectiveTriggerAbility::Intrinsic { index } => Ok(definition
                     .triggered
                     .get(index as usize)
