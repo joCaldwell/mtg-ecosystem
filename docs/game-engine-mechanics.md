@@ -889,32 +889,35 @@ Everything else rejects under `compose.control:<detail>`:
 Modal steps outside the modal spells below (W14) and "up to N" targets for N
 above one also reject.
 
-### Modal spells
+### Modal spells and abilities
 
-An instant or sorcery whose only block is a printed "Choose one —", "Choose
-two —", "Choose one or both —" (two modes) or "Choose one or more —" over two to
-five bullets lowers to a `ModalSpell` declaration (CR 700.2). The AST count must
-equal the printed count, and each bullet must be a certified resolution span
-equal to its AST option. Each mode lowers through the ordinary verb lowerers.
-Every mode must lower, or the card rejects under `verb:modal:<detail>`. The
-spell's base program keeps timing and is otherwise empty. Each legal set of
-distinct modes is its own program, its modes' instructions in printed order
-(CR 608.2c, 700.2d). `Definition::spell_programs` yields those programs.
+A printed "Choose one", "two", "one or both" or "one or more" over two to five
+bullets lowers to a `ModalSpell` declaration (CR 700.2): an instant or
+sorcery's only block, or a trigger's or activation's text after its header.
+Counts and bullets must match the AST and certified spans. Every mode lowers
+(an ability's as a whole ability of its block, agreeing on all but its program),
+or the card rejects under `verb:modal:<detail>`. The base program keeps timing
+only; each legal set of distinct modes is its own program in printed order (CR
+608.2c, 700.2d), yielded by `spell_programs` and `programs`.
 
-Casting enters `Frame::ChooseModes` before additional costs, X, hybrid symbols
-and targets (CR 601.2b). The caster answers one `Pick` of `Candidate::Modes`
-(`Reason::ChooseModes`), with the bit mask and printed labels. A mode whose
-target cannot be chosen is not offered, and a spell with no offerable set
-cannot be proposed (CR 700.2a). The stack entry keeps the chosen `mode_mask`,
-which is public in the permitted view. Its program is the selected one.
-Targets, provenance, tokens and resolution read it (CR 700.2c). One selection announces at most one target in a battlefield
-permanent, creature, any-damage or player domain. State validation requires an
-unbound mask only while choosing and a declared selection afterwards. These
-cards earn `Executes` only (`modal_choice_v1`).
+A spell or activation answers `Reason::ChooseModes` in `Frame::ChooseModes`
+before costs, X and targets (CR 601.2b, 602.2b), and with nothing offerable
+cannot be proposed. A trigger chooses in `Frame::TriggerTargets` and with
+nothing offerable leaves the stack (CR 603.3c). Only selections with legal
+targets are offered; an empty decision faults. The public `mode_mask` selects
+the program. A selection targets at most one battlefield, own-graveyard,
+any-damage or player object. State validation rejects a stray or unbound mask.
+These earn `Executes` (`modal_choice_v1`).
 
-Modal abilities, repeated modes, entwine, escalate, spree, a mode with its own
-cost (CR 700.2h) and a "Choose one. If ..." upgrade reject. So does a modal
-block beside other spell text, or a selection with two targets.
+"Up to one", "any number", repeats, entwine, escalate, spree, costed modes
+(CR 700.2h), upgrades, other text in the block, two-target selections and modes
+that add mana (CR 605.1a) reject.
+
+"[One] for each [filter]" on a draw or life step is `Amount::Count`, counted
+once (CR 608.2h), over objects you or opponents control, graveyard cards, or
+(life only) your hand. A counted draw (`DrawControllerPerObject`) reads a
+battlefield or graveyard set, which drawing cannot change. Other amounts,
+step-result filters and another player's referents reject.
 
 ## Derived capability tiers
 

@@ -526,6 +526,8 @@ pub(crate) enum Step {
     LoseLife {
         who: PlayerSelector,
         amount: serde_json::Value,
+        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
+        for_each: Option<serde_json::Value>,
     },
     ReturnToHand {
         what: serde_json::Value,
@@ -555,6 +557,8 @@ pub(crate) enum Step {
         amount: DrawAmount,
         #[serde(default)]
         optional: bool,
+        #[serde(default, rename = "forEach", deserialize_with = "present_json_operand")]
+        for_each: Option<serde_json::Value>,
     },
     Discard(DiscardStep),
 }

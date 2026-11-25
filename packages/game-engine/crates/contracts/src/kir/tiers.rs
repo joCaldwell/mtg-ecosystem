@@ -115,6 +115,8 @@ pub enum Cell {
     // CR 121: draw.
     DrawController,
     DrawControllerCounted,
+    /// CR 121.2, 608.2h: "draw a card for each [filter]", counted once.
+    DrawControllerPerObject,
     DrawAnnouncedX,
     DrawEachPlayer,
     DrawEventPlayer,
@@ -295,6 +297,7 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::LifeCounted
         | C::Drain
         | C::DrawControllerCounted
+        | C::DrawControllerPerObject
         | C::DrawAnnouncedX
         | C::DrawEachPlayer
         | C::DrawEventPlayer
@@ -563,10 +566,14 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
         add(p, Context::Spell, None)?;
     }
     for a in &d.activated {
-        add(&a.program, Context::Activated, None)?;
+        for p in a.programs() {
+            add(p, Context::Activated, None)?;
+        }
     }
     for a in &d.triggered {
-        add(&a.program, Context::Triggered, Some(&a.condition))?;
+        for p in a.programs() {
+            add(p, Context::Triggered, Some(&a.condition))?;
+        }
     }
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);

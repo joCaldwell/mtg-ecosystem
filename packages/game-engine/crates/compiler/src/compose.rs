@@ -348,6 +348,7 @@ fn activation(
         },
     )?;
     Ok(ActivatedAbility {
+        modal: None,
         functioning_zone,
         restriction: None,
         cost,
@@ -491,6 +492,7 @@ fn trigger(
         )?;
     }
     Ok(TriggeredAbility {
+        modal: None,
         functioning_zone: FunctioningZone::Battlefield,
         condition,
         program,
@@ -910,6 +912,43 @@ fn compose_face(
                     let mana_restriction = restriction
                         .filter(|r| r.once_each_turn && r.window.is_none())
                         .map(|_| SourceActivationRestriction::OnceEachTurn {});
+                    // CR 602.2b, 700.2: modes are chosen as the ability is
+                    // activated; a mana ability has no modes here.
+                    if modal::declared(&effects) {
+                        modal::reject_mana_modes(&effects)?;
+                        let text = &result.lines[block].text;
+                        let site = control::Site {
+                            resolution,
+                            index: block,
+                            printed: &printed[block],
+                            context: Context::Activated,
+                        };
+                        let (mut ability, modal) = modal::lower_ability(
+                            &effects,
+                            text,
+                            modal::Header::Activated,
+                            &site,
+                            |sentences| {
+                                activation(&card, &costs, parts(sentences)?, timing, block, text)
+                            },
+                            |a: &mut ActivatedAbility| &mut a.program,
+                        )?;
+                        if spell_kind {
+                            return Err(unsupported(
+                                "compose.block",
+                                "battlefield activation on a spell card",
+                            ));
+                        }
+                        ability.restriction = restriction;
+                        ability.modal = Some(modal);
+                        labels.activated.push(label);
+                        definition.activated.push(ability);
+                        return printed::choices_printed(
+                            text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        );
+                    }
                     let peeled = control::peel(&effects)?;
                     let core = parts(&peeled.sentences)?;
                     let parts = core;
@@ -1026,6 +1065,35 @@ fn compose_face(
                         &printed[block],
                         &resolution.segments(block)?,
                     )?;
+                    // CR 603.3c, 700.2: modes are chosen as the trigger is
+                    // put on the stack.
+                    if modal::declared(&effects) {
+                        let text = &result.lines[block].text;
+                        let site = control::Site {
+                            resolution,
+                            index: block,
+                            printed: &printed[block],
+                            context: Context::Triggered,
+                        };
+                        let (mut ability, modal) = modal::lower_ability(
+                            &effects,
+                            text,
+                            modal::Header::Triggered,
+                            &site,
+                            |sentences| {
+                                trigger(&card, &event, parts(sentences)?, condition.as_ref(), block)
+                            },
+                            |a: &mut TriggeredAbility| &mut a.program,
+                        )?;
+                        ability.modal = Some(modal);
+                        labels.triggered.push(label);
+                        definition.triggered.push(ability);
+                        return printed::choices_printed(
+                            text,
+                            &printed[block],
+                            &resolution.segments(block)?,
+                        );
+                    }
                     let site = control::Site {
                         resolution,
                         index: block,

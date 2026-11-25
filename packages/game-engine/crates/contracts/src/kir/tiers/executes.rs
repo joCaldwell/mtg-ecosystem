@@ -380,10 +380,9 @@ fn sacrifice_filter(f: &SacrificeFilter) -> bool {
 /// The cost row: complete costs the runtime pays for the given program's
 /// announcement route. CR 602.2b, 601.2f-h: costs are determined and paid
 /// after targets, and an unpayable combination is never admitted.
-fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+fn cost(d: &Definition, a: &ActivatedAbility, p: &SpellProgram) -> Result<(), String> {
     let kind = d.characteristics.kind;
-    let route = a
-        .program
+    let route = p
         .targets
         .first()
         .and_then(|t| domain(t.domain))
@@ -496,11 +495,27 @@ fn cost(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
 }
 
 fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
+    // CR 602.2b, 700.2: a modal activation is a battlefield ability whose
+    // every selection is checked below as its own program.
+    if let Some(modal) = &a.modal {
+        // The announcement after modes reuses the targeted activation
+        // route, which pays only these costs.
+        if a.functioning_zone != FunctioningZone::Battlefield
+            || matches!(
+                a.cost,
+                ActivationCost::TapPayLifeSacrificeSource { .. }
+                    | ActivationCost::DiscardSource { .. }
+            )
+        {
+            return cell("modal", "activation_source_or_cost");
+        }
+        modal_shape(&a.program, modal, true)?;
+    }
     if matches!(a.cost, ActivationCost::ExileSource { .. }) {
         if a.restriction.is_some() {
             return cell("activated", "off_battlefield_restriction");
         }
-        cost(d, a)?;
+        cost(d, a, &a.program)?;
         return program(&a.program, Context::Activated, None, false);
     }
     // CR 702.29a/e, 602.2a: cycling and typecycling use fixed mana and the
@@ -525,11 +540,11 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     }) {
         return cell("activated", "restriction");
     }
-    if a.program
-        .targets
-        .iter()
+    if a.programs()
+        .flat_map(|p| &p.targets)
         .any(|t| t.domain == TargetDomain::ControlledBattlefieldCreature)
-        && !(d.characteristics.subtypes == ["Equipment"]
+        && !(a.modal.is_none()
+            && d.characteristics.subtypes == ["Equipment"]
             && matches!(a.cost, ActivationCost::Mana { .. })
             && a.program.timing == SpellTiming::MainPhase
             && matches!(a.program.targets.as_slice(), [t] if t.filter.is_none())
@@ -546,8 +561,11 @@ fn activated(d: &Definition, a: &ActivatedAbility) -> Result<(), String> {
     {
         return cell("activated", "equip");
     }
-    cost(d, a)?;
-    program(&a.program, Context::Activated, None, false)
+    for p in a.programs() {
+        cost(d, a, p)?;
+        program(p, Context::Activated, None, false)?;
+    }
+    Ok(())
 }
 
 /// CR 303.4a: the Aura's one announced target encodes the enchant predicate.
@@ -597,7 +615,13 @@ fn triggered(d: &Definition, a: &TriggeredAbility) -> Result<(), String> {
     {
         return cell("trigger", format!("{key}:source"));
     }
-    program(&a.program, Context::Triggered, Some(&a.condition), false)
+    if let Some(modal) = &a.modal {
+        modal_shape(&a.program, modal, true)?;
+    }
+    for p in a.programs() {
+        program(p, Context::Triggered, Some(&a.condition), false)?;
+    }
+    Ok(())
 }
 
 /// The mana row: a tap ability of a creature, artifact or land that adds
@@ -756,8 +780,8 @@ fn validate_face(d: &Definition, source: &serde_json::Value) -> Result<(), Strin
             || labels.mana.len() != d.mana_abilities.len()
             || labels.statics.len() != d.static_abilities.len()
             || d.spell_programs()
-                .chain(d.activated.iter().map(|a| &a.program))
-                .chain(d.triggered.iter().map(|a| &a.program))
+                .chain(d.activated.iter().flat_map(ActivatedAbility::programs))
+                .chain(d.triggered.iter().flat_map(TriggeredAbility::programs))
                 .flat_map(|program| &program.instructions)
                 .any(|instruction| instruction.source_block() as usize >= labels.blocks.len())
             || !labels.spell_modes.is_empty())
@@ -923,7 +947,11 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
     }
     if matches!(c.kind, CardKind::Instant | CardKind::Sorcery) {
         if let Some(modal) = &d.modal_spell {
-            modal_spell(d.spell.as_ref().ok_or("missing spell program")?, modal)?;
+            modal_shape(
+                d.spell.as_ref().ok_or("missing spell program")?,
+                modal,
+                false,
+            )?;
         }
         for variant in d.spell_programs() {
             program(variant, Context::Spell, None, d.x_mana_cost)?;
@@ -955,9 +983,11 @@ pub(crate) fn surfaces(d: &Definition) -> Result<(), String> {
 }
 
 /// CR 700.2a–d: a legal selection has every target the selected modes
-/// require. This row admits one target at most, using an existing casting
-/// decision with a mandatory slot.
-fn modal_spell(base: &SpellProgram, modal: &ModalSpell) -> Result<(), String> {
+/// require. This row admits one target at most, using an existing casting,
+/// activation or trigger-placement decision with a mandatory slot: a
+/// battlefield permanent or creature (possibly one its controller controls),
+/// a card in its controller's graveyard, any damage target or a player.
+fn modal_shape(base: &SpellProgram, modal: &ModalSpell, ability: bool) -> Result<(), String> {
     let count = modal.labels.len();
     if !(2..=ModalSpell::MAX_MODES).contains(&count)
         || modal.labels.iter().any(|label| label.trim().is_empty())
@@ -991,12 +1021,17 @@ fn modal_spell(base: &SpellProgram, modal: &ModalSpell) -> Result<(), String> {
                 [] | [TargetSpec {
                     domain: TargetDomain::BattlefieldPermanent
                         | TargetDomain::BattlefieldCreature
+                        | TargetDomain::ControlledBattlefieldPermanent
+                        | TargetDomain::ControlledBattlefieldCreature
+                        | TargetDomain::OwnGraveyardCard
+                        | TargetDomain::OwnGraveyardCreatureCard
                         | TargetDomain::AnyDamageTarget
                         | TargetDomain::AnyPlayer
                         | TargetDomain::OpponentPlayer,
                     ..
                 }]
             )
+            || (ability && variant.optional_target)
         {
             return cell("modal", "selection_shape");
         }
@@ -1022,6 +1057,7 @@ mod tests {
     }
     fn ability(cost: ActivationCost, program: SpellProgram) -> ActivatedAbility {
         ActivatedAbility {
+            modal: None,
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             cost,
@@ -1274,6 +1310,7 @@ mod tests {
         let trigger = |domain: TargetDomain, instruction: Instruction| {
             with(|d| {
                 d.triggered.push(TriggeredAbility {
+                    modal: None,
                     functioning_zone: FunctioningZone::Battlefield,
                     condition: TriggerCondition::on(kir::EventPattern::self_enters()),
                     program: program(vec![instruction], vec![target(domain)]),

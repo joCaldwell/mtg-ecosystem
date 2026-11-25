@@ -73,6 +73,7 @@ pub(super) fn definition(source: &Definition, id: CardId, kind: PredefinedToken)
             PredefinedToken::Treasure => unreachable!(),
         };
         d.activated.push(ActivatedAbility {
+            modal: None,
             functioning_zone: FunctioningZone::Battlefield,
             restriction: None,
             cost: ActivationCost::Composite { costs },
@@ -98,7 +99,15 @@ pub(super) fn can_create(source: &Definition, kind: PredefinedToken) -> bool {
             .any(|i| matches!(i,kernel!(CreateTokens { token: mtg_contracts::kir::TokenSpec::Predefined { kind: k }, .. }) if *k==kind))
     };
     // CR 111.10: a resolving spell may be the creating recipe as well.
-    source.triggered.iter().any(|a| program(&a.program))
-        || source.activated.iter().any(|a| program(&a.program))
+    source
+        .triggered
+        .iter()
+        .flat_map(|a| a.programs())
+        .any(program)
+        || source
+            .activated
+            .iter()
+            .flat_map(|a| a.programs())
+            .any(program)
         || source.spell_programs().any(program)
 }

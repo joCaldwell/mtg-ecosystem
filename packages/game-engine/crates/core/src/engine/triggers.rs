@@ -1126,11 +1126,11 @@ impl RulesTxn {
                         .checked_add(1)
                         .ok_or("stack ID resource limit")?;
                     let targeted = match trigger.ability {
-                        EffectiveTriggerAbility::Intrinsic { .. } => !self
-                            .effective_trigger(trigger.source, trigger.ability)?
-                            .program
-                            .targets
-                            .is_empty(),
+                        EffectiveTriggerAbility::Intrinsic { .. } => {
+                            let ability =
+                                self.effective_trigger(trigger.source, trigger.ability)?;
+                            !ability.program.targets.is_empty() || ability.modal.is_some()
+                        }
                         EffectiveTriggerAbility::Followup { creator } => {
                             !self.resolution_trigger_program(creator)?.targets.is_empty()
                         }
@@ -1236,6 +1236,9 @@ impl RulesTxn {
                     })?;
                     self.rules_mut().frame = Frame::TriggerOrder { placement };
                     return Ok(());
+                }
+                if self.unbound_modes(self.top()?)? {
+                    return self.bind_trigger_modes(placement, stack_id);
                 }
                 if self.program()?.targets.first().is_some_and(|t| {
                     matches!(
@@ -1843,6 +1846,8 @@ impl RulesTxn {
                         t.domain,
                         TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
+                            | TargetDomain::ControlledBattlefieldPermanent
+                            | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
                     )

@@ -545,8 +545,16 @@ impl RulesTxn {
                     // CR 111.1: any of the source's spell, activated or
                     // triggered programs may be the creating recipe.
                     if !source.spell_programs().any(|p| creates(p, spec))
-                        && !source.triggered.iter().any(|a| creates(&a.program, spec))
-                        && !source.activated.iter().any(|a| creates(&a.program, spec))
+                        && !source
+                            .triggered
+                            .iter()
+                            .flat_map(|a| a.programs())
+                            .any(|p| creates(p, spec))
+                        && !source
+                            .activated
+                            .iter()
+                            .flat_map(|a| a.programs())
+                            .any(|p| creates(p, spec))
                         && !self.resolution_trigger_created_token(t.source, &t.spec)?
                     {
                         return Err("snapshot token differs from creating instruction".into());
@@ -578,8 +586,18 @@ impl RulesTxn {
                             && t.source.card.0 >= id.0
                         || !source
                             .spell_programs()
-                            .chain(source.triggered.iter().map(|ability| &ability.program))
-                            .chain(source.activated.iter().map(|ability| &ability.program))
+                            .chain(
+                                source
+                                    .triggered
+                                    .iter()
+                                    .flat_map(|ability| ability.programs()),
+                            )
+                            .chain(
+                                source
+                                    .activated
+                                    .iter()
+                                    .flat_map(|ability| ability.programs()),
+                            )
                             .any(|program| {
                                 program.instructions.iter().any(|i| {
                                     matches!(

@@ -58,6 +58,9 @@ impl RulesTxn {
             Frame::BattlefieldEntry { entry } => return self.battlefield_entry_request(entry),
             Frame::Priority => self.priority_decision(self.state.rules.priority)?,
             Frame::TriggerTargets { .. } if !self.top_has_target_domain()? => return Ok(None),
+            Frame::TriggerTargets { .. } if self.unbound_modes(self.top()?)? => {
+                return self.mode_decision();
+            }
             Frame::TriggerTargets { .. }
             | Frame::Targets { .. }
             | Frame::PlayerTargets { .. }
