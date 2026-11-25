@@ -69,6 +69,14 @@ pub enum CounterKind {
     },
 }
 
+/// Player counters for poison and energy (CR 107.14, 122.1f, 704.5c).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerCounterKind {
+    Poison,
+    Energy,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "token", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TokenSpec {
@@ -313,6 +321,16 @@ pub enum Verb {
         amount: Amount,
     },
     /// CR 120: `source` deals `amount` damage to each recipient.
+    Fight {
+        first: Ref,
+        second: Ref,
+    },
+    Populate {
+        player: PlayerExpr,
+    },
+    Proliferate {
+        player: PlayerExpr,
+    },
     Damage {
         source: Ref,
         to: DamageTo,
@@ -339,6 +357,11 @@ pub enum Verb {
         what: SetExpr,
     },
     /// CR 122.
+    GiveCounters {
+        player: PlayerExpr,
+        counter: PlayerCounterKind,
+        amount: Amount,
+    },
     PutCounters {
         on: SetExpr,
         counter: CounterKind,

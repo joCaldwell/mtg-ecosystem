@@ -409,31 +409,28 @@ departure.
 
 ### Target and selection operands
 
-Battlefield targets may test control and fixed power, toughness or mana value
-at announcement and resolution (CR 109.5, 601.2c, 608.2b). A creature filter
-counts as a creature target for audited effects. A certified singular "it" or
+Battlefield targets check control and fixed power, toughness or mana value at
+announcement and resolution (CR 109.5, 601.2c, 608.2b). A certified "it" or
 "that" can reuse the block's sole announced incarnation (CR 400.7, 608.2b–c).
 
-Programs may announce up to one battlefield or own-graveyard target for
-independently targeted destroy, tap, untap, move, counter and end-of-turn
-leaves. A tap or untap occurrence may announce up to a fixed two through
-seven distinct battlefield targets in one `Pick` and affect legal survivors
-simultaneously (CR 115.3, 601.2c, 608.2b, 701.26). Zero targets skips the
-targeted instruction. Mixed optional and required occurrences and optional
-permanent spells reject.
+One optional battlefield or own-graveyard target can bind independent
+destroy, tap, untap, move, counter and end-of-turn leaves. Tap and untap also
+support one `Pick` of up to a fixed two through seven distinct targets.
+They affect legal survivors simultaneously (CR 115.3, 601.2c, 608.2b, 701.26).
+Zero targets skips the targeted instruction. Mixed required and optional
+occurrences and optional permanent spells reject.
 
-A mandatory return of one permanent you control uses `ChooseObject` at
-resolution (CR 109.5, 400.3, 608.2c–d). The public `Pick` includes the source
-if eligible. The engine derives candidates from current incarnations and
-validates the full saved offer. A departure that changes the offer invalidates
-a pending answer (CR 800.4a). Empty sets skip the move. A selected commander
-still offers its owner the command zone (CR 903.9b). The cell earns `Executes`.
-Hidden hand choices and non-targeted multi-object selections reject.
+`ChooseObject` returns one controlled permanent chosen at resolution
+(CR 109.5, 400.3, 608.2c–d). The public `Pick` includes the eligible source.
+The engine derives current candidates and validates the full saved offer.
+Departures that change the offer invalidate pending answers (CR 800.4a).
+Empty sets skip the move, and commander owners may choose the command zone
+(CR 903.9b). The cell earns `Executes`. Hidden hand choices and non-targeted
+multi-object selections reject.
 
-"This [permanent]" refers to the source's current battlefield incarnation
-for audited tap, untap and owner-zone moves (CR 400.7). "Put a +1/+1 counter
-on each [creature filter]" applies simultaneously to the current set
-(CR 122.6, 608.2h).
+"This [permanent]" names the current source for tap, untap and owner-zone
+moves (CR 400.7). "Put a +1/+1 counter on each [creature filter]" applies
+simultaneously to the current set (CR 122.6, 608.2h).
 
 <a id="combat-damage-and-state-based-actions"></a>
 
@@ -632,6 +629,20 @@ Predefined Treasure, Food and Clue use their standard artifact token templates.
 Creation stages the new objects together. The normal mana and activation paths
 pay the printed token costs. Restore reconstructs the template from its creating
 source and token identity, including after the token ceases to exist.
+
+### Keyword actions and counters
+
+- Investigate creates a Clue with its two-mana sacrifice-and-draw ability
+  (CR 701.16a, 111.10f).
+- Populate copies a controlled creature token's copiable values. Animation
+  can qualify the original. Restore reconstructs the copy from retained token
+  data (CR 701.36, 707.2).
+- Proliferate chooses any number of permanents and players with counters,
+  adding one per existing kind simultaneously. Supported kinds are permanent
+  +1/+1 and player poison and energy. At least ten poison counters cause
+  a loss (CR 701.34a, 704.5c).
+- Fight uses current power for simultaneous noncombat damage. Both participants
+  must be legal battlefield creatures. Self-fight deals double power (CR 701.14).
 
 ### Continuous permanent control
 

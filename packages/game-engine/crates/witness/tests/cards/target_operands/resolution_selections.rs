@@ -74,6 +74,7 @@ const HELPING_HAND: &str = frozen!("170a5dbc-6a43-4715-9501-178b1eb7b08c");
 const NATURES_SPIRAL: &str = frozen!("565922d6-8152-411f-8d4d-dc7c8523a49b");
 const ODUNOS: &str = frozen!("0282b5c0-e792-4099-a3fa-329eda11fb44");
 const STAND_UP: &str = frozen!("00e94b75-ad31-4e1f-b3be-eed7cd3e4d76");
+const PACKBEAST: &str = frozen!("85a59833-b661-4599-a5d1-042dee033617");
 const REPEL: &str = frozen!("47f5ea79-2bf2-4e17-9c6d-e1cbcd9d30d1");
 const VINES: &str = frozen!("5372445b-5f67-435e-a736-61c6cb4f9c6e");
 const LIGHTFOOT: &str = frozen!("601b7481-19fc-4779-950e-883a9a22aec3");
@@ -464,6 +465,56 @@ fn optional_announced_group_resolves_zero_or_surviving_targets() {
         settle(&mut g);
         assert_eq!(g.state.rules.objects[&CardId(5)].tapped, count == 2);
         assert_eq!(zone(&g, 8) == (Zone::Hand { owner: PlayerId(0) }), draw);
+    }
+}
+
+#[test]
+fn grouped_targets_are_announced_for_the_entry_trigger() {
+    let mut board = board(&[(PACKBEAST, &[Cell::TapTargetGroup], Tiers::EXECUTES)])
+        .seats(3)
+        .permanent_or_hand("Intrusive Packbeast", 0, 0, true);
+    for _ in 0..5 {
+        board = board.permanent_or_hand("Plains", 0, 0, false);
+    }
+    let prepared = board
+        .permanent_or_hand("Grizzly Bears", 0, 0, false)
+        .permanent_or_hand("Grizzly Bears", 1, 1, false)
+        .permanent_or_hand("Storm Crow", 2, 2, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3, 4, 5]);
+
+    let d = pass_until_choice(&mut g);
+    assert!(matches!(g.state.rules.frame, Frame::TriggerTargets { .. }));
+    assert_eq!(d.player, PlayerId(0));
+    assert!(matches!(&d.reason, Reason::Targets { specs } if specs.len() == 1));
+    let Shape::Pick { slots, .. } = &d.shape else {
+        panic!("{d:?}")
+    };
+    assert_eq!(slots.len(), 1);
+    assert_eq!((slots[0].min, slots[0].max), (0, 2));
+    let bear = Driver::object(&g, 7);
+    let crow = Driver::object(&g, 8);
+    assert_eq!(
+        d.candidates,
+        [
+            Candidate::Object { object: bear },
+            Candidate::Object { object: crow },
+        ]
+    );
+
+    answer_targets(&mut g, &d, &[bear, crow]);
+    let next = Driver::request(&mut g, 1);
+    assert_eq!(next.reason, Reason::Priority);
+    assert_eq!(g.state.rules.stack.last().unwrap().targets, [bear, crow]);
+    for id in [7, 8] {
+        assert!(!g.state.rules.objects[&CardId(id)].tapped);
+    }
+    settle(&mut g);
+    assert!(!g.state.rules.objects[&CardId(6)].tapped);
+    for id in [7, 8] {
+        assert!(g.state.rules.objects[&CardId(id)].tapped);
     }
 }
 

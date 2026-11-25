@@ -20,11 +20,11 @@ use std::collections::BTreeSet;
 
 const OBSERVATION_PIN: (u32, &str) = (
     68,
-    "a7848c6f0128b2d7d569289d3387bd10f0dd1542c35bb8c049ad6f607671f84f",
+    "6f3c99f1cffb0c62216551ce4985e87b56b4fa6f2c1dbfa25dc7083bca6dd101",
 );
 const SNAPSHOT_PIN: (u32, &str) = (
     101,
-    "a9473ca62d2a52f4b790d2fd53a765194fddbb8f32bfd4a69494ecd0c473e43c",
+    "a2ca5fafcb3f74dbbc3958bbb304e77c46c1ba50cc01c36903913ad505037e94",
 );
 const WORK_PIN: (u32, &str) = (
     56,
@@ -469,6 +469,51 @@ fn intervening_comparison_shapes() -> impl Iterator<Item = String> {
     })
 }
 
+/// A paused keyword choice with real player counters from its preceding leaf.
+fn suspended_proliferate() -> Game {
+    use mtg_contracts::kir::{Amount, Context, PlayerCounterKind, PlayerExpr, Verb};
+
+    let mut catalog = FixtureCatalog::Base.get().clone();
+    let spell = catalog
+        .definitions
+        .iter_mut()
+        .find(|d| d.name == "Unsummon")
+        .unwrap();
+    spell.source_labels = None;
+    let program = spell.spell.as_mut().unwrap();
+    program.targets.clear();
+    let player = PlayerExpr::you(Context::Spell);
+    program.instructions = vec![
+        Instruction::act(
+            Verb::GiveCounters {
+                player: player.clone(),
+                counter: PlayerCounterKind::Energy,
+                amount: Amount::fixed(2),
+            },
+            0,
+        ),
+        Instruction::act(Verb::Proliferate { player }, 0),
+    ];
+    spell.capabilities = spell.requirements();
+    let mut game = Game::new(
+        Board::new(catalog, "snapshot-proliferate")
+            .step(TurnStep::PrecombatMain)
+            .permanent_or_hand("Unsummon", 0, 0, true)
+            .permanent_or_hand("Island", 0, 0, false)
+            .prepare(),
+    );
+    Driver::cast(&mut game, CardId(0));
+    Driver::pay(&mut game, &[1]);
+    for _ in 0..game.live_players().len() {
+        Driver::pass(&mut game);
+    }
+    assert_eq!(
+        Driver::request(&mut game, u64::MAX).reason,
+        Reason::Proliferate
+    );
+    game
+}
+
 #[test]
 fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
     let samples = representatives()
@@ -476,6 +521,7 @@ fn snapshot_shape_fingerprint_is_pinned_to_snapshot_version() {
         .chain([
             mid_resolution(),
             suspended_battlefield_entry(),
+            suspended_proliferate(),
             super::kernel_control_tests::suspended_control(),
         ])
         .chain(mana_riders())

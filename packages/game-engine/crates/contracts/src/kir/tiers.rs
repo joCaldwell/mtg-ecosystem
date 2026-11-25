@@ -171,6 +171,10 @@ pub enum Cell {
     SacrificeTargetOpponent,
     // CR 111: tokens.
     PredefinedTokens,
+    Fight,
+    Populate,
+    PlayerCounters,
+    Proliferate,
     CreatureTokens,
     MultiTypeCreatureTokens,
     TokensForTargetController,
@@ -330,6 +334,10 @@ pub fn cell_tiers(cell: Cell) -> Tiers {
         | C::SacrificeEachPlayer
         | C::SacrificeEachOpponent
         | C::PredefinedTokens
+        | C::Fight
+        | C::Populate
+        | C::PlayerCounters
+        | C::Proliferate
         | C::MultiTypeCreatureTokens
         | C::TokensForTargetController
         | C::PlusOneCountersSet
@@ -510,6 +518,10 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::CreatureOrPlaneswalkerTargetV1
         | C::IndestructibleV1
         | C::ActivatedSourceKeywordGrantV1
+        | C::FightV1
+        | C::PopulateV1
+        | C::PlayerCountersV1
+        | C::ProliferateV1
         | C::MultiTypeCreatureTokensV1
         | C::OwnGraveyardCardReturnV1
         | C::PrivateLibraryReorderV1

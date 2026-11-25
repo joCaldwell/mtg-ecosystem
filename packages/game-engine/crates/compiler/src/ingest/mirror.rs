@@ -460,6 +460,21 @@ pub(crate) enum Step {
         count: Count,
         token: SourceToken,
     },
+    KeywordAction {
+        action: String,
+        who: serde_json::Value,
+        #[serde(default, deserialize_with = "present_json_operand")]
+        times: Option<serde_json::Value>,
+    },
+    Fight {
+        a: serde_json::Value,
+        b: serde_json::Value,
+    },
+    GetCounters {
+        who: PlayerSelector,
+        counter: SourceCounter,
+        count: serde_json::Value,
+    },
     PutCounters {
         on: serde_json::Value,
         counter: SourceCounter,

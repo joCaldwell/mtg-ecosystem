@@ -2,6 +2,18 @@
 use super::*;
 
 impl Walk<'_, '_> {
+    pub(super) fn audit_player_counters(
+        &self,
+        player: &PlayerExpr,
+        amount: &Amount,
+    ) -> Result<Cell, KirError> {
+        if !player.is_you() && *player != PlayerExpr::EachOpponent {
+            return unaudited("player counter recipient");
+        }
+        Self::fixed_at_least(amount, 1, "player counter amount")?;
+        Ok(Cell::PlayerCounters)
+    }
+
     /// CR 122.1, 122.6: a positive fixed number of +1/+1 counters on the
     /// exact source or one announced creature.
     pub(super) fn audit_counters(
