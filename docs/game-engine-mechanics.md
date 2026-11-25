@@ -801,41 +801,27 @@ counters.
 
 ### Delayed and reflexive triggers
 
-A resolving invocation can create one trigger with its final instruction
-(CR 603.7a–e, 603.12). The trigger inherits the creator’s controller and
-source, including when an activation sacrificed that source or the source
-left before the new ability was placed. The admitted one-shot conditions
-and bodies are:
+The final instruction can create one trigger with the invocation’s source
+and controller (CR 603.7, 603.12).
 
-| Condition | Body |
+| Actual occurrence | Admitted body |
 | --- | --- |
-| Beginning of the next end step | Create fixed tokens, draw fixed cards, or return the creature card the parent exiled to the battlefield under its owner’s control. |
-| Beginning of the next turn’s upkeep | The creator’s controller draws fixed cards. |
-| Beginning of your next upkeep | The creator’s controller draws fixed cards or discards a fixed count at random. |
-| A chosen creature leaves the battlefield | After a self-dies trigger exiles the source card from its graveyard, return that exact exiled card under its owner’s control. |
-| When you do, after an optional fixed mana payment | Announce one target and resolve the audited directed effect in a separate invocation. |
+| Next end step begins | Draw, create fixed tokens, or return the creature card exiled by the parent under its owner’s control. |
+| Next turn’s upkeep begins | Controller draws fixed cards. |
+| Controller’s next upkeep begins | Controller draws or randomly discards a fixed count. |
+| Chosen creature leaves | Return the card the parent exiled after its own death, under its owner’s control. |
+| Optional fixed mana payment completes | Announce one target for the separate reflexive ability. |
 
-The step matcher uses the committed turn transition. A trigger created
-during an end step waits for the next end step (CR 513.2). An exile
-capture binds the movement’s successor, and a departure watcher binds the
-target’s battlefield incarnation. A card that moves again cannot satisfy
-the old capture (CR 400.7, 603.7c). Watchers match committed departures,
-including exile during controller reconciliation after a concession and
-the actual outcomes of state-based actions and replacement effects
-(CR 603.6c, 614.6, 800.4a/c). Mana undo restores a watcher whose matched
-sacrifice was undone (CR 733.1). The optional payment creates its trigger
-only from the actual mana spend. If the source has phased out, the new
-trigger inherits the parent’s last-known source facts (CR 608.2h,
-702.26b). The existing stabilization and APNAP pipeline then orders the
-trigger and announces its targets before priority (CR 117.5, 603.3b–d).
+Step transitions govern timing (CR 513.2). Captures bind exact incarnations
+(CR 400.7, 603.7c). Watchers see actual departures including SBAs, replacement
+moves and concession exile (CR 603.6c, 614.6, 800.4a/c). Mana undo restores
+watchers of reversed sacrifices (CR 733.1). Phased-out sources use the
+parent’s last-known facts (CR 608.2h, 702.26b). Stabilization and APNAP
+placement precede priority (CR 117.5, 603.3b–d).
 
-Snapshots bind active invocations to their creator program, frozen
-controller, one firing receipt and any captured movement. Step watermarks
-and retired receipts prevent an already-consumed trigger from waiting or
-being placed again. The admitted rows earn `Executes` under
-`ResolutionTriggerV1`. Repeating and duration-based watches, general
-captured operands and reflexive actions other than fixed mana payment
-remain outside these rows.
+Recovery checks creator, controller, capture and firing evidence. Step
+watermarks and retired receipts prevent duplicate firings. These one-shot rows
+earn `Executes` under `ResolutionTriggerV1`.
 [Pinned Comprehensive Rules](https://media.wizards.com/2026/downloads/MagicCompRules%2020260925.txt)
 
 ### Printed choices, payments and conditions
