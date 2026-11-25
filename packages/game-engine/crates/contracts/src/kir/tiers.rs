@@ -21,7 +21,7 @@ use super::*;
 use crate::{ActivationCost, Capability, Definition, Instruction, SpellProgram, TriggerCondition};
 
 mod executes;
-pub(super) use executes::validate_resolution_targets;
+pub(super) use executes::{mana_production_supported, validate_resolution_targets};
 
 /// CR 113.3: the `Executes` tier of a definition: its card shell and every
 /// non-kernel surface has an executor ([`executes`]) and every kernel node
@@ -433,7 +433,7 @@ pub fn surface_tiers(capability: Capability) -> Tiers {
         | C::AnyDamageTargetV1
         | C::NoncombatDamageV1
         | C::SelfDiesV1 => Tiers::SEARCH_HOSTING,
-        C::ModalChoiceV1 | C::ModalDoubleFacedV1 => Tiers::EXECUTES,
+        C::ModalChoiceV1 | C::ModalDoubleFacedV1 | C::GrantedManaAbilitiesV1 => Tiers::EXECUTES,
         C::CastArtifactV1
         | C::PermanentManaV1
         | C::CompositeActivationCostV1
@@ -584,6 +584,20 @@ pub fn definition_cells(d: &Definition) -> Result<BTreeSet<Cell>, KirError> {
     }
     for a in &d.mana_abilities {
         cells.extend(mana_ability_cells(d, a)?);
+    }
+    // CR 113.10a, 605.3a: a granted mana ability carries its own production
+    // and cost cells, and its recipient may then have several to choose from.
+    for s in &d.static_abilities {
+        if let StaticEffect::Continuous { changes, .. } = &s.effect {
+            for change in changes {
+                if let Change::AddManaAbilities { abilities } = change {
+                    for a in abilities {
+                        cells.extend(mana_ability_cells(d, a)?);
+                    }
+                    cells.insert(Cell::ManaAbilitySelection);
+                }
+            }
+        }
     }
     // A surface with no executor (for example a life payment on a stack
     // activation's composite cost) earns no tier, so no cell qualifies it.

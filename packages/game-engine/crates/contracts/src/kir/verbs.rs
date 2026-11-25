@@ -135,6 +135,12 @@ pub enum Change {
     AddKeywords { keywords: Vec<KeywordAbility> },
     /// Layer 6.
     RemoveKeywords { keywords: Vec<KeywordAbility> },
+    /// Layer 6 (CR 113.10, 113.10a, 613.1f): quoted mana abilities the
+    /// recipients have. Each belongs to the object that has it: that object
+    /// pays its costs and "you" is whoever activates it (CR 109.5).
+    AddManaAbilities {
+        abilities: Vec<crate::ManaAbility>,
+    },
     /// Layer 5.
     SetColors { colors: Vec<Color> },
     /// Layer 4.
@@ -151,7 +157,9 @@ impl Change {
                 Layer::PowerToughnessModify
             }
             Self::SetPowerToughness { .. } => Layer::PowerToughnessSet,
-            Self::AddKeywords { .. } | Self::RemoveKeywords { .. } => Layer::Ability,
+            Self::AddKeywords { .. }
+            | Self::RemoveKeywords { .. }
+            | Self::AddManaAbilities { .. } => Layer::Ability,
             Self::SetColors { .. } => Layer::Color,
             Self::AddTypes { .. } => Layer::Type,
             Self::Controller { .. } => Layer::Control,

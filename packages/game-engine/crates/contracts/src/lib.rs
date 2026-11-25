@@ -346,6 +346,8 @@ pub enum Capability {
     CreatureAnthemV1,
     ContinuousStaticsV1,
     RuleStaticsV1,
+    /// CR 113.10, 613.1f: a battlefield static grants quoted mana abilities.
+    GrantedManaAbilitiesV1,
 
     TargetPlayerDrawV1,
     AttachmentsV1,
