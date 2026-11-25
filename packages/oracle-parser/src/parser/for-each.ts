@@ -54,6 +54,60 @@ function independentOfLoop(tokens: Token[], earlierEvent?: string): boolean {
 
 type Loop = Extract<Effect, { effect: "for-each" }>;
 
+/** A step that reveals, exiles, looks at, mills or otherwise reads cards from
+ * a library (searches are governed by CR 701.23h instead). */
+function readsLibrary(step: Effect): boolean {
+  if (step.effect === "scan-library" || step.effect === "mill") return true;
+  return hasOwnNode(step, node => node.ref === "library-cards" || ("top" in node && "of" in node));
+}
+
+/** Loops whose members read their controllers' libraries: distinct only when
+ * the preceding instruction chose the members with different controllers
+ * (Chaos Mutation: "target creatures controlled by different players"). */
+const distinctLibrariesUnproven = new WeakSet<Loop>();
+
+function controllerLibrariesOnly(each: ObjectRef | PlayerRef, steps: Effect[]): boolean {
+  if (!("ref" in each) || each.ref !== "each") return false;
+  const controller = '{"player":"controller","of":{"ref":"it"}}';
+  return steps.filter(readsLibrary).every(step => {
+    let own = "who" in step && JSON.stringify(step.who) === controller;
+    hasOwnNode(step, node => {
+      if (node.zone === "library" && JSON.stringify(node.owner) !== '"their"') own = false;
+      return false;
+    });
+    return own;
+  });
+}
+
+/** The loop's members are the objects the preceding single instruction
+ * acted on this way, chosen with pairwise different controllers. */
+function distinctControllers(loop: Loop, previous: Sentence | undefined): boolean {
+  if (!previous || previous.condition || previous.otherwise || previous.steps.length !== 1 || !("ref" in loop.each)) return false;
+  const [step] = previous.steps;
+  const relation = loop.each.ref === "each" ? loop.each.filter.relation : undefined;
+  if (relation?.relation !== "event-result" || relation.scope !== "this-way" || relation.who || relation.event !== step.effect) return false;
+  const what = "what" in step ? step.what as unknown : undefined;
+  return !!what && typeof what === "object" && JSON.stringify((what as { groupConstraints?: unknown }).groupConstraints) ===
+    '[{"constraint":"pairwise-different","property":"controller"}]';
+}
+
+/** Each member reads only its own library: a player loop whose library
+ * reads all name that player's library. */
+function ownLibrariesOnly(each: ObjectRef | PlayerRef, steps: Effect[]): boolean {
+  const reads = steps.filter(readsLibrary);
+  if (!reads.length) return true;
+  if (!("player" in each)) return false;
+  return reads.every(step => {
+    let own = true;
+    hasOwnNode(step, node => {
+      if (node.zone === "library" && JSON.stringify(node.owner) !== '"that-player"' && JSON.stringify(node.owner) !== '"their"') own = false;
+      return false;
+    });
+    if (step.effect === "mill" && !("player" in step.who && step.who.player === "that-player")) own = false;
+    return own;
+  });
+}
+
 const PARTICIPLES: Record<string, string> = { exile: "exiled", reveal: "revealed", destroy: "destroyed", sacrifice: "sacrificed", discard: "discarded", mill: "milled" };
 
 /** The participle of the earlier event that produced "each <card> <event>
@@ -167,6 +221,20 @@ function namesEnclosingPlayer(loop: Loop): boolean {
   return hasNode(loop.effects, node => node.player === "that-player" || node.owner === "that-player" || node.control === "that-player");
 }
 
+/** Like hasNode, but never inside an ability the body creates (a delayed or
+ * reflexive trigger, a quoted grant): those instructions happen later, in
+ * their own resolution. */
+function hasOwnNode(value: unknown, test: (node: Record<string, unknown>) => boolean): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(item => hasOwnNode(item, test));
+  const node = value as Record<string, unknown>;
+  if (test(node)) return true;
+  if (node.effect === "create-delayed-trigger" || node.effect === "create-reflexive-trigger" || node.gained === "quoted") return false;
+  return Object.values(node).some(item => hasOwnNode(item, test));
+}
+
+const isSearch = (node: Record<string, unknown>) => node.effect === "search";
+
 function hasNode(value: unknown, test: (node: Record<string, unknown>) => boolean): boolean {
   if (!value || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.some(item => hasNode(item, test));
@@ -194,7 +262,9 @@ function shufflesSearchedLibrary(loop: Loop, next: Sentence): boolean {
  * once (Jace, Architect of Thought). Any other member search has no
  * representable shuffle scope. */
 function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
-  if (!hasNode(loop.effects, node => node.effect === "search")) return true;
+  // A search inside an ability the body creates happens later, so no
+  // shuffle here can be its CR 701.23h shuffle.
+  if (!hasOwnNode(loop.effects, isSearch)) return !hasNode(loop.effects, isSearch);
   if ("player" in loop.each && hasNode(loop.effects, node => node.effect === "shuffle")) {
     const searches = hasNode(loop.effects, node => node.effect === "search" && !hasNode((node as { zones?: unknown }).zones,
       zone => zone.zone === "library" && JSON.stringify(zone.owner) !== '"that-player"'));
@@ -210,7 +280,7 @@ function coalesceMemberSearches(loop: Loop, next: Sentence): boolean {
   const expected = typeof owner === "object" && owner.player === "you" ? "your"
     : typeof owner === "object" && owner.player === "that-player" ? "that-player"
     : typeof owner === "object" && owner.player === "filtered" && owner.filter.searched ? "their" : null;
-  if (!expected || hasNode(loop.effects, node => node.effect === "search" && hasNode((node as { zones?: unknown }).zones,
+  if (!expected || hasOwnNode(loop.effects, node => node.effect === "search" && hasNode((node as { zones?: unknown }).zones,
     zone => zone.zone === "library" && zone.owner !== expected))) return false;
   shuffle.coalesceEarlierLibrarySearches = true;
   return true;
@@ -225,7 +295,8 @@ function shufflesAllSearchers(loop: Loop, next: Sentence): boolean {
     shuffle.who.player !== "filtered" || shuffle.who.base.player !== "each-player" ||
     Object.keys(shuffle.who.filter).length !== 1 || shuffle.who.filter.searched?.scope !== "this-way" ||
     shuffle.library.zone !== "library" || JSON.stringify(shuffle.library.owner) !== JSON.stringify(shuffle.who)) return false;
-  return hasNode(loop.effects, node => node.effect === "search");
+  return hasOwnNode(loop.effects, isSearch) && !hasNode(loop.effects, node => node.effect === "create-delayed-trigger" ||
+    node.effect === "create-reflexive-trigger");
 }
 
 /** The sentence names, in the plural, everything the loop's action handled:
@@ -386,6 +457,13 @@ export function parseGoadedCombatTrigger(
  * has no representation and fails. */
 export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
   for (let i = 0; i < sentences.length; i++) {
+    for (const step of sentences[i].steps) {
+      if (step.effect !== "for-each" || !distinctLibrariesUnproven.has(step)) continue;
+      if (!distinctControllers(step, sentences[i - 1])) return false;
+      distinctLibrariesUnproven.delete(step);
+    }
+    // A shared-library loop anywhere else has no proof of distinct libraries.
+    if (hasNode(sentences[i].steps, node => node.effect === "for-each" && distinctLibrariesUnproven.has(node as unknown as Loop))) return false;
     for (const loop of unsettledLoops(sentences[i])) {
       const next = sentences[i + 1];
       if (loop !== sentences[i].steps.at(-1) || sentences[i].otherwise || !next) return false;
@@ -394,7 +472,10 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
         sentences.splice(i + 1, 1);
         continue;
       }
-      if (shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) {
+      // "Then shuffle." after members' searches of that library (CR 701.23h).
+      const plainShuffle = next.steps.length === 1 && next.steps[0].effect === "shuffle" && !next.condition && !next.otherwise;
+      if ((plainShuffle && hasOwnNode(loop.effects, isSearch)) ||
+        shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) {
         if (!coalesceMemberSearches(loop, next)) return false;
         settled.add(loop);
         continue;
@@ -445,8 +526,17 @@ export function parseForEach(c: Cursor, parseBody: (body: Cursor) => Sentence[] 
     const body = new Cursor(c.tokens.slice(start, end));
     const effects = parseBody(body);
     if (!body.done() || effects?.length !== 1 || containsLoop(effects)) return null;
-    const independent = !after || (after.kind === "word" && !after.possessive && after.value === "activate") ||
-      independentOfLoop(c.tokens.slice(end + 1), earlierEventParticiple(each, effects));
+    // CR 608.2f: reading cards from a library and then acting on them cannot
+    // be simultaneous when members may share that library; instruction-wise
+    // processing would run every read before any later action.
+    const sharedLibrary = effects[0].steps.length > 1 && !ownLibrariesOnly(each, effects[0].steps);
+    if (sharedLibrary && !controllerLibrariesOnly(each, effects[0].steps))
+      return c.fail("member-wise processing of a library action");
+    // A member search must reach its CR 701.23h shuffle scope check, which
+    // forEachContinuationsScoped makes, unless the body shuffles itself.
+    const searches = hasOwnNode(effects, isSearch) && !hasOwnNode(effects, node => node.effect === "shuffle");
+    const independent = !searches && (!after || (after.kind === "word" && !after.possessive && after.value === "activate") ||
+      independentOfLoop(c.tokens.slice(end + 1), earlierEventParticiple(each, effects)));
     // CR 608.2f (Soulfire Eruption example): a dependent action sequence for
     // each member of an established group is completed member by member when
     // it cannot be simultaneous. That is not instruction-wise processing, so
@@ -456,6 +546,7 @@ export function parseForEach(c: Cursor, parseBody: (body: Cursor) => Sentence[] 
     c.pos = end;
     const loop: Loop = { effect: "for-each", each, effects, processing: "instruction-wise" };
     if (independent) settled.add(loop);
+    if (sharedLibrary) distinctLibrariesUnproven.add(loop);
     return loop;
   });
 }

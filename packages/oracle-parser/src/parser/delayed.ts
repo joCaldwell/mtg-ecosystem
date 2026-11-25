@@ -113,13 +113,20 @@ function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: b
   // Each card anaphor needs the production that can be its antecedent:
   // "exiled this way" / "the exiled cards" an exile, "those cards" / "the
   // rest" a look, and a singular "that card" a chosen or found card.
-  const exiled = hasNode(body, node => (node.effect === "exile" && isLibraryCards(node.what)) ||
-    (node.effect === "scan-library" && node.operation === "exile"));
+  // Who exiled them: "cards you exiled this way" names only your exile.
+  const exilers: string[] = [];
+  hasNode(body, node => {
+    if ((node.effect === "exile" && isLibraryCards(node.what)) || (node.effect === "scan-library" && node.operation === "exile"))
+      exilers.push(JSON.stringify(node.who ?? { player: "you" }));
+    return false;
+  });
   const looked = hasNode(body, node => node.effect === "look-at");
   const chosen = hasNode(body, node => node.effect === "scan-library" || (node.effect === "choose-object" && isCardRef(node.what)));
   const cardAnaphor = (node: Record<string, unknown>): boolean => {
     const kind = cardAnaphorKind(node);
-    return kind === "exiled" ? exiled : kind === "looked" ? looked : kind === "chosen" ? chosen : false;
+    if (kind !== "exiled") return kind === "looked" ? looked : kind === "chosen" ? chosen : false;
+    const actor = (node.relation as { who?: unknown } | undefined)?.who;
+    return actor === undefined ? exilers.length > 0 : exilers.includes(JSON.stringify(actor));
   };
   // A card anaphor with no matching production names something else.
   if (hasNode(next.steps, node => cardAnaphorKind(node) !== null && !cardAnaphor(node))) return false;

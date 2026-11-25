@@ -88,6 +88,8 @@ describe("GG-delay: a created ability owns sentences that name objects only its 
     rejects("When this enchantment enters, sacrifice a creature. When you do, you gain 3 life. If the sacrificed creature was a Hamster, draw a card.", "Enchantment");
     // Earthbender Ascension: the reflexive "if" would also govern the trample grant.
     rejects("Landfall — Whenever a land you control enters, put a quest counter on this enchantment. When you do, if it has four or more quest counters on it, put a +1/+1 counter on target creature you control. It gains trample until end of turn.", "Enchantment", "Earthbender Ascension");
+    // "cards you exiled this way" names your exile, not the opponent's in the body.
+    rejects("Exile the top two cards of your library. When an artifact enters this turn, target opponent exiles the top two cards of their library. You may cast a spell from among cards you exiled this way without paying its mana cost.", "Sorcery");
     // A look introduces no exiled cards: "the exiled cards" are the enclosing ability's.
     rejects("Exile the top two cards of your library. When an artifact enters this turn, look at the top two cards of your library. You may cast a spell from among the exiled cards without paying its mana cost.", "Sorcery");
     // The body introduced no card, so "that card" has no body-local antecedent.
@@ -119,6 +121,16 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
     assert.equal(only(sentences[2], "shuffle").coalesceEarlierLibrarySearches, true);
     const [dichotomancy] = card("For each tapped nonland permanent target opponent controls, search that player's library for a card with the same name as that permanent. Put those cards onto the battlefield under your control, then that player shuffles.\nSuspend 3—{1}{U}{U} (Rather than cast this card from your hand, you may pay {1}{U}{U} and exile it with three time counters on it. At the beginning of your upkeep, remove a time counter. When the last is removed, you may cast it without paying its mana cost.)", "Dichotomancy", "Sorcery");
     assert.deepEqual(effects(dichotomancy)[1].steps.map(step => step.effect), ["move-zone", "shuffle"]);
+  });
+
+  it("lets members read their controllers' libraries when those controllers differ (Chaos Mutation)", () => {
+    const [mutation] = card("Exile any number of target creatures controlled by different players. For each creature exiled this way, its controller reveals cards from the top of their library until they reveal a creature card, puts that card onto the battlefield, then puts the rest on the bottom of their library in a random order.", "Chaos Mutation", "Sorcery");
+    assert.deepEqual(only(effects(mutation)[1], "for-each").effects[0].steps.map(step => step.effect), ["scan-library", "move-zone", "move-zone"]);
+  });
+
+  it("marks a standalone 'Then shuffle.' after member searches as their one shuffle", () => {
+    const [probe] = card("For each creature you control, search your library for a creature card with the same name as that creature and put it into your hand. Then shuffle.", "Probe", "Sorcery");
+    assert.equal(only(effects(probe)[1], "shuffle").coalesceEarlierLibrarySearches, true);
   });
 
   it("shuffles every player who searched this way once (From the Ashes)", () => {
@@ -156,6 +168,12 @@ describe("GG-quant: text after a loop that provably stands outside it", () => {
     // Indomitable Creativity: instruction-wise, every scan would run before
     // any exile, so two scans could find the same card (CR 608.2f).
     rejects("Destroy X target artifacts and/or creatures. For each permanent destroyed this way, its controller reveals cards from the top of their library until an artifact or creature card is revealed and exiles that card. Those players put the exiled cards onto the battlefield, then shuffle.", "Sorcery", "Indomitable Creativity");
+    // A search inside a delayed body happens later; no shuffle now can be its shuffle.
+    rejects("Destroy all nonbasic lands. For each land destroyed this way, at the beginning of the next end step, its controller may search their library for a basic land card and put it onto the battlefield. Then each player who searched their library this way shuffles.", "Sorcery");
+    // Members may share a library: instruction-wise, all reveals would precede any exile.
+    rejects("Destroy X target artifacts and/or creatures. For each permanent destroyed this way, its controller reveals cards from the top of their library until an artifact or creature card is revealed and exiles that card.", "Sorcery");
+    // Without "controlled by different players" two members may share a library.
+    rejects("Exile any number of target creatures. For each creature exiled this way, its controller reveals cards from the top of their library until they reveal a creature card, puts that card onto the battlefield, then puts the rest on the bottom of their library in a random order.", "Sorcery");
     // Discover exiles cards (CR 701.57), so "exiled this way" could name it.
     rejects("Exile the top two cards of your library. For each land card exiled this way, discover 3. For each creature card exiled this way, draw a card.", "Sorcery");
     // A member search with no single shuffle of that library afterwards.
@@ -200,6 +218,8 @@ describe("GG-cond: a trailing condition after ', then' governs only the final in
     // A player group acts per member; one sentence condition loses that partition.
     rejects("Each player reveals the top card of their library, then puts it onto the battlefield if it's a permanent card.", "Sorcery");
     rejects("Whenever Vaevictis Asmadi attacks, for each player, choose target permanent that player controls. Those players sacrifice those permanents. Each player who sacrificed a permanent this way reveals the top card of their library, then puts it onto the battlefield if it's a permanent card.", "Legendary Creature — Elder Dragon", "Vaevictis Asmadi, the Dire");
+    // A group in the conditional instruction: the condition may be per member.
+    rejects("Draw a card, then this spell deals 2 damage to each opponent if that player controls a Swamp.", "Sorcery");
     // The split prefix is checked like any sentence: "one pile" needs a separation.
     rejects("Put one pile into your hand, then gain 2 life if you control a Swamp.", "Sorcery");
     // A trailing definition could serve either half of the split.
@@ -216,6 +236,8 @@ describe("GG-perm: static abilities that were only readable as resolving instruc
     // A payment or an action outcome is not a continuously checked state.
     rejects("This creature has hexproof unless an opponent pays {2}.", "Creature — Human");
     rejects("This creature has hexproof unless you do.", "Creature — Human");
+    rejects("This creature has hexproof unless you don't cast a spell this way.", "Creature — Human");
+    rejects("This creature has hexproof unless you rolled 6.", "Creature — Human");
   });
 
   it("grants the linked-exile look and play permissions (Bane Alley Broker, Kheru Mind-Eater, Colfenor's Plans)", () => {

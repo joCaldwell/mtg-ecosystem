@@ -224,10 +224,9 @@ function parseStaticModifiers(c: Cursor, what: ObjectRef, allowFreshChoice = fal
           const unless = c.attempt((c): Condition | null => {
             if (c.word("unless") === null) return null;
             const condition = parseCondition(c, { purpose: "unless" });
-            // Only a continuously checkable state: never a payment, "you do",
-            // or the outcome of some resolving event ("this way").
-            const text = JSON.stringify(condition);
-            return condition && !/"condition":"(pays|you-do|you-dont)"|"scope":"(this-way|contextual)"/.test(text) ? condition : null;
+            // Only a continuously checkable game state, never a payment,
+            // an action outcome, a roll or any event history.
+            return condition && isStatePredicate(condition) ? condition : null;
           });
           if (unless) {
             modifier.condition = { condition: "not", of: unless };
@@ -575,6 +574,27 @@ function staticContinuationTokens(tokens: Token[], subject: ObjectRef, subjectTo
   if (conjunction && ["get", "gets", "has", "have", "gain", "gains", "lose", "loses", "can't", "can", "doesn't", "don't", "must", "attack", "attacks", "block", "blocks"].includes(first.value))
     return [...subjectTokens, ...tokens];
   return tokens;
+}
+
+/** Current-state predicates a static ability can check continuously (CR
+ * 611.3a). Anything scoped to an event, a roll, a choice or a history is a
+ * resolution outcome, not a state. */
+const STATE_CONDITIONS = new Set(["control", "count", "control-count", "status", "compare", "is-filter", "has-keyword",
+  "cards-in-hand", "not", "any-of", "all-of", "designation", "most-common-color", "life-total", "completed-dungeon",
+  "player-counters", "your-turn", "not-your-turn", "day-night", "full-party", "paired", "opponent-count"]);
+
+function isStatePredicate(condition: Condition): boolean {
+  let state = true;
+  const visit = (value: unknown): void => {
+    if (!state || !value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    const node = value as Record<string, unknown>;
+    if (typeof node.condition === "string" && !STATE_CONDITIONS.has(node.condition)) state = false;
+    if ("scope" in node || "roll" in node || "window" in node || "during" in node) state = false;
+    Object.values(node).forEach(visit);
+  };
+  visit(condition);
+  return state;
 }
 
 /** Replace a leading "it"/"they" (or "it's"/"they're") with the preceding

@@ -765,6 +765,12 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
       prefix = { steps: before };
       sentence.steps = steps.slice(-1);
     }
+    // The split cannot keep a per-member condition: when the conditional
+    // instruction acts on or for any group of players or objects, its
+    // condition could be meant for each member ("… deals 2 damage to each
+    // opponent if that player controls a Swamp"), which one sentence-level
+    // condition cannot state.
+    if (prefix && hasGroupReference(sentence.steps)) return c.fail("unambiguous conditional instruction scope");
     if (tailCondition) {
       const condition = (tailCondition === "unless" ? parseUnlessPayment(c) ?? parseUnlessDamage(c) : null) ??
         parseCondition(c, tailCondition === "unless" ? { purpose: "unless" } : { outcomes: true });
@@ -825,6 +831,18 @@ function thenPrefixSteps(c: Cursor, start: number, end: number, steps: Effect[],
   ctx.lastSubject = subject; ctx.lastPlayer = player;
   if (!before || !body.done() || JSON.stringify(before) !== JSON.stringify(steps.slice(0, -1))) return null;
   return steps.slice(0, -1);
+}
+
+/** Any player group, or an object reference that may denote several objects. */
+function hasGroupReference(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasGroupReference);
+  const node = value as Record<string, unknown>;
+  if (typeof node.player === "string" && isPluralPlayerRef(node as PlayerRef)) return true;
+  if (node.ref === "each" || node.ref === "all" || node.ref === "them" || node.ref === "rest" || node.ref === "library-cards" ||
+    (node.ref !== undefined && (node.plural === true || node.number === "plural")) ||
+    (node.ref !== undefined && node.count !== undefined && JSON.stringify(node.count) !== '{"amount":"fixed","value":1}')) return true;
+  return Object.values(node).some(hasGroupReference);
 }
 
 function hasPlayerGroupActor(value: unknown): boolean {
