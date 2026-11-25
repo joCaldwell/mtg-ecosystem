@@ -86,6 +86,16 @@ impl Resolution {
             for entry in &block.refs {
                 let (path, scope, role) = match entry {
                     RefEntry::Ref(r) => (&r.path, r.scope.as_deref(), Role::Resolved(&r.r#ref)),
+                    // CR 607.2d: a player derived from another block's
+                    // linked result has no per-object storage to read yet.
+                    RefEntry::Derived(d)
+                        if matches!(&*d.derived.of, ResolvedRef::LinkedResult(_)) =>
+                    {
+                        return Err(unsupported(
+                            "resolution",
+                            format!("ref:{}:linked-result:{}", describe(entry), kind.name()),
+                        ));
+                    }
                     RefEntry::Derived(d) => (&d.path, d.scope.as_deref(), Role::Unbound),
                     RefEntry::Evaluated(e) => (&e.path, e.scope.as_deref(), Role::Unbound),
                     RefEntry::Unresolved(u) => {
@@ -613,6 +623,10 @@ fn reference_row(role: Role<'_>, at: &Site<'_>) -> bool {
         Some(ResolvedRef::LinkedPool(p)) => word_row(word, at, |at| {
             at.effects_operand() && p.id.starts_with("/effects/")
         }),
+        // CR 607.1–607.2d, 601.2h: a result another block of the face
+        // established (an as-enters choice, a paid cost's object) needs
+        // per-object storage the kernel does not have yet; rejected by name.
+        Some(ResolvedRef::LinkedResult(_)) => false,
         Some(ResolvedRef::Controller(_)) => {
             controller_row(resolved, at) && word_row(word, at, |_| false)
         }
@@ -692,6 +706,7 @@ fn describe(entry: &RefEntry) -> String {
             ResolvedRef::StepResult(s) => format!("step-result:{}", s.role.as_str()),
             ResolvedRef::BoundVar(_) => "bound-var".into(),
             ResolvedRef::LinkedPool(_) => "linked-pool".into(),
+            ResolvedRef::LinkedResult(_) => "linked-result".into(),
             ResolvedRef::AnnouncedX(_) => "announced-x".into(),
         },
         RefEntry::Derived(d) => format!("derived:{}", d.derived.relation.as_str()),
@@ -906,4 +921,43 @@ fn step_producer(
     producer < own
         && effect(producer) == Some(wanted)
         && (producer + 1..own).all(|i| effect(i) != Some(wanted))
+}
+
+#[cfg(test)]
+mod linked_result_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// One block whose single reference resolves to `entry`.
+    fn block(entry: Value) -> Resolution {
+        let card = json!({"artifactKind":"oracle-resolution","schemaVersion":1,"faces":[{"sourceFaceIndex":0,
+            "blocks":[{"refs":[entry],"steps":[],"spans":{"unsupported":"synthetic"},"engineFeatures":[],
+            "residuals":[]}]}],"residuals":[],"complete":true})
+        .to_string();
+        let raw = RawValue::from_string(card.clone()).unwrap();
+        Resolution::read(Some(raw.as_ref()), Some(&sha256(card.as_bytes()))).unwrap()
+    }
+
+    /// CR 607.2d, 601.2h: another block's linked result decodes and is
+    /// rejected by name, directly and as the operand of a derived player.
+    #[test]
+    fn linked_results_are_rejected_by_name() {
+        let static_block = json!([{"kind":"static","effect":{"static":"modify","what":{"ref":"each",
+            "filter":{"types":["creature"],"chosenColor":{"choice":"chosen-value","category":"color","which":"chosen"}}},
+            "modifiers":[]}}]);
+        let linked = json!({"ref":"linked-result","block":0,"step":"/effect/effects/0/steps/0","role":"choice"});
+        let reason = |r: Result<(), Failure>| r.err().map(|f| f.reason);
+        assert_eq!(
+            reason(
+                block(json!({"path":"/effect/what/filter/chosenColor","ref":linked.clone()}))
+                    .references(&static_block)
+            ),
+            Some("ref:linked-result:static".into())
+        );
+        let derived = json!({"path":"/effect/what/filter/control","derived":{"relation":"controller","of":linked}});
+        assert_eq!(
+            reason(block(derived).references(&static_block)),
+            Some("ref:derived:controller:linked-result:static".into())
+        );
+    }
 }

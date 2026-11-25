@@ -21,14 +21,22 @@ export type BlockSpans = { certificate: SpanCertificate } | { unsupported: strin
 const NON_CLAUSE_KEYS = new Set(["kind", "effects", "abilityWord"]);
 const escape = (key: string) => key.replace(/~/g, "~0").replace(/\//g, "~1");
 
-/** The unique pointer of an `options` array with exactly `count` entries. */
-function optionsPointer(value: unknown, count: number, path = ""): string[] {
-  if (Array.isArray(value)) return value.flatMap((item, index) => optionsPointer(item, count, `${path}/${index}`));
+/** Every pointer of an `options` array with exactly `count` entries. */
+function optionsPointers(value: unknown, count: number, path = ""): string[] {
+  if (Array.isArray(value)) return value.flatMap((item, index) => optionsPointers(item, count, `${path}/${index}`));
   if (!value || typeof value !== "object") return [];
   return Object.entries(value).flatMap(([key, item]) => [
     ...(key === "options" && Array.isArray(item) && item.length === count ? [`${path}/options`] : []),
-    ...(key === "kind" && path !== "" ? [] : optionsPointer(item, count, `${path}/${escape(key)}`)),
+    ...(key === "kind" && path !== "" ? [] : optionsPointers(item, count, `${path}/${escape(key)}`)),
   ]);
+}
+
+/** The options field the bullets print: each bullet is one whole option
+ * (CR 700.2), so an options array inside another candidate lies within a
+ * single bullet and is not it. */
+function optionsPointer(value: unknown, count: number): string[] {
+  const all = optionsPointers(value, count);
+  return all.filter(pointer => !all.some(outer => outer !== pointer && pointer.startsWith(`${outer}/`)));
 }
 
 export function blockSpans(line: ParsedLine): BlockSpans {
@@ -42,21 +50,33 @@ export function blockSpans(line: ParsedLine): BlockSpans {
   const header = source.lines.find(l => l.role === "header");
   if (!header || source.lines[0] !== header) return { unsupported: "block has no header line" };
 
-  // CR 207.2c-d: "Label — " opens the block.
+  // CR 207.2c-d: "Label — " opens the block. Some printings set the dash
+  // without spaces ("Splice onto Arcane—").
   const label = "abilityWord" in ability ? ability.abilityWord : undefined;
   if (label !== undefined) {
+    const dash = (from: number) => header.text.startsWith(`${label} — `, from) ? label.length + 2
+      : header.text.startsWith(`${label}—`, from) ? label.length + 1 : undefined;
     // First, or right after a chapter's numerals (CR 714.2b: "I — Label — ").
-    const at = header.text.startsWith(`${label} — `) ? 0
+    const at = dash(0) !== undefined ? 0
       : "chapters" in ability && /^[IVX]+(?:, [IVX]+)* — /.exec(header.text)?.[0].length;
-    if (typeof at !== "number" || !header.text.startsWith(`${label} — `, at)) return { unsupported: "ability word is not printed first" };
+    const length = typeof at === "number" ? dash(at) : undefined;
+    if (typeof at !== "number" || length === undefined) return { unsupported: "ability word is not printed first" };
     for (const token of header.tokens)
-      if (token.provenance!.start >= at && token.provenance!.end <= at + label.length + 2) owner.set(token, fields("/abilityWord"));
+      if (token.provenance!.start >= at && token.provenance!.end <= at + length) owner.set(token, fields("/abilityWord"));
   }
   const byIndex = new Map(header.tokens.map(token => [`${token.provenance!.sourceId}#${token.provenance!.index}`, token]));
   const effects = "effects" in ability && Array.isArray(ability.effects) ? ability.effects : undefined;
-  if (effects) {
-    const spans = sentenceSpans(effects);
-    if (!spans) return { unsupported: "sentences were not recorded clause by clause" };
+  // Prefix (trigger, costs) and suffix (activation rules, limits) clauses
+  // belong to the block's remaining fields.
+  const rest = Object.entries(ability).filter(([key, value]) => value !== undefined && !NON_CLAUSE_KEYS.has(key)).map(([key]) => `/${escape(key)}`);
+  const spans = effects && sentenceSpans(effects);
+  if (effects && !spans) {
+    // One sentence and no other clause field: every header token that is
+    // not the label can only have produced that sentence.
+    if (effects.length !== 1 || rest.length) return { unsupported: "sentences were not recorded clause by clause" };
+    for (const token of header.tokens) if (!owner.has(token)) owner.set(token, fields("/effects/0"));
+  }
+  if (spans) {
     for (const span of spans) {
       if (!span.pointers.length) return { unsupported: "a clause changed no AST field" };
       for (const index of span.tokens) {
@@ -66,9 +86,6 @@ export function blockSpans(line: ParsedLine): BlockSpans {
       }
     }
   }
-  // Prefix (trigger, costs) and suffix (activation rules, limits) clauses
-  // belong to the block's remaining fields.
-  const rest = Object.entries(ability).filter(([key, value]) => value !== undefined && !NON_CLAUSE_KEYS.has(key)).map(([key]) => `/${escape(key)}`);
   const ordered = [...header.tokens].sort((a, b) => a.provenance!.start - b.provenance!.start);
   const owned = ordered.flatMap((token, index) => owner.has(token) && owner.get(token) !== fields("/abilityWord") ? [index] : []);
   for (const [index, token] of ordered.entries()) {
