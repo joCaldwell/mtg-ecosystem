@@ -144,3 +144,130 @@ fn modal_executable_shape_is_closed() {
         modal.selections.get_mut(&2).unwrap().targets.push(extra);
     });
 }
+
+const TRUFFLESNOUT: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/8a15841a-dcb6-454a-b865-43a067f42b4e.json");
+const COLISEUM_BEHEMOTH: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/076cf4f1-b3d4-4175-b976-938ad851cc0e.json");
+const KNIGHT_OF_AUTUMN: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/c4212ba4-8c43-40ca-aa36-b3b535659fa8.json");
+const GOBLIN_CRATERMAKER: &str =
+    include_str!("../../../../tests/fixtures/phase1-r4/1962d9b3-f057-4d2c-9c5b-386d9a66148a.json");
+
+/// CR 603.3c, 700.2: a modal trigger keeps its event and timing on an empty
+/// base program; each selection is its modes' complete programs in order.
+#[test]
+fn modal_triggers_lower_each_selection_beside_their_event() {
+    let behemoth = lowered(COLISEUM_BEHEMOTH);
+    behemoth.validate().unwrap();
+    assert!(behemoth.modal_spell.is_none());
+    let [trigger] = behemoth.triggered.as_slice() else {
+        panic!("one trigger");
+    };
+    assert_eq!(
+        trigger.condition,
+        TriggerCondition::on(kir::EventPattern::self_enters())
+    );
+    assert!(trigger.program.targets.is_empty() && trigger.program.instructions.is_empty());
+    let modal = trigger.modal.as_ref().unwrap();
+    assert_eq!(
+        modal.labels,
+        ["Destroy target artifact or enchantment.", "Draw a card."]
+    );
+    let targets = |mask| modal.selections[&mask].targets.len();
+    assert_eq!(
+        modal.selections.keys().copied().collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!([targets(1), targets(2)], [1, 0]);
+    assert!(behemoth.requirements().contains(&Capability::ModalChoiceV1));
+    assert_eq!(
+        lowered(KNIGHT_OF_AUTUMN).triggered[0]
+            .modal
+            .as_ref()
+            .unwrap()
+            .selections
+            .keys()
+            .copied()
+            .collect::<Vec<_>>(),
+        [1, 2, 4]
+    );
+    // The printed count binds the AST for an ability as for a spell.
+    let recount = changed(TRUFFLESNOUT, |row| {
+        row["faces"][0]["result"]["abilities"][0]["effects"][0]["steps"][0]["count"] =
+            json!({"exactly": 2});
+    });
+    assert_eq!(reason(&recount), "verb:modal:count_disagrees_with_print");
+}
+
+/// CR 602.2b: a modal activation lowers each mode as a complete activation
+/// of the same cost; Goblin Cratermaker reaches its second mode's colorless
+/// filter, which is outside the operand tables, instead of an unlowered
+/// modal step.
+#[test]
+fn modal_activations_lower_each_mode_through_the_activation_lowerer() {
+    assert_eq!(
+        reason(GOBLIN_CRATERMAKER),
+        "operand:target_filter:colorless"
+    );
+}
+
+#[test]
+fn modal_ability_executable_shape_is_closed() {
+    let behemoth = lowered(COLISEUM_BEHEMOTH);
+    let rejects = |change: &dyn Fn(&mut Definition)| {
+        let mut d = behemoth.clone();
+        change(&mut d);
+        assert!(d.validate().is_err());
+    };
+    // The base program carries no effects of its own.
+    rejects(&|d| {
+        let first = d.triggered[0].modal.as_ref().unwrap().selections[&2].clone();
+        d.triggered[0].program = first;
+    });
+    // The selections are exactly the legal counts.
+    rejects(&|d| {
+        d.triggered[0]
+            .modal
+            .as_mut()
+            .unwrap()
+            .selections
+            .remove(&2);
+    });
+    // A selection may not leave the declaring block.
+    rejects(&|d| d.triggered[0].modal.as_mut().unwrap().source_block += 1);
+    // As an activation, only a battlefield ability whose cost the targeted
+    // announcement route pays.
+    let activated = |cost: ActivationCost, zone: FunctioningZone| {
+        move |d: &mut Definition| {
+            let trigger = d.triggered.remove(0);
+            d.activated.push(ActivatedAbility {
+                functioning_zone: zone,
+                restriction: None,
+                cost: cost.clone(),
+                program: trigger.program,
+                modal: trigger.modal,
+            });
+            if let Some(labels) = &mut d.source_labels {
+                labels.activated = std::mem::take(&mut labels.triggered);
+            }
+            d.capabilities = d.requirements();
+        }
+    };
+    let mana = ActivationCost::Mana {
+        cost: ManaCost {
+            generic: Quantity::from(1),
+            colored: vec![],
+        },
+    };
+    let mut admitted = behemoth.clone();
+    activated(mana.clone(), FunctioningZone::Battlefield)(&mut admitted);
+    admitted.validate().unwrap();
+    rejects(&activated(mana, FunctioningZone::Hand));
+    rejects(&activated(
+        ActivationCost::TapPayLifeSacrificeSource {
+            life: Quantity::from(1),
+        },
+        FunctioningZone::Battlefield,
+    ));
+}

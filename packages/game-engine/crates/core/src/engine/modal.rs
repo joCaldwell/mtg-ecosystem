@@ -188,6 +188,18 @@ impl RulesTxn {
             && entry.paid.is_none()
             && entry.cost_lock.is_none();
         let announcing = matches!(frame, Frame::ChooseModes { cast } if cast.stack_id == entry.id);
+        // A placed trigger's bound selection is still in its placement frame
+        // only while that selection's target is chosen.
+        let placing = matches!(frame, Frame::TriggerTargets { stack_id, .. } if *stack_id == entry.id);
+        if placing
+            && let (Some(modal), Some(mask)) = (modal, entry.mode_mask)
+            && modal
+                .selections
+                .get(&mask)
+                .is_none_or(|program| program.targets.is_empty())
+        {
+            return Err("modal trigger placement binding invariant".into());
+        }
         match (modal, entry.mode_mask) {
             (None, None) if !announcing => Ok(()),
             (Some(_), None) if choosing || stopped => Ok(()),

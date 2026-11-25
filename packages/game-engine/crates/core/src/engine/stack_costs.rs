@@ -490,7 +490,8 @@ impl RulesTxn {
         }
         let stage = self.underlying_mana_frame(&self.state.rules.frame)?;
         let announcing = match stage {
-            Frame::Targets { cast }
+            Frame::ChooseModes { cast }
+            | Frame::Targets { cast }
             | Frame::PlayerTargets { cast }
             | Frame::EntityTargets { cast }
             | Frame::StackTargets { cast }

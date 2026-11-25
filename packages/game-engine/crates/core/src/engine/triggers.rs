@@ -1780,6 +1780,8 @@ impl RulesTxn {
                         t.domain,
                         TargetDomain::BattlefieldPermanent
                             | TargetDomain::BattlefieldCreature
+                            | TargetDomain::ControlledBattlefieldPermanent
+                            | TargetDomain::ControlledBattlefieldCreature
                             | TargetDomain::OwnGraveyardCreatureCard
                             | TargetDomain::OwnGraveyardCard
                     )
