@@ -613,6 +613,12 @@ export function pickRemainder(this: Analyzer, expression: Extract<ObjectRef, { r
     if (at === origin || at === step || at === rest || !before(origin, at) || !before(at, rest) ||
         exclusive(at, rest) || exclusive(at, origin)) continue;
     const operation = String(effect.effect);
+    // Die rolls and coin flips are events themselves (their rows and
+    // outcomes are walked as exclusive paths); the other containers are not.
+    if (operation === "roll-dice" || operation === "flip-coin") {
+      if (!stepEvent(this, at) || this.result.diagnostics.some(diagnostic => diagnostic.path === at)) return;
+      continue;
+    }
     if (CONTAINERS.has(operation)) continue;
     const performed = stepEvent(this, at);
     if (!performed || this.result.diagnostics.some(diagnostic => diagnostic.path === at || diagnostic.path.startsWith(`${at}/`))) return;
