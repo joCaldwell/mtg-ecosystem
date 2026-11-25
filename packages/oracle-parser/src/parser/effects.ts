@@ -321,6 +321,12 @@ export function parseSentences(c: Cursor, ctx: EffectContext): Sentence[] | null
       if (!clashOutcomeHasClash(sentences, s, containsEffect)) return c.fail("clash before its result is tested");
       if (!voteReferencesResolved(sentences, s)) return c.fail("vote offering the choice that its result names");
       if (!pileReferencesResolved(sentences, s)) return c.fail("separation into piles (and a pile choice) before a pile is used");
+      const thenPrefix = thenPrefixes.get(s);
+      if (thenPrefix) {
+        if (tokenDefinition) return c.fail("complete copiable token definition");
+        sentences.push(thenPrefix, s);
+        continue;
+      }
       if (beginsThen && previousSentence?.condition && containsEffect(previousSentence.steps, "search") &&
           s.steps[0]?.effect === "shuffle" && s.steps[0].who.player === "that-player" && !s.condition) {
         if (!foldConditionalSearchShuffle(previousSentence, s)) return c.fail("represented conditional search/shuffle continuation");
@@ -680,6 +686,7 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
       const unit = parseUnitQuantity(c, { parseObjectRef, parsePlayerRef, parsePossessivePlayer, isPluralPlayerRef });
       return unit && c.punct(",") ? unit : null;
     });
+    const stepsStart = c.pos;
     const steps = withConditionDifference(sentence.condition, () => parseSteps(c, ctx, leadingDuration ?? undefined), true)
       ?? (leadingDuration || leadingVote || leadingUnit ? null : parseStartingWith(c, () => withConditionDifference(sentence.condition, () => parseSteps(c, ctx), true)));
     if (!steps) return null;
@@ -743,8 +750,15 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     const tailCondition = c.word("unless", "if");
     if (tailCondition && leadingUnless) return c.fail("one payment clause scope");
     if (tailCondition && sentence.conditionKind === "unless") return c.fail("one condition for a leading unless");
+    let prefix: Sentence | undefined;
+    if (tailCondition && steps.length !== 1) {
+      const plain = !sentence.condition && !leadingDuration && !leadingVote && !leadingUnit && !sentence.bindings && sentence.steps === steps;
+      const before = plain ? thenPrefixSteps(c, stepsStart, c.pos - 1, steps, ctx) : null;
+      if (!before) return c.fail("unambiguous conditional instruction scope");
+      prefix = { steps: before };
+      sentence.steps = steps.slice(-1);
+    }
     if (tailCondition) {
-      if (steps.length !== 1) return c.fail("unambiguous conditional instruction scope");
       const condition = (tailCondition === "unless" ? parseUnlessPayment(c) ?? parseUnlessDamage(c) : null) ??
         parseCondition(c, tailCondition === "unless" ? { purpose: "unless" } : { outcomes: true });
       if (!condition) return null;
@@ -766,10 +780,38 @@ function parseSentence(c: Cursor, ctx: EffectContext): Sentence | null {
     }
 
     if (!c.punct(".") && !c.done()) return null;
+    if (prefix) thenPrefixes.set(sentence, prefix);
     return sentence;
   });
   if (result === null) { ctx.lastSubject = previousSubject; ctx.lastPlayer = previousPlayer; }
   return result;
+}
+
+/** The instructions before ", then" in a sentence whose trailing "if" or
+ * "unless" clause governs only its final instruction (CR 608.2c): "Surveil
+ * 2, then counter the chosen spell unless its controller pays {1} …";
+ * "… reveals the top card of their library, then puts it onto the
+ * battlefield if it's a permanent card." Accepted only when the text before
+ * the last ", then" parses, alone, to exactly every step but the last, so
+ * the final step is precisely the instruction after "then". Coordination
+ * with "and" or a comma alone stays ambiguous and keeps failing. */
+const thenPrefixes = new WeakMap<Sentence, Sentence>();
+
+function thenPrefixSteps(c: Cursor, start: number, end: number, steps: Effect[], ctx: EffectContext): Effect[] | null {
+  let then = -1;
+  for (let i = end - 1; i > start; i--) {
+    const token = c.tokens[i];
+    const comma = c.tokens[i - 1];
+    if (token.kind === "punct" && token.value === '"') return null;
+    if (token.kind === "word" && !token.possessive && token.value === "then" && comma?.kind === "punct" && comma.value === ",") { then = i; break; }
+  }
+  if (then < 0) return null;
+  const subject = ctx.lastSubject, player = ctx.lastPlayer;
+  const body = new Cursor(c.tokens.slice(start, then - 1));
+  const before = parseSteps(body, ctx);
+  ctx.lastSubject = subject; ctx.lastPlayer = player;
+  if (!before || !body.done() || JSON.stringify(before) !== JSON.stringify(steps.slice(0, -1))) return null;
+  return steps.slice(0, -1);
 }
 
 /** "as you cast this spell" / "as you activate this ability" (CR 601.2, 602.2). */

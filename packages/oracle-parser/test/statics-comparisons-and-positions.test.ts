@@ -197,7 +197,8 @@ describe("a leading payment offer governs the whole sentence (CR 118.12a)", () =
     rejects("Unless any player pays {2}, draw a card unless an opponent pays {1}.", "Sorcery");
     rejects("Unless any player pays {2}, draw a card if you control a Forest.", "Sorcery");
     rejects("Unless you control a Forest, draw a card.", "Sorcery");
-    // A trailing offer after several instructions keeps its unresolved scope.
-    rejects("Draw a card, then gain 2 life unless an opponent pays {2}.", "Sorcery");
+    // A trailing offer after instructions coordinated by "and" keeps its
+    // unresolved scope; after ", then" it governs only the final instruction.
+    rejects("Draw a card and gain 2 life unless an opponent pays {2}.", "Sorcery");
   });
 });

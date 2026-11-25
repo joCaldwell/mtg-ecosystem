@@ -29,6 +29,7 @@ function hasSupportedContinuations(sentences: Sentence[], reflexive = false): bo
     const next = sentences[i];
     if (next.condition?.condition === "you-do" || next.condition?.condition === "you-dont") continue;
     if (reflexive && continuesReflexiveBody(previous, next)) continue;
+    if (continuesBodyLocalObject(sentences.slice(0, i), next, reflexive)) continue;
     // "..., then exile … and copy them. You may cast the copies": the cast
     // refers to the copies the sentence's final step made.
     if (!next.condition && !next.otherwise && !previous.otherwise && previous.steps.length > 1 && next.steps.length === 1
@@ -89,6 +90,52 @@ function continuesReflexiveBody(previous: Sentence, next: Sentence): boolean {
     hasNode(previous.steps, node => node.effect === "create-token" || node.effect === "choose-object");
   const anaphor = hasNode(next.steps, node => node.ref === "it" || node.ref === "them" || node.ref === "that");
   return introduces && anaphor && !hasTarget(next.steps);
+}
+
+/** CR 603.7a, 603.12: an object first produced by an earlier instruction of
+ * the created ability (a token it creates, a card it exiles, looks at or
+ * chooses, or a reflexive ability's own target) does not exist when the
+ * enclosing ability resolves. A following plain sentence that refers back to
+ * that object by a compatible anaphor can therefore only continue the created
+ * body: End-Blaze Epiphany ("… then choose a card exiled this way. Until the
+ * end of your next turn, you may play that card."), Dalkovan Encampment
+ * ("create two … tokens … Sacrifice them at …"), Codie, Vociferous Codex and
+ * Devourer of Destiny. A condition, a fresh target, or an anaphor whose class
+ * the body never introduced keeps the scope ambiguous (Time to Feed). */
+function continuesBodyLocalObject(body: Sentence[], next: Sentence, reflexive: boolean): boolean {
+  if (next.condition || next.otherwise || next.bindings || hasTarget(next.steps)) return false;
+  if (body.some(sentence => sentence.otherwise)) return false;
+  // A reflexive ability's intervening condition (603.4) is recorded on its
+  // first sentence only; it cannot also govern a continuation.
+  if (reflexive && body.some(sentence => sentence.condition)) return false;
+  const objects = reflexive && hasTarget(body) ||
+    hasNode(body, node => node.effect === "create-token" || (node.effect === "choose-object" && !isCardRef(node.what)));
+  const cards = hasNode(body, node => node.effect === "look-at" || node.effect === "scan-library" ||
+    (node.effect === "exile" && isLibraryCards(node.what)) || (node.effect === "choose-object" && isCardRef(node.what)));
+  return (cards && hasNode(next.steps, isCardAnaphor)) ||
+    (objects && hasNode(next.steps, node => (node.ref === "it" || node.ref === "them" ||
+      (node.ref === "that" && !isCardRef(node))) && !isCardAnaphor(node)));
+}
+
+function isLibraryCards(value: unknown): boolean {
+  return !!value && typeof value === "object" && (value as { ref?: unknown }).ref === "library-cards";
+}
+
+function isCardRef(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const filter = (value as { filter?: unknown }).filter;
+  return !!filter && typeof filter === "object" && (filter as { cls?: unknown }).cls === "card";
+}
+
+/** "that card", "those cards", "the rest", "each other card exiled this
+ * way" and "the exiled cards": references to the cards the body produced. */
+function isCardAnaphor(node: Record<string, unknown>): boolean {
+  if (node.ref === "rest") return true;
+  if (node.ref === "that" && isCardRef(node)) return true;
+  const relation = node.relation as { relation?: unknown; event?: unknown; scope?: unknown } | undefined;
+  return (node.cls === "card" || (node.ref === "related" && isCardRef(node))) &&
+    relation?.relation === "event-result" && relation.event === "exile" &&
+    (relation.scope === "this-way" || relation.scope === "contextual");
 }
 
 function hasTarget(value: unknown): boolean {

@@ -107,7 +107,8 @@ describe("effect meaning and scope", () => {
   it("rejects overwritten or unattached conditional branches", () => {
     assert.equal(parseOracleText("Draw a card. Otherwise, gain 2 life.").ok, false);
     assert.equal(parseOracleText("If you control a creature, draw a card. Otherwise, gain 2 life. Otherwise, gain 3 life.").ok, false);
-    assert.equal(parseOracleText("Draw a card, then gain 2 life unless an opponent pays {2}.").ok, false);
+    // ", then" closes the first instruction; the offer governs only the second (CR 608.2c).
+    assert.equal(parseOracleText("Draw a card and gain 2 life unless an opponent pays {2}.").ok, false);
     const ability = one("If you control a creature, draw a card unless an opponent pays {2}.");
     assert.equal(ability.kind, "spell");
     assert.deepEqual(ability.effects[0].condition, { condition: "all-of", conditions: [

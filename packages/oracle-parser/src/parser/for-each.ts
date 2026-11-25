@@ -28,10 +28,23 @@ const INDEPENDENT_DEFINITES = new Set(["battlefield", "top", "bottom", "beginnin
 /** Text after the loop's sentence is a separate instruction only when it
  * cannot refer to the loop at all. Everything else would need a per-member
  * or aggregated scope (see parseForEach) and keeps the line failing. */
-function independentOfLoop(tokens: Token[]): boolean {
+function independentOfLoop(tokens: Token[], earlierEvent?: string): boolean {
+  const word = (index: number, value: string): boolean => {
+    const token = tokens[index];
+    return token?.kind === "word" && !token.possessive && token.value === value;
+  };
   return tokens.every((token, index) => {
     if (token.kind === "punct" && token.value === '"') return false;
     if (token.kind !== "word") return true;
+    // "<participle> this way" naming the event the loop's own set came
+    // from, which the loop body never performs (Culmination of Studies,
+    // Phabine, Boss's Confidant, Haunting Imitation).
+    if (earlierEvent && (token.value === "this" || token.value === "way")) {
+      const participle = token.value === "this" ? index - 1 : index - 2;
+      if (word(participle, earlierEvent) && word(participle + 1, "this") && word(participle + 2, "way")) return true;
+    }
+    // "~ to its owner's hand": the self reference's own owner.
+    if (token.value === "its" && tokens[index - 2]?.kind === "selfref" && (word(index - 1, "to") || word(index - 1, "into"))) return true;
     if (BACK_REFERENCES.has(token.value)) return false;
     if (token.value !== "the") return true;
     const next = tokens[index + 1];
@@ -40,6 +53,26 @@ function independentOfLoop(tokens: Token[]): boolean {
 }
 
 type Loop = Extract<Effect, { effect: "for-each" }>;
+
+const PARTICIPLES: Record<string, string> = { exile: "exiled", reveal: "revealed", destroy: "destroyed", sacrifice: "sacrificed", discard: "discarded", mill: "milled" };
+
+/** The participle of the earlier event that produced "each <card> <event>
+ * this way", when the loop body cannot itself perform that event. */
+function earlierEventParticiple(each: ObjectRef | PlayerRef, body: Sentence[]): string | undefined {
+  if (!("ref" in each) || each.ref !== "each") return undefined;
+  const relation = each.filter.relation;
+  if (relation?.relation !== "event-result" || relation.scope !== "this-way" || relation.who) return undefined;
+  const participle = PARTICIPLES[relation.event];
+  if (!participle) return undefined;
+  const performs = (value: unknown): boolean => {
+    if (!value || typeof value !== "object") return false;
+    if (Array.isArray(value)) return value.some(performs);
+    const node = value as Record<string, unknown>;
+    if (node.effect === relation.event || node.operation === relation.event || node.event === relation.event) return true;
+    return Object.values(node).some(performs);
+  };
+  return performs(body) ? undefined : participle;
+}
 
 /** Loops whose following text needs no scope proof: nothing follows, it
  * cannot refer to the loop, or forEachContinuationsScoped proved its scope.
@@ -53,11 +86,16 @@ export function settleScopedContinuation(loop: Loop): void {
 /** What the loop's single action handles, when that is at most one object
  * per member: the nouns a later plural reference can use for all of them
  * together, and the event that "... this way" names. */
-function memberResult(loop: Loop): { nouns: Set<string>; events: string[] } | null {
+type MemberResult = { nouns: Set<string>; events: string[]; memberActors?: true };
+
+function memberResult(loop: Loop): MemberResult | null {
   const body = loop.effects[0];
-  if (loop.effects.length !== 1 || body.condition || body.otherwise || body.steps.length !== 1) return null;
-  const step = body.steps[0];
+  if (loop.effects.length !== 1 || body.condition || body.otherwise) return null;
   const one = (count: unknown) => JSON.stringify(count) === '{"amount":"fixed","value":1}';
+  const searched = searchResult(loop, one) ?? scanResult(loop, one);
+  if (searched) return searched;
+  if (body.steps.length !== 1) return null;
+  const step = body.steps[0];
   if (step.effect === "create-token") return one(step.count) && !step.forEach ? { nouns: new Set(["token"]), events: [] } : null;
   const slot: unknown = "what" in step ? step.what : "on" in step ? step.on : undefined;
   if (!slot || typeof slot !== "object" || !("ref" in slot)) return null;
@@ -77,13 +115,109 @@ function memberResult(loop: Loop): { nouns: Set<string>; events: string[] } | nu
   return { nouns, events: events[step.effect] ?? [] };
 }
 
+/** CR 701.23: a search for one card per member, optionally moving "it" and
+ * shuffling the searched library. Every found card is a member result, so
+ * "those cards" after the loop names all of them together (Doubling Chant,
+ * Clarion Ultimatum, Jace, Architect of Thought). */
+function searchResult(loop: Loop, one: (count: unknown) => boolean): MemberResult | null {
+  const [search, ...rest] = loop.effects[0].steps;
+  if (search?.effect !== "search" || search.for.ref !== "filter" || !one(search.for.count) || search.for.upTo || search.forEach) return null;
+  const events = ["search"];
+  for (const step of rest) {
+    if (step.optional || step.forEach) return null;
+    if (step.effect === "shuffle") continue;
+    if ((step.effect === "exile" || step.effect === "move-zone") && step.what.ref === "it") { events.push(step.effect); continue; }
+    return null;
+  }
+  const nouns = new Set<string>();
+  const { filter } = search.for;
+  for (const type of filter.types ?? []) nouns.add(type);
+  if (filter.cls) nouns.add(filter.cls);
+  return nouns.has("card") ? { nouns, events, ...(isMemberActor(search.who) ? { memberActors: true } : {}) } : null;
+}
+
+/** "its controller" / "that player": each member supplies its own actor, so
+ * "those players" after the loop can name all of them. */
+function isMemberActor(who: PlayerRef): boolean {
+  return who.player === "that-player" || (who.player === "controller" && "of" in who && who.of.ref === "it");
+}
+
+/** CR 701.20: reveal cards until one matching card is revealed, then exile
+ * "that card": at most one exiled card per member (Indomitable Creativity). */
+function scanResult(loop: Loop, one: (count: unknown) => boolean): MemberResult | null {
+  const steps = loop.effects[0].steps;
+  if (steps.length !== 2) return null;
+  const [scan, exile] = steps;
+  if (scan.effect !== "scan-library" || scan.operation !== "reveal" || !scan.until || !one(scan.until.count) || scan.optional || scan.forEach ||
+    exile.effect !== "exile" || exile.optional || exile.forEach || exile.what.ref !== "that" || exile.what.plural ||
+    exile.what.filter.cls !== "card" || Object.keys(exile.what.filter).length !== 1) return null;
+  return { nouns: new Set(["card"]), events: ["exile"], ...(isMemberActor(scan.who) ? { memberActors: true } : {}) };
+}
+
+/** "If a spell cast this way would be put into a graveyard, exile it
+ * instead." after a loop of casts watches every spell any member's cast
+ * made, so it is created once, after the loop (Diluvian Primordial). */
+function replacesCastResults(loop: Loop, next: Sentence): boolean {
+  if (next.condition || next.otherwise || next.bindings || next.steps.length !== 1 || loop.effects[0].steps.length !== 1) return false;
+  const [cast] = loop.effects[0].steps;
+  const [replacement] = next.steps;
+  if (cast.effect !== "play-card" || cast.instruction.action !== "cast" || replacement.effect !== "create-replacement") return false;
+  const { event } = replacement.replacement;
+  if (event.event !== "move-zone" || event.what.ref !== "filter") return false;
+  const { filter } = event.what;
+  if (filter.cls !== "spell" || filter.relation?.relation !== "event-result" || filter.relation.event !== "cast" ||
+    filter.relation.scope !== "this-way" || filter.relation.who || Object.keys(filter).length !== 2) return false;
+  // Nothing else in the replacement may name a loop member.
+  return !hasNode(replacement.replacement.replace, node => node.player === "that-player" || node.ref === "it" || node.ref === "that");
+}
+
+/** A loop over objects cannot make "that player" its member; when its body
+ * already names "that player", the phrase keeps that enclosing antecedent
+ * after the loop as well (Dichotomancy, Haunting Echoes, Reap Intellect). */
+function namesEnclosingPlayer(loop: Loop): boolean {
+  if (!("ref" in loop.each)) return false;
+  return hasNode(loop.effects, node => node.player === "that-player" || node.owner === "that-player" || node.control === "that-player");
+}
+
+function hasNode(value: unknown, test: (node: Record<string, unknown>) => boolean): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(item => hasNode(item, test));
+  const node = value as Record<string, unknown>;
+  return test(node) || Object.values(node).some(item => hasNode(item, test));
+}
+
+/** "Then that player shuffles." after a loop over objects whose body searched
+ * that enclosing player's library: one shuffle of that library afterwards
+ * (CR 701.23). */
+function shufflesSearchedLibrary(loop: Loop, next: Sentence): boolean {
+  if (next.condition || next.otherwise || next.bindings || next.steps.length !== 1 || !namesEnclosingPlayer(loop)) return false;
+  const [shuffle] = next.steps;
+  if (shuffle.effect !== "shuffle" || shuffle.optional || shuffle.forEach || shuffle.coalesceEarlierLibrarySearches ||
+    !("player" in shuffle.who) || shuffle.who.player !== "that-player" || shuffle.library.zone !== "library" ||
+    JSON.stringify(shuffle.library.owner) !== JSON.stringify(shuffle.who)) return false;
+  return hasNode(loop.effects, node => node.effect === "search" && hasNode((node as { zones?: unknown }).zones,
+    zone => zone.zone === "library" && JSON.stringify(zone.owner) === '"that-player"'));
+}
+
+/** "Then each player who searched their library this way shuffles." names
+ * every member's searcher at once (From the Ashes). */
+function shufflesAllSearchers(loop: Loop, next: Sentence): boolean {
+  if (next.condition || next.otherwise || next.bindings || next.steps.length !== 1) return false;
+  const [shuffle] = next.steps;
+  if (shuffle.effect !== "shuffle" || shuffle.optional || shuffle.forEach || !("player" in shuffle.who) ||
+    shuffle.who.player !== "filtered" || shuffle.who.base.player !== "each-player" ||
+    Object.keys(shuffle.who.filter).length !== 1 || shuffle.who.filter.searched?.scope !== "this-way" ||
+    shuffle.library.zone !== "library" || JSON.stringify(shuffle.library.owner) !== JSON.stringify(shuffle.who)) return false;
+  return hasNode(loop.effects, node => node.effect === "search");
+}
+
 /** The sentence names, in the plural, everything the loop's action handled:
  * "those creatures", "the chosen permanents", "them", "each land destroyed
  * this way". With at most one object per member that can only be the
  * objects of all members together, so the sentence is carried out once,
  * after the loop, and is no part of what is done for each member. A
  * reference to the single member ("that player") would contradict that. */
-function refersToAllResults(sentence: Sentence, result: { nouns: Set<string>; events: string[] }, chose: boolean): boolean {
+function refersToAllResults(sentence: Sentence, result: MemberResult, chose: boolean, enclosingPlayer: boolean, playerLoop: boolean): boolean {
   const describes = (filter: ObjectFilter): boolean => {
     const { types = [], cls } = filter;
     return (types.length > 0 || cls !== undefined) && types.every(type => result.nouns.has(type)) && (cls === undefined || result.nouns.has(cls));
@@ -95,14 +229,21 @@ function refersToAllResults(sentence: Sentence, result: { nouns: Set<string>; ev
     const node = value as Record<string, unknown>;
     // A nested loop binds its own member references.
     if (node.effect === "for-each") { visit(node.each); return; }
-    if (node.player === "that-player" || node.player === "the-player" || node.control === "that-player"
-      || node.owner === "that-player" || (node.ref === "that" && node.plural !== true)) member = true;
+    if ((!enclosingPlayer && (node.player === "that-player" || node.control === "that-player" || node.owner === "that-player"))
+      || node.player === "the-player" || (node.ref === "that" && node.plural !== true)) member = true;
+    // "Those players" names a player loop's members; after a loop over objects
+    // it has an antecedent only when each member supplied its own actor.
+    if (node.player === "those-players" && !playerLoop && !result.memberActors) member = true;
     if (node.ref === "them") plural = true;
     if (node.ref === "that" && node.plural === true && describes(node.filter as ObjectFilter)) plural = true;
     if (chose && node.ref === "choice-result" && node.number === "plural" && describes(node.filter as ObjectFilter)) plural = true;
     const relation = node.relation as Record<string, unknown> | undefined;
     if (relation && relation.relation === "event-result" && relation.scope === "this-way" && relation.who === undefined
       && result.events.includes(relation.event as string) && describes(node as ObjectFilter)) plural = true;
+    // "the exiled cards": every card the members' exile actions moved.
+    if (relation && node.ref === "related" && node.number === "plural" && relation.relation === "event-result"
+      && relation.scope === "contextual" && relation.who === undefined && result.events.includes(relation.event as string)
+      && describes(node.filter as ObjectFilter)) plural = true;
     Object.values(node).forEach(visit);
   };
   visit(sentence);
@@ -236,10 +377,11 @@ export function forEachContinuationsScoped(sentences: Sentence[]): boolean {
         sentences.splice(i + 1, 1);
         continue;
       }
+      if (shufflesSearchedLibrary(loop, next) || shufflesAllSearchers(loop, next) || replacesCastResults(loop, next)) { settled.add(loop); continue; }
       const result = memberResult(loop);
       if (!result) return false;
       const chose = loop.effects[0].steps[0].effect === "choose-object" || loop.effects[0].steps[0].effect === "declare-target";
-      if (!refersToAllResults(next, result, chose)) return false;
+      if (!refersToAllResults(next, result, chose, namesEnclosingPlayer(loop), "player" in loop.each)) return false;
       settled.add(loop);
     }
   }
@@ -278,10 +420,11 @@ export function parseForEach(c: Cursor, parseBody: (body: Cursor) => Sentence[] 
     }
     if (quoted || end === start) return null;
     const after = c.tokens[end + 1];
-    const independent = !after || (after.kind === "word" && !after.possessive && after.value === "activate") || independentOfLoop(c.tokens.slice(end + 1));
     const body = new Cursor(c.tokens.slice(start, end));
     const effects = parseBody(body);
     if (!body.done() || effects?.length !== 1 || containsLoop(effects)) return null;
+    const independent = !after || (after.kind === "word" && !after.possessive && after.value === "activate") ||
+      independentOfLoop(c.tokens.slice(end + 1), earlierEventParticiple(each, effects));
     // CR 608.2f (Soulfire Eruption example): a dependent action sequence for
     // each member of an established group is completed member by member when
     // it cannot be simultaneous. That is not instruction-wise processing, so
