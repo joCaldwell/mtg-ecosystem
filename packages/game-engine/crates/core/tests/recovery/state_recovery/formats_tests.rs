@@ -399,6 +399,7 @@ fn chosen_cost_shapes() -> Vec<Game> {
     forest.source_labels = None;
     for action in [ChosenCostAction::Discard, ChosenCostAction::Tap] {
         forest.activated.push(ActivatedAbility {
+            modal: None,
             cost: ActivationCost::ChooseObjects(ChosenObjectCost {
                 action,
                 filter: ChosenCostFilter::Any,

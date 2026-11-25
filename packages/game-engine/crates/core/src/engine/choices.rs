@@ -655,16 +655,16 @@ impl RulesTxn {
     ) -> Result<Vec<&'a SpellProgram>, String> {
         let d = self.copiable_definition(origin.source)?;
         if let Some(index) = origin.activated_ability {
-            let root = &d
+            return Ok(d
                 .activated
                 .get(index as usize)
                 .ok_or("missing activated effect origin")?
-                .program;
-            return Ok(vec![root]);
+                .programs()
+                .collect());
         }
         Ok(d.spell_programs()
-            .chain(d.activated.iter().map(|a| &a.program))
-            .chain(d.triggered.iter().map(|a| &a.program))
+            .chain(d.activated.iter().flat_map(|a| a.programs()))
+            .chain(d.triggered.iter().flat_map(|a| a.programs()))
             .collect())
     }
 }

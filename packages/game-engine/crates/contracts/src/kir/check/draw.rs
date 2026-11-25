@@ -9,6 +9,24 @@ impl Walk<'_, '_> {
         player: &PlayerExpr,
         amount: &Amount,
     ) -> Result<Cell, KirError> {
+        // CR 121.2, 608.2h: the controller draws one card for each object
+        // of a battlefield or graveyard set. Drawing changes neither zone,
+        // so every attempt of the sequence reads the same count.
+        if let Amount::Count { set } = amount {
+            return match (player, set) {
+                (
+                    PlayerExpr::Is {
+                        who: Ref::Controller { .. },
+                    },
+                    SetExpr::Matching {
+                        zone:
+                            ZoneExpr::Battlefield | ZoneExpr::Graveyards | ZoneExpr::Graveyard { .. },
+                        ..
+                    },
+                ) => Self::audit_verb_count(set).map(|()| Cell::DrawControllerPerObject),
+                _ => unaudited("counted draw recipient or set"),
+            };
+        }
         let announced = Self::fixed_or_announced_x(amount, 0, "draw count")?;
         match player {
             PlayerExpr::Is {
