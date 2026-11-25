@@ -241,8 +241,14 @@ impl RulesTxn {
         // CR 601.2b: optional additional costs are declared before hybrid
         // symbols, so the symbols stay unchosen through that stage.
         let declaring = matches!(frame, Frame::AdditionalCosts {cast} if cast.stack_id==entry.id);
+        // A game can end (CR 104.2a) while a spell is still being announced;
+        // its unpaid entry then keeps whatever it had announced.
+        let unfinished =
+            entry.paid.is_none() && matches!(frame, Frame::Fault { .. } | Frame::Finished { .. });
         if choosing && (!needs_choice || entry.paid.is_some())
-            || (!entry.hybrid_colors.is_empty()) != (needs_choice && !choosing && !declaring)
+            || (unfinished && !needs_choice && !entry.hybrid_colors.is_empty())
+            || (!unfinished
+                && (!entry.hybrid_colors.is_empty()) != (needs_choice && !choosing && !declaring))
         {
             return Err("hybrid announcement binding invariant".into());
         }

@@ -417,8 +417,10 @@ impl RulesTxn {
         Ok(())
     }
     pub(super) fn validate_stack_bindings(&self, entry: &StackInstance) -> Result<(), String> {
-        // CR 601.2a, 702.34a: a spell is cast from its owner's own hand, or
-        // from its owner's own graveyard only with flashback.
+        // CR 601.2a, 702.34a, 903.8: a spell is cast by its owner from that
+        // owner's own hand, from the command zone as that owner's commander,
+        // or from that owner's own graveyard only with flashback. No other
+        // origin exists for a cast spell (a copy is never cast).
         if entry.kind.is_spell() && !self.is_spell_copy(entry) {
             let owner = self
                 .state
@@ -427,15 +429,23 @@ impl RulesTxn {
                 .get(&entry.source.card)
                 .ok_or("missing spell physical card")?
                 .owner;
-            let consistent = match entry.cast_from {
-                Zone::Hand { owner: from } => from == owner && entry.controller == owner,
-                Zone::Graveyard { owner: from } => {
-                    from == owner
-                        && entry.controller == owner
-                        && self.copiable_definition(entry.source)?.flashback.is_some()
-                }
-                _ => true,
-            };
+            let consistent = entry.controller == owner
+                && match entry.cast_from {
+                    Zone::Hand { owner: from } => from == owner,
+                    Zone::Command { owner: from } => {
+                        from == owner
+                            && self
+                                .state
+                                .rules
+                                .commanders
+                                .history(entry.source.card)
+                                .is_some()
+                    }
+                    Zone::Graveyard { owner: from } => {
+                        from == owner && self.copiable_definition(entry.source)?.flashback.is_some()
+                    }
+                    Zone::Battlefield | Zone::Library { .. } | Zone::Stack | Zone::Exile => false,
+                };
             if !consistent {
                 return Err("snapshot spell casting origin invariant".into());
             }
@@ -455,8 +465,15 @@ impl RulesTxn {
             || matches!(&self.state.rules.frame,
                 Frame::AdditionalCosts { cast } | Frame::HybridCost { cast } if cast.stack_id == entry.id);
         let x_bound = x_spell && !before_x;
+        // A game can end (CR 104.2a) while a spell is still being announced;
+        // its unpaid entry then keeps whatever it had announced.
+        let unfinished = entry.paid.is_none()
+            && matches!(
+                self.state.rules.frame,
+                Frame::Fault { .. } | Frame::Finished { .. }
+            );
         if entry.x.as_ref().is_some_and(|q| q.is_negative())
-            || entry.x.is_some() != x_bound
+            || (entry.x.is_some() != x_bound && !(unfinished && x_spell))
             || (announcing_x && !x_spell)
             || entry.death_controller.is_some_and(|p| p.0 >= 4)
             || entry.death_controller.is_some()

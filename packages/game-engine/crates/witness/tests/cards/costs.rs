@@ -878,3 +878,108 @@ fn beast_attack_flashback_is_public_on_the_stack_and_its_origin_is_validated() {
         );
     }
 }
+
+/// Corrosive Gale: the last opponents concede while the caster is still
+/// announcing the Phyrexian symbol, or X (CR 104.2a, 800.4a). The game ends
+/// with the unpaid spell on the stack; the finished state validates,
+/// round-trips and replays from its journal.
+#[test]
+fn corrosive_gale_survives_a_concession_during_its_announcement() {
+    for at_x in [false, true] {
+        let prepared = board(&[(
+            CORROSIVE_GALE,
+            &[Cell::XManaCost, Cell::HybridManaCost, Cell::DamageSet],
+        )])
+        .permanent_or_hand("Corrosive Gale", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .prepare();
+        let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+        Driver::cast(&mut g, CardId(0));
+        if at_x {
+            pick(
+                &mut g,
+                0,
+                Reason::HybridCost,
+                &[Candidate::HybridPayment {
+                    payment: HybridPayment::Mana(Color::G),
+                }],
+            );
+            expect(&mut g, 0, Reason::AnnounceX);
+        } else {
+            expect(&mut g, 0, Reason::HybridCost);
+        }
+        for opponent in 1..4 {
+            if g.is_live(PlayerId(opponent)) {
+                g.concede(PlayerId(opponent)).unwrap();
+            }
+        }
+        let mut end = g.advance(Budget::new(1));
+        for _ in 0..16 {
+            if !matches!(
+                end,
+                Advance::Suspended { .. } | Advance::AwaitingDecision(_)
+            ) {
+                break;
+            }
+            g.drain_trace(&mut |_| {});
+            end = g.advance(Budget::new(1));
+        }
+        assert!(
+            matches!(
+                end,
+                Advance::Finished {
+                    winner: PlayerId(0)
+                }
+            ),
+            "{end:?}"
+        );
+        let entry = g.state.rules.stack.last().unwrap();
+        assert!(entry.paid.is_none());
+        assert_eq!(entry.x, None);
+        assert_eq!(entry.hybrid_colors.is_empty(), !at_x);
+        checked(&g);
+        assert_recoverable((&g).into());
+    }
+}
+
+/// CR 601.2a, 903.8: a cast spell's only origins are its owner's hand, its
+/// owner's command zone as that owner's commander, and its owner's
+/// graveyard with flashback; every other recorded origin fails validation.
+#[test]
+fn beast_attack_rejects_every_impossible_casting_origin() {
+    let prepared = board(&[(BEAST_ATTACK, &[Cell::Flashback])])
+        .permanent_or_hand("Beast Attack", 0, 0, true)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .permanent_or_hand("Forest", 0, 0, false)
+        .prepare();
+    let mut g = Game::with_trace(prepared, TraceMode::Detailed);
+    Driver::cast(&mut g, CardId(0));
+    Driver::pay(&mut g, &[1, 2, 3, 4, 5]);
+    expect(&mut g, 0, Reason::Priority);
+    for origin in [
+        Zone::Battlefield,
+        Zone::Library { owner: PlayerId(0) },
+        Zone::Stack,
+        Zone::Exile,
+        Zone::Command { owner: PlayerId(1) },
+        // Not a commander: its own command zone is no origin either.
+        Zone::Command { owner: PlayerId(0) },
+        Zone::Hand { owner: PlayerId(1) },
+        Zone::Graveyard { owner: PlayerId(1) },
+    ] {
+        let mut forged = g.fork();
+        forged.state.rules.stack[0].cast_from = origin;
+        assert!(
+            forged
+                .validate_state()
+                .unwrap_err()
+                .contains("casting origin"),
+            "{origin:?}"
+        );
+    }
+    settle(&mut g);
+}
