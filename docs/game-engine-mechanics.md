@@ -645,8 +645,10 @@ the creature subtypes where the printed wording requires it (CR 205.1b,
 205.3m). The same effect can set colors in layer 5, grant supported keywords
 in layer 6, and set base power and toughness in layer 7b. Setters for either
 stat compete independently at their timestamps. Counters and modifiers
-apply afterward in layer 7c. Settled effects own one captured set and one
-creation timestamp across all their layers.
+apply afterward in layer 7c. A +1/+1 counter stays on its permanent when
+animation expires and modifies its stats while it is a creature (CR 122.1a,
+122.2). Settled effects own one captured set and one creation timestamp
+across all their layers.
 
 The signed pump cell accepts fixed deltas and signed announced X on one
 announced creature, or the source of an activated ability. It reads and

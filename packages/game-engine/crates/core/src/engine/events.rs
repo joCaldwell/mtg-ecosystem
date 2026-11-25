@@ -1963,19 +1963,17 @@ impl RulesTxn {
             return Ok(self.has_keyword(object, KeywordAbility::Indestructible));
         };
         // The leaf's facts are produced against its pre-event fork, not supplied
-        // by a caller. Exact incarnation/zone/type must still agree at commit;
-        // missing facts never mean an unprotected target. Restore verifies the
+        // by a caller. Captured characteristics may include layer-4 effects.
+        // Missing facts never mean an unprotected target. Restore verifies the
         // complete prior payload (including keywords) through boundary replay.
         let [fact] = before.objects.as_slice() else {
             return Err("missing or ambiguous destruction prior object".into());
         };
         let current = self.current(object)?;
-        let types = &self.copiable_definition(object)?.characteristics;
+        self.validate_characteristic_identity(object, &fact.characteristics)?;
         if fact.object != object
             || fact.zone != Zone::Battlefield
             || current.zone != fact.zone
-            || fact.characteristics.kind != types.kind
-            || fact.characteristics.additional_types != types.additional_types
             || fact.owner != self.state.rules.cards[&object.card].owner
             || fact.controller != current.controller
         {

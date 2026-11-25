@@ -40,6 +40,7 @@ const CELESTIAL_COLONNADE: &str = record!("876ac6f6-74de-4666-84c6-83d81f054723"
 const DARKEST_HOUR: &str = record!("5667376e-e59c-4b17-b096-5d92cdfe3db1");
 const THRAN_LENS: &str = record!("0ac723bf-ce86-4028-a693-0ef498e4c82d");
 const LOSE_CALM: &str = record!("73d71731-f694-471c-b2ad-a36854bb06a1");
+const RUBBLEBELT_MAVERICK: &str = record!("1ba59349-a162-4444-b3e0-cddfc01ef03b");
 
 fn lowered(raw: &str) -> Definition {
     let result = mtg_witness::compile(mtg_witness::R4_MANIFEST, raw);
@@ -483,7 +484,72 @@ fn resolved_continuous_animated_land_deals_combat_damage() {
     let land = object(&g, 1);
     cast_on(&mut g, 0, &[], &[2, 3, 4]);
     let request = blockers(&mut g, &[land]);
+
+    let mut blocked = g.fork();
+    let bears = object(&blocked, 5);
+    blocked
+        .respond(
+            request.player,
+            request.id,
+            request.block(vec![(bears, land)]),
+        )
+        .unwrap();
+    let graveyard = Zone::Graveyard { owner: PlayerId(0) };
+    for _ in 0..20 {
+        let decision = Driver::request(&mut blocked, u64::MAX);
+        if blocked.zone(object(&blocked, 1)) == Some(graveyard) {
+            break;
+        }
+        let pass = mtg_witness::temporary::pass(&decision);
+        blocked.respond(decision.player, decision.id, pass).unwrap();
+    }
+    assert_eq!(blocked.zone(object(&blocked, 1)), Some(graveyard));
+    checked(&blocked);
+
     unblocked_damage(&mut g, &request, 2);
+}
+
+// CR 122.1a, 122.2, 613.4c: a +1/+1 counter remains on the Forest when
+// animation ends, with no power or toughness to modify until it animates again.
+#[test]
+fn resolved_continuous_animated_land_keeps_counter_after_cleanup() {
+    let mut g = with(
+        board(&[NATURAL_AFFINITY, RUBBLEBELT_MAVERICK]).card(
+            "Rubblebelt Maverick",
+            0,
+            0,
+            Zone::Graveyard { owner: PlayerId(0) },
+        ),
+        &[
+            ("Natural Affinity", 0, true),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+            ("Forest", 0, false),
+        ],
+    );
+    let maverick = object(&g, 0);
+    let land = object(&g, 2);
+    cast_on(&mut g, 1, &[], &[3, 4, 5]);
+    Driver::action(
+        &mut g,
+        Action::ActivateAbility {
+            object: maverick,
+            ability: 0,
+        },
+    );
+    Driver::pick_object(&mut g, land);
+    Driver::pay(&mut g, &[6]);
+    settle(&mut g, &[]);
+    assert_eq!(g.characteristics(land).unwrap().power, Some(3.into()));
+
+    next_turn(&mut g);
+    let current = g.characteristics(land).unwrap();
+    assert!(!current.has_type(CardKind::Creature));
+    assert_eq!(current.power, None);
+    assert_eq!(g.current(land).unwrap().plus_one_counters, 1.into());
+    checked(&g);
 }
 
 // CR 205.2b, 601.2c, 613.1d: the simulator's permitted view retains the
